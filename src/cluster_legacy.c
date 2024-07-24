@@ -901,6 +901,12 @@ static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
 }
 
+static void assignShardToNode(clusterNode *node, const char *shard_id, int flag) {
+    clusterRemoveNodeFromShard(node);
+    memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
+    clusterAddNodeToShard(shard_id, node);
+    clusterDoBeforeSleep(flag); 
+}
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
     if (shard_id && memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
@@ -909,23 +915,29 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
         clusterAddNodeToShard(shard_id, node);
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
 
+        /* If the replica or master does not support shard-id (old version),
+        * we still need to make our best effort to keep their shard-id consistent.
+        *
+        * 1. Master supports but the replica does not.
+        *    We might first update the replica's shard-id to the master's randomly
+        *    generated shard-id. Then, when the master's shard-id arrives, we must
+        *    also update all its replicas.
+        * 2. If the master does not support but the replica does.
+        *    We also need to synchronize the master's shard-id with the replica.
+        * 3. If neither of master and replica supports it.
+        *    The master will have a randomly generated shard-id and will update
+        *    the replica to match the master's shard-id. */
         if (node->slaveof == NULL) {
             for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
                 clusterNode *slavenode = clusterNodeGetSlave(node, i);
                 if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-                    clusterRemoveNodeFromShard(slavenode);
-                    memcpy(slavenode->shard_id, shard_id, CLUSTER_NAMELEN);
-                    clusterAddNodeToShard(shard_id, slavenode);
-                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+                    assignShardToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
                 }
             }
         } else {
             clusterNode *masternode = node->slaveof;
             if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-                clusterRemoveNodeFromShard(masternode);
-                memcpy(masternode->shard_id, shard_id, CLUSTER_NAMELEN);
-                clusterAddNodeToShard(shard_id, masternode);
-                clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+                assignShardToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
             }
         }
     }
@@ -933,10 +945,7 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
             /* shard-id can diverge right after a rolling upgrade
              * from pre-7.2 releases */
-            clusterRemoveNodeFromShard(myself);
-            memcpy(myself->shard_id, shard_id, CLUSTER_NAMELEN);
-            clusterAddNodeToShard(shard_id, myself);
-            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+            assignShardToNode(myself, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
     }
 }
