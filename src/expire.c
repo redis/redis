@@ -151,8 +151,6 @@ static inline void activeExpireHashFieldCycle(int type) {
     static uint64_t activeExpirySequence = 0;
     /* Threshold for adjusting maxToExpire */
     const uint32_t EXPIRED_FIELDS_TH = 1000000;
-    /* Maximum number of fields to actively expire in a single call */
-    uint32_t maxToExpire = HFE_ACTIVE_EXPIRE_CYCLE_FIELDS;
 
     redisDb *db = server.db + currentDb;
 
@@ -162,6 +160,13 @@ static inline void activeExpireHashFieldCycle(int type) {
         currentDb = (currentDb + 1) % server.dbnum;
         return;
     }
+
+    /* Maximum number of fields to actively expire in a single call.
+     * - Give higher factor if server.hz is low
+     * - Or if number of configured DBs is 1 */
+    uint32_t maxToExpire = HFE_ACTIVE_EXPIRE_CYCLE_FIELDS *
+            ((server.hz >= 16) ? 1 : 20/server.hz) *
+            (server.dbnum == 1 ? 1 : 2);
 
     /* If running for a while and didn't manage to active-expire all expired fields of
      * currentDb (i.e. activeExpirySequence becomes significant) then adjust maxToExpire */
