@@ -916,17 +916,17 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
 
         /* If the replica or master does not support shard-id (old version),
-        * we still need to make our best effort to keep their shard-id consistent.
-        *
-        * 1. Master supports but the replica does not.
-        *    We might first update the replica's shard-id to the master's randomly
-        *    generated shard-id. Then, when the master's shard-id arrives, we must
-        *    also update all its replicas.
-        * 2. If the master does not support but the replica does.
-        *    We also need to synchronize the master's shard-id with the replica.
-        * 3. If neither of master and replica supports it.
-        *    The master will have a randomly generated shard-id and will update
-        *    the replica to match the master's shard-id. */
+         * we still need to make our best effort to keep their shard-id consistent.
+         *
+         * 1. Master supports but the replica does not.
+         *    We might first update the replica's shard-id to the master's randomly
+         *    generated shard-id. Then, when the master's shard-id arrives, we must
+         *    also update all its replicas.
+         * 2. If the master does not support but the replica does.
+         *    We also need to synchronize the master's shard-id with the replica.
+         * 3. If neither of master and replica supports it.
+         *    The master will have a randomly generated shard-id and will update
+         *    the replica to match the master's shard-id. */
         if (node->slaveof == NULL) {
             for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
                 clusterNode *slavenode = clusterNodeGetSlave(node, i);
