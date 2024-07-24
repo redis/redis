@@ -1631,7 +1631,7 @@ clusterNode *clusterGetMasterFromShard(list *nodes) {
     listRewind(nodes,&li);
     while ((ln = listNext(&li)) != NULL) {
         clusterNode *node = listNodeValue(ln);
-        if (!(node->flags & CLUSTER_NODE_FAIL)) {
+        if (!nodeFailed(node)) {
             n = node;
             break;
         }

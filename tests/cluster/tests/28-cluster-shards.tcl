@@ -21,7 +21,6 @@ proc cluster_create_with_split_slots {masters replicas} {
 # given reference node. Valid type options are "node" and "shard"
 proc get_node_info_from_shard {id reference {type node}} {
     set shards_response [R $reference CLUSTER SHARDS]
-    # puts $shards_response
     foreach shard_response $shards_response {
         set nodes [dict get $shard_response nodes]
         foreach node $nodes {
