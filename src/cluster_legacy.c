@@ -930,15 +930,13 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
         if (node->slaveof == NULL) {
             for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
                 clusterNode *slavenode = clusterNodeGetSlave(node, i);
-                if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+                if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
                     assignShardToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
-                }
             }
         } else {
             clusterNode *masternode = node->slaveof;
-            if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
+            if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
                 assignShardToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
-            }
         }
     }
     if (shard_id && myself != node && myself->slaveof == node) {
