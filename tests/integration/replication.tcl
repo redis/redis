@@ -110,24 +110,23 @@ start_server {tags {"repl external:skip"}} {
             $A config resetstat
             set rd [redis_deferring_client]
             $rd brpoplpush a b 5
+            wait_for_blocked_client
             r lpush a foo
-            wait_for_condition 50 100 {
-                [$A debug digest] eq [$B debug digest]
-            } else {
-                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            }
+            wait_for_ofs_sync $B $A
+            assert_equal [$A debug digest] [$B debug digest]
             assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
             assert_match {} [cmdrstat lmove $A]
+            assert_equal [$rd read] {foo}
+            $rd close
         }
 
         test {BRPOPLPUSH replication, list exists} {
             $A config resetstat
-            set rd [redis_deferring_client]
             r lpush c 1
             r lpush c 2
             r lpush c 3
-            $rd brpoplpush c d 5
-            after 1000
+            assert_equal [r brpoplpush c d 5] {1}
+            wait_for_ofs_sync $B $A
             assert_equal [$A debug digest] [$B debug digest]
             assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
             assert_match {} [cmdrstat lmove $A]
@@ -139,6 +138,8 @@ start_server {tags {"repl external:skip"}} {
                     $A config resetstat
                     set rd [redis_deferring_client]
                     $rd blmove a b $wherefrom $whereto 5
+                    $rd flush
+                    wait_for_blocked_client
                     r lpush a foo
                     wait_for_condition 50 100 {
                         [$A debug digest] eq [$B debug digest]
@@ -147,16 +148,17 @@ start_server {tags {"repl external:skip"}} {
                     }
                     assert_match {*calls=1,*} [cmdrstat lmove $A]
                     assert_match {} [cmdrstat rpoplpush $A]
+                    assert_equal [$rd read] {foo}
+                    $rd close
                 }
 
                 test "BLMOVE ($wherefrom, $whereto) replication, list exists" {
                     $A config resetstat
-                    set rd [redis_deferring_client]
                     r lpush c 1
                     r lpush c 2
                     r lpush c 3
-                    $rd blmove c d $wherefrom $whereto 5
-                    after 1000
+                    r blmove c d $wherefrom $whereto 5
+                    wait_for_ofs_sync $B $A
                     assert_equal [$A debug digest] [$B debug digest]
                     assert_match {*calls=1,*} [cmdrstat lmove $A]
                     assert_match {} [cmdrstat rpoplpush $A]
@@ -167,6 +169,7 @@ start_server {tags {"repl external:skip"}} {
         test {BLPOP followed by role change, issue #2473} {
             set rd [redis_deferring_client]
             $rd blpop foo 0 ; # Block while B is a master
+            wait_for_blocked_client
 
             # Turn B into master of A
             $A slaveof no one
@@ -192,6 +195,9 @@ start_server {tags {"repl external:skip"}} {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
             }          
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat blpop $B]
+
+            assert_error {UNBLOCKED*} {$rd read}
+            $rd close
         }
     }
 }
