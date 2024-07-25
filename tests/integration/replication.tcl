@@ -141,11 +141,8 @@ start_server {tags {"repl external:skip"}} {
                     $rd flush
                     wait_for_blocked_client
                     r lpush a foo
-                    wait_for_condition 50 100 {
-                        [$A debug digest] eq [$B debug digest]
-                    } else {
-                        fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-                    }
+                    wait_for_ofs_sync $B $A
+                    assert_equal [$A debug digest] [$B debug digest]
                     assert_match {*calls=1,*} [cmdrstat lmove $A]
                     assert_match {} [cmdrstat rpoplpush $A]
                     assert_equal [$rd read] {foo}
@@ -185,7 +182,7 @@ start_server {tags {"repl external:skip"}} {
             # If the client is still attached to the instance, we'll get
             # a desync between the two instances.
             $A rpush foo a b c
-            after 100
+            wait_for_ofs_sync $B $A
 
             wait_for_condition 50 100 {
                 [$A debug digest] eq [$B debug digest] &&
