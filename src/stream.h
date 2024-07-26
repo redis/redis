@@ -141,6 +141,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 int streamDeleteItem(stream *s, streamID *id);
 void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_id);
 long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
+long long streamEstimateDistance(stream *s, streamCG *cg, streamID *next_id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);
 
