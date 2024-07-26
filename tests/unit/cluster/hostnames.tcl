@@ -145,13 +145,12 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     # to accept our isolated nodes connections. At this point they will
     # start showing up in cluster slots. 
     wait_for_condition 50 100 {
-        [llength [R 6 CLUSTER SLOTS]] eq 2
+        [llength [R 6 CLUSTER SLOTS]] eq 2 &&
+        [lindex [get_slot_field [R 6 CLUSTER SLOTS] 0 2 3] 1] eq "shard-2.com" &&
+        [lindex [get_slot_field [R 6 CLUSTER SLOTS] 1 2 3] 1] eq "shard-3.com"
     } else {
         fail "Node did not learn about the 2 shards it can talk to"
     }
-    set slot_result [R 6 CLUSTER SLOTS]
-    assert_equal [lindex [get_slot_field $slot_result 0 2 3] 1] "shard-2.com"
-    assert_equal [lindex [get_slot_field $slot_result 1 2 3] 1] "shard-3.com"
 
     # Also make sure we know about the isolated master, we 
     # just can't reach it.
@@ -166,14 +165,13 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     # This operation sometimes spikes to around 5 seconds to resolve the state,
     # so it has a higher timeout. 
     wait_for_condition 50 500 {
-        [llength [R 6 CLUSTER SLOTS]] eq 3
+        [llength [R 6 CLUSTER SLOTS]] eq 3 &&
+        [lindex [get_slot_field [R 6 CLUSTER SLOTS] 0 2 3] 1] eq "shard-1.com" &&
+        [lindex [get_slot_field [R 6 CLUSTER SLOTS] 1 2 3] 1] eq "shard-2.com" &&
+        [lindex [get_slot_field [R 6 CLUSTER SLOTS] 2 2 3] 1] eq "shard-3.com"
     } else {
         fail "Node did not learn about the 2 shards it can talk to"
     }
-    set slot_result [R 6 CLUSTER SLOTS]
-    assert_equal [lindex [get_slot_field $slot_result 0 2 3] 1] "shard-1.com"
-    assert_equal [lindex [get_slot_field $slot_result 1 2 3] 1] "shard-2.com"
-    assert_equal [lindex [get_slot_field $slot_result 2 2 3] 1] "shard-3.com"
 }
 
 test "Test restart will keep hostname information" {
