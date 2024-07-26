@@ -3682,7 +3682,8 @@ void clusterSendPing(clusterLink *link, int type) {
 
     /* Compute the actual total length and send! */
     uint32_t totlen = 0;
-    totlen += writePingExt(hdr, gossipcount);
+    if (hdr->mflags[0] & CLUSTERMSG_FLAG0_EXT_DATA)
+        totlen += writePingExt(hdr, gossipcount);
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
     serverAssert(gossipcount < USHRT_MAX);
