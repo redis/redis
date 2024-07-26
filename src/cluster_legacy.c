@@ -2718,7 +2718,7 @@ int clusterProcessPacket(clusterLink *link) {
         /* If there is extension data, which doesn't have a fixed length,
          * loop through them and validate the length of it now. */
         if (hdr->mflags[0] & CLUSTERMSG_FLAG0_EXT_DATA) {
-            flags |= CLUSTER_NODE_EXT;
+            flags |= CLUSTER_NODE_EXT_DATA;
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
                 uint16_t extlen = getPingExtLength(ext);
@@ -2771,9 +2771,9 @@ int clusterProcessPacket(clusterLink *link) {
 
     sender = getNodeFromLinkAndMsg(link, hdr);
 
-    /* Copy the CLUSTER_NODE_EXT flag if there is extension data. */
-    if (sender && (flags & CLUSTER_NODE_EXT))
-        sender->flags &= CLUSTER_NODE_EXT;
+    /* Copy the CLUSTER_NODE_EXT_DATA flag if there is extension data. */
+    if (sender && (flags & CLUSTER_NODE_EXT_DATA))
+        sender->flags &= CLUSTER_NODE_EXT_DATA;
 
     /* Update the last time we saw any data from this node. We
      * use this in order to avoid detecting a timeout from a node that
@@ -3617,7 +3617,7 @@ void clusterSendPing(clusterLink *link, int type) {
      * to put inside the packet. */
     estlen = sizeof(clusterMsg) - sizeof(union clusterMsgData);
     estlen += (sizeof(clusterMsgDataGossip)*(wanted + pfail_wanted));
-    if (link->node && (link->node->flags & CLUSTER_NODE_EXT))
+    if (link->node && (link->node->flags & CLUSTER_NODE_EXT_DATA))
         estlen += writePingExt(NULL, 0);
     /* Note: clusterBuildMessageHdr() expects the buffer to be always at least
      * sizeof(clusterMsg) or more. */
@@ -3688,7 +3688,7 @@ void clusterSendPing(clusterLink *link, int type) {
 
     /* Compute the actual total length and send! */
     uint32_t totlen = 0;
-    if (link->node && link->node->flags & CLUSTER_NODE_EXT)
+    if (link->node && link->node->flags & CLUSTER_NODE_EXT_DATA)
         totlen += writePingExt(hdr, gossipcount);
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
