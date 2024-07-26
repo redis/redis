@@ -2769,7 +2769,6 @@ int clusterProcessPacket(clusterLink *link) {
     sender = getNodeFromLinkAndMsg(link, hdr);
 
     /* Copy the CLUSTER_NODE_EXT_DATA flag if there is extension data. */
-    serverAssert(flags & CLUSTER_NODE_EXT_DATA);
     if (sender && (flags & CLUSTER_NODE_EXT_DATA))
         sender->flags |= CLUSTER_NODE_EXT_DATA;
 
