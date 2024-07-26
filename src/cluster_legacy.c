@@ -2577,9 +2577,6 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
     extensions++;
 
     if (hdr != NULL) {
-        if (extensions != 0) {
-            hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
-        }
         hdr->extensions = htons(extensions);
     }
 
@@ -2772,8 +2769,9 @@ int clusterProcessPacket(clusterLink *link) {
     sender = getNodeFromLinkAndMsg(link, hdr);
 
     /* Copy the CLUSTER_NODE_EXT_DATA flag if there is extension data. */
+    serverAssert(flags & CLUSTER_NODE_EXT_DATA);
     if (sender && (flags & CLUSTER_NODE_EXT_DATA))
-        sender->flags &= CLUSTER_NODE_EXT_DATA;
+        sender->flags |= CLUSTER_NODE_EXT_DATA;
 
     /* Update the last time we saw any data from this node. We
      * use this in order to avoid detecting a timeout from a node that
@@ -3624,6 +3622,8 @@ void clusterSendPing(clusterLink *link, int type) {
     if (estlen < (int)sizeof(clusterMsg)) estlen = sizeof(clusterMsg);
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, estlen);
     clusterMsg *hdr = &msgblock->msg;
+    /* Always make other nodes know that this node supports extension data. */
+    hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
 
     if (!link->inbound && type == CLUSTERMSG_TYPE_PING)
         link->node->ping_sent = mstime();
@@ -3688,7 +3688,7 @@ void clusterSendPing(clusterLink *link, int type) {
 
     /* Compute the actual total length and send! */
     uint32_t totlen = 0;
-    if (link->node && link->node->flags & CLUSTER_NODE_EXT_DATA)
+    if (link->node && (link->node->flags & CLUSTER_NODE_EXT_DATA))
         totlen += writePingExt(hdr, gossipcount);
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
