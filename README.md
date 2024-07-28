@@ -30,7 +30,7 @@ and [Redis Cloud](https://redis.io/cloud/), a fully managed service integrated w
 
 Read more about the differences between Redis Community Edition and Redis [here](https://redis.io/comparisons/oss-vs-enterprise/).
 
-Building Redis Community Edition
+Building Redis
 ---
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
@@ -145,7 +145,7 @@ If you want to see a more verbose output, use the following:
 
     % make V=1
 
-Running Redis Community Edition
+Running Redis
 ---
 
 To run Redis with the default configuration, just type:
@@ -168,13 +168,13 @@ as options using the command line. Examples:
 All the options in redis.conf are also supported as options using the command
 line, with exactly the same name.
 
-Running Redis Community Edition with TLS
+Running Redis with TLS
 ---
 
 Please consult the [TLS.md](TLS.md) file for more information on
 how to use Redis with TLS.
 
-Playing with Redis Community Edition
+Playing with Redis
 ---
 
 You can use redis-cli to play with Redis. Start a redis-server instance,
@@ -196,7 +196,7 @@ then in another terminal try the following:
 
 You can find the list of all the available commands at https://redis.io/commands.
 
-Installing Redis Community Edition
+Installing Redis
 ---
 
 In order to install Redis binaries into /usr/local/bin, just use:
