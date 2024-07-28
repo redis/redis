@@ -3,8 +3,8 @@ All rights reserved.
 
 Note: Continued Applicability of the BSD-3-Clause License
 
-Despite the shift to the dual-licensing model with Redis version 7.4 (RSALv2 or SSPLv1), portions of
-Redis remain available subject to the BSD-3-Clause License (BSD). See below for the full BSD
+Despite the shift to the dual-licensing model with Redis Community Edition version 7.4 (RSALv2 or SSPLv1), portions of
+Redis Community Edition remain available subject to the BSD-3-Clause License (BSD). See below for the full BSD
 license:
 
 Redistribution and use in source and binary forms, with or without modification, are permitted
