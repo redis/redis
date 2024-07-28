@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Redis is generally backwards compatible with very few exceptions, so we
+Redis is generally backward compatible with very few exceptions, so we
 recommend users to always use the latest version to experience stability,
 performance and security.
 
@@ -13,8 +13,9 @@ unless this is not possible or feasible with a reasonable effort.
 | ------- | ------------------ |
 | 7.4.x   | :white_check_mark: |
 | 7.2.x   | :white_check_mark: |
-| 7.0.x   | :white_check_mark: |
-| < 7.0.x | :x:                |
+| < 7.2.x | :x:                |
+| 6.2.x   | :white_check_mark: |
+| < 6.2.x | :x:                |
 
 ## Reporting a Vulnerability
 
