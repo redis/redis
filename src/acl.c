@@ -186,7 +186,8 @@ int ACLSetSelector(aclSelector *selector, const char *op, size_t oplen);
 /* Return zero if strings are the same, non-zero if they are not.
  * The comparison is performed in a way that prevents an attacker to obtain
  * information about the nature of the strings just monitoring the execution
- * time of the function. Note: The two strings must be the same length.
+ * time of the function. 
+ * Note: the two strings must be the same length.
  */
 int time_independent_strcmp(char *a, char *b, int len) {
     int diff = 0;
@@ -338,8 +339,8 @@ sds sdsCatPatternString(sds base, keyPattern *pat) {
     return sdscatsds(base, pat->pattern);
 }
 
-/* Create an empty selector with the provided set of initial
- * flags. The selector will be default have no permissions. */
+/* Create an empty selector with the provided set of initial flags. 
+ * The selector will be default have no permissions. */
 aclSelector *ACLCreateSelector(int flags) {
     aclSelector *selector = zmalloc(sizeof(aclSelector));
     selector->flags = flags | server.acl_pubsub_default;
@@ -413,7 +414,6 @@ aclSelector *ACLUserGetRootSelector(user *u) {
 /* Create a new user with the specified name, store it in the list
  * of users (the Users global radix tree), and returns a reference to
  * the structure representing the user.
- *
  * If the user with such name already exists NULL is returned. */
 user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
@@ -441,8 +441,8 @@ user *ACLCreateUser(const char *name, size_t namelen) {
 
 /* This function should be called when we need an unlinked "fake" user
  * we can use in order to validate ACL rules or for other similar reasons.
- * The user will not get linked to the Users radix tree. The returned
- * user should be released with ACLFreeUser() as usually. */
+ * The user will not get linked to the Users radix tree. 
+ * The returned user should be released with ACLFreeUser() as usually. */
 user *ACLCreateUnlinkedUser(void) {
     char username[64];
     for (int j = 0; ; j++) {
@@ -513,8 +513,8 @@ void ACLCopyUser(user *dst, user *src) {
 /* Given a command ID, this function set by reference 'word' and 'bit'
  * so that user->allowed_commands[word] will address the right word
  * where the corresponding bit for the provided ID is stored, and
- * so that user->allowed_commands[word]&bit will identify that specific
- * bit. The function returns C_ERR in case the specified ID overflows
+ * so that user->allowed_commands[word]&bit will identify that specific bit.
+ * The function returns C_ERR in case the specified ID overflows
  * the bitmap in the user representation. */
 int ACLGetCommandBitCoordinates(uint64_t id, uint64_t *word, uint64_t *bit) {
     if (id >= USER_COMMAND_BITS_COUNT) return C_ERR;
@@ -527,7 +527,6 @@ int ACLGetCommandBitCoordinates(uint64_t id, uint64_t *word, uint64_t *bit) {
  * The function returns 1 is the bit is set or 0 if it is not.
  * Note that this function does not check the ALLCOMMANDS flag of the user
  * but just the lowlevel bitmask.
- *
  * If the bit overflows the user internal representation, zero is returned
  * in order to disallow the execution of the command in such edge case. */
 int ACLGetSelectorCommandBit(const aclSelector *selector, unsigned long id) {
@@ -544,8 +543,8 @@ int ACLSelectorCanExecuteFutureCommands(aclSelector *selector) {
 }
 
 /* Set the specified command bit for the specified user to 'value' (0 or 1).
- * If the bit overflows the user internal representation, no operation
- * is performed. As a side effect of calling this function with a value of
+ * If the bit overflows the user internal representation, no operation is performed.
+ * As a side effect of calling this function with a value of
  * zero, the user flag ALLCOMMANDS is cleared since it is no longer possible
  * to skip the command bit explicit test. */
 void ACLSetSelectorCommandBit(aclSelector *selector, unsigned long id, int value) {
@@ -559,15 +558,15 @@ void ACLSetSelectorCommandBit(aclSelector *selector, unsigned long id, int value
     }
 }
 
-/* Remove a rule from the retained command rules. Always match rules
- * verbatim, but also remove subcommand rules if we are adding or removing the 
+/* Remove a rule from the retained command rules. 
+ * Always match rules verbatim, but also remove subcommand rules if we are adding or removing the 
  * entire command. */
 void ACLSelectorRemoveCommandRule(aclSelector *selector, sds new_rule) {
     size_t new_len = sdslen(new_rule);
     char *existing_rule = selector->command_rules;
 
-    /* Loop over the existing rules, trying to find a rule that "matches"
-     * the new rule. If we find a match, then remove the command from the string by
+    /* Loop over the existing rules, trying to find a rule that "matches" the new rule.
+     * If we find a match, then remove the command from the string by
      * copying the later rules over it. */
     while(existing_rule[0]) {
         /* The first character of the rule is +/-, which we don't need to compare. */
@@ -637,8 +636,8 @@ void ACLChangeSelectorPerm(aclSelector *selector, struct redisCommand *cmd, int 
 
 /* This is like ACLSetSelectorCommandBit(), but instead of setting the specified
  * ID, it will check all the commands in the category specified as argument,
- * and will set all the bits corresponding to such commands to the specified
- * value. Since the category passed by the user may be non existing, the
+ * and will set all the bits corresponding to such commands to the specified value.
+ * Since the category passed by the user may be non existing, the
  * function returns C_ERR if the category was not found, or C_OK if it was
  * found and the operation was performed. */
 void ACLSetSelectorCommandBitsForCategory(dict *commands, aclSelector *selector, uint64_t cflag, int value) {
@@ -740,8 +739,9 @@ int ACLCountCategoryBitsForSelector(aclSelector *selector, unsigned long *on, un
 
 /* This function returns an SDS string representing the specified selector ACL
  * rules related to command execution, in the same format you could set them
- * back using ACL SETUSER. The function will return just the set of rules needed
- * to recreate the user commands bitmap, without including other user flags such
+ * back using ACL SETUSER. 
+ * The function will return just the set of rules needed to recreate  
+ * the user commands bitmap, without including other user flags such
  * as on/off, passwords and so forth. The returned string always starts with
  * the +@all or -@all rule, depending on the user bitmap, and is followed, if
  * needed, by the other rules needed to narrow or extend what the user can do. */
@@ -840,9 +840,9 @@ sds ACLDescribeSelector(aclSelector *selector) {
 /* This is similar to ACLDescribeSelectorCommandRules(), however instead of
  * describing just the user command rules, everything is described: user
  * flags, keys, passwords and finally the command rules obtained via
- * the ACLDescribeSelectorCommandRules() function. This is the function we call
- * when we want to rewrite the configuration files describing ACLs and
- * in order to show users with ACL LIST. */
+ * the ACLDescribeSelectorCommandRules() function. 
+ * This is the function we call when we want to rewrite the configuration 
+ * files describing ACLs and in order to show users with ACL LIST. */
 robj *ACLDescribeUser(user *u) {
     if (u->acl_string) {
         incrRefCount(u->acl_string);
@@ -912,9 +912,10 @@ void ACLResetFirstArgsForCommand(aclSelector *selector, unsigned long id) {
     }
 }
 
-/* Flush the entire table of first-args. This is useful on +@all, -@all
- * or similar to return back to the minimal memory usage (and checks to do)
- * for the user. */
+/* Flush the entire table of first-args. 
+ * This is useful on +@all, -@all or similar 
+ * to return back to the minimal memory usage 
+ * (and checks to do) for the user. */
 void ACLResetFirstArgs(aclSelector *selector) {
     if (selector->allowed_firstargs == NULL) return;
     for (int j = 0; j < USER_COMMAND_BITS_COUNT; j++) {
@@ -961,7 +962,6 @@ void ACLAddAllowedFirstArg(aclSelector *selector, unsigned long id, const char *
 /* Create an ACL selector from the given ACL operations, which should be 
  * a list of space separate ACL operations that starts and ends 
  * with parentheses.
- *
  * If any of the operations are invalid, NULL will be returned instead
  * and errno will be set corresponding to the interior error. */
 aclSelector *aclCreateSelectorFromOpSet(const char *opset, size_t opsetlen) {
@@ -1421,9 +1421,8 @@ void ACLInit(void) {
 
 /* Check the username and password pair and return C_OK if they are valid,
  * otherwise C_ERR is returned and errno is set to:
- *
- *  EINVAL: if the username-password do not match.
- *  ENOENT: if the specified user does not exist at all.
+ * EINVAL - If the username-password do not match.
+ * ENOENT - If the specified user does not exist at all.
  */
 int ACLCheckUserCredentials(robj *username, robj *password) {
     user *u = ACLGetUserByName(username->ptr,sdslen(username->ptr));
@@ -1475,7 +1474,6 @@ void addAuthErrReply(client *c, robj *err) {
 /* This is like ACLCheckUserCredentials(), however if the user/pass
  * are correct, the connection is put in authenticated state and the
  * connection user reference is populated.
- *
  * The return value is AUTH_OK on success (valid username / password pair) & AUTH_ERR otherwise. */
 int checkPasswordBasedAuth(client *c, robj *username, robj *password) {
     if (ACLCheckUserCredentials(username,password) == C_OK) {
@@ -1507,11 +1505,10 @@ int ACLAuthenticateUser(client *c, robj *username, robj *password, robj **err) {
 
 /* For ACL purposes, every user has a bitmap with the commands that such
  * user is allowed to execute. In order to populate the bitmap, every command
- * should have an assigned ID (that is used to index the bitmap). This function
- * creates such an ID: it uses sequential IDs, reusing the same ID for the same
- * command name, so that a command retains the same ID in case of modules that
- * are unloaded and later reloaded.
- *
+ * should have an assigned ID (that is used to index the bitmap). 
+ * This function creates such an ID: it uses sequential IDs, reusing the same 
+ * ID for the same command name, so that a command retains the same ID 
+ * in case of modules that are unloaded and later reloaded.
  * The function does not take ownership of the 'cmdname' SDS string.
  * */
 unsigned long ACLGetCommandID(sds cmdname) {
@@ -1560,7 +1557,6 @@ user *ACLGetUserByName(const char *name, size_t namelen) {
  * ==========================================================================*/
 
 /* Check if the key can be accessed by the selector.
- *
  * If the selector can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
 static int ACLSelectorCheckKey(aclSelector *selector, const char *key, int keylen, int keyspec_flags) {
@@ -1620,11 +1616,10 @@ static int ACLSelectorHasUnrestrictedKeyAccess(aclSelector *selector, int flags)
     return 0;
 }
 
-/* Checks a channel against a provided list of channels. The is_pattern 
- * argument should only be used when subscribing (not when publishing)
+/* Checks a channel against a provided list of channels. 
+ * The is_pattern argument should only be used when subscribing (not when publishing)
  * and controls whether the input channel is evaluated as a channel pattern
- * (like in PSUBSCRIBE) or a plain channel name (like in SUBSCRIBE). 
- * 
+ * (like in PSUBSCRIBE) or a plain channel name (like in SUBSCRIBE).
  * Note that a plain channel name like in PUBLISH or SUBSCRIBE can be
  * matched against ACL channel patterns, but the pattern provided in PSUBSCRIBE
  * can only be matched as a literal against an ACL pattern (using plain string compare). */
@@ -1664,7 +1659,6 @@ void cleanupACLKeyResultCache(aclKeyResultCache *cache) {
 
 /* Check if the command is ready to be executed according to the
  * ACLs associated with the specified selector.
- *
  * If the selector can execute the command ACL_OK is returned, otherwise
  * ACL_DENIED_CMD, ACL_DENIED_KEY, or ACL_DENIED_CHANNEL is returned: the first in case the
  * command cannot be executed because the selector is not allowed to run such
@@ -1743,7 +1737,6 @@ static int ACLSelectorCheckCmd(aclSelector *selector, struct redisCommand *cmd, 
 /* Check if the key can be accessed by the client according to
  * the ACLs associated with the specified user according to the
  * keyspec access flags.
- *
  * If the user can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_KEY is returned. */
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
@@ -1768,8 +1761,7 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
  * it must also have the access specified in flags to any key in the key space. 
  * For example, CMD_KEY_READ access requires either '%R~*', '~*', or allkeys to be 
  * granted in addition to the access required by the command. Returns 1 
- * if the user has access or 0 otherwise.
- */
+ * if the user has access or 0 otherwise. */
 int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
     listIter li;
     listNode *ln;
@@ -1799,7 +1791,6 @@ int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, 
 
 /* Check if the channel can be accessed by the client according to
  * the ACLs associated with the specified user.
- *
  * If the user can access the key, ACL_OK is returned, otherwise
  * ACL_DENIED_CHANNEL is returned. */
 int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
@@ -1825,7 +1816,6 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
 }
 
 /* Lower level API that checks if a specified user is able to execute a given command.
- *
  * If the command fails an ACL check, idxptr will be to set to the first argv entry that
  * causes the failure, either 0 if the command itself fails or the idx of the key/channel
  * that causes the failure */
@@ -2019,9 +2009,9 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
  * for ACL SETUSER as well as when loading from conf files. 
  * 
  * This function takes in an array of ACL operators, excluding the username,
- * and merges selector operations that are spread across multiple arguments. The return
- * value is a new SDS array, with length set to the passed in merged_argc. Arguments 
- * that are untouched are still duplicated. If there is an unmatched parenthesis, NULL 
+ * and merges selector operations that are spread across multiple arguments. 
+ * The return value is a new SDS array, with length set to the passed in merged_argc. 
+ * Arguments that are untouched are still duplicated. If there is an unmatched parenthesis, NULL 
  * is returned and invalid_idx is set to the argument with the start of the opening
  * parenthesis. */
 sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *invalid_idx) {
@@ -2068,9 +2058,7 @@ sds *ACLMergeSelectorArguments(sds *argv, int argc, int *merged_argc, int *inval
 
 /* takes an acl string already split on spaces and adds it to the given user
  * if the user object is NULL, will create a user with the given username
- *
- * Returns an error as an sds string if the ACL string is not parsable
- */
+ * Returns an error as an sds string if the ACL string is not parsable */
 sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
     serverAssert(u != NULL || username != NULL);
 
@@ -2086,8 +2074,8 @@ sds ACLStringSetUser(user *u, sds username, sds *argv, int argc) {
     }
 
     /* Create a temporary user to validate and stage all changes against
-     * before applying to an existing user or creating a new user. If all
-     * arguments are valid the user parameters will all be applied together.
+     * before applying to an existing user or creating a new user. 
+     * If all arguments are valid the user parameters will all be applied together.
      * If there are any errors then none of the changes will be applied. */
     user *tempu = ACLCreateUnlinkedUser();
     if (u) {
@@ -2195,8 +2183,9 @@ int ACLAppendUserForLoading(sds *argv, int argc, int *argc_err) {
 }
 
 /* This function will load the configured users appended to the server
- * configuration via ACLAppendUserForLoading(). On loading errors it will
- * log an error and return C_ERR, otherwise C_OK will be returned. */
+ * configuration via ACLAppendUserForLoading(). 
+ * On loading errors it will log an error and return C_ERR, 
+ * otherwise C_OK will be returned. */
 int ACLLoadConfiguredUsers(void) {
     listIter li;
     listNode *ln;
@@ -2249,20 +2238,20 @@ int ACLLoadConfiguredUsers(void) {
  *
  * Note that this function considers comments starting with '#' as errors
  * because the ACL file is meant to be rewritten, and comments would be
- * lost after the rewrite. Yet empty lines are allowed to avoid being too
- * strict.
+ * lost after the rewrite, yet empty lines are allowed to avoid being too strict.
  *
  * One important part of implementing ACL LOAD, that uses this function, is
  * to avoid ending with broken rules if the ACL file is invalid for some
  * reason, so the function will attempt to validate the rules before loading
- * each user. For every line that will be found broken the function will
- * collect an error message.
- *
+ * each user. 
+ * For every line that will be found broken the function will collect an error message.
+ * 
  * IMPORTANT: If there is at least a single error, nothing will be loaded
  * and the rules will remain exactly as they were.
  *
- * At the end of the process, if no errors were found in the whole file then
- * NULL is returned. Otherwise an SDS string describing in a single line
+ * At the end of the process, if no errors were found 
+ * in the whole file then NULL is returned. 
+ * Otherwise an SDS string describing in a single line
  * a description of all the issues found is returned. */
 sds ACLLoadFromFile(const char *filename) {
     FILE *fp;
@@ -2775,12 +2764,10 @@ void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
     dictReleaseIterator(di);
 }
 
-/* Add the formatted response from a single selector to the ACL GETUSER
- * response. This function returns the number of fields added. 
- * 
+/* Add the formatted response from a single selector to the ACL GETUSER response.
+ * This function returns the number of fields added.
  * Setting verbose to 1 means that the full qualifier for key and channel
- * permissions are shown.
- */
+ * permissions are shown. */
 int aclAddReplySelectorDescription(client *c, aclSelector *s) {
     listIter li;
     listNode *ln;
@@ -3191,7 +3178,8 @@ void authCommand(client *c) {
     /* Always redact the second argument */
     redactClientCommandArgument(c, 1);
 
-    /* Handle the two different forms here. The form with two arguments
+    /* Handle the two different forms here. 
+     * The form with two arguments
      * will just use "default" as username. */
     robj *username, *password;
     if (c->argc == 2) {
@@ -3222,8 +3210,9 @@ void authCommand(client *c) {
     if (err) decrRefCount(err);
 }
 
-/* Set the password for the "default" ACL user. This implements supports for
- * requirepass config, so passing in NULL will set the user to be nopass. */
+/* Set the password for the "default" ACL user. 
+ * This implements supports for requirepass config,
+ * so passing in NULL will set the user to be nopass. */
 void ACLUpdateDefaultUserPassword(sds password) {
     ACLSetUser(DefaultUser,"resetpass",-1);
     if (password) {
