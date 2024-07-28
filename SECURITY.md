@@ -11,10 +11,10 @@ unless this is not possible or feasible with a reasonable effort.
 
 | Version | Supported          |
 | ------- | ------------------ |
+| 7.4.x   | :white_check_mark: |
 | 7.2.x   | :white_check_mark: |
 | 7.0.x   | :white_check_mark: |
-| 6.2.x   | :white_check_mark: |
-| < 6.2   | :x:                |
+| < 7.0.x | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -33,11 +33,6 @@ it is not yet public.
 This process involves providing an early notification about the vulnerability,
 its impact and mitigations to a short list of vendors under a time-limited
 embargo on public disclosure.
-
-Vendors on the list are individuals or organizations that maintain Redis
-distributions or provide Redis as a service, who have third party users who
-will benefit from the vendor's ability to prepare for a new version or deploy a
-fix early.
 
 If you believe you should be on the list, please contact us and we will
 consider your request based on the above criteria.
