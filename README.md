@@ -232,8 +232,8 @@ a code fragment or patch via private email or public discussion groups, you agre
 code under the terms of the [Redis Software Grant and Contributor License Agreement][1]. Redis software
 contains contributions to the original Redis core project, which are owned by their contributors and
 licensed under the 3BSD license. Any copy of that license in this repository applies only to those
-contributions. Redis releases all Redis project versions from 7.4.x and thereafter under the
-RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis source distribution.
+contributions. Redis releases all Redis Community Edition versions from 7.4.x and thereafter under the
+RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis Community Edition source distribution.
 
 Please see the [CONTRIBUTING.md][1] file in this source distribution for more information. For
 security bugs and vulnerabilities, please see [SECURITY.md][3].
@@ -250,10 +250,10 @@ causing confusion. As the registered owner of its name and logo, Redis accepts c
 of its trademarks but it has requirements that must be followed as described in its Trademark
 Guidelines available at: https://redis.com/legal/trademark-guidelines/.
 
-Redis internals
+Redis Community Edition internals
 ===
 
-If you are reading this README you are likely in front of a Github page
+If you are reading this README you are likely in front of a GitHub page
 or you just untarred the Redis Community Edition distribution tar ball. In both the cases
 you are basically one step away from the source code, so here we explain
 the Redis Community Edition source code layout, what is in each file as a general idea, the
