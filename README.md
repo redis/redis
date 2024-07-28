@@ -33,12 +33,12 @@ Read more about the differences between Redis Community Edition and Redis [here]
 Building Redis Community Edition
 ---
 
-Redis Community Edition can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
+Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
 We support big endian and little endian architectures, and both 32 bit
 and 64 bit systems.
 
 It may compile on Solaris derived systems (for instance SmartOS) but our
-support for this platform is *best effort* and Redis Community Edition is not guaranteed to
+support for this platform is *best effort* and Redis is not guaranteed to
 work as well as in Linux, OSX, and \*BSD.
 
 It is as simple as:
@@ -55,15 +55,15 @@ as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS) and run:
 
     % make USE_SYSTEMD=yes
 
-To append a suffix to Redis Community Edition program names, use:
+To append a suffix to Redis program names, use:
 
     % make PROG_SUFFIX="-alt"
 
-You can build a 32 bit Redis Community Edition binary using:
+You can build a 32 bit Redis binary using:
 
     % make 32bit
 
-After building Redis Community Edition, it is a good idea to test it using:
+After building Redis, it is a good idea to test it using:
 
     % make test
 
@@ -77,7 +77,7 @@ installed):
 Fixing build problems with dependencies or cached build options
 ---
 
-Redis Community Edition has some dependencies which are included in the `deps` directory.
+Redis has some dependencies which are included in the `deps` directory.
 `make` does not automatically rebuild dependencies even if something in
 the source code of dependencies changes.
 
@@ -97,11 +97,11 @@ command.
 Fixing problems building 32 bit binaries
 ---
 
-If after building Redis Community Edition with a 32 bit target you need to rebuild it
+If after building Redis with a 32 bit target you need to rebuild it
 with a 64 bit target, or the other way around, you need to perform a
-`make distclean` in the root directory of the Redis Community Edition distribution.
+`make distclean` in the root directory of the Redis distribution.
 
-In case of build errors when trying to build a 32 bit binary of Redis Community Edition, try
+In case of build errors when trying to build a 32 bit binary of Redis, try
 the following steps:
 
 * Install the package libc6-dev-i386 (also try g++-multilib).
@@ -111,8 +111,8 @@ the following steps:
 Allocator
 ---
 
-Selecting a non-default memory allocator when building Redis Community Edition is done by setting
-the `MALLOC` environment variable. Redis Community Edition is compiled and linked against libc
+Selecting a non-default memory allocator when building Redis is done by setting
+the `MALLOC` environment variable. Redis is compiled and linked against libc
 malloc by default, with the exception of jemalloc being the default on Linux
 systems. This default was picked because jemalloc has proven to have fewer
 fragmentation problems than libc malloc.
@@ -128,7 +128,7 @@ To compile against jemalloc on Mac OS X systems, use:
 Monotonic clock
 ---
 
-By default, Redis Community Edition will build using the POSIX clock_gettime function as the
+By default, Redis will build using the POSIX clock_gettime function as the
 monotonic clock source.  On most modern systems, the internal processor clock
 can be used to improve performance.  Cautions can be found here: 
     http://oliveryang.net/2015/09/pitfalls-of-TSC-usage/
@@ -140,7 +140,7 @@ To build with support for the processor's internal instruction clock, use:
 Verbose build
 ---
 
-Redis Community Edition will build with a user-friendly colorized output by default.
+Redis will build with a user-friendly colorized output by default.
 If you want to see a more verbose output, use the following:
 
     % make V=1
@@ -148,7 +148,7 @@ If you want to see a more verbose output, use the following:
 Running Redis Community Edition
 ---
 
-To run Redis Community Edition with the default configuration, just type:
+To run Redis with the default configuration, just type:
 
     % cd src
     % ./redis-server
@@ -159,7 +159,7 @@ parameter (the path of the configuration file):
     % cd src
     % ./redis-server /path/to/redis.conf
 
-It is possible to alter the Redis Community Edition configuration by passing parameters directly
+It is possible to alter the Redis configuration by passing parameters directly
 as options using the command line. Examples:
 
     % ./redis-server --port 9999 --replicaof 127.0.0.1 6379
@@ -172,12 +172,12 @@ Running Redis Community Edition with TLS
 ---
 
 Please consult the [TLS.md](TLS.md) file for more information on
-how to use Redis Community Edition with TLS.
+how to use Redis with TLS.
 
 Playing with Redis Community Edition
 ---
 
-You can use redis-cli to play with Redis Community Edition. Start a redis-server instance,
+You can use redis-cli to play with Redis. Start a redis-server instance,
 then in another terminal try the following:
 
     % cd src
@@ -199,7 +199,7 @@ You can find the list of all the available commands at https://redis.io/commands
 Installing Redis Community Edition
 ---
 
-In order to install Redis Community Edition binaries into /usr/local/bin, just use:
+In order to install Redis binaries into /usr/local/bin, just use:
 
     % make install
 
@@ -208,7 +208,7 @@ different destination.
 
 `make install` will just install binaries in your system, but will not configure
 init scripts and configuration files in the appropriate place. This is not
-needed if you just want to play a bit with Redis Community Edition, but if you are installing
+needed if you just want to play a bit with Redis, but if you are installing
 it the proper way for a production system, we have a script that does this
 for Ubuntu and Debian systems:
 
@@ -218,10 +218,10 @@ for Ubuntu and Debian systems:
 _Note_: `install_server.sh` will not work on Mac OSX; it is built for Linux only.
 
 The script will ask you a few questions and will setup everything you need
-to run Redis Community Edition properly as a background daemon that will start again on
+to run Redis properly as a background daemon that will start again on
 system reboots.
 
-You'll be able to stop and start Redis Community Edition using the script named
+You'll be able to stop and start Redis using the script named
 `/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
 
 Code contributions
@@ -232,7 +232,7 @@ a code fragment or patch via private email or public discussion groups, you agre
 code under the terms of the [Redis Software Grant and Contributor License Agreement][1]. Redis software
 contains contributions to the original Redis core project, which are owned by their contributors and
 licensed under the 3BSD license. Any copy of that license in this repository applies only to those
-contributions. Redis releases all Redis Community Edition versions from 7.4.x and thereafter under the
+contributions. Redis releases all Redis versions from 7.4.x and thereafter under the
 RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis Community Edition source distribution.
 
 Please see the [CONTRIBUTING.md][1] file in this source distribution for more information. For
@@ -250,14 +250,14 @@ causing confusion. As the registered owner of its name and logo, Redis accepts c
 of its trademarks but it has requirements that must be followed as described in its Trademark
 Guidelines available at: https://redis.com/legal/trademark-guidelines/.
 
-Redis Community Edition internals
+Redis internals
 ===
 
 If you are reading this README you are likely in front of a GitHub page
-or you just untarred the Redis Community Edition distribution tar ball. In both the cases
+or you just untarred the Redis distribution tar ball. In both the cases
 you are basically one step away from the source code, so here we explain
-the Redis Community Edition source code layout, what is in each file as a general idea, the
-most important functions and structures inside the Redis Community Edition server and so forth.
+the Redis source code layout, what is in each file as a general idea, the
+most important functions and structures inside the Redis server and so forth.
 We keep all the discussion at a high level without digging into the details
 since this document would be huge otherwise and our code base changes
 continuously, but a general idea should be a good starting point to
@@ -267,26 +267,26 @@ to follow.
 Source code layout
 ---
 
-The Redis Community Edition root directory just contains this README, the Makefile which
+The Redis root directory just contains this README, the Makefile which
 calls the real Makefile inside the `src` directory and an example
-configuration for Redis Community Edition and Redis Community Edition Sentinel. You can find a few shell
-scripts that are used in order to execute the Redis Community Edition, Redis Community Edition Cluster and
-Redis Community Edition Sentinel unit tests, which are implemented inside the `tests`
+configuration for Redis and Redis Sentinel. You can find a few shell
+scripts that are used in order to execute the Redis, Redis Cluster and
+Redis Sentinel unit tests, which are implemented inside the `tests`
 directory.
 
 Inside the root are the following important directories:
 
-* `src`: contains the Redis Community Edition implementation, written in C.
+* `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis Community Edition uses. Everything needed to compile Redis Community Edition is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis Community Edition under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
 
 There are a few more directories but they are not very important for our goals
-here. We'll focus mostly on `src`, where the Redis Community Edition implementation is contained,
+here. We'll focus mostly on `src`, where the Redis implementation is contained,
 exploring what there is inside each file. The order in which files are
 exposed is the logical one to follow in order to disclose different layers
 of complexity incrementally.
 
-Note: lately Redis Community Edition was refactored quite a bit. Function names and file
+Note: lately Redis was refactored quite a bit. Function names and file
 names have been changed, so you may find that this documentation reflects the
 `unstable` branch more closely. For instance, in Redis 3.0 the `server.c`
 and `server.h` files were named `redis.c` and `redis.h`. However the overall
@@ -298,13 +298,13 @@ server.h
 
 The simplest way to understand how a program works is to understand the
 data structures it uses. So we'll start from the main header file of
-Redis Community Edition, which is `server.h`.
+Redis, which is `server.h`.
 
 All the server configuration and in general all the shared state is
 defined in a global structure called `server`, of type `struct redisServer`.
 A few important fields in this structure are:
 
-* `server.db` is an array of Redis Community Edition databases, where data is stored.
+* `server.db` is an array of Redis databases, where data is stored.
 * `server.commands` is the command table.
 * `server.clients` is a linked list of clients connected to the server.
 * `server.master` is a special client, the master, if the instance is a replica.
@@ -312,7 +312,7 @@ A few important fields in this structure are:
 There are tons of other fields. Most fields are commented directly inside
 the structure definition.
 
-Another important Redis Community Edition data structure is the one defining a client.
+Another important Redis data structure is the one defining a client.
 In the past it was called `redisClient`, now just `client`. The structure
 has many fields, here we'll just show the main ones:
 ```c
@@ -332,7 +332,7 @@ The client structure defines a *connected client*:
 
 * The `fd` field is the client socket file descriptor.
 * `argc` and `argv` are populated with the command the client is executing, so that functions implementing a given Redis command can read the arguments.
-* `querybuf` accumulates the requests from the client, which are parsed by the Redis Community Edition server according to the Redis protocol and executed by calling the implementations of the commands the client is executing.
+* `querybuf` accumulates the requests from the client, which are parsed by the Redis server according to the Redis protocol and executed by calling the implementations of the commands the client is executing.
 * `reply` and `buf` are dynamic and static buffers that accumulate the replies the server sends to the client. These buffers are incrementally written to the socket as soon as the file descriptor is writable.
 
 As you can see in the client structure above, arguments in a command
@@ -366,9 +366,9 @@ we just use plain dynamic strings not wrapped inside a Redis object.
 server.c
 ---
 
-This is the entry point of the Redis Community Edition server, where the `main()` function
+This is the entry point of the Redis server, where the `main()` function
 is defined. The following are the most important steps in order to startup
-the Redis Community Edition server.
+the Redis server.
 
 * `initServerConfig()` sets up the default values of the `server` structure.
 * `initServer()` allocates the data structures needed to operate, setup the listening socket, and so forth.
@@ -379,7 +379,7 @@ There are two special functions called periodically by the event loop:
 1. `serverCron()` is called periodically (according to `server.hz` frequency), and performs tasks that must be performed from time to time, like checking for timed out clients.
 2. `beforeSleep()` is called every time the event loop fired, Redis served a few requests, and is returning back into the event loop.
 
-Inside server.c you can find code that handles other vital things of the Redis Community Edition server:
+Inside server.c you can find code that handles other vital things of the Redis server:
 
 * `call()` is used in order to call a given command in the context of a given client.
 * `activeExpireCycle()` handles eviction of keys with a time to live set via the `EXPIRE` command.
@@ -396,7 +396,7 @@ networking.c
 ---
 
 This file defines all the I/O functions with clients, masters and replicas
-(which in Redis Community Edition are just special clients):
+(which in Redis are just special clients):
 
 * `createClient()` allocates and initializes a new client.
 * The `addReply*()` family of functions are used by command implementations in order to append data to the client structure, that will be transmitted to the client as a reply for a given command executed.
@@ -409,9 +409,9 @@ aof.c and rdb.c
 ---
 
 As you can guess from the names, these files implement the RDB and AOF
-persistence for Redis Community Edition. Redis Community Edition uses a persistence model based on the `fork()`
+persistence for Redis. Redis uses a persistence model based on the `fork()`
 system call in order to create a process with the same (shared) memory
-content of the main Redis Community Edition process. This secondary process dumps the content
+content of the main Redis process. This secondary process dumps the content
 of the memory on disk. This is used by `rdb.c` to create the snapshots
 on disk and by `aof.c` in order to perform the AOF rewrite when the
 append only file gets too big.
@@ -460,10 +460,10 @@ This file also implements the `OBJECT` command.
 replication.c
 ---
 
-This is one of the most complex files inside Redis Community Edition, it is recommended to
+This is one of the most complex files inside Redis, it is recommended to
 approach it only after getting a bit familiar with the rest of the code base.
 In this file there is the implementation of both the master and replica role
-of Redis Community Edition.
+of Redis.
 
 One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing replica instances connected
 to our master, so that the replicas can get the writes performed by the clients:
@@ -477,10 +477,10 @@ Script
 ---
 
 The script unit is composed of 3 units:
-* `script.c` - integration of scripts with Redis Community Edition (commands execution, set replication/resp, ...)
-* `script_lua.c` - responsible to execute Lua code, uses `script.c` to interact with Redis Community Edition from within the Lua code.
+* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ...)
+* `script_lua.c` - responsible to execute Lua code, uses `script.c` to interact with Redis from within the Lua code.
 * `function_lua.c` - contains the Lua engine implementation, uses `script_lua.c` to execute the Lua code.
-* `functions.c` - contains Redis Community Edition Functions implementation (`FUNCTION` command), uses `functions_lua.c` if the function it wants to invoke needs the Lua engine.
+* `functions.c` - contains Redis Functions implementation (`FUNCTION` command), uses `functions_lua.c` if the function it wants to invoke needs the Lua engine.
 * `eval.c` - contains the `eval` implementation using `script_lua.c` to invoke the Lua code.
 
 
@@ -492,7 +492,7 @@ Other C files
 * `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
 * `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
 * `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `cluster.c` implements the Redis Community Edition Cluster. Probably a good read only after being very familiar with the rest of the Redis Community Edition code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
+* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
 
 [4]: https://redis.io/topics/cluster-spec
 
@@ -515,12 +515,12 @@ For other details, please refer to the `COMMAND` command. https://redis.io/comma
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
-There are tons of command implementations inside the Redis Community Edition source code
+There are tons of command implementations inside the Redis source code
 that can serve as examples of actual commands implementations (e.g. pingCommand). Writing
 a few toy commands can be a good exercise to get familiar with the code base.
 
 There are also many other files not described here, but it is useless to
 cover everything. We just want to help you with the first steps.
-Eventually you'll find your way inside the Redis Community Edition code base :-)
+Eventually you'll find your way inside the Redis code base :-)
 
 Enjoy!
