@@ -30,7 +30,7 @@ set test_dirs {
 foreach test_dir $test_dirs {
     set files [glob -nocomplain $dir/tests/$test_dir/*.tcl]
 
-    foreach file $files {
+    foreach file [lsort $files] {
         lappend ::all_tests $test_dir/[file root [file tail $file]]
     }
 }

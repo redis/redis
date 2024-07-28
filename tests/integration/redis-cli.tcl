@@ -68,10 +68,10 @@ start_server {tags {"cli"}} {
         set _ [format_output [read_cli $fd]]
     }
 
-    # Note: prompt may be affected by the local history, if failed, please
-    # try using `rm ~/.rediscli_history` to delete it and then retry.
+    file delete ./.rediscli_history_test
     proc test_interactive_cli_with_prompt {name code} {
         set ::env(FAKETTY_WITH_PROMPT) 1
+        set ::env(REDISCLI_HISTFILE) ".rediscli_history_test"
         test_interactive_cli $name $code
         unset ::env(FAKETTY_WITH_PROMPT)
     }
