@@ -1,5 +1,5 @@
-Redis 7.4 release notes
-=======================
+Redis Community Edition 7.4 release notes
+=========================================
 
 --------------------------------------------------------------------------------
 Upgrade urgency levels:
@@ -13,10 +13,34 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
-Redis 7.4 RC2   Released Thu 27 Jun 2024 10:00:00 IST
+Redis Community Edition 7.4.0 GA   Released Mon Jul 29 2024 9:00:00 IDT
 ================================================================================
 
-Upgrade urgency LOW: This is the second Release Candidate for Redis 7.4.
+This is the General Availability release of Redis Community Edition 7.4.
+
+Changes to new 7.4 features (compared to 7.4 RC2)
+=================================================
+* #13391,#13438 Hash - expiration of individual fields: RDB file format changes
+* #13372 Hash - expiration of individual fields: rename and fix counting of `expired_subkeys` metric
+* #13372 Hash - expiration of individual fields: rename `INFO` keyspace field to `subexpiry`
+
+Configuration parameters
+========================
+* #13400 Add hide-user-data-from-log - allows hiding user data from the log file
+
+Bug fixes
+=========
+* #13407 trigger Lua GC after `SCRIPT LOAD`
+* #13380 Fix possible crash due to OOM panic on invalid command
+* #13383 `FUNCTION FLUSH` - improve Lua GC behavior and fix thread race in ASYNC mode
+* #13408 `HEXPIRE`-like commands should emit HDEL keyspace notification if expire time is in the past
+
+
+================================================================================
+Redis Community Edition 7.4 RC2   Released Thu 27 Jun 2024 10:00:00 IST
+================================================================================
+
+Upgrade urgency LOW: This is the second Release Candidate for Redis Community Edition 7.4.
 
 Performance and resource utilization improvements
 =================================================
@@ -33,12 +57,12 @@ Modules API - Potentially breaking changes to new 7.4 features (compared to 7.4 
 
 
 ================================================================================
-Redis 7.4 RC1   Released Thu 6 Jun 2024 10:00:00 IST
+Redis Community Edition 7.4 RC1   Released Thu 6 Jun 2024 10:00:00 IST
 ================================================================================
 
 Note: License changed - see LICENSE.txt
 
-Upgrade urgency LOW: This is the first Release Candidate for Redis 7.4.
+Upgrade urgency LOW: This is the first Release Candidate for Redis Community Edition 7.4.
 
 Here is a comprehensive list of changes in this release compared to 7.2.5.
 
