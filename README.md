@@ -232,7 +232,7 @@ a code fragment or patch via private email or public discussion groups, you agre
 code under the terms of the [Redis Software Grant and Contributor License Agreement][1]. Redis software
 contains contributions to the original Redis core project, which are owned by their contributors and
 licensed under the 3BSD license. Any copy of that license in this repository applies only to those
-contributions. Redis releases all Redis versions from 7.4.x and thereafter under the
+contributions. Redis releases all Redis Community Edition versions from 7.4.x and thereafter under the
 RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis Community Edition source distribution.
 
 Please see the [CONTRIBUTING.md][1] file in this source distribution for more information. For
