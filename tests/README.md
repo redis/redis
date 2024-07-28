@@ -1,5 +1,5 @@
-Redis Test Suite
-================
+Redis Community Edition Test Suite
+==================================
 
 The normal execution mode of the test suite involves starting and manipulating
 local `redis-server` instances, inspecting process state, log files, etc.
@@ -16,7 +16,7 @@ match different external server configurations:
 | `--singledb`         | Only use database 0, don't assume others are supported. |
 | `--ignore-encoding`  | Skip all checks for specific encoding.  |
 | `--ignore-digest`    | Skip key value digest validations. |
-| `--cluster-mode`     | Run in strict Redis Cluster compatibility mode. |
+| `--cluster-mode`     | Run in strict Redis Community Edition Cluster compatibility mode. |
 | `--large-memory`     | Enables tests that consume more than 100mb |
 
 Tags
