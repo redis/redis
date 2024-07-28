@@ -9,7 +9,7 @@ Getting Started
 To build with TLS support you'll need OpenSSL development libraries (e.g.
 libssl-dev on Debian/Ubuntu).
 
-To build TLS support as Redis built-in:
+To build TLS support as Redis Community Edition built-in:
 Run `make BUILD_TLS=yes`.
 
 Or to build TLS as Redis module:
@@ -19,21 +19,21 @@ Note that sentinel mode does not support TLS module.
 
 ### Tests
 
-To run Redis test suite with TLS, you'll need TLS support for TCL (i.e.
+To run Redis Community Edition test suite with TLS, you'll need TLS support for TCL (i.e.
 `tcl-tls` package on Debian/Ubuntu).
 
 1. Run `./utils/gen-test-certs.sh` to generate a root CA and a server
    certificate.
 
-2. Run `./runtest --tls` or `./runtest-cluster --tls` to run Redis and Redis
+2. Run `./runtest --tls` or `./runtest-cluster --tls` to run Redis Community Edition and Redis Community Edition
    Cluster tests in TLS mode.
 
 3. Run `./runtest --tls-module` or `./runtest-cluster --tls-module` to
-   run Redis and Redis cluster tests in TLS mode with Redis module.
+   run Redis Community Edition and Redis Community Edition cluster tests in TLS mode with Redis module.
 
 ### Running manually
 
-To manually run a Redis server with TLS mode (assuming `gen-test-certs.sh` was
+To manually run a Redis Community Edition server with TLS mode (assuming `gen-test-certs.sh` was
 invoked so sample certificates/keys are available):
 
 For TLS built-in mode:
@@ -49,7 +49,7 @@ For TLS module mode:
         --tls-ca-cert-file ./tests/tls/ca.crt \
         --loadmodule src/redis-tls.so
 
-To connect to this Redis server with `redis-cli`:
+To connect to this Redis Community Edition server with `redis-cli`:
 
     ./src/redis-cli --tls \
         --cert ./tests/tls/redis.crt \
@@ -60,7 +60,7 @@ This will disable TCP and enable TLS on port 6379. It's also possible to have
 both TCP and TLS available, but you'll need to assign different ports.
 
 To make a Replica connect to the master using TLS, use `--tls-replication yes`,
-and to make Redis Cluster use TLS across nodes use `--tls-cluster yes`.
+and to make Redis Community Edition Cluster use TLS across nodes use `--tls-cluster yes`.
 
 Connections
 -----------
@@ -96,7 +96,7 @@ Multi-port
 ----------
 
 Consider the implications of allowing TLS to be configured on a separate port,
-making Redis listening on multiple ports:
+making Redis Community Edition listening on multiple ports:
 
 1. Startup banner port notification
 2. Proctitle
