@@ -330,13 +330,13 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * fires, or when the next time event occurs (if any).
  *
  * If flags is 0, the function does nothing and returns.
- * if flags has AE_ALL_EVENTS set, all the kind of events are processed.
- * if flags has AE_FILE_EVENTS set, file events are processed.
- * if flags has AE_TIME_EVENTS set, time events are processed.
- * if flags has AE_DONT_WAIT set, the function returns ASAP once all
+ * If flags has AE_ALL_EVENTS set, all the kind of events are processed.
+ * If flags has AE_FILE_EVENTS set, file events are processed.
+ * If flags has AE_TIME_EVENTS set, time events are processed.
+ * If flags has AE_DONT_WAIT set, the function returns ASAP once all
  * the events that can be handled without a wait are processed.
- * if flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
- * if flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.
+ * If flags has AE_CALL_AFTER_SLEEP set, the aftersleep callback is called.
+ * If flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.
  *
  * The function returns the number of events processed. */
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
