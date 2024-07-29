@@ -144,10 +144,6 @@ foreach sanitize_dump {no yes} {
                 if {!$restore_failed} {
                     # if RESTORE didn't fail or terminate, run some random traffic on the new key
                     incr stat_successful_restore
-                    # Key might have been deleted by active expiration.
-                    if {[r EXISTS "_$k"] == 0} {
-                        continue
-                    }
                     if { [ catch {
                         set sent [generate_fuzzy_traffic_on_key "_$k" 1] ;# traffic for 1 second
                         incr stat_traffic_commands_sent [llength $sent]

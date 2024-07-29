@@ -710,6 +710,10 @@ proc generate_fuzzy_traffic_on_key {key duration} {
     set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
 
     set type [r type $key]
+    # Key might have been deleted by active expiration.
+    if {$type eq {none}} {
+        return {}
+    }
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
     set sent {}
