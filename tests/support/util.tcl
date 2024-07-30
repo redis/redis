@@ -698,7 +698,7 @@ proc latencyrstat_percentiles {cmd r} {
     }
 }
 
-proc generate_fuzzy_traffic_on_key {key duration} {
+proc generate_fuzzy_traffic_on_key {key type duration} {
     # Commands per type, blocking commands removed
     # TODO: extract these from COMMAND DOCS, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE LCS STRLEN}
@@ -709,11 +709,6 @@ proc generate_fuzzy_traffic_on_key {key duration} {
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
     set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
 
-    set type [r type $key]
-    # Key might have been deleted by active expiration.
-    if {$type eq {none}} {
-        return {}
-    }
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
     set sent {}

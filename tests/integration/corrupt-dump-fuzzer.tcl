@@ -122,6 +122,7 @@ foreach sanitize_dump {no yes} {
                 set restore_failed false
                 set report_and_restart false
                 set sent {}
+                set expired_keys [s expired_keys]
                 # RESTORE can fail, but hopefully not terminate
                 if { [catch { r restore "_$k" 0 $dump REPLACE } err] } {
                     set restore_failed true
@@ -145,7 +146,16 @@ foreach sanitize_dump {no yes} {
                     # if RESTORE didn't fail or terminate, run some random traffic on the new key
                     incr stat_successful_restore
                     if { [ catch {
-                        set sent [generate_fuzzy_traffic_on_key "_$k" 1] ;# traffic for 1 second
+                        set type [r type "_$k"]
+                        if {$type eq {none}} {
+                            # The key has been removed due to expiration.
+                            # Ensure the process does not crash during expiration.
+                            r ping
+                            assert_morethan [s expired_keys] $expired_keys
+                            continue
+                        } else {
+                            set sent [generate_fuzzy_traffic_on_key "_$k" $type 1] ;# traffic for 1 second
+                        }
                         incr stat_traffic_commands_sent [llength $sent]
                         r del "_$k" ;# in case the server terminated, here's where we'll detect it.
                         if {$dbsize != [r dbsize]} {
