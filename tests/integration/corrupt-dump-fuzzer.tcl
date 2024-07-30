@@ -122,7 +122,7 @@ foreach sanitize_dump {no yes} {
                 set restore_failed false
                 set report_and_restart false
                 set sent {}
-                set expired_keys [s expired_keys]
+                set expired_subkeys [s expired_subkeys]
                 # RESTORE can fail, but hopefully not terminate
                 if { [catch { r restore "_$k" 0 $dump REPLACE } err] } {
                     set restore_failed true
@@ -149,7 +149,7 @@ foreach sanitize_dump {no yes} {
                         # Ensure the process does not crash during expiration and verify
                         # expire stats to confirm the key was removed due to expiration.
                         r ping
-                        assert_morethan [s expired_keys] $expired_keys
+                        assert_morethan [s expired_subkeys] $expired_subkeys
                         continue
                     }
 
