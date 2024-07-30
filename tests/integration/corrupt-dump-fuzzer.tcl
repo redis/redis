@@ -149,7 +149,8 @@ foreach sanitize_dump {no yes} {
                         set type [r type "_$k"]
                         if {$type eq {none}} {
                             # The key has been removed due to expiration.
-                            # Ensure the process does not crash during expiration.
+                            # Ensure the process does not crash during expiration and verify
+                            # expire stats to confirm the key was removed due to expiration.
                             r ping
                             assert_morethan [s expired_keys] $expired_keys
                             continue
