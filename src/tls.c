@@ -456,6 +456,8 @@ static void updateTLSError(tls_connection *conn) {
     conn->c.last_errno = 0;
     if (conn->ssl_error) zfree(conn->ssl_error);
     conn->ssl_error = zmalloc(512);
+    if (conn->ssl_error) return;
+
     ERR_error_string_n(ERR_get_error(), conn->ssl_error, 512);
 }
 
