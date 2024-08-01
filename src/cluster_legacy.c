@@ -1624,6 +1624,22 @@ void clusterRemoveNodeFromShard(clusterNode *node) {
     sdsfree(s);
 }
 
+static clusterNode *clusterGetMasterFromShard(list *nodes) {
+    clusterNode *n = NULL;
+    listIter li;
+    listNode *ln;
+    listRewind(nodes,&li);
+    while ((ln = listNext(&li)) != NULL) {
+        clusterNode *node = listNodeValue(ln);
+        if (!nodeFailed(node)) {
+            n = node;
+            break;
+        }
+    }
+    if (!n) return NULL;
+    return clusterNodeGetMaster(n);
+}
+
 /* -----------------------------------------------------------------------------
  * CLUSTER config epoch handling
  * -------------------------------------------------------------------------- */
@@ -5649,14 +5665,13 @@ void addNodeDetailsToShardReply(client *c, clusterNode *node) {
 /* Add the shard reply of a single shard based off the given primary node. */
 void addShardReplyForClusterShards(client *c, list *nodes) {
     serverAssert(listLength(nodes) > 0);
-    clusterNode *n = listNodeValue(listFirst(nodes));
+
     addReplyMapLen(c, 2);
     addReplyBulkCString(c, "slots");
 
     /* Use slot_info_pairs from the primary only */
-    n = clusterNodeGetMaster(n);
-
-    if (n->slot_info_pairs != NULL) {
+    clusterNode *n = clusterGetMasterFromShard(nodes);
+    if (n && n->slot_info_pairs != NULL) {
         serverAssert((n->slot_info_pairs_count % 2) == 0);
         addReplyArrayLen(c, n->slot_info_pairs_count);
         for (int i = 0; i < n->slot_info_pairs_count; i++)
