@@ -1650,23 +1650,6 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
         err = lua_pcall(lua,2,1,-4);
     }
 
-    /* Call the Lua garbage collector from time to time to avoid a
-     * full cycle performed by Lua, which adds too latency.
-     *
-     * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
-     * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
-     * for every command uses too much CPU. */
-    #define LUA_GC_CYCLE_PERIOD 50
-    {
-        static long gc_count = 0;
-
-        gc_count++;
-        if (gc_count == LUA_GC_CYCLE_PERIOD) {
-            lua_gc(lua,LUA_GCSTEP,LUA_GC_CYCLE_PERIOD);
-            gc_count = 0;
-        }
-    }
-
     if (err) {
         /* Error object is a table of the following format:
          * {err='<error msg>', source='<source file>', line=<line>}
@@ -1708,4 +1691,22 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
 
 unsigned long luaMemory(lua_State *lua) {
     return lua_gc(lua, LUA_GCCOUNT, 0) * 1024LL;
+}
+
+/* Call the Lua garbage collector from time to time to avoid a
+ * full cycle performed by Lua, which adds too latency.
+ *
+ * The call is performed every LUA_GC_CYCLE_PERIOD executed commands
+ * (and for LUA_GC_CYCLE_PERIOD collection steps) because calling it
+ * for every command uses too much CPU.
+ * 
+ * Each script VM / State (Eval and Functions) maintains its own unique `gc_count`
+ * to control GC independently. */
+#define LUA_GC_CYCLE_PERIOD 50
+void luaGC(lua_State *lua, int *gc_count) {
+    (*gc_count)++;
+    if (*gc_count >= LUA_GC_CYCLE_PERIOD) {
+        lua_gc(lua, LUA_GCSTEP, LUA_GC_CYCLE_PERIOD);
+        *gc_count = 0;
+    }
 }

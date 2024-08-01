@@ -2071,7 +2071,7 @@ void logCurrentClient(client *cc, const char *title) {
         }
         robj *decoded;
         decoded = getDecodedObject(cc->argv[j]);
-        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 1024));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
         if (!strcasecmp(decoded->ptr, "auth") || !strcasecmp(decoded->ptr, "auth2")) {
             sdsfree(repr);
