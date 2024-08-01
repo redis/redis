@@ -122,8 +122,9 @@ test "Verify health as fail for killed node" {
     } else {
         fail "New primary never detected the node failed"
     }
+}
 
-    # Verify that other nodes can correctly output the new master's slots.
+test "Verify that other nodes can correctly output the new master's slots" {
     assert_not_equal {} [dict get [get_node_info_from_shard [R 4 CLUSTER MYID] 8 "shard"] slots]
 }
 

@@ -1624,7 +1624,7 @@ void clusterRemoveNodeFromShard(clusterNode *node) {
     sdsfree(s);
 }
 
-clusterNode *clusterGetMasterFromShard(list *nodes) {
+static clusterNode *clusterGetMasterFromShard(list *nodes) {
     clusterNode *n = NULL;
     listIter li;
     listNode *ln;
