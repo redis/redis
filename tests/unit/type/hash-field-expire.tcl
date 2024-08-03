@@ -932,6 +932,7 @@ start_server {tags {"external:skip needs:debug"}} {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
 
                 set aof [get_last_incr_aof_path r]
+                r debug set-active-expire 0
 
                 # Time is in the past so it should propagate HDELs to replica
                 # and delete the fields
@@ -958,6 +959,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hpexpireat h2 [expr [clock seconds]*1000+100000] LT FIELDS 1 f3
                 r hexpireat h2 [expr [clock seconds]+10] NX FIELDS 1 f4
 
+                r debug set-active-expire 1
                 wait_for_condition 50 100 {
                     [r hlen h2] eq 2
                 } else {
@@ -986,7 +988,7 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hdel h2 f2}
                 }
             }
-        }
+        } {} {needs:debug}
 
         test "Lazy Expire - fields are lazy deleted and propagated to replicas ($type)" {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
