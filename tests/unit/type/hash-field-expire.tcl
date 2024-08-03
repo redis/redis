@@ -932,7 +932,7 @@ start_server {tags {"external:skip needs:debug"}} {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
 
                 set aof [get_last_incr_aof_path r]
-                r debug set-active-expire 0
+                r debug set-active-expire 0 ;# Prevent fields from being expired during data preparation
 
                 # Time is in the past so it should propagate HDELs to replica
                 # and delete the fields
