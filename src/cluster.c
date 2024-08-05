@@ -783,6 +783,130 @@ unsigned int countKeysInSlot(unsigned int slot) {
     return kvstoreDictSize(server.db->keys, slot);
 }
 
+/* Add detailed information of a node to the output buffer of the given client. */
+void addNodeDetailsToShardReply(client *c, clusterNode *node) {
+
+    int reply_count = 0;
+    char *hostname;
+    void *node_replylen = addReplyDeferredLen(c);
+
+    addReplyBulkCString(c, "id");
+    addReplyBulkCBuffer(c, clusterNodeGetName(node), CLUSTER_NAMELEN);
+    reply_count++;
+
+    if (clusterNodeTcpPort(node)) {
+        addReplyBulkCString(c, "port");
+        addReplyLongLong(c, clusterNodeTcpPort(node));
+        reply_count++;
+    }
+
+    if (clusterNodeTlsPort(node)) {
+        addReplyBulkCString(c, "tls-port");
+        addReplyLongLong(c, clusterNodeTlsPort(node));
+        reply_count++;
+    }
+
+    addReplyBulkCString(c, "ip");
+    addReplyBulkCString(c, clusterNodeIp(node));
+    reply_count++;
+
+    addReplyBulkCString(c, "endpoint");
+    addReplyBulkCString(c, clusterNodePreferredEndpoint(node));
+    reply_count++;
+
+    hostname = clusterNodeHostname(node);
+    if (hostname != NULL && *hostname != '\0') {
+        addReplyBulkCString(c, "hostname");
+        addReplyBulkCString(c, hostname);
+        reply_count++;
+    }
+
+    long long node_offset;
+    if (clusterNodeIsMyself(node)) {
+        node_offset = clusterNodeIsSlave(node) ? replicationGetSlaveOffset() : server.master_repl_offset;
+    } else {
+        node_offset = clusterNodeReplOffset(node);
+    }
+
+    addReplyBulkCString(c, "role");
+    addReplyBulkCString(c, clusterNodeIsSlave(node) ? "replica" : "master");
+    reply_count++;
+
+    addReplyBulkCString(c, "replication-offset");
+    addReplyLongLong(c, node_offset);
+    reply_count++;
+
+    addReplyBulkCString(c, "health");
+    const char *health_msg = NULL;
+    if (clusterNodeIsFailing(node)) {
+        health_msg = "fail";
+    } else if (clusterNodeIsSlave(node) && node_offset == 0) {
+        health_msg = "loading";
+    } else {
+        health_msg = "online";
+    }
+    addReplyBulkCString(c, health_msg);
+    reply_count++;
+
+    setDeferredMapLen(c, node_replylen, reply_count);
+}
+
+static clusterNode *clusterGetMasterFromShard(void *shard_handle) {
+    clusterNode *n = NULL;
+    void *node_it = clusterShardHandleGetNodeIterator(shard_handle);
+    while((n = clusterShardNodeIteratorNext(node_it)) != NULL) {
+        if (!clusterNodeIsFailing(n)) {
+            break;
+        }
+    }
+    clusterShardNodeIteratorFree(node_it);
+    if (!n) return NULL;
+    return clusterNodeGetMaster(n);
+}
+
+/* Add the shard reply of a single shard based off the given primary node. */
+void addShardReplyForClusterShards(client *c, void *shard_handle) {
+    serverAssert(clusterGetShardNodeCount(shard_handle) > 0);
+    addReplyMapLen(c, 2);
+    addReplyBulkCString(c, "slots");
+
+    /* Use slot_info_pairs from the primary only */
+    clusterNode *master_node = clusterGetMasterFromShard(shard_handle);
+
+    if (master_node && clusterNodeHasSlotInfo(master_node)) {
+        serverAssert((clusterNodeSlotInfoCount(master_node) % 2) == 0);
+        addReplyArrayLen(c, clusterNodeSlotInfoCount(master_node));
+        for (int i = 0; i < clusterNodeSlotInfoCount(master_node); i++)
+            addReplyLongLong(c, (unsigned long)clusterNodeSlotInfoEntry(master_node, i));
+    } else {
+        /* If no slot info pair is provided, the node owns no slots */
+        addReplyArrayLen(c, 0);
+    }
+
+    addReplyBulkCString(c, "nodes");
+    addReplyArrayLen(c, clusterGetShardNodeCount(shard_handle));
+    void *node_it = clusterShardHandleGetNodeIterator(shard_handle);
+    for (clusterNode *n = clusterShardNodeIteratorNext(node_it); n != NULL; n = clusterShardNodeIteratorNext(node_it)) {
+        addNodeDetailsToShardReply(c, n);
+        clusterFreeNodesSlotsInfo(n);
+    }
+    clusterShardNodeIteratorFree(node_it);
+}
+
+/* Add to the output buffer of the given client, an array of slot (start, end)
+ * pair owned by the shard, also the primary and set of replica(s) along with
+ * information about each node. */
+void clusterCommandShards(client *c) {
+    addReplyArrayLen(c, clusterGetShardCount());
+    /* This call will add slot_info_pairs to all nodes */
+    clusterGenNodesSlotsInfo(0);
+    dictIterator *shard_it = clusterGetShardIterator();
+    for(void *shard_handle = clusterNextShardHandle(shard_it); shard_handle != NULL; shard_handle = clusterNextShardHandle(shard_it)) {
+        addShardReplyForClusterShards(c, shard_handle);
+    }
+    clusterFreeShardIterator(shard_it);
+}
+
 void clusterCommandHelp(client *c) {
     const char *help[] = {
             "COUNTKEYSINSLOT <slot>",
