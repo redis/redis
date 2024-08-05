@@ -901,7 +901,7 @@ static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
 }
 
-static void assignShardToNode(clusterNode *node, const char *shard_id, int flag) {
+static void assignShardIdToNode(clusterNode *node, const char *shard_id, int flag) {
     clusterRemoveNodeFromShard(node);
     memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
     clusterAddNodeToShard(shard_id, node);
@@ -910,10 +910,7 @@ static void assignShardToNode(clusterNode *node, const char *shard_id, int flag)
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
     if (shard_id && memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-        clusterRemoveNodeFromShard(node);
-        memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
-        clusterAddNodeToShard(shard_id, node);
-        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+        assignShardIdToNode(node, shard_id, CLUSTER_TODO_SAVE_CONFIG);
 
         /* If the replica or master does not support shard-id (old version),
          * we still need to make our best effort to keep their shard-id consistent.
@@ -931,19 +928,19 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
             for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
                 clusterNode *slavenode = clusterNodeGetSlave(node, i);
                 if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
-                    assignShardToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
+                    assignShardIdToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
             }
         } else {
             clusterNode *masternode = node->slaveof;
             if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
-                assignShardToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
+                assignShardIdToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
         }
     }
     if (shard_id && myself != node && myself->slaveof == node) {
         if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
             /* shard-id can diverge right after a rolling upgrade
              * from pre-7.2 releases */
-            assignShardToNode(myself, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+            assignShardIdToNode(myself, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
     }
 }
