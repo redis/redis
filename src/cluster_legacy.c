@@ -2582,7 +2582,6 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
     extensions++;
 
     if (hdr != NULL) {
-        hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
         hdr->extensions = htons(extensions);
     }
 
@@ -3540,6 +3539,8 @@ static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen) {
     /* Set the message flags. */
     if (clusterNodeIsMaster(myself) && server.cluster->mf_end)
         hdr->mflags[0] |= CLUSTERMSG_FLAG0_PAUSED;
+    hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA; /* Always make other nodes know that
+                                                  * this node supports extension data. */
 
     hdr->totlen = htonl(msglen);
 }
@@ -3694,7 +3695,6 @@ void clusterSendPing(clusterLink *link, int type) {
         totlen += writePingExt(hdr, gossipcount);
     } else {
         serverLog(LL_DEBUG, "Unable to send extensions data, however setting ext data flag to true");
-        hdr->mflags[0] |= CLUSTERMSG_FLAG0_EXT_DATA;
     }
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
