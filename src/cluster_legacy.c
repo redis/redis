@@ -928,19 +928,12 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
             for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
                 clusterNode *slavenode = clusterNodeGetSlave(node, i);
                 if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
-                    assignShardIdToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
+                    assignShardIdToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
             }
         } else {
             clusterNode *masternode = node->slaveof;
             if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
-                assignShardIdToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG);
-        }
-    }
-    if (shard_id && myself != node && myself->slaveof == node) {
-        if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-            /* shard-id can diverge right after a rolling upgrade
-             * from pre-7.2 releases */
-            assignShardIdToNode(myself, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+                assignShardIdToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
     }
 }
