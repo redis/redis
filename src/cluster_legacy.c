@@ -2715,7 +2715,6 @@ int clusterProcessPacket(clusterLink *link) {
         /* If there is extension data, which doesn't have a fixed length,
          * loop through them and validate the length of it now. */
         if (hdr->mflags[0] & CLUSTERMSG_FLAG0_EXT_DATA) {
-            flags |= CLUSTER_NODE_EXT_DATA;
             clusterMsgPingExt *ext = getInitialPingExt(hdr, count);
             while (extensions--) {
                 uint16_t extlen = getPingExtLength(ext);
@@ -2768,8 +2767,8 @@ int clusterProcessPacket(clusterLink *link) {
 
     sender = getNodeFromLinkAndMsg(link, hdr);
 
-    /* Copy the CLUSTER_NODE_EXT_DATA flag if there is extension data. */
-    if (sender && (flags & CLUSTER_NODE_EXT_DATA))
+    /* Mark this node as CLUSTER_NODE_EXT_DATA if it supports extension data. */
+    if (sender && (hdr->mflags[0] & CLUSTERMSG_FLAG0_EXT_DATA))
         sender->flags |= CLUSTER_NODE_EXT_DATA;
 
     /* Update the last time we saw any data from this node. We
