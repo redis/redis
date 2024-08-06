@@ -634,6 +634,8 @@ int clusterLoadConfig(char *filename) {
     }
     /* Config sanity check */
     if (server.cluster->myself == NULL) goto fmterr;
+    if (!(myself->flags & (CLUSTER_NODE_MASTER | CLUSTER_NODE_SLAVE))) goto fmterr;
+    if (nodeIsSlave(myself) && myself->slaveof == NULL) goto fmterr;
 
     zfree(line);
     fclose(fp);
