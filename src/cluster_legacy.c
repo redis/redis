@@ -3693,8 +3693,6 @@ void clusterSendPing(clusterLink *link, int type) {
     uint32_t totlen = 0;
     if (link->node && nodeSupportsExtensions(link->node)) {
         totlen += writePingExt(hdr, gossipcount);
-    } else {
-        serverLog(LL_DEBUG, "Unable to send extensions data, however setting ext data flag to true");
     }
     totlen += sizeof(clusterMsg)-sizeof(union clusterMsgData);
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
