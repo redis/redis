@@ -544,9 +544,11 @@ int clusterLoadConfig(char *filename) {
                 master = createClusterNode(argv[3],0);
                 clusterAddNode(master);
             }
-            /* ignore the replica shard_id in the file, use the primary,
-               if replica comes before primary in file, it will be corrected
-               later by the auxShardIdSetter */
+            /* shard_id can be absent if we are loading a nodes.conf generated
+             * by an older version of Redis; 
+             * ignore replica's shard_id in the file, only use the primary's.
+             * If replica precedes primary in file, it will be corrected
+             * later by the auxShardIdSetter */
             memcpy(n->shard_id, master->shard_id, CLUSTER_NAMELEN);
             clusterAddNodeToShard(master->shard_id, n);
             n->slaveof = master;
