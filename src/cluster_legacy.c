@@ -200,7 +200,7 @@ int auxShardIdSetter(clusterNode *n, void *value, int length) {
     }
     memcpy(n->shard_id, value, CLUSTER_NAMELEN);
     /* if n already has replicas, make sure they all use
-     * use the primary shard id */
+     * the primary shard id */
     for (int i = 0; i < n->numslaves; i++) {
         if (memcmp(n->slaves[i]->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0)
             updateShardId(n->slaves[i], n->shard_id);
