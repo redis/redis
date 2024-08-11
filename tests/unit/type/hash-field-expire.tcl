@@ -786,6 +786,36 @@ start_server {tags {"external:skip needs:debug"}} {
         }
     }
 
+    test "Statistics - Hashes with HFEs ($type)" {
+        r config resetstat
+        r flushall
+
+        # hash1: 5 fields, 3 with TTL. subexpiry incr +1
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 150 FIELDS 3 f1 f2 f3
+        assert_match  [get_stat_subexpiry r] 1
+
+        # hash2: 5 fields, 3 with TTL. subexpiry incr +1
+        r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        assert_match  [get_stat_subexpiry r] 1
+        r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
+        assert_match  [get_stat_subexpiry r] 2
+
+        # hash3: 2 fields, 1 with TTL. HDEL field with TTL. subexpiry decr -1
+        r hset myhash3 f1 v1 f2 v2
+        r hpexpire myhash3 100 FIELDS 1 f2
+        assert_match  [get_stat_subexpiry r] 3
+        r hdel myhash3 f2
+        assert_match  [get_stat_subexpiry r] 2
+
+        # Expired fields of hash1 and hash2. subexpiry decr -2
+        wait_for_condition 50 50 {
+                [get_stat_subexpiry r] == 0
+        } else {
+                fail "Hash field expiry statistics failed"
+        }
+    }
+
     r config set hash-max-listpack-entries 512
 }
 
@@ -898,25 +928,6 @@ start_server {tags {"external:skip needs:debug"}} {
         assert_equal [lsort [r hgetall myhash]] [lsort "f2 f3 f4 v2 $payload1 v4"]
 
         r config set hash-max-listpack-value 64
-    }
-
-    test "Statistics - Hashes with HFEs" {
-        r config resetstat
-        r del myhash
-        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 100 FIELDS 3 f1 f2 f3
-
-        assert_match  [get_stat_subexpiry r] 1
-        r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        assert_match  [get_stat_subexpiry r] 1
-        r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
-        assert_match  [get_stat_subexpiry r] 2
-
-        wait_for_condition 50 50 {
-                [get_stat_subexpiry r] == 0
-        } else {
-                fail "Hash field expiry statistics failed"
-        }
     }
 }
 

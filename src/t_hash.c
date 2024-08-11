@@ -1985,6 +1985,21 @@ uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o) {
     return expireTime;
 }
 
+int hashTypeIsFieldsWithExpire(robj *o) {
+    if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        return 0;
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        return EB_EXPIRE_TIME_INVALID != listpackExGetMinExpire(o);
+    } else { /* o->encoding == OBJ_ENCODING_HT */
+        dict *d = o->ptr;
+        /* If dict doesn't holds HFE metadata */
+        if (!isDictWithMetaHFE(d))
+            return 0;
+        dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
+        return ebGetTotalItems(meta->hfe, &hashFieldExpireBucketsType) != 0;
+    }
+}
+
 /* Add hash to global HFE DS and update key for notifications.
  *
  * key         - must be the same key instance that is persisted in db->dict
@@ -2315,6 +2330,14 @@ void hdelCommand(client *c) {
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
+    /* Hash field expiration is optimized to avoid frequent update global HFE DS for
+     * each field deletion. Eventually active-expiration will run and update or remove
+     * the hash from global HFE DS gracefully. Nevertheless, statistic "subexpiry"
+     * might reflect wrong number of hashes with HFE to the user if it is the last
+     * field with expiration. The following logic checks if this is indeed the last
+     * field with expiration and removes it from global HFE DS. */
+    int isHFE = hashTypeIsFieldsWithExpire(o);
+
     for (j = 2; j < c->argc; j++) {
         if (hashTypeDelete(o,c->argv[j]->ptr,1)) {
             deleted++;
@@ -2328,9 +2351,13 @@ void hdelCommand(client *c) {
     if (deleted) {
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
-        if (keyremoved)
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
-                                c->db->id);
+        if (keyremoved) {
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        } else {
+            if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0)) /* is it last HFE */
+                ebRemove(&c->db->hexpires, &hashExpireBucketsType, o);
+        }
+
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
