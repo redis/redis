@@ -2189,9 +2189,9 @@ void xreadCommand(client *c) {
             streams_arg = i+1;
             streams_count = (c->argc-streams_arg);
             if ((streams_count % 2) != 0) {
-                char symbol = xreadgroup ? '>' : '$';
+                const char *symbol = xreadgroup ? "ID or '>'" : "ID, '+', or '$'";
                 addReplyErrorFormat(c,"Unbalanced '%s' list of streams: "
-                                      "for each stream key an ID or '%c' must be "
+                                      "for each stream key an %s must be "
                                       "specified.", c->cmd->fullname,symbol);
                 return;
             }
