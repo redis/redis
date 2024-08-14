@@ -319,7 +319,7 @@ start_server {
         r XADD mystream 666 f v
         r XGROUP CREATE mystream mygroup $
         assert_error "ERR Unbalanced 'xreadgroup' list of streams: for each stream key an ID or '>' must be specified." {r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream }
-        assert_error "ERR Unbalanced 'xread' list of streams: for each stream key an ID or '$' must be specified." {r XREAD COUNT 1 STREAMS mystream }
+        assert_error "ERR Unbalanced 'xread' list of streams: for each stream key an ID, '+', or '$' must be specified." {r XREAD COUNT 1 STREAMS mystream }
     }
 
     test {Blocking XREAD: key deleted} {
