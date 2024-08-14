@@ -1299,6 +1299,12 @@ start_server {
         assert_equal [dict get $reply max-deleted-entry-id] "0-0"
         assert_equal [dict get $group entries-read] 1
         assert_equal [dict get $group lag] 1
+
+        # 
+        r XTRIM x MAXLEN 0
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group lag] 0
     }
 
     test {Loading from legacy (Redis <= v6.2.x, rdb_ver < 10) persistence} {

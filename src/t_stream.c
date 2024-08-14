@@ -1441,7 +1441,7 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
         /* The lag of a newly-initialized stream is 0. */
         lag = 0;
         valid = 1;
-    } else if (!s->length) { /* The stream is empty. */ 
+    } else if (!s->length) { /* All entries deleted, now empty. */
         lag = 0;
         valid = 1;
     } else if (streamCompareID(&cg->last_id,&s->first_id) < 0 &&
