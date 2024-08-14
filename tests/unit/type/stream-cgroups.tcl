@@ -1300,7 +1300,7 @@ start_server {
         assert_equal [dict get $group entries-read] 1
         assert_equal [dict get $group lag] 1
 
-        # 
+        # When all the entries were deleted, the lag is always 0.
         r XTRIM x MAXLEN 0
         set reply [r XINFO STREAM x FULL]
         set group [lindex [dict get $reply groups] 0]
