@@ -62,7 +62,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: make
       run: |
-        sudo apt-get update && sudo apt-get install libc6-dev-i386
+        sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib g++-multilib
         make REDIS_CFLAGS='-Werror' 32bit
 
   build-libc-malloc:
@@ -79,7 +79,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: make
       run: |
-        dnf -y install which gcc make
+        dnf -y install which gcc gcc-c++ make
         make REDIS_CFLAGS='-Werror'
 
   build-old-chain-jemalloc:
@@ -96,6 +96,7 @@ jobs:
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
         apt-get update
-        apt-get install -y make gcc-4.8
+        apt-get install -y make gcc-4.8 g++-4.8
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
+        update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'

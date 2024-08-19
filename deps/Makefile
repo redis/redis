@@ -42,6 +42,7 @@ distclean:
 	-(cd jemalloc && [ -f Makefile ] && $(MAKE) distclean) > /dev/null || true
 	-(cd hdr_histogram && $(MAKE) clean) > /dev/null || true
 	-(cd fpconv && $(MAKE) clean) > /dev/null || true
+	-(cd fast_float && $(MAKE) clean) > /dev/null || true
 	-(rm -f .make-*)
 
 .PHONY: distclean
@@ -73,6 +74,12 @@ fpconv: .make-prerequisites
 	cd fpconv && $(MAKE)
 
 .PHONY: fpconv
+
+fast_float: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd fast_float && $(MAKE) libfast_float
+
+.PHONY: fast_float
 
 ifeq ($(uname_S),SunOS)
 	# Make isinf() available
