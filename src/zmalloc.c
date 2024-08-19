@@ -472,7 +472,6 @@ size_t zmalloc_used_memory(void) {
         atomicGet(used_memory[i].used_memory, thread_used_mem);
         total_mem += thread_used_mem;
     }
-    assert(total_mem >= 0);
     return total_mem;
 }
 
