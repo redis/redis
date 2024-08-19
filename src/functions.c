@@ -171,7 +171,7 @@ void functionsLibCtxClear(functionsLibCtx *lib_ctx) {
         stats->n_lib = 0;
     }
     dictReleaseIterator(iter);
-    curr_functions_lib_ctx->cache_memory = 0;
+    lib_ctx->cache_memory = 0;
 }
 
 void functionsLibCtxClearCurrent(int async) {
