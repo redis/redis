@@ -31,6 +31,7 @@ void zlibc_free(void *ptr) {
 #include <string.h>
 #include "zmalloc.h"
 #include "atomicvar.h"
+#include "redisassert.h"
 
 #define UNUSED(x) ((void)(x))
 
@@ -67,10 +68,34 @@ void zlibc_free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #endif
 
-#define update_zmalloc_stat_alloc(__n) atomicIncr(used_memory,(__n))
-#define update_zmalloc_stat_free(__n) atomicDecr(used_memory,(__n))
+#define MAX_THREADS 16 /* Keep it a power of 2 so we can use '&' instead of '%'. */
+#define THREAD_MASK (MAX_THREADS - 1)
 
-static redisAtomic size_t used_memory = 0;
+typedef struct used_memory_entry {
+    redisAtomic long long used_memory;
+    char padding[CACHE_LINE_SIZE - sizeof(long long)];
+} used_memory_entry;
+
+static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[MAX_THREADS];
+static redisAtomic size_t num_active_threads = 0;
+static __thread long my_thread_index = -1;
+
+static inline void init_my_thread_index(void) {
+    if (unlikely(my_thread_index == -1)) {
+        atomicGetIncr(num_active_threads, my_thread_index, 1);
+        my_thread_index &= THREAD_MASK;
+    }
+}
+
+static void update_zmalloc_stat_alloc(long long num) {
+    init_my_thread_index();
+    atomicIncr(used_memory[my_thread_index].used_memory, num);
+}
+
+static void update_zmalloc_stat_free(long long num) {
+    init_my_thread_index();
+    atomicDecr(used_memory[my_thread_index].used_memory, num);
+}
 
 static void zmalloc_default_oom(size_t size) {
     fprintf(stderr, "zmalloc: Out of memory trying to allocate %zu bytes\n",
@@ -436,9 +461,18 @@ char *zstrdup(const char *s) {
 }
 
 size_t zmalloc_used_memory(void) {
-    size_t um;
-    atomicGet(used_memory,um);
-    return um;
+    size_t local_num_active_threads;
+    long long total_mem = 0;
+    atomicGet(num_active_threads,local_num_active_threads);
+    if (local_num_active_threads > MAX_THREADS) {
+        local_num_active_threads = MAX_THREADS;
+    }
+    for (size_t i = 0; i < local_num_active_threads; ++i) {
+        long long thread_used_mem;
+        atomicGet(used_memory[i].used_memory, thread_used_mem);
+        total_mem += thread_used_mem;
+    }
+    return total_mem;
 }
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
@@ -654,8 +688,6 @@ size_t zmalloc_get_rss(void) {
 #endif
 
 #if defined(USE_JEMALLOC)
-
-#include "redisassert.h"
 
 /* Compute the total memory wasted in fragmentation of inside small arena bins.
  * Done by summing the memory in unused regs in all slabs of all small bins.
