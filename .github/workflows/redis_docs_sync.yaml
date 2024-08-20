@@ -18,5 +18,6 @@ jobs:
       - name: Invoke workflow on redis/docs
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          RELEASE_NAME: ${{ github.event.release.tag_name }}
         run: |
-          gh workflow run -R redis/docs redis_docs_sync.yaml
+          gh workflow run -R redis/docs redis_docs_sync.yaml -f release="${RELEASE_NAME}"
