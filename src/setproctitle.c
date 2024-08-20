@@ -2,7 +2,7 @@
  * setproctitle.c - Linux/Darwin setproctitle.
  * --------------------------------------------------------------------------
  * Copyright (C) 2010  William Ahern
- * Copyright (C) 2013  Salvatore Sanfilippo
+ * Copyright (C) 2013-current  Redis Ltd.
  * Copyright (C) 2013  Stam He
  *
  * Permission is hereby granted, free of charge, to any person obtaining a

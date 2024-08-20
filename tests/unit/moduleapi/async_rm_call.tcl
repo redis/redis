@@ -314,6 +314,14 @@ start_server {tags {"modules"}} {
         r lpush l a
         assert_equal [$rd read] {OK}
 
+        # Explanation of the first multi exec block:
+        # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
+        # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_bar} changed
         assert_replication_stream $repl {
             {select *}
             {lpush l a}
@@ -355,6 +363,25 @@ start_server {tags {"modules"}} {
         r lpush l a
         assert_equal [$rd read] {OK}
 
+        # Explanation of the first multi exec block:
+        # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {incr string_changed{string_foo}} - post notification job that was registered when 'string_foo' changed
+        # {incr string_changed{string_bar}} - post notification job that was registered when 'string_bar' changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_foo} changed
+        # {incr string_total} - post notification job that was registered when string_changed{string_bar} changed
+        #
+        # Explanation of the second multi exec block:
+        # {lpop l} - pop the value by our blocking command 'blpop_and_set_multiple_keys'
+        # {del string_foo} - lazy expiration of string_foo when 'blpop_and_set_multiple_keys' tries to write to it. 
+        # {set string_foo 1} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {set string_bar 2} - the action of our blocking command 'blpop_and_set_multiple_keys'
+        # {incr expired} - the post notification job, registered after string_foo got expired
+        # {incr string_changed{string_foo}} - post notification job triggered when we set string_foo
+        # {incr string_changed{string_bar}} - post notification job triggered when we set string_bar
+        # {incr string_total} - post notification job triggered when we incr 'string_changed{string_foo}'
+        # {incr string_total} - post notification job triggered when we incr 'string_changed{string_bar}'
         assert_replication_stream $repl {
             {select *}
             {lpush l a}

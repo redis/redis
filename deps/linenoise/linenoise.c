@@ -117,6 +117,7 @@
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <assert.h>
 #include "linenoise.h"
 
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
@@ -134,6 +135,18 @@ static int atexit_registered = 0; /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static char **history = NULL;
+static int *history_sensitive = NULL; /* An array records whether each line in
+                                       * history is sensitive. */
+
+static int reverse_search_mode_enabled = 0;
+static int reverse_search_direction = 0; /* 1 means forward, -1 means backward. */
+static int cycle_to_next_search = 0; /* indicates whether to continue the search with CTRL+S or CTRL+R. */
+static char search_result[LINENOISE_MAX_LINE];
+static char search_result_friendly[LINENOISE_MAX_LINE];
+static int search_result_history_index = 0;
+static int search_result_start_offset = 0;
+static int ignore_once_hint = 0; /* Flag to ignore hint once, preventing it from interfering
+                                  * with search results right after exiting search mode. */
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -143,6 +156,7 @@ struct linenoiseState {
     int ofd;            /* Terminal stdout file descriptor. */
     char *buf;          /* Edited line buffer. */
     size_t buflen;      /* Edited line buffer size. */
+    const char *origin_prompt; /* Original prompt, used to restore when exiting search mode. */
     const char *prompt; /* Prompt to display. */
     size_t plen;        /* Prompt length. */
     size_t pos;         /* Current cursor position. */
@@ -153,6 +167,13 @@ struct linenoiseState {
     int history_index;  /* The history index we are currently editing. */
 };
 
+typedef struct {
+    int len;                /* Length of the result string. */
+    char *result;           /* Search result string. */
+    int search_term_index;  /* Position of the search term in the history record. */
+    int search_term_len;    /* Length of the search term. */
+} linenoiseHistorySearchResult;
+
 enum KEY_ACTION{
 	KEY_NULL = 0,	    /* NULL */
 	CTRL_A = 1,         /* Ctrl+a */
@@ -161,6 +182,7 @@ enum KEY_ACTION{
 	CTRL_D = 4,         /* Ctrl-d */
 	CTRL_E = 5,         /* Ctrl-e */
 	CTRL_F = 6,         /* Ctrl-f */
+	CTRL_G = 7,         /* Ctrl-g */
 	CTRL_H = 8,         /* Ctrl-h */
 	TAB = 9,            /* Tab */
 	NL = 10,            /* Enter typed before raw mode was enabled */
@@ -169,6 +191,8 @@ enum KEY_ACTION{
 	ENTER = 13,         /* Enter */
 	CTRL_N = 14,        /* Ctrl-n */
 	CTRL_P = 16,        /* Ctrl-p */
+	CTRL_R = 18,        /* Ctrl-r */
+	CTRL_S = 19,        /* Ctrl-s */
 	CTRL_T = 20,        /* Ctrl-t */
 	CTRL_U = 21,        /* Ctrl+u */
 	CTRL_W = 23,        /* Ctrl+w */
@@ -177,8 +201,14 @@ enum KEY_ACTION{
 };
 
 static void linenoiseAtExit(void);
-int linenoiseHistoryAdd(const char *line);
+int linenoiseHistoryAdd(const char *line, int is_sensitive);
 static void refreshLine(struct linenoiseState *l);
+static void refreshSearchResult(struct linenoiseState *ls);
+
+static inline void resetSearchResult(void) {
+    memset(search_result, 0, sizeof(search_result));
+    memset(search_result_friendly, 0, sizeof(search_result_friendly));
+}
 
 /* Debugging macro. */
 #if 0
@@ -219,6 +249,41 @@ void linenoiseSetMultiLine(int ml) {
     mlmode = ml;
 }
 
+#define REVERSE_SEARCH_PROMPT(direction) ((direction) == -1 ? "(reverse-i-search): " : "(i-search): ")
+
+/* Enables the reverse search mode and refreshes the prompt. */
+static void enableReverseSearchMode(struct linenoiseState *l) {
+    assert(reverse_search_mode_enabled != 1);
+    reverse_search_mode_enabled = 1;
+    l->origin_prompt = l->prompt;
+    l->prompt = REVERSE_SEARCH_PROMPT(reverse_search_direction);
+    refreshLine(l);
+}
+
+/* This function disables the reverse search mode and returns the terminal to its original state.
+ * If the 'discard' parameter is true, it discards the user's input search keyword and search result.
+ * Otherwise, it copies the search result into 'buf', If there is no search result, it copies the
+ * input search keyword instead. */
+static void disableReverseSearchMode(struct linenoiseState *l, char *buf, size_t buflen, int discard) {
+    if (discard) {
+        buf[0] = '\0';
+        l->pos = l->len = 0;
+    } else {
+        ignore_once_hint = 1;
+        if (strlen(search_result)) {
+            strncpy(buf, search_result, buflen);
+            buf[buflen-1] = '\0';
+            l->pos = l->len = strlen(buf);
+        }
+    }
+
+    /* Reset the state to non-search state. */
+    reverse_search_mode_enabled = 0;
+    l->prompt = l->origin_prompt;
+    resetSearchResult();
+    refreshLine(l);
+}
+
 /* Return true if the terminal name is in the list of terminals we know are
  * not able to understand basic escape sequences. */
 static int isUnsupportedTerm(void) {
@@ -231,8 +296,12 @@ static int isUnsupportedTerm(void) {
     return 0;
 }
 
-/* Raw mode: 1960 magic shit. */
+/* Raw mode: 1960's magic. */
 static int enableRawMode(int fd) {
+    if (getenv("FAKETTY_WITH_PROMPT") != NULL) {
+        return 0;
+    }
+
     struct termios raw;
 
     if (!isatty(STDIN_FILENO)) goto fatal;
@@ -301,6 +370,9 @@ static int getCursorPosition(int ifd, int ofd) {
 /* Try to get the number of columns in the current terminal, or assume 80
  * if it fails. */
 static int getColumns(int ifd, int ofd) {
+    if (getenv("FAKETTY_WITH_PROMPT") != NULL) {
+        goto failed;
+    }
     struct winsize ws;
 
     if (ioctl(1, TIOCGWINSZ, &ws) == -1 || ws.ws_col == 0) {
@@ -492,6 +564,13 @@ static void abFree(struct abuf *ab) {
  * to the right of the prompt. */
 void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
     char seq[64];
+
+    /* Show hits when not in reverse search mode and not instructed to ignore once. */
+    if (reverse_search_mode_enabled || ignore_once_hint) {
+        ignore_once_hint = 0;
+        return;
+    }
+
     if (hintsCallback && plen+l->len < l->cols) {
         int color = -1, bold = 0;
         char *hint = hintsCallback(l->buf,&color,&bold);
@@ -604,7 +683,12 @@ static void refreshMultiLine(struct linenoiseState *l) {
         unsigned int i;
         for (i = 0; i < l->len; i++) abAppend(&ab,"*",1);
     } else {
-        abAppend(&ab,l->buf,l->len);
+        refreshSearchResult(l);
+        if (strlen(search_result) > 0) {
+            abAppend(&ab, search_result_friendly, strlen(search_result_friendly));
+        } else {
+            abAppend(&ab,l->buf,l->len);
+        }
     }
 
     /* Show hits if any. */
@@ -637,6 +721,9 @@ static void refreshMultiLine(struct linenoiseState *l) {
 
     /* Set column. */
     col = (plen+(int)l->pos) % (int)l->cols;
+    if (strlen(search_result) > 0) {
+        col += search_result_start_offset;
+    }
     lndebug("set col %d", 1+col);
     if (col)
         snprintf(seq,64,"\r\x1b[%dC", col);
@@ -818,7 +905,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 
     /* The latest history entry is always our current buffer, that
      * initially is just an empty string. */
-    linenoiseHistoryAdd("");
+    linenoiseHistoryAdd("", 0);
 
     if (write(l.ofd,prompt,l.plen) == -1) return -1;
     while(1) {
@@ -832,7 +919,7 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
-        if (c == 9 && completionCallback != NULL) {
+        if (c == TAB && completionCallback != NULL && !reverse_search_mode_enabled) {
             c = completeLine(&l);
             /* Return on errors */
             if (c < 0) return l.len;
@@ -842,6 +929,9 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
 
         switch(c) {
         case NL:       /* enter, typed before raw mode was enabled */
+            break;
+        case TAB:
+            if (reverse_search_mode_enabled) disableReverseSearchMode(&l, buf, buflen, 0);
             break;
         case ENTER:    /* enter */
             history_len--;
@@ -855,8 +945,14 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                 refreshLine(&l);
                 hintsCallback = hc;
             }
+
+            if (reverse_search_mode_enabled) disableReverseSearchMode(&l, buf, buflen, 0);
             return (int)l.len;
         case CTRL_C:     /* ctrl-c */
+            if (reverse_search_mode_enabled) {
+                disableReverseSearchMode(&l, buf, buflen, 1);
+                break;
+            }
             errno = EAGAIN;
             return -1;
         case BACKSPACE:   /* backspace */
@@ -891,6 +987,23 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
         case CTRL_P:    /* ctrl-p */
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
             break;
+        case CTRL_R:
+        case CTRL_S:
+            reverse_search_direction = c == CTRL_R ? -1 : 1;
+            if (reverse_search_mode_enabled) {
+                /* cycle search results */
+                cycle_to_next_search = 1;
+                l.prompt = REVERSE_SEARCH_PROMPT(reverse_search_direction);
+                refreshLine(&l);
+                break;
+            }
+            buf[0] = '\0';
+            l.pos = l.len = 0;
+            enableReverseSearchMode(&l);
+            break;
+        case CTRL_G:
+            if (reverse_search_mode_enabled) disableReverseSearchMode(&l, buf, buflen, 1);
+            break;
         case CTRL_N:    /* ctrl-n */
             linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
             break;
@@ -900,6 +1013,11 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
              * chars at different times. */
             if (read(l.ifd,seq,1) == -1) break;
             if (read(l.ifd,seq+1,1) == -1) break;
+
+            if (reverse_search_mode_enabled) {
+                disableReverseSearchMode(&l, buf, buflen, 1);
+                break;
+            }
 
             /* ESC [ sequences. */
             if (seq[0] == '[') {
@@ -1067,14 +1185,14 @@ static char *linenoiseNoTTY(void) {
  * editing function or uses dummy fgets() so that you will be able to type
  * something even in the most desperate of the conditions. */
 char *linenoise(const char *prompt) {
-    char buf[LINENOISE_MAX_LINE];
+    char buf[LINENOISE_MAX_LINE] = {0};
     int count;
 
-    if (!isatty(STDIN_FILENO)) {
+    if (getenv("FAKETTY_WITH_PROMPT") == NULL && !isatty(STDIN_FILENO)) {
         /* Not a tty: read from file / pipe. In this mode we don't want any
          * limit to the line size, so we call a function to handle that. */
         return linenoiseNoTTY();
-    } else if (isUnsupportedTerm()) {
+    } else if (getenv("FAKETTY_WITH_PROMPT") == NULL && isUnsupportedTerm()) {
         size_t len;
 
         printf("%s",prompt);
@@ -1112,6 +1230,7 @@ static void freeHistory(void) {
         for (j = 0; j < history_len; j++)
             free(history[j]);
         free(history);
+        free(history_sensitive);
     }
 }
 
@@ -1128,7 +1247,7 @@ static void linenoiseAtExit(void) {
  * histories, but will work well for a few hundred of entries.
  *
  * Using a circular buffer is smarter, but a bit more complex to handle. */
-int linenoiseHistoryAdd(const char *line) {
+int linenoiseHistoryAdd(const char *line, int is_sensitive) {
     char *linecopy;
 
     if (history_max_len == 0) return 0;
@@ -1137,7 +1256,14 @@ int linenoiseHistoryAdd(const char *line) {
     if (history == NULL) {
         history = malloc(sizeof(char*)*history_max_len);
         if (history == NULL) return 0;
+        history_sensitive = malloc(sizeof(int)*history_max_len);
+        if (history_sensitive == NULL) {
+            free(history);
+            history = NULL;
+            return 0;
+        }
         memset(history,0,(sizeof(char*)*history_max_len));
+        memset(history_sensitive,0,(sizeof(int)*history_max_len));
     }
 
     /* Don't add duplicated lines. */
@@ -1150,9 +1276,11 @@ int linenoiseHistoryAdd(const char *line) {
     if (history_len == history_max_len) {
         free(history[0]);
         memmove(history,history+1,sizeof(char*)*(history_max_len-1));
+        memmove(history_sensitive,history_sensitive+1,sizeof(int)*(history_max_len-1));
         history_len--;
     }
     history[history_len] = linecopy;
+    history_sensitive[history_len] = is_sensitive;
     history_len++;
     return 1;
 }
@@ -1163,6 +1291,7 @@ int linenoiseHistoryAdd(const char *line) {
  * than the amount of items already inside the history. */
 int linenoiseHistorySetMaxLen(int len) {
     char **new;
+    int *new_sensitive;
 
     if (len < 1) return 0;
     if (history) {
@@ -1170,6 +1299,11 @@ int linenoiseHistorySetMaxLen(int len) {
 
         new = malloc(sizeof(char*)*len);
         if (new == NULL) return 0;
+        new_sensitive = malloc(sizeof(int)*len);
+        if (new_sensitive == NULL) {
+            free(new);
+            return 0;
+        }
 
         /* If we can't copy everything, free the elements we'll not use. */
         if (len < tocopy) {
@@ -1179,9 +1313,13 @@ int linenoiseHistorySetMaxLen(int len) {
             tocopy = len;
         }
         memset(new,0,sizeof(char*)*len);
+        memset(new_sensitive,0,sizeof(int)*len);
         memcpy(new,history+(history_len-tocopy), sizeof(char*)*tocopy);
+        memcpy(new_sensitive,history_sensitive+(history_len-tocopy), sizeof(int)*tocopy);
         free(history);
+        free(history_sensitive);
         history = new;
+        history_sensitive = new_sensitive;
     }
     history_max_len = len;
     if (history_len > history_max_len)
@@ -1201,7 +1339,7 @@ int linenoiseHistorySave(const char *filename) {
     if (fp == NULL) return -1;
     fchmod(fileno(fp),S_IRUSR|S_IWUSR);
     for (j = 0; j < history_len; j++)
-        fprintf(fp,"%s\n",history[j]);
+        if (!history_sensitive[j]) fprintf(fp,"%s\n",history[j]);
     fclose(fp);
     return 0;
 }
@@ -1223,8 +1361,97 @@ int linenoiseHistoryLoad(const char *filename) {
         p = strchr(buf,'\r');
         if (!p) p = strchr(buf,'\n');
         if (p) *p = '\0';
-        linenoiseHistoryAdd(buf);
+        linenoiseHistoryAdd(buf, 0);
     }
     fclose(fp);
     return 0;
+}
+
+/* This function updates the search index based on the direction of the search.
+ * Returns 0 if the beginning or end of the history is reached, otherwise, returns 1. */
+static int setNextSearchIndex(int *i) {
+    if (reverse_search_direction == 1) {
+        if (*i == history_len-1) return 0;
+        *i = *i + 1;
+    } else {
+        if (*i <= 0) return 0;
+        *i = *i - 1;
+    }
+    return 1;
+}
+
+linenoiseHistorySearchResult searchInHistory(char *search_term) {
+    linenoiseHistorySearchResult result = {0};
+
+    if (!history_len || !strlen(search_term)) return result;
+
+    int i = cycle_to_next_search ? search_result_history_index :
+        (reverse_search_direction == -1 ? history_len-1 : 0);
+    
+    while (1) {
+        char *found = strstr(history[i], search_term);
+        
+        /* check if we found the same string at another index when cycling, this would be annoying to cycle through
+         * as it might appear that cycling isn't working */
+        int strings_are_the_same = cycle_to_next_search && strcmp(history[i], history[search_result_history_index]) == 0; 
+
+        if (found && !strings_are_the_same) {
+            int haystack_index = found - history[i];
+            result.result = history[i];
+            result.len = strlen(history[i]);
+            result.search_term_index = haystack_index;
+            result.search_term_len = strlen(search_term);
+            search_result_history_index = i;
+            break;
+        }
+
+        /* Exit if reached the end. */
+        if (!setNextSearchIndex(&i)) break;
+    }
+
+    return result;
+}
+
+static void refreshSearchResult(struct linenoiseState *ls) {
+   if (!reverse_search_mode_enabled) {
+        return;
+    }
+
+    linenoiseHistorySearchResult sr = searchInHistory(ls->buf);
+    int found = sr.result && sr.len;
+
+    /* If the search term has not changed and we are cycling to the next search result
+     * (using CTRL+R or CTRL+S), there is no need to reset the old search result. */
+    if (!cycle_to_next_search || found)
+        resetSearchResult();
+    cycle_to_next_search = 0;
+
+    if (found) {
+        char *bold = "\x1B[1m";
+        char *normal = "\x1B[0m";
+
+        int size_needed = sr.search_term_index + sr.search_term_len + sr.len -
+            (sr.search_term_index+sr.search_term_len) + sizeof(normal) + sizeof(bold) + sizeof(normal);
+        if (size_needed > sizeof(search_result_friendly) - 1) {
+            return;
+        }
+
+        /* Allocate memory for the prefix, match, and suffix strings, one extra byte for `\0`. */
+        char *prefix = calloc(sizeof(char), sr.search_term_index + 1);
+        char *match = calloc(sizeof(char), sr.search_term_len + 1);
+        char *suffix = calloc(sizeof(char), sr.len - (sr.search_term_index+sr.search_term_len) + 1);
+
+        memcpy(prefix, sr.result, sr.search_term_index);
+        memcpy(match, sr.result + sr.search_term_index, sr.search_term_len);
+        memcpy(suffix, sr.result + sr.search_term_index + sr.search_term_len,
+               sr.len - (sr.search_term_index+sr.search_term_len));
+        sprintf(search_result, "%s%s%s", prefix, match, suffix);
+        sprintf(search_result_friendly, "%s%s%s%s%s%s", normal, prefix, bold, match, normal, suffix);
+
+        free(prefix);
+        free(match);
+        free(suffix);
+
+        search_result_start_offset = sr.search_term_index;
+    }
 }

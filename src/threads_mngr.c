@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2021, Redis Ltd.
+ * Copyright (c) 2021-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "threads_mngr.h"
@@ -32,14 +11,11 @@
 #define UNUSED(V) ((void) V)
 
 #ifdef __linux__
-#include "zmalloc.h"
 #include "atomicvar.h"
 #include "server.h"
 
 #include <signal.h>
 #include <time.h>
-#include <errno.h>
-#include <semaphore.h>
 #include <sys/syscall.h>
 
 #define IN_PROGRESS 1
@@ -49,16 +25,11 @@ static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
 
 static run_on_thread_cb g_callback = NULL;
 static volatile size_t g_tids_len = 0;
-static void **g_output_array = NULL;
-static redisAtomic size_t g_thread_ids = 0;
 static redisAtomic size_t g_num_threads_done = 0;
-
-static sem_t wait_for_threads_sem;
 
 /* This flag is set while ThreadsManager_runOnThreads is running */
 static redisAtomic int g_in_progress = 0;
 
-static pthread_rwlock_t globals_rw_lock = PTHREAD_RWLOCK_INITIALIZER;
 /*============================ Internal prototypes ========================== */
 
 static void invoke_callback(int sig);
@@ -83,11 +54,11 @@ void ThreadsManager_init(void) {
     sigaction(SIGUSR2, &act, NULL);
 }
 
-__attribute__ ((noinline)) 
-void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
+__attribute__ ((noinline))
+int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
     /* Check if it is safe to start running. If not - return */
     if(test_and_start() == IN_PROGRESS) {
-        return NULL;
+        return 0;
     }
 
     /* Update g_callback */
@@ -96,13 +67,10 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
     /* Set g_tids_len */
     g_tids_len = tids_len;
 
-    /* Allocate the output buffer */
-    g_output_array = zcalloc(sizeof(void*) * tids_len);
-
-    /* Initialize a semaphore that we will be waiting on for the threads
-    use pshared = 0 to indicate the semaphore is shared between the process's threads (and not between processes),
-    and value = 0 as the initial semaphore value. */
-    sem_init(&wait_for_threads_sem, 0, 0);
+    /* set g_num_threads_done to 0 To handler the case where in the previous run we reached the timeout
+    and called ThreadsManager_cleanups before one or more threads were done and increased
+    (the already set to 0) g_num_threads_done */
+    g_num_threads_done = 0;
 
     /* Send signal to all the threads in tids */
     pid_t pid = getpid();
@@ -113,12 +81,10 @@ void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_c
     /* Wait for all the threads to write to the output array, or until timeout is reached */
     wait_threads();
 
-    void **ret = g_output_array;
-
     /* Cleanups to allow next execution */
     ThreadsManager_cleanups();
 
-    return ret;
+    return 1;
 }
 
 /*============================ Internal functions implementations ========================== */
@@ -133,62 +99,54 @@ static int test_and_start(void) {
     return prev_state;
 }
 
-__attribute__ ((noinline)) 
+__attribute__ ((noinline))
 static void invoke_callback(int sig) {
     UNUSED(sig);
-
-    /* If the lock is already locked for write, we are running cleanups, no reason to proceed. */
-    if(0 != pthread_rwlock_tryrdlock(&globals_rw_lock)) {
-        serverLog(LL_WARNING, "threads_mngr: ThreadsManager_cleanups() is in progress, can't invoke signal handler.");
-        return;
+    run_on_thread_cb callback = g_callback;
+    if (callback) {
+        callback();
+        atomicIncr(g_num_threads_done, 1);
+    } else {
+        serverLogFromHandler(LL_WARNING, "tid %ld: ThreadsManager g_callback is NULL", syscall(SYS_gettid));
     }
-
-    if (g_output_array) {
-        size_t thread_id;
-        atomicGetIncr(g_thread_ids, thread_id, 1);
-        g_output_array[thread_id] = g_callback();
-        size_t curr_done_count;
-        atomicIncrGet(g_num_threads_done, curr_done_count, 1);
-
-        /* last thread shuts down the light */
-        if (curr_done_count == g_tids_len) {
-            sem_post(&wait_for_threads_sem);
-        }
-    }
-
-    pthread_rwlock_unlock(&globals_rw_lock);
 }
 
 static void wait_threads(void) {
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
+    struct timespec timeout_time;
+    clock_gettime(CLOCK_REALTIME, &timeout_time);
 
     /* calculate relative time until timeout */
-    ts.tv_sec += RUN_ON_THREADS_TIMEOUT;
+    timeout_time.tv_sec += RUN_ON_THREADS_TIMEOUT;
 
-    int status = 0;
+    /* Wait until all threads are done to invoke the callback or until we reached the timeout */
+    size_t curr_done_count;
+    struct timespec curr_time;
 
-    /* lock the semaphore until the semaphore value rises above zero or a signal
-    handler interrupts the call. In the later case continue to wait. */
-    while ((status = sem_timedwait(&wait_for_threads_sem, &ts)) == -1 && errno == EINTR) {
-        serverLog(LL_WARNING, "threads_mngr: waiting for threads' output was interrupted by signal. Continue waiting.");
-        continue;
+    do {
+        struct timeval tv = {
+            .tv_sec = 0,
+            .tv_usec = 10};
+        /* Sleep a bit to yield to other threads. */
+        /* usleep isn't listed as signal safe, so we use select instead */
+        select(0, NULL, NULL, NULL, &tv);
+        atomicGet(g_num_threads_done, curr_done_count);
+        clock_gettime(CLOCK_REALTIME, &curr_time);
+    } while (curr_done_count < g_tids_len &&
+             curr_time.tv_sec <= timeout_time.tv_sec);
+
+    if (curr_time.tv_sec > timeout_time.tv_sec) {
+        serverLogRawFromHandler(LL_WARNING, "wait_threads(): waiting threads timed out");
     }
+
 }
 
 static void ThreadsManager_cleanups(void) {
-    pthread_rwlock_wrlock(&globals_rw_lock);
-
     g_callback = NULL;
     g_tids_len = 0;
-    g_output_array = NULL;
-    g_thread_ids = 0;
     g_num_threads_done = 0;
-    sem_destroy(&wait_for_threads_sem);
 
     /* Lastly, turn off g_in_progress */
     atomicSet(g_in_progress, 0);
-    pthread_rwlock_unlock(&globals_rw_lock);
 
 }
 #else
@@ -197,12 +155,12 @@ void ThreadsManager_init(void) {
     /* DO NOTHING */
 }
 
-void **ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
+int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb callback) {
     /* DO NOTHING */
     UNUSED(tids);
     UNUSED(tids_len);
     UNUSED(callback);
-    return NULL;
+    return 1;
 }
 
 #endif /* __linux__ */

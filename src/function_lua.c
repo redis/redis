@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2021, Redis Ltd.
+ * Copyright (c) 2021-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 /*
@@ -51,6 +30,8 @@
 #define REGISTRY_LOAD_CTX_NAME "__LIBRARY_CTX__"
 #define LIBRARY_API_NAME "__LIBRARY_API__"
 #define GLOBALS_API_NAME "__GLOBALS_API__"
+
+static int gc_count = 0; /* Counter for the number of GC requests, reset after each GC execution */
 
 /* Lua engine ctx */
 typedef struct luaEngineCtx {
@@ -152,6 +133,7 @@ done:
 
     lua_sethook(lua,NULL,0,0); /* Disable hook */
     luaSaveOnRegistry(lua, REGISTRY_LOAD_CTX_NAME, NULL);
+    luaGC(lua, &gc_count);
     return ret;
 }
 
@@ -180,6 +162,7 @@ static void luaEngineCall(scriptRunCtx *run_ctx,
 
     luaCallFunction(run_ctx, lua, keys, nkeys, args, nargs, 0);
     lua_pop(lua, 1); /* Pop error handler */
+    luaGC(lua, &gc_count);
 }
 
 static size_t luaEngineGetUsedMemoy(void *engine_ctx) {
@@ -202,6 +185,12 @@ static void luaEngineFreeFunction(void *engine_ctx, void *compiled_function) {
     luaFunctionCtx *f_ctx = compiled_function;
     lua_unref(lua, f_ctx->lua_function_ref);
     zfree(f_ctx);
+}
+
+static void luaEngineFreeCtx(void *engine_ctx) {
+    luaEngineCtx *lua_engine_ctx = engine_ctx;
+    lua_close(lua_engine_ctx->lua);
+    zfree(lua_engine_ctx);
 }
 
 static void luaRegisterFunctionArgsInitialize(registerFunctionArgs *register_f_args,
@@ -423,7 +412,7 @@ static int luaRegisterFunction(lua_State *lua) {
 /* Initialize Lua engine, should be called once on start. */
 int luaEngineInitEngine(void) {
     luaEngineCtx *lua_engine_ctx = zmalloc(sizeof(*lua_engine_ctx));
-    lua_engine_ctx->lua = lua_open();
+    lua_engine_ctx->lua = createLuaState();
 
     luaRegisterRedisAPI(lua_engine_ctx->lua);
 
@@ -501,6 +490,7 @@ int luaEngineInitEngine(void) {
         .get_function_memory_overhead = luaEngineFunctionMemoryOverhead,
         .get_engine_memory_overhead = luaEngineMemoryOverhead,
         .free_function = luaEngineFreeFunction,
+        .free_ctx = luaEngineFreeCtx,
     };
     return functionsRegisterEngine(LUA_ENGINE_NAME, lua_engine);
 }

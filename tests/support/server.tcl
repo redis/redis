@@ -5,9 +5,9 @@ set ::valgrind_errors {}
 proc start_server_error {config_file error} {
     set err {}
     append err "Can't start the Redis server\n"
-    append err "CONFIGURATION:"
+    append err "CONFIGURATION:\n"
     append err [exec cat $config_file]
-    append err "\nERROR:"
+    append err "\nERROR:\n"
     append err [string trim $error]
     send_data_packet $::test_server_fd err $err
 }
@@ -60,6 +60,10 @@ proc kill_server config {
         }
 
         check_sanitizer_errors [dict get $config stderr]
+
+        # Remove this pid from the set of active pids in the test server.
+        send_data_packet $::test_server_fd server-killed $pid
+
         return
     }
 
@@ -365,10 +369,14 @@ proc run_external_server_test {code overrides} {
     r flushall
     r function flush
 
-    # store overrides
+    # store configs
     set saved_config {}
+    foreach {param val} [r config get *] {
+        dict set saved_config $param $val
+    }
+
+    # apply overrides
     foreach {param val} $overrides {
-        dict set saved_config $param [lindex [r config get $param] 1]
         r config set $param $val
 
         # If we enable appendonly, wait for for rewrite to complete. This is
@@ -396,7 +404,8 @@ proc run_external_server_test {code overrides} {
 
     # restore overrides
     dict for {param val} $saved_config {
-        r config set $param $val
+        # some may fail, specifically immutable ones.
+        catch {r config set $param $val}
     }
 
     set srv [lpop ::servers]

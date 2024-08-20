@@ -1,35 +1,13 @@
 /* Redis benchmark utility.
  *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "fmacros.h"
-#include "version.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -167,7 +145,6 @@ typedef struct clusterNode {
     sds replicate;  /* Master ID if node is a slave */
     int *slots;
     int slots_count;
-    int current_slot_index;
     int *updated_slots;         /* Used by updateClusterSlotsConfiguration */
     int updated_slots_count;    /* Used by updateClusterSlotsConfiguration */
     int replicas_count;
@@ -186,8 +163,6 @@ typedef struct redisConfig {
 } redisConfig;
 
 /* Prototypes */
-char *redisGitSHA1(void);
-char *redisGitDirty(void);
 static void writeHandler(aeEventLoop *el, int fd, void *privdata, int mask);
 static void createMissingClients(client c);
 static benchmarkThread *createBenchmarkThread(int index);
@@ -204,20 +179,6 @@ static int fetchClusterSlotsConfiguration(client c);
 static void updateClusterSlotsConfiguration(void);
 int showThroughput(struct aeEventLoop *eventLoop, long long id,
                    void *clientData);
-
-static sds benchmarkVersion(void) {
-    sds version;
-    version = sdscatprintf(sdsempty(), "%s", REDIS_VERSION);
-
-    /* Add git commit and working tree status when available */
-    if (strtoll(redisGitSHA1(),NULL,16)) {
-        version = sdscatprintf(version, " (git:%s", redisGitSHA1());
-        if (strtoll(redisGitDirty(),NULL,10))
-            version = sdscatprintf(version, "-dirty");
-        version = sdscat(version, ")");
-    }
-    return version;
-}
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
@@ -434,7 +395,6 @@ static void setClusterKeyHashTag(client c) {
     assert(c->thread_id >= 0);
     clusterNode *node = c->cluster_node;
     assert(node);
-    assert(node->current_slot_index < node->slots_count);
     int is_updating_slots = 0;
     atomicGet(config.is_updating_slots, is_updating_slots);
     /* If updateClusterSlotsConfiguration is updating the slots array,
@@ -444,7 +404,7 @@ static void setClusterKeyHashTag(client c) {
      * updateClusterSlotsConfiguration won't actually do anything, since
      * the updated_slots_count array will be already NULL. */
     if (is_updating_slots) updateClusterSlotsConfiguration();
-    int slot = node->slots[node->current_slot_index];
+    int slot = node->slots[rand() % node->slots_count];
     const char *tag = crc16_slot_table[slot];
     int taglen = strlen(tag);
     size_t i;
@@ -1064,7 +1024,6 @@ static clusterNode *createClusterNode(char *ip, int port) {
     node->replicas_count = 0;
     node->slots = zmalloc(CLUSTER_SLOTS * sizeof(int));
     node->slots_count = 0;
-    node->current_slot_index = 0;
     node->updated_slots = NULL;
     node->updated_slots_count = 0;
     node->migrating = NULL;
@@ -1387,7 +1346,6 @@ static void updateClusterSlotsConfiguration(void) {
             int *oldslots = node->slots;
             node->slots = node->updated_slots;
             node->slots_count = node->updated_slots_count;
-            node->current_slot_index = 0;
             node->updated_slots = NULL;
             node->updated_slots_count = 0;
             zfree(oldslots);
@@ -1423,7 +1381,7 @@ int parseOptions(int argc, char **argv) {
             if (lastarg) goto invalid;
             config.numclients = atoi(argv[++i]);
         } else if (!strcmp(argv[i],"-v") || !strcmp(argv[i], "--version")) {
-            sds version = benchmarkVersion();
+            sds version = cliVersion();
             printf("redis-benchmark %s\n", version);
             sdsfree(version);
             exit(0);
@@ -1613,7 +1571,10 @@ usage:
 " -s <socket>        Server socket (overrides host and port)\n"
 " -a <password>      Password for Redis Auth\n"
 " --user <username>  Used to send ACL style 'AUTH username pass'. Needs -a.\n"
-" -u <uri>           Server URI.\n"
+" -u <uri>           Server URI on format redis://user:password@host:port/dbnum\n"
+"                    User, password and dbnum are optional. For authentication\n"
+"                    without a username, use username 'default'. For TLS, use\n"
+"                    the scheme 'rediss'.\n"
 " -c <clients>       Number of parallel connections (default 50).\n"
 "                    Note: If --cluster is used then number of clients has to be\n"
 "                    the same or higher than the number of nodes.\n"
