@@ -212,7 +212,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        sudo apt-get update && sudo apt-get install libc6-dev-i386 g++
+        sudo apt-get update && sudo apt-get install libc6-dev-i386 g++ gcc-multilib g++-multilib
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
@@ -908,6 +908,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd')
     timeout-minutes: 14400
+    env:
+      CC: clang
+      CXX: clang++
     steps:
     - name: prep
       if: github.event_name == 'workflow_dispatch'
@@ -926,7 +929,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx lang/g++
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
           gmake
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
