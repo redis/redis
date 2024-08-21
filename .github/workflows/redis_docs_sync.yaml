@@ -6,6 +6,7 @@ on:
 
 jobs:
   redis_docs_sync:
+    if: github.repository == 'redis/redis'
     runs-on: ubuntu-latest
     steps:
       - name: Generate a token
