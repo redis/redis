@@ -3908,7 +3908,8 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
 size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
 
-    if (output_buffer_mem_usage != NULL) *output_buffer_mem_usage = mem;
+    if (output_buffer_mem_usage != NULL)
+        *output_buffer_mem_usage = mem;
     mem += (c->querybuf && !(c->flags&CLIENT_SHARED_QUERYBUFFER)) ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
     mem += c->buf_usable_size;
