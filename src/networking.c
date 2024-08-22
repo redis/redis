@@ -2718,7 +2718,8 @@ void readQueryFromClient(connection *conn) {
             /* The shared query buffer is already used by another client,
              * switch to using the client's private query buffer. This only
              * occurs when commands are executed nested via processEventsWhileBlocked(). */
-            c->querybuf = sdsempty();
+            c->querybuf = sdsnewlen(NULL, PROTO_IOBUF_LEN);
+            sdsclear(c->querybuf);
         } else {
             /* Create the shared query buffer if it doesn't exist. */
             if (!thread_shared_qb) {
