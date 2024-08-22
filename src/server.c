@@ -2804,7 +2804,6 @@ void initServer(void) {
     }
     slowlogInit();
     latencyMonitorInit();
-    initSharedQueryBuf();
 
     /* Initialize ACL default password if it exists */
     ACLUpdateDefaultUserPassword(server.requirepass);
