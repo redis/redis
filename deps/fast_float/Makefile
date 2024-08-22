@@ -2,8 +2,8 @@
 CC ?= gcc
 CXX ?= g++
 
-CFLAGS=-Wall -std=c++11 -O3
-LDFLAGS=-DFASTFLOAT_ALLOWS_LEADING_PLUS
+CFLAGS=-Wall -std=c++11 -O3 -DFASTFLOAT_ALLOWS_LEADING_PLUS
+LDFLAGS=
 
 libfast_float: fast_float_strtod.o
 	$(AR) -r libfast_float.a fast_float_strtod.o
