@@ -28,8 +28,6 @@ int postponeClientRead(client *c);
 char *getClientSockname(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_shared_qb = NULL;
-__thread int thread_shared_qb_used = 0; /* Avoid multiple clients using shared query
-                                         * buffer due to nested command execution. */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -1597,7 +1595,6 @@ static void resetSharedQueryBuf(client *c) {
     /* Mark that the client is no longer using the shared query buffer
      * and indicate that it is no longer used by any client. */
     c->flags &= ~CLIENT_SHARED_QUERYBUFFER;
-    thread_shared_qb_used = 0;
 }
 
 void freeClient(client *c) {
@@ -2714,7 +2711,7 @@ void readQueryFromClient(connection *conn) {
         if (c->flags & CLIENT_MASTER && readlen < PROTO_IOBUF_LEN)
             readlen = PROTO_IOBUF_LEN;
     } else if (c->querybuf == NULL) {
-        if (unlikely(thread_shared_qb_used)) {
+        if (unlikely(ProcessingEventsWhileBlocked)) {
             /* The shared query buffer is already used by another client,
              * switch to using the client's private query buffer. This only
              * occurs when commands are executed nested via processEventsWhileBlocked(). */
@@ -2731,7 +2728,6 @@ void readQueryFromClient(connection *conn) {
             serverAssert(sdslen(thread_shared_qb) == 0);
             c->querybuf = thread_shared_qb;
             c->flags |= CLIENT_SHARED_QUERYBUFFER;
-            thread_shared_qb_used = 1;
         }
     }
 
