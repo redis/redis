@@ -2927,8 +2927,8 @@ sds catClientInfoString(sds s, client *client) {
         " ssub=%i", (int) dictSize(client->pubsubshard_channels),
         " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         " watch=%i", (int) listLength(client->watched_keys),
-        " qbuf=%U", (client->querybuf && !(client->flags&CLIENT_SHARED_QUERYBUFFER)) ? (unsigned long long) sdslen(client->querybuf) : 0,
-        " qbuf-free=%U", (client->querybuf && !(client->flags&CLIENT_SHARED_QUERYBUFFER)) ? (unsigned long long) sdsavail(client->querybuf) : 0,
+        " qbuf=%U", client->querybuf ? (unsigned long long) sdslen(client->querybuf) : 0,
+        " qbuf-free=%U", client->querybuf ? (unsigned long long) sdsavail(client->querybuf) : 0,
         " argv-mem=%U", (unsigned long long) client->argv_len_sum,
         " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
         " rbs=%U", (unsigned long long) client->buf_usable_size,
@@ -3911,7 +3911,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
 
     if (output_buffer_mem_usage != NULL)
         *output_buffer_mem_usage = mem;
-    mem += (c->querybuf && !(c->flags&CLIENT_SHARED_QUERYBUFFER)) ? sdsZmallocSize(c->querybuf) : 0;
+    mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
     mem += c->buf_usable_size;
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
