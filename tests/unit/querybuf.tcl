@@ -104,7 +104,7 @@ start_server {tags {"querybuf slow"}} {
             # Write something smaller, so query buf peak can shrink
             $rd set x [string repeat A 100]
             set new_test_client_qbuf [client_query_buffer test_client]
-            if {$new_test_client_qbuf < $orig_test_client_qbuf && $new_test_client_qbuf > 0} { break } 
+            if {$new_test_client_qbuf < $orig_test_client_qbuf} { break } 
             if {[expr [clock milliseconds] - $t] > 1000} { break }
             after 10
         }
@@ -116,15 +116,27 @@ start_server {tags {"querybuf slow"}} {
     test "query buffer resized correctly with fat argv" {
         set rd [redis_client]
         $rd client setname test_client
+
+        # Pause cron to prevent premature shrinking (timing issue).
+        r debug pause-cron 1
+
         $rd write "*3\r\n\$3\r\nset\r\n\$1\r\na\r\n\$1000000\r\n"
         $rd flush
+
+        # Wait for the client to start using a private query buffer of > 1000000 size.
+        wait_for_condition 1000 10 {
+            [client_query_buffer test_client] > 1000000
+        } else {
+            fail "client should start using a private query buffer"
+        }
         
-        after 200
         # Send the start of the arg and make sure the client is not using shared qb for it rather a private buf of > 1000000 size.
         $rd write "a" 
         $rd flush
 
-        after 20
+        r debug pause-cron 0
+
+        after 120
         if {[client_query_buffer test_client] < 1000000} {
             fail "query buffer should not be resized when client idle time smaller than 2s"
         }
@@ -144,6 +156,7 @@ start_server {tags {"querybuf"}} {
     test "Client executes small argv commands using shared query buffer" {
         set rd [redis_deferring_client]
         $rd client setname test_client
+        $rd read
         set res [r client list]
 
         # Verify that the client does not create a private query buffer after
