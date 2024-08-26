@@ -27,8 +27,8 @@ static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
 char *getClientSockname(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
-__thread sds thread_shared_qb = NULL;
-__thread int thread_shared_qb_used = 0; /* Avoid multiple clients using reusable query
+__thread sds thread_reusable_qb = NULL;
+__thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
                                          * buffer due to nested command execution. */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
@@ -1583,21 +1583,21 @@ void deauthenticateAndCloseClient(client *c) {
  * and a new empty buffer will be allocated for the reusable buffer. */
 static void resetReusableQueryBuf(client *c) {
     serverAssert(c->flags & CLIENT_REUSABLE_QUERYBUFFER);
-    if (c->querybuf != thread_shared_qb || sdslen(c->querybuf) > c->qb_pos) {
+    if (c->querybuf != thread_reusable_qb || sdslen(c->querybuf) > c->qb_pos) {
         /* If querybuf has been reallocated or there is still data left,
          * let the client take ownership of the reusable buffer. */
-        thread_shared_qb = NULL;
+        thread_reusable_qb = NULL;
     } else {
         /* It is safe to dereference and reuse the reusable query buffer. */
         c->querybuf = NULL;
         c->qb_pos = 0;
-        sdsclear(thread_shared_qb);
+        sdsclear(thread_reusable_qb);
     } 
 
     /* Mark that the client is no longer using the reusable query buffer
      * and indicate that it is no longer used by any client. */
     c->flags &= ~CLIENT_REUSABLE_QUERYBUFFER;
-    thread_shared_qb_used = 0;
+    thread_reusable_qb_used = 0;
 }
 
 void freeClient(client *c) {
@@ -2718,7 +2718,7 @@ void readQueryFromClient(connection *conn) {
         if (c->flags & CLIENT_MASTER && readlen < PROTO_IOBUF_LEN)
             readlen = PROTO_IOBUF_LEN;
     } else if (c->querybuf == NULL) {
-        if (unlikely(thread_shared_qb_used)) {
+        if (unlikely(thread_reusable_qb_used)) {
             /* The reusable query buffer is already used by another client,
              * switch to using the client's private query buffer. This only
              * occurs when commands are executed nested via processEventsWhileBlocked(). */
@@ -2726,16 +2726,16 @@ void readQueryFromClient(connection *conn) {
             sdsclear(c->querybuf);
         } else {
             /* Create the reusable query buffer if it doesn't exist. */
-            if (!thread_shared_qb) {
-                thread_shared_qb = sdsnewlen(NULL, PROTO_IOBUF_LEN);
-                sdsclear(thread_shared_qb);
+            if (!thread_reusable_qb) {
+                thread_reusable_qb = sdsnewlen(NULL, PROTO_IOBUF_LEN);
+                sdsclear(thread_reusable_qb);
             }
 
             /* Assign the reusable query buffer to the client and mark it as in use. */
-            serverAssert(sdslen(thread_shared_qb) == 0);
-            c->querybuf = thread_shared_qb;
+            serverAssert(sdslen(thread_reusable_qb) == 0);
+            c->querybuf = thread_reusable_qb;
             c->flags |= CLIENT_REUSABLE_QUERYBUFFER;
-            thread_shared_qb_used = 1;
+            thread_reusable_qb_used = 1;
         }
     }
 
