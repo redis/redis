@@ -678,11 +678,25 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
         va_end(ap);
     }
 
+    /* If the "+sdown" status is only published once
+       when a sentinel could not reach other sentinels at the current time and a +sdown occured
+       ri (redis instance) will be stuck in "sdown" status
+       and sentinels will not reach a consensus
+    */
+    bool only_publish=false;
+    if (type[0]=='+' && (type[1]=='s' || type[1]=='o')
+        && strcmp(type+2,"down")==0 && (ri->flags & (SRI_S_DOWN|SRI_O_DOWN)))
+    {
+        only_publish=true;
+        goto publish_message;
+    }
+
     /* Log the message if the log level allows it to be logged. */
     if (level >= server.verbosity)
         serverLog(level,"%s %s",type,msg);
 
     /* Publish the message via Pub/Sub if it's not a debugging one. */
+publish_message:
     if (level != LL_DEBUG) {
         channel = createStringObject(type,strlen(type));
         payload = createStringObject(msg,strlen(msg));
@@ -690,6 +704,8 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
         decrRefCount(channel);
         decrRefCount(payload);
     }
+
+    if(only_publish) return;
 
     /* Call the notification script if applicable. */
     if (level == LL_WARNING && ri != NULL) {
@@ -4571,6 +4587,8 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
             sentinelEvent(LL_WARNING,"+sdown",ri,"%@");
             ri->s_down_since_time = mstime();
             ri->flags |= SRI_S_DOWN;
+        } else {
+            run_with_period(20000) sentinelEvent(LL_WARNING,"+sdown",ri,"%@");
         }
     } else {
         /* Is subjectively up */
@@ -4613,6 +4631,9 @@ void sentinelCheckObjectivelyDown(sentinelRedisInstance *master) {
                 quorum, master->quorum);
             master->flags |= SRI_O_DOWN;
             master->o_down_since_time = mstime();
+        } else {
+            run_with_period(20000) sentinelEvent(LL_WARNING,"+odown",master, "%@ #quorum %d/%d",
+                quorum, master->quorum);
         }
     } else {
         if (master->flags & SRI_O_DOWN) {
