@@ -153,7 +153,7 @@ start_server {tags {"querybuf slow"}} {
 }
 
 start_server {tags {"querybuf"}} {
-    test "Client executes small argv commands using shared query buffer" {
+    test "Client executes small argv commands using reusable query buffer" {
         set rd [redis_deferring_client]
         $rd client setname test_client
         $rd read
@@ -163,9 +163,9 @@ start_server {tags {"querybuf"}} {
         # executing a small parameter command.
         assert_match {*name=test_client * qbuf=0 qbuf-free=0 * cmd=client|setname *} $res 
 
-        # The client executing the command is currently using the shared query buffer,
-        # so the size shown is that of the shared query buffer. It will be returned
-        # to the shared query buffer after command execution.
+        # The client executing the command is currently using the reusable query buffer,
+        # so the size shown is that of the reusable query buffer. It will be returned
+        # to the reusable query buffer after command execution.
         assert_match {*qbuf=26 qbuf-free=* cmd=client|list *} $res
 
         $rd close

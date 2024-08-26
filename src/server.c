@@ -739,7 +739,7 @@ long long getInstantaneousMetric(int metric) {
  *
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
-    /* If the client query buffer is NULL, it is using the shared query buffer and there is nothing to do. */
+    /* If the client query buffer is NULL, it is using the reusable query buffer and there is nothing to do. */
     if (c->querybuf == NULL) return 0;
     size_t querybuf_size = sdsalloc(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
@@ -753,10 +753,10 @@ int clientsCronResizeQueryBuffer(client *c) {
             size_t remaining = sdslen(c->querybuf) - c->qb_pos;
             if (!(c->flags & CLIENT_MASTER) && !remaining) {
                 /* If the client is not a master and no data is pending,
-                 * The client can safely use the shared query buffer in the next read - free the client's querybuf. */
+                 * The client can safely use the reusable query buffer in the next read - free the client's querybuf. */
                 sdsfree(c->querybuf);
-                /* By setting the querybuf to NULL, the client will use the shared query buffer in the next read.
-                 * We don't move the client to the shared query buffer immediately, because if we allocated a private
+                /* By setting the querybuf to NULL, the client will use the reusable query buffer in the next read.
+                 * We don't move the client to the reusable query buffer immediately, because if we allocated a private
                  * query buffer for the client, it's likely that the client will use it again soon. */
                 c->querybuf = NULL;
             } else {
