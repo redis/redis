@@ -2701,7 +2701,11 @@ void readQueryFromClient(connection *conn) {
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
+        /* For big argv, the client always uses its private query buffer.
+         * Using the shared query buffer would eventually expand it beyond 32k,
+         * causing the client to take ownership of the shared query buffer. */
         if (!c->querybuf) c->querybuf = sdsempty();
+
         ssize_t remaining = (size_t)(c->bulklen+2)-(sdslen(c->querybuf)-c->qb_pos);
         big_arg = 1;
 
