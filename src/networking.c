@@ -1580,12 +1580,12 @@ void deauthenticateAndCloseClient(client *c) {
 
 /* Resets the reusable query buffer used by the given client.
  * If any data remained in the buffer, the client will take ownership of the buffer
- * and a new empty buffer will be allocated for the shared buffer. */
+ * and a new empty buffer will be allocated for the reusable buffer. */
 static void resetReusableQueryBuf(client *c) {
     serverAssert(c->flags & CLIENT_REUSABLE_QUERYBUFFER);
     if (c->querybuf != thread_shared_qb || sdslen(c->querybuf) > c->qb_pos) {
         /* If querybuf has been reallocated or there is still data left,
-         * let the client take ownership of the shared buffer. */
+         * let the client take ownership of the reusable buffer. */
         thread_shared_qb = NULL;
     } else {
         /* It is safe to dereference and reuse the reusable query buffer. */
