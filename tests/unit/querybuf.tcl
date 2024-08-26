@@ -42,13 +42,13 @@ start_server {tags {"querybuf slow"}} {
         $rd client setname test_client
         $rd read
 
-        # Make sure query buff has size of 0 bytes at start as the client uses the shared qb.
+        # Make sure query buff has size of 0 bytes at start as the client uses the reusable qb.
         assert {[client_query_buffer test_client] == 0}
 
         # Pause cron to prevent premature shrinking (timing issue).
         r debug pause-cron 1
 
-        # Send partial command to client to make sure it doesn't use the shared qb.
+        # Send partial command to client to make sure it doesn't use the reusable qb.
         $rd write "*3\r\n\$3\r\nset\r\n\$2\r\na"
         $rd flush
         # Wait for the client to start using a private query buffer. 
@@ -130,7 +130,7 @@ start_server {tags {"querybuf slow"}} {
             fail "client should start using a private query buffer"
         }
         
-        # Send the start of the arg and make sure the client is not using shared qb for it rather a private buf of > 1000000 size.
+        # Send the start of the arg and make sure the client is not using reusable qb for it rather a private buf of > 1000000 size.
         $rd write "a" 
         $rd flush
 
