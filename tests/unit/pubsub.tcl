@@ -323,6 +323,42 @@ start_server {tags {"pubsub network"}} {
         $rd1 close
     }
 
+    test "Keyspace notifications: list events test with LMOVE" {
+        r config set notify-keyspace-events KEA
+        r del mylist
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        r lpush mylist a b c d
+        r lmove mylist mylist left right
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpop" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpop mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist rpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpush mylist" [$rd1 read]
+        $rd1 close
+    }
+
+    test "Keyspace notifications: list events test with LMOVE generating DEL notification when only one element" {
+        r config set notify-keyspace-events KEA
+        r del mylist
+        set rd1 [redis_deferring_client]
+        assert_equal {1} [psubscribe $rd1 *]
+
+        r lpush mylist a
+        r lmove mylist mylist left right
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpush mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist lpop" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:lpop mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist del" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:del mylist" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:mylist rpush" [$rd1 read]
+        assert_equal "pmessage * __keyevent@${db}__:rpush mylist" [$rd1 read]
+        $rd1 close
+    }
+
     test "Keyspace notifications: set events test" {
         r config set notify-keyspace-events Ks
         r del myset
