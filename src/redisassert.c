@@ -6,7 +6,7 @@
  *
  * ----------------------------------------------------------------------------
  *
- * Copyright (c) 2021, Andy Pan <panjf2000@gmail.com> and Redis Labs
+ * Copyright (c) 2021, Andy Pan <panjf2000@gmail.com> and Redis Ltd.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without

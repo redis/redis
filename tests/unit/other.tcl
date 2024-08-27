@@ -75,6 +75,20 @@ start_server {tags {"other"}} {
             r flushall
             assert_equal [s rdb_changes_since_last_save] 0
         }
+
+        test {FLUSHALL and bgsave} {
+            r config set save "3600 1 300 100 60 10000"
+            r set x y
+            r bgsave
+            r set x y
+            r multi
+            r debug sleep 1
+            # by the time we'll get to run flushall, the child will finish,
+            # but the parent will be unaware of it, and it could wrongly set the dirty counter.
+            r flushall
+            r exec
+            assert_equal [s rdb_changes_since_last_save] 0
+        }
     }
 
     test {BGSAVE} {
@@ -124,7 +138,8 @@ start_server {tags {"other"}} {
         if {$::accurate} {set numops 10000} else {set numops 1000}
         test {Check consistency of different data types after a reload} {
             r flushdb
-            createComplexDataset r $numops usetag
+            # TODO: integrate usehexpire following next commit that will support replication
+            createComplexDataset r $numops {usetag usehexpire}
             if {$::ignoredigest} {
                 set _ 1
             } else {
@@ -489,19 +504,6 @@ start_cluster 1 0 {tags {"other external:skip cluster slow"}} {
     } {} {needs:debug}
 }
 
-proc get_overhead_hashtable_main {} {
-    set main 0
-    set stats [r memory stats]
-    set list_stats [split $stats " "]
-    for {set j 0} {$j < [llength $list_stats]} {incr j} {
-        if {[string equal -nocase "\{overhead.hashtable.main" [lindex $list_stats $j]]} {
-            set main [lindex $list_stats [expr $j+1]]
-            break
-        }
-    }
-    return $main
-}
-
 start_server {tags {"other external:skip"}} {
     test "Redis can resize empty dict" {
         # Write and then delete 128 keys, creating an empty dict
@@ -512,12 +514,10 @@ start_server {tags {"other external:skip"}} {
         for {set j 1} {$j <= 128} {incr j} {
             r del $j{b}
         }
-        # Set a key to enable overhead display of db 0
-        r set a b
         # The dict containing 128 keys must have expanded,
         # its hash table itself takes a lot more than 400 bytes
         wait_for_condition 100 50 {
-            [get_overhead_hashtable_main] < 400
+            [dict get [r memory stats] db.9 overhead.hashtable.main] < 400
         } else {
             fail "dict did not resize in time"
         }   

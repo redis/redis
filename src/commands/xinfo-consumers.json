@@ -10,7 +10,7 @@
         "history": [
             [
                 "7.2.0",
-                "Added the `inactive` field."
+                "Added the `inactive` field, and changed the meaning of `idle`."
             ]
         ],
         "command_flags": [

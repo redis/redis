@@ -252,7 +252,7 @@ start_server {tags {"keyspace"}} {
         assert {[r get mynewkey{t}] eq "foobar"}
     }
 
-source "tests/unit/type/list-common.tcl"
+array set largevalue [generate_largevalue_test_array]
 foreach {type large} [array get largevalue] {
     set origin_config [config_get_set list-max-listpack-size -1]
     test "COPY basic usage for list - $type" {
@@ -326,6 +326,7 @@ foreach {type large} [array get largevalue] {
     }
 
     test {COPY basic usage for listpack hash} {
+        r config set hash-max-listpack-entries 512
         r del hash1{t} newhash1{t}
         r hset hash1{t} tmp 17179869184
         assert_encoding listpack hash1{t}

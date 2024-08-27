@@ -2009,9 +2009,9 @@ start_server {tags {"zset"}} {
             assert_equal {} [$rd read]
             set end [clock milliseconds]
 
-            # In the past, this time would have been 1000+200, in order to avoid
-            # timing issues, we increase the range a bit.
-            assert_range [expr $end-$start] 1000 1100
+            # Before the fix in #13004, this time would have been 1200+ (i.e. more than 1200ms),
+            # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
+            assert_range [expr $end-$start] 1000 1150
 
             r debug set-active-expire 1
             $rd close
@@ -2286,12 +2286,18 @@ start_server {tags {"zset"}} {
     } {b 2 c 3}
 
     test {ZRANGESTORE BYLEX} {
+        set res [r zrangestore z3{t} z1{t} \[b \[c BYLEX]
+        assert_equal $res 2
+        assert_encoding listpack z3{t}
         set res [r zrangestore z2{t} z1{t} \[b \[c BYLEX]
         assert_equal $res 2
         r zrange z2{t} 0 -1 withscores
     } {b 2 c 3}
 
     test {ZRANGESTORE BYSCORE} {
+        set res [r zrangestore z4{t} z1{t} 1 2 BYSCORE]
+        assert_equal $res 2
+        assert_encoding listpack z4{t}
         set res [r zrangestore z2{t} z1{t} 1 2 BYSCORE]
         assert_equal $res 2
         r zrange z2{t} 0 -1 withscores

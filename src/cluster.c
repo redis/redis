@@ -1,30 +1,11 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 /*
@@ -41,33 +22,6 @@
 /* -----------------------------------------------------------------------------
  * Key space handling
  * -------------------------------------------------------------------------- */
-
-/* We have 16384 hash slots. The hash slot of a given key is obtained
- * as the least significant 14 bits of the crc16 of the key.
- *
- * However, if the key contains the {...} pattern, only the part between
- * { and } is hashed. This may be useful in the future to force certain
- * keys to be in the same node (assuming no resharding is in progress). */
-unsigned int keyHashSlot(char *key, int keylen) {
-    int s, e; /* start-end indexes of { and } */
-
-    for (s = 0; s < keylen; s++)
-        if (key[s] == '{') break;
-
-    /* No '{' ? Hash the whole key. This is the base case. */
-    if (s == keylen) return crc16(key,keylen) & 0x3FFF;
-
-    /* '{' found? Check if we have the corresponding '}'. */
-    for (e = s+1; e < keylen; e++)
-        if (key[e] == '}') break;
-
-    /* No '}' or nothing between {} ? Hash the whole key. */
-    if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
-
-    /* If we are here there is both a { and a } on its right. Hash
-     * what is in the middle between { and }. */
-    return crc16(key+s+1,e-s-1) & 0x3FFF;
-}
 
 /* If it can be inferred that the given glob-style pattern, as implemented in
  * stringmatchlen() in util.c, only can match keys belonging to a single slot,
@@ -284,7 +238,16 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    dbAdd(c->db,key,obj);
+    dictEntry *de = dbAdd(c->db,key,obj);
+
+    /* If minExpiredField was set, then the object is hash with expiration
+     * on fields and need to register it in global HFE DS */
+    if (obj->type == OBJ_HASH) {
+        uint64_t minExpiredField = hashTypeGetMinExpire(obj, 1);
+        if (minExpiredField != EB_EXPIRE_TIME_INVALID)
+            hashTypeAddToExpires(c->db, dictGetKey(de), obj, minExpiredField);
+    }
+
     if (ttl) {
         setExpire(c,c->db,key,ttl);
         if (!absttl) {
@@ -820,6 +783,130 @@ unsigned int countKeysInSlot(unsigned int slot) {
     return kvstoreDictSize(server.db->keys, slot);
 }
 
+/* Add detailed information of a node to the output buffer of the given client. */
+void addNodeDetailsToShardReply(client *c, clusterNode *node) {
+
+    int reply_count = 0;
+    char *hostname;
+    void *node_replylen = addReplyDeferredLen(c);
+
+    addReplyBulkCString(c, "id");
+    addReplyBulkCBuffer(c, clusterNodeGetName(node), CLUSTER_NAMELEN);
+    reply_count++;
+
+    if (clusterNodeTcpPort(node)) {
+        addReplyBulkCString(c, "port");
+        addReplyLongLong(c, clusterNodeTcpPort(node));
+        reply_count++;
+    }
+
+    if (clusterNodeTlsPort(node)) {
+        addReplyBulkCString(c, "tls-port");
+        addReplyLongLong(c, clusterNodeTlsPort(node));
+        reply_count++;
+    }
+
+    addReplyBulkCString(c, "ip");
+    addReplyBulkCString(c, clusterNodeIp(node));
+    reply_count++;
+
+    addReplyBulkCString(c, "endpoint");
+    addReplyBulkCString(c, clusterNodePreferredEndpoint(node));
+    reply_count++;
+
+    hostname = clusterNodeHostname(node);
+    if (hostname != NULL && *hostname != '\0') {
+        addReplyBulkCString(c, "hostname");
+        addReplyBulkCString(c, hostname);
+        reply_count++;
+    }
+
+    long long node_offset;
+    if (clusterNodeIsMyself(node)) {
+        node_offset = clusterNodeIsSlave(node) ? replicationGetSlaveOffset() : server.master_repl_offset;
+    } else {
+        node_offset = clusterNodeReplOffset(node);
+    }
+
+    addReplyBulkCString(c, "role");
+    addReplyBulkCString(c, clusterNodeIsSlave(node) ? "replica" : "master");
+    reply_count++;
+
+    addReplyBulkCString(c, "replication-offset");
+    addReplyLongLong(c, node_offset);
+    reply_count++;
+
+    addReplyBulkCString(c, "health");
+    const char *health_msg = NULL;
+    if (clusterNodeIsFailing(node)) {
+        health_msg = "fail";
+    } else if (clusterNodeIsSlave(node) && node_offset == 0) {
+        health_msg = "loading";
+    } else {
+        health_msg = "online";
+    }
+    addReplyBulkCString(c, health_msg);
+    reply_count++;
+
+    setDeferredMapLen(c, node_replylen, reply_count);
+}
+
+static clusterNode *clusterGetMasterFromShard(void *shard_handle) {
+    clusterNode *n = NULL;
+    void *node_it = clusterShardHandleGetNodeIterator(shard_handle);
+    while((n = clusterShardNodeIteratorNext(node_it)) != NULL) {
+        if (!clusterNodeIsFailing(n)) {
+            break;
+        }
+    }
+    clusterShardNodeIteratorFree(node_it);
+    if (!n) return NULL;
+    return clusterNodeGetMaster(n);
+}
+
+/* Add the shard reply of a single shard based off the given primary node. */
+void addShardReplyForClusterShards(client *c, void *shard_handle) {
+    serverAssert(clusterGetShardNodeCount(shard_handle) > 0);
+    addReplyMapLen(c, 2);
+    addReplyBulkCString(c, "slots");
+
+    /* Use slot_info_pairs from the primary only */
+    clusterNode *master_node = clusterGetMasterFromShard(shard_handle);
+
+    if (master_node && clusterNodeHasSlotInfo(master_node)) {
+        serverAssert((clusterNodeSlotInfoCount(master_node) % 2) == 0);
+        addReplyArrayLen(c, clusterNodeSlotInfoCount(master_node));
+        for (int i = 0; i < clusterNodeSlotInfoCount(master_node); i++)
+            addReplyLongLong(c, (unsigned long)clusterNodeSlotInfoEntry(master_node, i));
+    } else {
+        /* If no slot info pair is provided, the node owns no slots */
+        addReplyArrayLen(c, 0);
+    }
+
+    addReplyBulkCString(c, "nodes");
+    addReplyArrayLen(c, clusterGetShardNodeCount(shard_handle));
+    void *node_it = clusterShardHandleGetNodeIterator(shard_handle);
+    for (clusterNode *n = clusterShardNodeIteratorNext(node_it); n != NULL; n = clusterShardNodeIteratorNext(node_it)) {
+        addNodeDetailsToShardReply(c, n);
+        clusterFreeNodesSlotsInfo(n);
+    }
+    clusterShardNodeIteratorFree(node_it);
+}
+
+/* Add to the output buffer of the given client, an array of slot (start, end)
+ * pair owned by the shard, also the primary and set of replica(s) along with
+ * information about each node. */
+void clusterCommandShards(client *c) {
+    addReplyArrayLen(c, clusterGetShardCount());
+    /* This call will add slot_info_pairs to all nodes */
+    clusterGenNodesSlotsInfo(0);
+    dictIterator *shard_it = clusterGetShardIterator();
+    for(void *shard_handle = clusterNextShardHandle(shard_it); shard_handle != NULL; shard_handle = clusterNextShardHandle(shard_it)) {
+        addShardReplyForClusterShards(c, shard_handle);
+    }
+    clusterFreeShardIterator(shard_it);
+}
+
 void clusterCommandHelp(client *c) {
     const char *help[] = {
             "COUNTKEYSINSLOT <slot>",
@@ -990,7 +1077,7 @@ void clusterCommand(client *c) {
  *
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *error_code) {
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, uint64_t cmd_flags, int *error_code) {
     clusterNode *myself = getMyClusterNode();
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -999,6 +1086,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     multiCmd mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0,
             existing_keys = 0;
+    int pubsubshard_included = 0; /* Flag to indicate if a pubsub shard cmd is included. */
 
     /* Allow any key to be set if a module disabled cluster redirections. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
@@ -1030,10 +1118,6 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.cmd = cmd;
     }
 
-    int is_pubsubshard = cmd->proc == ssubscribeCommand ||
-                         cmd->proc == sunsubscribeCommand ||
-                         cmd->proc == spublishCommand;
-
     /* Check that all the keys are in the same hash slot, and obtain this
      * slot and the node associated. */
     for (i = 0; i < ms->count; i++) {
@@ -1045,6 +1129,13 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mcmd = ms->commands[i].cmd;
         margc = ms->commands[i].argc;
         margv = ms->commands[i].argv;
+
+        /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
+        if (!pubsubshard_included &&
+            doesCommandHaveChannelsWithFlags(mcmd, CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE))
+        {
+            pubsubshard_included = 1;
+        }
 
         getKeysResult result = GETKEYS_RESULT_INIT;
         numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
@@ -1109,7 +1200,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
              * node until the migration completes with CLUSTER SETSLOT <slot>
              * NODE <node-id>. */
             int flags = LOOKUP_NOTOUCH | LOOKUP_NOSTATS | LOOKUP_NONOTIFY | LOOKUP_NOEXPIRE;
-            if ((migrating_slot || importing_slot) && !is_pubsubshard)
+            if ((migrating_slot || importing_slot) && !pubsubshard_included)
             {
                 if (lookupKeyReadWithFlags(&server.db[0], thiskey, flags) == NULL) missing_keys++;
                 else existing_keys++;
@@ -1122,11 +1213,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * without redirections or errors in all the cases. */
     if (n == NULL) return myself;
 
-    uint64_t cmd_flags = getCommandFlags(c);
     /* Cluster is globally down but we got keys? We only serve the request
      * if it is a read command and when allow_reads_when_down is enabled. */
     if (!isClusterHealthy()) {
-        if (is_pubsubshard) {
+        if (pubsubshard_included) {
             if (!server.cluster_allow_pubsubshard_when_down) {
                 if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
                 return NULL;
@@ -1189,7 +1279,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
      * is serving, we can reply without redirection. */
     int is_write_command = (cmd_flags & CMD_WRITE) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_WRITE));
-    if (((c->flags & CLIENT_READONLY) || is_pubsubshard) &&
+    if (((c->flags & CLIENT_READONLY) || pubsubshard_included) &&
         !is_write_command &&
         clusterNodeIsSlave(myself) &&
         clusterNodeGetSlaveof(myself) == n)

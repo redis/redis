@@ -2,32 +2,11 @@
  *
  * ----------------------------------------------------------------------------
  *
- * Copyright (c) 2009-2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -116,6 +95,8 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 #define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
                                                    we do extra efforts. */
 
+#define HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC 10000
+
 /* Data used by the expire dict scan callback. */
 typedef struct {
     redisDb *db;
@@ -153,6 +134,54 @@ static inline int isExpiryDictValidForSamplingCb(dict *d) {
         return C_ERR;
     }
     return C_OK;
+}
+
+/* Active expiration Cycle for hash-fields.
+ *
+ * Note that releasing fields is expected to be more predictable and rewarding
+ * than releasing keys because it is stored in `ebuckets` DS which optimized for
+ * active expiration and in addition the deletion of fields is simple to handle. */
+static inline void activeExpireHashFieldCycle(int type) {
+    /* Remember current db across calls */
+    static unsigned int currentDb = 0;
+
+    /* Tracks the count of fields actively expired for the current database.
+     * This count continues as long as it fails to actively expire all expired
+     * fields of currentDb, indicating a possible need to adjust the value of
+     * maxToExpire. */
+    static uint64_t activeExpirySequence = 0;
+    /* Threshold for adjusting maxToExpire */
+    const uint32_t EXPIRED_FIELDS_TH = 1000000;
+
+    redisDb *db = server.db + currentDb;
+
+    /* If db is empty, move to next db and return */
+    if (ebIsEmpty(db->hexpires)) {
+        activeExpirySequence = 0;
+        currentDb = (currentDb + 1) % server.dbnum;
+        return;
+    }
+
+    /* Maximum number of fields to actively expire on a single call */
+    uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;
+
+    /* If running for a while and didn't manage to active-expire all expired fields of
+     * currentDb (i.e. activeExpirySequence becomes significant) then adjust maxToExpire */
+    if ((activeExpirySequence > EXPIRED_FIELDS_TH) && (type == ACTIVE_EXPIRE_CYCLE_SLOW)) {
+        /* maxToExpire is multiplied by a factor between 1 and 32, proportional to
+         * the number of times activeExpirySequence exceeded EXPIRED_FIELDS_TH */
+        uint64_t factor = activeExpirySequence / EXPIRED_FIELDS_TH;
+        maxToExpire *= (factor<32) ? factor : 32;
+    }
+
+    if (hashTypeDbActiveExpire(db, maxToExpire) == maxToExpire) {
+        /* active-expire reached maxToExpire limit */
+        activeExpirySequence += maxToExpire;
+    } else {
+        /* Managed to active-expire all expired fields of currentDb */
+        activeExpirySequence = 0;
+        currentDb = (currentDb + 1) % server.dbnum;
+    }
 }
 
 void activeExpireCycle(int type) {
@@ -252,6 +281,11 @@ void activeExpireCycle(int type) {
          * in the current DB we'll restart from the next. This allows to
          * distribute the time evenly across DBs. */
         current_db++;
+
+        /* Interleaving hash-field expiration with key expiration. Better
+         * call it before handling expired keys because HFE DS is optimized for
+         * active expiration */
+        activeExpireHashFieldCycle(type);
 
         if (kvstoreSize(db->expires))
             dbs_performed++;

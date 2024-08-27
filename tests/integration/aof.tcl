@@ -481,6 +481,18 @@ tags {"aof external:skip"} {
         assert_match "*Start checking Old-Style AOF*is valid*" $result
     }
 
+    test {Test redis-check-aof for old style resp AOF - has data in the same format as manifest} {
+        create_aof $aof_dirpath $aof_file {
+            append_to_aof [formatCommand set file file]
+            append_to_aof [formatCommand set "file appendonly.aof.2.base.rdb seq 2 type b" "file appendonly.aof.2.base.rdb seq 2 type b"]
+        }
+
+        catch {
+            exec src/redis-check-aof $aof_file
+        } result
+        assert_match "*Start checking Old-Style AOF*is valid*" $result
+    }
+
     test {Test redis-check-aof for old style rdb-preamble AOF} {
         catch {
             exec src/redis-check-aof tests/assets/rdb-preamble.aof
@@ -527,6 +539,19 @@ tags {"aof external:skip"} {
             exec src/redis-check-aof $aof_manifest_file
         } result
         assert_match "*Start checking Multi Part AOF*Start to check BASE AOF (RDB format)*DB preamble is OK, proceeding with AOF tail*BASE AOF*is valid*Start to check INCR files*INCR AOF*is valid*All AOF files and manifest are valid*" $result
+    }
+
+    test {Test redis-check-aof for Multi Part AOF contains a format error} {
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+            append_to_manifest "!!!\n"
+        }
+
+        catch {
+            exec src/redis-check-aof $aof_manifest_file
+        } result
+        assert_match "*Invalid AOF manifest file format*" $result
     }
 
     test {Test redis-check-aof only truncates the last file for Multi Part AOF in fix mode} {

@@ -319,7 +319,7 @@ start_server {
         r XADD mystream 666 f v
         r XGROUP CREATE mystream mygroup $
         assert_error "ERR Unbalanced 'xreadgroup' list of streams: for each stream key an ID or '>' must be specified." {r XREADGROUP GROUP mygroup Alice COUNT 1 STREAMS mystream }
-        assert_error "ERR Unbalanced 'xread' list of streams: for each stream key an ID or '$' must be specified." {r XREAD COUNT 1 STREAMS mystream }
+        assert_error "ERR Unbalanced 'xread' list of streams: for each stream key an ID, '+', or '$' must be specified." {r XREAD COUNT 1 STREAMS mystream }
     }
 
     test {Blocking XREAD: key deleted} {
@@ -518,9 +518,9 @@ start_server {
         assert_equal {} [$rd2 read]
         set end [clock milliseconds]
 
-        # In the past, this time would have been 1000+200, in order to avoid
-        # timing issues, we increase the range a bit.
-        assert_range [expr $end-$start] 1000 1100
+        # Before the fix in #13004, this time would have been 1200+ (i.e. more than 1200ms),
+        # now it should be 1000, but in order to avoid timing issues, we increase the range a bit.
+        assert_range [expr $end-$start] 1000 1150
 
         $rd1 close
         $rd2 close
@@ -1009,6 +1009,68 @@ start_server {
         assert_error "*NOGROUP*" {r XGROUP CREATECONSUMER mystream mygroup consumer}
     }
 
+    test {XREADGROUP of multiple entries changes dirty by one} {
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATECONSUMER x g1 Alice
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice NOACK COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{3-0 {data c}} {4-0 {data d}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+    }
+
+    test {XREADGROUP from PEL does not change dirty} {
+        # Techinally speaking, XREADGROUP from PEL should cause propagation
+        # because it change the delivery count/time
+        # It was decided that this metadata changes are too insiginificant
+        # to justify propagation
+        # This test covers that.
+        r DEL x
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XGROUP CREATE x g1 0
+        r XGROUP CREATECONSUMER x g1 Alice
+
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x ">"]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 0]
+        assert_equal $res {{x {{1-0 {data a}} {2-0 {data b}}}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty}
+
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 Alice COUNT 2 STREAMS x 9000]
+        assert_equal $res {{x {}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty}
+
+        # The current behavior is that we create the consumer (causes dirty++) even
+        # if we onlyneed to read from PEL.
+        # It feels like we shouldn't create the consumer in that case, but I added
+        # this test just for coverage of current behavior
+        set dirty [s rdb_changes_since_last_save]
+        set res [r XREADGROUP GROUP g1 noconsumer COUNT 2 STREAMS x 0]
+        assert_equal $res {{x {}}}
+        set dirty2 [s rdb_changes_since_last_save]
+        assert {$dirty2 == $dirty + 1}
+    }
+
     start_server {tags {"stream needs:debug"} overrides {appendonly yes aof-use-rdb-preamble no appendfsync always}} {
         test {XREADGROUP with NOACK creates consumer} {
             r del mystream
@@ -1177,6 +1239,74 @@ start_server {
         assert_equal [dict get $group lag] 2
     }
 
+    test {Consumer Group Lag with XDELs and tombstone after the last_id of consume group} {
+        r DEL x
+        r XGROUP CREATE x g1 $ MKSTREAM
+        r XADD x 1-0 data a
+        r XREADGROUP GROUP g1 alice STREAMS x > ;# Read one entry
+        r XADD x 2-0 data c
+        r XADD x 3-0 data d
+        r XDEL x 2-0
+
+        # Now the latest tombstone(2-0) is before the first entry(3-0), but there is still
+        # a tombstone(2-0) after the last_id(1-0) of the consume group.
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 1
+        assert_equal [dict get $group lag] {}
+
+        r XDEL x 1-0
+        # Although there is a tombstone(2-0) after the consumer group's last_id(1-0), all
+        # entries before the maximal tombstone have been deleted. This means that both the
+        # last_id and the largest tombstone are behind the first entry. Therefore, tombstones
+        # no longer affect the lag, which now reflects the remaining entries in the stream.
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 1
+        assert_equal [dict get $group lag] 1
+
+        # Now there is a tombstone(2-0) after the last_id of the consume group, so after consuming
+        # entry(3-0), the group's counter will be invalid.
+        r XREADGROUP GROUP g1 alice STREAMS x > 
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 3
+        assert_equal [dict get $group lag] 0
+    }
+
+    test {Consumer group lag with XTRIM} {
+        r DEL x
+        r XGROUP CREATE x mygroup $ MKSTREAM
+        r XADD x 1-0 data a
+        r XADD x 2-0 data b
+        r XADD x 3-0 data c
+        r XADD x 4-0 data d
+        r XADD x 5-0 data e
+        r XREADGROUP GROUP mygroup alice COUNT 1 STREAMS x >
+
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group entries-read] 1
+        assert_equal [dict get $group lag] 4
+
+        # Although XTRIM doesn't update the `max-deleted-entry-id`, it always updates the
+        # position of the first entry. When trimming causes the first entry to be behind
+        # the consumer group's last_id, the consumer group's lag will always be equal to
+        # the number of remainin entries in the stream.
+        r XTRIM x MAXLEN 1
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $reply max-deleted-entry-id] "0-0"
+        assert_equal [dict get $group entries-read] 1
+        assert_equal [dict get $group lag] 1
+
+        # When all the entries were deleted, the lag is always 0.
+        r XTRIM x MAXLEN 0
+        set reply [r XINFO STREAM x FULL]
+        set group [lindex [dict get $reply groups] 0]
+        assert_equal [dict get $group lag] 0
+    }
+
     test {Loading from legacy (Redis <= v6.2.x, rdb_ver < 10) persistence} {
         # The payload was DUMPed from a v5 instance after:
         # XADD x 1-0 data a
@@ -1277,7 +1407,7 @@ start_server {
         set replica [srv 0 client]
 
         foreach autoclaim {0 1} {
-            test "Replication tests of XCLAIM with deleted entries (autclaim=$autoclaim)" {
+            test "Replication tests of XCLAIM with deleted entries (autoclaim=$autoclaim)" {
                 $replica replicaof $master_host $master_port
                 wait_for_condition 50 100 {
                     [s 0 master_link_status] eq {up}
@@ -1307,6 +1437,39 @@ start_server {
                     assert_equal [llength [$replica XPENDING x grp - + 10 Alice]] 1
                 }
             }
+        }
+
+        test {XREADGROUP ACK would propagate entries-read} {
+            $master del mystream
+            $master xadd mystream * a b c d e f
+            $master xgroup create mystream mygroup $
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+            $master xadd mystream * a1 b1 a1 b2
+            $master xadd mystream * name v1 name v1
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+            $master xreadgroup group mygroup ryan count 1 streams mystream >
+
+            set reply [$master XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+            assert_equal [dict get $group entries-read] 3
+            assert_equal [dict get $group lag] 0
+
+            set reply [$replica XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+            assert_equal [dict get $group entries-read] 3
+            assert_equal [dict get $group lag] 0
+        }
+
+        test {XREADGROUP from PEL inside MULTI} {
+            # This scenario used to cause propagation of EXEC without MULTI in 6.2
+            $replica config set propagation-error-behavior panic
+            $master del mystream
+            $master xadd mystream 1-0 a b c d e f
+            $master xgroup create mystream mygroup 0
+            assert_equal [$master xreadgroup group mygroup ryan count 1 streams mystream >] {{mystream {{1-0 {a b c d e f}}}}}
+            $master multi
+            $master xreadgroup group mygroup ryan count 1 streams mystream 0
+            $master exec
         }
     }
 

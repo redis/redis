@@ -1177,7 +1177,7 @@ commandHistory CLIENT_KILL_History[] = {
 {"3.2.0","Added `master` type in for `TYPE` option."},
 {"5.0.0","Replaced `slave` `TYPE` with `replica`. `slave` still supported for backward compatibility."},
 {"6.2.0","`LADDR` option."},
-{"8.0.0","`MAXAGE` option."},
+{"7.4.0","`MAXAGE` option."},
 };
 #endif
 
@@ -1214,7 +1214,7 @@ struct COMMAND_ARG CLIENT_KILL_filter_new_format_Subargs[] = {
 {MAKE_ARG("addr",ARG_TYPE_STRING,-1,"ADDR",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
 {MAKE_ARG("laddr",ARG_TYPE_STRING,-1,"LADDR",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL),.display_text="ip:port"},
 {MAKE_ARG("skipme",ARG_TYPE_ONEOF,-1,"SKIPME",NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=CLIENT_KILL_filter_new_format_skipme_Subargs},
-{MAKE_ARG("maxage",ARG_TYPE_INTEGER,-1,"MAXAGE",NULL,"8.0.0",CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("maxage",ARG_TYPE_INTEGER,-1,"MAXAGE",NULL,"7.4.0",CMD_ARG_OPTIONAL,0,NULL)},
 };
 
 /* CLIENT KILL filter argument table */
@@ -3303,6 +3303,119 @@ struct COMMAND_ARG HEXISTS_Args[] = {
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/********** HEXPIRE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HEXPIRE history */
+#define HEXPIRE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HEXPIRE tips */
+#define HEXPIRE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HEXPIRE key specs */
+keySpec HEXPIRE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HEXPIRE condition argument table */
+struct COMMAND_ARG HEXPIRE_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* HEXPIRE fields argument table */
+struct COMMAND_ARG HEXPIRE_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HEXPIRE argument table */
+struct COMMAND_ARG HEXPIRE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=HEXPIRE_condition_Subargs},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HEXPIRE_fields_Subargs},
+};
+
+/********** HEXPIREAT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HEXPIREAT history */
+#define HEXPIREAT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HEXPIREAT tips */
+#define HEXPIREAT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HEXPIREAT key specs */
+keySpec HEXPIREAT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HEXPIREAT condition argument table */
+struct COMMAND_ARG HEXPIREAT_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* HEXPIREAT fields argument table */
+struct COMMAND_ARG HEXPIREAT_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HEXPIREAT argument table */
+struct COMMAND_ARG HEXPIREAT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=HEXPIREAT_condition_Subargs},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HEXPIREAT_fields_Subargs},
+};
+
+/********** HEXPIRETIME ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HEXPIRETIME history */
+#define HEXPIRETIME_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HEXPIRETIME tips */
+#define HEXPIRETIME_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HEXPIRETIME key specs */
+keySpec HEXPIRETIME_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HEXPIRETIME fields argument table */
+struct COMMAND_ARG HEXPIRETIME_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HEXPIRETIME argument table */
+struct COMMAND_ARG HEXPIRETIME_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HEXPIRETIME_fields_Subargs},
+};
+
 /********** HGET ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -3512,6 +3625,183 @@ struct COMMAND_ARG HMSET_Args[] = {
 {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=HMSET_data_Subargs},
 };
 
+/********** HPERSIST ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HPERSIST history */
+#define HPERSIST_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HPERSIST tips */
+#define HPERSIST_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HPERSIST key specs */
+keySpec HPERSIST_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HPERSIST fields argument table */
+struct COMMAND_ARG HPERSIST_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HPERSIST argument table */
+struct COMMAND_ARG HPERSIST_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HPERSIST_fields_Subargs},
+};
+
+/********** HPEXPIRE ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HPEXPIRE history */
+#define HPEXPIRE_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HPEXPIRE tips */
+#define HPEXPIRE_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HPEXPIRE key specs */
+keySpec HPEXPIRE_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HPEXPIRE condition argument table */
+struct COMMAND_ARG HPEXPIRE_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* HPEXPIRE fields argument table */
+struct COMMAND_ARG HPEXPIRE_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HPEXPIRE argument table */
+struct COMMAND_ARG HPEXPIRE_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=HPEXPIRE_condition_Subargs},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HPEXPIRE_fields_Subargs},
+};
+
+/********** HPEXPIREAT ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HPEXPIREAT history */
+#define HPEXPIREAT_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HPEXPIREAT tips */
+#define HPEXPIREAT_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HPEXPIREAT key specs */
+keySpec HPEXPIREAT_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HPEXPIREAT condition argument table */
+struct COMMAND_ARG HPEXPIREAT_condition_Subargs[] = {
+{MAKE_ARG("nx",ARG_TYPE_PURE_TOKEN,-1,"NX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("gt",ARG_TYPE_PURE_TOKEN,-1,"GT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("lt",ARG_TYPE_PURE_TOKEN,-1,"LT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* HPEXPIREAT fields argument table */
+struct COMMAND_ARG HPEXPIREAT_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HPEXPIREAT argument table */
+struct COMMAND_ARG HPEXPIREAT_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=HPEXPIREAT_condition_Subargs},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HPEXPIREAT_fields_Subargs},
+};
+
+/********** HPEXPIRETIME ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HPEXPIRETIME history */
+#define HPEXPIRETIME_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HPEXPIRETIME tips */
+#define HPEXPIRETIME_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HPEXPIRETIME key specs */
+keySpec HPEXPIRETIME_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HPEXPIRETIME fields argument table */
+struct COMMAND_ARG HPEXPIRETIME_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HPEXPIRETIME argument table */
+struct COMMAND_ARG HPEXPIRETIME_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HPEXPIRETIME_fields_Subargs},
+};
+
+/********** HPTTL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HPTTL history */
+#define HPTTL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HPTTL tips */
+const char *HPTTL_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HPTTL key specs */
+keySpec HPTTL_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HPTTL fields argument table */
+struct COMMAND_ARG HPTTL_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HPTTL argument table */
+struct COMMAND_ARG HPTTL_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HPTTL_fields_Subargs},
+};
+
 /********** HRANDFIELD ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -3657,6 +3947,39 @@ keySpec HSTRLEN_Keyspecs[1] = {
 struct COMMAND_ARG HSTRLEN_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/********** HTTL ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* HTTL history */
+#define HTTL_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* HTTL tips */
+const char *HTTL_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* HTTL key specs */
+keySpec HTTL_Keyspecs[1] = {
+{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* HTTL fields argument table */
+struct COMMAND_ARG HTTL_fields_Subargs[] = {
+{MAKE_ARG("numfields",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("field",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* HTTL argument table */
+struct COMMAND_ARG HTTL_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("fields",ARG_TYPE_BLOCK,-1,"FIELDS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=HTTL_fields_Subargs},
 };
 
 /********** HVALS ********************/
@@ -9386,7 +9709,7 @@ struct COMMAND_ARG XGROUP_CREATE_Args[] = {
 {MAKE_ARG("group",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XGROUP_CREATE_id_selector_Subargs},
 {MAKE_ARG("mkstream",ARG_TYPE_PURE_TOKEN,-1,"MKSTREAM",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
-{MAKE_ARG("entries-read",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("entriesread",ARG_TYPE_INTEGER,-1,"ENTRIESREAD",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL),.display_text="entries-read"},
 };
 
 /********** XGROUP CREATECONSUMER ********************/
@@ -9551,7 +9874,7 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #ifndef SKIP_CMD_HISTORY_TABLE
 /* XINFO CONSUMERS history */
 commandHistory XINFO_CONSUMERS_History[] = {
-{"7.2.0","Added the `inactive` field."},
+{"7.2.0","Added the `inactive` field, and changed the meaning of `idle`."},
 };
 #endif
 
@@ -10710,6 +11033,9 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 /* hash */
 {MAKE_CMD("hdel","Deletes one or more fields and their values from a hash. Deletes the hash if no fields remain.","O(N) where N is the number of fields to be removed.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HDEL_History,1,HDEL_Tips,0,hdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HDEL_Keyspecs,1,NULL,2),.args=HDEL_Args},
 {MAKE_CMD("hexists","Determines whether a field exists in a hash.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HEXISTS_History,0,HEXISTS_Tips,0,hexistsCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HEXISTS_Keyspecs,1,NULL,2),.args=HEXISTS_Args},
+{MAKE_CMD("hexpire","Set expiry for hash field using relative time to expire (seconds)","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HEXPIRE_History,0,HEXPIRE_Tips,0,hexpireCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HEXPIRE_Keyspecs,1,NULL,4),.args=HEXPIRE_Args},
+{MAKE_CMD("hexpireat","Set expiry for hash field using an absolute Unix timestamp (seconds)","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HEXPIREAT_History,0,HEXPIREAT_Tips,0,hexpireatCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HEXPIREAT_Keyspecs,1,NULL,4),.args=HEXPIREAT_Args},
+{MAKE_CMD("hexpiretime","Returns the expiration time of a hash field as a Unix timestamp, in seconds.","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HEXPIRETIME_History,0,HEXPIRETIME_Tips,0,hexpiretimeCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HEXPIRETIME_Keyspecs,1,NULL,2),.args=HEXPIRETIME_Args},
 {MAKE_CMD("hget","Returns the value of a field in a hash.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGET_History,0,HGET_Tips,0,hgetCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HGET_Keyspecs,1,NULL,2),.args=HGET_Args},
 {MAKE_CMD("hgetall","Returns all fields and values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HGETALL_History,0,HGETALL_Tips,1,hgetallCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HGETALL_Keyspecs,1,NULL,1),.args=HGETALL_Args},
 {MAKE_CMD("hincrby","Increments the integer value of a field in a hash by a number. Uses 0 as initial value if the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HINCRBY_History,0,HINCRBY_Tips,0,hincrbyCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HINCRBY_Keyspecs,1,NULL,3),.args=HINCRBY_Args},
@@ -10718,11 +11044,17 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("hlen","Returns the number of fields in a hash.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HLEN_History,0,HLEN_Tips,0,hlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HLEN_Keyspecs,1,NULL,1),.args=HLEN_Args},
 {MAKE_CMD("hmget","Returns the values of all fields in a hash.","O(N) where N is the number of fields being requested.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HMGET_History,0,HMGET_Tips,0,hmgetCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HMGET_Keyspecs,1,NULL,2),.args=HMGET_Args},
 {MAKE_CMD("hmset","Sets the values of multiple fields.","O(N) where N is the number of fields being set.","2.0.0",CMD_DOC_DEPRECATED,"`HSET` with multiple field-value pairs","4.0.0","hash",COMMAND_GROUP_HASH,HMSET_History,0,HMSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HMSET_Keyspecs,1,NULL,2),.args=HMSET_Args},
+{MAKE_CMD("hpersist","Removes the expiration time for each specified field","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPERSIST_History,0,HPERSIST_Tips,0,hpersistCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_HASH,HPERSIST_Keyspecs,1,NULL,2),.args=HPERSIST_Args},
+{MAKE_CMD("hpexpire","Set expiry for hash field using relative time to expire (milliseconds)","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPEXPIRE_History,0,HPEXPIRE_Tips,0,hpexpireCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HPEXPIRE_Keyspecs,1,NULL,4),.args=HPEXPIRE_Args},
+{MAKE_CMD("hpexpireat","Set expiry for hash field using an absolute Unix timestamp (milliseconds)","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPEXPIREAT_History,0,HPEXPIREAT_Tips,0,hpexpireatCommand,-6,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HPEXPIREAT_Keyspecs,1,NULL,4),.args=HPEXPIREAT_Args},
+{MAKE_CMD("hpexpiretime","Returns the expiration time of a hash field as a Unix timestamp, in msec.","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPEXPIRETIME_History,0,HPEXPIRETIME_Tips,0,hpexpiretimeCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HPEXPIRETIME_Keyspecs,1,NULL,2),.args=HPEXPIRETIME_Args},
+{MAKE_CMD("hpttl","Returns the TTL in milliseconds of a hash field.","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HPTTL_History,0,HPTTL_Tips,1,hpttlCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HPTTL_Keyspecs,1,NULL,2),.args=HPTTL_Args},
 {MAKE_CMD("hrandfield","Returns one or more random fields from a hash.","O(N) where N is the number of fields returned","6.2.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HRANDFIELD_History,0,HRANDFIELD_Tips,1,hrandfieldCommand,-2,CMD_READONLY,ACL_CATEGORY_HASH,HRANDFIELD_Keyspecs,1,NULL,2),.args=HRANDFIELD_Args},
 {MAKE_CMD("hscan","Iterates over fields and values of a hash.","O(1) for every call. O(N) for a complete iteration, including enough command calls for the cursor to return back to 0. N is the number of elements inside the collection.","2.8.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSCAN_History,0,HSCAN_Tips,1,hscanCommand,-3,CMD_READONLY,ACL_CATEGORY_HASH,HSCAN_Keyspecs,1,NULL,5),.args=HSCAN_Args},
 {MAKE_CMD("hset","Creates or modifies the value of a field in a hash.","O(1) for each field/value pair added, so O(N) to add N field/value pairs when the command is called with multiple field/value pairs.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSET_History,1,HSET_Tips,0,hsetCommand,-4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSET_Keyspecs,1,NULL,2),.args=HSET_Args},
 {MAKE_CMD("hsetnx","Sets the value of a field in a hash only when the field doesn't exist.","O(1)","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSETNX_History,0,HSETNX_Tips,0,hsetnxCommand,4,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HASH,HSETNX_Keyspecs,1,NULL,3),.args=HSETNX_Args},
 {MAKE_CMD("hstrlen","Returns the length of the value of a field.","O(1)","3.2.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HSTRLEN_History,0,HSTRLEN_Tips,0,hstrlenCommand,3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HSTRLEN_Keyspecs,1,NULL,2),.args=HSTRLEN_Args},
+{MAKE_CMD("httl","Returns the TTL in seconds of a hash field.","O(N) where N is the number of specified fields","7.4.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HTTL_History,0,HTTL_Tips,1,httlCommand,-5,CMD_READONLY|CMD_FAST,ACL_CATEGORY_HASH,HTTL_Keyspecs,1,NULL,2),.args=HTTL_Args},
 {MAKE_CMD("hvals","Returns all values in a hash.","O(N) where N is the size of the hash.","2.0.0",CMD_DOC_NONE,NULL,NULL,"hash",COMMAND_GROUP_HASH,HVALS_History,0,HVALS_Tips,1,hvalsCommand,2,CMD_READONLY,ACL_CATEGORY_HASH,HVALS_Keyspecs,1,NULL,1),.args=HVALS_Args},
 /* hyperloglog */
 {MAKE_CMD("pfadd","Adds elements to a HyperLogLog key. Creates the key if it doesn't exist.","O(1) to add every element.","2.8.9",CMD_DOC_NONE,NULL,NULL,"hyperloglog",COMMAND_GROUP_HYPERLOGLOG,PFADD_History,0,PFADD_Tips,0,pfaddCommand,-2,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_HYPERLOGLOG,PFADD_Keyspecs,1,NULL,2),.args=PFADD_Args},

@@ -7,7 +7,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT LIST} {
         r client list
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|list user=* redir=-1 resp=*}
 
     test {CLIENT LIST with IDs} {
         set myid [r client id]
@@ -17,7 +17,7 @@ start_server {tags {"introspection"}} {
 
     test {CLIENT INFO} {
         r client info
-    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*}
+    } {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=26 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=*}
 
     test {CLIENT KILL with illegal arguments} {
         assert_error "ERR wrong number of arguments for 'client|kill' command" {r client kill}
@@ -39,19 +39,36 @@ start_server {tags {"introspection"}} {
     }
 
     test {CLIENT KILL maxAGE will kill old clients} {
-        set rd1 [redis_deferring_client]
-        r debug sleep 2
-        set rd2 [redis_deferring_client]
+        # This test is very likely to do a false positive if the execute time
+        # takes longer than the max age, so give it a few more chances. Go with
+        # 3 retries of increasing sleep_time, i.e. start with 2s, then go 4s, 8s.
+        set sleep_time 2
+        for {set i 0} {$i < 3} {incr i} {
+            set rd1 [redis_deferring_client]
+            r debug sleep $sleep_time
+            set rd2 [redis_deferring_client]
+            r acl setuser dummy on nopass +ping
+            $rd1 auth dummy ""
+            $rd1 read
+            $rd2 auth dummy ""
+            $rd2 read
 
-        r acl setuser dummy on nopass +ping
-        $rd1 auth dummy ""
-        $rd1 read
-        $rd2 auth dummy ""
-        $rd2 read
+            # Should kill rd1 but not rd2
+            set max_age [expr $sleep_time / 2]
+            set res [r client kill user dummy maxage $max_age]
+            if {$res == 1} {
+                break
+            } else {
+                # Clean up and try again next time
+                set sleep_time [expr $sleep_time * 2]
+                $rd1 close
+                $rd2 close
+            }
 
-        # Should kill rd1 but not rd2
-        set res [r client kill user dummy maxage 1]
-        assert {$res == 1}
+        } ;# for
+
+        if {$::verbose} { puts "CLIENT KILL maxAGE will kill old clients test attempts: $i" }
+        assert_equal $res 1
 
         # rd2 should still be connected
         $rd2 ping
@@ -631,7 +648,7 @@ start_server {tags {"introspection"}} {
         # Run a dummy server on used_port so we know we can't configure redis to 
         # use it. It's ok for this to fail because that means used_port is invalid 
         # anyway
-        catch {socket -server dummy_accept -myaddr 127.0.0.1 $used_port} e
+        catch {set sockfd [socket -server dummy_accept -myaddr 127.0.0.1 $used_port]} e
         if {$::verbose} { puts "dummy_accept: $e" }
 
         # Try to listen on the used port, pass some more configs to make sure the
@@ -653,6 +670,7 @@ start_server {tags {"introspection"}} {
         set r1 [redis_client]
         assert_equal [$r1 ping] "PONG"
         $r1 close
+        close $sockfd
     }
 
     test {CONFIG SET duplicate configs} {

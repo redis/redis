@@ -5,32 +5,11 @@
  * tables of power of two in size are used, collisions are handled by
  * chaining. See the source code for more information... :)
  *
- * Copyright (c) 2006-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "fmacros.h"
@@ -88,6 +67,25 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntry **dictGetNextRef(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
+static int dictDefaultCompare(dict *d, const void *key1, const void *key2);
+
+/* -------------------------- misc inline functions -------------------------------- */
+
+typedef int (*keyCmpFunc)(dict *d, const void *key1, const void *key2);
+static inline keyCmpFunc dictGetKeyCmpFunc(dict *d) {
+    if (d->useStoredKeyApi && d->type->storedKeyCompare)
+        return d->type->storedKeyCompare;
+    if (d->type->keyCompare)
+        return d->type->keyCompare;
+    return dictDefaultCompare;
+}
+
+static inline uint64_t dictHashKey(dict *d, const void *key, int isStoredKey) {
+    if (isStoredKey && d->type->storedHashFunction)
+        return d->type->storedHashFunction(key);
+    else
+        return d->type->hashFunction(key);
+}
 
 /* -------------------------- hash functions -------------------------------- */
 
@@ -194,6 +192,19 @@ dict *dictCreate(dictType *type)
     return d;
 }
 
+/* Change dictType of dict to another one with metadata support
+ * Rest of dictType's values must stay the same */
+void dictTypeAddMeta(dict **d, dictType *typeWithMeta) {
+    /* Verify new dictType is compatible with the old one */
+    dictType toCmp = *typeWithMeta;
+    toCmp.dictMetadataBytes = NULL;                            /* Expected old one not to have metadata */
+    toCmp.onDictRelease = (*d)->type->onDictRelease;           /* Ignore 'onDictRelease' in comparison */
+    assert(memcmp((*d)->type, &toCmp, sizeof(dictType)) == 0); /* The rest of the dictType fields must be the same */
+
+    *d = zrealloc(*d, sizeof(dict) + typeWithMeta->dictMetadataBytes(*d));
+    (*d)->type = typeWithMeta;
+}
+
 /* Initialize the hash table */
 int _dictInit(dict *d, dictType *type)
 {
@@ -203,6 +214,7 @@ int _dictInit(dict *d, dictType *type)
     d->rehashidx = -1;
     d->pauserehash = 0;
     d->pauseAutoResize = 0;
+    d->useStoredKeyApi = 0;
     return DICT_OK;
 }
 
@@ -306,7 +318,7 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
         void *key = dictGetKey(de);
         /* Get the index in the new hash table */
         if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
-            h = dictHashKey(d, key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            h = dictHashKey(d, key, 1) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
         } else {
             /* We're shrinking the table. The tables sizes are powers of
              * two, so we simply mask the bucket index in the larger table
@@ -593,7 +605,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     /* dict is empty */
     if (dictSize(d) == 0) return NULL;
 
-    h = dictHashKey(d, key);
+    h = dictHashKey(d, key, d->useStoredKeyApi);
     idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
 
     if (dictIsRehashing(d)) {
@@ -608,6 +620,8 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         }
     }
 
+    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+
     for (table = 0; table <= 1; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue;
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
@@ -615,7 +629,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         prevHe = NULL;
         while(he) {
             void *he_key = dictGetKey(he);
-            if (key == he_key || dictCompareKeys(d, key, he_key)) {
+            if (key == he_key || cmpFunc(d, key, he_key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     dictSetNext(prevHe, dictGetNext(he));
@@ -706,6 +720,14 @@ int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
 /* Clear & Release the hash table */
 void dictRelease(dict *d)
 {
+    /* Someone may be monitoring a dict that started rehashing, before
+     * destroying the dict fake completion. */
+    if (dictIsRehashing(d) && d->type->rehashingCompleted)
+        d->type->rehashingCompleted(d);
+
+    if (d->type->onDictRelease)
+        d->type->onDictRelease(d);
+
     _dictClear(d,0,NULL);
     _dictClear(d,1,NULL);
     zfree(d);
@@ -718,8 +740,9 @@ dictEntry *dictFind(dict *d, const void *key)
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
 
-    h = dictHashKey(d, key);
+    h = dictHashKey(d, key, d->useStoredKeyApi);
     idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
+    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
 
     if (dictIsRehashing(d)) {
         if ((long)idx >= d->rehashidx && d->ht_table[0][idx]) {
@@ -739,7 +762,7 @@ dictEntry *dictFind(dict *d, const void *key)
         he = d->ht_table[table][idx];
         while(he) {
             void *he_key = dictGetKey(he);
-            if (key == he_key || dictCompareKeys(d, key, he_key))
+            if (key == he_key || cmpFunc(d, key, he_key))
                 return he;
             he = dictGetNext(he);
         }
@@ -776,7 +799,9 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
-    h = dictHashKey(d, key);
+
+    h = dictHashKey(d, key, d->useStoredKeyApi);
+    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
@@ -784,7 +809,7 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
         dictEntry **ref = &d->ht_table[table][idx];
         while (ref && *ref) {
             void *de_key = dictGetKey(*ref);
-            if (key == de_key || dictCompareKeys(d, key, de_key)) {
+            if (key == de_key || cmpFunc(d, key, de_key)) {
                 *table_index = table;
                 *plink = ref;
                 dictPauseRehashing(d);
@@ -1547,8 +1572,8 @@ static signed char _dictNextExp(unsigned long size)
 void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) {
     unsigned long idx, table;
     dictEntry *he;
+    uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
     if (existing) *existing = NULL;
-    uint64_t hash = dictHashKey(d, key);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
 
     if (dictIsRehashing(d)) {
@@ -1565,6 +1590,8 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
 
     /* Expand the hash table if needed */
     _dictExpandIfNeeded(d);
+    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+
     for (table = 0; table <= 1; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue; 
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
@@ -1572,7 +1599,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
         he = d->ht_table[table][idx];
         while(he) {
             void *he_key = dictGetKey(he);
-            if (key == he_key || dictCompareKeys(d, key, he_key)) {
+            if (key == he_key || cmpFunc(d, key, he_key)) {
                 if (existing) *existing = he;
                 return NULL;
             }
@@ -1588,6 +1615,10 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
 }
 
 void dictEmpty(dict *d, void(callback)(dict*)) {
+    /* Someone may be monitoring a dict that started rehashing, before
+     * destroying the dict fake completion. */
+    if (dictIsRehashing(d) && d->type->rehashingCompleted)
+        d->type->rehashingCompleted(d);
     _dictClear(d,0,callback);
     _dictClear(d,1,callback);
     d->rehashidx = -1;
@@ -1600,7 +1631,7 @@ void dictSetResizeEnabled(dictResizeEnable enable) {
 }
 
 uint64_t dictGetHash(dict *d, const void *key) {
-    return dictHashKey(d, key);
+    return dictHashKey(d, key, d->useStoredKeyApi);
 }
 
 /* Finds the dictEntry using pointer and pre-calculated hash.
@@ -1743,6 +1774,11 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     }
     /* Make sure there is a NULL term at the end. */
     orig_buf[orig_bufsize-1] = '\0';
+}
+
+static int dictDefaultCompare(dict *d, const void *key1, const void *key2) {
+    (void)(d); /*unused*/
+    return key1 == key2;
 }
 
 /* ------------------------------- Benchmark ---------------------------------*/

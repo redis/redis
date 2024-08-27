@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2016-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 /* --------------------------------------------------------------------------
@@ -59,6 +38,7 @@
 #include "script.h"
 #include "call_reply.h"
 #include "hdr_histogram.h"
+#include "crc16_slottable.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -282,6 +262,10 @@ typedef struct RedisModuleBlockedClient {
     monotime background_timer; /* Timer tracking the start of background work */
     uint64_t background_duration; /* Current command background time duration.
                                      Used for measuring latency of blocking cmds */
+    int blocked_on_keys_explicit_unblock; /* Set to 1 only in the case of an explicit RM_Unblock on
+                                           * a client that is blocked on keys. In this case we will
+                                           * call the timeout call back from within
+                                           * moduleHandleBlockedClients which runs from the main thread */
 } RedisModuleBlockedClient;
 
 /* This is a list of Module Auth Contexts. Each time a Module registers a callback, a new ctx is
@@ -765,7 +749,7 @@ int moduleDelKeyIfEmpty(RedisModuleKey *key) {
     case OBJ_LIST: isempty = listTypeLength(o) == 0; break;
     case OBJ_SET: isempty = setTypeSize(o) == 0; break;
     case OBJ_ZSET: isempty = zsetLength(o) == 0; break;
-    case OBJ_HASH: isempty = hashTypeLength(o) == 0; break;
+    case OBJ_HASH: isempty = hashTypeLength(o, 0) == 0; break;
     case OBJ_STREAM: isempty = streamLength(o) == 0; break;
     default: isempty = 0;
     }
@@ -2444,7 +2428,7 @@ void RM_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
                     /* Release the GIL, yielding CPU to give the main thread an opportunity to start
                      * event processing, and then acquire the GIL again until the main thread releases it. */
                     moduleReleaseGIL();
-                    sched_yield();
+                    usleep(0);
                     moduleAcquireGIL();
                 }
             } else {
@@ -3544,9 +3528,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  *
  * The replicated commands are always wrapped into the MULTI/EXEC that
  * contains all the commands replicated in a given module command
- * execution. However the commands replicated with RedisModule_Call()
- * are the first items, the ones replicated with RedisModule_Replicate()
- * will all follow before the EXEC.
+ * execution, in the order they were executed.
  *
  * Modules should try to use one interface or the other.
  *
@@ -3568,9 +3550,8 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  * the callback, and will propagate all the commands wrapped in a MULTI/EXEC
  * transaction. However when calling this function from a threaded safe context
  * that can live an undefined amount of time, and can be locked/unlocked in
- * at will, the behavior is different: MULTI/EXEC wrapper is not emitted
- * and the command specified is inserted in the AOF and replication stream
- * immediately.
+ * at will, it is important to note that this API is not thread-safe and
+ * must be executed while holding the GIL.
  *
  * #### Return value
  *
@@ -3608,14 +3589,17 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 }
 
 /* This function will replicate the command exactly as it was invoked
- * by the client. Note that this function will not wrap the command into
- * a MULTI/EXEC stanza, so it should not be mixed with other replication
- * commands.
+ * by the client. Note that the replicated commands are always wrapped
+ * into the MULTI/EXEC that contains all the commands replicated in a
+ * given module command execution, in the order they were executed.
  *
  * Basically this form of replication is useful when you want to propagate
  * the command to the slaves and AOF file exactly as it was called, since
  * the command can just be re-executed to deterministically re-create the
  * new state starting from the old one.
+ *
+ * It is important to note that this API is not thread-safe and
+ * must be executed while holding the GIL.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
@@ -4188,7 +4172,7 @@ size_t RM_ValueLength(RedisModuleKey *key) {
     case OBJ_LIST: return listTypeLength(key->value);
     case OBJ_SET: return setTypeSize(key->value);
     case OBJ_ZSET: return zsetLength(key->value);
-    case OBJ_HASH: return hashTypeLength(key->value);
+    case OBJ_HASH: return hashTypeLength(key->value, 0);  /* OPEN: To subtract expired fields? */
     case OBJ_STREAM: return streamLength(key->value);
     default: return 0;
     }
@@ -5291,7 +5275,21 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int exists = hashTypeExists(key->value, field->ptr);
+            int hfeFlags = HFE_LAZY_AVOID_HASH_DEL; /* Avoid invalidate the key */
+
+            /*
+             * The hash might contain expired fields. If we lazily delete expired
+             * field and the command was sent with XX flag, the operation could
+             * fail and leave the hash empty, which the caller might not expect.
+             * To prevent unexpected behavior, we avoid lazy deletion in this case
+             * yet let the operation fail. Note that moduleDelKeyIfEmpty()
+             * below won't delete the hash if it left with single expired key
+             * because hash counts blindly expired fields as well.
+             */
+            if (flags & REDISMODULE_HASH_XX)
+                hfeFlags |= HFE_LAZY_AVOID_FIELD_DEL;
+
+            int exists = hashTypeExists(key->db, key->value, field->ptr, hfeFlags, NULL);
             if (((flags & REDISMODULE_HASH_XX) && !exists) ||
                 ((flags & REDISMODULE_HASH_NX) && exists))
             {
@@ -5302,7 +5300,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle deletion if value is REDISMODULE_HASH_DELETE. */
         if (value == REDISMODULE_HASH_DELETE) {
-            count += hashTypeDelete(key->value, field->ptr);
+            count += hashTypeDelete(key->value, field->ptr, 1);
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
             continue;
         }
@@ -5315,8 +5313,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
             low_flags |= HASH_SET_TAKE_FIELD;
 
         robj *argv[2] = {field,value};
-        hashTypeTryConversion(key->value,argv,0,1);
-        int updated = hashTypeSet(key->value, field->ptr, value->ptr, low_flags);
+        hashTypeTryConversion(key->db,key->value,argv,0,1);
+        int updated = hashTypeSet(key->db, key->value, field->ptr, value->ptr, low_flags);
         count += (flags & REDISMODULE_HASH_COUNT_ALL) ? 1 : updated;
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
@@ -5374,6 +5372,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * RedisModule_FreeString(), or by enabling automatic memory management.
  */
 int RM_HashGet(RedisModuleKey *key, int flags, ...) {
+    int hfeFlags = HFE_LAZY_AVOID_FIELD_DEL | HFE_LAZY_AVOID_HASH_DEL;
     va_list ap;
     if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
 
@@ -5394,14 +5393,17 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         /* Query the hash for existence or value object. */
         if (flags & REDISMODULE_HASH_EXISTS) {
             existsptr = va_arg(ap,int*);
-            if (key->value)
-                *existsptr = hashTypeExists(key->value,field->ptr);
-            else
+            if (key->value) {
+                *existsptr = hashTypeExists(key->db, key->value, field->ptr, hfeFlags, NULL);
+            } else {
                 *existsptr = 0;
+            }
         } else {
             valueptr = va_arg(ap,RedisModuleString**);
             if (key->value) {
-                *valueptr = hashTypeGetValueObject(key->value,field->ptr);
+                *valueptr = hashTypeGetValueObject(key->db, key->value, field->ptr,
+                                                   hfeFlags, NULL);
+
                 if (*valueptr) {
                     robj *decoded = getDecodedObject(*valueptr);
                     decrRefCount(*valueptr);
@@ -6517,7 +6519,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
+        const uint64_t cmd_flags = getCommandFlags(c);
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,cmd_flags,&error_code) !=
                            getMyClusterNode())
         {
             sds msg = NULL;
@@ -7783,7 +7786,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     int islua = scriptIsRunning();
     int ismulti = server.in_exec;
 
-    c->bstate.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
+    c->bstate.module_blocked_handle = zcalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     ctx->module->blocked_clients++;
 
@@ -8262,7 +8265,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
          * argument, but better to be safe than sorry. */
         if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
         if (bc->unblocked) return REDISMODULE_OK;
-        if (bc->client) moduleBlockedClientTimedOut(bc->client, 1);
+        if (bc->client) bc->blocked_on_keys_explicit_unblock = 1;
     }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
@@ -8340,6 +8343,10 @@ void moduleHandleBlockedClients(void) {
             reply_us = elapsedUs(replyTimer);
             moduleFreeContext(&ctx);
         }
+        if (c && bc->blocked_on_keys_explicit_unblock) {
+            serverAssert(bc->blocked_on_keys);
+            moduleBlockedClientTimedOut(c);
+        }
         /* Hold onto the blocked client if module auth is in progress. The reply callback is invoked
          * when the client is reprocessed. */
         if (c && clientHasModuleAuthInProgress(c)) {
@@ -8360,11 +8367,12 @@ void moduleHandleBlockedClients(void) {
         /* Update stats now that we've finished the blocking operation.
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
+         *
+         * If the module is blocked on keys updateStatsOnUnblock will be
+         * called from moduleUnblockClientOnKey
          */
-        if (c && !clientHasModuleAuthInProgress(c)) {
-            int had_errors = c->deferred_reply_errors ? !!listLength(c->deferred_reply_errors) :
-                (server.stat_total_error_replies != prev_error_replies);
-            updateStatsOnUnblock(c, bc->background_duration, reply_us, had_errors);
+        if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
+            updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
         }
 
         if (c != NULL) {
@@ -8419,31 +8427,19 @@ int moduleBlockedClientMayTimeout(client *c) {
  * does not need to do any cleanup. Eventually the module will call the
  * API to unblock the client and the memory will be released. 
  *
- * If this function is called from a module, we handle the timeout callback
- * and the update of the unblock status in a thread-safe manner to avoid race
- * conditions with the main thread.
- * If this function is called from the main thread, we must handle the unblocking
+ * This function should only be called from the main thread, we must handle the unblocking
  * of the client synchronously. This ensures that we can reply to the client before
  * resetClient() is called. */
-void moduleBlockedClientTimedOut(client *c, int from_module) {
+void moduleBlockedClientTimedOut(client *c) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
-    /* Protect against re-processing: don't serve clients that are already
-     * in the unblocking list for any reason (including RM_UnblockClient()
-     * explicit call). See #6798. */
-    if (bc->unblocked) return;
-
     RedisModuleCtx ctx;
-    int flags = REDISMODULE_CTX_BLOCKED_TIMEOUT;
-    if (from_module) flags |= REDISMODULE_CTX_THREAD_SAFE;
-    moduleCreateContext(&ctx, bc->module, flags);
+    moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_TIMEOUT);
     ctx.client = bc->client;
     ctx.blocked_client = bc;
     ctx.blocked_privdata = bc->privdata;
 
-    long long prev_error_replies;
-    if (!from_module)
-        prev_error_replies = server.stat_total_error_replies;
+    long long prev_error_replies = server.stat_total_error_replies;
 
     if (bc->timeout_callback) {
         /* In theory, the user should always pass the timeout handler as an
@@ -8453,8 +8449,7 @@ void moduleBlockedClientTimedOut(client *c, int from_module) {
 
     moduleFreeContext(&ctx);
 
-    if (!from_module)
-        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
 
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
@@ -9107,6 +9102,19 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
 }
 
+/* Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
+ * This function works even if cluster mode is not enabled. */
+unsigned int RM_ClusterKeySlot(RedisModuleString *key) {
+    return keyHashSlot(key->ptr, sdslen(key->ptr));
+}
+
+/* Returns a short string that can be used as a key or as a hash tag in a key,
+ * such that the key maps to the given cluster slot. Returns NULL if slot is not
+ * a valid slot. */
+const char *RM_ClusterCanonicalKeyNameInSlot(unsigned int slot) {
+    return (slot < CLUSTER_SLOTS) ? crc16_slot_table[slot] : NULL;
+}
+
 /* --------------------------------------------------------------------------
  * ## Modules Timers API
  *
@@ -9544,15 +9552,7 @@ void revokeClientAuthentication(client *c) {
      * is eventually freed we don't rely on the module to still exist. */
     moduleNotifyUserChanged(c);
 
-    c->user = DefaultUser;
-    c->authenticated = 0;
-    /* We will write replies to this client later, so we can't close it
-     * directly even if async. */
-    if (c == server.current_client) {
-        c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
-    } else {
-        freeClientAsync(c);
-    }
+    deauthenticateAndCloseClient(c);
 }
 
 /* Cleanup all clients that have been authenticated with this module. This
@@ -11078,17 +11078,26 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
     ScanKeyCBData *data = privdata;
     sds key = dictGetKey(de);
     robj *o = data->key->value;
-    robj *field = createStringObject(key, sdslen(key));
+    robj *field = NULL;
     robj *value = NULL;
     if (o->type == OBJ_SET) {
         value = NULL;
     } else if (o->type == OBJ_HASH) {
         sds val = dictGetVal(de);
+
+        /* If field is expired, then ignore */
+        if (hfieldIsExpired(key))
+            return;
+
+        field = createStringObject(key, hfieldlen(key));
         value = createStringObject(val, sdslen(val));
     } else if (o->type == OBJ_ZSET) {
         double *val = (double*)dictGetVal(de);
         value = createStringObjectFromLongDouble(*val, 0);
     }
+
+    /* if type is OBJ_HASH then key is of type hfield. Otherwise sds. */
+    if (!field) field = createStringObject(key, sdslen(key));
 
     data->fn(data->key, field, value, data->user_data);
     decrRefCount(field);
@@ -11188,22 +11197,44 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
         cursor->done = 1;
         ret = 0;
     } else if (o->type == OBJ_ZSET || o->type == OBJ_HASH) {
-        unsigned char *p = lpSeek(o->ptr,0);
-        unsigned char *vstr;
-        unsigned int vlen;
-        long long vll;
+        unsigned char *lp, *p;
+        /* is hash with expiry on fields, then lp tuples are [field][value][expire] */
+        int hfe = o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX;
+
+        if (o->type == OBJ_HASH)
+            lp = hashTypeListpackGetLp(o);
+        else
+            lp = o->ptr;
+
+        p = lpSeek(lp,0);
         while(p) {
-            vstr = lpGetValue(p,&vlen,&vll);
-            robj *field = (vstr != NULL) ?
-                createStringObject((char*)vstr,vlen) :
-                createStringObjectFromLongLongWithSds(vll);
-            p = lpNext(o->ptr,p);
-            vstr = lpGetValue(p,&vlen,&vll);
-            robj *value = (vstr != NULL) ?
-                createStringObject((char*)vstr,vlen) :
-                createStringObjectFromLongLongWithSds(vll);
+            long long vllField, vllValue, vllExpire;
+            unsigned int lenField, lenValue;
+            unsigned char *pField, *pValue;
+
+            pField = lpGetValue(p,&lenField,&vllField);
+            p = lpNext(lp,p);
+            pValue = lpGetValue(p,&lenValue,&vllValue);
+            p = lpNext(lp,p);
+
+            if (hfe) {
+                serverAssert(lpGetIntegerValue(p, &vllExpire));
+                p = lpNext(lp, p);
+
+                /* Skip expired fields */
+                if (hashTypeIsExpired(o, vllExpire))
+                    continue;
+            }
+
+            robj *value = (pValue != NULL) ?
+                          createStringObject((char*)pValue,lenValue) :
+                          createStringObjectFromLongLongWithSds(vllValue);
+
+            robj *field = (pField != NULL) ?
+                          createStringObject((char*)pField,lenField) :
+                          createStringObjectFromLongLongWithSds(vllField);
             fn(key, field, value, privdata);
-            p = lpNext(o->ptr,p);
+
             decrRefCount(field);
             decrRefCount(value);
         }
@@ -11214,7 +11245,6 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
     errno = 0;
     return ret;
 }
-
 
 /* --------------------------------------------------------------------------
  * ## Module fork API
@@ -13844,6 +13874,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
+    REGISTER_API(ClusterKeySlot);
+    REGISTER_API(ClusterCanonicalKeyNameInSlot);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
     REGISTER_API(DictSize);
