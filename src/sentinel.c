@@ -679,7 +679,7 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
     }
 
     /* If the "+sdown" status is only published once
-       when a sentinel could not reach other sentinels at the current time and a +sdown occured
+       when a sentinel could not reach other sentinels at the current time and a +sdown occurred
        ri (redis instance) will be stuck in "sdown" status
        and sentinels will not reach a consensus
     */
