@@ -2877,6 +2877,8 @@ const char *getFailoverStateString(void);
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);
 void startLoading(size_t size, int rdbflags, int async);
+void loadingSetFlags(char *filename, size_t size, int async);
+void loadingFireEvent(int rdbflags);
 void loadingAbsProgress(off_t pos);
 void loadingIncrProgress(off_t size);
 void stopLoading(int success);

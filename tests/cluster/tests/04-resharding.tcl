@@ -140,7 +140,12 @@ test "Verify $numkeys keys for consistency with logical content" {
 test "Terminate and restart all the instances" {
     foreach_redis_id id {
         # Stop AOF so that an initial AOFRW won't prevent the instance from terminating
-        R $id config set appendonly no
+        # Retrying in a loop, slave might reply -LOADING if it is flushing or loading db.
+        wait_for_condition 50 1000 {
+            [R $id config set appendonly no] eq {OK}
+        } else {
+            fail "Failed to set AOF config."
+        }
         kill_instance redis $id
         restart_instance redis $id
     }

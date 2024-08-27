@@ -137,7 +137,8 @@ test "Restarting primary node" {
 
 test "Instance #0 gets converted into a replica" {
     wait_for_condition 1000 50 {
-        [RI $replica_id role] eq {slave}
+        [RI $replica_id role] eq {slave} &&
+        [RI $replica_id master_link_status] eq {up}
     } else {
         fail "Old primary was not converted into replica"
     }

@@ -1736,12 +1736,24 @@ void replicationSendNewlineToMaster(void) {
 }
 
 /* Callback used by emptyData() while flushing away old data to load
- * the new dataset received by the master and by discardTempDb()
- * after loading succeeded or failed. */
+ * the new dataset received by the master or to clear partial db if loading
+ * fails. */
 void replicationEmptyDbCallback(dict *d) {
     UNUSED(d);
     if (server.repl_state == REPL_STATE_TRANSFER)
         replicationSendNewlineToMaster();
+
+    processEventsWhileBlocked();
+}
+
+/* Callback to flush old db or the partial db on error. */
+static void rdbLoadEmptyDbCallback(void) {
+    serverAssert(server.loading);
+
+    serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
+    int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
+                                                        EMPTYDB_NO_FLAGS;
+    emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
 }
 
 /* Once we have a link with the master and the synchronization was
@@ -1831,7 +1843,7 @@ redisDb *disklessLoadInitTempDb(void) {
 /* Helper function for readSyncBulkPayload() to discard our tempDb
  * when the loading succeeded or failed. */
 void disklessLoadDiscardTempDb(redisDb *tempDb) {
-    discardTempDb(tempDb, replicationEmptyDbCallback);
+    discardTempDb(tempDb, NULL);
 }
 
 /* If we know we got an entirely different data set from our master
@@ -2057,9 +2069,6 @@ void readSyncBulkPayload(connection *conn) {
                               NULL);
     } else {
         replicationAttachToNewMaster();
-
-        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
-        emptyData(-1,empty_db_flags,replicationEmptyDbCallback);
     }
 
     /* Before loading the DB into memory we need to delete the readable
@@ -2093,13 +2102,22 @@ void readSyncBulkPayload(connection *conn) {
             functionsLibCtxClear(functions_lib_ctx);
         }
 
+        loadingSetFlags(NULL, server.repl_transfer_size, asyncLoading);
+        if (server.repl_diskless_load != REPL_DISKLESS_LOAD_SWAPDB) {
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
+            /* Note that inside loadingSetFlags(), server.loading is set.
+             * replicationEmptyDbCallback() may yield back to event-loop to
+             * reply -LOADING. */
+            emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
+        }
+        loadingFireEvent(RDBFLAGS_REPLICATION);
+
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
 
         /* Put the socket in blocking mode to simplify RDB transfer.
          * We'll restore it when the RDB is received. */
         connBlock(conn);
         connRecvTimeout(conn, server.repl_timeout*1000);
-        startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
         int loadingFailed = 0;
         rdbLoadingCtx loadingCtx = { .dbarray = dbarray, .functions_lib_ctx = functions_lib_ctx };
@@ -2120,7 +2138,6 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         if (loadingFailed) {
-            stopLoading(0);
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
 
@@ -2137,6 +2154,11 @@ void readSyncBulkPayload(connection *conn) {
                 /* Remove the half-loaded data in case we started with an empty replica. */
                 emptyData(-1,empty_db_flags,replicationEmptyDbCallback);
             }
+
+            /* Note that replicationEmptyDbCallback() may yield back to event
+             * loop to reply -LOADING if flushing the db takes a long time. So,
+             * stopLoading() must be called after emptyData() above. */
+            stopLoading(0);
 
             /* Note that there's no point in restarting the AOF on SYNC
              * failure, it'll be restarted when sync succeeds or the replica
@@ -2213,7 +2235,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
 
-        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != RDB_OK) {
+        if (rdbLoadWithEmptyCb(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION,rdbLoadEmptyDbCallback) != RDB_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk, check server logs.");
@@ -2224,9 +2246,6 @@ void readSyncBulkPayload(connection *conn) {
                                     "disabled");
                 bg_unlink(server.rdb_filename);
             }
-
-            /* If disk-based RDB loading fails, remove the half-loaded dataset. */
-            emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
 
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */

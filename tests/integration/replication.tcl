@@ -1457,3 +1457,52 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+foreach disklessload {disabled on-empty-db} {
+    test "Replica should reply LOADING while flushing a large db (disklessload: $disklessload)" {
+        start_server {} {
+            set replica [srv 0 client]
+            start_server {} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+
+                $replica config set repl-diskless-load $disklessload
+
+                # Populate replica with many keys, master with a few keys.
+                $replica debug populate 2000000
+                populate 3 master 10
+
+                # Start the replication process...
+                $replica replicaof $master_host $master_port
+
+                wait_for_condition 100 100 {
+                    [s -1 loading] eq 1
+                } else {
+                    fail "Replica didn't get into loading mode"
+                }
+
+                # If replica has a large db, it may take some time to discard it
+                # after receiving new db from the master. In this case, replica
+                # should reply -LOADING. Replica may reply -LOADING while
+                # loading the new db as well. To test the first case, populated
+                # replica with large amount of keys and master with a few keys.
+                # Discarding old db will take a long time and loading new one
+                # will be quick. So, if we receive -LOADING, most probably it is
+                # when flushing the db.
+                wait_for_condition 1 10000 {
+                    [catch {$replica ping} err] &&
+                    [string match *LOADING* $err]
+                } else {
+                    # There is a chance that we may not catch LOADING response
+                    # if flushing db happens too fast compared to test execution
+                    # Then, we may consider increasing key count or introducing
+                    # artificial delay to db flush.
+                    fail "Replica did not reply LOADING."
+                }
+
+                catch {$replica shutdown nosave}
+            }
+        }
+    } {} {slow repl external:skip}
+}

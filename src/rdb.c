@@ -3161,7 +3161,13 @@ emptykey:
 /* Mark that we are loading in the global state and setup the fields
  * needed to provide loading stats. */
 void startLoading(size_t size, int rdbflags, int async) {
-    /* Load the DB */
+    loadingSetFlags(NULL, size, async);
+    loadingFireEvent(rdbflags);
+}
+
+/* Initialize stats, set loading flags and filename if provided. */
+void loadingSetFlags(char *filename, size_t size, int async) {
+    rdbFileBeingLoaded = filename;
     server.loading = 1;
     if (async == 1) server.async_loading = 1;
     server.loading_start_time = time(NULL);
@@ -3171,7 +3177,9 @@ void startLoading(size_t size, int rdbflags, int async) {
     server.rdb_last_load_keys_expired = 0;
     server.rdb_last_load_keys_loaded = 0;
     blockingOperationStarts();
+}
 
+void loadingFireEvent(int rdbflags) {
     /* Fire the loading modules start event. */
     int subevent;
     if (rdbflags & RDBFLAGS_AOF_PREAMBLE)
@@ -3187,8 +3195,8 @@ void startLoading(size_t size, int rdbflags, int async) {
  * needed to provide loading stats.
  * 'filename' is optional and used for rdb-check on error */
 void startLoadingFile(size_t size, char* filename, int rdbflags) {
-    rdbFileBeingLoaded = filename;
-    startLoading(size, rdbflags, 0);
+    loadingSetFlags(filename, size, 0);
+    loadingFireEvent(rdbflags);
 }
 
 /* Refresh the absolute loading progress info */
@@ -3702,14 +3710,21 @@ eoferr:
     return C_ERR;
 }
 
+int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
+    return rdbLoadWithEmptyCb(filename, rsi, rdbflags, NULL);
+}
+
 /* Like rdbLoadRio() but takes a filename instead of a rio stream. The
  * filename is open for reading and a rio stream object created in order
  * to do the actual loading. Moreover the ETA displayed in the INFO
  * output is initialized and finalized.
  *
  * If you pass an 'rsi' structure initialized with RDB_SAVE_INFO_INIT, the
- * loading code will fill the information fields in the structure. */
-int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
+ * loading code will fill the information fields in the structure.
+ *
+ * If emptyDbCallback is not NULL, it will be called to flush old db or to
+ * discard partial db on error. */
+int rdbLoadWithEmptyCb(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*emptyDbCallback)(void)) {
     FILE *fp;
     rio rdb;
     int retval;
@@ -3727,12 +3742,20 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     if (fstat(fileno(fp), &sb) == -1)
         sb.st_size = 0;
 
-    startLoadingFile(sb.st_size, filename, rdbflags);
+    loadingSetFlags(filename, sb.st_size, 0);
+    /* Note that inside loadingSetFlags(), server.loading is set.
+     * emptyDbCallback() may yield back to event-loop to reply -LOADING. */
+    if (emptyDbCallback)
+        emptyDbCallback(); /* Flush existing db. */
+    loadingFireEvent(rdbflags);
     rioInitWithFile(&rdb,fp);
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
 
     fclose(fp);
+    if (retval != C_OK && emptyDbCallback)
+        emptyDbCallback(); /* Clean up partial db. */
+
     stopLoading(retval==C_OK);
     /* Reclaim the cache backed by rdb */
     if (retval == C_OK && !(rdbflags & RDBFLAGS_KEEP_CACHE)) {
