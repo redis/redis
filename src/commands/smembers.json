@@ -5,7 +5,7 @@
         "group": "set",
         "since": "1.0.0",
         "arity": 2,
-        "function": "sinterCommand",
+        "function": "smembersCommand",
         "command_flags": [
             "READONLY"
         ],

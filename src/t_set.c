@@ -1244,7 +1244,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
-/* SINTER / SMEMBERS / SINTERSTORE / SINTERCARD
+/* SINTER / SINTERSTORE / SINTERCARD
  *
  * 'cardinality_only' work for SINTERCARD, only return the cardinality
  * with minimum processing and memory overheads.
@@ -1418,6 +1418,37 @@ void sinterGenericCommand(client *c, robj **setkeys,
 /* SINTER key [key ...] */
 void sinterCommand(client *c) {
     sinterGenericCommand(c, c->argv+1,  c->argc-1, NULL, 0, 0);
+}
+
+/* SMEMBERS key */
+void smembersCommand(client *c) {
+    robj *setobj = lookupKeyRead(c->db, c->argv[1]);
+    setTypeIterator *si;
+    char *str;
+    size_t len;
+    int64_t intobj;
+    int encoding;
+
+    // Check if the set exists
+    if (!setobj || checkType(c, setobj, OBJ_SET)) {
+        addReply(c, shared.emptyset[c->resp]);
+        return;
+    }
+
+    const unsigned long scard = setTypeSize(setobj);
+
+    // Prepare the response
+    addReplyArrayLen(c,scard);
+
+    // Iterate through the elements of the set
+    si = setTypeInitIterator(setobj);
+    while ((encoding = setTypeNext(si, &str, &len, &intobj)) != -1) {
+        if (str != NULL)
+            addReplyBulkCBuffer(c, str, len);
+        else
+            addReplyBulkLongLong(c, intobj);
+    }
+    setTypeReleaseIterator(si);
 }
 
 /* SINTERCARD numkeys key [key ...] [LIMIT limit] */
