@@ -1422,15 +1422,14 @@ void sinterCommand(client *c) {
 
 /* SMEMBERS key */
 void smembersCommand(client *c) {
-    robj *setobj = lookupKeyRead(c->db, c->argv[1]);
     setTypeIterator *si;
     char *str;
     size_t len;
     int64_t intobj;
     int encoding;
-
-    // Check if the set exists
-    if (!setobj || checkType(c, setobj, OBJ_SET)) {
+    robj *setobj = lookupKeyRead(c->db, c->argv[1]);
+    if (checkType(c,setobj,OBJ_SET)) return;
+    if (!setobj) {
         addReply(c, shared.emptyset[c->resp]);
         return;
     }
