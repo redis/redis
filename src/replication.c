@@ -1843,7 +1843,7 @@ redisDb *disklessLoadInitTempDb(void) {
 /* Helper function for readSyncBulkPayload() to discard our tempDb
  * when the loading succeeded or failed. */
 void disklessLoadDiscardTempDb(redisDb *tempDb) {
-    discardTempDb(tempDb, NULL);
+    discardTempDb(tempDb);
 }
 
 /* If we know we got an entirely different data set from our master

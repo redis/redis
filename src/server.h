@@ -3401,7 +3401,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async, void(callback
 void flushAllDataAndResetRDB(int flags);
 long long dbTotalServerKeyCount(void);
 redisDb *initTempDb(void);
-void discardTempDb(redisDb *tempDb, void(callback)(dict*));
+void discardTempDb(redisDb *tempDb);
 
 
 int selectDb(client *c, int id);
