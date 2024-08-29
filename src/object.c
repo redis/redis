@@ -12,6 +12,7 @@
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 #include <ctype.h>
+#include "fast_float_strtod.h"
 
 #ifdef __CYGWIN__
 #define strtold(a,b) ((long double)strtod((a),(b)))
@@ -779,14 +780,15 @@ size_t stringObjectLen(robj *o) {
 
 int getDoubleFromObject(const robj *o, double *target) {
     double value;
+    char *eptr;
 
     if (o == NULL) {
         value = 0;
     } else {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
-            if (!string2d(o->ptr, sdslen(o->ptr), &value))
-                return C_ERR;
+            value = fast_float_strtod(o->ptr, &eptr);
+            if (eptr[0] != '\0' || isnan(value)) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
