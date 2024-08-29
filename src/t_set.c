@@ -1434,10 +1434,8 @@ void smembersCommand(client *c) {
         return;
     }
 
-    const unsigned long scard = setTypeSize(setobj);
-
-    // Prepare the response
-    addReplyArrayLen(c,scard);
+    /* Prepare the response. */
+    addReplySetLen(c,setTypeSize(setobj));
 
     /* Iterate through the elements of the set. */
     si = setTypeInitIterator(setobj);
