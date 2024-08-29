@@ -679,15 +679,14 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
     }
 
     /* If the "+sdown" status is only published once
-       when a sentinel could not reach other sentinels at the current time and a +sdown occurred
-       ri (redis instance) will be stuck in "sdown" status
-       and sentinels will not reach a consensus
-    */
-    int only_publish=0;
-    if (type[0]=='+' && (type[1]=='s' || type[1]=='o')
-        && strcmp(type+2,"down")==0 && (ri->flags & (SRI_S_DOWN|SRI_O_DOWN)))
+     * when a sentinel could not reach other sentinels at the current time and a +sdown occurred
+     *  ri (redis instance) will be stuck in "sdown" status
+      * and sentinels will not reach a consensus. */
+    int only_publish = 0;
+    if (type[0] == '+' && (type[1] == 's' || type[1] == 'o')
+        && strcmp(type+2,"down") == 0 && (ri->flags & (SRI_S_DOWN|SRI_O_DOWN)))
     {
-        only_publish=1;
+        only_publish = 1;
         goto publish_message;
     }
 
