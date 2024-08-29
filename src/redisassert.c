@@ -36,6 +36,7 @@
 
 
 #include <stdio.h> 
+#include <stdarg.h>
 #include <stdlib.h>
 #include <signal.h>
 
@@ -46,8 +47,13 @@ void _serverAssert(const char *estr, const char *file, int line) {
 }
 
 void _serverPanic(const char *file, int line, const char *msg, ...) {
+    va_list ap;
+    va_start(ap,msg);
+    char fmtmsg[256];
+    vsnprintf(fmtmsg,sizeof(fmtmsg),msg,ap);
+    va_end(ap);
     fprintf(stderr, "------------------------------------------------");
     fprintf(stderr, "!!! Software Failure. Press left mouse button to continue");
-    fprintf(stderr, "Guru Meditation: %s #%s:%d",msg,file,line);
+    fprintf(stderr, "Guru Meditation: %s #%s:%d",fmtmsg,file,line);
     abort();
 }
