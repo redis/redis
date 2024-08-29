@@ -1426,7 +1426,6 @@ void smembersCommand(client *c) {
     char *str;
     size_t len;
     int64_t intobj;
-    int encoding;
     robj *setobj = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c,setobj,OBJ_SET)) return;
     if (!setobj) {
