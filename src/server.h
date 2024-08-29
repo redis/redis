@@ -1915,6 +1915,7 @@ struct redisServer {
     int repl_slave_ro;          /* Slave is read only? */
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
     time_t repl_down_since; /* Unix time at which link with master went down */
+    time_t repl_up_since;   /* Unix time that master link is fully up and healthy */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
     int replica_announced;          /* If true, replica is announced by Sentinel */
@@ -1922,8 +1923,11 @@ struct redisServer {
     char *slave_announce_ip;        /* Give the master this ip address. */
     int propagation_error_behavior; /* Configures the behavior of the replica
                                      * when it receives an error on the replication stream */
-    int repl_ignore_disk_write_error;   /* Configures whether replicas panic when unable to
-                                         * persist writes to AOF. */
+    int repl_ignore_disk_write_error;     /* Configures whether replicas panic when unable to
+                                           * persist writes to AOF. */
+    long long repl_master_sync_attempts;  /* Total number of attempts to connect to a master  */
+    time_t repl_master_connect_time;      /* Unix time that master connection start */
+    long long repl_total_disconnect_time; /* The total cumulative time that a replica has been disconnected */
     /* The following two fields is where we store master PSYNC replid/offset
      * while the PSYNC is in progress. At the end we'll copy the fields into
      * the server->master client structure. */
