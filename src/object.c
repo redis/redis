@@ -788,7 +788,9 @@ int getDoubleFromObject(const robj *o, double *target) {
         serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
         if (sdsEncodedObject(o)) {
             value = fast_float_strtod(o->ptr, &eptr);
-            if (eptr[0] != '\0' || isnan(value)) return C_ERR;
+            /* check end pointer is not the null terminator, that the value a number,
+               and that the pointer to the last char is not equal to the first (empty string passed) */
+            if (eptr[0] != '\0' || isnan(value) || (eptr[0] == ((char *)o->ptr)[0])) return C_ERR;
         } else if (o->encoding == OBJ_ENCODING_INT) {
             value = (long)o->ptr;
         } else {
