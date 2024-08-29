@@ -571,8 +571,8 @@ void msetnxCommand(client *c) {
 void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *o, *new;
-
-    o = lookupKeyWrite(c->db,c->argv[1]);
+    dictEntry *de = dbFind(c->db, c->argv[1]->ptr);
+    o = lookupKeyWriteWithDictEntry(c->db,c->argv[1],de);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
@@ -593,7 +593,7 @@ void incrDecrCommand(client *c, long long incr) {
     } else {
         new = createStringObjectFromLongLongForValue(value);
         if (o) {
-            dbReplaceValue(c->db,c->argv[1],new);
+            dbReplaceValueWithDictEntry(c->db,c->argv[1],new,de);
         } else {
             dbAdd(c->db,c->argv[1],new);
         }
