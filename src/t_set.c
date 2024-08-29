@@ -1439,9 +1439,9 @@ void smembersCommand(client *c) {
     // Prepare the response
     addReplyArrayLen(c,scard);
 
-    // Iterate through the elements of the set
+    /* Iterate through the elements of the set. */
     si = setTypeInitIterator(setobj);
-    while ((encoding = setTypeNext(si, &str, &len, &intobj)) != -1) {
+    while (setTypeNext(si, &str, &len, &intobj) != -1) {
         if (str != NULL)
             addReplyBulkCBuffer(c, str, len);
         else
