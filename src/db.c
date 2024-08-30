@@ -160,11 +160,12 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
 }
 
-
+/* Like lookupKeyWrite(), but accepts an optional dictEntry input,
+ * which can be used if we already have one, thus saving the dbFind call.
+ */
 robj *lookupKeyWriteWithDictEntry(redisDb *db, robj *key, dictEntry *de) {
     return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, de);
 }
-
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
     robj *o = lookupKeyRead(c->db, key);
@@ -301,7 +302,9 @@ void dbReplaceValue(redisDb *db, robj *key, robj *val) {
 }
 
 /* Replace an existing key with a new value, we just replace value and don't
- * emit any events */
+ * emit any events.
+ * The dictEntry input is optional, can be used if we already have one.
+ */
 void dbReplaceValueWithDictEntry(redisDb *db, robj *key, robj *val, dictEntry *de) {
     dbSetValue(db, key, val, 0, de);
 }
@@ -470,6 +473,21 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
         dbReplaceValue(db,key,o);
+    }
+    return o;
+}
+
+
+/* Like dbUnshareStringValue(), but accepts a optional dictEntry,
+ * which can be used if we already have one, thus saving the dbFind call.
+ */
+robj *dbUnshareStringValueWithDictEntry(redisDb *db, robj *key, robj *o, dictEntry *de) {
+    serverAssert(o->type == OBJ_STRING);
+    if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
+        robj *decoded = getDecodedObject(o);
+        o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
+        decrRefCount(decoded);
+        dbReplaceValueWithDictEntry(db,key,o,de);
     }
     return o;
 }
