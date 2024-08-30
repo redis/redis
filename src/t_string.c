@@ -73,7 +73,9 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    found = (lookupKeyWrite(c->db,key) != NULL);
+    dictEntry *de = dbFind(c->db, key->ptr);
+    robj *o = lookupKeyWriteWithDictEntry(c->db,key,de);
+    found = (o != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
         (flags & OBJ_SET_XX && !found))
@@ -88,7 +90,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
-    setKey(c,c->db,key,val,setkey_flags);
+    setKeyWithDictEntry(c,c->db,key,val,setkey_flags,de);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
