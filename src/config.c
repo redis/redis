@@ -2502,13 +2502,12 @@ static int updateWatchdogPeriod(const char **err) {
 }
 
 static int updateAppendonly(const char **err) {
-    if (!server.aof_enabled && server.aof_state != AOF_OFF) {
-        stopAppendOnly();
-    } else if (server.aof_enabled && server.aof_state == AOF_OFF) {
-        if (startAppendOnly() == C_ERR) {
-            *err = "Unable to turn on AOF. Check server logs.";
-            return 0;
-        }
+    if (server.loading)
+        return 1;
+
+    if (applyAppendOnlyConfig() != C_OK) {
+        *err = "Unable to turn on AOF. Check server logs.";
+        return 0;
     }
     return 1;
 }
@@ -3080,7 +3079,7 @@ standardConfig static_configs[] = {
     createBoolConfig("activedefrag", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.active_defrag_enabled, 0, isValidActiveDefrag, NULL),
     createBoolConfig("syslog-enabled", NULL, IMMUTABLE_CONFIG, server.syslog_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-enabled", NULL, IMMUTABLE_CONFIG, server.cluster_enabled, 0, NULL, NULL),
-    createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG | DENY_LOADING_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
+    createBoolConfig("appendonly", NULL, MODIFIABLE_CONFIG, server.aof_enabled, 0, NULL, updateAppendonly),
     createBoolConfig("cluster-allow-reads-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_reads_when_down, 0, NULL, NULL),
     createBoolConfig("cluster-allow-pubsubshard-when-down", NULL, MODIFIABLE_CONFIG, server.cluster_allow_pubsubshard_when_down, 1, NULL, NULL),
     createBoolConfig("crash-log-enabled", NULL, MODIFIABLE_CONFIG, server.crashlog_enabled, 1, NULL, updateSighandlerEnabled),

@@ -5,6 +5,78 @@ proc log_file_matches {log pattern} {
     string match $pattern $content
 }
 
+test "Allow appendonly config change while loading rdb" {
+    start_server {overrides {save {}}} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        populate 10000 master 10
+
+        start_server {overrides {save {} rdb-del-sync-files yes loading-process-events-interval-bytes 1024}} {
+            set replica1 [srv 0 client]
+
+            $replica1 config set appendonly no
+            $replica1 config set key-load-delay 100
+            $replica1 debug populate 1000
+
+            # Start the replication process...
+            $replica1 replicaof $master_host $master_port
+
+            wait_for_condition 10 1000 {
+                [s loading] eq 1
+            } else {
+                fail "Replica didn't get into loading mode"
+            }
+
+            $replica1 config set appendonly yes
+            assert_equal 1 [s loading]
+
+            $replica1 config set key-load-delay 0
+            wait_done_loading $replica1
+
+            assert_equal 1 [s aof_enabled]
+            $replica1 replicaof no one
+            $replica1 set x 100
+            $replica1 config rewrite
+
+            restart_server 0 true false true sigterm
+            set replica1 [srv 0 client]
+            assert_equal 10001 [$replica1 dbsize]
+            assert_equal 100 [$replica1 get x]
+
+            $replica1 config set appendonly yes
+            $replica1 config set key-load-delay 100
+            $replica1 flushall
+
+            # Start the replication process...
+            $replica1 replicaof $master_host $master_port
+
+            wait_for_condition 10 1000 {
+                [s loading] eq 1
+            } else {
+                fail "Replica didn't get into loading mode"
+            }
+
+            $replica1 config set appendonly no
+            assert_equal 1 [s loading]
+
+            $replica1 config set key-load-delay 0
+            wait_done_loading $replica1
+            assert_equal 0 [s 0 aof_enabled]
+            assert_equal {10000} [$replica1 dbsize]
+
+            $replica1 replicaof no one
+            $replica1 config set appendonly yes
+            $replica1 set x 200
+            $replica1 config rewrite
+            restart_server 0 true true true sigterm
+            set replica1 [srv 0 client]
+            assert_equal {10001} [$replica1 dbsize]
+            assert_equal 200 [$replica1 get x]
+        }
+    }
+} {} {repl external:skip}
+
 start_server {tags {"repl network external:skip"}} {
     set slave [srv 0 client]
     set slave_host [srv 0 host]
@@ -1470,7 +1542,7 @@ foreach disklessload {disabled on-empty-db} {
                 $replica config set repl-diskless-load $disklessload
 
                 # Populate replica with many keys, master with a few keys.
-                $replica debug populate 2000000
+                $replica debug populate 1000000
                 populate 3 master 10
 
                 # Start the replication process...
@@ -1504,5 +1576,5 @@ foreach disklessload {disabled on-empty-db} {
                 catch {$replica shutdown nosave}
             }
         }
-    } {} {slow repl external:skip}
+    } {} {repl external:skip}
 }

@@ -7212,6 +7212,8 @@ int main(int argc, char **argv) {
         loadDataFromDisk();
         aofOpenIfNeededOnServerStart();
         aofDelHistoryFiles();
+        applyAppendOnlyConfig();
+
         if (server.cluster_enabled) {
             serverAssert(verifyClusterConfigWithData() == C_OK);
         }
