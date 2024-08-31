@@ -95,7 +95,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
     if (expire) {
-        setExpire(c,c->db,key,milliseconds);
+        setExpireWithDictEntry(c,c->db,key,milliseconds,de);
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
          * EX/PX/EXAT flag. */
         if (!(flags & OBJ_PXAT)) {

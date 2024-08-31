@@ -3355,6 +3355,7 @@ void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
+void setExpireWithDictEntry(client *c, redisDb *db, robj *key, long long when, dictEntry *kde);
 int checkAlreadyExpired(long long when);
 int parseExtendedExpireArgumentsOrReply(client *c, int *flags);
 robj *lookupKeyRead(redisDb *db, robj *key);

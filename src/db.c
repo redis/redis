@@ -1865,16 +1865,24 @@ int removeExpire(redisDb *db, robj *key) {
     return kvstoreDictDelete(db->expires, getKeySlot(key->ptr), key->ptr) == DICT_OK;
 }
 
+
 /* Set an expire to the specified key. If the expire is set in the context
  * of an user calling a command 'c' is the client, otherwise 'c' is set
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
  * after which the key will no longer be considered valid. */
 void setExpire(client *c, redisDb *db, robj *key, long long when) {
-    dictEntry *kde, *de, *existing;
+    setExpireWithDictEntry(c,db,key,when,NULL);
+}
+
+/* Like setExpire(), but accepts an optional dictEntry input,
+ * which can be used if we already have one, thus saving the kvstoreDictFind call.
+ */
+void setExpireWithDictEntry(client *c, redisDb *db, robj *key, long long when, dictEntry *kde) {
+    dictEntry *de, *existing;
 
     /* Reuse the sds from the main dict in the expire dict */
     int slot = getKeySlot(key->ptr);
-    kde = kvstoreDictFind(db->keys, slot, key->ptr);
+    if (!kde) kde = kvstoreDictFind(db->keys, slot, key->ptr);;
     serverAssertWithInfo(NULL,key,kde != NULL);
     de = kvstoreDictAddRaw(db->expires, slot, dictGetKey(kde), &existing);
     if (existing) {
