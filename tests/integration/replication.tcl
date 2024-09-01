@@ -1571,3 +1571,28 @@ start_server {tags {"repl external:skip"} overrides {save {}}} {
         }
     }
 }
+
+start_server {tags {"repl external:skip"}} {
+    set replica [srv 0 client]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test "Replica flushes db lazily when replica-lazy-flush enabled" {
+            $replica config set replica-lazy-flush yes
+            $replica debug populate 1000
+            populate 1 master 10
+
+            # Start the replication process...
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 100 100 {
+                [s -1 lazyfreed_objects] >= 1000 &&
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replica didn't get into loading mode"
+            }
+        }
+    }
+}
