@@ -3711,7 +3711,7 @@ eoferr:
 }
 
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
-    return rdbLoadWithEmptyCb(filename, rsi, rdbflags, NULL);
+    return rdbLoadWithEmptyFunc(filename, rsi, rdbflags, NULL);
 }
 
 /* Like rdbLoadRio() but takes a filename instead of a rio stream. The
@@ -3722,9 +3722,9 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
  * If you pass an 'rsi' structure initialized with RDB_SAVE_INFO_INIT, the
  * loading code will fill the information fields in the structure.
  *
- * If emptyDbCallback is not NULL, it will be called to flush old db or to
+ * If emptyDbFunc is not NULL, it will be called to flush old db or to
  * discard partial db on error. */
-int rdbLoadWithEmptyCb(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*emptyDbCallback)(void)) {
+int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*emptyDbFunc)(void)) {
     FILE *fp;
     rio rdb;
     int retval;
@@ -3745,16 +3745,16 @@ int rdbLoadWithEmptyCb(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*em
     loadingSetFlags(filename, sb.st_size, 0);
     /* Note that inside loadingSetFlags(), server.loading is set.
      * emptyDbCallback() may yield back to event-loop to reply -LOADING. */
-    if (emptyDbCallback)
-        emptyDbCallback(); /* Flush existing db. */
+    if (emptyDbFunc)
+        emptyDbFunc(); /* Flush existing db. */
     loadingFireEvent(rdbflags);
     rioInitWithFile(&rdb,fp);
 
     retval = rdbLoadRio(&rdb,rdbflags,rsi);
 
     fclose(fp);
-    if (retval != C_OK && emptyDbCallback)
-        emptyDbCallback(); /* Clean up partial db. */
+    if (retval != C_OK && emptyDbFunc)
+        emptyDbFunc(); /* Clean up partial db. */
 
     stopLoading(retval==C_OK);
     /* Reclaim the cache backed by rdb */

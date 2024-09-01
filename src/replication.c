@@ -1746,8 +1746,8 @@ void replicationEmptyDbCallback(dict *d) {
     processEventsWhileBlocked();
 }
 
-/* Callback to flush old db or the partial db on error. */
-static void rdbLoadEmptyDbCallback(void) {
+/* Function to flush old db or the partial db on error. */
+static void rdbLoadEmptyDbFunc(void) {
     serverAssert(server.loading);
 
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
@@ -2235,7 +2235,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
 
-        if (rdbLoadWithEmptyCb(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION,rdbLoadEmptyDbCallback) != RDB_OK) {
+        if (rdbLoadWithEmptyFunc(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION,rdbLoadEmptyDbFunc) != RDB_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk, check server logs.");
