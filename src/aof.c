@@ -952,17 +952,6 @@ void stopAppendOnly(void) {
     server.aof_buf = sdsempty();
 }
 
-int applyAppendOnlyConfig(void) {
-    if (!server.aof_enabled && server.aof_state != AOF_OFF) {
-        stopAppendOnly();
-    } else if (server.aof_enabled && server.aof_state == AOF_OFF) {
-        if (startAppendOnly() == C_ERR) {
-            return C_ERR;
-        }
-    }
-    return C_OK;
-}
-
 /* Called when the user switches from "appendonly no" to "appendonly yes"
  * at runtime using the CONFIG command. */
 int startAppendOnly(void) {
@@ -1008,7 +997,17 @@ int startAppendOnly(void) {
     return C_OK;
 }
 
-
+/* Called after "appendonly" config is changed. */
+int applyAppendOnlyConfig(void) {
+    if (!server.aof_enabled && server.aof_state != AOF_OFF) {
+        stopAppendOnly();
+    } else if (server.aof_enabled && server.aof_state == AOF_OFF) {
+        if (startAppendOnly() == C_ERR) {
+            return C_ERR;
+        }
+    }
+    return C_OK;
+}
 
 /* This is a wrapper to the write syscall in order to retry on short writes
  * or if the syscall gets interrupted. It could look strange that we retry

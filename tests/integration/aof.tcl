@@ -9,64 +9,6 @@ set aof_file "$server_path/$aof_dirname/${aof_basename}.1$::incr_aof_sufix$::aof
 set aof_manifest_file "$server_path/$aof_dirname/$aof_basename$::manifest_suffix"
 
 tags {"aof external:skip"} {
-    start_server {overrides {loading-process-events-interval-bytes 1024}} {
-        test "Allow changing appendonly config while loading from AOF" {
-            r config set appendonly yes
-            r config set key-load-delay 100
-            populate 10000
-            r config rewrite
-            restart_server 0 false false
-
-            assert_equal 1 [s loading]
-            r config set appendonly no
-            assert_equal 1 [s loading]
-            r config set key-load-delay 0
-
-            wait_done_loading r
-
-            assert_equal 0 [s aof_enabled]
-
-            r set x 2
-            r config set key-load-delay 0
-            r config rewrite
-            restart_server 0 true false
-            assert_equal {0} [r dbsize]
-            r set t 1
-            assert_equal {1} [r get t]
-        }
-
-        test "Allow changing appendonly config while loading from RDB" {
-            r flushall
-            r config set appendonly no
-            r config set key-load-delay 100
-            r config rewrite
-
-            populate 10000
-            r save
-            restart_server 0 false false
-
-            assert_equal 1 [s loading]
-            r config set appendonly yes
-            assert_equal 1 [s loading]
-            r config set key-load-delay 0
-
-            wait_done_loading r
-            assert_equal {10000} [r dbsize]
-            assert_equal 1 [s aof_enabled]
-
-            r flushall
-            r save
-            populate 5000
-            r bgrewriteaof
-            r config set key-load-delay 0
-            r config rewrite
-            restart_server 0 true false
-            assert_equal {5000} [r dbsize]
-            r set t 1
-            assert_equal {1} [r get t]
-        }
-    }
-
     # Server can start when aof-load-truncated is set to yes and AOF
     # is truncated, with an incomplete MULTI block.
     create_aof $aof_dirpath $aof_file {
@@ -714,5 +656,49 @@ tags {"aof external:skip"} {
         }
     }
 
+    start_server {overrides {loading-process-events-interval-bytes 1024}} {
+        test "Allow changing appendonly config while loading from AOF on startup" {
+            # Set AOF enabled, populate db and restart.
+            r config set appendonly yes
+            r config set key-load-delay 100
+            r config rewrite
+            populate 10000
+            restart_server 0 false false
 
+            # Disable AOF while loading from the disk.
+            assert_equal 1 [s loading]
+            r config set appendonly no
+            assert_equal 1 [s loading]
+
+            # Speed up loading, verify AOF disabled.
+            r config set key-load-delay 0
+            wait_done_loading r
+            assert_equal {10000} [r dbsize]
+            assert_equal 0 [s aof_enabled]
+        }
+
+        test "Allow changing appendonly config while loading from RDB on startup" {
+            # Set AOF disabled, populate db and restart.
+            r flushall
+            r config set appendonly no
+            r config set key-load-delay 100
+            r config rewrite
+            populate 10000
+            r save
+            restart_server 0 false false
+
+            # Enable AOF while loading from the disk.
+            assert_equal 1 [s loading]
+            r config set appendonly yes
+            assert_equal 1 [s loading]
+
+            # Speed up loading, verify AOF enabled, do a quick sanity.
+            r config set key-load-delay 0
+            wait_done_loading r
+            assert_equal {10000} [r dbsize]
+            assert_equal 1 [s aof_enabled]
+            r set t 1
+            assert_equal {1} [r get t]
+        }
+    }
 }
