@@ -113,6 +113,7 @@ proc test_slave_load_expired_keys {aof} {
 
         # wait for the master to expire all keys and replica to get the DELs
         wait_for_condition 500 10 {
+            [RI $replica_id master_link_status] eq {up} &&
             [R $replica_id dbsize] eq $master_dbsize_0
         } else {
             fail "keys didn't expire"
