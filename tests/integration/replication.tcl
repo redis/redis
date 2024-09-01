@@ -1591,7 +1591,7 @@ start_server {tags {"repl external:skip"}} {
                 [s -1 lazyfreed_objects] >= 1000 &&
                 [s -1 master_link_status] eq {up}
             } else {
-                fail "Replica didn't get into loading mode"
+                fail "Replica did not free db lazily"
             }
         }
     }
