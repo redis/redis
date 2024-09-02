@@ -970,6 +970,12 @@ void addReplyLongLong(client *c, long long ll) {
     }
 }
 
+void addReplyLongLongFromStr(client *c, robj* str) {
+    addReplyProto(c,":",1);
+    addReply(c,str);
+    addReplyProto(c,"\r\n",2);
+}
+
 void addReplyAggregateLen(client *c, long length, int prefix) {
     serverAssert(length >= 0);
     if (prepareClientToWrite(c) != C_OK) return;
