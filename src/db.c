@@ -477,7 +477,7 @@ int dbDelete(redisDb *db, robj *key) {
  * using an sdscat() call to append some data, or anything else.
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
-    dbUnshareStringValueWithDictEntry(db,key,o,NULL);
+    return dbUnshareStringValueWithDictEntry(db,key,o,NULL);
 }
 
 
