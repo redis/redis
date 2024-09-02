@@ -480,7 +480,6 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
     return dbUnshareStringValueWithDictEntry(db,key,o,NULL);
 }
 
-
 /* Like dbUnshareStringValue(), but accepts a optional dictEntry,
  * which can be used if we already have one, thus saving the dbFind call. */
 robj *dbUnshareStringValueWithDictEntry(redisDb *db, robj *key, robj *o, dictEntry *de) {

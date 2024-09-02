@@ -970,7 +970,7 @@ void addReplyLongLong(client *c, long long ll) {
     }
 }
 
-void addReplyLongLongFromStr(client *c, robj* str) {
+void addReplyLongLongFromStr(client *c, robj *str) {
     addReplyProto(c,":",1);
     addReply(c,str);
     addReplyProto(c,"\r\n",2);
