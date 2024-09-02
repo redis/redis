@@ -13661,7 +13661,7 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
  * to know if the number of elements were really added.
  *
  * Empty keys will be created with set key type and continue. */
-int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, size_t *added) {
+int RM_SetAdd(RedisModuleKey *key, RedisModuleString **elements, size_t numeles, size_t *added) {
     if (!(key->mode & REDISMODULE_WRITE)) {
         errno = EBADF;
         return REDISMODULE_ERR;
@@ -13673,7 +13673,7 @@ int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
     size_t i, numadded = 0;
     for (i = 0; i < numeles; i++) {
-        numadded += setTypeAdd(key->value,eles[i]->ptr);
+        numadded += setTypeAdd(key->value,elements[i]->ptr);
     }
     if (added) *added = numadded;
 
@@ -13703,7 +13703,7 @@ int RM_SetAdd(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
  * to know if the number of elements were really removed.
  *
  * Empty keys will be handled correctly by doing nothing. */
-int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, size_t *deleted) {
+int RM_SetRem(RedisModuleKey *key, RedisModuleString **elements, size_t numeles, size_t *deleted) {
     size_t numdeleted = 0;
     if (!key) {
         errno = EINVAL;
@@ -13720,7 +13720,7 @@ int RM_SetRem(RedisModuleKey *key, RedisModuleString **eles, size_t numeles, siz
         return REDISMODULE_ERR;
     }
     for (size_t i = 0; i < numeles; i++) {
-        numdeleted += setTypeRemove(key->value,eles[i]->ptr);
+        numdeleted += setTypeRemove(key->value,elements[i]->ptr);
         if (moduleDelKeyIfEmpty(key)) break;
     }
     if (deleted) *deleted = numdeleted;

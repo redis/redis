@@ -1088,8 +1088,8 @@ REDISMODULE_API int (*RedisModule_StreamIteratorNextField)(RedisModuleKey *key, 
 REDISMODULE_API int (*RedisModule_StreamIteratorDelete)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API long long (*RedisModule_StreamTrimByLength)(RedisModuleKey *key, int flags, long long length) REDISMODULE_ATTR;
 REDISMODULE_API long long (*RedisModule_StreamTrimByID)(RedisModuleKey *key, int flags, RedisModuleStreamID *id) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetAdd)(RedisModuleKey *key, RedisModuleString **eles, int numeles, size_t *added) REDISMODULE_ATTR;
-REDISMODULE_API int (*RedisModule_SetRem)(RedisModuleKey *key, RedisModuleString **eles, int numeles, size_t *deleted) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetAdd)(RedisModuleKey *key, RedisModuleString **elements, int numeles, size_t *added) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetRem)(RedisModuleKey *key, RedisModuleString **elements, int numeles, size_t *deleted) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetIsMember)(RedisModuleKey *key, RedisModuleString *ele) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_IsKeysPositionRequest)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_KeyAtPos)(RedisModuleCtx *ctx, int pos) REDISMODULE_ATTR;
