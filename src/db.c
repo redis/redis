@@ -1876,7 +1876,7 @@ void setExpireWithDictEntry(client *c, redisDb *db, robj *key, long long when, d
 
     /* Reuse the sds from the main dict in the expire dict */
     int slot = getKeySlot(key->ptr);
-    if (!kde) kde = kvstoreDictFind(db->keys, slot, key->ptr);;
+    if (!kde) kde = kvstoreDictFind(db->keys, slot, key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     de = kvstoreDictAddRaw(db->expires, slot, dictGetKey(kde), &existing);
     if (existing) {
