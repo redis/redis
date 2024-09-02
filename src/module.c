@@ -13529,11 +13529,25 @@ void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
     return activeDefragAlloc(ptr);
 }
 
+/* Allocate memory for defrag purposes
+ *
+ * On the common cases user simply want to reallocate a pointer with a single
+ * owner. For such usecase RM_DefragAlloc is enough. But on some usecases the user
+ * might want to replace a pointer with multiple owners in different keys.
+ * In such case, an in place replacement can not work because the other key still
+ * keep a pointer to the old value. 
+ * 
+ * RM_DefragAllocRaw and RM_DefragFreeRaw allows to control when the memory
+ * for defrag purposes will be allocated and when it will be freed,
+ * allow to support more complex defrag usecases. */
 void *RM_DefragAllocRaw(RedisModuleDefragCtx *ctx, size_t size) {
     UNUSED(ctx);
     return activeDefragAllocRaw(size);
 }
 
+/* Free memory for defrag purposes
+ * 
+ * See RM_DefragAllocRaw for more information. */
 void RM_DefragFreeRaw(RedisModuleDefragCtx *ctx, void *ptr) {
     UNUSED(ctx);
     activeDefragFreeRaw(ptr);
