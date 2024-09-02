@@ -707,7 +707,7 @@ static inline unsigned char *lpFindCbInternal(unsigned char *lp, unsigned char *
                 assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
             }
 
-            if (cmp(lp, p, user, value, ll) == 0)
+            if (unlikely(cmp(lp, p, user, value, ll) == 0))
                 return p;
 
             /* Reset skip count */
