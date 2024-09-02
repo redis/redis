@@ -13529,6 +13529,16 @@ void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
     return activeDefragAlloc(ptr);
 }
 
+void *RM_DefragAllocRaw(RedisModuleDefragCtx *ctx, size_t size) {
+    UNUSED(ctx);
+    return activeDefragAllocRaw(size);
+}
+
+void RM_DefragFreeRaw(RedisModuleDefragCtx *ctx, void *ptr) {
+    UNUSED(ctx);
+    activeDefragFreeRaw(ptr);
+}
+
 /* Defrag a RedisModuleString previously allocated by RM_Alloc, RM_Calloc, etc.
  * See RM_DefragAlloc() for more information on how the defragmentation process
  * works.
@@ -13981,6 +13991,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetTypeMethodVersion);
     REGISTER_API(RegisterDefragFunc);
     REGISTER_API(DefragAlloc);
+    REGISTER_API(DefragAllocRaw);
+    REGISTER_API(DefragFreeRaw);
     REGISTER_API(DefragRedisModuleString);
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);

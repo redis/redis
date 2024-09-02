@@ -54,6 +54,16 @@ void* activeDefragAlloc(void *ptr) {
     return newptr;
 }
 
+/* Raw memory allocation for defrag, avoid using tcache. */
+void *activeDefragAllocRaw(size_t size) {
+    return zmalloc_no_tcache(size);
+}
+
+/* Raw memory free for defrag, avoid using tcache. */
+void activeDefragFreeRaw(void *ptr) {
+    zfree_no_tcache(ptr);
+}
+
 /*Defrag helper for sds strings
  *
  * returns NULL in case the allocation wasn't moved.

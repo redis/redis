@@ -3,6 +3,7 @@
 
 #include "redismodule.h"
 #include <stdlib.h>
+#include <string.h>
 
 static RedisModuleType *FragType;
 
@@ -17,6 +18,7 @@ unsigned long int last_set_cursor = 0;
 
 unsigned long int datatype_attempts = 0;
 unsigned long int datatype_defragged = 0;
+unsigned long int datatype_raw_defragged = 0;
 unsigned long int datatype_resumes = 0;
 unsigned long int datatype_wrong_cursor = 0;
 unsigned long int global_attempts = 0;
@@ -53,6 +55,7 @@ static void FragInfo(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddSection(ctx, "stats");
     RedisModule_InfoAddFieldLongLong(ctx, "datatype_attempts", datatype_attempts);
     RedisModule_InfoAddFieldLongLong(ctx, "datatype_defragged", datatype_defragged);
+    RedisModule_InfoAddFieldLongLong(ctx, "datatype_raw_defragged", datatype_raw_defragged);
     RedisModule_InfoAddFieldLongLong(ctx, "datatype_resumes", datatype_resumes);
     RedisModule_InfoAddFieldLongLong(ctx, "datatype_wrong_cursor", datatype_wrong_cursor);
     RedisModule_InfoAddFieldLongLong(ctx, "global_attempts", global_attempts);
@@ -79,6 +82,7 @@ static int fragResetStatsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
 
     datatype_attempts = 0;
     datatype_defragged = 0;
+    datatype_raw_defragged = 0;
     datatype_resumes = 0;
     datatype_wrong_cursor = 0;
     global_attempts = 0;
@@ -187,6 +191,14 @@ int FragDefrag(RedisModuleDefragCtx *ctx, RedisModuleString *key, void **value) 
             return 1;
         }
     }
+
+    /* Defrag the values array itself using RedisModule_DefragAllocRaw
+     * and RedisModule_DefragFreeRaw for testing purposes. */
+    void *new_values = RedisModule_DefragAllocRaw(ctx, o->len * sizeof(void*));
+    memcpy(new_values, o->values, o->len * sizeof(void*));
+    RedisModule_DefragFreeRaw(ctx, o->values);
+    o->values = new_values;
+    datatype_raw_defragged++;
 
     last_set_cursor = 0;
     return 0;

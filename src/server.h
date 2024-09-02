@@ -3127,6 +3127,8 @@ void checkChildrenDone(void);
 int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
+void *activeDefragAllocRaw(size_t size);
+void activeDefragFreeRaw(void *ptr);
 robj *activeDefragStringOb(robj* ob);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
