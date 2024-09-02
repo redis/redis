@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-current, Redis Ltd.
  * Copyright (c) 2012, Twitter, Inc.
  * All rights reserved.
  *
@@ -1176,7 +1176,10 @@ int fsyncFileDir(const char *filename) {
 int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 #ifdef HAVE_FADVISE
     int ret = posix_fadvise(fd, offset, length, POSIX_FADV_DONTNEED);
-    if (ret) return -1;
+    if (ret) {
+        errno = ret;
+        return -1;
+    }
     return 0;
 #else
     UNUSED(fd);

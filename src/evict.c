@@ -2,32 +2,11 @@
  *
  * ----------------------------------------------------------------------------
  *
- * Copyright (c) 2009-2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -143,11 +122,12 @@ void evictionPoolAlloc(void) {
  * We insert keys on place in ascending order, so keys with the smaller
  * idle time are on the left, and keys with the higher idle time on the
  * right. */
-int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, struct evictionPoolEntry *pool) {
+int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEntry *pool) {
     int j, k, count;
     dictEntry *samples[server.maxmemory_samples];
 
-    count = dictGetSomeKeys(sampledict,samples,server.maxmemory_samples);
+    int slot = kvstoreGetFairRandomDictIndex(samplekvs);
+    count = kvstoreDictGetSomeKeys(samplekvs,slot,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
@@ -161,7 +141,8 @@ int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, st
          * dictionary (but the expires one) we need to lookup the key
          * again in the key dictionary to obtain the value object. */
         if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (sampledict != keydict) de = dictFind(keydict, key);
+            if (samplekvs != db->keys)
+                de = kvstoreDictFind(db->keys, slot, key);
             o = dictGetVal(de);
         }
 
@@ -236,7 +217,7 @@ int evictionPoolPopulate(int dbid, int slot, dict *sampledict, dict *keydict, st
             pool[k].key = pool[k].cached;
         }
         pool[k].idle = idle;
-        pool[k].dbid = dbid;
+        pool[k].dbid = db->id;
         pool[k].slot = slot;
     }
 
@@ -578,16 +559,12 @@ int performEvictions(void) {
         sds bestkey = NULL;
         int bestdbid;
         redisDb *db;
-        dict *dict;
         dictEntry *de;
 
         if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU) ||
             server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL)
         {
             struct evictionPoolEntry *pool = EvictionPoolLRU;
-            dbKeyType keyType = (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS ?
-                                 DB_MAIN : DB_EXPIRES);
-
             while (bestkey == NULL) {
                 unsigned long total_keys = 0;
 
@@ -596,17 +573,21 @@ int performEvictions(void) {
                  * every DB. */
                 for (i = 0; i < server.dbnum; i++) {
                     db = server.db+i;
+                    kvstore *kvs;
+                    if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
+                        kvs = db->keys;
+                    } else {
+                        kvs = db->expires;
+                    }
                     unsigned long sampled_keys = 0;
-                    unsigned long current_db_keys = dbSize(db, keyType);
+                    unsigned long current_db_keys = kvstoreSize(kvs);
                     if (current_db_keys == 0) continue;
 
                     total_keys += current_db_keys;
-                    int l = dbNonEmptySlots(db, keyType);
+                    int l = kvstoreNumNonEmptyDicts(kvs);
                     /* Do not exceed the number of non-empty slots when looping. */
                     while (l--) {
-                        int slot = getFairRandomSlot(db, keyType);
-                        dict = (keyType == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-                        sampled_keys += evictionPoolPopulate(i, slot, dict, db->dict[slot], pool);
+                        sampled_keys += evictionPoolPopulate(db, kvs, pool);
                         /* We have sampled enough keys in the current db, exit the loop. */
                         if (sampled_keys >= (unsigned long) server.maxmemory_samples)
                             break;
@@ -624,13 +605,13 @@ int performEvictions(void) {
                     if (pool[k].key == NULL) continue;
                     bestdbid = pool[k].dbid;
 
+                    kvstore *kvs;
                     if (server.maxmemory_policy & MAXMEMORY_FLAG_ALLKEYS) {
-                        de = dictFind(server.db[bestdbid].dict[pool[k].slot],
-                                      pool[k].key);
+                        kvs = server.db[bestdbid].keys;
                     } else {
-                        de = dictFind(server.db[bestdbid].expires[pool[k].slot],
-                                      pool[k].key);
+                        kvs = server.db[bestdbid].expires;
                     }
+                    de = kvstoreDictFind(kvs, pool[k].slot, pool[k].key);
 
                     /* Remove the entry from the pool. */
                     if (pool[k].key != pool[k].cached)
@@ -660,10 +641,15 @@ int performEvictions(void) {
             for (i = 0; i < server.dbnum; i++) {
                 j = (++next_db) % server.dbnum;
                 db = server.db+j;
-                dict = (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) ?
-                       db->dict[getFairRandomSlot(db, DB_MAIN)] : db->expires[getFairRandomSlot(db, DB_EXPIRES)];
-                if (dictSize(dict) != 0) {
-                    de = dictGetRandomKey(dict);
+                kvstore *kvs;
+                if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
+                    kvs = db->keys;
+                } else {
+                    kvs = db->expires;
+                }
+                int slot = kvstoreGetFairRandomDictIndex(kvs);
+                de = kvstoreDictGetRandomKey(kvs, slot);
+                if (de) {
                     bestkey = dictGetKey(de);
                     bestdbid = j;
                     break;

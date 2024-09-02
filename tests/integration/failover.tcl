@@ -33,6 +33,12 @@ start_server {overrides {save {}}} {
         $node_2 replicaof $node_0_host $node_0_port
         wait_for_sync $node_1
         wait_for_sync $node_2
+        # wait for both replicas to be online from the perspective of the master
+        wait_for_condition 50 100 {
+            [string match "*slave0:*,state=online*slave1:*,state=online*" [$node_0 info replication]]
+        } else {
+            fail "replica didn't online in time"
+        }
     }
 
     test {failover command fails with invalid host} {

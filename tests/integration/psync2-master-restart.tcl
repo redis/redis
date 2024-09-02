@@ -179,6 +179,17 @@ start_server {} {
             $master set $j somevalue px 10
         }
 
+        ##### hash-field-expiration
+        # Hashes of type OBJ_ENCODING_LISTPACK_EX won't be discarded during
+        # RDB load, even if they are expired.
+        $master hset myhash1 f1 v1 f2 v2 f3 v3
+        $master hpexpire myhash1 10 FIELDS 3 f1 f2 f3
+        # Hashes of type RDB_TYPE_HASH_METADATA will be discarded during RDB load.
+        $master config set hash-max-listpack-entries 0
+        $master hset myhash2 f1 v1 f2 v2
+        $master hpexpire myhash2 10 FIELDS 2 f1 f2
+        $master config set hash-max-listpack-entries 1
+
         after 20
 
         wait_for_condition 500 100 {

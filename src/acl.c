@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2018, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2018-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -506,15 +485,7 @@ void ACLFreeUserAndKillClients(user *u) {
              * this may result in some security hole: it's much
              * more defensive to set the default user and put
              * it in non authenticated mode. */
-            c->user = DefaultUser;
-            c->authenticated = 0;
-            /* We will write replies to this client later, so we can't
-             * close it directly even if async. */
-            if (c == server.current_client) {
-                c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
-            } else {
-                freeClientAsync(c);
-            }
+            deauthenticateAndCloseClient(c);
         }
     }
     ACLFreeUser(u);
@@ -537,12 +508,6 @@ void ACLCopyUser(user *dst, user *src) {
         /* if src is NULL, we set it to NULL, if not, need to increment reference count */
         incrRefCount(dst->acl_string);
     }
-}
-
-/* Free all the users registered in the radix tree 'users' and free the
- * radix tree itself. */
-void ACLFreeUsersSet(rax *users) {
-    raxFreeWithCallback(users,(void(*)(void*))ACLFreeUserAndKillClients);
 }
 
 /* Given a command ID, this function set by reference 'word' and 'bit'
@@ -1909,29 +1874,20 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }
 
-/* Check if the user's existing pub/sub clients violate the ACL pub/sub
- * permissions specified via the upcoming argument, and kill them if so. */
-void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
-    /* Do nothing if there are no subscribers. */
-    if (!dictSize(server.pubsub_patterns) &&
-        !dictSize(server.pubsub_channels) &&
-        !dictSize(server.pubsubshard_channels))
-        return;
-
+/* If 'new' can access all channels 'original' could then return NULL;
+   Otherwise return a list of channels that the new user can access */
+list *getUpcomingChannelList(user *new, user *original) {
     listIter li, lpi;
     listNode *ln, *lpn;
-    robj *o;
-    int kill = 0;
-    
-    /* First optimization is we check if any selector has all channel
-     * permissions. */
+
+    /* Optimization: we check if any selector has all channel permissions. */
     listRewind(new->selectors,&li);
     while((ln = listNext(&li))) {
         aclSelector *s = (aclSelector *) listNodeValue(ln);
-        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return;
+        if (s->flags & SELECTOR_FLAG_ALLCHANNELS) return NULL;
     }
 
-    /* Second optimization is to check if the new list of channels
+    /* Next, check if the new list of channels
      * is a strict superset of the original. This is done by
      * created an "upcoming" list of all channels that are in
      * the new user and checking each of the existing channels
@@ -1969,58 +1925,87 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     if (match) {
         /* All channels were matched, no need to kill clients. */
         listRelease(upcoming);
-        return;
+        return NULL;
     }
-    
+
+    return upcoming;
+}
+
+/* Check if the client should be killed because it is subscribed to channels that were
+ * permitted in the past, are not in the `upcoming` channel list. */
+int ACLShouldKillPubsubClient(client *c, list *upcoming) {
+    robj *o;
+    int kill = 0;
+
+    if (getClientType(c) == CLIENT_TYPE_PUBSUB) {
+        /* Check for pattern violations. */
+        dictIterator *di = dictGetIterator(c->pubsub_patterns);
+        dictEntry *de;
+        while (!kill && ((de = dictNext(di)) != NULL)) {
+            o = dictGetKey(de);
+            int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
+            kill = (res == ACL_DENIED_CHANNEL);
+        }
+        dictReleaseIterator(di);
+
+        /* Check for channel violations. */
+        if (!kill) {
+            /* Check for global channels violation. */
+            di = dictGetIterator(c->pubsub_channels);
+
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
+                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+                kill = (res == ACL_DENIED_CHANNEL);
+            }
+            dictReleaseIterator(di);
+        }
+        if (!kill) {
+            /* Check for shard channels violation. */
+            di = dictGetIterator(c->pubsubshard_channels);
+            while (!kill && ((de = dictNext(di)) != NULL)) {
+                o = dictGetKey(de);
+                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
+                kill = (res == ACL_DENIED_CHANNEL);
+            }
+            dictReleaseIterator(di);
+        }
+
+        if (kill) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Check if the user's existing pub/sub clients violate the ACL pub/sub
+ * permissions specified via the upcoming argument, and kill them if so. */
+void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
+    /* Do nothing if there are no subscribers. */
+    if (pubsubTotalSubscriptions() == 0)
+        return;
+
+    list *channels = getUpcomingChannelList(new, original);
+    /* If the new user's pubsub permissions are a strict superset of the original, return early. */
+    if (!channels)
+        return;
+
+    listIter li;
+    listNode *ln;
+
     /* Permissions have changed, so we need to iterate through all
      * the clients and disconnect those that are no longer valid.
      * Scan all connected clients to find the user's pub/subs. */
     listRewind(server.clients,&li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
-        kill = 0;
-
-        if (c->user == original && getClientType(c) == CLIENT_TYPE_PUBSUB) {
-            /* Check for pattern violations. */
-            dictIterator *di = dictGetIterator(c->pubsub_patterns);
-            dictEntry *de;
-            while (!kill && ((de = dictNext(di)) != NULL)) {
-                o = dictGetKey(de);
-                int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 1);
-                kill = (res == ACL_DENIED_CHANNEL);
-            }
-            dictReleaseIterator(di);
-
-            /* Check for channel violations. */
-            if (!kill) {
-                /* Check for global channels violation. */
-                di = dictGetIterator(c->pubsub_channels);
-                while (!kill && ((de = dictNext(di)) != NULL)) {
-                    o = dictGetKey(de);
-                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                    kill = (res == ACL_DENIED_CHANNEL);
-                }
-                dictReleaseIterator(di);
-            }
-
-            if (!kill) {
-                /* Check for shard channels violation. */
-                di = dictGetIterator(c->pubsubshard_channels);
-                while (!kill && ((de = dictNext(di)) != NULL)) {
-                    o = dictGetKey(de);
-                    int res = ACLCheckChannelAgainstList(upcoming, o->ptr, sdslen(o->ptr), 0);
-                    kill = (res == ACL_DENIED_CHANNEL);
-                }
-                dictReleaseIterator(di);
-            }
-
-            /* Kill it. */
-            if (kill) {
-                freeClient(c);
-            }
-        }
+        if (c->user != original)
+            continue;
+        if (ACLShouldKillPubsubClient(c, channels))
+            deauthenticateAndCloseClient(c);
     }
-    listRelease(upcoming);
+
+    listRelease(channels);
 }
 
 /* =============================================================================
@@ -2427,11 +2412,46 @@ sds ACLLoadFromFile(const char *filename) {
         ACLFreeUser(new_default);
         raxInsert(Users,(unsigned char*)"default",7,DefaultUser,NULL);
         raxRemove(old_users,(unsigned char*)"default",7,NULL);
-        ACLFreeUsersSet(old_users);
+
+        /* If there are some subscribers, we need to check if we need to drop some clients. */
+        rax *user_channels = NULL;
+        if (pubsubTotalSubscriptions() > 0) {
+            user_channels = raxNew();
+        }
+
+        listIter li;
+        listNode *ln;
+
+        listRewind(server.clients,&li);
+        while ((ln = listNext(&li)) != NULL) {
+            client *c = listNodeValue(ln);
+            /* a MASTER client can do everything (and user = NULL) so we can skip it */
+            if (c->flags & CLIENT_MASTER)
+                continue;
+            user *original = c->user;
+            list *channels = NULL;
+            user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
+            if (new && user_channels) {
+                if (!raxFind(user_channels, (unsigned char*)(new->name), sdslen(new->name), (void**)&channels)) {
+                    channels = getUpcomingChannelList(new, original);
+                    raxInsert(user_channels, (unsigned char*)(new->name), sdslen(new->name), channels, NULL);
+                }
+            }
+            /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
+            if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
+                deauthenticateAndCloseClient(c);
+                continue;
+            }
+            c->user = new;
+        }
+
+        if (user_channels)
+            raxFreeWithCallback(user_channels, (void(*)(void*))listRelease);
+        raxFreeWithCallback(old_users,(void(*)(void*))ACLFreeUser);
         sdsfree(errors);
         return NULL;
     } else {
-        ACLFreeUsersSet(Users);
+        raxFreeWithCallback(Users,(void(*)(void*))ACLFreeUser);
         Users = old_users;
         errors = sdscat(errors,"WARNING: ACL errors detected, no change to the previously active ACL rules was performed");
         return errors;
@@ -2609,6 +2629,15 @@ void ACLUpdateInfoMetrics(int reason){
     }
 }
 
+static void trimACLLogEntriesToMaxLen(void) {
+    while(listLength(ACLLog) > server.acllog_max_len) {
+        listNode *ln = listLast(ACLLog);
+        ACLLogEntry *le = listNodeValue(ln);
+        ACLFreeLogEntry(le);
+        listDelNode(ACLLog,ln);
+    }
+}
+
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
  * to find similar entries in the current log in order to bump the counter of
@@ -2627,6 +2656,11 @@ void ACLUpdateInfoMetrics(int reason){
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Update ACL info metrics */
     ACLUpdateInfoMetrics(reason);
+    
+    if (server.acllog_max_len == 0) {
+        trimACLLogEntriesToMaxLen();
+        return;
+    }
     
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
@@ -2690,12 +2724,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
          * to its maximum size. */
         ACLLogEntryCount++; /* Incrementing the entry_id count to make each record in the log unique. */
         listAddNodeHead(ACLLog, le);
-        while(listLength(ACLLog) > server.acllog_max_len) {
-            listNode *ln = listLast(ACLLog);
-            ACLLogEntry *le = listNodeValue(ln);
-            ACLFreeLogEntry(le);
-            listDelNode(ACLLog,ln);
-        }
+        trimACLLogEntriesToMaxLen();
     }
 }
 
@@ -2733,7 +2762,6 @@ void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
 
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & CMD_MODULE) continue;
         if (cmd->acl_categories & cflag) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             (*arraylen)++;

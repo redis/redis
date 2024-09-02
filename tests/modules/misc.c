@@ -503,6 +503,43 @@ final:
     return REDISMODULE_OK;
 }
 
+int test_malloc_api(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+
+    void *p;
+
+    p = RedisModule_TryAlloc(1024);
+    memset(p, 0, 1024);
+    RedisModule_Free(p);
+
+    p = RedisModule_TryCalloc(1, 1024);
+    memset(p, 1, 1024);
+
+    p = RedisModule_TryRealloc(p, 5 * 1024);
+    memset(p, 1, 5 * 1024);
+    RedisModule_Free(p);
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
+int test_keyslot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    /* Static check of the ClusterKeySlot + ClusterCanonicalKeyNameInSlot
+     * round-trip for all slots. */
+    for (unsigned int slot = 0; slot < 16384; slot++) {
+        const char *tag = RedisModule_ClusterCanonicalKeyNameInSlot(slot);
+        RedisModuleString *key = RedisModule_CreateStringPrintf(ctx, "x{%s}y", tag);
+        assert(slot == RedisModule_ClusterKeySlot(key));
+        RedisModule_FreeString(ctx, key);
+    }
+    if (argc != 2){
+        return RedisModule_WrongArity(ctx);
+    }
+    unsigned int slot = RedisModule_ClusterKeySlot(argv[1]);
+    return RedisModule_ReplyWithLongLong(ctx, slot);
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -565,6 +602,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "test.get_n_events", test_get_n_events,"", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "test.clear_n_events", test_clear_n_events,"", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.malloc_api", test_malloc_api,"", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.keyslot", test_keyslot, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
