@@ -72,8 +72,8 @@ void updateLFU(robj *val) {
  * Even if the key expiry is master-driven, we can correctly report a key is
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
-robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry *de) {
-    if (!de) de = dbFind(db, key->ptr);
+robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry **deref) {
+    dictEntry *de = dbFind(db, key->ptr);
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
@@ -123,6 +123,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry *de) {
         /* TODO: Use separate misses stats and notify event for WRITE */
     }
 
+    if (deref) *deref = de;
     return val;
 }
 
@@ -163,8 +164,8 @@ robj *lookupKeyWrite(redisDb *db, robj *key) {
 /* Like lookupKeyWrite(), but accepts an optional dictEntry input,
  * which can be used if we already have one, thus saving the dbFind call.
  */
-robj *lookupKeyWriteWithDictEntry(redisDb *db, robj *key, dictEntry *de) {
-    return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, de);
+robj *lookupKeyWriteWithDictEntry(redisDb *db, robj *key, dictEntry **deref) {
+    return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, deref);
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
