@@ -48,7 +48,9 @@ void updateLFU(robj *val) {
 /* Lookup a key for read or write operations, or return NULL if the key is not
  * found in the specified DB. This function implements the functionality of
  * lookupKeyRead(), lookupKeyWrite() and their ...WithFlags() variants.
- * The dictEntry reference input is optional, can be used if we already have one.
+ *
+ * 'deref' is an optional output dictEntry reference argument, to get the
+ * associated dictEntry* of the key in case the key is found.
  *
  * Side-effects of calling this function:
  *
