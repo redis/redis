@@ -2509,9 +2509,13 @@ static int updateAppendonly(const char **err) {
     if (server.loading)
         return 1;
 
-    if (applyAppendOnlyConfig() != C_OK) {
-        *err = "Unable to turn on AOF. Check server logs.";
-        return 0;
+    if (!server.aof_enabled && server.aof_state != AOF_OFF) {
+        stopAppendOnly();
+    } else if (server.aof_enabled && server.aof_state == AOF_OFF) {
+        if (startAppendOnly() == C_ERR) {
+            *err = "Unable to turn on AOF. Check server logs.";
+            return 0;
+        }
     }
     return 1;
 }
