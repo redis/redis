@@ -48,6 +48,7 @@ void updateLFU(robj *val) {
 /* Lookup a key for read or write operations, or return NULL if the key is not
  * found in the specified DB. This function implements the functionality of
  * lookupKeyRead(), lookupKeyWrite() and their ...WithFlags() variants.
+ * The dictEntry reference input is optional, can be used if we already have one.
  *
  * Side-effects of calling this function:
  *
@@ -474,14 +475,7 @@ int dbDelete(redisDb *db, robj *key) {
  * using an sdscat() call to append some data, or anything else.
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
-    serverAssert(o->type == OBJ_STRING);
-    if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
-        robj *decoded = getDecodedObject(o);
-        o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
-        decrRefCount(decoded);
-        dbReplaceValue(db,key,o);
-    }
-    return o;
+    dbUnshareStringValueWithDictEntry(db,key,o,NULL);
 }
 
 
