@@ -1269,6 +1269,16 @@ void *activeDefragAlloc(void *ptr) {
     return NULL;
 }
 
+void *activeDefragAllocRaw(size_t size) {
+    /* fallback to regular allocation */
+    return zmalloc(size);
+}
+
+void activeDefragFreeRaw(void *ptr) {
+    /* fallback to regular free */
+    zfree(ptr);
+}
+
 robj *activeDefragStringOb(robj *ob) {
     UNUSED(ob);
     return NULL;
