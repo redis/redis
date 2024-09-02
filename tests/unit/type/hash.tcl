@@ -1,4 +1,7 @@
 start_server {tags {"hash"}} {
+    r config set hash-max-listpack-value 64
+    r config set hash-max-listpack-entries 512
+
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
@@ -491,6 +494,13 @@ start_server {tags {"hash"}} {
         r del htest
         list [r hincrby htest foo 2]
     } {2}
+
+    test {HINCRBY HINCRBYFLOAT against non-integer increment value} {
+        r del incrhash
+        r hset incrhash field 5
+        assert_error "*value is not an integer*" {r hincrby incrhash field v}
+        assert_error "*value is not a*" {r hincrbyfloat incrhash field v}
+    }
 
     test {HINCRBY against non existing hash key} {
         set rv {}

@@ -1,16 +1,16 @@
 /* Background I/O service for Redis.
  *
  * This file implements operations that we need to perform in the background.
- * Currently there is only a single operation, that is a background close(2)
- * system call. This is needed as when the process is the last owner of a
- * reference to a file closing it means unlinking it, and the deletion of the
- * file is slow, blocking the server.
+ * Currently there are 3 operations:
+ * 1) a background close(2) system call. This is needed when the process is
+ *    the last owner of a reference to a file closing it means unlinking it, and
+ *    the deletion of the file is slow, blocking the server.
+ * 2) AOF fsync
+ * 3) lazyfree of memory
  *
  * In the future we'll either continue implementing new things we need or
  * we'll switch to libeio. However there are probably long term uses for this
- * file as we may want to put here Redis specific background tasks (for instance
- * it is not impossible that we'll need a non blocking FLUSHDB/FLUSHALL
- * implementation).
+ * file as we may want to put here Redis specific background tasks.
  *
  * DESIGN
  * ------
@@ -26,42 +26,26 @@
  * least-recently-inserted to the most-recently-inserted (older jobs processed
  * first).
  *
- * Currently there is no way for the creator of the job to be notified about
- * the completion of the operation, this will only be added when/if needed.
+ * To let the creator of the job to be notified about the completion of the 
+ * operation, it will need to submit additional dummy job, coined as
+ * completion job request that will be written back eventually, by the
+ * background thread, into completion job response queue. This notification
+ * layout can simplify flows that might submit more than one job, such as
+ * in case of FLUSHALL which for a single command submits multiple jobs. It
+ * is also correct because jobs are processed in FIFO fashion.
  *
  * ----------------------------------------------------------------------------
  *
- * Copyright (c) 2009-2012, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
-
 
 #include "server.h"
 #include "bio.h"
+#include <fcntl.h>
 
 static char* bio_worker_title[] = {
     "bio_close_file",
@@ -76,6 +60,9 @@ static unsigned int bio_job_to_worker[] = {
     [BIO_AOF_FSYNC] = 1,
     [BIO_CLOSE_AOF] = 1,
     [BIO_LAZY_FREE] = 2,
+    [BIO_COMP_RQ_CLOSE_FILE] = 0,
+    [BIO_COMP_RQ_AOF_FSYNC]  = 1,
+    [BIO_COMP_RQ_LAZY_FREE]  = 2
 };
 
 static pthread_t bio_threads[BIO_WORKER_NUM];
@@ -83,6 +70,18 @@ static pthread_mutex_t bio_mutex[BIO_WORKER_NUM];
 static pthread_cond_t bio_newjob_cond[BIO_WORKER_NUM];
 static list *bio_jobs[BIO_WORKER_NUM];
 static unsigned long bio_jobs_counter[BIO_NUM_OPS] = {0};
+
+/* The bio_comp_list is used to hold completion job responses and to handover
+ * to main thread to callback as notification for job completion. Main
+ * thread will be triggered to read the list by signaling via writing to a pipe */
+static list *bio_comp_list;
+static pthread_mutex_t bio_mutex_comp;
+static int job_comp_pipe[2];   /* Pipe used to awake the event loop */
+
+typedef struct bio_comp_item {
+    comp_fn *func;    /* callback after completion job will be processed  */
+    uint64_t arg;     /* user data to be passed to the function */
+} bio_comp_item;
 
 /* This structure represents a background Job. It is only used locally to this
  * file as the API does not expose the internals at all. */
@@ -107,9 +106,15 @@ typedef union bio_job {
         lazy_free_fn *free_fn; /* Function that will free the provided arguments */
         void *free_args[]; /* List of arguments to be passed to the free function */
     } free_args;
+    struct {
+        int type; /* header */
+        comp_fn *fn; /* callback. Handover to main thread to cb as notify for job completion */
+        uint64_t arg; /* callback arguments */
+    } comp_rq;
 } bio_job;
 
 void *bioProcessBackgroundJobs(void *arg);
+void bioPipeReadJobCompList(aeEventLoop *el, int fd, void *privdata, int mask);
 
 /* Make sure we have enough stack to perform all the things we do in the
  * main thread. */
@@ -127,6 +132,27 @@ void bioInit(void) {
         pthread_mutex_init(&bio_mutex[j],NULL);
         pthread_cond_init(&bio_newjob_cond[j],NULL);
         bio_jobs[j] = listCreate();
+    }
+
+    /* init jobs comp responses */
+    bio_comp_list = listCreate();
+    pthread_mutex_init(&bio_mutex_comp, NULL);
+
+    /* Create a pipe for background thread to be able to wake up the redis main thread.
+     * Make the pipe non blocking. This is just a best effort aware mechanism
+     * and we do not want to block not in the read nor in the write half.
+     * Enable close-on-exec flag on pipes in case of the fork-exec system calls in
+     * sentinels or redis servers. */
+    if (anetPipe(job_comp_pipe, O_CLOEXEC|O_NONBLOCK, O_CLOEXEC|O_NONBLOCK) == -1) {
+        serverLog(LL_WARNING,
+                  "Can't create the pipe for bio thread: %s", strerror(errno));
+        exit(1);
+    }
+
+    /* Register a readable event for the pipe used to awake the event loop on job completion */
+    if (aeCreateFileEvent(server.el, job_comp_pipe[0], AE_READABLE,
+                          bioPipeReadJobCompList, NULL) == AE_ERR) {
+        serverPanic("Error registering the readable event for the bio pipe.");
     }
 
     /* Set the stack size as by default it may be small in some system */
@@ -172,6 +198,28 @@ void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
     }
     va_end(valist);
     bioSubmitJob(BIO_LAZY_FREE, job);
+}
+
+void bioCreateCompRq(bio_worker_t assigned_worker, comp_fn *func, uint64_t user_data) {
+    int type;
+    switch (assigned_worker) {
+        case BIO_WORKER_CLOSE_FILE:
+            type = BIO_COMP_RQ_CLOSE_FILE;
+            break;
+        case BIO_WORKER_AOF_FSYNC:
+            type = BIO_COMP_RQ_AOF_FSYNC;
+            break;
+        case BIO_WORKER_LAZY_FREE:
+            type = BIO_COMP_RQ_LAZY_FREE;
+            break;
+        default:
+            serverPanic("Invalid worker type in bioCreateCompRq().");
+    }
+
+    bio_job *job = zmalloc(sizeof(*job));
+    job->comp_rq.fn = func;
+    job->comp_rq.arg = user_data;
+    bioSubmitJob(type, job);
 }
 
 void bioCreateCloseJob(int fd, int need_fsync, int need_reclaim_cache) {
@@ -285,6 +333,21 @@ void *bioProcessBackgroundJobs(void *arg) {
                 close(job->fd_args.fd);
         } else if (job_type == BIO_LAZY_FREE) {
             job->free_args.free_fn(job->free_args.free_args);
+        } else if ((job_type == BIO_COMP_RQ_CLOSE_FILE) ||
+                   (job_type == BIO_COMP_RQ_AOF_FSYNC) ||
+                   (job_type == BIO_COMP_RQ_LAZY_FREE)) {
+            bio_comp_item *comp_rsp = zmalloc(sizeof(bio_comp_item));
+            comp_rsp->func = job->comp_rq.fn;
+            comp_rsp->arg = job->comp_rq.arg;
+
+            /* just write it to completion job responses */
+            pthread_mutex_lock(&bio_mutex_comp);
+            listAddNodeTail(bio_comp_list, comp_rsp);
+            pthread_mutex_unlock(&bio_mutex_comp);
+
+            if (write(job_comp_pipe[1],"A",1) != 1) {
+                /* Pipe is non-blocking, write() may fail if it's full. */
+            }
         } else {
             serverPanic("Wrong job type in bioProcessBackgroundJobs().");
         }
@@ -342,4 +405,35 @@ void bioKillThreads(void) {
             }
         }
     }
+}
+
+void bioPipeReadJobCompList(aeEventLoop *el, int fd, void *privdata, int mask) {
+    UNUSED(el);
+    UNUSED(mask);
+    UNUSED(privdata);
+
+    char buf[128];
+    list *tmp_list = NULL;
+
+    while (read(fd, buf, sizeof(buf)) == sizeof(buf));
+
+    /* Handle event loop events if pipe was written from event loop API */
+    pthread_mutex_lock(&bio_mutex_comp);
+    if (listLength(bio_comp_list)) {
+        tmp_list = bio_comp_list;
+        bio_comp_list = listCreate();
+    }
+    pthread_mutex_unlock(&bio_mutex_comp);
+
+    if (!tmp_list) return;
+
+    /* callback to all job completions  */
+    while (listLength(tmp_list)) {
+        listNode *ln = listFirst(tmp_list);
+        bio_comp_item *rsp = ln->value;
+        listDelNode(tmp_list, ln);
+        rsp->func(rsp->arg);
+        zfree(rsp);
+    }
+    listRelease(tmp_list);
 }

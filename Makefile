@@ -1,4 +1,4 @@
-# Top level makefile, the real shit is at src/Makefile
+# Top level makefile, the real stuff is at src/Makefile
 
 default: all
 

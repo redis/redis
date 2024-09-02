@@ -1,35 +1,17 @@
 /*
- * Copyright (c) 2009-2021, Redis Ltd.
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
 #include "script.h"
 #include "cluster.h"
+
+#include <lua.h>
+#include <lauxlib.h>
 
 scriptFlag scripts_flags_def[] = {
     {.flag = SCRIPT_FLAG_NO_WRITES, .str = "no-writes"},
@@ -59,6 +41,63 @@ static void enterScriptTimedoutMode(scriptRunCtx *run_ctx) {
     run_ctx->flags |= SCRIPT_TIMEDOUT;
     blockingOperationStarts();
 }
+
+#if defined(USE_JEMALLOC)
+/* When lua uses jemalloc, pass in luaAlloc as a parameter of lua_newstate. */
+static void *luaAlloc(void *ud, void *ptr, size_t osize, size_t nsize) {
+    UNUSED(osize);
+
+    unsigned int tcache = (unsigned int)(uintptr_t)ud;
+    if (nsize == 0) {
+        zfree_with_flags(ptr, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(tcache));
+        return NULL;
+    } else {
+        return zrealloc_with_flags(ptr, nsize, MALLOCX_ARENA(server.lua_arena) | MALLOCX_TCACHE(tcache));
+    }
+}
+
+/* Create a lua interpreter, and use jemalloc as lua memory allocator. */
+lua_State *createLuaState(void) {
+    /* Every time a lua VM is created, a new private tcache is created for use.
+     * This private tcache will be destroyed after the lua VM is closed. */
+    unsigned int tcache;
+    size_t sz = sizeof(unsigned int);
+    int err = je_mallctl("tcache.create", (void *)&tcache, &sz, NULL, 0);
+    if (err) {
+        serverLog(LL_WARNING, "Failed creating the lua jemalloc tcache.");
+        exit(1);
+    }
+
+    /* We pass tcache as ud so that it is not bound to the server. */
+    return lua_newstate(luaAlloc, (void *)(uintptr_t)tcache);
+}
+
+/* Under jemalloc we need to create a new arena for lua to avoid blocking
+ * defragger. */
+void luaEnvInit(void) {
+    unsigned int arena;
+    size_t sz = sizeof(unsigned int);
+    int err = je_mallctl("arenas.create", (void *)&arena, &sz, NULL, 0);
+    if (err) {
+        serverLog(LL_WARNING, "Failed creating the lua jemalloc arena.");
+        exit(1);
+    }
+    server.lua_arena = arena;
+}
+
+#else
+
+/* Create a lua interpreter and use glibc (default) as lua memory allocator. */
+lua_State *createLuaState(void) {
+    return lua_open();
+}
+
+/* There is nothing to set up under glib. */
+void luaEnvInit(void) {
+    server.lua_arena = UINT_MAX;
+}
+
+#endif
 
 int scriptIsTimedout(void) {
     return scriptIsRunning() && (curr_run_ctx->flags & SCRIPT_TIMEDOUT);
@@ -209,6 +248,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
     run_ctx->c = engine_client;
     run_ctx->original_client = caller;
     run_ctx->funcname = funcname;
+    run_ctx->slot = caller->slot;
 
     client *script_client = run_ctx->c;
     client *curr_client = run_ctx->original_client;
@@ -261,6 +301,8 @@ void scriptResetRun(scriptRunCtx *run_ctx) {
          * was detected. */
         unprotectClient(run_ctx->original_client);
     }
+
+    run_ctx->slot = -1;
 
     preventCommandPropagation(run_ctx->original_client);
 
@@ -428,8 +470,9 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
     /* Duplicate relevant flags in the script client. */
     c->flags &= ~(CLIENT_READONLY | CLIENT_ASKING);
     c->flags |= original_c->flags & (CLIENT_READONLY | CLIENT_ASKING);
+    const uint64_t cmd_flags = getCommandFlags(c);
     int hashslot = -1;
-    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, &error_code) != getMyClusterNode()) {
+    if (getNodeByQuery(c, c->cmd, c->argv, c->argc, &hashslot, cmd_flags, &error_code) != getMyClusterNode()) {
         if (error_code == CLUSTER_REDIR_DOWN_RO_STATE) {
             *err = sdsnew(
                     "Script attempted to execute a write command while the "
@@ -463,14 +506,18 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
      * already been thrown. This is only checking for cross slot keys being accessed
      * that weren't pre-declared. */
     if (hashslot != -1 && !(run_ctx->flags & SCRIPT_ALLOW_CROSS_SLOT)) {
-        if (original_c->slot == -1) {
-            original_c->slot = hashslot;
-        } else if (original_c->slot != hashslot) {
+        if (run_ctx->slot == -1) {
+            run_ctx->slot = hashslot;
+        } else if (run_ctx->slot != hashslot) {
             *err = sdsnew("Script attempted to access keys that do not hash to "
                     "the same slot");
             return C_ERR;
         }
     }
+
+    c->slot = hashslot;
+    original_c->slot = hashslot;
+
     return C_OK;
 }
 

@@ -274,6 +274,27 @@ start_server {tags {"info" "external:skip"}} {
             $rd close
         }
 
+        test {errorstats: limit errors will not increase indefinitely} {
+            r config resetstat
+            for {set j 1} {$j <= 1100} {incr j} {
+                assert_error "$j my error message" {
+                    r eval {return redis.error_reply(string.format('%s my error message', ARGV[1]))} 0 $j
+                }
+            }
+
+            assert_equal [count_log_message 0 "Errorstats stopped adding new errors"] 1
+            assert_equal [count_log_message 0 "Current errors code list"] 1
+            assert_equal "count=1" [errorstat ERRORSTATS_DISABLED]
+
+            # Since we currently have no metrics exposed for server.errors, we use lazyfree
+            # to verify that we only have 128 errors.
+            wait_for_condition 50 100 {
+                [s lazyfreed_objects] eq 128
+            } else {
+                fail "errorstats resetstat lazyfree error"
+            }
+        }
+
         test {stats: eventloop metrics} {
             set info1 [r info stats]
             set cycle1 [getInfoProperty $info1 eventloop_cycles]
@@ -401,5 +422,103 @@ start_server {tags {"info" "external:skip"}} {
                 fail "pubsub clients did not clear"
             }
         }
+
+        test {clients: watching clients} {
+            set r2 [redis_client]
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+            # count after watch key
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # the same client watch the same key has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            # different client watch different key
+            r watch key2
+            assert_equal [s watching_clients] 2
+            assert_equal [s total_watched_keys] 2
+            assert_match {*watch=1*} [$r2 client info]
+            assert_match {*watch=1*} [r client info]
+            # count after unwatch
+            r unwatch
+            assert_equal [s watching_clients] 1
+            assert_equal [s total_watched_keys] 1
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=1*} [$r2 client info]
+            $r2 unwatch
+            assert_equal [s watching_clients] 0
+            assert_equal [s total_watched_keys] 0
+            assert_match {*watch=0*} [r client info]
+            assert_match {*watch=0*} [$r2 client info]
+
+            # count after watch/multi/exec
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 exec
+            assert_equal [s watching_clients] 0
+            # count after watch/multi/discard
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            $r2 multi
+            $r2 discard
+            assert_equal [s watching_clients] 0
+            # discard without multi has no effect
+            $r2 watch key
+            assert_equal [s watching_clients] 1
+            catch {$r2 discard} e
+            assert_equal [s watching_clients] 1
+            # unwatch without watch has no effect
+            r unwatch
+            assert_equal [s watching_clients] 1
+            # after disconnect, since close may arrive later, or the client may
+            # be freed asynchronously, we use a wait_for_condition
+            $r2 close
+            wait_for_watched_clients_count 0
+        }
+    }
+}
+
+start_server {tags {"info" "external:skip"}} {
+    test {memory: database and pubsub overhead and rehashing dict count} {
+        r flushall
+        set info_mem [r info memory]
+        set mem_stats [r memory stats]
+        assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] {0}
+        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
+        assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
+        # Initial dict expand is not rehashing
+        r set a b
+        set info_mem [r info memory]
+        set mem_stats [r memory stats]
+        assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
+        assert_range [dict get $mem_stats overhead.db.hashtable.lut] 1 64
+        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
+        assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
+        # set 4 more keys to trigger rehashing
+        # get the info within a transaction to make sure the rehashing is not completed
+        r multi 
+        r set b c
+        r set c d
+        r set d e
+        r set e f
+        r info memory
+        r memory stats
+        set res [r exec]
+        set info_mem [lindex $res 4]
+        set mem_stats [lindex $res 5]
+        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 64
+        assert_range [dict get $mem_stats overhead.db.hashtable.lut] 1 192
+        assert_range [dict get $mem_stats overhead.db.hashtable.rehashing] 1 64
+        assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
     }
 }

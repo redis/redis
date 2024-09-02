@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2016-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "mt19937-64.h"
@@ -47,6 +26,7 @@ struct {
     unsigned long keys;             /* Number of keys processed. */
     unsigned long expires;          /* Number of keys with an expire. */
     unsigned long already_expired;  /* Number of keys already expired. */
+    unsigned long subexpires;        /* Number of keys with subexpires */
     int doing;                      /* The state while reading the RDB. */
     int error_set;                  /* True if error is populated. */
     char error[1024];
@@ -98,7 +78,13 @@ char *rdb_type_string[] = {
     "hash-listpack",
     "zset-listpack",
     "quicklist-v2",
+    "stream-v2",
     "set-listpack",
+    "stream-v3",
+    "hash-hashtable-md-pre-release",
+    "hash-listpack-md-pre-release",
+    "hash-hashtable-md",
+    "hash-listpack-md",
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -106,6 +92,7 @@ void rdbShowGenericInfo(void) {
     printf("[info] %lu keys read\n", rdbstate.keys);
     printf("[info] %lu expires\n", rdbstate.expires);
     printf("[info] %lu already expired\n", rdbstate.already_expired);
+    printf("[info] %lu subexpires\n", rdbstate.subexpires);
 }
 
 /* Called on RDB errors. Provides details about the RDB and the offset
@@ -350,11 +337,16 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         rdbstate.keys++;
         /* Read value */
         rdbstate.doing = RDB_CHECK_DOING_READ_OBJECT_VALUE;
-        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,NULL)) == NULL) goto eoferr;
+        if ((val = rdbLoadObject(type,&rdb,key->ptr,selected_dbid,NULL)) == NULL)
+            goto eoferr;
         /* Check if the key already expired. */
         if (expiretime != -1 && expiretime < now)
             rdbstate.already_expired++;
         if (expiretime != -1) rdbstate.expires++;
+        /* If hash with HFEs then with expiration on fields then need to count it */
+        if ((val->type == OBJ_HASH) && (hashTypeGetMinExpire(val, 1) != EB_EXPIRE_TIME_INVALID))
+            rdbstate.subexpires++;
+
         rdbstate.key = NULL;
         decrRefCount(key);
         decrRefCount(val);

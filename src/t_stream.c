@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2017, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -1426,11 +1405,6 @@ int streamRangeHasTombstones(stream *s, streamID *start, streamID *end) {
         return 0;
     }
 
-    if (streamCompareID(&s->first_id,&s->max_deleted_entry_id) > 0) {
-        /* The latest tombstone is before the first entry. */
-        return 0;
-    }
-
     if (start) {
         start_id = *start;
     } else {
@@ -1466,6 +1440,17 @@ void streamReplyWithCGLag(client *c, stream *s, streamCG *cg) {
     if (!s->entries_added) {
         /* The lag of a newly-initialized stream is 0. */
         lag = 0;
+        valid = 1;
+    } else if (!s->length) { /* All entries deleted, now empty. */
+        lag = 0;
+        valid = 1;
+    } else if (streamCompareID(&cg->last_id,&s->first_id) < 0 &&
+               streamCompareID(&s->max_deleted_entry_id,&s->first_id) < 0)
+    {
+        /* When both the consumer group's last_id and the maximum tombstone are behind
+         * the stream's first entry, the consumer group's lag will always be equal to
+         * the number of remainin entries in the stream. */
+        lag = s->length;
         valid = 1;
     } else if (cg->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&cg->last_id,NULL)) {
         /* No fragmentation ahead means that the group's logical reads counter
@@ -1522,6 +1507,10 @@ long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
     if (!s->length && streamCompareID(id,&s->last_id) < 1) {
         return s->entries_added;
     }
+
+    /* There are fragmentations between the `id` and the stream's last-generated-id. */
+    if (!streamIDEqZero(id) && streamCompareID(id,&s->max_deleted_entry_id) < 0)
+        return SCG_INVALID_ENTRIES_READ;
 
     int cmp_last = streamCompareID(id,&s->last_id);
     if (cmp_last == 0) {
@@ -1678,7 +1667,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
 #define STREAM_RWR_RAWENTRIES (1<<1)    /* Do not emit protocol for array
                                            boundaries, just the entries. */
 #define STREAM_RWR_HISTORY (1<<2)       /* Only serve consumer local PEL. */
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi) {
+size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount) {
     void *arraylen_ptr = NULL;
     size_t arraylen = 0;
     streamIterator si;
@@ -1686,6 +1675,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     streamID id;
     int propagate_last_id = 0;
     int noack = flags & STREAM_RWR_NOACK;
+
+    if (propCount) *propCount = 0;
 
     /* If the client is asking for some history, we serve it using a
      * different function, so that we return entries *solely* from its
@@ -1703,20 +1694,21 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&id,NULL)) {
-                /* A valid counter and no future tombstones mean we can 
-                 * increment the read counter to keep tracking the group's
-                 * progress. */
+            if (group->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&group->last_id,NULL)) {
+                /* A valid counter and no tombstones between the group's last-delivered-id
+                 * and the stream's last-generated-id mean we can increment the read counter
+                 * to keep tracking the group's progress. */
                 group->entries_read++;
             } else if (s->entries_added) {
                 /* The group's counter may be invalid, so we try to obtain it. */
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
             group->last_id = id;
-            /* Group last ID should be propagated only if NOACK was
-             * specified, otherwise the last id will be included
-             * in the propagation of XCLAIM itself. */
-            if (noack) propagate_last_id = 1;
+            /* In the past, we would only set it when NOACK was specified. And in
+             * #9127, XCLAIM did not propagate entries_read in ACK, which would
+             * cause entries_read to be inconsistent between master and replicas,
+             * so here we call streamPropagateGroupID unconditionally. */
+            propagate_last_id = 1;
         }
 
         /* Emit a two elements array for each item. The first is
@@ -1784,6 +1776,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 robj *idarg = createObjectFromStreamID(&id);
                 streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
                 decrRefCount(idarg);
+                if (propCount) (*propCount)++;
             }
         }
 
@@ -1791,8 +1784,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         if (count && count == arraylen) break;
     }
 
-    if (spi && propagate_last_id)
+    if (spi && propagate_last_id) {
         streamPropagateGroupID(c,spi->keyname,group,spi->groupname);
+        if (propCount) (*propCount)++;
+    }
 
     streamIteratorStop(&si);
     if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
@@ -1828,7 +1823,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
         if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,NULL,NULL,
-                                 STREAM_RWR_RAWENTRIES,NULL) == 0)
+                                 STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
         {
             /* Note that we may have a not acknowledged entry in the PEL
              * about a message that's no longer here because was removed
@@ -2052,7 +2047,6 @@ void xaddCommand(client *c) {
     sds replyid = createStreamIDString(&id);
     addReplyBulkCBuffer(c, replyid, sdslen(replyid));
 
-    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -2071,6 +2065,8 @@ void xaddCommand(client *c) {
             streamRewriteTrimArgument(c,s,parsed_args.trim_strategy,parsed_args.trim_strategy_arg_idx);
         }
     }
+
+    signalModifiedKey(c,c->db,c->argv[1]);
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
@@ -2143,7 +2139,7 @@ void xrangeGenericCommand(client *c, int rev) {
         addReplyNullArray(c);
     } else {
         if (count == -1) count = 0;
-        streamReplyWithRange(c,s,&startid,&endid,count,rev,NULL,NULL,0,NULL);
+        streamReplyWithRange(c,s,&startid,&endid,count,rev,NULL,NULL,0,NULL,NULL);
     }
 }
 
@@ -2204,9 +2200,9 @@ void xreadCommand(client *c) {
             streams_arg = i+1;
             streams_count = (c->argc-streams_arg);
             if ((streams_count % 2) != 0) {
-                char symbol = xreadgroup ? '>' : '$';
+                const char *symbol = xreadgroup ? "ID or '>'" : "ID, '+', or '$'";
                 addReplyErrorFormat(c,"Unbalanced '%s' list of streams: "
-                                      "for each stream key an ID or '%c' must be "
+                                      "for each stream key an %s must be "
                                       "specified.", c->cmd->fullname,symbol);
                 return;
             }
@@ -2289,6 +2285,28 @@ void xreadCommand(client *c) {
             if (o) {
                 stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
+            } else {
+                ids[id_idx].ms = 0;
+                ids[id_idx].seq = 0;
+            }
+            continue;
+        } else if (strcmp(c->argv[i]->ptr,"+") == 0) {
+            if (xreadgroup) {
+                addReplyError(c,"The + ID is meaningless in the context of "
+                                "XREADGROUP: you want to read the history of "
+                                "this consumer by specifying a proper ID, or "
+                                "use the > ID to get new messages. The + ID would "
+                                "just return an empty result set.");
+                goto cleanup;
+            }
+            if (o) {
+                stream *s = o->ptr;
+                ids[id_idx] = s->last_id;
+                if (streamDecrID(&ids[id_idx]) != C_OK) {
+                    /* shouldn't happen */
+                    addReplyError(c,"the stream last element ID is 0-0");
+                    goto cleanup;
+                }
             } else {
                 ids[id_idx].ms = 0;
                 ids[id_idx].seq = 0;
@@ -2383,12 +2401,13 @@ void xreadCommand(client *c) {
             addReplyBulk(c,c->argv[streams_arg+i]);
             
             int flags = 0;
+            unsigned long propCount = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
             streamReplyWithRange(c,s,&start,NULL,count,0,
                                  groups ? groups[i] : NULL,
-                                 consumer, flags, &spi);
-            if (groups) server.dirty++;
+                                 consumer, flags, &spi, &propCount);
+            if (propCount) server.dirty++;
         }
     }
 
@@ -3295,7 +3314,7 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
+                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
             }
             arraylen++;
 
@@ -3470,7 +3489,7 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL) == 1);
+            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
         }
         arraylen++;
         count--;
@@ -3694,18 +3713,18 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         end.ms = end.seq = UINT64_MAX;
         addReplyBulkCString(c,"first-entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
-                                       STREAM_RWR_RAWENTRIES,NULL);
+                                       STREAM_RWR_RAWENTRIES,NULL,NULL);
         if (!emitted) addReplyNull(c);
         addReplyBulkCString(c,"last-entry");
         emitted = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
-                                       STREAM_RWR_RAWENTRIES,NULL);
+                                       STREAM_RWR_RAWENTRIES,NULL,NULL);
         if (!emitted) addReplyNull(c);
     } else {
         /* XINFO STREAM <key> FULL [COUNT <count>] */
 
         /* Stream entries */
         addReplyBulkCString(c,"entries");
-        streamReplyWithRange(c,s,NULL,NULL,count,0,NULL,NULL,0,NULL);
+        streamReplyWithRange(c,s,NULL,NULL,count,0,NULL,NULL,0,NULL,NULL);
 
         /* Consumer groups */
         addReplyBulkCString(c,"groups");

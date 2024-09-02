@@ -109,25 +109,9 @@ proc test_scan {type} {
 
         after 2
 
-        # TODO: remove this in redis 8.0
-        set cur 0
-        set keys {}
-        while 1 {
-            set res [r scan $cur type "string1"]
-            set cur [lindex $res 0]
-            set k [lindex $res 1]
-            lappend keys {*}$k
-            if {$cur == 0} break
-        }
-
-        assert_equal 0 [llength $keys]
-        # make sure that expired key have been removed by scan command
-        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
-
-        # TODO: uncomment in redis 8.0
-        #assert_error "*unknown type name*" {r scan 0 type "string1"}
+        assert_error "*unknown type name*" {r scan 0 type "string1"}
         # expired key will be no touched by scan command
-        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
@@ -191,11 +175,8 @@ proc test_scan {type} {
 
         assert_equal 1000 [llength $keys]
 
-        # make sure that expired key have been removed by scan command
-        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
-        # TODO: uncomment in redis 8.0
         # make sure that only the expired key in the type match will been removed by scan command
-        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
 
         r debug set-active-expire 1
     } {OK} {needs:debug}
@@ -272,6 +253,36 @@ proc test_scan {type} {
 
             set keys2 [lsort -unique $keys2]
             assert_equal $count [llength $keys2]
+
+            # Test NOVALUES 
+            set res [r hscan hash 0 count 1000 novalues]
+            assert_equal [lsort $keys2] [lsort [lindex $res 1]]
+        }
+
+        test "{$type} HSCAN with large value $enc" {
+            r del hash
+
+            if {$enc eq {listpack}} {
+                set count 60
+            } else {
+                set count 170
+            }
+
+            set val1 [string repeat "1" $count]
+            r hset hash $val1 $val1
+
+            set val2 [string repeat "2" $count]
+            r hset hash $val2 $val2
+
+            set res [lsort [lindex [r hscan hash 0] 1]]
+            assert_equal $val1 [lindex $res 0]
+            assert_equal $val1 [lindex $res 1]
+            assert_equal $val2 [lindex $res 2]
+            assert_equal $val2 [lindex $res 3]
+
+            set res [lsort [lindex [r hscan hash 0 novalues] 1]]
+            assert_equal $val1 [lindex $res 0]
+            assert_equal $val2 [lindex $res 1]
         }
     }
 
@@ -367,6 +378,13 @@ proc test_scan {type} {
         set res [r hscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     } {1 10 foo foobar}
+
+    test "{$type} HSCAN with NOVALUES" {
+        r del mykey
+        r hmset mykey foo 1 fab 2 fiz 3 foobar 10 1 a 2 b 3 c 4 d
+        set res [r hscan mykey 0 NOVALUES]
+        lsort -unique [lindex $res 1]
+    } {1 2 3 4 fab fiz foo foobar}
 
     test "{$type} ZSCAN with PATTERN" {
         r del mykey

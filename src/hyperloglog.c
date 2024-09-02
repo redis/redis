@@ -1,32 +1,11 @@
 /* hyperloglog.c - Redis HyperLogLog probabilistic cardinality approximation.
  * This file implements the algorithm and the exported Redis commands.
  *
- * Copyright (c) 2014, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2014-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -450,7 +429,7 @@ uint64_t MurmurHash64A (const void * key, int len, unsigned int seed) {
  * of the pattern 000..1 of the element hash. As a side effect 'regp' is
  * set to the register index this element hashes to. */
 int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
-    uint64_t hash, bit, index;
+    uint64_t hash, index;
     int count;
 
     /* Count the number of zeroes starting from bit HLL_REGISTERS
@@ -460,21 +439,14 @@ int hllPatLen(unsigned char *ele, size_t elesize, long *regp) {
      * Note that the final "1" ending the sequence of zeroes must be
      * included in the count, so if we find "001" the count is 3, and
      * the smallest count possible is no zeroes at all, just a 1 bit
-     * at the first position, that is a count of 1.
-     *
-     * This may sound like inefficient, but actually in the average case
-     * there are high probabilities to find a 1 after a few iterations. */
+     * at the first position, that is a count of 1. */
     hash = MurmurHash64A(ele,elesize,0xadc83b19ULL);
     index = hash & HLL_P_MASK; /* Register index. */
     hash >>= HLL_P; /* Remove bits used to address the register. */
     hash |= ((uint64_t)1<<HLL_Q); /* Make sure the loop terminates
                                      and count will be <= Q+1. */
-    bit = 1;
-    count = 1; /* Initialized to 1 since we count the "00000...1" pattern. */
-    while((hash & bit) == 0) {
-        count++;
-        bit <<= 1;
-    }
+
+    count = __builtin_ctzll(hash) + 1;
     *regp = (int) index;
     return count;
 }
@@ -669,7 +641,7 @@ int hllSparseSet(robj *o, long index, uint8_t count) {
      * for future reallocates on incremental growth. But we do not allocate more than
      * 'server.hll_sparse_max_bytes' bytes for the sparse representation.
      * If the available size of hyperloglog sds string is not enough for the increment
-     * we need, we promote the hypreloglog to dense representation in 'step 3'.
+     * we need, we promote the hyperloglog to dense representation in 'step 3'.
      */
     if (sdsalloc(o->ptr) < server.hll_sparse_max_bytes && sdsavail(o->ptr) < 3) {
         size_t newlen = sdslen(o->ptr) + 3;

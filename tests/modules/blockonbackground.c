@@ -7,12 +7,41 @@
 
 #define UNUSED(x) (void)(x)
 
+typedef struct {
+    /* Mutex for protecting RedisModule_BlockedClientMeasureTime*() API from race
+     * conditions due to timeout callback triggered in the main thread. */
+    pthread_mutex_t measuretime_mutex;
+    int measuretime_completed; /* Indicates that time measure has ended and will not continue further */
+    int myint; /* Used for replying */
+} BlockPrivdata;
+
+void blockClientPrivdataInit(RedisModuleBlockedClient *bc) {
+    BlockPrivdata *block_privdata = RedisModule_Calloc(1, sizeof(*block_privdata));
+    block_privdata->measuretime_mutex = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+    RedisModule_BlockClientSetPrivateData(bc, block_privdata);
+}
+
+void blockClientMeasureTimeStart(RedisModuleBlockedClient *bc, BlockPrivdata *block_privdata) {
+    pthread_mutex_lock(&block_privdata->measuretime_mutex);
+    RedisModule_BlockedClientMeasureTimeStart(bc);
+    pthread_mutex_unlock(&block_privdata->measuretime_mutex);
+}
+
+void blockClientMeasureTimeEnd(RedisModuleBlockedClient *bc, BlockPrivdata *block_privdata, int completed) {
+    pthread_mutex_lock(&block_privdata->measuretime_mutex);
+    if (!block_privdata->measuretime_completed) {
+        RedisModule_BlockedClientMeasureTimeEnd(bc);
+        if (completed) block_privdata->measuretime_completed = 1;
+    }
+    pthread_mutex_unlock(&block_privdata->measuretime_mutex);
+}
+
 /* Reply callback for blocking command BLOCK.DEBUG */
 int HelloBlock_Reply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     UNUSED(argc);
-    int *myint = RedisModule_GetBlockedClientPrivateData(ctx);
-    return RedisModule_ReplyWithLongLong(ctx,*myint);
+    BlockPrivdata *block_privdata = RedisModule_GetBlockedClientPrivateData(ctx);
+    return RedisModule_ReplyWithLongLong(ctx,block_privdata->myint);
 }
 
 /* Timeout callback for blocking command BLOCK.DEBUG */
@@ -20,13 +49,16 @@ int HelloBlock_Timeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     UNUSED(argv);
     UNUSED(argc);
     RedisModuleBlockedClient *bc = RedisModule_GetBlockedClientHandle(ctx);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    BlockPrivdata *block_privdata = RedisModule_GetBlockedClientPrivateData(ctx);
+    blockClientMeasureTimeEnd(bc, block_privdata, 1);
     return RedisModule_ReplyWithSimpleString(ctx,"Request timedout");
 }
 
 /* Private data freeing callback for BLOCK.DEBUG command. */
 void HelloBlock_FreeData(RedisModuleCtx *ctx, void *privdata) {
     UNUSED(ctx);
+    BlockPrivdata *block_privdata = privdata;
+    pthread_mutex_destroy(&block_privdata->measuretime_mutex);
     RedisModule_Free(privdata);
 }
 
@@ -42,19 +74,20 @@ void *BlockDebug_ThreadMain(void *arg) {
     RedisModuleBlockedClient *bc = targ[0];
     long long delay = (unsigned long)targ[1];
     long long enable_time_track = (unsigned long)targ[2];
+    BlockPrivdata *block_privdata = RedisModule_BlockClientGetPrivateData(bc);
+
     if (enable_time_track)
-        RedisModule_BlockedClientMeasureTimeStart(bc);
+        blockClientMeasureTimeStart(bc, block_privdata);
     RedisModule_Free(targ);
 
     struct timespec ts;
     ts.tv_sec = delay / 1000;
     ts.tv_nsec = (delay % 1000) * 1000000;
     nanosleep(&ts, NULL);
-    int *r = RedisModule_Alloc(sizeof(int));
-    *r = rand();
     if (enable_time_track)
-        RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc,r);
+        blockClientMeasureTimeEnd(bc, block_privdata, 0);
+    block_privdata->myint = rand();
+    RedisModule_UnblockClient(bc,block_privdata);
     return NULL;
 }
 
@@ -64,23 +97,22 @@ void *DoubleBlock_ThreadMain(void *arg) {
     void **targ = arg;
     RedisModuleBlockedClient *bc = targ[0];
     long long delay = (unsigned long)targ[1];
-    RedisModule_BlockedClientMeasureTimeStart(bc);
+    BlockPrivdata *block_privdata = RedisModule_BlockClientGetPrivateData(bc);
+    blockClientMeasureTimeStart(bc, block_privdata);
     RedisModule_Free(targ);
     struct timespec ts;
     ts.tv_sec = delay / 1000;
     ts.tv_nsec = (delay % 1000) * 1000000;
     nanosleep(&ts, NULL);
-    int *r = RedisModule_Alloc(sizeof(int));
-    *r = rand();
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    blockClientMeasureTimeEnd(bc, block_privdata, 0);
     /* call again RedisModule_BlockedClientMeasureTimeStart() and
      * RedisModule_BlockedClientMeasureTimeEnd and ensure that the
      * total execution time is 2x the delay. */
-    RedisModule_BlockedClientMeasureTimeStart(bc);
+    blockClientMeasureTimeStart(bc, block_privdata);
     nanosleep(&ts, NULL);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-
-    RedisModule_UnblockClient(bc,r);
+    blockClientMeasureTimeEnd(bc, block_privdata, 0);
+    block_privdata->myint = rand();
+    RedisModule_UnblockClient(bc,block_privdata);
     return NULL;
 }
 
@@ -107,6 +139,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
+    blockClientPrivdataInit(bc);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the
@@ -126,6 +159,7 @@ int HelloBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 
@@ -148,6 +182,7 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,timeout);
+    blockClientPrivdataInit(bc);
 
     /* Here we set a disconnection handler, however since this module will
      * block in sleep() in a thread, there is not much we can do in the
@@ -167,6 +202,7 @@ int HelloBlockNoTracking_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 
@@ -184,6 +220,7 @@ int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
 
     pthread_t tid;
     RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx,HelloBlock_Reply,HelloBlock_Timeout,HelloBlock_FreeData,0);
+    blockClientPrivdataInit(bc);
 
     /* Now that we setup a blocking client, we need to pass the control
      * to the thread. However we need to pass arguments to the thread:
@@ -196,6 +233,7 @@ int HelloDoubleBlock_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx,"-ERR Can't start thread");
     }
+    pthread_detach(tid);
     return REDISMODULE_OK;
 }
 

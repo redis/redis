@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2009-2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -40,6 +19,8 @@
 #include "syscheck.h"
 #include "threads_mngr.h"
 #include "fmtargs.h"
+#include "mstr.h"
+#include "ebuckets.h"
 
 #include <time.h>
 #include <signal.h>
@@ -130,11 +111,13 @@ void serverLogRaw(int level, const char *msg) {
         int off;
         struct timeval tv;
         int role_char;
+        int daylight_active = 0;
         pid_t pid = getpid();
 
         gettimeofday(&tv,NULL);
         struct tm tm;
-        nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
+        atomicGet(server.daylight_active, daylight_active);
+        nolocks_localtime(&tm,tv.tv_sec,server.timezone,daylight_active);
         off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
@@ -282,6 +265,12 @@ void dictListDestructor(dict *d, void *val)
     listRelease((list*)val);
 }
 
+void dictDictDestructor(dict *d, void *val)
+{
+    UNUSED(d);
+    dictRelease((dict*)val);
+}
+
 int dictSdsKeyCompare(dict *d, const void *key1,
         const void *key2)
 {
@@ -293,6 +282,18 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
+
+int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored)
+{
+    int l1,l2;
+    UNUSED(d);
+
+    l1 = sdslen((sds)sdsLookup);
+    l2 = hfieldlen((hfield)mstrStored);
+    if (l1 != l2) return 0;
+    return memcmp(sdsLookup, mstrStored, l1) == 0;
+}
+
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
@@ -333,6 +334,10 @@ uint64_t dictObjHash(const void *key) {
     return dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
 }
 
+uint64_t dictPtrHash(const void *key) {
+    return dictGenHashFunction((unsigned char*)&key,sizeof(key));
+}
+
 uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
@@ -349,6 +354,17 @@ uint64_t dictCStrHash(const void *key) {
 /* Dict hash function for null terminated string */
 uint64_t dictCStrCaseHash(const void *key) {
     return dictGenCaseHashFunction((unsigned char*)key, strlen((char*)key));
+}
+
+/* Dict hash function for client */
+uint64_t dictClientHash(const void *key) {
+    return ((client *)key)->id;
+}
+
+/* Dict compare function for client */
+int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
+    UNUSED(d);
+    return ((client *)key1)->id == ((client *)key2)->id;
 }
 
 /* Dict compare function for null terminated string */
@@ -411,69 +427,15 @@ uint64_t dictEncObjHash(const void *key) {
  * provisionally if used memory will be over maxmemory after dict expands,
  * but to guarantee the performance of redis, we still allow dict to expand
  * if dict load factor exceeds HASHTABLE_MAX_LOAD_FACTOR. */
-int dictExpandAllowed(size_t moreMem, double usedRatio) {
+int dictResizeAllowed(size_t moreMem, double usedRatio) {
+    /* for debug purposes: dict is not allowed to be resized. */
+    if (!server.dict_resizing) return 0;
+
     if (usedRatio <= HASHTABLE_MAX_LOAD_FACTOR) {
         return !overMaxmemoryAfterAlloc(moreMem);
     } else {
         return 1;
     }
-}
-
-/* Adds dictionary to the rehashing list, which allows us
- * to quickly find rehash targets during incremental rehashing.
- *
- * Updates the bucket count in cluster-mode for the given dictionary in a DB, bucket count
- * incremented with the new ht size during the rehashing phase. In non-cluster mode,
- * bucket count can be retrieved directly from single dict bucket. */
-void dictRehashingStarted(dict *d, dbKeyType keyType) {
-    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
-    listAddNodeTail(server.rehashing, d);
-    metadata->rehashing_node = listLast(server.rehashing);
-
-    if (!server.cluster_enabled) return;
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[keyType].bucket_count += to; /* Started rehashing (Add the new ht size) */
-}
-
-/* Remove dictionary from the rehashing list.
- *
- * Updates the bucket count for the given dictionary in a DB. It removes
- * the old ht size of the dictionary from the total sum of buckets for a DB.  */
-void dictRehashingCompleted(dict *d, dbKeyType keyType) {
-    dbDictMetadata *metadata = (dbDictMetadata *)dictMetadata(d);
-    if (metadata->rehashing_node) {
-        listDelNode(server.rehashing, metadata->rehashing_node);
-        metadata->rehashing_node = NULL;
-    }
-
-    if (!server.cluster_enabled) return;
-    unsigned long long from, to;
-    dictRehashingInfo(d, &from, &to);
-    server.db[0].sub_dict[keyType].bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
-}
-
-void dbDictRehashingStarted(dict *d) {
-    dictRehashingStarted(d, DB_MAIN);
-}
-
-void dbDictRehashingCompleted(dict *d) {
-    dictRehashingCompleted(d, DB_MAIN);
-}
-
-void dbExpiresRehashingStarted(dict *d) {
-    dictRehashingStarted(d, DB_EXPIRES);
-}
-
-void dbExpiresRehashingCompleted(dict *d) {
-    dictRehashingCompleted(d, DB_EXPIRES);
-}
-
-/* Returns the size of the DB dict metadata in bytes. */
-size_t dbDictMetadataSize(dict *d) {
-    UNUSED(d);
-    /* NOTICE: this also affects overhead_ht_main and overhead_ht_expires in getMemoryOverheadData. */
-    return sizeof(dbDictMetadata);
 }
 
 /* Generic hash table type where keys are Redis Objects, Values
@@ -507,6 +469,8 @@ dictType setDictType = {
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
     dictSdsDestructor,         /* key destructor */
+    NULL,                      /* val destructor */
+    NULL,                      /* allow to expand */
     .no_value = 1,             /* no values in this dict */
     .keys_are_odd = 1          /* an SDS string is always an odd pointer */
 };
@@ -519,7 +483,7 @@ dictType zsetDictType = {
     dictSdsKeyCompare,         /* key compare */
     NULL,                      /* Note: SDS string shared & freed by skiplist */
     NULL,                      /* val destructor */
-    NULL                       /* allow to expand */
+    NULL,                      /* allow to expand */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
@@ -530,10 +494,7 @@ dictType dbDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
-    dictExpandAllowed,          /* allow to expand */
-    dbDictRehashingStarted,
-    dbDictRehashingCompleted,
-    dbDictMetadataSize,
+    dictResizeAllowed,          /* allow to resize */
 };
 
 /* Db->expires */
@@ -544,10 +505,7 @@ dictType dbExpiresDictType = {
     dictSdsKeyCompare,          /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
-    dictExpandAllowed,           /* allow to expand */
-    dbExpiresRehashingStarted,
-    dbExpiresRehashingCompleted,
-    dbDictMetadataSize,
+    dictResizeAllowed,          /* allow to resize */
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -569,7 +527,7 @@ dictType hashDictType = {
     dictSdsKeyCompare,          /* key compare */
     dictSdsDestructor,          /* key destructor */
     dictSdsDestructor,          /* val destructor */
-    NULL                        /* allow to expand */
+    NULL,                       /* allow to expand */
 };
 
 /* Dict type without destructor */
@@ -593,6 +551,18 @@ dictType keylistDictType = {
     dictObjKeyCompare,          /* key compare */
     dictObjectDestructor,       /* key destructor */
     dictListDestructor,         /* val destructor */
+    NULL                        /* allow to expand */
+};
+
+/* KeyDict hash table type has unencoded redis objects as keys and
+ * dicts as values. It's used for PUBSUB command to track clients subscribing the channels. */
+dictType objToDictDictType = {
+    dictObjHash,                /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictObjKeyCompare,          /* key compare */
+    dictObjectDestructor,       /* key destructor */
+    dictDictDestructor,         /* val destructor */
     NULL                        /* allow to expand */
 };
 
@@ -655,63 +625,14 @@ dictType sdsHashDictType = {
     NULL                        /* allow to expand */
 };
 
-int htNeedsResize(dict *dict) {
-    long long size, used;
-
-    size = dictBuckets(dict);
-    used = dictSize(dict);
-    return (size > DICT_HT_INITIAL_SIZE &&
-            (used*100/size < HASHTABLE_MIN_FILL));
-}
-
-/* In cluster-enabled setup, this method traverses through all main/expires dictionaries (CLUSTER_SLOTS)
- * and triggers a resize if the percentage of used buckets in the HT reaches HASHTABLE_MIN_FILL
- * we resize the hash table to save memory.
- *
- * In non cluster-enabled setup, it resize main/expires dictionary based on the same condition described above. */
-void tryResizeHashTables(int dbid) {
-    redisDb *db = &server.db[dbid];
-    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        if (dbSize(db, subdict) == 0) continue;
-
-        if (db->sub_dict[subdict].resize_cursor == -1)
-            db->sub_dict[subdict].resize_cursor = findSlotByKeyIndex(db, 1, subdict);
-
-        for (int i = 0; i < CRON_DBS_PER_CALL && db->sub_dict[subdict].resize_cursor != -1; i++) {
-            int slot = db->sub_dict[subdict].resize_cursor;
-            dict *d = (subdict == DB_MAIN ? db->dict[slot] : db->expires[slot]);
-            if (htNeedsResize(d))
-                dictResize(d);
-            db->sub_dict[subdict].resize_cursor = dbGetNextNonEmptySlot(db, slot, subdict);
-        }
-    }
-}
-
-/* Our hash table implementation performs rehashing incrementally while
- * we write/read from the hash table. Still if the server is idle, the hash
- * table will use two tables for a long time. So we try to use 1 millisecond
- * of CPU time at every call of this function to perform some rehashing.
- *
- * The function returns 1 if some rehashing was performed, otherwise 0
- * is returned. */
-int incrementallyRehash(void) {
-    if (listLength(server.rehashing) == 0) return 0;
-    serverLog(LL_DEBUG,"Rehashing list length: %lu", listLength(server.rehashing));
-
-    /* Our goal is to rehash as many dictionaries as we can before reaching predefined threshold,
-     * after each dictionary completes rehashing, it removes itself from the list. */
-    listNode *node;
-    monotime timer;
-    elapsedStart(&timer);
-    while ((node = listFirst(server.rehashing))) {
-        uint64_t elapsed_us = elapsedUs(timer);
-        if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US) {
-            break;  /* Reached the time limit. */
-        }
-        dictRehashMicroseconds(listNodeValue(node), INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
-    }
-    return 1;
-}
+/* Client Set dictionary type. Keys are client, values are not used. */
+dictType clientDictType = {
+    dictClientHash,             /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    dictClientKeyCompare,       /* key compare */
+    .no_value = 1               /* no values in this dict */
+};
 
 /* This function is called once a background process of some kind terminates,
  * as we want to avoid resizing the hash tables when there is a child in order
@@ -956,6 +877,7 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * usage bucket.
  */
 void updateClientMemoryUsage(client *c) {
+    serverAssert(c->conn);
     size_t mem = getClientMemoryUsage(c, NULL);
     int type = getClientType(c);
     /* Now that we have the memory used by the client, remove the old
@@ -968,7 +890,7 @@ void updateClientMemoryUsage(client *c) {
 }
 
 int clientEvictionAllowed(client *c) {
-    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT) {
+    if (server.maxmemory_clients == 0 || c->flags & CLIENT_NO_EVICT || !c->conn) {
         return 0;
     }
     int type = getClientType(c);
@@ -1008,7 +930,7 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
 int updateClientMemUsageAndBucket(client *c) {
-    serverAssert(io_threads_op == IO_THREADS_OP_IDLE);
+    serverAssert(io_threads_op == IO_THREADS_OP_IDLE && c->conn);
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 
@@ -1151,21 +1073,33 @@ void databasesCron(void) {
          * DB we'll be able to start from the successive in the next
          * cron loop iteration. */
         static unsigned int resize_db = 0;
+        static unsigned int rehash_db = 0;
         int dbs_per_call = CRON_DBS_PER_CALL;
         int j;
 
         /* Don't test more DBs than we have. */
         if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
 
-        /* Resize */
         for (j = 0; j < dbs_per_call; j++) {
-            tryResizeHashTables(resize_db % server.dbnum);
+            redisDb *db = &server.db[resize_db % server.dbnum];
+            kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB);
+            kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB);
             resize_db++;
         }
 
         /* Rehash */
         if (server.activerehashing) {
-            incrementallyRehash();
+            uint64_t elapsed_us = 0;
+            for (j = 0; j < dbs_per_call; j++) {
+                redisDb *db = &server.db[rehash_db % server.dbnum];
+                elapsed_us += kvstoreIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+                    break;
+                rehash_db++;
+            }
         }
     }
 }
@@ -1185,7 +1119,7 @@ static inline void updateCachedTimeWithUs(int update_daylight_info, const long l
         struct tm tm;
         time_t ut = server.unixtime;
         localtime_r(&ut,&tm);
-        server.daylight_active = tm.tm_isdst;
+        atomicSet(server.daylight_active, tm.tm_isdst);
     }
 }
 
@@ -1291,18 +1225,25 @@ void cronUpdateMemoryStats(void) {
          * The fragmentation ratio it'll show is potentially more accurate
          * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
          * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
-        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
+        zmalloc_get_allocator_info(1,
+                                   &server.cron_malloc_stats.allocator_allocated,
                                    &server.cron_malloc_stats.allocator_active,
-                                   &server.cron_malloc_stats.allocator_resident);
+                                   &server.cron_malloc_stats.allocator_resident,
+                                   NULL,
+                                   &server.cron_malloc_stats.allocator_muzzy,
+                                   &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
+        if (server.lua_arena != UINT_MAX) {
+            zmalloc_get_allocator_info_by_arena(server.lua_arena,
+                                                0,
+                                                &server.cron_malloc_stats.lua_allocator_allocated,
+                                                &server.cron_malloc_stats.lua_allocator_active,
+                                                &server.cron_malloc_stats.lua_allocator_resident,
+                                                &server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes);
+        }
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
-        if (!server.cron_malloc_stats.allocator_resident) {
-            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
-             * so we must deduct it in order to be able to calculate correct
-             * "allocator fragmentation" ratio */
-            size_t lua_memory = evalMemory();
-            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
-        }
+        if (!server.cron_malloc_stats.allocator_resident)
+            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss;
         if (!server.cron_malloc_stats.allocator_active)
             server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
         if (!server.cron_malloc_stats.allocator_allocated)
@@ -1421,9 +1362,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             for (j = 0; j < server.dbnum; j++) {
                 long long size, used, vkeys;
 
-                size = dbBuckets(&server.db[j], DB_MAIN);
-                used = dbSize(&server.db[j], DB_MAIN);
-                vkeys = dbSize(&server.db[j], DB_EXPIRES);
+                size = kvstoreBuckets(server.db[j].keys);
+                used = kvstoreSize(server.db[j].keys);
+                vkeys = kvstoreSize(server.db[j].expires);
                 if (used || vkeys) {
                     serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
@@ -1624,7 +1565,7 @@ void whileBlockedCron(void) {
      * make sure it was done. */
     serverAssert(server.blocked_last_cron);
 
-    /* In case we where called too soon, leave right away. This way one time
+    /* In case we were called too soon, leave right away. This way one time
      * jobs after the loop below don't need an if. and we don't bother to start
      * latency monitor if this function is called too often. */
     if (server.blocked_last_cron >= server.mstime)
@@ -1875,7 +1816,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
             mstime_t latency;
             latencyStartMonitor(latency);
 
+            atomicSet(server.module_gil_acquring, 1);
             moduleAcquireGIL();
+            atomicSet(server.module_gil_acquring, 0);
             moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
                                   REDISMODULE_SUBEVENT_EVENTLOOP_AFTER_SLEEP,
                                   NULL);
@@ -2020,6 +1963,8 @@ void createSharedObjects(void) {
     shared.persist = createStringObject("PERSIST",7);
     shared.set = createStringObject("SET",3);
     shared.eval = createStringObject("EVAL",4);
+    shared.hpexpireat = createStringObject("HPEXPIREAT",10);
+    shared.hdel = createStringObject("HDEL",4);
 
     /* Shared command argument */
     shared.left = createStringObject("left",4);
@@ -2119,7 +2064,7 @@ void initServerConfig(void) {
     server.aof_rewrite_base_size = 0;
     server.aof_rewrite_scheduled = 0;
     server.aof_flush_sleep = 0;
-    server.aof_last_fsync = time(NULL);
+    server.aof_last_fsync = time(NULL) * 1000;
     server.aof_cur_timestamp = 0;
     atomicSet(server.aof_bio_fsync_status,C_OK);
     server.aof_rewrite_time_last = -1;
@@ -2132,6 +2077,7 @@ void initServerConfig(void) {
     server.aof_last_incr_size = 0;
     server.aof_last_incr_fsync_offset = 0;
     server.active_defrag_running = 0;
+    server.active_defrag_configuration_changed = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
     memset(server.blocked_clients_by_type,0,
@@ -2144,6 +2090,7 @@ void initServerConfig(void) {
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
+    server.dict_resizing = 1;
 
     server.latency_tracking_info_percentiles_len = 3;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
@@ -2577,11 +2524,13 @@ void resetServerStats(void) {
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
+    server.stat_expired_subkeys = 0;
     server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
     server.stat_evictedkeys = 0;
     server.stat_evictedclients = 0;
+    server.stat_evictedscripts = 0;
     server.stat_total_eviction_exceeded_time = 0;
     server.stat_last_eviction_exceeded_time = 0;
     server.stat_keyspace_misses = 0;
@@ -2639,17 +2588,6 @@ void makeThreadKillable(void) {
     pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
 }
 
-/* When adding fields, please check the initTempDb related logic. */
-void initDbState(redisDb *db){
-    for (dbKeyType subdict = DB_MAIN; subdict <= DB_EXPIRES; subdict++) {
-        db->sub_dict[subdict].non_empty_slots = 0;
-        db->sub_dict[subdict].key_count = 0;
-        db->sub_dict[subdict].resize_cursor = -1;
-        db->sub_dict[subdict].slot_size_index = server.cluster_enabled ? zcalloc(sizeof(unsigned long long) * (CLUSTER_SLOTS + 1)) : NULL;
-        db->sub_dict[subdict].bucket_count = 0;
-    }
-}
-
 void initServer(void) {
     int j;
 
@@ -2673,6 +2611,7 @@ void initServer(void) {
     server.main_thread_id = pthread_self();
     server.current_client = NULL;
     server.errors = raxNew();
+    server.errors_enabled = 1;
     server.execution_nesting = 0;
     server.clients = listCreate();
     server.clients_index = raxNew();
@@ -2725,10 +2664,16 @@ void initServer(void) {
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
 
     /* Create the Redis databases, and initialize other internal state. */
-    int slot_count = (server.cluster_enabled) ? CLUSTER_SLOTS : 1;
-    for (j = 0; j < server.dbnum; j++) {  
-        server.db[j].dict = dictCreateMultiple(&dbDictType, slot_count);
-        server.db[j].expires = dictCreateMultiple(&dbExpiresDictType,slot_count);
+    int slot_count_bits = 0;
+    int flags = KVSTORE_ALLOCATE_DICTS_ON_DEMAND;
+    if (server.cluster_enabled) {
+        slot_count_bits = CLUSTER_SLOT_MASK_BITS;
+        flags |= KVSTORE_FREE_EMPTY_DICTS;
+    }
+    for (j = 0; j < server.dbnum; j++) {
+        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
+        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].hexpires = ebCreate();
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2737,17 +2682,17 @@ void initServer(void) {
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
         server.db[j].defrag_later = listCreate();
-        server.db[j].dict_count = slot_count;
-        initDbState(&server.db[j]);
         listSetFreeMethod(server.db[j].defrag_later,(void (*)(void*))sdsfree);
     }
-    server.rehashing = listCreate();
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
-    server.pubsub_channels = dictCreate(&keylistDictType);
-    server.pubsub_patterns = dictCreate(&keylistDictType);
-    server.pubsubshard_channels = zcalloc(sizeof(dict *) * slot_count);
-    server.shard_channel_count = 0;
+    /* Note that server.pubsub_channels was chosen to be a kvstore (with only one dict, which
+     * seems odd) just to make the code cleaner by making it be the same type as server.pubsubshard_channels
+     * (which has to be kvstore), see pubsubtype.serverPubSubChannels */
+    server.pubsub_channels = kvstoreCreate(&objToDictDictType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    server.pubsub_patterns = dictCreate(&objToDictDictType);
+    server.pubsubshard_channels = kvstoreCreate(&objToDictDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
     server.pubsub_clients = 0;
+    server.watching_clients = 0;
     server.cronloops = 0;
     server.in_exec = 0;
     server.busy_module_yield_flags = BUSY_MODULE_YIELD_NONE;
@@ -2837,8 +2782,12 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    luaEnvInit();
     scriptingInit(1);
-    functionsInit();
+    if (functionsInit() == C_ERR) {
+        serverPanic("Functions initialization failed, check the server logs.");
+        exit(1);
+    }
     slowlogInit();
     latencyMonitorInit();
 
@@ -3169,8 +3118,9 @@ void resetCommandTableStats(dict* commands) {
 }
 
 void resetErrorTableStats(void) {
-    raxFreeWithCallback(server.errors, zfree);
+    freeErrorsRadixTreeAsync(server.errors);
     server.errors = raxNew();
+    server.errors_enabled = 1;
 }
 
 /* ========================== Redis OP Array API ============================ */
@@ -3613,11 +3563,19 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* Setting the CLIENT_REPROCESSING_COMMAND flag so that during the actual
+     * processing of the command proc, the client is aware that it is being
+     * re-processed. */
+    if (reprocessing_command) c->flags |= CLIENT_REPROCESSING_COMMAND;
+
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
+
+    /* Clear the CLIENT_REPROCESSING_COMMAND flag after the proc is executed. */
+    if (reprocessing_command) c->flags &= ~CLIENT_REPROCESSING_COMMAND;
 
     exitExecutionUnit();
 
@@ -3676,7 +3634,7 @@ void call(client *c, int flags) {
 
     /* Send the command to clients in MONITOR mode if applicable,
      * since some administrative commands are considered too dangerous to be shown.
-     * Other exceptions is a client which is unblocked and retring to process the command
+     * Other exceptions is a client which is unblocked and retrying to process the command
      * or we are currently in the process of loading AOF. */
     if (update_command_stats && !reprocessing_command &&
         !(c->cmd->flags & (CMD_SKIP_MONITOR|CMD_ADMIN))) {
@@ -3991,7 +3949,7 @@ int processCommand(client *c) {
         }
     }
 
-    uint64_t cmd_flags = getCommandFlags(c);
+    const uint64_t cmd_flags = getCommandFlags(c);
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
@@ -4046,7 +4004,7 @@ int processCommand(client *c) {
     {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-                                        &c->slot,&error_code);
+                                        &c->slot,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
@@ -4054,6 +4012,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
+            c->duration = 0;
             c->cmd->rejected_calls++;
             return C_OK;
         }
@@ -4087,21 +4046,7 @@ int processCommand(client *c) {
          * in a slave, that may be the active client, to be freed. */
         if (server.current_client == NULL) return C_ERR;
 
-        int reject_cmd_on_oom = is_denyoom_command;
-        /* If client is in MULTI/EXEC context, queuing may consume an unlimited
-         * amount of memory, so we want to stop that.
-         * However, we never want to reject DISCARD, or even EXEC (unless it
-         * contains denied commands, in which case is_denyoom_command is already
-         * set. */
-        if (c->flags & CLIENT_MULTI &&
-            c->cmd->proc != execCommand &&
-            c->cmd->proc != discardCommand &&
-            c->cmd->proc != quitCommand &&
-            c->cmd->proc != resetCommand) {
-            reject_cmd_on_oom = 1;
-        }
-
-        if (out_of_memory && reject_cmd_on_oom) {
+        if (out_of_memory && is_denyoom_command) {
             rejectCommand(c, shared.oomerr);
             return C_OK;
         }
@@ -4267,9 +4212,49 @@ int processCommand(client *c) {
 
 /* ====================== Error lookup and execution ===================== */
 
+/* Users who abuse lua error_reply will generate a new error object on each
+ * error call, which can make server.errors get bigger and bigger. This will
+ * cause the server to block when calling INFO (we also return errorstats by
+ * default). To prevent the damage it can cause, when a misuse is detected,
+ * we will print the warning log and disable the errorstats to avoid adding
+ * more new errors. It can be re-enabled via CONFIG RESETSTAT. */
+#define ERROR_STATS_NUMBER 128
 void incrementErrorCount(const char *fullerr, size_t namelen) {
+    /* errorstats is disabled, return ASAP. */
+    if (!server.errors_enabled) return;
+
     void *result;
     if (!raxFind(server.errors,(unsigned char*)fullerr,namelen,&result)) {
+        if (server.errors->numele >= ERROR_STATS_NUMBER) {
+            sds errors = sdsempty();
+            raxIterator ri;
+            raxStart(&ri, server.errors);
+            raxSeek(&ri, "^", NULL, 0);
+            while (raxNext(&ri)) {
+                char *tmpsafe;
+                errors = sdscatlen(errors, getSafeInfoString((char *)ri.key, ri.key_len, &tmpsafe), ri.key_len);
+                errors = sdscatlen(errors, ", ", 2);
+                if (tmpsafe != NULL) zfree(tmpsafe);
+            }
+            sdsrange(errors, 0, -3); /* Remove final ", ". */
+            raxStop(&ri);
+
+            /* Print the warning log and the contents of server.errors to the log. */
+            serverLog(LL_WARNING,
+                      "Errorstats stopped adding new errors because the number of "
+                      "errors reached the limit, may be misuse of lua error_reply, "
+                      "please check INFO ERRORSTATS, this can be re-enabled via "
+                      "CONFIG RESETSTAT.");
+            serverLog(LL_WARNING, "Current errors code list: %s", errors);
+            sdsfree(errors);
+
+            /* Reset the errors and add a single element to indicate that it is disabled. */
+            resetErrorTableStats();
+            incrementErrorCount("ERRORSTATS_DISABLED", 19);
+            server.errors_enabled = 0;
+            return;
+        }
+
         struct redisError *error = zmalloc(sizeof(*error));
         error->count = 1;
         raxInsert(server.errors,(unsigned char*)fullerr,namelen,error,NULL);
@@ -5551,6 +5536,25 @@ dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, i
     return section_dict;
 }
 
+/* sets blocking_keys to the total number of keys which has at least one client blocked on them.
+ * sets blocking_keys_on_nokey to the total number of keys which has at least one client
+ * blocked on them to be written or deleted.
+ * sets watched_keys to the total number of keys which has at least on client watching on them. */
+void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *blocking_keys_on_nokey, unsigned long *watched_keys) {
+    unsigned long bkeys=0, bkeys_on_nokey=0, wkeys=0;
+    for (int j = 0; j < server.dbnum; j++) {
+        bkeys += dictSize(server.db[j].blocking_keys);
+        bkeys_on_nokey += dictSize(server.db[j].blocking_keys_unblock_on_nokey);
+        wkeys += dictSize(server.db[j].watched_keys);
+    }
+    if (blocking_keys)
+        *blocking_keys = bkeys;
+    if (blocking_keys_on_nokey)
+        *blocking_keys_on_nokey = bkeys_on_nokey;
+    if (watched_keys)
+        *watched_keys = wkeys;
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -5630,9 +5634,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
     /* Clients */
     if (all_sections || (dictFind(section_dict,"clients") != NULL)) {
         size_t maxin, maxout;
-        unsigned long blocking_keys, blocking_keys_on_nokey;
+        unsigned long blocking_keys, blocking_keys_on_nokey, watched_keys;
         getExpansiveClientsInfo(&maxin,&maxout);
-        totalNumberOfBlockingKeys(&blocking_keys, &blocking_keys_on_nokey);
+        totalNumberOfStatefulKeys(&blocking_keys, &blocking_keys_on_nokey, &watched_keys);
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Clients\r\n" FMTARGS(
             "connected_clients:%lu\r\n", listLength(server.clients) - listLength(server.slaves),
@@ -5643,7 +5647,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "blocked_clients:%d\r\n", server.blocked_clients,
             "tracking_clients:%d\r\n", server.tracking_clients,
             "pubsub_clients:%d\r\n", server.pubsub_clients,
+            "watching_clients:%d\r\n", server.watching_clients,
             "clients_in_timeout_table:%llu\r\n", (unsigned long long) raxSize(server.clients_timeout_table),
+            "total_watched_keys:%lu\r\n", watched_keys,
             "total_blocking_keys:%lu\r\n", blocking_keys,
             "total_blocking_keys_on_nokey:%lu\r\n", blocking_keys_on_nokey));
     }
@@ -5697,6 +5703,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "allocator_allocated:%zu\r\n", server.cron_malloc_stats.allocator_allocated,
             "allocator_active:%zu\r\n", server.cron_malloc_stats.allocator_active,
             "allocator_resident:%zu\r\n", server.cron_malloc_stats.allocator_resident,
+            "allocator_muzzy:%zu\r\n", server.cron_malloc_stats.allocator_muzzy,
             "total_system_memory:%lu\r\n", (unsigned long)total_system_mem,
             "total_system_memory_human:%s\r\n", total_system_hmem,
             "used_memory_lua:%lld\r\n", memory_lua, /* deprecated, renamed to used_memory_vm_eval */
@@ -5735,6 +5742,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
+            "mem_overhead_db_hashtable_rehashing:%zu\r\n", mh->overhead_db_hashtable_rehashing,
             "active_defrag_running:%d\r\n", server.active_defrag_running,
             "lazyfree_pending_objects:%zu\r\n", lazyfreeGetPendingObjectsCount(),
             "lazyfreed_objects:%zu\r\n", lazyfreeGetFreedObjectsCount()));
@@ -5869,19 +5877,21 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "sync_full:%lld\r\n", server.stat_sync_full,
             "sync_partial_ok:%lld\r\n", server.stat_sync_partial_ok,
             "sync_partial_err:%lld\r\n", server.stat_sync_partial_err,
+            "expired_subkeys:%lld\r\n", server.stat_expired_subkeys,
             "expired_keys:%lld\r\n", server.stat_expiredkeys,
             "expired_stale_perc:%.2f\r\n", server.stat_expired_stale_perc*100,
             "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
             "expire_cycle_cpu_milliseconds:%lld\r\n", server.stat_expire_cycle_time_used/1000,
             "evicted_keys:%lld\r\n", server.stat_evictedkeys,
             "evicted_clients:%lld\r\n", server.stat_evictedclients,
+            "evicted_scripts:%lld\r\n", server.stat_evictedscripts,
             "total_eviction_exceeded_time:%lld\r\n", (server.stat_total_eviction_exceeded_time + current_eviction_exceeded_time) / 1000,
             "current_eviction_exceeded_time:%lld\r\n", current_eviction_exceeded_time / 1000,
             "keyspace_hits:%lld\r\n", server.stat_keyspace_hits,
             "keyspace_misses:%lld\r\n", server.stat_keyspace_misses,
-            "pubsub_channels:%ld\r\n", dictSize(server.pubsub_channels),
+            "pubsub_channels:%llu\r\n", kvstoreSize(server.pubsub_channels),
             "pubsub_patterns:%lu\r\n", dictSize(server.pubsub_patterns),
-            "pubsubshard_channels:%llu\r\n", server.shard_channel_count,
+            "pubsubshard_channels:%llu\r\n", kvstoreSize(server.pubsubshard_channels),
             "latest_fork_usec:%lld\r\n", server.stat_fork_time,
             "total_forks:%lld\r\n", server.stat_total_forks,
             "migrate_cached_sockets:%ld\r\n", dictSize(server.migrate_cached_sockets),
@@ -6106,14 +6116,16 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys;
+            long long keys, vkeys, hexpires;
 
-            keys = dbSize(&server.db[j], DB_MAIN);
-            vkeys = dbSize(&server.db[j], DB_EXPIRES);
+            keys = kvstoreSize(server.db[j].keys);
+            vkeys = kvstoreSize(server.db[j].expires);
+            hexpires = ebGetTotalItems(server.db[j].hexpires, &hashExpireBucketsType);
+
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld,subexpiry=%lld\r\n",
+                    j, keys, vkeys, server.db[j].avg_ttl, hexpires);
             }
         }
     }
@@ -6139,7 +6151,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_aof_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_AOF].sum,
             "eventloop_duration_cron_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CRON].sum,
             "eventloop_duration_max:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].max,
-            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max));
+            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max,
+            "allocator_allocated_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_allocated,
+            "allocator_active_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_active,
+            "allocator_resident_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_resident,
+            "allocator_frag_bytes_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes));
     }
 
     return info;
@@ -6881,8 +6897,11 @@ struct redisTest {
     {"crc64", crc64Test},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
+    {"mstr", mstrTest},
     {"dict", dictTest},
-    {"listpack", listpackTest}
+    {"listpack", listpackTest},
+    {"kvstore", kvstoreTest},
+    {"ebuckets", ebucketsTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -6909,6 +6928,7 @@ int main(int argc, char **argv) {
             if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
             else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
             else if (!strcasecmp(arg, "--valgrind")) flags |= REDIS_TEST_VALGRIND;
+            else if (!strcasecmp(arg, "--verbose")) flags |= REDIS_TEST_VERBOSE;
         }
 
         if (!strcasecmp(argv[2], "all")) {

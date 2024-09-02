@@ -1,30 +1,9 @@
 /*
- * Copyright (c) 2018, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2018-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "server.h"
@@ -506,15 +485,7 @@ void ACLFreeUserAndKillClients(user *u) {
              * this may result in some security hole: it's much
              * more defensive to set the default user and put
              * it in non authenticated mode. */
-            c->user = DefaultUser;
-            c->authenticated = 0;
-            /* We will write replies to this client later, so we can't
-             * close it directly even if async. */
-            if (c == server.current_client) {
-                c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
-            } else {
-                freeClientAsync(c);
-            }
+            deauthenticateAndCloseClient(c);
         }
     }
     ACLFreeUser(u);
@@ -1903,12 +1874,6 @@ int ACLCheckAllPerm(client *c, int *idxptr) {
     return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
 }
 
-int totalSubscriptions(void) {
-    return dictSize(server.pubsub_patterns) +
-           dictSize(server.pubsub_channels) +
-           server.shard_channel_count;
-}
-
 /* If 'new' can access all channels 'original' could then return NULL;
    Otherwise return a list of channels that the new user can access */
 list *getUpcomingChannelList(user *new, user *original) {
@@ -2017,7 +1982,7 @@ int ACLShouldKillPubsubClient(client *c, list *upcoming) {
  * permissions specified via the upcoming argument, and kill them if so. */
 void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
     /* Do nothing if there are no subscribers. */
-    if (totalSubscriptions() == 0)
+    if (pubsubTotalSubscriptions() == 0)
         return;
 
     list *channels = getUpcomingChannelList(new, original);
@@ -2037,7 +2002,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         if (c->user != original)
             continue;
         if (ACLShouldKillPubsubClient(c, channels))
-            freeClient(c);
+            deauthenticateAndCloseClient(c);
     }
 
     listRelease(channels);
@@ -2450,7 +2415,7 @@ sds ACLLoadFromFile(const char *filename) {
 
         /* If there are some subscribers, we need to check if we need to drop some clients. */
         rax *user_channels = NULL;
-        if (totalSubscriptions() > 0) {
+        if (pubsubTotalSubscriptions() > 0) {
             user_channels = raxNew();
         }
 
@@ -2460,6 +2425,9 @@ sds ACLLoadFromFile(const char *filename) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
+            /* a MASTER client can do everything (and user = NULL) so we can skip it */
+            if (c->flags & CLIENT_MASTER)
+                continue;
             user *original = c->user;
             list *channels = NULL;
             user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
@@ -2471,7 +2439,7 @@ sds ACLLoadFromFile(const char *filename) {
             }
             /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
             if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
-                freeClient(c);
+                deauthenticateAndCloseClient(c);
                 continue;
             }
             c->user = new;
@@ -2661,6 +2629,15 @@ void ACLUpdateInfoMetrics(int reason){
     }
 }
 
+static void trimACLLogEntriesToMaxLen(void) {
+    while(listLength(ACLLog) > server.acllog_max_len) {
+        listNode *ln = listLast(ACLLog);
+        ACLLogEntry *le = listNodeValue(ln);
+        ACLFreeLogEntry(le);
+        listDelNode(ACLLog,ln);
+    }
+}
+
 /* Adds a new entry in the ACL log, making sure to delete the old entry
  * if we reach the maximum length allowed for the log. This function attempts
  * to find similar entries in the current log in order to bump the counter of
@@ -2679,6 +2656,11 @@ void ACLUpdateInfoMetrics(int reason){
 void addACLLogEntry(client *c, int reason, int context, int argpos, sds username, sds object) {
     /* Update ACL info metrics */
     ACLUpdateInfoMetrics(reason);
+    
+    if (server.acllog_max_len == 0) {
+        trimACLLogEntriesToMaxLen();
+        return;
+    }
     
     /* Create a new entry. */
     struct ACLLogEntry *le = zmalloc(sizeof(*le));
@@ -2742,12 +2724,7 @@ void addACLLogEntry(client *c, int reason, int context, int argpos, sds username
          * to its maximum size. */
         ACLLogEntryCount++; /* Incrementing the entry_id count to make each record in the log unique. */
         listAddNodeHead(ACLLog, le);
-        while(listLength(ACLLog) > server.acllog_max_len) {
-            listNode *ln = listLast(ACLLog);
-            ACLLogEntry *le = listNodeValue(ln);
-            ACLFreeLogEntry(le);
-            listDelNode(ACLLog,ln);
-        }
+        trimACLLogEntriesToMaxLen();
     }
 }
 
@@ -2785,7 +2762,6 @@ void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
 
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & CMD_MODULE) continue;
         if (cmd->acl_categories & cflag) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             (*arraylen)++;
