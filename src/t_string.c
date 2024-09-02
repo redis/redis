@@ -74,8 +74,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     }
 
     dictEntry *de = dbFind(c->db, key->ptr);
-    robj *o = lookupKeyWriteWithDictEntry(c->db,key,de);
-    found = (o != NULL);
+    found = (lookupKeyWriteWithDictEntry(c->db,key,de) != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
         (flags & OBJ_SET_XX && !found))

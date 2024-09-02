@@ -327,8 +327,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
 }
 
 /* Like setKey(), but accepts an optional dictEntry input,
- * which can be used if we already have one, thus saving the dictFind call.
- */
+ * which can be used if we already have one, thus saving the dictFind call. */
 void setKeyWithDictEntry(client *c, redisDb *db, robj *key, robj *val, int flags, dictEntry *de) {
     int keyfound = 0;
 
@@ -486,8 +485,7 @@ robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
 
 
 /* Like dbUnshareStringValue(), but accepts a optional dictEntry,
- * which can be used if we already have one, thus saving the dbFind call.
- */
+ * which can be used if we already have one, thus saving the dbFind call. */
 robj *dbUnshareStringValueWithDictEntry(redisDb *db, robj *key, robj *o, dictEntry *de) {
     serverAssert(o->type == OBJ_STRING);
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
@@ -1875,8 +1873,7 @@ void setExpire(client *c, redisDb *db, robj *key, long long when) {
 }
 
 /* Like setExpire(), but accepts an optional dictEntry input,
- * which can be used if we already have one, thus saving the kvstoreDictFind call.
- */
+ * which can be used if we already have one, thus saving the kvstoreDictFind call. */
 void setExpireWithDictEntry(client *c, redisDb *db, robj *key, long long when, dictEntry *kde) {
     dictEntry *de, *existing;
 
