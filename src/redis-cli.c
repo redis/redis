@@ -20,7 +20,6 @@
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/time.h>
-#include <assert.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <math.h>
@@ -45,6 +44,7 @@
 #include "mt19937-64.h"
 #include "cli_commands.h"
 #include "hdr_histogram.h"
+#include "redisassert.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -264,6 +264,8 @@ static struct config {
     char *server_version;
     char *test_hint;
     char *test_hint_file;
+    int test_panic;
+    char* test_panic_msg;
     int prefer_ipv4; /* Prefer IPv4 over IPv6 on DNS lookup. */
     int prefer_ipv6; /* Prefer IPv6 over IPv4 on DNS lookup. */
 } config;
@@ -2950,6 +2952,9 @@ static int parseOptions(int argc, char **argv) {
             config.test_hint = argv[++i];
         } else if (!strcmp(argv[i],"--test_hint_file") && !lastarg) {
             config.test_hint_file = argv[++i];
+        } else if (!strcmp(argv[i], "--test-panic") && !lastarg) {
+            config.test_panic = 1;
+            config.test_panic_msg = argv[++i];
 #ifdef USE_OPENSSL
         } else if (!strcmp(argv[i],"--tls")) {
             config.tls = 1;
@@ -10784,6 +10789,10 @@ int main(int argc, char **argv) {
     if (config.lru_test_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         LRUTestMode();
+    }
+
+    if (config.test_panic) {
+        panic("DEBUG PANIC MSG: %s", config.test_panic_msg);
     }
 
     /* Intrinsic latency mode */

@@ -833,3 +833,12 @@ start_server {tags {"cli external:skip"}} {
     }
 }
 
+# test Cli panic msg
+start_server {tags {"cli external:skip"}} {
+    test "Cli panic msg" {
+        set test_msg "test_panic_msg"
+        set expect_regex [format ".*DEBUG PANIC MSG: %s" $test_msg]
+        catch {run_cli --test-panic $test_msg} panic_msg
+        assert_equal 1 [regexp $expect_regex $panic_msg]
+    }
+}
