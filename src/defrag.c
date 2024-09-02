@@ -1089,6 +1089,7 @@ void activeDefragCycle(void) {
             slot = -1;
             defrag_later_item_in_progress = 0;
             db = NULL;
+            moduleDefragEnd();
             goto update_metrics;
         }
         return;

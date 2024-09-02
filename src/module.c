@@ -13453,21 +13453,13 @@ int RM_RegisterDefragFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
     return REDISMODULE_OK;
 }
 
-/* Register a defrag callback that will be called when defrag operation starts.
+/* Register a defrag callbacks that will be called when defrag operation starts and ends.
  *
- * The callback supports anything as on `RM_RegisterDefragFunc` but the user
- * can also assume the callback is called when the defrag operation starts. */
-int RM_RegisterDefragStartFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
-    ctx->module->defrag_start_cb = cb;
-    return REDISMODULE_OK;
-}
-
-/* Register a defrag callback that will be called when defrag operation ends.
- *
- * The callback supports anything as on `RM_RegisterDefragFunc` but the user
- * can also assume the callback is called when the defrag operation ends. */
-int RM_RegisterDefragEndFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
-    ctx->module->defrag_end_cb = cb;
+ * The callbacks are the same as `RM_RegisterDefragFunc` but the user
+ * can also assume the callbacks are called when the defrag operation starts and ends. */
+int RM_RegisterDefragCallbacks(RedisModuleCtx *ctx, RedisModuleDefragFunc start, RedisModuleDefragFunc end) {
+    ctx->module->defrag_start_cb = start;
+    ctx->module->defrag_end_cb = end;
     return REDISMODULE_OK;
 }
 
@@ -14051,8 +14043,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCurrentCommandName);
     REGISTER_API(GetTypeMethodVersion);
     REGISTER_API(RegisterDefragFunc);
-    REGISTER_API(RegisterDefragStartFunc);
-    REGISTER_API(RegisterDefragEndFunc);
+    REGISTER_API(RegisterDefragCallbacks);
     REGISTER_API(DefragAlloc);
     REGISTER_API(DefragAllocRaw);
     REGISTER_API(DefragFreeRaw);
