@@ -1790,27 +1790,6 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
     if (dbid != -1) selectDb(server.master,dbid);
 }
 
-/* This function will try to re-enable the AOF file after the
- * master-replica synchronization: if it fails after multiple attempts
- * the replica cannot be considered reliable and exists with an
- * error. */
-void restartAOFAfterSYNC(void) {
-    unsigned int tries, max_tries = 10;
-    for (tries = 0; tries < max_tries; ++tries) {
-        if (startAppendOnly() == C_OK) break;
-        serverLog(LL_WARNING,
-            "Failed enabling the AOF after successful master synchronization! "
-            "Trying it again in one second.");
-        sleep(1);
-    }
-    if (tries == max_tries) {
-        serverLog(LL_WARNING,
-            "FATAL: this replica instance finished the synchronization with "
-            "its master, but the AOF can't be turned on. Exiting now.");
-        exit(1);
-    }
-}
-
 static int useDisklessLoad(void) {
     /* compute boolean decision to use diskless load */
     int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
@@ -2300,7 +2279,10 @@ void readSyncBulkPayload(connection *conn) {
     /* Restart the AOF subsystem now that we finished the sync. This
      * will trigger an AOF rewrite, and when done will start appending
      * to the new file. */
-    if (server.aof_enabled) restartAOFAfterSYNC();
+    if (server.aof_enabled) {
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Starting AOF after a successful sync");
+        startAppendOnlyWithRetry();
+    }
     return;
 
 error:
@@ -3117,7 +3099,10 @@ void replicationUnsetMaster(void) {
 
     /* Restart the AOF subsystem in case we shut it down during a sync when
      * we were still a slave. */
-    if (server.aof_enabled && server.aof_state == AOF_OFF) restartAOFAfterSYNC();
+    if (server.aof_enabled && server.aof_state == AOF_OFF) {
+        serverLog(LL_NOTICE, "Restarting AOF after becoming master");
+        startAppendOnlyWithRetry();
+    }
 }
 
 /* This function is called when the slave lose the connection with the
