@@ -2287,6 +2287,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->options = 0;
     module->info_cb = 0;
     module->defrag_cb = 0;
+    module->defrag_start_cb = 0;
+    module->defrag_end_cb = 0;
     module->loadmod = NULL;
     module->num_commands_with_acl_categories = 0;
     module->onload = 1;
@@ -13451,6 +13453,24 @@ int RM_RegisterDefragFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
     return REDISMODULE_OK;
 }
 
+/* Register a defrag callback that will be called when defrag operation starts.
+ *
+ * The callback supports anything as on `RM_RegisterDefragFunc` but the user
+ * can also assume the callback is called when the defrag operation starts. */
+int RM_RegisterDefragStartFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
+    ctx->module->defrag_start_cb = cb;
+    return REDISMODULE_OK;
+}
+
+/* Register a defrag callback that will be called when defrag operation ends.
+ *
+ * The callback supports anything as on `RM_RegisterDefragFunc` but the user
+ * can also assume the callback is called when the defrag operation ends. */
+int RM_RegisterDefragEndFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
+    ctx->module->defrag_end_cb = cb;
+    return REDISMODULE_OK;
+}
+
 /* When the data type defrag callback iterates complex structures, this
  * function should be called periodically. A zero (false) return
  * indicates the callback may continue its work. A non-zero value (true)
@@ -13632,19 +13652,46 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
     return 1;
 }
 
+#define modulesForEach(...) do { \
+    dictIterator *di = dictGetIterator(modules); \
+    dictEntry *de; \
+    while ((de = dictNext(di)) != NULL) { \
+        struct RedisModule *module = dictGetVal(de); \
+        do { \
+            __VA_ARGS__ \
+        } while(0); \
+    } \
+    dictReleaseIterator(di); \
+} while(0);
+
 /* Call registered module API defrag functions */
 void moduleDefragGlobals(void) {
-    dictIterator *di = dictGetIterator(modules);
-    dictEntry *de;
+    modulesForEach(
+        if (module->defrag_cb) {
+            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            module->defrag_cb(&defrag_ctx);
+        }
+    );
+}
 
-    while ((de = dictNext(di)) != NULL) {
-        struct RedisModule *module = dictGetVal(de);
-        if (!module->defrag_cb)
-            continue;
-        RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
-        module->defrag_cb(&defrag_ctx);
-    }
-    dictReleaseIterator(di);
+/* Call registered module API defrag start functions */
+void moduleDefragStart(void) {
+    modulesForEach(
+        if (module->defrag_start_cb) {
+            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            module->defrag_start_cb(&defrag_ctx);
+        }
+    );
+}
+
+/* Call registered module API defrag end functions */
+void moduleDefragEnd(void) {
+    modulesForEach(
+        if (module->defrag_end_cb) {
+            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            module->defrag_end_cb(&defrag_ctx);
+        }
+    );
 }
 
 /* Returns the name of the key currently being processed.
@@ -14004,6 +14051,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCurrentCommandName);
     REGISTER_API(GetTypeMethodVersion);
     REGISTER_API(RegisterDefragFunc);
+    REGISTER_API(RegisterDefragStartFunc);
+    REGISTER_API(RegisterDefragEndFunc);
     REGISTER_API(DefragAlloc);
     REGISTER_API(DefragAllocRaw);
     REGISTER_API(DefragFreeRaw);

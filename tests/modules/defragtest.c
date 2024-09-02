@@ -22,6 +22,8 @@ unsigned long int datatype_raw_defragged = 0;
 unsigned long int datatype_resumes = 0;
 unsigned long int datatype_wrong_cursor = 0;
 unsigned long int global_attempts = 0;
+unsigned long int defrag_started = 0;
+unsigned long int defrag_ended = 0;
 unsigned long int global_defragged = 0;
 
 int global_strings_len = 0;
@@ -49,6 +51,16 @@ static void defragGlobalStrings(RedisModuleDefragCtx *ctx)
     }
 }
 
+static void defragStart(RedisModuleDefragCtx *ctx) {
+    REDISMODULE_NOT_USED(ctx);
+    defrag_started++;
+}
+
+static void defragEnd(RedisModuleDefragCtx *ctx) {
+    REDISMODULE_NOT_USED(ctx);
+    defrag_ended++;
+}
+
 static void FragInfo(RedisModuleInfoCtx *ctx, int for_crash_report) {
     REDISMODULE_NOT_USED(for_crash_report);
 
@@ -60,6 +72,8 @@ static void FragInfo(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldLongLong(ctx, "datatype_wrong_cursor", datatype_wrong_cursor);
     RedisModule_InfoAddFieldLongLong(ctx, "global_attempts", global_attempts);
     RedisModule_InfoAddFieldLongLong(ctx, "global_defragged", global_defragged);
+    RedisModule_InfoAddFieldLongLong(ctx, "defrag_started", defrag_started);
+    RedisModule_InfoAddFieldLongLong(ctx, "defrag_ended", defrag_ended);
 }
 
 struct FragObject *createFragObject(unsigned long len, unsigned long size, int maxstep) {
@@ -87,6 +101,8 @@ static int fragResetStatsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
     datatype_wrong_cursor = 0;
     global_attempts = 0;
     global_defragged = 0;
+    defrag_started = 0;
+    defrag_ended = 0;
 
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
@@ -242,6 +258,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModule_RegisterInfoFunc(ctx, FragInfo);
     RedisModule_RegisterDefragFunc(ctx, defragGlobalStrings);
+    RedisModule_RegisterDefragStartFunc(ctx, defragStart);
+    RedisModule_RegisterDefragEndFunc(ctx, defragEnd);
 
     return REDISMODULE_OK;
 }

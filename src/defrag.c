@@ -62,6 +62,7 @@ void *activeDefragAllocRaw(size_t size) {
 /* Raw memory free for defrag, avoid using tcache. */
 void activeDefragFreeRaw(void *ptr) {
     zfree_no_tcache(ptr);
+    server.stat_active_defrag_hits++;
 }
 
 /*Defrag helper for sds strings
@@ -1129,6 +1130,10 @@ void activeDefragCycle(void) {
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
+            if (current_db == -1) {
+                moduleDefragStart();
+            }
+
             /* Move on to next database, and stop if we reached the last one. */
             if (++current_db >= server.dbnum) {
                 /* defrag other items not part of the db / keys */
@@ -1149,6 +1154,8 @@ void activeDefragCycle(void) {
                 defrag_later_item_in_progress = 0;
                 db = NULL;
                 server.active_defrag_running = 0;
+
+                moduleDefragEnd();
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
                 if (server.active_defrag_running != 0 && ustime() < endtime)

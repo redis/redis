@@ -820,6 +820,8 @@ struct RedisModule {
     int blocked_clients;         /* Count of RedisModuleBlockedClient in this module. */
     RedisModuleInfoFunc info_cb; /* Callback for module to add INFO fields. */
     RedisModuleDefragFunc defrag_cb;    /* Callback for global data defrag. */
+    RedisModuleDefragFunc defrag_start_cb;    /* Callback indicating defrag started. */
+    RedisModuleDefragFunc defrag_end_cb;      /* Callback indicating defrag ended. */
     struct moduleLoadQueueEntry *loadmod; /* Module load arguments for config rewrite. */
     int num_commands_with_acl_categories; /* Number of commands in this module included in acl categories */
     int onload;     /* Flag to identify if the call is being made from Onload (0 or 1) */
@@ -2555,6 +2557,8 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
 int moduleDefragValue(robj *key, robj *obj, int dbid);
 int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, int dbid);
 void moduleDefragGlobals(void);
+void moduleDefragStart(void);
+void moduleDefragEnd(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 
