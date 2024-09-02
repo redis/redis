@@ -3662,29 +3662,30 @@ void helloCommand(client *c) {
     if (ver) c->resp = ver;
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
-    addReplyBulkCBuffer(c,"server",strlen("server"));
-    addReplyBulkCBuffer(c,"redis",strlen("redis"));
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"server");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"redis");
 
-    addReplyBulkCBuffer(c,"version",strlen("version"));
-    addReplyBulkCBuffer(c,REDIS_VERSION,strlen(REDIS_VERSION));
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"version");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,REDIS_VERSION);
 
-    addReplyBulkCBuffer(c,"proto",strlen("proto"));
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"proto");
+
     addReplyLongLong(c,c->resp);
 
-    addReplyBulkCBuffer(c,"id",strlen("id"));
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"id");
     addReplyLongLong(c,c->id);
 
-    addReplyBulkCBuffer(c,"mode",strlen("mode"));
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"mode");
     if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
     else if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
     else addReplyBulkCString(c,"standalone");
 
     if (!server.sentinel_mode) {
-        addReplyBulkCBuffer(c,"role",strlen("role"));
+        ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"role");
         addReplyBulkCString(c,server.masterhost ? "replica" : "master");
     }
 
-    addReplyBulkCBuffer(c,"modules",strlen("modules"));
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"modules");
     addReplyLoadedModules(c);
 }
 
