@@ -796,8 +796,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
             if (withcoords) {
                 addReplyArrayLen(c, 2);
-                addReplyHumanLongDouble(c, gp->longitude);
-                addReplyHumanLongDouble(c, gp->latitude);
+                addReplyDouble(c,gp->longitude);
+                addReplyDouble(c,gp->latitude);
             }
         }
     } else {
@@ -959,8 +959,8 @@ void geoposCommand(client *c) {
                 continue;
             }
             addReplyArrayLen(c,2);
-            addReplyHumanLongDouble(c,xy[0]);
-            addReplyHumanLongDouble(c,xy[1]);
+            addReplyDouble(c,xy[0]);
+            addReplyDouble(c,xy[1]);
         }
     }
 }
