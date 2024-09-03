@@ -1514,7 +1514,12 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->pport = ntohs(g->pport);
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
-            }
+
+				/* Check if this is our master and we have to change the
+				 * replication target as well. */
+				if (nodeIsSlave(myself) && myself->slaveof == node)
+					replicationSetMaster(node->ip, node->port);
+				}
         } else {
             /* If it's not in NOADDR state and we don't have it, we
              * add it to our trusted dict with exact nodeid and flag.
