@@ -257,6 +257,18 @@ dictStats* dictGetStatsHt(dict *d, int htidx, int full);
 void dictCombineStats(dictStats *from, dictStats *into);
 void dictFreeStats(dictStats *stats);
 
+#define dictForEach(d, ty, m, ...) do { \
+    dictIterator *di = dictGetIterator(d); \
+    dictEntry *de; \
+    while ((de = dictNext(di)) != NULL) { \
+        ty *m = dictGetVal(de); \
+        do { \
+            __VA_ARGS__ \
+        } while(0); \
+    } \
+    dictReleaseIterator(di); \
+} while(0);
+
 #ifdef REDIS_TEST
 int dictTest(int argc, char *argv[], int flags);
 #endif

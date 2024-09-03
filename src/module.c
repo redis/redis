@@ -13644,21 +13644,9 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
     return 1;
 }
 
-#define modulesForEach(...) do { \
-    dictIterator *di = dictGetIterator(modules); \
-    dictEntry *de; \
-    while ((de = dictNext(di)) != NULL) { \
-        struct RedisModule *module = dictGetVal(de); \
-        do { \
-            __VA_ARGS__ \
-        } while(0); \
-    } \
-    dictReleaseIterator(di); \
-} while(0);
-
 /* Call registered module API defrag functions */
 void moduleDefragGlobals(void) {
-    modulesForEach(
+    dictForEach(modules, struct RedisModule, module, 
         if (module->defrag_cb) {
             RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
             module->defrag_cb(&defrag_ctx);
@@ -13668,7 +13656,7 @@ void moduleDefragGlobals(void) {
 
 /* Call registered module API defrag start functions */
 void moduleDefragStart(void) {
-    modulesForEach(
+    dictForEach(modules, struct RedisModule, module, 
         if (module->defrag_start_cb) {
             RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
             module->defrag_start_cb(&defrag_ctx);
@@ -13678,7 +13666,7 @@ void moduleDefragStart(void) {
 
 /* Call registered module API defrag end functions */
 void moduleDefragEnd(void) {
-    modulesForEach(
+    dictForEach(modules, struct RedisModule, module, 
         if (module->defrag_end_cb) {
             RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
             module->defrag_end_cb(&defrag_ctx);
