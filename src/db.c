@@ -126,7 +126,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry **deref) {
         /* TODO: Use separate misses stats and notify event for WRITE */
     }
 
-    if (deref) *deref = de;
+    if (val && deref) *deref = de;
     return val;
 }
 
