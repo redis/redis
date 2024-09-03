@@ -73,7 +73,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    dictEntry *de;
+    dictEntry *de = NULL;
     found = (lookupKeyWriteWithDictEntry(c->db,key,&de) != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
