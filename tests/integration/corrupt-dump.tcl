@@ -887,9 +887,6 @@ test {corrupt payload: fuzzer findings - set with duplicate elements causes sdif
 
 test {corrupt payload: fuzzer findings - set with invalid length causes smembers to hang} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
-        r config set sanitize-dump-payload no
-        r debug set-skip-checksum-validation 1
-
         # In the past, it generated a broken protocol and left the client hung in smembers
         r config set sanitize-dump-payload no
         assert_equal {OK} [r restore _set 0 "\x14\x16\x16\x00\x00\x00\x0c\x00\x81\x61\x02\x81\x62\x02\x81\x63\x02\x01\x01\x02\x01\x03\x01\xff\x0c\x00\x91\x00\x56\x73\xc1\x82\xd5\xbd" replace]
