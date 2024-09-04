@@ -1434,17 +1434,20 @@ void smembersCommand(client *c) {
     }
 
     /* Prepare the response. */
-    addReplySetLen(c,setTypeSize(setobj));
-
+    unsigned long length = setTypeSize(setobj);
+    addReplySetLen(c,length);
     /* Iterate through the elements of the set. */
     si = setTypeInitIterator(setobj);
+
     while (setTypeNext(si, &str, &len, &intobj) != -1) {
         if (str != NULL)
             addReplyBulkCBuffer(c, str, len);
         else
             addReplyBulkLongLong(c, intobj);
+        length--;
     }
     setTypeReleaseIterator(si);
+    serverAssert(length == 0);
 }
 
 /* SINTERCARD numkeys key [key ...] [LIMIT limit] */
