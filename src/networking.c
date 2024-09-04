@@ -207,6 +207,7 @@ client *createClient(connection *conn) {
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
     initClientMultiState(c);
+    memset(c->argv_static, 0, sizeof(robj*)*CLINET_STATIC_ARGV_LEN);
     return c;
 }
 
@@ -1416,7 +1417,7 @@ void freeClientArgv(client *c) {
     c->cmd = NULL;
     c->argv_len_sum = 0;
     c->argv_len = 0;
-    zfree(c->argv);
+    if(c->argv != c->argv_static) zfree(c->argv);
     c->argv = NULL;
 }
 
@@ -2235,9 +2236,14 @@ int processInlineBuffer(client *c) {
 
     /* Setup argv array on client structure */
     if (argc) {
-        if (c->argv) zfree(c->argv);
-        c->argv_len = argc;
-        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        if (argc > CLINET_STATIC_ARGV_LEN) {
+            if (c->argv) zfree(c->argv);
+            c->argv_len = argc;
+            c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        } else {
+            c->argv_len = CLINET_STATIC_ARGV_LEN;
+            c->argv = c->argv_static;
+        }
         c->argv_len_sum = 0;
     }
 
@@ -2339,9 +2345,15 @@ int processMultibulkBuffer(client *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->argv) zfree(c->argv);
-        c->argv_len = min(c->multibulklen, 1024);
-        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        if (c->multibulklen > CLINET_STATIC_ARGV_LEN) {
+            if (c->argv) zfree(c->argv);
+            c->argv_len = min(c->multibulklen, 1024);
+            c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        } else {
+            c->argv_len = CLINET_STATIC_ARGV_LEN;
+            c->argv = c->argv_static;
+        }
+        
         c->argv_len_sum = 0;
     }
 
@@ -3805,7 +3817,12 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
      */
     if (i >= c->argc) {
         if (i >= c->argv_len) {
-            c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+            if(c->argv == c->argv_static) {
+                c->argv = zmalloc(sizeof(robj*)*(i+1));
+                memcpy(c->argv, c->argv_static, sizeof(robj*)*c->argv_len);
+            } else {
+                c->argv = zrealloc(c->argv,sizeof(robj*)*(i+1));
+            }
             c->argv_len = i+1;
         }
         c->argc = i+1;
