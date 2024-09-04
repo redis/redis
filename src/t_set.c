@@ -1447,7 +1447,7 @@ void smembersCommand(client *c) {
         length--;
     }
     setTypeReleaseIterator(si);
-    serverAssert(length == 0);
+    serverAssert(length == 0); /* fail on corrupt data */
 }
 
 /* SINTERCARD numkeys key [key ...] [LIMIT limit] */
