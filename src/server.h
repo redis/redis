@@ -2631,6 +2631,7 @@ void addReplyDouble(client *c, double d);
 void addReplyBigNum(client *c, const char *num, size_t len);
 void addReplyHumanLongDouble(client *c, long double d);
 void addReplyLongLong(client *c, long long ll);
+void addReplyLongLongFromStr(client *c, robj* str);
 void addReplyArrayLen(client *c, long length);
 void addReplyMapLen(client *c, long length);
 void addReplySetLen(client *c, long length);
@@ -3366,10 +3367,12 @@ void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, robj *key);
 long long getExpire(redisDb *db, robj *key);
 void setExpire(client *c, redisDb *db, robj *key, long long when);
+void setExpireWithDictEntry(client *c, redisDb *db, robj *key, long long when, dictEntry *kde);
 int checkAlreadyExpired(long long when);
 int parseExtendedExpireArgumentsOrReply(client *c, int *flags);
 robj *lookupKeyRead(redisDb *db, robj *key);
 robj *lookupKeyWrite(redisDb *db, robj *key);
+robj *lookupKeyWriteWithDictEntry(redisDb *db, robj *key, dictEntry **deref);
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
 robj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
@@ -3389,6 +3392,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 dictEntry *dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
 void dbReplaceValue(redisDb *db, robj *key, robj *val);
+void dbReplaceValueWithDictEntry(redisDb *db, robj *key, robj *val, dictEntry *de);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2
@@ -3396,11 +3400,14 @@ void dbReplaceValue(redisDb *db, robj *key, robj *val);
 #define SETKEY_DOESNT_EXIST 8
 #define SETKEY_ADD_OR_UPDATE 16 /* Key most likely doesn't exists */
 void setKey(client *c, redisDb *db, robj *key, robj *val, int flags);
+void setKeyWithDictEntry(client *c, redisDb *db, robj *key, robj *val, int flags, dictEntry *de);
 robj *dbRandomKey(redisDb *db);
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
+robj *dbUnshareStringValueWithDictEntry(redisDb *db, robj *key, robj *o, dictEntry *de);
+
 
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */

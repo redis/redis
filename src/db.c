@@ -49,6 +49,9 @@ void updateLFU(robj *val) {
  * found in the specified DB. This function implements the functionality of
  * lookupKeyRead(), lookupKeyWrite() and their ...WithFlags() variants.
  *
+ * 'deref' is an optional output dictEntry reference argument, to get the
+ * associated dictEntry* of the key in case the key is found.
+ *
  * Side-effects of calling this function:
  *
  * 1. A key gets expired if it reached it's TTL.
@@ -72,7 +75,7 @@ void updateLFU(robj *val) {
  * Even if the key expiry is master-driven, we can correctly report a key is
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
-robj *lookupKey(redisDb *db, robj *key, int flags) {
+robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry **deref) {
     dictEntry *de = dbFind(db, key->ptr);
     robj *val = NULL;
     if (de) {
@@ -123,6 +126,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
         /* TODO: Use separate misses stats and notify event for WRITE */
     }
 
+    if (val && deref) *deref = de;
     return val;
 }
 
@@ -137,7 +141,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags) {
  * the key. */
 robj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags) {
     serverAssert(!(flags & LOOKUP_WRITE));
-    return lookupKey(db, key, flags);
+    return lookupKey(db, key, flags, NULL);
 }
 
 /* Like lookupKeyReadWithFlags(), but does not use any flag, which is the
@@ -153,11 +157,18 @@ robj *lookupKeyRead(redisDb *db, robj *key) {
  * Returns the linked value object if the key exists or NULL if the key
  * does not exist in the specified DB. */
 robj *lookupKeyWriteWithFlags(redisDb *db, robj *key, int flags) {
-    return lookupKey(db, key, flags | LOOKUP_WRITE);
+    return lookupKey(db, key, flags | LOOKUP_WRITE, NULL);
 }
 
 robj *lookupKeyWrite(redisDb *db, robj *key) {
     return lookupKeyWriteWithFlags(db, key, LOOKUP_NONE);
+}
+
+/* Like lookupKeyWrite(), but accepts an optional dictEntry input,
+ * which can be used if we already have one, thus saving the dbFind call.
+ */
+robj *lookupKeyWriteWithDictEntry(redisDb *db, robj *key, dictEntry **deref) {
+    return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, deref);
 }
 
 robj *lookupKeyReadOrReply(client *c, robj *key, robj *reply) {
@@ -294,6 +305,14 @@ void dbReplaceValue(redisDb *db, robj *key, robj *val) {
     dbSetValue(db, key, val, 0, NULL);
 }
 
+/* Replace an existing key with a new value, we just replace value and don't
+ * emit any events.
+ * The dictEntry input is optional, can be used if we already have one.
+ */
+void dbReplaceValueWithDictEntry(redisDb *db, robj *key, robj *val, dictEntry *de) {
+    dbSetValue(db, key, val, 0, de);
+}
+
 /* High level Set operation. This function can be used in order to set
  * a key, whatever it was existing or not, to a new object.
  *
@@ -308,6 +327,12 @@ void dbReplaceValue(redisDb *db, robj *key, robj *val) {
  * The client 'c' argument may be set to NULL if the operation is performed
  * in a context where there is no clear client performing the operation. */
 void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
+    setKeyWithDictEntry(c,db,key,val,flags,NULL);
+}
+
+/* Like setKey(), but accepts an optional dictEntry input,
+ * which can be used if we already have one, thus saving the dictFind call. */
+void setKeyWithDictEntry(client *c, redisDb *db, robj *key, robj *val, int flags, dictEntry *de) {
     int keyfound = 0;
 
     if (flags & SETKEY_ALREADY_EXIST)
@@ -322,7 +347,7 @@ void setKey(client *c, redisDb *db, robj *key, robj *val, int flags) {
     } else if (keyfound<0) {
         dbAddInternal(db,key,val,1);
     } else {
-        dbSetValue(db,key,val,1,NULL);
+        dbSetValue(db,key,val,1,de);
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);
@@ -452,12 +477,18 @@ int dbDelete(redisDb *db, robj *key) {
  * using an sdscat() call to append some data, or anything else.
  */
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o) {
+    return dbUnshareStringValueWithDictEntry(db,key,o,NULL);
+}
+
+/* Like dbUnshareStringValue(), but accepts a optional dictEntry,
+ * which can be used if we already have one, thus saving the dbFind call. */
+robj *dbUnshareStringValueWithDictEntry(redisDb *db, robj *key, robj *o, dictEntry *de) {
     serverAssert(o->type == OBJ_STRING);
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
-        dbReplaceValue(db,key,o);
+        dbReplaceValueWithDictEntry(db,key,o,de);
     }
     return o;
 }
@@ -1828,16 +1859,23 @@ int removeExpire(redisDb *db, robj *key) {
     return kvstoreDictDelete(db->expires, getKeySlot(key->ptr), key->ptr) == DICT_OK;
 }
 
+
 /* Set an expire to the specified key. If the expire is set in the context
  * of an user calling a command 'c' is the client, otherwise 'c' is set
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
  * after which the key will no longer be considered valid. */
 void setExpire(client *c, redisDb *db, robj *key, long long when) {
-    dictEntry *kde, *de, *existing;
+    setExpireWithDictEntry(c,db,key,when,NULL);
+}
+
+/* Like setExpire(), but accepts an optional dictEntry input,
+ * which can be used if we already have one, thus saving the kvstoreDictFind call. */
+void setExpireWithDictEntry(client *c, redisDb *db, robj *key, long long when, dictEntry *kde) {
+    dictEntry *de, *existing;
 
     /* Reuse the sds from the main dict in the expire dict */
     int slot = getKeySlot(key->ptr);
-    kde = kvstoreDictFind(db->keys, slot, key->ptr);
+    if (!kde) kde = kvstoreDictFind(db->keys, slot, key->ptr);
     serverAssertWithInfo(NULL,key,kde != NULL);
     de = kvstoreDictAddRaw(db->expires, slot, dictGetKey(kde), &existing);
     if (existing) {
