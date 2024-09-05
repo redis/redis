@@ -32,6 +32,13 @@ proc get_one_of_my_replica {id} {
     }
     set replica_port [lindex [lindex [lindex [R $id role] 2] 0] 1]
     set replica_id_num [get_instance_id_by_port redis $replica_port]
+
+    # To avoid -LOADING reply, wait until replica syncs with master.
+    wait_for_condition 1000 50 {
+        [RI $replica_id_num master_link_status] eq {up}
+    } else {
+        fail "Replica did not sync in time."
+    }
     return $replica_id_num
 }
 
