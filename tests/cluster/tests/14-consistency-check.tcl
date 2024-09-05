@@ -59,9 +59,16 @@ proc test_slave_load_expired_keys {aof} {
     test "Slave expired keys is loaded when restarted: appendonly=$aof" {
         set master_id [find_non_empty_master]
         set replica_id [get_one_of_my_replica $master_id]
+        set replica_id2 $replica_id
+        set replica_id3 $replica_id
+        set replica_id4 $replica_id
+        set replica_id5 $replica_id
+        set replica_id6 $replica_id
+
+        puts "Starting blabla..."
 
         set master_dbsize_0 [R $master_id dbsize]
-        set replica_dbsize_0 [R $replica_id dbsize]
+        set replica_dbsize_0 [R $replica_id2 dbsize]
         assert_equal $master_dbsize_0 $replica_dbsize_0
 
         # config the replica persistency and rewrite the config file to survive restart
@@ -78,12 +85,12 @@ proc test_slave_load_expired_keys {aof} {
         # wait for replica to be in sync with master
         wait_for_condition 500 10 {
             [RI $replica_id master_link_status] eq {up} &&
-            [R $replica_id dbsize] eq [R $master_id dbsize]
+            [R $replica_id3 dbsize] eq [R $master_id dbsize]
         } else {
             fail "replica didn't sync"
         }
         
-        set replica_dbsize_1 [R $replica_id dbsize]
+        set replica_dbsize_1 [R $replica_id4 dbsize]
         assert {$replica_dbsize_1 > $replica_dbsize_0}
 
         # make replica create persistence file
@@ -113,7 +120,7 @@ proc test_slave_load_expired_keys {aof} {
         restart_instance redis $replica_id
 
         # make sure the keys are still there
-        set replica_dbsize_3 [R $replica_id dbsize]
+        set replica_dbsize_3 [R $replica_id5 dbsize]
         assert {$replica_dbsize_3 > $replica_dbsize_0}
         
         # restore settings
@@ -122,7 +129,7 @@ proc test_slave_load_expired_keys {aof} {
         # wait for the master to expire all keys and replica to get the DELs
         wait_for_condition 500 10 {
             [RI $replica_id master_link_status] eq {up} &&
-            [R $replica_id dbsize] eq $master_dbsize_0
+            [R $replica_id6 dbsize] eq $master_dbsize_0
         } else {
             fail "keys didn't expire"
         }
