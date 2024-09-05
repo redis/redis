@@ -1266,8 +1266,9 @@ int clientHasPendingReplies(client *c) {
             c->ref_block_pos == tail->used) return 0;
 
         return 1;
+    } else {
+        return c->bufpos || listLength(c->reply);
     }
-    return c->bufpos || listLength(c->reply);
 }
 
 void clientAcceptHandler(connection *conn) {
@@ -4056,7 +4057,7 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
     /* Note that c->reply_bytes is irrelevant for replica clients
      * (they use the global repl buffers). */
-    if ((c->reply_bytes == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
+    if ((c->reply_bytes == 0 && !clientTypeIsSlave(c)) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
