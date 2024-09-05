@@ -388,7 +388,7 @@ int cmdHasPushAsReply(struct redisCommand *cmd) {
 }
 
 void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
-    if (unlikely(c->flags & CLIENT_CLOSE_AFTER_REPLY)) return;
+    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     /* Replicas should normally not cause any writes to the reply buffer. In case a rogue replica sent a command on the
      * replication link that caused a reply to be generated we'll simply disconnect it.
@@ -411,8 +411,8 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * the SUBSCRIBE command family, which (currently) have a push message instead of a proper reply.
      * The check for executing_client also avoids affecting push messages that are part of eviction.
      * Check CLIENT_PUSHING first to avoid race conditions, as it's absent in module's fake client. */
-    if (unlikely((c->flags & CLIENT_PUSHING) && c == server.current_client &&
-        server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd)))
+    if ((c->flags & CLIENT_PUSHING) && c == server.current_client &&
+        server.executing_client && !cmdHasPushAsReply(server.executing_client->cmd))
     {
         _addReplyProtoToList(c,server.pending_push_messages,s,len);
         return;
