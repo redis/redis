@@ -930,7 +930,7 @@ void addReplyHumanLongDouble(client *c, long double d) {
     }
 }
 
-#define ADD_REPLY_WITH_PREFIX(c, ll, prefix, shared_hdr) do {       \
+#define ADD_REPLY_LONG_LONG_WITH_PREFIX(c, ll, prefix, shared_hdr) do {       \
     char buf[128];                                                  \
     int len;                                                        \
     const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;     \
@@ -946,11 +946,11 @@ void addReplyHumanLongDouble(client *c, long double d) {
 } while(0)
 
 static inline void _addReplyLongLongBulk(client *c, long long ll) {
-    ADD_REPLY_WITH_PREFIX(c, ll, '$', shared.bulkhdr);
+    ADD_REPLY_LONG_LONG_WITH_PREFIX(c, ll, '$', shared.bulkhdr);
 }
 
 static inline void _addReplyLongLongMBulk(client *c, long long ll) {
-    ADD_REPLY_WITH_PREFIX(c, ll, '*', shared.mbulkhdr);
+    ADD_REPLY_LONG_LONG_WITH_PREFIX(c, ll, '*', shared.mbulkhdr);
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
