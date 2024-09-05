@@ -945,20 +945,12 @@ void addReplyHumanLongDouble(client *c, long double d) {
     _addReplyToBufferOrList(c, buf, len + 3);                       \
 } while(0)
 
-static inline void _addReplyLongLongMBulk(client *c, long long ll) {
-    ADD_REPLY_WITH_PREFIX(c, ll, '*', shared.mbulkhdr);
-}
-
 static inline void _addReplyLongLongBulk(client *c, long long ll) {
     ADD_REPLY_WITH_PREFIX(c, ll, '$', shared.bulkhdr);
 }
 
-static inline void _addReplyLongLongMap(client *c, long long ll) {
-    ADD_REPLY_WITH_PREFIX(c, ll, '%', shared.maphdr);
-}
-
-static inline void _addReplyLongLongSet(client *c, long long ll) {
-    ADD_REPLY_WITH_PREFIX(c, ll, '~', shared.maphdr);
+static inline void _addReplyLongLongMBulk(client *c, long long ll) {
+    ADD_REPLY_WITH_PREFIX(c, ll, '*', shared.mbulkhdr);
 }
 
 /* Add a long long as integer reply or bulk len / multi bulk count.
@@ -1023,20 +1015,14 @@ void addReplyArrayLen(client *c, long length) {
 }
 
 void addReplyMapLen(client *c, long length) {
-    if (c->resp == 2) {
-        length *= 2;
-        _addReplyLongLongMBulk(c,length);
-    } else {
-        _addReplyLongLongMap(c,length);
-    }
+    int prefix = c->resp == 2 ? '*' : '%';
+    if (c->resp == 2) length *= 2;
+    addReplyAggregateLen(c,length,prefix);
 }
 
 void addReplySetLen(client *c, long length) {
-    if (c->resp == 2) {
-        _addReplyLongLongMBulk(c,length);
-    } else {
-        _addReplyLongLongSet(c,length);
-    }
+    int prefix = c->resp == 2 ? '*' : '~';
+    addReplyAggregateLen(c,length,prefix);
 }
 
 void addReplyAttributeLen(client *c, long length) {
@@ -1082,7 +1068,7 @@ void addReplyNullArray(client *c) {
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len = stringObjectLen(obj);
     if (prepareClientToWrite(c) != C_OK) return;
-    _addReplyLongLongMBulk(c, len);
+    _addReplyLongLongBulk(c, len);
 }
 
 /* Add a Redis Object as a bulk reply */
@@ -1106,9 +1092,8 @@ void addReplyBulkSds(client *c, sds s) {
         sdsfree(s);
         return;
     }
-    const size_t slen = sdslen(s);
-    _addReplyLongLongBulk(c, slen);
-    _addReplyToBufferOrList(c, s, slen);
+    _addReplyLongLongWithPrefix(c, sdslen(s), '$');
+    _addReplyToBufferOrList(c, s, sdslen(s));
     sdsfree(s);
     _addReplyToBufferOrList(c, "\r\n", 2);
 }
