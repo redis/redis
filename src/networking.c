@@ -26,7 +26,7 @@ static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
 char *getClientSockname(client *c);
-static inline int clientTypeIsSlave(client* c);
+static inline int clientTypeIsSlave(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
 __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
@@ -3961,7 +3961,7 @@ int getClientType(client *c) {
     return CLIENT_TYPE_NORMAL;
 }
 
-static inline int clientTypeIsSlave(client* c) {
+static inline int clientTypeIsSlave(client *c) {
     if (unlikely((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)))
         return 1;
     return 0;
