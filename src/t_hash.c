@@ -2428,7 +2428,11 @@ void genericHgetallCommand(client *c, int flags) {
 
     /* We return a map if the user requested keys and values, like in the
      * HGETALL case. Otherwise to use a flat array makes more sense. */
-    length = hashTypeLength(o, 1 /*subtractExpiredFields*/);
+    if ((length = hashTypeLength(o, 1 /*subtractExpiredFields*/)) == 0) {
+        addReply(c, emptyResp);
+        return;
+    }
+
     if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) {
         addReplyMapLen(c, length);
     } else {
@@ -2437,11 +2441,7 @@ void genericHgetallCommand(client *c, int flags) {
 
     hi = hashTypeInitIterator(o);
 
-    /* Skip expired fields if the hash has an expire time set at global HFE DS. We could
-     * set it to constant 1, but then it will make another lookup for each field expiration */
-    int skipExpiredFields = (EB_EXPIRE_TIME_INVALID == hashTypeGetMinExpire(o, 0)) ? 0 : 1;
-
-    while (hashTypeNext(hi, skipExpiredFields) != C_ERR) {
+    while (hashTypeNext(hi, 1 /*skipExpiredFields*/) != C_ERR) {
         if (flags & OBJ_HASH_KEY) {
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
             count++;
