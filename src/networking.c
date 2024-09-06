@@ -1411,16 +1411,18 @@ void freeClientOriginalArgv(client *c) {
     c->original_argc = 0;
 }
 
-void freeClientArgv(client *c) {
+void freeClientArgv(client *c, int free_argv) {
     int j;
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
     c->argc = 0;
     c->cmd = NULL;
     c->argv_len_sum = 0;
-    c->argv_len = 0;
-    zfree(c->argv);
-    c->argv = NULL;
+    if (free_argv) {
+        c->argv_len = 0;
+        zfree(c->argv);
+        c->argv = NULL;
+    }
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1688,7 +1690,7 @@ void freeClient(client *c) {
     listRelease(c->reply);
     zfree(c->buf);
     freeReplicaReferencedReplBuffer(c);
-    freeClientArgv(c);
+    freeClientArgv(c, 1);
     freeClientOriginalArgv(c);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
@@ -2126,7 +2128,7 @@ int handleClientsWithPendingWrites(void) {
 void resetClient(client *c) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
-    freeClientArgv(c);
+    freeClientArgv(c, 0);
     c->cur_script = NULL;
     c->reqtype = 0;
     c->multibulklen = 0;
@@ -2262,9 +2264,11 @@ int processInlineBuffer(client *c) {
 
     /* Setup argv array on client structure */
     if (argc) {
-        if (c->argv) zfree(c->argv);
-        c->argv_len = argc;
-        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        if (argc > c->argv_len) {
+            zfree(c->argv);
+            c->argv = zmalloc(sizeof(robj*)*argc);
+            c->argv_len = argc;
+        }
         c->argv_len_sum = 0;
     }
 
@@ -2366,9 +2370,11 @@ int processMultibulkBuffer(client *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->argv) zfree(c->argv);
-        c->argv_len = min(c->multibulklen, 1024);
-        c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        if (c->multibulklen > c->argv_len) {
+            zfree(c->argv);
+            c->argv_len = min(c->multibulklen, 1024);
+            c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        }
         c->argv_len_sum = 0;
     }
 
@@ -3828,7 +3834,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
     int j;
     retainOriginalCommandVector(c);
-    freeClientArgv(c);
+    freeClientArgv(c, 1);
     c->argv = argv;
     c->argc = argc;
     c->argv_len_sum = 0;

@@ -20,7 +20,7 @@
 #include <sys/wait.h>
 #include <sys/param.h>
 
-void freeClientArgv(client *c);
+void freeClientArgv(client *c, int free_argv);
 off_t getAppendOnlyFileSize(sds filename, int *status);
 off_t getBaseAndIncrAppendOnlyFilesSize(aofManifest *am, int *status);
 int getBaseAndIncrAppendOnlyFilesNum(aofManifest *am);
@@ -1519,7 +1519,7 @@ int loadSingleAppendOnlyFile(char *filename) {
             char *readres = fgets(buf,sizeof(buf),fp);
             if (readres == NULL || buf[0] != '$') {
                 fakeClient->argc = j; /* Free up to j-1. */
-                freeClientArgv(fakeClient);
+                freeClientArgv(fakeClient, 1);
                 if (readres == NULL)
                     goto readerr;
                 else
@@ -1532,7 +1532,7 @@ int loadSingleAppendOnlyFile(char *filename) {
             if (len && fread(argsds,len,1,fp) == 0) {
                 sdsfree(argsds);
                 fakeClient->argc = j; /* Free up to j-1. */
-                freeClientArgv(fakeClient);
+                freeClientArgv(fakeClient, 1);
                 goto readerr;
             }
             argv[j] = createObject(OBJ_STRING,argsds);
@@ -1540,7 +1540,7 @@ int loadSingleAppendOnlyFile(char *filename) {
             /* Discard CRLF. */
             if (fread(buf,2,1,fp) == 0) {
                 fakeClient->argc = j+1; /* Free up to j. */
-                freeClientArgv(fakeClient);
+                freeClientArgv(fakeClient, 1);
                 goto readerr;
             }
         }
@@ -1551,7 +1551,7 @@ int loadSingleAppendOnlyFile(char *filename) {
             serverLog(LL_WARNING,
                 "Unknown command '%s' reading the append only file %s",
                 (char*)argv[0]->ptr, filename);
-            freeClientArgv(fakeClient);
+            freeClientArgv(fakeClient, 1);
             ret = AOF_FAILED;
             goto cleanup;
         }
@@ -1580,7 +1580,7 @@ int loadSingleAppendOnlyFile(char *filename) {
 
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
-        freeClientArgv(fakeClient);
+        freeClientArgv(fakeClient, 1);
         if (server.aof_load_truncated) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
