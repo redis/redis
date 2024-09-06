@@ -654,7 +654,7 @@ void moduleReleaseTempClient(client *c) {
     listEmpty(c->reply);
     c->reply_bytes = 0;
     c->duration = 0;
-    resetClient(c);
+    resetClient(c, 1);
     c->bufpos = 0;
     c->flags = CLIENT_MODULE;
     c->user = NULL; /* Root user */

@@ -2125,10 +2125,10 @@ int handleClientsWithPendingWrites(void) {
 }
 
 /* resetClient prepare the client to process the next command */
-void resetClient(client *c) {
+void resetClient(client *c, int free_argv) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
-    freeClientArgv(c, 0);
+    freeClientArgv(c, free_argv);
     c->cur_script = NULL;
     c->reqtype = 0;
     c->multibulklen = 0;
@@ -2506,7 +2506,7 @@ void commandProcessed(client *c) {
     if (c->flags & CLIENT_BLOCKED) return;
 
     reqresAppendResponse(c);
-    resetClient(c);
+    resetClient(c, 0);
 
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
@@ -2637,7 +2637,7 @@ int processInputBuffer(client *c) {
 
         /* Multibulk processing could see a <= 0 length. */
         if (c->argc == 0) {
-            resetClient(c);
+            resetClient(c, 0);
         } else {
             /* If we are in the context of an I/O thread, we can't really
              * execute the command here. All we can do is to flag the client
@@ -3813,6 +3813,7 @@ void redactClientCommandArgument(client *c, int argc) {
  * is incremented. The old command vector is freed, and the old objects
  * ref count is decremented. */
 void rewriteClientCommandVector(client *c, int argc, ...) {
+    printf("rewriteClientCommandVector\n");
     va_list ap;
     int j;
     robj **argv; /* The new argument vector */
@@ -3838,6 +3839,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
     c->argv = argv;
     c->argc = argc;
     c->argv_len_sum = 0;
+    c->argv_len = argc;
     for (j = 0; j < c->argc; j++)
         if (c->argv[j])
             c->argv_len_sum += getStringObjectLen(c->argv[j]);
