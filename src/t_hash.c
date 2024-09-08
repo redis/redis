@@ -734,7 +734,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
         serverPanic("Unknown hash encoding");
     }
 
-    if (expiredAt >= (uint64_t) commandTimeSnapshot())
+    if ((expiredAt >= (uint64_t) commandTimeSnapshot()) || (hfeFlags & HFE_LAZY_MASKED))
         return GETF_OK;
 
     if (server.masterhost) {

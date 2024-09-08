@@ -60,6 +60,22 @@ start_server {tags {"modules"}} {
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
+    test {test open key with REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED to read expired fields} {
+        r debug set-active-expire 0
+        r del H1
+        r hash.set H1 "n" f1 v1 f2 v2 f3 v3
+        r hpexpire H1 1 FIELDS 2 f1 f2
+        after 10
+        # Scan expired fields with flag REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED
+        assert_equal "f1 f2 f3 v1 v2 v3" [lsort [r hash.hscan_expired H1]]
+        # Get expired field with flag REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED
+        assert_equal {v1} [r hash.hget_expired H1 f1]
+        # Normal hget should return empty string
+        assert_equal "" [r hget H1 f1]
+        assert_equal "" [r hget H1 f2]
+        r debug set-active-expire 1
+    }
+
     test "Unload the module - hash" {
         assert_equal {OK} [r module unload hash]
     }

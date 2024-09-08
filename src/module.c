@@ -4070,7 +4070,9 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key) {
  * * REDISMODULE_OPEN_KEY_NONOTIFY - Don't trigger keyspace event on key misses.
  * * REDISMODULE_OPEN_KEY_NOSTATS - Don't update keyspace hits/misses counters.
  * * REDISMODULE_OPEN_KEY_NOEXPIRE - Avoid deleting lazy expired keys.
- * * REDISMODULE_OPEN_KEY_NOEFFECTS - Avoid any effects from fetching the key. */
+ * * REDISMODULE_OPEN_KEY_NOEFFECTS - Avoid any effects from fetching the key.
+ * * REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED - Allow read also expired elements of the key.
+ *                                         Currently Relevant only for hash fields */
 RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     RedisModuleKey *kp;
     robj *value;
@@ -4080,6 +4082,7 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     flags |= (mode & REDISMODULE_OPEN_KEY_NOSTATS? LOOKUP_NOSTATS: 0);
     flags |= (mode & REDISMODULE_OPEN_KEY_NOEXPIRE? LOOKUP_NOEXPIRE: 0);
     flags |= (mode & REDISMODULE_OPEN_KEY_NOEFFECTS? LOOKUP_NOEFFECTS: 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED? (LOOKUP_SUBKEY_EXPIRED) : 0);
 
     if (mode & REDISMODULE_WRITE) {
         value = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
@@ -5377,6 +5380,9 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
     int hfeFlags = HFE_LAZY_AVOID_FIELD_DEL | HFE_LAZY_AVOID_HASH_DEL;
     va_list ap;
     if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
+
+    if (key->mode& REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED)
+        hfeFlags = HFE_LAZY_MASKED; /* allow read also expired fields */
 
     va_start(ap, flags);
     while(1) {
@@ -11087,8 +11093,9 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
     } else if (o->type == OBJ_HASH) {
         sds val = dictGetVal(de);
 
-        /* If field is expired, then ignore */
-        if (hfieldIsExpired(key))
+        /* If field is expired and not indicated to read subexpired, then ignore */
+        if ((!(data->key->mode & REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED)) &&
+            (hfieldIsExpired(key)))
             return;
 
         field = createStringObject(key, hfieldlen(key));
@@ -11224,7 +11231,8 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
                 p = lpNext(lp, p);
 
                 /* Skip expired fields */
-                if (hashTypeIsExpired(o, vllExpire))
+                if ((hashTypeIsExpired(o, vllExpire)) &&
+                    (!(key->mode & REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED)))
                     continue;
             }
 

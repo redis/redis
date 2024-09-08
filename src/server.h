@@ -3221,6 +3221,7 @@ typedef struct dictExpireMetadata {
 #define HFE_LAZY_AVOID_HASH_DEL   (1<<1) /* Avoid deleting hash if the field is the last one */
 #define HFE_LAZY_NO_NOTIFICATION  (1<<2) /* Do not send notification, used when multiple fields
                                           * may expire and only one notification is desired. */
+#define HFE_LAZY_MASKED           (1<<3) /* Avoid lazy expire logic (allow access to expired fields) */
 
 void hashTypeConvert(robj *o, int enc, ebuckets *hexpires);
 void hashTypeTryConversion(redisDb *db, robj *subject, robj **argv, int start, int end);
@@ -3383,11 +3384,13 @@ robj *objectCommandLookupOrReply(client *c, robj *key, robj *reply);
 int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                        long long lru_clock, int lru_multiplier);
 #define LOOKUP_NONE 0
-#define LOOKUP_NOTOUCH (1<<0)  /* Don't update LRU. */
-#define LOOKUP_NONOTIFY (1<<1) /* Don't trigger keyspace event on key misses. */
-#define LOOKUP_NOSTATS (1<<2)  /* Don't update keyspace hits/misses counters. */
-#define LOOKUP_WRITE (1<<3)    /* Delete expired keys even in replicas. */
-#define LOOKUP_NOEXPIRE (1<<4) /* Avoid deleting lazy expired keys. */
+#define LOOKUP_NOTOUCH (1<<0)          /* Don't update LRU. */
+#define LOOKUP_NONOTIFY (1<<1)         /* Don't trigger keyspace event on key misses. */
+#define LOOKUP_NOSTATS (1<<2)          /* Don't update keyspace hits/misses counters. */
+#define LOOKUP_WRITE (1<<3)            /* Delete expired keys even in replicas. */
+#define LOOKUP_NOEXPIRE (1<<4)         /* Avoid deleting lazy expired keys. */
+#define LOOKUP_SUBKEY_EXPIRED (1<<5)   /* Allow access also expired subkeys.
+                                          Currently Relevant only for hash fields */
 #define LOOKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
 
 dictEntry *dbAdd(redisDb *db, robj *key, robj *val);
