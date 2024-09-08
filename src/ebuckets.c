@@ -1880,14 +1880,16 @@ uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
  *
  * This is a non-safe iterator. Any modification to ebuckets will invalidate the
  * iterator. Calling this function takes care to reference the first item
- * in ebuckets with minimal expiration time. If not items to iterate, then
- * iter->currItem will be NULL */
-void ebStartIter(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
+ * in ebuckets with minimal expiration time. If no items to iterate, then
+ * iter->currItem will be NULL and iter->itemsCurrBucket will be set to 0.
+ */
+void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
     iter->eb = eb;
     iter->type = type;
 
     if (ebIsEmpty(eb)) {
         iter->currItem = NULL;
+        iter->itemsCurrBucket = 0;
     } else if (ebIsList(eb)) {
         iter->currItem = ebGetListPtr(type, eb);
         iter->itemsCurrBucket = type->getExpireMeta(iter->currItem)->numItems;
@@ -1904,10 +1906,12 @@ void ebStartIter(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
     }
 }
 
-/* Advance iterator to the next item.
+/* Advance iterator to the next item
  *
- * Return: 0 if reached EOF. Update `iter->currItem` to NULL
- *         1 Otherwise. Update `iter->currItem`
+ * Returns:
+ *   - 0 if the end of ebuckets has been reached, setting `iter->currItem`
+ *       to NULL.
+ *   - 1 otherwise, updating `iter->currItem` to the next item.
  */
 int ebNext(EbucketsIterator *iter) {
     if (iter->currItem == NULL)
@@ -1933,29 +1937,40 @@ int ebNext(EbucketsIterator *iter) {
     } else {
         iter->currItem = meta->next;
     }
-    return (iter->currItem == NULL) ? 0 : 1;
+
+    if (iter->currItem == NULL) {
+        iter->itemsCurrBucket = 0;
+        return 0;
+    }
+
+    return 1;
 }
 
-/* Advance iterator to the next ebucket.
+/* Advance the iterator to the next bucket
  *
- * Return: 0 if reached EOF. Set `iter->itemsCurrBucket`, `iter->currItem` to NULL
- *         1 Otherwise. Update `iter->currItem` and `iter->itemsCurrBucket`
+ * Returns:
+ *   - 0 if no more ebuckets are available, setting `iter->currItem` to NULL
+ *       and `iter->itemsCurrBucket` to 0.
+ *   - 1 otherwise, updating `iter->currItem` and `iter->itemsCurrBucket` for the
+ *       next ebucket.
  */
 int ebNextBucket(EbucketsIterator *iter) {
     if (iter->currItem == NULL)
         return 0;
-    iter->currItem = NULL;
+
     if ((iter->isRax) && (raxNext(&iter->raxIter))) {
         FirstSegHdr *currSegHdr = iter->raxIter.data;
         iter->currItem = currSegHdr->head;
         iter->itemsCurrBucket = currSegHdr->totalItems;
     } else {
+        iter->currItem = NULL;
         iter->itemsCurrBucket = 0;
     }
     return 1;
 }
 
-void ebStopIter(EbucketsIterator *iter) {
+/* Stop and cleanup the ebuckets iterator */
+void ebStop(EbucketsIterator *iter) {
     if (iter->isRax)
         raxStop(&iter->raxIter);
 }
@@ -2203,7 +2218,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
 
     TEST("basic iterator test") {
         MyItem *items[100];
-        for (uint32_t numItems = 0 ; numItems < sizeof(items)/sizeof(items[0]) ; ++numItems) {
+        for (uint32_t numItems = 0 ; numItems < ARRAY_SIZE(items) ; ++numItems) {
             ebuckets eb = NULL;
             EbucketsIterator iter;
 
@@ -2214,7 +2229,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
             }
 
             /* iterate items */
-            ebStartIter(&iter, eb, &myEbucketsType);
+            ebStart(&iter, eb, &myEbucketsType);
             for (uint32_t i = 0; i < numItems; i++) {
                 assert(iter.currItem == items[i]);
                 int res = ebNext(&iter);
@@ -2226,10 +2241,10 @@ int ebucketsTest(int argc, char **argv, int flags) {
                     assert(iter.currItem == NULL);
                 }
             }
-            ebStopIter(&iter);
+            ebStop(&iter);
 
             /* iterate buckets */
-            ebStartIter(&iter, eb, &myEbucketsType);
+            ebStart(&iter, eb, &myEbucketsType);
             uint32_t countItems = 0;
 
             uint32_t countBuckets = 0;
@@ -2238,7 +2253,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 if (!ebNextBucket(&iter)) break;
                 countBuckets++;
             }
-            ebStopIter(&iter);
+            ebStop(&iter);
             assert(countItems == numItems);
             if (numItems>=8) assert(numItems/8 >= countBuckets);
             ebDestroy(&eb, &myEbucketsType, NULL);

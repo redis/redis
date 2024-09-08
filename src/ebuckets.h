@@ -295,9 +295,9 @@ int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime);
 
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item);
 
-void ebStartIter(EbucketsIterator *iter, ebuckets eb, EbucketsType *type);
+void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type);
 
-void ebStopIter(EbucketsIterator *iter);
+void ebStop(EbucketsIterator *iter);
 
 int ebNext(EbucketsIterator *iter);
 
