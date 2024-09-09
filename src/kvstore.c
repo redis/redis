@@ -1046,10 +1046,11 @@ int kvstoreTest(int argc, char **argv, int flags) {
                 key = dictGetKey(de);
                 assert(kvstoreDictDelete(kvs, idx, key) == DICT_OK);
                 /* When the dictionary is emptied, the number of non-empty dictionaries is reduced by 1. */
-                if (kvstoreDictSize(kvs, idx) == 0) assert(kvstoreNumNonEmptyDicts(kvs) == 3-idx);
+                if (kvstoreDictSize(kvs, idx) == 0) assert(kvstoreNumNonEmptyDicts(kvs) == 3 - idx);
             }
             kvstoreReleaseDictIterator(kvs_di);
         }
+        kvstoreRelease(kvs);
     }
 
     kvstoreRelease(kvs1);
