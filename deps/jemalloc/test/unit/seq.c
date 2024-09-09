@@ -15,10 +15,10 @@ set_data(data_t *data, int num) {
 }
 
 static void
-assert_data(data_t *data) {
+expect_data(data_t *data) {
 	int num = data->arr[0];
 	for (int i = 0; i < 10; i++) {
-		assert_d_eq(num, data->arr[i], "Data consistency error");
+		expect_d_eq(num, data->arr[i], "Data consistency error");
 	}
 }
 
@@ -37,8 +37,8 @@ seq_reader_thd(void *arg) {
 	while (iter < 1000 * 1000 - 1) {
 		bool success = seq_try_load_data(&local_data, &thd_data->data);
 		if (success) {
-			assert_data(&local_data);
-			assert_d_le(iter, local_data.arr[0],
+			expect_data(&local_data);
+			expect_d_le(iter, local_data.arr[0],
 			    "Seq read went back in time.");
 			iter = local_data.arr[0];
 		}
@@ -82,8 +82,8 @@ TEST_BEGIN(test_seq_simple) {
 		seq_store_data(&seq, &data);
 		set_data(&data, 0);
 		bool success = seq_try_load_data(&data, &seq);
-		assert_b_eq(success, true, "Failed non-racing read");
-		assert_data(&data);
+		expect_b_eq(success, true, "Failed non-racing read");
+		expect_data(&data);
 	}
 }
 TEST_END

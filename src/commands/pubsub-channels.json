@@ -1,6 +1,6 @@
 {
     "CHANNELS": {
-        "summary": "List active channels",
+        "summary": "Returns the active channels.",
         "complexity": "O(N) where N is the number of active channels, and assuming constant time pattern matching (relatively short channels and patterns)",
         "group": "pubsub",
         "since": "2.8.0",
@@ -18,6 +18,14 @@
                 "type": "pattern",
                 "optional": true
             }
-        ]
+        ],
+        "reply_schema": {
+            "description": "a list of active channels, optionally matching the specified pattern",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+                "type": "string"
+            }
+        }
     }
 }

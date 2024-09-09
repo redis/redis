@@ -5,9 +5,9 @@ set ::valgrind_errors {}
 proc start_server_error {config_file error} {
     set err {}
     append err "Can't start the Redis server\n"
-    append err "CONFIGURATION:"
+    append err "CONFIGURATION:\n"
     append err [exec cat $config_file]
-    append err "\nERROR:"
+    append err "\nERROR:\n"
     append err [string trim $error]
     send_data_packet $::test_server_fd err $err
 }
@@ -52,16 +52,20 @@ proc kill_server config {
     }
 
     # nevermind if its already dead
-    if {![is_alive $config]} {
+    set pid [dict get $config pid]
+    if {![is_alive $pid]} {
         # Check valgrind errors if needed
         if {$::valgrind} {
             check_valgrind_errors [dict get $config stderr]
         }
 
         check_sanitizer_errors [dict get $config stderr]
+
+        # Remove this pid from the set of active pids in the test server.
+        send_data_packet $::test_server_fd server-killed $pid
+
         return
     }
-    set pid [dict get $config pid]
 
     # check for leaks
     if {![dict exists $config "skipleaks"]} {
@@ -99,7 +103,7 @@ proc kill_server config {
     } else {
         set max_wait 10000
     }
-    while {[is_alive $config]} {
+    while {[is_alive $pid]} {
         incr wait 10
 
         if {$wait == $max_wait} {
@@ -125,8 +129,7 @@ proc kill_server config {
     send_data_packet $::test_server_fd server-killed $pid
 }
 
-proc is_alive config {
-    set pid [dict get $config pid]
+proc is_alive pid {
     if {[catch {exec kill -0 $pid} err]} {
         return 0
     } else {
@@ -205,6 +208,12 @@ proc tags_acceptable {tags err_return} {
             set err "Tag: $tag denied"
             return 0
         }
+    }
+
+    # some units mess with the client output buffer so we can't really use the req-res logging mechanism.
+    if {$::log_req_res && [lsearch $tags "logreqres:skip"] >= 0} {
+        set err "Not supported when running in log-req-res mode"
+        return 0
     }
 
     if {$::external && [lsearch $tags "external:skip"] >= 0} {
@@ -360,10 +369,14 @@ proc run_external_server_test {code overrides} {
     r flushall
     r function flush
 
-    # store overrides
+    # store configs
     set saved_config {}
+    foreach {param val} [r config get *] {
+        dict set saved_config $param $val
+    }
+
+    # apply overrides
     foreach {param val} $overrides {
-        dict set saved_config $param [lindex [r config get $param] 1]
         r config set $param $val
 
         # If we enable appendonly, wait for for rewrite to complete. This is
@@ -391,7 +404,8 @@ proc run_external_server_test {code overrides} {
 
     # restore overrides
     dict for {param val} $saved_config {
-        r config set $param $val
+        # some may fail, specifically immutable ones.
+        catch {r config set $param $val}
     }
 
     set srv [lpop ::servers]
@@ -410,6 +424,9 @@ proc start_server {options {code undefined}} {
     set args {}
     set keep_persistence false
     set config_lines {}
+
+    # Wait for the server to be ready and check for server liveness/client connectivity before starting the test.
+    set wait_ready true
 
     # parse options
     foreach {option value} $options {
@@ -437,6 +454,9 @@ proc start_server {options {code undefined}} {
             }
             "keep_persistence" {
                 set keep_persistence $value
+            }
+            "wait_ready" {
+                set wait_ready $value
             }
             default {
                 error "Unknown option $option"
@@ -490,7 +510,8 @@ proc start_server {options {code undefined}} {
     # start every server on a different port
     set port [find_available_port $::baseport $::portcount]
     if {$::tls} {
-        dict set config "port" 0
+        set pport [find_available_port $::baseport $::portcount]
+        dict set config "port" $pport
         dict set config "tls-port" $port
         dict set config "tls-cluster" "yes"
         dict set config "tls-replication" "yes"
@@ -511,6 +532,14 @@ proc start_server {options {code undefined}} {
         dict unset config $directive
     }
 
+    if {$::log_req_res} {
+        dict set config "req-res-logfile" "stdout.reqres"
+    }
+
+    if {$::force_resp3} {
+        dict set config "client-default-resp" "3"
+    }
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
     create_server_config_file $config_file $config $config_lines
@@ -523,6 +552,9 @@ proc start_server {options {code undefined}} {
         set fd [open $stdout "a+"]
         puts $fd "### Starting server for test $::cur_test"
         close $fd
+        if {$::verbose > 1} {
+            puts "### Starting server $stdout for test - $::cur_test"
+        }
     }
 
     # We may have a stdout left over from the previous tests, so we need
@@ -550,6 +582,8 @@ proc start_server {options {code undefined}} {
             puts "Port $port was already busy, trying another port..."
             set port [find_available_port $::baseport $::portcount]
             if {$::tls} {
+                set pport [find_available_port $::baseport $::portcount]
+                dict set config port $pport
                 dict set config "tls-port" $port
             } else {
                 dict set config port $port
@@ -564,7 +598,7 @@ proc start_server {options {code undefined}} {
         }
 
         if {$::valgrind} {set retrynum 1000} else {set retrynum 100}
-        if {$code ne "undefined"} {
+        if {$code ne "undefined" && $wait_ready} {
             set serverisup [server_is_up $::host $port $retrynum]
         } else {
             set serverisup 1
@@ -598,6 +632,9 @@ proc start_server {options {code undefined}} {
     dict set srv "stdout" $stdout
     dict set srv "stderr" $stderr
     dict set srv "unixsocket" $unixsocket
+    if {$::tls} {
+        dict set srv "pport" $pport
+    }
 
     # if a block of code is supplied, we wait for the server to become
     # available, create a client object and kill the server afterwards
@@ -607,19 +644,21 @@ proc start_server {options {code undefined}} {
             error_and_quit $config_file $line
         }
 
-        while 1 {
-            # check that the server actually started and is ready for connections
-            if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {
-                break
-            }
-            after 10
-        }
-
         # append the server to the stack
         lappend ::servers $srv
 
-        # connect client (after server dict is put on the stack)
-        reconnect
+        if {$wait_ready} {
+            while 1 {
+                # check that the server actually started and is ready for connections
+                if {[count_message_lines $stdout "Ready to accept"] > $previous_ready_count} {
+                    break
+                }
+                after 10
+            }
+
+            # connect client (after server dict is put on the stack)
+            reconnect
+        }
 
         # remember previous num_failed to catch new errors
         set prev_num_failed $::num_failed

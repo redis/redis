@@ -64,7 +64,8 @@ start_server {tags {"scripting"}} {
     } {hello1}
 
     test {FUNCTION - test replace argument with failure keeps old libraries} {
-         catch {r function create LUA test REPLACE {error}}
+        catch {r function load REPLACE [get_function_code LUA test test {error}]} e
+        assert_match {ERR Error compiling function*} $e
         r fcall test 0
     } {hello1}
 
@@ -291,6 +292,31 @@ start_server {tags {"scripting"}} {
         assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
         r function flush sync
         assert_match {} [r function list]
+    }
+
+    test {FUNCTION - async function flush rebuilds Lua VM without causing race condition between main and lazyfree thread} {
+        # LAZYFREE_THRESHOLD is 64
+        for {set i 0} {$i < 1000} {incr i} {
+            r function load [get_function_code lua test$i test$i {local a = 1 while true do a = a + 1 end}]
+        }
+        assert_morethan [s used_memory_vm_functions] 100000
+        r config resetstat
+        r function flush async
+        assert_lessthan [s used_memory_vm_functions] 40000
+
+        # Wait for the completion of lazy free for both functions and engines.
+        set start_time [clock seconds]
+        while {1} {
+            # Tests for race conditions between async function flushes and main thread Lua VM operations.
+            r function load REPLACE [get_function_code lua test test {local a = 1 while true do a = a + 1 end}]
+            if {[s lazyfreed_objects] == 1001 || [expr {[clock seconds] - $start_time}] > 5} {
+                break
+            }
+        }
+        if {[s lazyfreed_objects] != 1001} {
+            error "Timeout or unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
+        }
+        assert_match {{library_name test engine LUA functions {{name test description {} flags {}}}}} [r function list]
     }
 
     test {FUNCTION - test function wrong argument} {

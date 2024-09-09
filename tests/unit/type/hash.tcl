@@ -1,4 +1,7 @@
 start_server {tags {"hash"}} {
+    r config set hash-max-listpack-value 64
+    r config set hash-max-listpack-entries 512
+
     test {HSET/HLEN - Small hash creation} {
         array set smallhash {}
         for {set i 0} {$i < 8} {incr i} {
@@ -69,6 +72,13 @@ start_server {tags {"hash"}} {
 
     test "HRANDFIELD count of 0 is handled correctly" {
         r hrandfield myhash 0
+    } {}
+
+    test "HRANDFIELD count overflow" {
+        r hmset myhash a 1
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854770000 withvalues}
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854775808 withvalues}
+        assert_error {*value is out of range*} {r hrandfield myhash -9223372036854775808}
     } {}
 
     test "HRANDFIELD with <count> against non existing key" {
@@ -343,9 +353,24 @@ start_server {tags {"hash"}} {
         set _ $rv
     } {{{} {}} {{} {}} {{} {}}}
 
-    test {HMGET against wrong type} {
+    test {Hash commands against wrong type} {
         r set wrongtype somevalue
-        assert_error "*wrong*" {r hmget wrongtype field1 field2}
+        assert_error "WRONGTYPE Operation against a key*" {r hmget wrongtype field1 field2}
+        assert_error "WRONGTYPE Operation against a key*" {r hrandfield wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hget wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hgetall wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hdel wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hincrby wrongtype field1 2}
+        assert_error "WRONGTYPE Operation against a key*" {r hincrbyfloat wrongtype field1 2.5}
+        assert_error "WRONGTYPE Operation against a key*" {r hstrlen wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hvals wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hkeys wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hexists wrongtype field1}
+        assert_error "WRONGTYPE Operation against a key*" {r hset wrongtype field1 val1}
+        assert_error "WRONGTYPE Operation against a key*" {r hmset wrongtype field1 val1 field2 val2}
+        assert_error "WRONGTYPE Operation against a key*" {r hsetnx wrongtype field1 val1}
+        assert_error "WRONGTYPE Operation against a key*" {r hlen wrongtype}
+        assert_error "WRONGTYPE Operation against a key*" {r hscan wrongtype 0}
     }
 
     test {HMGET - small hash} {
@@ -412,6 +437,11 @@ start_server {tags {"hash"}} {
         lsort [r hgetall bighash]
     } [lsort [array get bighash]]
 
+    test {HGETALL against non-existing key} {
+        r del htest
+        r hgetall htest
+    } {}
+
     test {HDEL and return value} {
         set rv {}
         lappend rv [r hdel smallhash nokey]
@@ -464,6 +494,13 @@ start_server {tags {"hash"}} {
         r del htest
         list [r hincrby htest foo 2]
     } {2}
+
+    test {HINCRBY HINCRBYFLOAT against non-integer increment value} {
+        r del incrhash
+        r hset incrhash field 5
+        assert_error "*value is not an integer*" {r hincrby incrhash field v}
+        assert_error "*value is not a*" {r hincrbyfloat incrhash field v}
+    }
 
     test {HINCRBY against non existing hash key} {
         set rv {}

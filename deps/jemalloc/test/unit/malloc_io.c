@@ -4,9 +4,9 @@ TEST_BEGIN(test_malloc_strtoumax_no_endptr) {
 	int err;
 
 	set_errno(0);
-	assert_ju_eq(malloc_strtoumax("0", NULL, 0), 0, "Unexpected result");
+	expect_ju_eq(malloc_strtoumax("0", NULL, 0), 0, "Unexpected result");
 	err = get_errno();
-	assert_d_eq(err, 0, "Unexpected failure");
+	expect_d_eq(err, 0, "Unexpected failure");
 }
 TEST_END
 
@@ -89,14 +89,14 @@ TEST_BEGIN(test_malloc_strtoumax) {
 		set_errno(0);
 		result = malloc_strtoumax(test->input, &remainder, test->base);
 		err = get_errno();
-		assert_d_eq(err, test->expected_errno,
+		expect_d_eq(err, test->expected_errno,
 		    "Expected errno %s for \"%s\", base %d",
 		    test->expected_errno_name, test->input, test->base);
-		assert_str_eq(remainder, test->expected_remainder,
+		expect_str_eq(remainder, test->expected_remainder,
 		    "Unexpected remainder for \"%s\", base %d",
 		    test->input, test->base);
 		if (err == 0) {
-			assert_ju_eq(result, test->expected_x,
+			expect_ju_eq(result, test->expected_x,
 			    "Unexpected result for \"%s\", base %d",
 			    test->input, test->base);
 		}
@@ -111,10 +111,10 @@ TEST_BEGIN(test_malloc_snprintf_truncated) {
 	size_t len;
 #define TEST(expected_str_untruncated, ...) do {			\
 	result = malloc_snprintf(buf, len, __VA_ARGS__);		\
-	assert_d_eq(strncmp(buf, expected_str_untruncated, len-1), 0,	\
+	expect_d_eq(strncmp(buf, expected_str_untruncated, len-1), 0,	\
 	    "Unexpected string inequality (\"%s\" vs \"%s\")",		\
 	    buf, expected_str_untruncated);				\
-	assert_zu_eq(result, strlen(expected_str_untruncated),		\
+	expect_zu_eq(result, strlen(expected_str_untruncated),		\
 	    "Unexpected result");					\
 } while (0)
 
@@ -142,8 +142,8 @@ TEST_BEGIN(test_malloc_snprintf) {
 	size_t result;
 #define TEST(expected_str, ...) do {					\
 	result = malloc_snprintf(buf, sizeof(buf), __VA_ARGS__);	\
-	assert_str_eq(buf, expected_str, "Unexpected output");		\
-	assert_zu_eq(result, strlen(expected_str), "Unexpected result");\
+	expect_str_eq(buf, expected_str, "Unexpected output");		\
+	expect_zu_eq(result, strlen(expected_str), "Unexpected result");\
 } while (0)
 
 	TEST("hello", "hello");
@@ -175,6 +175,7 @@ TEST_BEGIN(test_malloc_snprintf) {
 	TEST("_1234_", "_%o_", 01234);
 	TEST("_01234_", "_%#o_", 01234);
 	TEST("_1234_", "_%u_", 1234);
+	TEST("01234", "%05u", 1234);
 
 	TEST("_1234_", "_%d_", 1234);
 	TEST("_ 1234_", "_% d_", 1234);
@@ -182,6 +183,15 @@ TEST_BEGIN(test_malloc_snprintf) {
 	TEST("_-1234_", "_%d_", -1234);
 	TEST("_-1234_", "_% d_", -1234);
 	TEST("_-1234_", "_%+d_", -1234);
+
+	/*
+	 * Morally, we should test these too, but 0-padded signed types are not
+	 * yet supported.
+	 *
+	 * TEST("01234", "%05", 1234);
+	 * TEST("-1234", "%05d", -1234);
+	 * TEST("-01234", "%06d", -1234);
+	*/
 
 	TEST("_-1234_", "_%d_", -1234);
 	TEST("_1234_", "_%d_", 1234);

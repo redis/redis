@@ -59,6 +59,36 @@ start_server {tags {"hll"}} {
         }
     } {} {needs:pfdebug}
 
+    test {Change hll-sparse-max-bytes} {
+        r config set hll-sparse-max-bytes 3000
+        r del hll
+        r pfadd hll a b c d e d g h i j k
+        assert {[r pfdebug encoding hll] eq {sparse}}
+        r config set hll-sparse-max-bytes 30
+        r pfadd hll new_element
+        assert {[r pfdebug encoding hll] eq {dense}}
+    } {} {needs:pfdebug}
+
+    test {Hyperloglog promote to dense well in different hll-sparse-max-bytes} {
+        set max(0) 100
+        set max(1) 500
+        set max(2) 3000
+        for {set i 0} {$i < [array size max]} {incr i} {
+            r config set hll-sparse-max-bytes $max($i)
+            r del hll
+            r pfadd hll
+            set len [r strlen hll]
+            while {$len <= $max($i)} {
+                assert {[r pfdebug encoding hll] eq {sparse}}
+                set elements {}
+                for {set j 0} {$j < 10} {incr j} { lappend elements [expr rand()]}
+                r pfadd hll {*}$elements
+                set len [r strlen hll]
+            }
+            assert {[r pfdebug encoding hll] eq {dense}}
+        }
+    } {} {needs:pfdebug}
+
     test {HyperLogLog sparse encoding stress test} {
         for {set x 0} {$x < 1000} {incr x} {
             r del hll1

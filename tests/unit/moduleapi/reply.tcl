@@ -5,6 +5,11 @@ start_server {tags {"modules"}} {
     
     #   test all with hello 2/3
     for {set proto 2} {$proto <= 3} {incr proto} {
+        if {[lsearch $::denytags "resp3"] >= 0} {
+            if {$proto == 3} {continue}
+        } elseif {$::force_resp3} {
+            if {$proto == 2} {continue}
+        }
         r hello $proto
 
         test "RESP$proto: RM_ReplyWithString: an string reply" {
@@ -43,16 +48,14 @@ start_server {tags {"modules"}} {
         }
 
         test "RESP$proto: RM_ReplyWithDouble: NaN" {
-            # On some platforms one of these can be -nan but we don't care since they are
-            # synonym, so here we match ignoring the sign
             if {$proto == 2} {
-                assert_match "*nan" [r rw.double 0 0]
-                assert_match "*nan" [r rw.double]
+                assert_equal "nan" [r rw.double 0 0]
+                assert_equal "nan" [r rw.double]
             } else {
                 # TCL won't convert nan into a double, use readraw to verify the protocol
                 r readraw 1
-                assert_match ",*nan" [r rw.double 0 0]
-                assert_match ",*nan" [r rw.double]
+                assert_equal ",nan" [r rw.double 0 0]
+                assert_equal ",nan" [r rw.double]
                 r readraw 0
             }
         }
@@ -122,6 +125,25 @@ start_server {tags {"modules"}} {
             catch {r rw.error} e
             assert_match "An error" $e
         }
+
+        test "RESP$proto: RM_ReplyWithErrorFormat: error format reply" {
+            catch {r rw.error_format "An error: %s" foo} e
+            assert_match "An error: foo" $e  ;# Should not be used by a user, but compatible with RM_ReplyError
+
+            catch {r rw.error_format "-ERR An error: %s" foo2} e
+            assert_match "-ERR An error: foo2" $e  ;# Should not be used by a user, but compatible with RM_ReplyError (There are two hyphens, TCL removes the first one)
+
+            catch {r rw.error_format "-WRONGTYPE A type error: %s" foo3} e
+            assert_match "-WRONGTYPE A type error: foo3" $e  ;# Should not be used by a user, but compatible with RM_ReplyError (There are two hyphens, TCL removes the first one)
+
+            catch {r rw.error_format "ERR An error: %s" foo4} e
+            assert_match "ERR An error: foo4" $e
+
+            catch {r rw.error_format "WRONGTYPE A type error: %s" foo5} e
+            assert_match "WRONGTYPE A type error: foo5" $e
+        }
+
+        r hello 2
     }
 
     test "Unload the module - replywith" {

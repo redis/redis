@@ -74,3 +74,16 @@ test "CLUSTER RESET SOFT test" {
     R 1 CLUSTER RESET SOFT
     assert {[get_info_field [R 1 cluster info] cluster_current_epoch] eq $last_epoch_node1}
 }
+
+test "Coverage: CLUSTER HELP" {
+    assert_match "*CLUSTER <subcommand> *" [R 0 CLUSTER HELP]
+}
+
+test "Coverage: ASKING" {
+    assert_equal {OK} [R 0 ASKING]
+}
+
+test "CLUSTER SLAVES and CLUSTER REPLICAS with zero replicas" {
+    assert_equal {} [R 0 cluster slaves [R 0 CLUSTER MYID]]
+    assert_equal {} [R 0 cluster replicas [R 0 CLUSTER MYID]]
+}

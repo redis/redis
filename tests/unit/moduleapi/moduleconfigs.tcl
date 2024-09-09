@@ -77,6 +77,10 @@ start_server {tags {"modules"}} {
         assert_match {*must be one of the following*} $e
     }
 
+    test {test blocking of config registration and load outside of OnLoad} {
+        assert_equal [r block.register.configs.outside.onload] OK
+    }
+
     test {Unload removes module configs} {
         r module unload moduleconfigs
         assert_equal [r config get moduleconfigs.*] ""

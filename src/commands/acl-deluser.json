@@ -1,6 +1,6 @@
 {
     "DELUSER": {
-        "summary": "Remove the specified ACL users and the associated rules",
+        "summary": "Deletes ACL users, and terminates their connections.",
         "complexity": "O(1) amortized time considering the typical user.",
         "group": "server",
         "since": "6.0.0",
@@ -14,6 +14,14 @@
             "STALE",
             "SENTINEL"
         ],
+        "command_tips": [
+          "REQUEST_POLICY:ALL_NODES",
+          "RESPONSE_POLICY:ALL_SUCCEEDED"
+        ],        
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of users that were deleted"
+        },
         "arguments": [
             {
                 "name": "username",

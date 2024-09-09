@@ -205,6 +205,8 @@ Output type:
    --svg               Generate SVG to stdout
    --gif               Generate GIF to stdout
    --raw               Generate symbolized jeprof data (useful with remote fetch)
+   --collapsed         Generate collapsed stacks for building flame graphs
+                       (see http://www.brendangregg.com/flamegraphs.html)
 
 Heap-Profile Options:
    --inuse_space       Display in-use (mega)bytes [default]
@@ -238,6 +240,7 @@ Miscellaneous:
    --test              Run unit tests
    --help              This message
    --version           Version information
+   --debug-syms-by-id  (Linux only) Find debug symbol files by build ID as well as by name
 
 Environment Variables:
    JEPROF_TMPDIR        Profiles directory. Defaults to \$HOME/jeprof
@@ -332,6 +335,7 @@ sub Init() {
   $main::opt_gif = 0;
   $main::opt_svg = 0;
   $main::opt_raw = 0;
+  $main::opt_collapsed = 0;
 
   $main::opt_nodecount = 80;
   $main::opt_nodefraction = 0.005;
@@ -362,6 +366,7 @@ sub Init() {
   $main::opt_tools   = "";
   $main::opt_debug   = 0;
   $main::opt_test    = 0;
+  $main::opt_debug_syms_by_id = 0;
 
   # These are undocumented flags used only by unittests.
   $main::opt_test_stride = 0;
@@ -405,6 +410,7 @@ sub Init() {
              "svg!"           => \$main::opt_svg,
              "gif!"           => \$main::opt_gif,
              "raw!"           => \$main::opt_raw,
+             "collapsed!"     => \$main::opt_collapsed,
              "interactive!"   => \$main::opt_interactive,
              "nodecount=i"    => \$main::opt_nodecount,
              "nodefraction=f" => \$main::opt_nodefraction,
@@ -429,6 +435,7 @@ sub Init() {
              "tools=s"        => \$main::opt_tools,
              "test!"          => \$main::opt_test,
              "debug!"         => \$main::opt_debug,
+             "debug-syms-by-id!" => \$main::opt_debug_syms_by_id,
              # Undocumented flags used only by unittests:
              "test_stride=i"  => \$main::opt_test_stride,
       ) || usage("Invalid option(s)");
@@ -490,6 +497,7 @@ sub Init() {
       $main::opt_svg +
       $main::opt_gif +
       $main::opt_raw +
+      $main::opt_collapsed +
       $main::opt_interactive +
       0;
   if ($modes > 1) {
@@ -572,6 +580,11 @@ sub Init() {
   foreach (@prefix_list) {
     s|/+$||;
   }
+
+  # Flag to prevent us from trying over and over to use
+  #  elfutils if it's not installed (used only with
+  #  --debug-syms-by-id option).
+  $main::gave_up_on_elfutils = 0;
 }
 
 sub FilterAndPrint {
@@ -621,6 +634,8 @@ sub FilterAndPrint {
       PrintText($symbols, $flat, $cumulative, -1);
     } elsif ($main::opt_raw) {
       PrintSymbolizedProfile($symbols, $profile, $main::prog);
+    } elsif ($main::opt_collapsed) {
+      PrintCollapsedStacks($symbols, $profile);
     } elsif ($main::opt_callgrind) {
       PrintCallgrind($calls);
     } else {
@@ -2810,6 +2825,40 @@ sub IsSecondPcAlwaysTheSame {
   return $second_pc;
 }
 
+sub ExtractSymbolNameInlineStack {
+  my $symbols = shift;
+  my $address = shift;
+
+  my @stack = ();
+
+  if (exists $symbols->{$address}) {
+    my @localinlinestack = @{$symbols->{$address}};
+    for (my $i = $#localinlinestack; $i > 0; $i-=3) {
+      my $file = $localinlinestack[$i-1];
+      my $fn = $localinlinestack[$i-0];
+
+      if ($file eq "?" || $file eq ":0") {
+        $file = "??:0";
+      }
+      if ($fn eq '??') {
+        # If we can't get the symbol name, at least use the file information.
+        $fn = $file;
+      }
+      my $suffix = "[inline]";
+      if ($i == 2) {
+        $suffix = "";
+      }
+      push (@stack, $fn.$suffix);
+    }
+  }
+  else {
+    # If we can't get a symbol name, at least fill in the address.
+    push (@stack, $address);
+  }
+
+  return @stack;
+}
+
 sub ExtractSymbolLocation {
   my $symbols = shift;
   my $address = shift;
@@ -2882,6 +2931,17 @@ sub FilterFrames {
   }
 
   return $result;
+}
+
+sub PrintCollapsedStacks {
+  my $symbols = shift;
+  my $profile = shift;
+
+  while (my ($stack_trace, $count) = each %$profile) {
+    my @address = split(/\n/, $stack_trace);
+    my @names = reverse ( map { ExtractSymbolNameInlineStack($symbols, $_) } @address );
+    printf("%s %d\n", join(";", @names), $count);
+  }
 }
 
 sub RemoveUninterestingFrames {
@@ -4440,15 +4500,53 @@ sub FindLibrary {
 # For libc libraries, the copy in /usr/lib/debug contains debugging symbols
 sub DebuggingLibrary {
   my $file = shift;
-  if ($file =~ m|^/|) {
-      if (-f "/usr/lib/debug$file") {
-        return "/usr/lib/debug$file";
-      } elsif (-f "/usr/lib/debug$file.debug") {
-        return "/usr/lib/debug$file.debug";
-      }
+      
+  if ($file !~ m|^/|) {
+    return undef;
   }
+      
+  # Find debug symbol file if it's named after the library's name.
+  
+  if (-f "/usr/lib/debug$file") {                 
+    if($main::opt_debug) { print STDERR "found debug info for $file in /usr/lib/debug$file\n"; }
+    return "/usr/lib/debug$file";
+  } elsif (-f "/usr/lib/debug$file.debug") {
+    if($main::opt_debug) { print STDERR "found debug info for $file in /usr/lib/debug$file.debug\n"; }
+    return "/usr/lib/debug$file.debug"; 
+  }
+
+  if(!$main::opt_debug_syms_by_id) {
+    if($main::opt_debug) { print STDERR "no debug symbols found for $file\n" };
+    return undef;
+  }
+
+  # Find debug file if it's named after the library's build ID.
+  
+  my $readelf = '';
+  if (!$main::gave_up_on_elfutils) {
+    $readelf = qx/eu-readelf -n ${file}/;
+    if ($?) {
+      print STDERR "Cannot run eu-readelf. To use --debug-syms-by-id you must be on Linux, with elfutils installed.\n";
+      $main::gave_up_on_elfutils = 1;
+      return undef;
+    }
+    my $buildID = $1 if $readelf =~ /Build ID: ([A-Fa-f0-9]+)/s;
+    if (defined $buildID && length $buildID > 0) {
+      my $symbolFile = '/usr/lib/debug/.build-id/' . substr($buildID, 0, 2) . '/' . substr($buildID, 2) . '.debug';
+      if (-e $symbolFile) {
+        if($main::opt_debug) { print STDERR "found debug symbol file $symbolFile for $file\n" };
+        return $symbolFile;
+      } else {
+        if($main::opt_debug) { print STDERR "no debug symbol file found for $file, build ID: $buildID\n" };
+        return undef;
+      }
+    }
+  }
+
+  if($main::opt_debug) { print STDERR "no debug symbols found for $file, build ID unknown\n" };
   return undef;
 }
+
 
 # Parse text section header of a library using objdump
 sub ParseTextSectionHeaderFromObjdump {
@@ -4987,7 +5085,7 @@ sub MapToSymbols {
       } else {
 	# MapSymbolsWithNM tags each routine with its starting address,
 	# useful in case the image has multiple occurrences of this
-	# routine.  (It uses a syntax that resembles template paramters,
+	# routine.  (It uses a syntax that resembles template parameters,
 	# that are automatically stripped out by ShortFunctionName().)
 	# addr2line does not provide the same information.  So we check
 	# if nm disambiguated our symbol, and if so take the annotated
@@ -5339,7 +5437,7 @@ sub GetProcedureBoundaries {
   # "nm -f $image" is supposed to fail on GNU nm, but if:
   #
   # a. $image starts with [BbSsPp] (for example, bin/foo/bar), AND
-  # b. you have a.out in your current directory (a not uncommon occurence)
+  # b. you have a.out in your current directory (a not uncommon occurrence)
   #
   # then "nm -f $image" succeeds because -f only looks at the first letter of
   # the argument, which looks valid because it's [BbSsPp], and then since

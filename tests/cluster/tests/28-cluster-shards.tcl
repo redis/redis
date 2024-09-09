@@ -124,6 +124,10 @@ test "Verify health as fail for killed node" {
     }
 }
 
+test "Verify that other nodes can correctly output the new master's slots" {
+    assert_not_equal {} [dict get [get_node_info_from_shard [R 4 CLUSTER MYID] 8 "shard"] slots]
+}
+
 set primary_id 4
 set replica_id 0
 
@@ -133,7 +137,8 @@ test "Restarting primary node" {
 
 test "Instance #0 gets converted into a replica" {
     wait_for_condition 1000 50 {
-        [RI $replica_id role] eq {slave}
+        [RI $replica_id role] eq {slave} &&
+        [RI $replica_id master_link_status] eq {up}
     } else {
         fail "Old primary was not converted into replica"
     }
@@ -182,6 +187,10 @@ test "Test the replica reports a loading state while it's loading" {
         fail "Replica never transitioned to loading"
     }
 
+    # Verify cluster shards and cluster slots (deprecated) API responds while the node is loading data.
+    R $replica_id CLUSTER SHARDS
+    R $replica_id CLUSTER SLOTS
+
     # Speed up the key loading and verify everything resumes
     R $replica_id config set key-load-delay 0
 
@@ -224,26 +233,6 @@ test "CLUSTER MYSHARDID reports same id for both primary and replica" {
     for {set i 0} {$i < 4} {incr i} {
         assert_equal [R $i cluster myshardid] [R [expr $i+4] cluster myshardid]
         assert_equal [string length [R $i cluster myshardid]] 40
-    }
-}
-
-test "CLUSTER NODES reports correct shard id" {
-    for {set i 0} {$i < 8} {incr i} {
-        set nodes [get_cluster_nodes $i]
-        set node_id_to_shardid_mapping []
-        foreach n $nodes {
-            set node_shard_id [dict get $n shard-id]
-            set node_id [dict get $n id]
-            assert_equal [string length $node_shard_id] 40
-            if {[dict exists $node_id_to_shardid_mapping $node_id]} {
-                assert_equal [dict get $node_id_to_shardid_mapping $node_id] $node_shard_id
-            } else {
-                dict set node_id_to_shardid_mapping $node_id $node_shard_id
-            }
-            if {[lindex [dict get $n flags] 0] eq "myself"} {
-                assert_equal [R $i cluster myshardid] [dict get $n shard-id]
-            }
-        }
     }
 }
 

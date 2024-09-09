@@ -1,20 +1,34 @@
 {
     "RANDOMKEY": {
-        "summary": "Return a random key from the keyspace",
+        "summary": "Returns a random key name from the database.",
         "complexity": "O(1)",
         "group": "generic",
         "since": "1.0.0",
         "arity": 1,
         "function": "randomkeyCommand",
         "command_flags": [
-            "READONLY"
+            "READONLY",
+            "TOUCHES_ARBITRARY_KEYS"
         ],
         "acl_categories": [
             "KEYSPACE"
         ],
         "command_tips": [
             "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:SPECIAL",
             "NONDETERMINISTIC_OUTPUT"
-        ]
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "when the database is empty",
+                    "type": "null"
+                },
+                {
+                    "description": "random key in db",
+                    "type": "string"
+                }
+            ]
+        }
     }
 }

@@ -1,42 +1,15 @@
-# Returns 1 if no node knows node_id, 0 if any node knows it.
-proc node_is_forgotten {node_id} {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        set cluster_nodes [R $j CLUSTER NODES]
-        if { [string match "*$node_id*" $cluster_nodes] } {
-            return 0
-        }
-    }
-    return 1
-}
-
-# Isolate a node from the cluster and give it a new nodeid
-proc isolate_node {id} {
-    set node_id [R $id CLUSTER MYID]
-    R $id CLUSTER RESET HARD
-    # Here we additionally test that CLUSTER FORGET propagates to all nodes.
-    set other_id [expr $id == 0 ? 1 : 0]
-    R $other_id CLUSTER FORGET $node_id
-    wait_for_condition 50 100 {
-        [node_is_forgotten $node_id]
-    } else {
-        fail "CLUSTER FORGET was not propagated to all nodes"
-    }
-}
-
-# Check if cluster's view of hostnames is consistent
-proc are_hostnames_propagated {match_string} {
-    for {set j 0} {$j < [llength $::servers]} {incr j} {
-        set cfg [R $j cluster slots]
-        foreach node $cfg {
-            for {set i 2} {$i < [llength $node]} {incr i} {
-                if {! [string match $match_string [lindex [lindex [lindex $node $i] 3] 1]] } {
-                    return 0
-                }
-            }
-        }
-    }
-    return 1
-}
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
 
 proc get_slot_field {slot_output shard_id node_id attrib_id} {
     return [lindex [lindex [lindex $slot_output $shard_id] $node_id] $attrib_id]
@@ -156,10 +129,11 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     # Have everyone forget node 6 and isolate it from the cluster.
     isolate_node 6
 
-    # Set hostnames for the masters, now that the node is isolated
-    R 0 config set cluster-announce-hostname "shard-1.com"
-    R 1 config set cluster-announce-hostname "shard-2.com"
-    R 2 config set cluster-announce-hostname "shard-3.com"
+    set primaries 3
+    for {set j 0} {$j < $primaries} {incr j} {
+        # Set hostnames for the masters, now that the node is isolated
+        R $j config set cluster-announce-hostname "shard-$j.com"
+    }
 
     # Prevent Node 0 and Node 6 from properly meeting,
     # they'll hang in the handshake phase. This allows us to 
@@ -189,9 +163,17 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     } else {
         fail "Node did not learn about the 2 shards it can talk to"
     }
-    set slot_result [R 6 CLUSTER SLOTS]
-    assert_equal [lindex [get_slot_field $slot_result 0 2 3] 1] "shard-2.com"
-    assert_equal [lindex [get_slot_field $slot_result 1 2 3] 1] "shard-3.com"
+    wait_for_condition 50 100 {
+        [lindex [get_slot_field [R 6 CLUSTER SLOTS] 0 2 3] 1] eq "shard-1.com"
+    } else {
+        fail "hostname for shard-1 didn't reach node 6"
+    }
+
+    wait_for_condition 50 100 {
+        [lindex [get_slot_field [R 6 CLUSTER SLOTS] 1 2 3] 1] eq "shard-2.com"
+    } else {
+        fail "hostname for shard-2 didn't reach node 6"
+    }
 
     # Also make sure we know about the isolated master, we 
     # just can't reach it.
@@ -210,10 +192,14 @@ test "Verify the nodes configured with prefer hostname only show hostname for ne
     } else {
         fail "Node did not learn about the 2 shards it can talk to"
     }
-    set slot_result [R 6 CLUSTER SLOTS]
-    assert_equal [lindex [get_slot_field $slot_result 0 2 3] 1] "shard-1.com"
-    assert_equal [lindex [get_slot_field $slot_result 1 2 3] 1] "shard-2.com"
-    assert_equal [lindex [get_slot_field $slot_result 2 2 3] 1] "shard-3.com"
+
+    for {set j 0} {$j < $primaries} {incr j} {
+        wait_for_condition 50 100 {
+            [lindex [get_slot_field [R 6 CLUSTER SLOTS] $j 2 3] 1] eq "shard-$j.com"
+        } else {
+            fail "hostname information for shard-$j didn't reach node 6"
+        }
+    }
 }
 
 test "Test restart will keep hostname information" {

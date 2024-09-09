@@ -1,4 +1,5 @@
 set testmodule [file normalize tests/modules/propagate.so]
+set miscmodule [file normalize tests/modules/misc.so]
 set keyspace_events [file normalize tests/modules/keyspace_events.so]
 
 tags "modules" {
@@ -675,8 +676,10 @@ tags "modules" {
     }
 }
 
+
 tags "modules aof" {
-    test {Modules RM_Replicate replicates MULTI/EXEC correctly} {
+    foreach aofload_type {debug_cmd startup} {
+    test "Modules RM_Replicate replicates MULTI/EXEC correctly: AOF-load type $aofload_type" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             # Enable the AOF
             r config set appendonly yes
@@ -690,11 +693,109 @@ tags "modules aof" {
             r propagate-test.mixed
             r exec
 
+            assert_equal [r get counter-1] {}
+            assert_equal [r get counter-2] {}
+            assert_equal [r get using-call] 2
+            assert_equal [r get after-call] 2
+            assert_equal [r get notifications] 4
+
             # Load the AOF
-            r debug loadaof
+            if {$aofload_type == "debug_cmd"} {
+                r debug loadaof
+            } else {
+                r config rewrite
+                restart_server 0 true false
+                wait_done_loading r
+            }
+
+            # This module behaves bad on purpose, it only calls
+            # RM_Replicate for counter-1 and counter-2 so values
+            # after AOF-load are different
+            assert_equal [r get counter-1] 4
+            assert_equal [r get counter-2] 4
+            assert_equal [r get using-call] 2
+            assert_equal [r get after-call] 2
+            # 4+4+2+2 commands from AOF (just above) + 4 "INCR notifications" from AOF + 4 notifications for these INCRs
+            assert_equal [r get notifications] 20
 
             assert_equal {OK} [r module unload propagate-test]
             assert_equal [s 0 unexpected_error_replies] 0
+        }
+    }
+    test "Modules RM_Call does not update stats during aof load: AOF-load type $aofload_type" {
+        start_server [list overrides [list loadmodule "$miscmodule"]] {
+            # Enable the AOF
+            r config set appendonly yes
+            r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
+            waitForBgrewriteaof r
+            
+            r config resetstat
+            r set foo bar
+            r EVAL {return redis.call('SET', KEYS[1], ARGV[1])} 1 foo bar2
+            r test.rm_call_replicate set foo bar3
+            r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar4
+            
+            r multi
+            r set foo bar5
+            r EVAL {return redis.call('SET', KEYS[1], ARGV[1])} 1 foo bar6
+            r test.rm_call_replicate set foo bar7
+            r EVAL {return redis.call('test.rm_call_replicate',ARGV[1],KEYS[1],ARGV[2])} 1 foo set bar8
+            r exec
+
+            assert_match {*calls=8,*,rejected_calls=0,failed_calls=0} [cmdrstat set r]
+            
+            
+            # Load the AOF
+            if {$aofload_type == "debug_cmd"} {
+                r config resetstat
+                r debug loadaof
+            } else {
+                r config rewrite
+                restart_server 0 true false
+                wait_done_loading r
+            }
+            
+            assert_no_match {*calls=*} [cmdrstat set r]
+            
+        }
+    }
+    }
+}
+
+# This test does not really test module functionality, but rather uses a module
+# command to test Redis replication mechanisms.
+test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replication backlog from been trimmed} {
+    start_server [list overrides [list loadmodule "$testmodule"]] {
+        set replica [srv 0 client]
+        start_server [list overrides [list loadmodule "$testmodule"]] {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            $master config set client-output-buffer-limit "replica 10mb 5mb 0"
+
+            # Start the replication process...
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            test {module propagates from timer} {
+                # Replicate large commands to make the replica disconnected.
+                $master write [format_command propagate-test.verbatim 100000 [string repeat "a" 1000]] ;# almost 100mb
+                # Execute this command together with module commands within the same
+                # event loop to prevent periodic cleanup of replication backlog.
+                $master write [format_command info memory]
+                $master flush
+                $master read ;# propagate-test.verbatim
+                set res [$master read] ;# info memory
+
+                # Wait for the replica to be disconnected.
+                wait_for_log_messages 0 {"*flags=S*scheduled to be closed ASAP for overcoming of output buffer limits*"} 0 1500 10
+                # Due to the replica reaching the soft limit (5MB), memory peaks should not significantly
+                # exceed the replica soft limit. Furthermore, as the replica release its reference to
+                # replication backlog, it should be properly trimmed, the memory usage of replication
+                # backlog should not significantly exceed repl-backlog-size (default 1MB). */
+                assert_lessthan [getInfoProperty $res used_memory_peak] 10000000;# less than 10mb
+                assert_lessthan [getInfoProperty $res mem_replication_backlog] 2000000;# less than 2mb
+            }
         }
     }
 }

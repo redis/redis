@@ -2,32 +2,11 @@
  *
  * -----------------------------------------------------------------------------
  *
- * Copyright (c) 2016, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Copyright (c) 2016-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #include "redismodule.h"
@@ -403,6 +382,37 @@ int TestStringAppendAM(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModule_TrimStringAllocation(s);    /* Mostly NOP, but exercises the API function */
     RedisModule_StringAppendBuffer(ctx,s,"bar",3);
     RedisModule_ReplyWithString(ctx,s);
+    RedisModule_FreeString(ctx,s);
+    return REDISMODULE_OK;
+}
+
+/* TEST.STRING.TRIM -- Test we trim a string with free space. */
+int TestTrimString(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModuleString *s = RedisModule_CreateString(ctx,"foo",3);
+    char *tmp = RedisModule_Alloc(1024);
+    RedisModule_StringAppendBuffer(ctx,s,tmp,1024);
+    size_t string_len = RedisModule_MallocSizeString(s);
+    RedisModule_TrimStringAllocation(s);
+    size_t len_after_trim = RedisModule_MallocSizeString(s);
+
+    /* Determine if using jemalloc memory allocator. */
+    RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+    const char *field = RedisModule_ServerInfoGetFieldC(info, "mem_allocator");
+    int use_jemalloc = !strncmp(field, "jemalloc", 8);
+
+    /* Jemalloc will reallocate `s` from 2k to 1k after RedisModule_TrimStringAllocation(),
+     * but non-jemalloc memory allocators may keep the old size. */
+    if ((use_jemalloc && len_after_trim < string_len) ||
+        (!use_jemalloc && len_after_trim <= string_len))
+    {
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+        RedisModule_ReplyWithError(ctx, "String was not trimmed as expected.");
+    }
+    RedisModule_FreeServerInfo(ctx, info);
+    RedisModule_Free(tmp);
     RedisModule_FreeString(ctx,s);
     return REDISMODULE_OK;
 }
@@ -852,6 +862,9 @@ int TestBasics(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     T("test.string.append.am","");
     if (!TestAssertStringReply(ctx,reply,"foobar",6)) goto fail;
+    
+    T("test.string.trim","");
+    if (!TestAssertStringReply(ctx,reply,"OK",2)) goto fail;
 
     T("test.string.printf", "cc", "foo", "bar");
     if (!TestAssertStringReply(ctx,reply,"Got 3 args. argv[1]: foo, argv[2]: bar",38)) goto fail;
@@ -961,6 +974,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx,"test.string.append",
         TestStringAppend,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx,"test.string.trim",
+        TestTrimString,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx,"test.string.append.am",

@@ -234,11 +234,40 @@ static int datatype_is_in_slow_loading(RedisModuleCtx *ctx, RedisModuleString **
     return REDISMODULE_OK;
 }
 
+int createDataTypeBlockCheck(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    static RedisModuleType *datatype_outside_onload = NULL;
+
+    RedisModuleTypeMethods datatype_methods = {
+        .version = REDISMODULE_TYPE_METHOD_VERSION,
+        .rdb_load = datatype_load,
+        .rdb_save = datatype_save,
+        .free = datatype_free,
+        .copy = datatype_copy
+    };
+
+    datatype_outside_onload = RedisModule_CreateDataType(ctx, "test_dt_outside_onload", 1, &datatype_methods);
+
+    /* This validates that it's not possible to create datatype outside OnLoad,
+     * thus returns an error if it succeeds. */
+    if (datatype_outside_onload == NULL) {
+        RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+        RedisModule_ReplyWithError(ctx, "UNEXPECTEDOK");
+    }
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
     if (RedisModule_Init(ctx,"datatype",DATATYPE_ENC_VER,REDISMODULE_APIVER_1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    /* Creates a command which creates a datatype outside OnLoad() function. */
+    if (RedisModule_CreateCommand(ctx,"block.create.datatype.outside.onload", createDataTypeBlockCheck, "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);

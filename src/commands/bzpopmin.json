@@ -1,6 +1,6 @@
 {
     "BZPOPMIN": {
-        "summary": "Remove and return the member with the lowest score from one or more sorted sets, or block until one is available",
+        "summary": "Removes and returns the member with the lowest score from one or more sorted sets. Blocks until a member is available otherwise. Deletes the sorted set if the last element was popped.",
         "complexity": "O(log(N)) with N being the number of elements in the sorted set.",
         "group": "sorted_set",
         "since": "5.0.0",
@@ -14,7 +14,6 @@
         ],
         "command_flags": [
             "WRITE",
-            "NOSCRIPT",
             "FAST",
             "BLOCKING"
         ],
@@ -42,6 +41,34 @@
                 }
             }
         ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Timeout reached and no elements were popped.",
+                    "type": "null"
+                },
+                {
+                    "description": "The keyname, popped member, and its score.",
+                    "type": "array",
+                    "minItems": 3,
+                    "maxItems": 3,
+                    "items": [
+                        {
+                            "description": "Keyname",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Member",
+                            "type": "string"
+                        },
+                        {
+                            "description": "Score",
+                            "type": "number"
+                        }
+                    ]
+                }
+            ]
+        },
         "arguments": [
             {
                 "name": "key",

@@ -1,5 +1,5 @@
-start_server {tags {"scan network"}} {
-    test "SCAN basic" {
+proc test_scan {type} {
+    test "{$type} SCAN basic" {
         r flushdb
         populate 1000
 
@@ -17,7 +17,7 @@ start_server {tags {"scan network"}} {
         assert_equal 1000 [llength $keys]
     }
 
-    test "SCAN COUNT" {
+   test "{$type} SCAN COUNT" {
         r flushdb
         populate 1000
 
@@ -35,7 +35,7 @@ start_server {tags {"scan network"}} {
         assert_equal 1000 [llength $keys]
     }
 
-    test "SCAN MATCH" {
+    test "{$type} SCAN MATCH" {
         r flushdb
         populate 1000
 
@@ -53,7 +53,7 @@ start_server {tags {"scan network"}} {
         assert_equal 100 [llength $keys]
     }
 
-    test "SCAN TYPE" {
+    test "{$type} SCAN TYPE" {
         r flushdb
         # populate only creates strings
         populate 1000
@@ -98,8 +98,91 @@ start_server {tags {"scan network"}} {
         assert_equal 1000 [llength $keys]
     }
 
+    test "{$type} SCAN unknown type" {
+        r flushdb
+        # make sure that passive expiration is triggered by the scan
+        r debug set-active-expire 0
+
+        populate 1000
+        r hset hash f v
+        r pexpire hash 1
+
+        after 2
+
+        assert_error "*unknown type name*" {r scan 0 type "string1"}
+        # expired key will be no touched by scan command
+        assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test "{$type} SCAN with expired keys" {
+        r flushdb
+        # make sure that passive expiration is triggered by the scan
+        r debug set-active-expire 0
+
+        populate 1000
+        r set foo bar
+        r pexpire foo 1
+        
+        # add a hash type key
+        r hset hash f v
+        r pexpire hash 1
+        
+        after 2
+
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur count 10]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+
+        # make sure that expired key have been removed by scan command
+        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
+    test "{$type} SCAN with expired keys with TYPE filter" {
+        r flushdb
+        # make sure that passive expiration is triggered by the scan
+        r debug set-active-expire 0
+
+        populate 1000
+        r set foo bar
+        r pexpire foo 1
+
+        # add a hash type key
+        r hset hash f v
+        r pexpire hash 1
+
+        after 2
+
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string" count 10]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 1000 [llength $keys]
+
+        # make sure that only the expired key in the type match will been removed by scan command
+        assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+
+        r debug set-active-expire 1
+    } {OK} {needs:debug}
+
     foreach enc {intset listpack hashtable} {
-        test "SSCAN with encoding $enc" {
+        test "{$type} SSCAN with encoding $enc" {
             # Create the Set
             r del set
             if {$enc eq {intset}} {
@@ -134,7 +217,7 @@ start_server {tags {"scan network"}} {
     }
 
     foreach enc {listpack hashtable} {
-        test "HSCAN with encoding $enc" {
+        test "{$type} HSCAN with encoding $enc" {
             # Create the Hash
             r del hash
             if {$enc eq {listpack}} {
@@ -170,11 +253,41 @@ start_server {tags {"scan network"}} {
 
             set keys2 [lsort -unique $keys2]
             assert_equal $count [llength $keys2]
+
+            # Test NOVALUES 
+            set res [r hscan hash 0 count 1000 novalues]
+            assert_equal [lsort $keys2] [lsort [lindex $res 1]]
+        }
+
+        test "{$type} HSCAN with large value $enc" {
+            r del hash
+
+            if {$enc eq {listpack}} {
+                set count 60
+            } else {
+                set count 170
+            }
+
+            set val1 [string repeat "1" $count]
+            r hset hash $val1 $val1
+
+            set val2 [string repeat "2" $count]
+            r hset hash $val2 $val2
+
+            set res [lsort [lindex [r hscan hash 0] 1]]
+            assert_equal $val1 [lindex $res 0]
+            assert_equal $val1 [lindex $res 1]
+            assert_equal $val2 [lindex $res 2]
+            assert_equal $val2 [lindex $res 3]
+
+            set res [lsort [lindex [r hscan hash 0 novalues] 1]]
+            assert_equal $val1 [lindex $res 0]
+            assert_equal $val2 [lindex $res 1]
         }
     }
 
     foreach enc {listpack skiplist} {
-        test "ZSCAN with encoding $enc" {
+        test "{$type} ZSCAN with encoding $enc" {
             # Create the Sorted Set
             r del zset
             if {$enc eq {listpack}} {
@@ -213,7 +326,7 @@ start_server {tags {"scan network"}} {
         }
     }
 
-    test "SCAN guarantees check under write load" {
+    test "{$type} SCAN guarantees check under write load" {
         r flushdb
         populate 100
 
@@ -242,7 +355,7 @@ start_server {tags {"scan network"}} {
         assert_equal 100 [llength $keys2]
     }
 
-    test "SSCAN with integer encoded object (issue #1345)" {
+    test "{$type} SSCAN with integer encoded object (issue #1345)" {
         set objects {1 a}
         r del set
         r sadd set {*}$objects
@@ -252,28 +365,35 @@ start_server {tags {"scan network"}} {
         assert_equal [lsort -unique [lindex $res 1]] {1}
     }
 
-    test "SSCAN with PATTERN" {
+    test "{$type} SSCAN with PATTERN" {
         r del mykey
         r sadd mykey foo fab fiz foobar 1 2 3 4
         set res [r sscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     } {foo foobar}
 
-    test "HSCAN with PATTERN" {
+    test "{$type} HSCAN with PATTERN" {
         r del mykey
         r hmset mykey foo 1 fab 2 fiz 3 foobar 10 1 a 2 b 3 c 4 d
         set res [r hscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     } {1 10 foo foobar}
 
-    test "ZSCAN with PATTERN" {
+    test "{$type} HSCAN with NOVALUES" {
+        r del mykey
+        r hmset mykey foo 1 fab 2 fiz 3 foobar 10 1 a 2 b 3 c 4 d
+        set res [r hscan mykey 0 NOVALUES]
+        lsort -unique [lindex $res 1]
+    } {1 2 3 4 fab fiz foo foobar}
+
+    test "{$type} ZSCAN with PATTERN" {
         r del mykey
         r zadd mykey 1 foo 2 fab 3 fiz 10 foobar
         set res [r zscan mykey 0 MATCH foo* COUNT 10000]
         lsort -unique [lindex $res 1]
     }
 
-    test "ZSCAN scores: regression test for issue #2175" {
+    test "{$type} ZSCAN scores: regression test for issue #2175" {
         r del mykey
         for {set j 0} {$j < 500} {incr j} {
             r zadd mykey 9.8813129168249309e-323 $j
@@ -283,7 +403,7 @@ start_server {tags {"scan network"}} {
         assert {$first_score != 0}
     }
 
-    test "SCAN regression test for issue #4906" {
+    test "{$type} SCAN regression test for issue #4906" {
         for {set k 0} {$k < 100} {incr k} {
             r del set
             r sadd set x; # Make sure it's not intset encoded
@@ -328,4 +448,36 @@ start_server {tags {"scan network"}} {
             }
         }
     }
+
+    test "{$type} SCAN MATCH pattern implies cluster slot" {
+        # Tests the code path for an optimization for patterns like "{foo}-*"
+        # which implies that all matching keys belong to one slot.
+        r flushdb
+        for {set j 0} {$j < 100} {incr j} {
+            r set "{foo}-$j" "foo"; # slot 12182
+            r set "{bar}-$j" "bar"; # slot 5061
+            r set "{boo}-$j" "boo"; # slot 13142
+        }
+
+        set cursor 0
+        set keys {}
+        while 1 {
+            set res [r scan $cursor match "{foo}-*"]
+            set cursor [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cursor == 0} break
+        }
+
+        set keys [lsort -unique $keys]
+        assert_equal 100 [llength $keys]
+    }
+}
+
+start_server {tags {"scan network standalone"}} {
+    test_scan "standalone"
+}
+
+start_cluster 1 0 {tags {"external:skip cluster scan"}} {
+    test_scan "cluster"
 }

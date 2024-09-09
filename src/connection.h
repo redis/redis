@@ -1,31 +1,10 @@
 
 /*
- * Copyright (c) 2019, Redis Labs
+ * Copyright (c) 2019-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
 #ifndef __REDIS_CONNECTION_H
@@ -40,7 +19,6 @@
 
 #define CONN_INFO_LEN   32
 #define CONN_ADDR_STR_LEN 128 /* Similar to INET6_ADDRSTRLEN, hoping to handle other protocols. */
-#define MAX_ACCEPTS_PER_CALL 1000
 
 struct aeEventLoop;
 typedef struct connection connection;
@@ -78,6 +56,7 @@ typedef struct ConnectionType {
     void (*ae_handler)(struct aeEventLoop *el, int fd, void *clientData, int mask);
     aeFileProc *accept_handler;
     int (*addr)(connection *conn, char *ip, size_t ip_len, int *port, int remote);
+    int (*is_local)(connection *conn);
     int (*listen)(connListener *listener);
 
     /* create/shutdown/close connection */
@@ -113,14 +92,15 @@ typedef struct ConnectionType {
 struct connection {
     ConnectionType *type;
     ConnectionState state;
+    int last_errno;
+    int fd;
     short int flags;
     short int refs;
-    int last_errno;
+    unsigned short int iovcnt;
     void *private_data;
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
-    int fd;
 };
 
 #define CONFIG_BINDADDR_MAX 16
@@ -315,6 +295,16 @@ static inline int connAddrSockName(connection *conn, char *ip, size_t ip_len, in
     return connAddr(conn, ip, ip_len, port, 0);
 }
 
+/* Test a connection is local or loopback.
+ * Return -1 on failure, 0 is not a local connection, 1 is a local connection */
+static inline int connIsLocal(connection *conn) {
+    if (conn && conn->type->is_local) {
+        return conn->type->is_local(conn);
+    }
+
+    return -1;
+}
+
 static inline int connGetState(connection *conn) {
     return conn->state;
 }
@@ -368,7 +358,7 @@ static inline sds connGetPeerCert(connection *conn) {
 }
 
 /* Initialize the redis connection framework */
-int connTypeInitialize();
+int connTypeInitialize(void);
 
 /* Register a connection type into redis connection framework */
 int connTypeRegister(ConnectionType *ct);
@@ -377,13 +367,13 @@ int connTypeRegister(ConnectionType *ct);
 ConnectionType *connectionByType(const char *typename);
 
 /* Fast path to get TCP connection type */
-ConnectionType *connectionTypeTcp();
+ConnectionType *connectionTypeTcp(void);
 
 /* Fast path to get TLS connection type */
-ConnectionType *connectionTypeTls();
+ConnectionType *connectionTypeTls(void);
 
 /* Fast path to get Unix connection type */
-ConnectionType *connectionTypeUnix();
+ConnectionType *connectionTypeUnix(void);
 
 /* Lookup the index of a connection type by type name, return -1 if not found */
 int connectionIndexByType(const char *typename);
@@ -407,7 +397,7 @@ static inline int connTypeConfigure(ConnectionType *ct, void *priv, int reconfig
 }
 
 /* Walk all the connection types and cleanup them all if possible */
-void connTypeCleanupAll();
+void connTypeCleanupAll(void);
 
 /* Test all the connection type has pending data or not. */
 int connTypeHasPendingData(void);
@@ -430,8 +420,13 @@ static inline aeFileProc *connAcceptHandler(ConnectionType *ct) {
 /* Get Listeners information, note that caller should free the non-empty string */
 sds getListensInfoString(sds info);
 
-int RedisRegisterConnectionTypeSocket();
-int RedisRegisterConnectionTypeUnix();
-int RedisRegisterConnectionTypeTLS();
+int RedisRegisterConnectionTypeSocket(void);
+int RedisRegisterConnectionTypeUnix(void);
+int RedisRegisterConnectionTypeTLS(void);
+
+/* Return 1 if connection is using TLS protocol, 0 if otherwise. */
+static inline int connIsTLS(connection *conn) {
+    return conn && conn->type == connectionTypeTls();
+}
 
 #endif  /* __REDIS_CONNECTION_H */

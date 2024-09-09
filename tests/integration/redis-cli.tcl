@@ -60,12 +60,20 @@ start_server {tags {"cli"}} {
     # Helpers to run tests in interactive mode
 
     proc format_output {output} {
-        set _ [string trimright [regsub -all "\r" $output ""] "\n"]
+        set _ [string trimright $output "\n"]
     }
 
     proc run_command {fd cmd} {
         write_cli $fd $cmd
         set _ [format_output [read_cli $fd]]
+    }
+
+    file delete ./.rediscli_history_test
+    proc test_interactive_cli_with_prompt {name code} {
+        set ::env(FAKETTY_WITH_PROMPT) 1
+        set ::env(REDISCLI_HISTFILE) ".rediscli_history_test"
+        test_interactive_cli $name $code
+        unset ::env(FAKETTY_WITH_PROMPT)
     }
 
     proc test_interactive_cli {name code} {
@@ -74,6 +82,12 @@ start_server {tags {"cli"}} {
         test "Interactive CLI: $name" $code
         close_cli $fd
         unset ::env(FAKETTY)
+    }
+
+    proc test_interactive_nontty_cli {name code} {
+        set fd [open_cli]
+        test "Interactive non-TTY CLI: $name" $code
+        close_cli $fd
     }
 
     # Helpers to run tests where stdout is not a tty
@@ -139,10 +153,205 @@ start_server {tags {"cli"}} {
         unset ::env(FAKETTY)
     }
 
+    test_interactive_cli_with_prompt "should find first search result" {
+        run_command $fd "keys one\x0D"
+        run_command $fd "keys two\x0D"
+
+        puts $fd "\x12" ;# CTRL+R
+        read_cli $fd
+
+        puts -nonewline $fd "ey"
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+    }
+
+    test_interactive_cli_with_prompt "should find and use the first search result" {
+        set now [clock seconds]
+        run_command $fd "SET blah \"myvalue\"\x0D"
+        run_command $fd "GET blah\x0D"
+
+        puts $fd "\x12" ;# CTRL+R
+        read_cli $fd
+
+        puts -nonewline $fd "ET b"
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mG\x1B\[1mET b\x1B\[0mlah} $result]
+
+        puts $fd "\x0D" ;# ENTER
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {.*"myvalue"\n} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should be ok if there is no result" {
+        puts $fd "\x12" ;# CTRL+R
+
+        set now [clock seconds]
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        set result2 [run_command $fd "keys \"$now\"\x0D"]
+        assert_equal 1 [regexp {.*(empty array).*} $result2]
+    }
+
+    test_interactive_cli_with_prompt "upon submitting search, (reverse-i-search) prompt should go away" {
+        puts $fd "\x12" ;# CTRL+R
+
+        set now [clock seconds]
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        set result2 [run_command $fd "keys \"$now\"\x0D"]
+
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should find second search result if user presses ctrl+r again" {
+        run_command $fd "keys one\x0D"
+        run_command $fd "keys two\x0D"
+
+        puts $fd "\x12" ;# CTRL+R
+        read_cli $fd
+
+        puts -nonewline $fd "ey"
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+    }
+
+    test_interactive_cli_with_prompt "should find second search result if user presses ctrl+s" {
+        run_command $fd "keys one\x0D"
+        run_command $fd "keys two\x0D"
+
+        puts $fd "\x13" ;# CTRL+S
+        read_cli $fd
+
+        puts -nonewline $fd "ey"
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms one} $result]
+
+        puts $fd "\x13" ;# CTRL+S
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(i-search\): \x1B\[0mk\x1B\[1mey\x1B\[0ms two} $result]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses ctrl+g" {
+        run_command $fd ""
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts $fd "\x07" ;# CTRL+G
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses up arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts $fd "\x1B\x5B\x41" ;# up arrow
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses right arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts $fd "\x1B\x5B\x42" ;# right arrow
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses down arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts $fd "\x1B\x5B\x43" ;# down arrow
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should exit reverse search if user presses left arrow" {
+        run_command $fd ""
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts $fd "\x1B\x5B\x44" ;# left arrow
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?>} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should disable and persist line if user presses tab" {
+        run_command $fd ""
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts -nonewline $fd "GET blah"
+        read_cli $fd
+
+        puts -nonewline $fd "\x09" ;# TAB
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should disable and persist search result if user presses tab" {
+        run_command $fd "GET one\x0D"
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts -nonewline $fd "one"
+        read_cli $fd
+
+        puts -nonewline $fd "\x09" ;# TAB
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET one} $result2]
+    }
+
+    test_interactive_cli_with_prompt "should disable and persist line and move the cursor if user presses tab" {
+        run_command $fd ""
+
+        puts $fd "\x12" ;# CTRL+R
+        set result [read_cli $fd]
+        assert_equal 1 [regexp {\(reverse-i-search\):} $result]
+
+        puts -nonewline $fd "GET blah"
+        read_cli $fd
+
+        puts -nonewline $fd "\x09" ;# TAB
+        set result2 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blah} $result2]
+
+        puts -nonewline $fd "suffix"
+        set result3 [read_cli $fd]
+        assert_equal 1 [regexp {127\.0\.0\.1:[0-9]*(\[[0-9]])?> GET blahsuffix} $result3]
+    }
+
     test_interactive_cli "INFO response should be printed raw" {
         set lines [split [run_command $fd info] "\n"]
         foreach line $lines {
-            if {![regexp {^$|^#|^[^#:]+:} $line]} {
+            # Info lines end in \r\n, so they now end in \r.
+            if {![regexp {^\r$|^#|^[^#:]+:} $line]} {
                 fail "Malformed info line: $line"
             }
         }
@@ -184,6 +393,83 @@ start_server {tags {"cli"}} {
         # quotes after the argument are weird, but should be allowed
         assert_equal "OK" [run_command $fd "set key\"\" bar"]
         assert_equal "bar" [r get key]
+    }
+
+    test_interactive_cli "Subscribed mode" {
+        if {$::force_resp3} {
+            run_command $fd "hello 3"
+        }
+
+        set reading "Reading messages... (press Ctrl-C to quit or any key to type command)\r"
+        set erase "\033\[K"; # Erases the "Reading messages..." line.
+
+        # Subscribe to some channels.
+        set sub1 "1) \"subscribe\"\n2) \"ch1\"\n3) (integer) 1\n"
+        set sub2 "1) \"subscribe\"\n2) \"ch2\"\n3) (integer) 2\n"
+        set sub3 "1) \"subscribe\"\n2) \"ch3\"\n3) (integer) 3\n"
+        assert_equal $sub1$sub2$sub3$reading \
+            [run_command $fd "subscribe ch1 ch2 ch3"]
+
+        # Receive pubsub message.
+        r publish ch2 hello
+        set message "1) \"message\"\n2) \"ch2\"\n3) \"hello\"\n"
+        assert_equal $erase$message$reading [read_cli $fd]
+
+        # Unsubscribe some.
+        set unsub1 "1) \"unsubscribe\"\n2) \"ch1\"\n3) (integer) 2\n"
+        set unsub2 "1) \"unsubscribe\"\n2) \"ch2\"\n3) (integer) 1\n"
+        assert_equal $erase$unsub1$unsub2$reading \
+            [run_command $fd "unsubscribe ch1 ch2"]
+
+        run_command $fd "hello 2"
+
+        # Command forbidden in subscribed mode (RESP2).
+        set err "(error) ERR Can't execute 'get': only (P|S)SUBSCRIBE / (P|S)UNSUBSCRIBE / PING / QUIT / RESET are allowed in this context\n"
+        assert_equal $erase$err$reading [run_command $fd "get k"]
+
+        # Command allowed in subscribed mode.
+        set pong "1) \"pong\"\n2) \"\"\n"
+        assert_equal $erase$pong$reading [run_command $fd "ping"]
+
+        # Reset exits subscribed mode.
+        assert_equal ${erase}RESET [run_command $fd "reset"]
+        assert_equal PONG [run_command $fd "ping"]
+
+        # Check TTY output of push messages in RESP3 has ")" prefix (to be changed to ">" in the future).
+        assert_match "1#*" [run_command $fd "hello 3"]
+        set sub1 "1) \"subscribe\"\n2) \"ch1\"\n3) (integer) 1\n"
+        assert_equal $sub1$reading \
+            [run_command $fd "subscribe ch1"]
+    }
+
+    test_interactive_nontty_cli "Subscribed mode" {
+        # Raw output and no "Reading messages..." info message.
+        # Use RESP3 in this test case.
+        assert_match {*proto 3*} [run_command $fd "hello 3"]
+
+        # Subscribe to some channels.
+        set sub1 "subscribe\nch1\n1"
+        set sub2 "subscribe\nch2\n2"
+        assert_equal $sub1\n$sub2 \
+            [run_command $fd "subscribe ch1 ch2"]
+
+        assert_equal OK [run_command $fd "client tracking on"]
+        assert_equal OK [run_command $fd "set k 42"]
+        assert_equal 42 [run_command $fd "get k"]
+
+        # Interleaving invalidate and pubsub messages.
+        r publish ch1 hello
+        r del k
+        r publish ch2 world
+        set message1 "message\nch1\nhello"
+        set invalidate "invalidate\nk"
+        set message2 "message\nch2\nworld"
+        assert_equal $message1\n$invalidate\n$message2\n [read_cli $fd]
+
+        # Unsubscribe all.
+        set unsub1 "unsubscribe\nch1\n1"
+        set unsub2 "unsubscribe\nch2\n0"
+        assert_equal $unsub1\n$unsub2 [run_command $fd "unsubscribe ch1 ch2"]
     }
 
     test_tty_cli "Status reply" {
@@ -339,6 +625,27 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         file delete $tmpfile
     }
 
+    test_nontty_cli "Test command-line hinting - latest server" {
+        # cli will connect to the running server and will use COMMAND DOCS
+        catch {run_cli --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+    }
+
+    test_nontty_cli "Test command-line hinting - no server" {
+        # cli will fail to connect to the server and will use the cached commands.c
+        catch {run_cli -p 123 --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+    }
+
+    test_nontty_cli "Test command-line hinting - old server" {
+        # cli will connect to the server but will not use COMMAND DOCS,
+        # and complete the missing info from the cached commands.c
+        r ACL setuser clitest on nopass +@all -command|docs
+        catch {run_cli --user clitest -a nopass --no-auth-warning --test_hint_file tests/assets/test_cli_hint_suite.txt} output
+        assert_match "*SUCCESS*" $output
+        r acl deluser clitest
+    }
+    
     proc test_redis_cli_rdb_dump {functions_only} {
         r flushdb
         r function flush
@@ -502,3 +809,27 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmdline ZRANGE new_zset 0 -1 WITHSCORES]
     }
 }
+
+start_server {tags {"cli external:skip"}} {
+    test_interactive_cli_with_prompt "db_num showed in redis-cli after reconnected" {
+        run_command $fd "select 0\x0D"
+        run_command $fd "set a zoo-0\x0D"
+        run_command $fd "select 6\x0D"
+        run_command $fd "set a zoo-6\x0D"
+        r save
+
+        # kill server and restart
+        exec kill [s process_id]
+        wait_for_log_messages 0 {"*Redis is now ready to exit*"} 0 1000 10
+        catch {[run_command $fd "ping\x0D"]} err
+        restart_server 0 true false 0
+
+        # redis-cli should show '[6]' after reconnected and return 'zoo-6'
+        write_cli $fd "GET a\x0D"
+        after 100
+        set result [format_output [read_cli $fd]]
+        set regex {not connected> GET a.*"zoo-6".*127\.0\.0\.1:[0-9]*\[6\]>}
+        assert_equal 1 [regexp $regex $result]
+    }
+}
+
