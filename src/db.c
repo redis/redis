@@ -1246,27 +1246,48 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *str;
         int64_t len;
+        int arraylen = 0;
         unsigned char intbuf[LP_INTBUF_SIZE];
+        void *replylen = NULL;
+        listRelease(keys);
 
+        /* Reply to the client. */
+        addReplyArrayLen(c, 2);
+        /* Cursor is always 0 given we iterate over all set */
+        addReplyBulkLongLong(c,0);
+        /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
+        if (use_pattern)
+            replylen = addReplyDeferredLen(c);
+        else {
+            long array_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
+            if (!no_values){
+                array_len *= 2;
+            }
+            addReplyArrayLen(c, array_len);
+        }
         while(p) {
             str = lpGet(p, &len, intbuf);
             /* point to the value */
             p = lpNext(o->ptr, p);
-            if (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)) {
+            if (use_pattern && !stringmatchlen(pat, patlen, (char *)str, len, 0)) {
                 /* jump to the next key/val pair */
                 p = lpNext(o->ptr, p);
                 continue;
             }
             /* add key object */
-            listAddNodeTail(keys, sdsnewlen(str, len));
+            addReplyBulkCBuffer(c, str, len);
+            arraylen++;
             /* add value object */
             if (!no_values) {
                 str = lpGet(p, &len, intbuf);
-                listAddNodeTail(keys, sdsnewlen(str, len));
+                addReplyBulkCBuffer(c, str, len);
+                arraylen++;
             }
             p = lpNext(o->ptr, p);
         }
-        cursor = 0;
+        if (use_pattern)
+            setDeferredArrayLen(c,replylen,arraylen);
+        return;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         int64_t len;
         long long expire_at;
