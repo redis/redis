@@ -1234,7 +1234,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         addReplyArrayLen(c, 2);
         /* Cursor is always 0 given we iterate over all set */
         addReplyBulkLongLong(c,0);
-        /* If there is no pattern the lenght is the entire set size, otherwise we defer the reply size */
+        /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
         if (use_pattern)
             replylen = addReplyDeferredLen(c);
         else
