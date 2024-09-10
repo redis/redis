@@ -32,6 +32,17 @@ test "Cluster nodes hard reset" {
         } else {
             set node_timeout 3000
         }
+
+        # Wait until slave is synced. Otherwise, it may reply -LOADING
+        # for any commands below.
+        if {[RI $id role] eq {slave}} {
+            wait_for_condition 50 1000 {
+                [RI $id master_link_status] eq {up}
+            } else {
+                fail "Slave were not able to sync."
+            }
+        }
+
         catch {R $id flushall} ; # May fail for readonly slaves.
         R $id MULTI
         R $id cluster reset hard

@@ -1244,7 +1244,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
-/* SINTER / SMEMBERS / SINTERSTORE / SINTERCARD
+/* SINTER / SINTERSTORE / SINTERCARD
  *
  * 'cardinality_only' work for SINTERCARD, only return the cardinality
  * with minimum processing and memory overheads.
@@ -1418,6 +1418,36 @@ void sinterGenericCommand(client *c, robj **setkeys,
 /* SINTER key [key ...] */
 void sinterCommand(client *c) {
     sinterGenericCommand(c, c->argv+1,  c->argc-1, NULL, 0, 0);
+}
+
+/* SMEMBERS key */
+void smembersCommand(client *c) {
+    setTypeIterator *si;
+    char *str;
+    size_t len;
+    int64_t intobj;
+    robj *setobj = lookupKeyRead(c->db, c->argv[1]);
+    if (checkType(c,setobj,OBJ_SET)) return;
+    if (!setobj) {
+        addReply(c, shared.emptyset[c->resp]);
+        return;
+    }
+
+    /* Prepare the response. */
+    unsigned long length = setTypeSize(setobj);
+    addReplySetLen(c,length);
+    /* Iterate through the elements of the set. */
+    si = setTypeInitIterator(setobj);
+
+    while (setTypeNext(si, &str, &len, &intobj) != -1) {
+        if (str != NULL)
+            addReplyBulkCBuffer(c, str, len);
+        else
+            addReplyBulkLongLong(c, intobj);
+        length--;
+    }
+    setTypeReleaseIterator(si);
+    serverAssert(length == 0); /* fail on corrupt data */
 }
 
 /* SINTERCARD numkeys key [key ...] [LIMIT limit] */
