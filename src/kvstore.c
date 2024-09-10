@@ -124,7 +124,7 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
 
     dict *d = kvstoreGetDict(kvs, didx);
     size_t dsize = dictSize(d);
-    /* Increment if dsize is 1 and delta is negative (first element inserted, dict becomes non-empty).
+    /* Increment if dsize is 1 and delta is positive (first element inserted, dict becomes non-empty).
      * Decrement if dsize is 0 (dict becomes empty). */
     int non_empty_dicts_delta = (dsize == 1 && delta > 0) ? 1 : (dsize == 0) ? -1 : 0;
     kvs->non_empty_dicts += non_empty_dicts_delta;
