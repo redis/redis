@@ -100,7 +100,7 @@ int test_open_key_subexpired_hget(RedisModuleCtx *ctx, RedisModuleString **argv,
         return REDISMODULE_OK;
     }
 
-    RedisModuleKey *key = openKeyWithMode(ctx, argv[1], REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED);
+    RedisModuleKey *key = openKeyWithMode(ctx, argv[1], REDISMODULE_OPEN_KEY_ACCESS_EXPIRED);
     if (!key) return REDISMODULE_OK;
 
     RedisModuleString *value;
@@ -132,13 +132,13 @@ void ScanCallback(RedisModuleKey *key, RedisModuleString *field, RedisModuleStri
     numReplies+=2;
 }
 
-int test_open_key_subexpired_hscan(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int test_open_key_access_expired_hscan(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 2) {
         RedisModule_WrongArity(ctx);
         return REDISMODULE_OK;
     }
 
-    RedisModuleKey *key = openKeyWithMode(ctx, argv[1], REDISMODULE_OPEN_KEY_SUBKEY_EXPIRED);
+    RedisModuleKey *key = openKeyWithMode(ctx, argv[1], REDISMODULE_OPEN_KEY_ACCESS_EXPIRED);
 
     if (!key)
         return RedisModule_ReplyWithError(ctx, "ERR key not exists");
@@ -170,7 +170,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "hash.hget_expired", test_open_key_subexpired_hget,"", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-    if (RedisModule_CreateCommand(ctx, "hash.hscan_expired", test_open_key_subexpired_hscan,"", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "hash.hscan_expired", test_open_key_access_expired_hscan,"", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
