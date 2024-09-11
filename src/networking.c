@@ -3822,7 +3822,6 @@ void redactClientCommandArgument(client *c, int argc) {
  * is incremented. The old command vector is freed, and the old objects
  * ref count is decremented. */
 void rewriteClientCommandVector(client *c, int argc, ...) {
-    printf("rewriteClientCommandVector\n");
     va_list ap;
     int j;
     robj **argv; /* The new argument vector */
@@ -3848,7 +3847,6 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
     c->argv = argv;
     c->argc = argc;
     c->argv_len_sum = 0;
-    c->argv_len = argc;
     for (j = 0; j < c->argc; j++)
         if (c->argv[j])
             c->argv_len_sum += getStringObjectLen(c->argv[j]);
