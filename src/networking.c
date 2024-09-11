@@ -1412,7 +1412,7 @@ void freeClientOriginalArgv(client *c) {
     c->original_argc = 0;
 }
 
-void freeClientArgv(client *c, int free_argv) {
+static inline void freeClientArgvInternal(client *c, int free_argv) {
     int j;
     for (j = 0; j < c->argc; j++)
         decrRefCount(c->argv[j]);
@@ -1424,6 +1424,10 @@ void freeClientArgv(client *c, int free_argv) {
         zfree(c->argv);
         c->argv = NULL;
     }
+}
+
+void freeClientArgv(client *c) {
+    freeClientArgvInternal(c, 1);
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1691,7 +1695,7 @@ void freeClient(client *c) {
     listRelease(c->reply);
     zfree(c->buf);
     freeReplicaReferencedReplBuffer(c);
-    freeClientArgv(c, 1);
+    freeClientArgv(c);
     freeClientOriginalArgv(c);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
@@ -2128,7 +2132,7 @@ int handleClientsWithPendingWrites(void) {
 static inline void resetClientInternal(client *c, int free_argv) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
-    freeClientArgv(c, free_argv);
+    freeClientArgvInternal(c, free_argv);
     c->cur_script = NULL;
     c->reqtype = 0;
     c->multibulklen = 0;
@@ -3840,7 +3844,7 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
     int j;
     retainOriginalCommandVector(c);
-    freeClientArgv(c, 1);
+    freeClientArgv(c);
     c->argv = argv;
     c->argc = argc;
     c->argv_len_sum = 0;
