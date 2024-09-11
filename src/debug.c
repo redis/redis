@@ -1210,14 +1210,15 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     } \
     return old_val; \
 } while(0)
-#if defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
-    /* OSX < 10.6 */
+#if defined(__APPLE__) && defined(__POWERPC__)
+    /* OSX on PowerPC */
+    GET_SET_RETURN(uc->uc_mcontext->__ss.__srr0, eip);
+#elif defined(__APPLE__) && !defined(MAC_OS_10_6_DETECTED)
+    /* OSX < 10.6 on x86 */
     #if defined(__x86_64__)
     GET_SET_RETURN(uc->uc_mcontext->__ss.__rip, eip);
     #elif defined(__i386__)
     GET_SET_RETURN(uc->uc_mcontext->__ss.__eip, eip);
-    #else
-    GET_SET_RETURN(uc->uc_mcontext->__ss.__srr0, eip);
     #endif
 #elif defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)
     /* OSX >= 10.6 */
