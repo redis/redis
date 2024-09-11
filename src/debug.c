@@ -1373,7 +1373,7 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext->__ss.__gs
     );
     logStackContent((void**)uc->uc_mcontext->__ss.__esp);
-    #else
+    #elif !defined(__ppc__)
     /* OSX ARM64 */
     serverLog(LL_WARNING,
     "\n"
@@ -1422,6 +1422,8 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext->__ss.__cpsr
     );
     logStackContent((void**) arm_thread_state64_get_sp(uc->uc_mcontext->__ss));
+    #else
+	NOT_SUPPORTED();
     #endif
 /* Linux */
 #elif defined(__linux__)
