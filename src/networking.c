@@ -2269,7 +2269,7 @@ int processInlineBuffer(client *c) {
 
     /* Setup argv array on client structure */
     if (argc) {
-        if (argc > c->argv_len) {
+        if (argc > c->argv_len || c->argv_len > argc * 2) {
             zfree(c->argv);
             c->argv = zmalloc(sizeof(robj*)*argc);
             c->argv_len = argc;
@@ -2375,7 +2375,7 @@ int processMultibulkBuffer(client *c) {
         c->multibulklen = ll;
 
         /* Setup argv array on client structure */
-        if (c->multibulklen > c->argv_len) {
+        if (c->multibulklen > c->argv_len || c->argv_len > c->multibulklen * 2) {
             zfree(c->argv);
             c->argv_len = min(c->multibulklen, 1024);
             c->argv = zmalloc(sizeof(robj*)*c->argv_len);
