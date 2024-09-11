@@ -364,8 +364,7 @@ static void freeAllClients(void) {
     }
 }
 
-static void resetClient(client c, int free_argv) {
-    UNUSED(free_argv);
+static void resetClient(client c) {
     aeEventLoop *el = CLIENT_GET_EVENTLOOP(c);
     aeDeleteFileEvent(el,c->context->fd,AE_WRITABLE);
     aeDeleteFileEvent(el,c->context->fd,AE_READABLE);
@@ -426,7 +425,7 @@ static void clientDone(client c) {
         return;
     }
     if (config.keepalive) {
-        resetClient(c, 1);
+        resetClient(c);
     } else {
         if (config.num_threads) pthread_mutex_lock(&(config.liveclients_mutex));
         config.liveclients--;

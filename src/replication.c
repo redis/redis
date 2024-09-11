@@ -3318,7 +3318,7 @@ void replicationCacheMaster(client *c) {
     c->sentlen = 0;
     c->reply_bytes = 0;
     c->bufpos = 0;
-    resetClient(c, 1);
+    resetClient(c);
 
     /* Save the master. Server.master will be set to null later by
      * replicationHandleMasterDisconnection(). */

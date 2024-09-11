@@ -2125,8 +2125,7 @@ int handleClientsWithPendingWrites(void) {
     return processed;
 }
 
-/* resetClient prepare the client to process the next command */
-void resetClient(client *c, int free_argv) {
+static inline void resetClientInternal(client *c, int free_argv) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
     freeClientArgv(c, free_argv);
@@ -2166,6 +2165,11 @@ void resetClient(client *c, int free_argv) {
         c->flags |= CLIENT_REPLY_SKIP;
         c->flags &= ~CLIENT_REPLY_SKIP_NEXT;
     }
+}
+
+/* resetClient prepare the client to process the next command */
+void resetClient(client *c) {
+    resetClientInternal(c, 1);
 }
 
 /* This function is used when we want to re-enter the event loop but there
@@ -2507,7 +2511,7 @@ void commandProcessed(client *c) {
     if (c->flags & CLIENT_BLOCKED) return;
 
     reqresAppendResponse(c);
-    resetClient(c, 0);
+    resetClientInternal(c, 0);
 
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
@@ -2638,7 +2642,7 @@ int processInputBuffer(client *c) {
 
         /* Multibulk processing could see a <= 0 length. */
         if (c->argc == 0) {
-            resetClient(c, 0);
+            resetClientInternal(c, 0);
         } else {
             /* If we are in the context of an I/O thread, we can't really
              * execute the command here. All we can do is to flag the client
