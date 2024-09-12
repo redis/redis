@@ -1246,7 +1246,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *str;
         int64_t len;
-        long array_reply_len = 0;
+        unsigned long array_reply_len = 0;
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
         listRelease(keys);
@@ -1265,7 +1265,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             }
             addReplyArrayLen(c, array_reply_len);
         }
-        long cur_length = 0;
+        unsigned long cur_length = 0;
         while(p) {
             str = lpGet(p, &len, intbuf);
             /* point to the value */
