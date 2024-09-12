@@ -1134,6 +1134,20 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
         dictEntry *de = dbFind(c->db, key->ptr);
         serverAssert(de != NULL);
         lpt->key = dictGetKey(de);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        listpackEx *lpt = o->ptr;
+
+        /* If the hash previously had HFEs but later no longer does, the key ref
+         * (lpt->key) in the hash might become outdated after a MOVE/COPY/RENAME/RESOTRE
+         * operation. These commands maintain the key ref only if HFEs are present.
+         * That is, we can only be sure that key ref is valid as long as it is not
+         * "trash". (TODO: dbFind() can be avoided. Instead need to extend the
+         * lookupKey*() to return dictEntry). */
+        if (lpt->meta.trash) {
+            dictEntry *de = dbFind(c->db, key->ptr);
+            serverAssert(de != NULL);
+            lpt->key = dictGetKey(de);
+        }
     } else if (o->encoding == OBJ_ENCODING_HT) {
         /* Take care dict has HFE metadata */
         if (!isDictWithMetaHFE(ht)) {
@@ -1151,6 +1165,18 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
             m->key = dictGetKey(de); /* reference key in keyspace */
             m->hfe = ebCreate();     /* Allocate HFE DS */
             m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
+        } else {
+            dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(ht);
+            /* If the hash previously had HFEs but later no longer does, the key ref
+             * (m->key) in the hash might become outdated after a MOVE/COPY/RENAME/RESTORE
+             * operation. These commands maintain the key ref only if HFEs are present.
+             * That is, we can only be sure that key ref is valid as long as it is not
+             * "trash". */
+            if (m->expireMeta.trash) {
+                dictEntry *de = dbFind(db, key->ptr);
+                serverAssert(de != NULL);
+                m->key = dictGetKey(de); /* reference key in keyspace */
+            }
         }
     }
 
