@@ -1223,7 +1223,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             }
         } while (cursor && maxiterations-- && data.sampled < count);
     } else if (o->type == OBJ_SET) {
-        int arraylen = 0;
+        unsigned long array_reply_len = 0;
         void *replylen = NULL;
         listRelease(keys);
         char *str;
@@ -1237,10 +1237,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
         if (use_pattern)
             replylen = addReplyDeferredLen(c);
-        else
-            addReplyArrayLen(c, setTypeSize(o));
+        else {
+            array_reply_len = setTypeSize(o);
+            addReplyArrayLen(c, array_reply_len);
+        }
 
         setTypeIterator *si = setTypeInitIterator(o);
+        unsigned long cur_length = 0;
         while (setTypeNext(si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 len = ll2string(buf, sizeof(buf), llele);
@@ -1250,11 +1253,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
                 continue;
             }
             addReplyBulkCBuffer(c, key, len);
-            arraylen++;
+            cur_length++;
         }
         setTypeReleaseIterator(si);
         if (use_pattern)
-            setDeferredArrayLen(c,replylen,arraylen);
+            setDeferredArrayLen(c,replylen,cur_length);
+        else
+            serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
         return;
     } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET) &&
                o->encoding == OBJ_ENCODING_LISTPACK)
