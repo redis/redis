@@ -1138,7 +1138,7 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
         listpackEx *lpt = o->ptr;
 
         /* If the hash previously had HFEs but later no longer does, the key ref
-         * (lpt->key) in the hash might become outdated after a MOVE/COPY/RENAME/RESOTRE
+         * (lpt->key) in the hash might become outdated after a MOVE/COPY/RENAME/RESTORE
          * operation. These commands maintain the key ref only if HFEs are present.
          * That is, we can only be sure that key ref is valid as long as it is not
          * "trash". (TODO: dbFind() can be avoided. Instead need to extend the
