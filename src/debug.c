@@ -1424,7 +1424,7 @@ void logRegisters(ucontext_t *uc) {
     );
     logStackContent((void**) arm_thread_state64_get_sp(uc->uc_mcontext->__ss));
     #else
-	NOT_SUPPORTED();
+        NOT_SUPPORTED();
     #endif
 /* Linux */
 #elif defined(__linux__)
