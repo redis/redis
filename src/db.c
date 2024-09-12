@@ -1307,7 +1307,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         addReplyBulkLongLong(c,0);
         /* In the case of OBJ_ENCODING_LISTPACK_EX we always defer the reply size given some fields might be expired */
         replylen = addReplyDeferredLen(c);
-        long cur_length = 0;
+        unsigned long cur_length = 0;
 
         while (p) {
             str = lpGet(p, &len, intbuf);
@@ -1337,6 +1337,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             p = lpNext(lp, p);
         }
         setDeferredArrayLen(c,replylen,cur_length);
+        return;
     } else {
         serverPanic("Not handled encoding in SCAN.");
     }
