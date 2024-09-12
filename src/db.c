@@ -1246,7 +1246,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *str;
         int64_t len;
-        int arraylen = 0;
+        long array_reply_len = 0;
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
         listRelease(keys);
@@ -1259,12 +1259,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         if (use_pattern)
             replylen = addReplyDeferredLen(c);
         else {
-            long array_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
+            array_reply_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
             if (!no_values){
-                array_len *= 2;
+                array_reply_len *= 2;
             }
-            addReplyArrayLen(c, array_len);
+            addReplyArrayLen(c, array_reply_len);
         }
+        long cur_length = 0;
         while(p) {
             str = lpGet(p, &len, intbuf);
             /* point to the value */
@@ -1276,17 +1277,19 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             }
             /* add key object */
             addReplyBulkCBuffer(c, str, len);
-            arraylen++;
+            cur_length++;
             /* add value object */
             if (!no_values) {
                 str = lpGet(p, &len, intbuf);
                 addReplyBulkCBuffer(c, str, len);
-                arraylen++;
+                cur_length++;
             }
             p = lpNext(o->ptr, p);
         }
         if (use_pattern)
-            setDeferredArrayLen(c,replylen,arraylen);
+            setDeferredArrayLen(c,replylen,cur_length);
+        else
+            serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
         return;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         int64_t len;
