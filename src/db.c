@@ -105,7 +105,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry **deref) {
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
         if (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH &&
-            server.current_client->cmd->proc != touchCommand)
+            server.executing_client->cmd->proc != touchCommand)
             flags |= LOOKUP_NOTOUCH;
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
