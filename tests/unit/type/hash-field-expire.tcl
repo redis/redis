@@ -560,10 +560,10 @@ start_server {tags {"external:skip needs:debug"}} {
             # Test with small hash
             r debug set-active-expire 0
             r del myhash
-            r hset myhash1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6
-            r hpexpire myhash1 1 NX FIELDS 3 f2 f4 f6
+            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6
+            r hpexpire myhash 1 NX FIELDS 3 f2 f4 f6
             after 10
-            assert_equal [lsort [r hgetall myhash1]] "f1 f3 f5 v1 v3 v5"
+            assert_equal [lsort [r hgetall myhash]] "f1 f3 f5 v1 v3 v5"
 
             # Test with large hash
             r del myhash
@@ -573,6 +573,13 @@ start_server {tags {"external:skip needs:debug"}} {
             }
             after 10
             assert_equal [lsort [r hgetall myhash]] [lsort "f1 f2 f3 v1 v2 v3"]
+
+            # hash that all fields are expired return empty result
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6
+            r hpexpire myhash 1 FIELDS 6 f1 f2 f3 f4 f5 f6
+            after 10
+            assert_equal [r hgetall myhash] ""
             r debug set-active-expire 1
         }
 

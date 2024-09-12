@@ -1,16 +1,80 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+Redis Community Edition 8.0 release notes
+=========================================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+===========================================================
+8.0-M01 (v7.9.224)    Released Thu 12 Sep 2024 10:00:00 IST
+===========================================================
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+This is the first Milestone of Redis Community Edition 8.0.
 
-    https://download.redis.io/redis-stable.tar.gz
+Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
+Once we reach feature-completeness we will release RC1.
 
-More information is available at https://redis.io
+### Headlines:
 
-Happy hacking!
+Redis 8.0 introduces new data structures: JSON, time series, and 5 probabilistic data structures (previously available as separate Redis modules) and incorporates Redis scalable query engine (including vector search).
+
+8.0-M01 is available as a Docker image and can be downloaded from [Docker Hub](https://hub.docker.com/_/redis). Additional distributions will be introduced in upcoming pre-releases.
+
+### Supported upgrade paths (by replication or persistence) to 8.0-M01
+
+
+- From previous Redis versions, without modules
+
+The following upgrade paths (by replication or persistence) to 8.0-M01 are not yet tested and will be introduced in upcoming pre-releases:
+- From previous Redis versions with modules (RediSearch, RedisJSON, RedisTimeSeries, RedisBloom)
+- From Redis Stack 7.2 or 7.4
+
+### New Features in binary distributions
+
+- 7 new data structures: JSON, Time series, Bloom filter, Cuckoo filter, Count-min sketch, Top-k, t-digest
+- Redis scalable query engine (including vector search)
+
+### Potentially breaking changes
+
+- #12272 `GETRANGE` returns an empty bulk when the negative end index is out of range
+- #12395 Optimize `SCAN` command when matching data type
+
+### Bug fixes
+
+- #13510 Fix `RM_RdbLoad` to enable AOF after RDB loading is completed
+- #13489 `ACL CAT` - return module commands
+- #13476 Fix a race condition in the `cache_memory` of `functionsLibCtx`
+- #13473 Fix incorrect lag due to trimming stream via `XTRIM` command
+- #13338 Fix incorrect lag field in `XINFO` when tombstone is after the `last_id` of the consume group
+- #13470 On `HDEL` of last field - update the global hash field expiration data structure
+- #13465 Cluster: Pass extensions to node if extension processing is handled by it
+- #13443 Cluster: Ensure validity of myself when loading cluster config
+- #13422 Cluster: Fix `CLUSTER SHARDS` command returns empty array
+
+### Modules API
+
+- #13509 New API calls: `RM_DefragAllocRaw`, `RM_DefragFreeRaw`, and `RM_RegisterDefragCallbacks` - defrag API to allocate and free raw memory
+
+### Performance and resource utilization improvements
+
+- #13503 Avoid overhead of comparison function pointer calls in listpack `lpFind`
+- #13505 Optimize `STRING` datatype write commands
+- #13499 Optimize `SMEMBERS` command
+- #13494 Optimize `GEO*` commands reply
+- #13490 Optimize `HELLO` command
+- #13488 Optimize client query buffer
+- #12395 Optimize `SCAN` command when matching data type
+- #13529 Optimize `LREM`, `LPOS`, `LINSERT`, and `LINDEX` commands
+- #13516 Optimize `LRANGE` and other commands that perform several writes to client buffers per call
+- #13431 Avoid `used_memory` contention when updating from multiple threads
+
+### Other general improvements
+
+- #13495 Reply `-LOADING` on replica while flushing the db
+
+### CLI tools
+
+- #13411 redis-cli: Fix wrong `dbnum` showed after the client reconnected
+
+### Notes
+
+- No backward compatibility for replication or persistence.
+- Additional distributions, upgrade paths, features, and improvements will be introduced in upcoming pre-releases.
+- With the GA release of 8.0 we will deprecate Redis Stack.
+
