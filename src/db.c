@@ -1298,6 +1298,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char *p = lpFirst(lp);
         unsigned char *str, *val;
         unsigned char intbuf[LP_INTBUF_SIZE];
+        void *replylen = NULL;
+
+        listRelease(keys);
+        /* Reply to the client. */
+        addReplyArrayLen(c, 2);
+        /* Cursor is always 0 given we iterate over all set */
+        addReplyBulkLongLong(c,0);
+        /* In the case of OBJ_ENCODING_LISTPACK_EX we always defer the reply size given some fields might be expired */
+        replylen = addReplyDeferredLen(c);
+        long cur_length = 0;
 
         while (p) {
             str = lpGet(p, &len, intbuf);
@@ -1308,7 +1318,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             serverAssert(p && lpGetIntegerValue(p, &expire_at));
 
             if (hashTypeIsExpired(o, expire_at) ||
-               (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)))
+               (use_pattern && !stringmatchlen(pat, patlen, (char *)str, len, 0)))
             {
                 /* jump to the next key/val pair */
                 p = lpNext(lp, p);
@@ -1316,15 +1326,17 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             }
 
             /* add key object */
-            listAddNodeTail(keys, sdsnewlen(str, len));
+            addReplyBulkCBuffer(c, str, len);
+            cur_length++;
             /* add value object */
             if (!no_values) {
                 str = lpGet(val, &len, intbuf);
-                listAddNodeTail(keys, sdsnewlen(str, len));
+                addReplyBulkCBuffer(c, str, len);
+                cur_length++;
             }
             p = lpNext(lp, p);
         }
-        cursor = 0;
+        setDeferredArrayLen(c,replylen,cur_length);
     } else {
         serverPanic("Not handled encoding in SCAN.");
     }
