@@ -1173,10 +1173,8 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
              * That is, we can only be sure that key ref is valid as long as it is not
              * "trash". */
             if (m->expireMeta.trash) {
-                /* Might have obsolete key */
                 dictEntry *de = dbFind(db, key->ptr);
                 serverAssert(de != NULL);
-                /* Can only be sure that m->key is maintained as long as it is not "trash" */
                 m->key = dictGetKey(de); /* reference key in keyspace */
             }
         }
