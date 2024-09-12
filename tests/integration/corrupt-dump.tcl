@@ -909,5 +909,30 @@ test {corrupt payload: fuzzer findings - set with invalid length causes sscan to
     }
 }
 
+test {corrupt payload: zset listpack encoded with invalid length causes zscan to hang} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        # In the past, it generated a broken protocol and left the client hung in smembers
+        r config set sanitize-dump-payload no
+        assert_equal {OK} [r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81a\x02\x01\x01\x81b\x02\x02\x01\x81c\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd1\"l\xef\xf7" replace]
+        assert_encoding listpack _zset
+        catch { r ZSCAN _zset 0 } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
+
+test {corrupt payload: hash listpack encoded with invalid length causes hscan to hang} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        # In the past, it generated a broken protocol and left the client hung in smembers
+        r config set sanitize-dump-payload no
+        assert_equal {OK} [r restore _hash 0 "\x10\x17\x17\x00\x00\x00\x0e\x00\x82f1\x03\x82v1\x03\x82f2\x03\x82v2\x03\xff\x0c\x00\xf1\xc56\x92)j\x8c\xc5" replace]
+        assert_encoding listpack _hash
+        catch { r HSCAN _hash 0 } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
 } ;# tags
 
