@@ -83,6 +83,9 @@ start_server {tags {"modules"}} {
         # Verify the value in the loaded rdb
         assert_equal v1 [r get k]
 
+        # Verify aof is still enabled after RM_RdbLoad() call
+        assert_equal 1 [s aof_enabled]
+
         r flushdb
         r config set rdb-key-save-delay 0
         r config set appendonly no

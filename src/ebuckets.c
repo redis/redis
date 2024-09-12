@@ -1876,6 +1876,105 @@ uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
     return ebGetMetaExpTime(meta);
 }
 
+/* Init ebuckets iterator
+ *
+ * This is a non-safe iterator. Any modification to ebuckets will invalidate the
+ * iterator. Calling this function takes care to reference the first item
+ * in ebuckets with minimal expiration time. If no items to iterate, then
+ * iter->currItem will be NULL and iter->itemsCurrBucket will be set to 0.
+ */
+void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
+    iter->eb = eb;
+    iter->type = type;
+
+    if (ebIsEmpty(eb)) {
+        iter->currItem = NULL;
+        iter->itemsCurrBucket = 0;
+    } else if (ebIsList(eb)) {
+        iter->currItem = ebGetListPtr(type, eb);
+        iter->itemsCurrBucket = type->getExpireMeta(iter->currItem)->numItems;
+        iter->isRax = 0;
+    } else {
+        rax *rax = ebGetRaxPtr(eb);
+        raxStart(&iter->raxIter, rax);
+        raxSeek(&iter->raxIter, "^", NULL, 0);
+        raxNext(&iter->raxIter);
+        FirstSegHdr *firstSegHdr = iter->raxIter.data;
+        iter->itemsCurrBucket = firstSegHdr->totalItems;
+        iter->currItem = firstSegHdr->head;
+        iter->isRax = 1;
+    }
+}
+
+/* Advance iterator to the next item
+ *
+ * Returns:
+ *   - 0 if the end of ebuckets has been reached, setting `iter->currItem`
+ *       to NULL.
+ *   - 1 otherwise, updating `iter->currItem` to the next item.
+ */
+int ebNext(EbucketsIterator *iter) {
+    if (iter->currItem == NULL)
+        return 0;
+
+    eItem item = iter->currItem;
+    ExpireMeta *meta = iter->type->getExpireMeta(item);
+    if (iter->isRax) {
+        if (meta->lastItemBucket) {
+            if (raxNext(&iter->raxIter)) {
+                FirstSegHdr *firstSegHdr = iter->raxIter.data;
+                iter->currItem = firstSegHdr->head;
+                iter->itemsCurrBucket = firstSegHdr->totalItems;
+            } else {
+                iter->currItem = NULL;
+            }
+        } else if (meta->lastInSegment) {
+            NextSegHdr *nextSegHdr = meta->next;
+            iter->currItem = nextSegHdr->head;
+        } else {
+            iter->currItem = meta->next;
+        }
+    } else {
+        iter->currItem = meta->next;
+    }
+
+    if (iter->currItem == NULL) {
+        iter->itemsCurrBucket = 0;
+        return 0;
+    }
+
+    return 1;
+}
+
+/* Advance the iterator to the next bucket
+ *
+ * Returns:
+ *   - 0 if no more ebuckets are available, setting `iter->currItem` to NULL
+ *       and `iter->itemsCurrBucket` to 0.
+ *   - 1 otherwise, updating `iter->currItem` and `iter->itemsCurrBucket` for the
+ *       next ebucket.
+ */
+int ebNextBucket(EbucketsIterator *iter) {
+    if (iter->currItem == NULL)
+        return 0;
+
+    if ((iter->isRax) && (raxNext(&iter->raxIter))) {
+        FirstSegHdr *currSegHdr = iter->raxIter.data;
+        iter->currItem = currSegHdr->head;
+        iter->itemsCurrBucket = currSegHdr->totalItems;
+    } else {
+        iter->currItem = NULL;
+        iter->itemsCurrBucket = 0;
+    }
+    return 1;
+}
+
+/* Stop and cleanup the ebuckets iterator */
+void ebStop(EbucketsIterator *iter) {
+    if (iter->isRax)
+        raxStop(&iter->raxIter);
+}
+
 /*** Unit tests ***/
 
 #ifdef REDIS_TEST
@@ -2117,6 +2216,50 @@ int ebucketsTest(int argc, char **argv, int flags) {
     }
 #endif
 
+    TEST("basic iterator test") {
+        MyItem *items[100];
+        for (uint32_t numItems = 0 ; numItems < ARRAY_SIZE(items) ; ++numItems) {
+            ebuckets eb = NULL;
+            EbucketsIterator iter;
+
+            /* Create and add items to ebuckets */
+            for (uint32_t i = 0; i < numItems; i++) {
+                items[i] = zmalloc(sizeof(MyItem));
+                ebAdd(&eb, &myEbucketsType, items[i], i);
+            }
+
+            /* iterate items */
+            ebStart(&iter, eb, &myEbucketsType);
+            for (uint32_t i = 0; i < numItems; i++) {
+                assert(iter.currItem == items[i]);
+                int res = ebNext(&iter);
+                if (i+1<numItems) {
+                    assert(res == 1);
+                    assert(iter.currItem != NULL);
+                } else {
+                    assert(res == 0);
+                    assert(iter.currItem == NULL);
+                }
+            }
+            ebStop(&iter);
+
+            /* iterate buckets */
+            ebStart(&iter, eb, &myEbucketsType);
+            uint32_t countItems = 0;
+
+            uint32_t countBuckets = 0;
+            while (1) {
+                countItems += iter.itemsCurrBucket;
+                if (!ebNextBucket(&iter)) break;
+                countBuckets++;
+            }
+            ebStop(&iter);
+            assert(countItems == numItems);
+            if (numItems>=8) assert(numItems/8 >= countBuckets);
+            ebDestroy(&eb, &myEbucketsType, NULL);
+        }
+    }
+
     TEST("list - Create a single item, get TTL, and remove") {
         MyItem *singleItem = zmalloc(sizeof(MyItem));
         ebuckets eb = NULL;
@@ -2146,9 +2289,8 @@ int ebucketsTest(int argc, char **argv, int flags) {
             assert(ebRemove(&eb, &myEbucketsType, items[i]));
         }
 
-        for (int i = 0 ; i < EB_LIST_MAX_ITEMS  ; i++) {
+        for (int i = 0 ; i < EB_LIST_MAX_ITEMS  ; i++)
             zfree(items[i]);
-        }
 
         ebDestroy(&eb, &myEbucketsType, NULL);
     }

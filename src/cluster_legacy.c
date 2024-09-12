@@ -93,6 +93,7 @@ int auxTlsPortPresent(clusterNode *n);
 static void clusterBuildMessageHdr(clusterMsg *hdr, int type, size_t msglen);
 void freeClusterLink(clusterLink *link);
 int verifyClusterNodeId(const char *name, int length);
+static void updateShardId(clusterNode *node, const char *shard_id);
 
 int getNodeDefaultClientPort(clusterNode *n) {
     return server.tls_cluster ? n->tls_port : n->tcp_port;
@@ -203,12 +204,11 @@ int auxShardIdSetter(clusterNode *n, void *value, int length) {
         return C_ERR;
     }
     memcpy(n->shard_id, value, CLUSTER_NAMELEN);
-    /* if n already has replicas, make sure they all agree
-     * on the shard id */
+    /* if n already has replicas, make sure they all use
+     * the primary shard id */
     for (int i = 0; i < n->numslaves; i++) {
-        if (memcmp(n->slaves[i]->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0) {
-            return C_ERR;
-        }
+        if (memcmp(n->slaves[i]->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0)
+            updateShardId(n->slaves[i], n->shard_id);
     }
     clusterAddNodeToShard(value, n);
     return C_OK;
@@ -550,18 +550,12 @@ int clusterLoadConfig(char *filename) {
                 clusterAddNode(master);
             }
             /* shard_id can be absent if we are loading a nodes.conf generated
-             * by an older version of Redis; we should follow the primary's
-             * shard_id in this case */
-            if (auxFieldHandlers[af_shard_id].isPresent(n) == 0) {
-                memcpy(n->shard_id, master->shard_id, CLUSTER_NAMELEN);
-                clusterAddNodeToShard(master->shard_id, n);
-            } else if (clusterGetNodesInMyShard(master) != NULL &&
-                       memcmp(master->shard_id, n->shard_id, CLUSTER_NAMELEN) != 0)
-            {
-                /* If the primary has been added to a shard, make sure this
-                 * node has the same persisted shard id as the primary. */
-                goto fmterr;
-            }
+             * by an older version of Redis; 
+             * ignore replica's shard_id in the file, only use the primary's.
+             * If replica precedes primary in file, it will be corrected
+             * later by the auxShardIdSetter */
+            memcpy(n->shard_id, master->shard_id, CLUSTER_NAMELEN);
+            clusterAddNodeToShard(master->shard_id, n);
             n->slaveof = master;
             clusterNodeAddSlave(master,n);
         } else if (auxFieldHandlers[af_shard_id].isPresent(n) == 0) {
@@ -908,22 +902,39 @@ static void updateAnnouncedHumanNodename(clusterNode *node, char *new) {
     clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
 }
 
+static void assignShardIdToNode(clusterNode *node, const char *shard_id, int flag) {
+    clusterRemoveNodeFromShard(node);
+    memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
+    clusterAddNodeToShard(shard_id, node);
+    clusterDoBeforeSleep(flag); 
+}
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
     if (shard_id && memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-        clusterRemoveNodeFromShard(node);
-        memcpy(node->shard_id, shard_id, CLUSTER_NAMELEN);
-        clusterAddNodeToShard(shard_id, node);
-        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
-    }
-    if (shard_id && myself != node && myself->slaveof == node) {
-        if (memcmp(myself->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-            /* shard-id can diverge right after a rolling upgrade
-             * from pre-7.2 releases */
-            clusterRemoveNodeFromShard(myself);
-            memcpy(myself->shard_id, shard_id, CLUSTER_NAMELEN);
-            clusterAddNodeToShard(shard_id, myself);
-            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+        assignShardIdToNode(node, shard_id, CLUSTER_TODO_SAVE_CONFIG);
+
+        /* If the replica or master does not support shard-id (old version),
+         * we still need to make our best effort to keep their shard-id consistent.
+         *
+         * 1. Master supports but the replica does not.
+         *    We might first update the replica's shard-id to the master's randomly
+         *    generated shard-id. Then, when the master's shard-id arrives, we must
+         *    also update all its replicas.
+         * 2. If the master does not support but the replica does.
+         *    We also need to synchronize the master's shard-id with the replica.
+         * 3. If neither of master and replica supports it.
+         *    The master will have a randomly generated shard-id and will update
+         *    the replica to match the master's shard-id. */
+        if (node->slaveof == NULL) {
+            for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
+                clusterNode *slavenode = clusterNodeGetSlave(node, i);
+                if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
+                    assignShardIdToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+            }
+        } else {
+            clusterNode *masternode = node->slaveof;
+            if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
+                assignShardIdToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
     }
 }

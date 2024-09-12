@@ -568,6 +568,7 @@ NULL
             addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
+        applyAppendOnlyConfig(); /* Check if AOF config was changed while loading */
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
@@ -583,6 +584,7 @@ NULL
             addReplyError(c, "Error trying to load the AOF files, check server logs.");
             return;
         }
+        applyAppendOnlyConfig(); /* Check if AOF config was changed while loading */
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_NOTICE,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);

@@ -1134,6 +1134,20 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
         dictEntry *de = dbFind(c->db, key->ptr);
         serverAssert(de != NULL);
         lpt->key = dictGetKey(de);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        listpackEx *lpt = o->ptr;
+
+        /* If the hash previously had HFEs but later no longer does, the key ref
+         * (lpt->key) in the hash might become outdated after a MOVE/COPY/RENAME/RESTORE
+         * operation. These commands maintain the key ref only if HFEs are present.
+         * That is, we can only be sure that key ref is valid as long as it is not
+         * "trash". (TODO: dbFind() can be avoided. Instead need to extend the
+         * lookupKey*() to return dictEntry). */
+        if (lpt->meta.trash) {
+            dictEntry *de = dbFind(c->db, key->ptr);
+            serverAssert(de != NULL);
+            lpt->key = dictGetKey(de);
+        }
     } else if (o->encoding == OBJ_ENCODING_HT) {
         /* Take care dict has HFE metadata */
         if (!isDictWithMetaHFE(ht)) {
@@ -1151,6 +1165,18 @@ int hashTypeSetExInit(robj *key, robj *o, client *c, redisDb *db, const char *cm
             m->key = dictGetKey(de); /* reference key in keyspace */
             m->hfe = ebCreate();     /* Allocate HFE DS */
             m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
+        } else {
+            dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(ht);
+            /* If the hash previously had HFEs but later no longer does, the key ref
+             * (m->key) in the hash might become outdated after a MOVE/COPY/RENAME/RESTORE
+             * operation. These commands maintain the key ref only if HFEs are present.
+             * That is, we can only be sure that key ref is valid as long as it is not
+             * "trash". */
+            if (m->expireMeta.trash) {
+                dictEntry *de = dbFind(db, key->ptr);
+                serverAssert(de != NULL);
+                m->key = dictGetKey(de); /* reference key in keyspace */
+            }
         }
     }
 
@@ -2428,7 +2454,11 @@ void genericHgetallCommand(client *c, int flags) {
 
     /* We return a map if the user requested keys and values, like in the
      * HGETALL case. Otherwise to use a flat array makes more sense. */
-    length = hashTypeLength(o, 1 /*subtractExpiredFields*/);
+    if ((length = hashTypeLength(o, 1 /*subtractExpiredFields*/)) == 0) {
+        addReply(c, emptyResp);
+        return;
+    }
+
     if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) {
         addReplyMapLen(c, length);
     } else {
@@ -2437,11 +2467,7 @@ void genericHgetallCommand(client *c, int flags) {
 
     hi = hashTypeInitIterator(o);
 
-    /* Skip expired fields if the hash has an expire time set at global HFE DS. We could
-     * set it to constant 1, but then it will make another lookup for each field expiration */
-    int skipExpiredFields = (EB_EXPIRE_TIME_INVALID == hashTypeGetMinExpire(o, 0)) ? 0 : 1;
-
-    while (hashTypeNext(hi, skipExpiredFields) != C_ERR) {
+    while (hashTypeNext(hi, 1 /*skipExpiredFields*/) != C_ERR) {
         if (flags & OBJ_HASH_KEY) {
             addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
             count++;

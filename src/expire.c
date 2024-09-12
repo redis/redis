@@ -465,12 +465,10 @@ void expireSlaveKeys(void) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
                 dictEntry *expire = dbFindExpires(db, keyname);
-                int expired = 0;
 
                 if (expire &&
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
-                    expired = 1;
                     /* Propagate the DEL (writable replicas do not propagate anything to other replicas,
                      * but they might propagate to AOF) and trigger module hooks. */
                     postExecutionUnitOperations();
@@ -480,7 +478,7 @@ void expireSlaveKeys(void) {
                  * corresponding bit in the new bitmap we set as value.
                  * At the end of the loop if the bitmap is zero, it means we
                  * no longer need to keep track of this key. */
-                if (expire && !expired) {
+                else if (expire) {
                     noexpire++;
                     new_dbids |= (uint64_t)1 << dbid;
                 }
