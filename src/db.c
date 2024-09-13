@@ -1281,7 +1281,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             replylen = addReplyDeferredLen(c);
         else {
             array_reply_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
-            if (!no_values){
+            if (!no_values) {
                 array_reply_len *= 2;
             }
             addReplyArrayLen(c, array_reply_len);
