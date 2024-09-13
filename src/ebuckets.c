@@ -1886,6 +1886,7 @@ uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
 void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
     iter->eb = eb;
     iter->type = type;
+    iter->isRax = 0;
 
     if (ebIsEmpty(eb)) {
         iter->currItem = NULL;
@@ -1893,7 +1894,6 @@ void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
     } else if (ebIsList(eb)) {
         iter->currItem = ebGetListPtr(type, eb);
         iter->itemsCurrBucket = type->getExpireMeta(iter->currItem)->numItems;
-        iter->isRax = 0;
     } else {
         rax *rax = ebGetRaxPtr(eb);
         raxStart(&iter->raxIter, rax);
