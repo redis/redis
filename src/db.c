@@ -1267,27 +1267,51 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char *p = lpFirst(o->ptr);
         unsigned char *str;
         int64_t len;
+        unsigned long array_reply_len = 0;
         unsigned char intbuf[LP_INTBUF_SIZE];
+        void *replylen = NULL;
+        listRelease(keys);
 
+        /* Reply to the client. */
+        addReplyArrayLen(c, 2);
+        /* Cursor is always 0 given we iterate over all set */
+        addReplyBulkLongLong(c,0);
+        /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
+        if (use_pattern)
+            replylen = addReplyDeferredLen(c);
+        else {
+            array_reply_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
+            if (!no_values) {
+                array_reply_len *= 2;
+            }
+            addReplyArrayLen(c, array_reply_len);
+        }
+        unsigned long cur_length = 0;
         while(p) {
             str = lpGet(p, &len, intbuf);
             /* point to the value */
             p = lpNext(o->ptr, p);
-            if (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)) {
+            if (use_pattern && !stringmatchlen(pat, patlen, (char *)str, len, 0)) {
                 /* jump to the next key/val pair */
                 p = lpNext(o->ptr, p);
                 continue;
             }
             /* add key object */
-            listAddNodeTail(keys, sdsnewlen(str, len));
+            addReplyBulkCBuffer(c, str, len);
+            cur_length++;
             /* add value object */
             if (!no_values) {
                 str = lpGet(p, &len, intbuf);
-                listAddNodeTail(keys, sdsnewlen(str, len));
+                addReplyBulkCBuffer(c, str, len);
+                cur_length++;
             }
             p = lpNext(o->ptr, p);
         }
-        cursor = 0;
+        if (use_pattern)
+            setDeferredArrayLen(c,replylen,cur_length);
+        else
+            serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
+        return;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         int64_t len;
         long long expire_at;
@@ -1295,6 +1319,16 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char *p = lpFirst(lp);
         unsigned char *str, *val;
         unsigned char intbuf[LP_INTBUF_SIZE];
+        void *replylen = NULL;
+
+        listRelease(keys);
+        /* Reply to the client. */
+        addReplyArrayLen(c, 2);
+        /* Cursor is always 0 given we iterate over all set */
+        addReplyBulkLongLong(c,0);
+        /* In the case of OBJ_ENCODING_LISTPACK_EX we always defer the reply size given some fields might be expired */
+        replylen = addReplyDeferredLen(c);
+        unsigned long cur_length = 0;
 
         while (p) {
             str = lpGet(p, &len, intbuf);
@@ -1305,7 +1339,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             serverAssert(p && lpGetIntegerValue(p, &expire_at));
 
             if (hashTypeIsExpired(o, expire_at) ||
-               (use_pattern && !stringmatchlen(pat, sdslen(pat), (char *)str, len, 0)))
+               (use_pattern && !stringmatchlen(pat, patlen, (char *)str, len, 0)))
             {
                 /* jump to the next key/val pair */
                 p = lpNext(lp, p);
@@ -1313,15 +1347,18 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             }
 
             /* add key object */
-            listAddNodeTail(keys, sdsnewlen(str, len));
+            addReplyBulkCBuffer(c, str, len);
+            cur_length++;
             /* add value object */
             if (!no_values) {
                 str = lpGet(val, &len, intbuf);
-                listAddNodeTail(keys, sdsnewlen(str, len));
+                addReplyBulkCBuffer(c, str, len);
+                cur_length++;
             }
             p = lpNext(lp, p);
         }
-        cursor = 0;
+        setDeferredArrayLen(c,replylen,cur_length);
+        return;
     } else {
         serverPanic("Not handled encoding in SCAN.");
     }
