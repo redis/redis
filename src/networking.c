@@ -931,7 +931,9 @@ void addReplyHumanLongDouble(client *c, long double d) {
     }
 }
 
-static inline void _addReplyLongLongSharedHdr(client *c, long long ll, char prefix, robj **shared_hdr) {
+static inline void _addReplyLongLongSharedHdr(client *c, long long ll, char prefix,
+                                              robj *shared_hdr[OBJ_SHARED_BULKHDR_LEN])
+{
     char buf[128];
     int len;
     const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
