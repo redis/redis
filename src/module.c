@@ -11230,8 +11230,8 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
                 p = lpNext(lp, p);
 
                 /* Skip expired fields */
-                if ((hashTypeIsExpired(o, vllExpire)) &&
-                    (!(key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)))
+                if ((!(key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
+                    (hashTypeIsExpired(o, vllExpire)))
                     continue;
             }
 
