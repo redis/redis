@@ -599,6 +599,20 @@ start_server {tags {"external:skip needs:debug"}} {
             wait_for_condition 30 10 { [r exists myhash2] == 0 } else { fail "`myhash2` should be expired" }
         }
 
+        test "Test RENAME hash that had HFEs but not during the rename ($type)" {
+            r del h1
+            r hset h1 f1 v1 f2 v2
+            r hpexpire h1 1 FIELDS 1 f1
+            after 20
+            r rename h1 h1_renamed
+            assert_equal [r exists h1] 0
+            assert_equal [r exists h1_renamed] 1
+            assert_equal [r hgetall h1_renamed] {f2 v2}
+            r hpexpire h1_renamed 1 FIELDS 1 f2
+            # Only active expire will delete the key
+            wait_for_condition 30 10 { [r exists h1_renamed] == 0 } else { fail "`h1_renamed` should be expired" }
+        }
+
         test "MOVE to another DB hash with fields to be expired ($type)" {
             r select 9
             r flushall
@@ -642,6 +656,20 @@ start_server {tags {"external:skip needs:debug"}} {
 
         } {} {singledb:skip}
 
+        test "Test COPY hash that had HFEs but not during the copy ($type)" {
+            r del h1
+            r hset h1 f1 v1 f2 v2
+            r hpexpire h1 1 FIELDS 1 f1
+            after 20
+            r COPY h1 h1_copy
+            assert_equal [r exists h1] 1
+            assert_equal [r exists h1_copy] 1
+            assert_equal [r hgetall h1_copy] {f2 v2}
+            r hpexpire h1_copy 1 FIELDS 1 f2
+            # Only active expire will delete the key
+            wait_for_condition 30 10 { [r exists h1_copy] == 0 } else { fail "`h1_copy` should be expired" }
+        }
+
         test "Test SWAPDB hash-fields to be expired ($type)" {
             r select 9
             r flushall
@@ -658,6 +686,29 @@ start_server {tags {"external:skip needs:debug"}} {
             r select 10
             assert_equal [r hget myhash field1] "value1"
             assert_equal [r dbsize] 1
+
+            # Eventually the field will be expired and the key will be deleted
+            wait_for_condition 20 10 { [r exists myhash] == 0 } else { fail "'myhash' should be expired" }
+        } {} {singledb:skip}
+
+        test "Test SWAPDB hash that had HFEs but not during the swap ($type)" {
+            r select 9
+            r flushall
+            r hset myhash f1 v1 f2 v2
+            r hpexpire myhash 1 NX FIELDS 1 f1
+            after 10
+
+            r swapdb 9 10
+
+            # Verify the key and its field doesn't exist in the source DB
+            assert_equal [r exists myhash] 0
+            assert_equal [r dbsize] 0
+
+            # Verify the key and its field exists in the target DB
+            r select 10
+            assert_equal [r hgetall myhash] {f2 v2}
+            assert_equal [r dbsize] 1
+            r hpexpire myhash 1 NX FIELDS 1 f2
 
             # Eventually the field will be expired and the key will be deleted
             wait_for_condition 20 10 { [r exists myhash] == 0 } else { fail "'myhash' should be expired" }
@@ -729,6 +780,20 @@ start_server {tags {"external:skip needs:debug"}} {
             r restore myhash 0 $encoded
             assert_equal [lsort [r hgetall myhash]] "1 2 3 a b c"
             assert_equal [r hexpiretime myhash FIELDS 3 a b c] {2524600800 2524600801 -1}
+        }
+
+        test {RESTORE hash that had in the past HFEs but not during the dump} {
+            r config set sanitize-dump-payload yes
+            r del myhash
+            r hmset myhash a 1 b 2 c 3
+            r hpexpire myhash 1 fields 1 a
+            after 10
+            set encoded [r dump myhash]
+            r del myhash
+            r restore myhash 0 $encoded
+            assert_equal [lsort [r hgetall myhash]] "2 3 b c"
+            r hpexpire myhash 1 fields 2 b c
+            wait_for_condition 30 10 { [r exists myhash] == 0 } else { fail "`myhash` should be expired" }
         }
 
         test {DUMP / RESTORE are able to serialize / unserialize a hash with TTL 0 for all fields} {
