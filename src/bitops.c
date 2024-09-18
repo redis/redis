@@ -18,6 +18,7 @@
  * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
 #if defined(__GNUC__) || defined(__clang__)
 
+__attribute__((target("popcnt")))
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
