@@ -188,7 +188,9 @@ struct hllhdr {
 #define HLL_RAW 255 /* Only used internally, never exposed. */
 #define HLL_MAX_ENCODING 1
 
-#if defined(__GNUC__) && __GNUC__ >= 7
+/* Detect whether we can enable AVX2 optimizations. 
+ * The conditions are picked loosely and can be adjusted as needed. */
+#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(__clang__) && __clang_major__ >= 7)
 #if defined(__x86_64__)
 #define HLL_ENABLE_AVX2
 #endif
@@ -1052,9 +1054,10 @@ int hllAdd(robj *o, unsigned char *ele, size_t elesize) {
 }
 
 #if defined(HLL_ENABLE_AVX2)
+/* Optimized for the default configuration: 16384 registers of 6 bits each. */
 __attribute__((__target__("avx2")))
 void hllMergeDense_AVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
-    const __m256i avx2_shuffle = _mm256_setr_epi8( //
+    const __m256i shuffle = _mm256_setr_epi8( //
         4, 5, 6, -1,                             //
         7, 8, 9, -1,                             //
         10, 11, 12, -1,                          //
@@ -1065,6 +1068,8 @@ void hllMergeDense_AVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
         9, 10, 11, -1                            //
     );
 
+    /* Merge the first 32 registers normally 
+     * as the AVX2 algorithm needs 4 padding bytes at the start */
     uint8_t val;
     for (int i = 0; i < 32; i++) {
         HLL_DENSE_GET_REGISTER(val, reg_dense, i);
@@ -1073,13 +1078,38 @@ void hllMergeDense_AVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
         }
     }
 
+    /* Dense to Raw:
+     *
+     * 4 registers in 3 bytes:
+     * {bbaaaaaa|ccccbbbb|ddddddcc}
+     * 
+     * LOAD 32 bytes (32 registers) per iteration:
+     * 4(padding) + 12(16 registers) + 12(16 registers) + 4(padding)
+     * {XXXX|AAAB|BBCC|CDDD|EEEF|FFGG|GHHH|XXXX}
+     * 
+     * SHUFFLE to:
+     * {AAA0|BBB0|CCC0|DDD0|EEE0|FFF0|GGG0|HHH0}
+     * {bbaaaaaa|ccccbbbb|ddddddcc|00000000} x8
+     *
+     * extract registers in each group with AND and SHIFT:
+     * {00aaaaaa|00000000|00000000|00000000} x8
+     * {00000000|00bbbbbb|00000000|00000000} x8
+     * {00000000|00000000|00cccccc|00000000} x8
+     * {00000000|00000000|00000000|00dddddd} x8
+     *
+     * merge the extracted registers with OR:
+     * {00aaaaaa|00bbbbbb|00cccccc|00dddddd} x8
+     *
+     * Finally, compute MAX(reg_raw, merged) and STORE it back to reg_raw
+     */
+
     const uint8_t *r = reg_dense + 24 - 4;
     const uint8_t *t = reg_raw + 32;
 
     for (int i = 0; i < HLL_REGISTERS / 32 - 2; ++i) {
         __m256i x0, x;
         x0 = _mm256_loadu_si256((__m256i *)r);
-        x = _mm256_shuffle_epi8(x0, avx2_shuffle);
+        x = _mm256_shuffle_epi8(x0, shuffle);
 
         __m256i a1, a2, a3, a4;
         a1 = _mm256_and_si256(x, _mm256_set1_epi32(0x0000003f));
@@ -1106,6 +1136,8 @@ void hllMergeDense_AVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
         t += 32;
     }
 
+    /* Merge the last 32 registers normally 
+     * as the AVX2 algorithm needs 4 padding bytes at the end */
     for (int i = HLL_REGISTERS - 32; i < HLL_REGISTERS; i++) {
         HLL_DENSE_GET_REGISTER(val, reg_dense, i);
         if (val > reg_raw[i]) {
@@ -1115,6 +1147,7 @@ void hllMergeDense_AVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
 }
 #endif
 
+/* Merge dense-encoded registers to raw registers array. */
 void hllMergeDense(uint8_t* reg_raw, const uint8_t* reg_dense) {
 #if defined (HLL_ENABLE_AVX2)
     if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
@@ -1180,6 +1213,7 @@ int hllMerge(uint8_t *max, robj *hll) {
 }
 
 #if defined(HLL_ENABLE_AVX2)
+/* Optimized for the default configuration: 16384 registers of 6 bits each. */
 __attribute__((__target__("avx2")))
 void hllDenseCompress_AVX2(uint8_t *reg_dense, const uint8_t *reg_raw) {
     const __m256i shuffle = _mm256_setr_epi8( //
@@ -1194,6 +1228,33 @@ void hllDenseCompress_AVX2(uint8_t *reg_dense, const uint8_t *reg_raw) {
         12, 13, 14,                           //
         -1, -1, -1, -1                //
     );
+
+    /* Raw to Dense:
+     * 
+     * LOAD 32 bytes (32 registers) per iteration:
+     * {00aaaaaa|00bbbbbb|00cccccc|00dddddd} x8
+     *
+     * move the registers to correct positions with AND and SHIFT:
+     * {00aaaaaa|00000000|00000000|00000000} x8
+     * {bb000000|0000bbbb|00000000|00000000} x8
+     * {00000000|cccc0000|000000cc|00000000} x8
+     * {00000000|00000000|dddddd00|00000000} x8
+     *
+     * merge the registers with OR:
+     * {bbaaaaaa|ccccbbbb|ddddddcc|00000000} x8
+     * {AAA0|BBB0|CCC0|DDD0|EEE0|FFF0|GGG0|HHH0}
+     *
+     * SHUFFLE to:
+     * {AAAB|BBCC|CDDD|0000|EEEF|FFGG|GHHH|0000}
+     *
+     * STORE the lower half and higher half respectively:
+     * AAABBBCCCDDD0000 
+     *             EEEFFFGGGHHH0000
+     * AAABBBCCCDDDEEEFFFGGGHHH0000
+     *
+     * Note that the last 4 bytes are padding bytes.
+     */
+
     const uint8_t *r = reg_raw;
     uint8_t *t = reg_dense;
 
@@ -1227,12 +1288,15 @@ void hllDenseCompress_AVX2(uint8_t *reg_dense, const uint8_t *reg_raw) {
         t += 24;
     }
 
+    /* Merge the last 32 registers normally 
+     * as the AVX2 algorithm needs 4 padding bytes at the end */
     for (int i = HLL_REGISTERS - 32; i < HLL_REGISTERS; i++) {
         HLL_DENSE_SET_REGISTER(reg_dense, i, reg_raw[i]);
     }
 }
 #endif
 
+/* Compress raw registers to dense representation. */
 void hllDenseCompress(uint8_t *reg_dense, const uint8_t *reg_raw) {
 #if defined (HLL_ENABLE_AVX2)
     if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
