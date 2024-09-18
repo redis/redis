@@ -1104,7 +1104,7 @@ void hllMergeDense_AVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
      */
 
     const uint8_t *r = reg_dense + 24 - 4;
-    const uint8_t *t = reg_raw + 32;
+    uint8_t *t = reg_raw + 32;
 
     for (int i = 0; i < HLL_REGISTERS / 32 - 2; ++i) {
         __m256i x0, x;
