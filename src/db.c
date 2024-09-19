@@ -24,6 +24,7 @@
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
+#define EXPIRE_ALLOW_ACCESS_EXPIRED 4
 
 /* Return values for expireIfNeeded */
 typedef enum {
@@ -94,6 +95,8 @@ robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry **deref) {
             expire_flags |= EXPIRE_FORCE_DELETE_EXPIRED;
         if (flags & LOOKUP_NOEXPIRE)
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
+        if (flags & LOOKUP_ACCESS_EXPIRED)
+            expire_flags |= EXPIRE_ALLOW_ACCESS_EXPIRED;
         if (expireIfNeeded(db, key, expire_flags) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
@@ -2051,14 +2054,17 @@ int keyIsExpired(redisDb *db, robj *key) {
  *
  * On the other hand, if you just want expiration check, but need to avoid
  * the actual key deletion and propagation of the deletion, use the
- * EXPIRE_AVOID_DELETE_EXPIRED flag.
+ * EXPIRE_AVOID_DELETE_EXPIRED flag. If also needed to read expired key (that
+ * hasn't being deleted yet) then use EXPIRE_ALLOW_ACCESS_EXPIRED.
  *
  * The return value of the function is KEY_VALID if the key is still valid.
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
  * or returns KEY_DELETED if the key is expired and deleted. */
 keyStatus expireIfNeeded(redisDb *db, robj *key, int flags) {
-    if (server.lazy_expire_disabled) return KEY_VALID;
-    if (!keyIsExpired(db,key)) return KEY_VALID;
+    if ((!keyIsExpired(db,key)) ||
+        (server.lazy_expire_disabled) ||
+        (flags & EXPIRE_ALLOW_ACCESS_EXPIRED))
+        return KEY_VALID;
 
     /* If we are running in the context of a replica, instead of
      * evicting the expired key from the database, we return ASAP:
