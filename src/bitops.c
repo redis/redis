@@ -29,16 +29,14 @@ long long redisPopcount(void *s, long count) {
         count--;
     }
 
-#define ITER { \
-        bits += __builtin_popcountll(*(uint64_t*)(p + i)); \
-        i += 8; \
-    }
-
-    long i = 0;
+    /* Count bits 32 bytes at a time */ */
     while (i + 4*8 <= count) {
-        ITER ITER ITER ITER
+        bits += __builtin_popcountll(*(uint64_t*)(p + i));
+        bits += __builtin_popcountll(*(uint64_t*)(p + i + 8));
+        bits += __builtin_popcountll(*(uint64_t*)(p + i + 16));
+        bits += __builtin_popcountll(*(uint64_t*)(p + i + 24));
+        i += 32;
     }
-#undef ITER
 
     /* Count the remaining bytes. */
     while (i < count) {
