@@ -124,7 +124,9 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
 
     dict *d = kvstoreGetDict(kvs, didx);
     size_t dsize = dictSize(d);
-    int non_empty_dicts_delta = dsize == 1? 1 : dsize == 0? -1 : 0;
+    /* Increment if dsize is 1 and delta is positive (first element inserted, dict becomes non-empty).
+     * Decrement if dsize is 0 (dict becomes empty). */
+    int non_empty_dicts_delta = (dsize == 1 && delta > 0) ? 1 : (dsize == 0) ? -1 : 0;
     kvs->non_empty_dicts += non_empty_dicts_delta;
 
     /* BIT does not need to be calculated when there's only one dict. */
@@ -1023,6 +1025,31 @@ int kvstoreTest(int argc, char **argv, int flags) {
         assert(listLength(kvs->rehashing));
         kvstoreDictLUTDefrag(kvs, defragLUTTestCallback);
         while (kvstoreIncrementallyRehash(kvs, 1000)) {}
+        kvstoreRelease(kvs);
+    }
+
+    TEST("Verify non-empty dict count is correctly updated") {
+        kvstore *kvs = kvstoreCreate(&KvstoreDictTestType, 2, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+        for (int idx = 0; idx < 4; idx++) {
+            for (i = 0; i < 16; i++) {
+                de = kvstoreDictAddRaw(kvs, idx, stringFromInt(i), NULL);
+                assert(de != NULL);
+                /* When the first element is inserted, the number of non-empty dictionaries is increased by 1. */
+                if (i == 0) assert(kvstoreNumNonEmptyDicts(kvs) == idx + 1);
+            }
+        }
+
+        /* Step by step, clear all dictionaries and ensure non-empty dict count is updated */
+        for (int idx = 0; idx < 4; idx++) {
+            kvs_di = kvstoreGetDictSafeIterator(kvs, idx);
+            while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+                key = dictGetKey(de);
+                assert(kvstoreDictDelete(kvs, idx, key) == DICT_OK);
+                /* When the dictionary is emptied, the number of non-empty dictionaries is reduced by 1. */
+                if (kvstoreDictSize(kvs, idx) == 0) assert(kvstoreNumNonEmptyDicts(kvs) == 3 - idx);
+            }
+            kvstoreReleaseDictIterator(kvs_di);
+        }
         kvstoreRelease(kvs);
     }
 

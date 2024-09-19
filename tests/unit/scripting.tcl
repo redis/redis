@@ -266,6 +266,7 @@ start_server {tags {"scripting"}} {
     } {0}
 
     test {EVAL - Scripts do not block on waitaof} {
+        r config set appendonly no
         run_script {return redis.pcall('waitaof','0','1','0')} 0
     } {0 0}
 
@@ -1875,6 +1876,27 @@ start_server {tags {"scripting needs:debug"}} {
 
     r debug set-disable-deny-scripts 0
 }
+
+start_server {tags {"scripting"}} {
+    test "Verify Lua performs GC correctly after script loading" {
+        set dummy_script "--[string repeat x 10]\nreturn "
+        set n 50000
+        for {set i 0} {$i < $n} {incr i} {
+            set script "$dummy_script[format "%06d" $i]"
+            if {$is_eval} {
+                r script load $script
+            } else {
+                r function load "#!lua name=test$i\nredis.register_function('test$i', function(KEYS, ARGV)\n $script \nend)"
+            }
+        }
+
+        if {$is_eval} {
+            assert_lessthan [s used_memory_lua] 17500000
+        } else {
+            assert_lessthan [s used_memory_vm_functions] 14500000
+        }
+    }
+}
 } ;# foreach is_eval
 
 
@@ -2047,6 +2069,14 @@ start_server {tags {"scripting"}} {
             } 1 x
 
             r replicaof [srv -1 host] [srv -1 port]
+
+            # To avoid -LOADING reply, wait until replica syncs with master.
+            wait_for_condition 50 100 {
+                [s master_link_status] eq {up}
+            } else {
+                fail "Replica did not sync in time."
+            }
+
             assert_error {EXECABORT Transaction discarded because of: READONLY *} {$rr exec}
             assert_error {READONLY You can't write against a read only replica. script: *} {$rr2 exec}
             $rr close

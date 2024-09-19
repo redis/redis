@@ -124,6 +124,10 @@ test "Verify health as fail for killed node" {
     }
 }
 
+test "Verify that other nodes can correctly output the new master's slots" {
+    assert_not_equal {} [dict get [get_node_info_from_shard [R 4 CLUSTER MYID] 8 "shard"] slots]
+}
+
 set primary_id 4
 set replica_id 0
 
@@ -133,7 +137,8 @@ test "Restarting primary node" {
 
 test "Instance #0 gets converted into a replica" {
     wait_for_condition 1000 50 {
-        [RI $replica_id role] eq {slave}
+        [RI $replica_id role] eq {slave} &&
+        [RI $replica_id master_link_status] eq {up}
     } else {
         fail "Old primary was not converted into replica"
     }

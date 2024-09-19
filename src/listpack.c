@@ -687,8 +687,8 @@ int lpGetIntegerValue(unsigned char *p, long long *lval) {
  * will be returned. 'user' is passed to this callback.
  * Skip 'skip' entries between every comparison.
  * Returns NULL when the field could not be found. */
-unsigned char *lpFindCb(unsigned char *lp, unsigned char *p,
-                        void *user, lpCmp cmp, unsigned int skip)
+static inline unsigned char *lpFindCbInternal(unsigned char *lp, unsigned char *p,
+                                              void *user, lpCmp cmp, unsigned int skip)
 {
     int skipcnt = 0;
     unsigned char *value;
@@ -707,7 +707,7 @@ unsigned char *lpFindCb(unsigned char *lp, unsigned char *p,
                 assert(p >= lp + LP_HDR_SIZE && p + entry_size < lp + lp_bytes);
             }
 
-            if (cmp(lp, p, user, value, ll) == 0)
+            if (unlikely(cmp(lp, p, user, value, ll) == 0))
                 return p;
 
             /* Reset skip count */
@@ -732,6 +732,12 @@ unsigned char *lpFindCb(unsigned char *lp, unsigned char *p,
     }
 
     return NULL;
+}
+
+unsigned char *lpFindCb(unsigned char *lp, unsigned char *p,
+                        void *user, lpCmp cmp, unsigned int skip)
+{
+    return lpFindCbInternal(lp, p, user, cmp, skip);
 }
 
 struct lpFindArg {
@@ -787,7 +793,7 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
         .s = s,
         .slen = slen
     };
-    return lpFindCb(lp, p, &arg, lpFindCmp, skip);
+    return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
 /* Insert, delete or replace the specified string element 'elestr' of length

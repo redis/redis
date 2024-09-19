@@ -3,10 +3,14 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
-
 
 #include "server.h"
 #include "cluster.h"
@@ -188,6 +192,9 @@ int canFeedReplicaReplBuffer(client *replica) {
 
     /* Don't feed replicas that are still waiting for BGSAVE to start. */
     if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START) return 0;
+
+    /* Don't feed replicas that are going to be closed ASAP. */
+    if (replica->flags & CLIENT_CLOSE_ASAP) return 0;
 
     return 1;
 }
@@ -503,6 +510,10 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
 void showLatestBacklog(void) {
     if (server.repl_backlog == NULL) return;
     if (listLength(server.repl_buffer_blocks) == 0) return;
+    if (server.hide_user_data_from_log) {
+        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging backlog content to avoid spilling PII.");
+        return;
+    }
 
     size_t dumplen = 256;
     if (server.repl_backlog->histlen < (long long)dumplen)
@@ -532,16 +543,6 @@ void showLatestBacklog(void) {
  * to our sub-slaves. */
 #include <ctype.h>
 void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
-    /* Debugging: this is handy to see the stream sent from master
-     * to slaves. Disabled with if(0). */
-    if (0) {
-        printf("%zu:",buflen);
-        for (size_t j = 0; j < buflen; j++) {
-            printf("%c", isprint(buf[j]) ? buf[j] : '.');
-        }
-        printf("\n");
-    }
-
     /* There must be replication backlog if having attached slaves. */
     if (listLength(server.slaves)) serverAssert(server.repl_backlog != NULL);
     if (server.repl_backlog) {
@@ -1569,10 +1570,13 @@ void rdbPipeReadHandler(struct aeEventLoop *eventLoop, int fd, void *clientData,
 
         if (stillAlive == 0) {
             serverLog(LL_WARNING,"Diskless rdb transfer, last replica dropped, killing fork child.");
+            /* Avoid deleting events after killRDBChild as it may trigger new bgsaves for other replicas. */
+            aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE); 
             killRDBChild();
+            break;
         }
-        /*  Remove the pipe read handler if at least one write handler was set. */
-        if (server.rdb_pipe_numconns_writing || stillAlive == 0) {
+        /* Remove the pipe read handler if at least one write handler was set. */
+        else if (server.rdb_pipe_numconns_writing) {
             aeDeleteFileEvent(server.el, server.rdb_pipe_read, AE_READABLE);
             break;
         }
@@ -1595,6 +1599,9 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = ln->value;
+
+        /* We can get here via freeClient()->killRDBChild()->checkChildrenDone(). skip disconnected slaves. */
+        if (!slave->conn) continue;
 
         if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
@@ -1731,12 +1738,24 @@ void replicationSendNewlineToMaster(void) {
 }
 
 /* Callback used by emptyData() while flushing away old data to load
- * the new dataset received by the master and by discardTempDb()
- * after loading succeeded or failed. */
+ * the new dataset received by the master or to clear partial db if loading
+ * fails. */
 void replicationEmptyDbCallback(dict *d) {
     UNUSED(d);
     if (server.repl_state == REPL_STATE_TRANSFER)
         replicationSendNewlineToMaster();
+
+    processEventsWhileBlocked();
+}
+
+/* Function to flush old db or the partial db on error. */
+static void rdbLoadEmptyDbFunc(void) {
+    serverAssert(server.loading);
+
+    serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
+    int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
+                                                        EMPTYDB_NO_FLAGS;
+    emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
 }
 
 /* Once we have a link with the master and the synchronization was
@@ -1760,6 +1779,9 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
      * connection. */
     server.master->flags |= CLIENT_MASTER;
 
+    /* Allocate a private query buffer for the master client instead of using the reusable query buffer.
+     * This is done because the master's query buffer data needs to be preserved for my sub-replicas to use. */
+    server.master->querybuf = sdsempty();
     server.master->authenticated = 1;
     server.master->reploff = server.master_initial_offset;
     server.master->read_reploff = server.master->reploff;
@@ -1771,27 +1793,6 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
     if (server.master->reploff == -1)
         server.master->flags |= CLIENT_PRE_PSYNC;
     if (dbid != -1) selectDb(server.master,dbid);
-}
-
-/* This function will try to re-enable the AOF file after the
- * master-replica synchronization: if it fails after multiple attempts
- * the replica cannot be considered reliable and exists with an
- * error. */
-void restartAOFAfterSYNC(void) {
-    unsigned int tries, max_tries = 10;
-    for (tries = 0; tries < max_tries; ++tries) {
-        if (startAppendOnly() == C_OK) break;
-        serverLog(LL_WARNING,
-            "Failed enabling the AOF after successful master synchronization! "
-            "Trying it again in one second.");
-        sleep(1);
-    }
-    if (tries == max_tries) {
-        serverLog(LL_WARNING,
-            "FATAL: this replica instance finished the synchronization with "
-            "its master, but the AOF can't be turned on. Exiting now.");
-        exit(1);
-    }
 }
 
 static int useDisklessLoad(void) {
@@ -1826,7 +1827,7 @@ redisDb *disklessLoadInitTempDb(void) {
 /* Helper function for readSyncBulkPayload() to discard our tempDb
  * when the loading succeeded or failed. */
 void disklessLoadDiscardTempDb(redisDb *tempDb) {
-    discardTempDb(tempDb, replicationEmptyDbCallback);
+    discardTempDb(tempDb);
 }
 
 /* If we know we got an entirely different data set from our master
@@ -2052,9 +2053,6 @@ void readSyncBulkPayload(connection *conn) {
                               NULL);
     } else {
         replicationAttachToNewMaster();
-
-        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
-        emptyData(-1,empty_db_flags,replicationEmptyDbCallback);
     }
 
     /* Before loading the DB into memory we need to delete the readable
@@ -2088,13 +2086,22 @@ void readSyncBulkPayload(connection *conn) {
             functionsLibCtxClear(functions_lib_ctx);
         }
 
+        loadingSetFlags(NULL, server.repl_transfer_size, asyncLoading);
+        if (server.repl_diskless_load != REPL_DISKLESS_LOAD_SWAPDB) {
+            serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
+            /* Note that inside loadingSetFlags(), server.loading is set.
+             * replicationEmptyDbCallback() may yield back to event-loop to
+             * reply -LOADING. */
+            emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
+        }
+        loadingFireEvent(RDBFLAGS_REPLICATION);
+
         rioInitWithConn(&rdb,conn,server.repl_transfer_size);
 
         /* Put the socket in blocking mode to simplify RDB transfer.
          * We'll restore it when the RDB is received. */
         connBlock(conn);
         connRecvTimeout(conn, server.repl_timeout*1000);
-        startLoading(server.repl_transfer_size, RDBFLAGS_REPLICATION, asyncLoading);
 
         int loadingFailed = 0;
         rdbLoadingCtx loadingCtx = { .dbarray = dbarray, .functions_lib_ctx = functions_lib_ctx };
@@ -2115,7 +2122,6 @@ void readSyncBulkPayload(connection *conn) {
         }
 
         if (loadingFailed) {
-            stopLoading(0);
             cancelReplicationHandshake(1);
             rioFreeConn(&rdb, NULL);
 
@@ -2132,6 +2138,11 @@ void readSyncBulkPayload(connection *conn) {
                 /* Remove the half-loaded data in case we started with an empty replica. */
                 emptyData(-1,empty_db_flags,replicationEmptyDbCallback);
             }
+
+            /* Note that replicationEmptyDbCallback() may yield back to event
+             * loop to reply -LOADING if flushing the db takes a long time. So,
+             * stopLoading() must be called after emptyData() above. */
+            stopLoading(0);
 
             /* Note that there's no point in restarting the AOF on SYNC
              * failure, it'll be restarted when sync succeeds or the replica
@@ -2208,7 +2219,7 @@ void readSyncBulkPayload(connection *conn) {
             return;
         }
 
-        if (rdbLoad(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION) != RDB_OK) {
+        if (rdbLoadWithEmptyFunc(server.rdb_filename,&rsi,RDBFLAGS_REPLICATION,rdbLoadEmptyDbFunc) != RDB_OK) {
             serverLog(LL_WARNING,
                 "Failed trying to load the MASTER synchronization "
                 "DB from disk, check server logs.");
@@ -2219,9 +2230,6 @@ void readSyncBulkPayload(connection *conn) {
                                     "disabled");
                 bg_unlink(server.rdb_filename);
             }
-
-            /* If disk-based RDB loading fails, remove the half-loaded dataset. */
-            emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
 
             /* Note that there's no point in restarting the AOF on sync failure,
                it'll be restarted when sync succeeds or replica promoted. */
@@ -2276,7 +2284,10 @@ void readSyncBulkPayload(connection *conn) {
     /* Restart the AOF subsystem now that we finished the sync. This
      * will trigger an AOF rewrite, and when done will start appending
      * to the new file. */
-    if (server.aof_enabled) restartAOFAfterSYNC();
+    if (server.aof_enabled) {
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Starting AOF after a successful sync");
+        startAppendOnlyWithRetry();
+    }
     return;
 
 error:
@@ -3093,7 +3104,10 @@ void replicationUnsetMaster(void) {
 
     /* Restart the AOF subsystem in case we shut it down during a sync when
      * we were still a slave. */
-    if (server.aof_enabled && server.aof_state == AOF_OFF) restartAOFAfterSYNC();
+    if (server.aof_enabled && server.aof_state == AOF_OFF) {
+        serverLog(LL_NOTICE, "Restarting AOF after becoming master");
+        startAppendOnlyWithRetry();
+    }
 }
 
 /* This function is called when the slave lose the connection with the

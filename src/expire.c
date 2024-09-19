@@ -94,7 +94,8 @@ int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
 #define ACTIVE_EXPIRE_CYCLE_SLOW_TIME_PERC 25 /* Max % of CPU to use. */
 #define ACTIVE_EXPIRE_CYCLE_ACCEPTABLE_STALE 10 /* % of stale keys after which
                                                    we do extra efforts. */
-#define HFE_ACTIVE_EXPIRE_CYCLE_FIELDS 1000
+
+#define HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC 10000
 
 /* Data used by the expire dict scan callback. */
 typedef struct {
@@ -151,8 +152,6 @@ static inline void activeExpireHashFieldCycle(int type) {
     static uint64_t activeExpirySequence = 0;
     /* Threshold for adjusting maxToExpire */
     const uint32_t EXPIRED_FIELDS_TH = 1000000;
-    /* Maximum number of fields to actively expire in a single call */
-    uint32_t maxToExpire = HFE_ACTIVE_EXPIRE_CYCLE_FIELDS;
 
     redisDb *db = server.db + currentDb;
 
@@ -162,6 +161,9 @@ static inline void activeExpireHashFieldCycle(int type) {
         currentDb = (currentDb + 1) % server.dbnum;
         return;
     }
+
+    /* Maximum number of fields to actively expire on a single call */
+    uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;
 
     /* If running for a while and didn't manage to active-expire all expired fields of
      * currentDb (i.e. activeExpirySequence becomes significant) then adjust maxToExpire */
@@ -463,12 +465,10 @@ void expireSlaveKeys(void) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
                 dictEntry *expire = dbFindExpires(db, keyname);
-                int expired = 0;
 
                 if (expire &&
                     activeExpireCycleTryExpire(server.db+dbid,expire,start))
                 {
-                    expired = 1;
                     /* Propagate the DEL (writable replicas do not propagate anything to other replicas,
                      * but they might propagate to AOF) and trigger module hooks. */
                     postExecutionUnitOperations();
@@ -478,7 +478,7 @@ void expireSlaveKeys(void) {
                  * corresponding bit in the new bitmap we set as value.
                  * At the end of the loop if the bitmap is zero, it means we
                  * no longer need to keep track of this key. */
-                if (expire && !expired) {
+                else if (expire) {
                     noexpire++;
                     new_dbids |= (uint64_t)1 << dbid;
                 }

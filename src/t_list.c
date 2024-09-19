@@ -383,12 +383,12 @@ int listTypeReplaceAtIndex(robj *o, int index, robj *value) {
 }
 
 /* Compare the given object with the entry at the current position. */
-int listTypeEqual(listTypeEntry *entry, robj *o) {
+int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len) {
     serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        return quicklistCompare(&entry->entry,o->ptr,sdslen(o->ptr));
+        return quicklistCompare(&entry->entry,o->ptr,object_len);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
-        return lpCompare(entry->lpe,o->ptr,sdslen(o->ptr));
+        return lpCompare(entry->lpe,o->ptr,object_len);
     } else {
         serverPanic("Unknown list encoding");
     }
@@ -538,8 +538,9 @@ void linsertCommand(client *c) {
 
     /* Seek pivot from head to tail */
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
+    const size_t object_len = sdslen(c->argv[3]->ptr);
     while (listTypeNext(iter,&entry)) {
-        if (listTypeEqual(&entry,c->argv[3])) {
+        if (listTypeEqual(&entry,c->argv[3],object_len)) {
             listTypeInsert(&entry,c->argv[4],where);
             inserted = 1;
             break;
@@ -999,8 +1000,9 @@ void lposCommand(client *c) {
     listTypeEntry entry;
     long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1, arraylen = 0;
+    const size_t ele_len = sdslen(ele->ptr);
     while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
-        if (listTypeEqual(&entry,ele)) {
+        if (listTypeEqual(&entry,ele,ele_len)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
             if (matches >= rank) {
@@ -1052,8 +1054,9 @@ void lremCommand(client *c) {
     }
 
     listTypeEntry entry;
+    const size_t object_len = sdslen(c->argv[3]->ptr);
     while (listTypeNext(li,&entry)) {
-        if (listTypeEqual(&entry,obj)) {
+        if (listTypeEqual(&entry,obj,object_len)) {
             listTypeDelete(li, &entry);
             server.dirty++;
             removed++;

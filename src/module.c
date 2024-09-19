@@ -262,6 +262,10 @@ typedef struct RedisModuleBlockedClient {
     monotime background_timer; /* Timer tracking the start of background work */
     uint64_t background_duration; /* Current command background time duration.
                                      Used for measuring latency of blocking cmds */
+    int blocked_on_keys_explicit_unblock; /* Set to 1 only in the case of an explicit RM_Unblock on
+                                           * a client that is blocked on keys. In this case we will
+                                           * call the timeout call back from within
+                                           * moduleHandleBlockedClients which runs from the main thread */
 } RedisModuleBlockedClient;
 
 /* This is a list of Module Auth Contexts. Each time a Module registers a callback, a new ctx is
@@ -2283,6 +2287,8 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->options = 0;
     module->info_cb = 0;
     module->defrag_cb = 0;
+    module->defrag_start_cb = 0;
+    module->defrag_end_cb = 0;
     module->loadmod = NULL;
     module->num_commands_with_acl_categories = 0;
     module->onload = 1;
@@ -3524,9 +3530,7 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  *
  * The replicated commands are always wrapped into the MULTI/EXEC that
  * contains all the commands replicated in a given module command
- * execution. However the commands replicated with RedisModule_Call()
- * are the first items, the ones replicated with RedisModule_Replicate()
- * will all follow before the EXEC.
+ * execution, in the order they were executed.
  *
  * Modules should try to use one interface or the other.
  *
@@ -3548,9 +3552,8 @@ int RM_ReplyWithLongDouble(RedisModuleCtx *ctx, long double ld) {
  * the callback, and will propagate all the commands wrapped in a MULTI/EXEC
  * transaction. However when calling this function from a threaded safe context
  * that can live an undefined amount of time, and can be locked/unlocked in
- * at will, the behavior is different: MULTI/EXEC wrapper is not emitted
- * and the command specified is inserted in the AOF and replication stream
- * immediately.
+ * at will, it is important to note that this API is not thread-safe and
+ * must be executed while holding the GIL.
  *
  * #### Return value
  *
@@ -3588,14 +3591,17 @@ int RM_Replicate(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...)
 }
 
 /* This function will replicate the command exactly as it was invoked
- * by the client. Note that this function will not wrap the command into
- * a MULTI/EXEC stanza, so it should not be mixed with other replication
- * commands.
+ * by the client. Note that the replicated commands are always wrapped
+ * into the MULTI/EXEC that contains all the commands replicated in a
+ * given module command execution, in the order they were executed.
  *
  * Basically this form of replication is useful when you want to propagate
  * the command to the slaves and AOF file exactly as it was called, since
  * the command can just be re-executed to deterministically re-create the
  * new state starting from the old one.
+ *
+ * It is important to note that this API is not thread-safe and
+ * must be executed while holding the GIL.
  *
  * The function always returns REDISMODULE_OK. */
 int RM_ReplicateVerbatim(RedisModuleCtx *ctx) {
@@ -4270,7 +4276,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
 void RM_ResetDataset(int restart_aof, int async) {
     if (restart_aof && server.aof_state != AOF_OFF) stopAppendOnly();
     flushAllDataAndResetRDB((async? EMPTYDB_ASYNC: EMPTYDB_NO_FLAGS) | EMPTYDB_NOFUNCTIONS);
-    if (server.aof_enabled && restart_aof) restartAOFAfterSYNC();
+    if (server.aof_enabled && restart_aof) startAppendOnlyWithRetry();
 }
 
 /* Returns the number of keys in the current db. */
@@ -6515,7 +6521,8 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         /* Duplicate relevant flags in the module client. */
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,&error_code) !=
+        const uint64_t cmd_flags = getCommandFlags(c);
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,cmd_flags,&error_code) !=
                            getMyClusterNode())
         {
             sds msg = NULL;
@@ -7781,7 +7788,7 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     int islua = scriptIsRunning();
     int ismulti = server.in_exec;
 
-    c->bstate.module_blocked_handle = zmalloc(sizeof(RedisModuleBlockedClient));
+    c->bstate.module_blocked_handle = zcalloc(sizeof(RedisModuleBlockedClient));
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
     ctx->module->blocked_clients++;
 
@@ -8260,7 +8267,7 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
          * argument, but better to be safe than sorry. */
         if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
         if (bc->unblocked) return REDISMODULE_OK;
-        if (bc->client) moduleBlockedClientTimedOut(bc->client, 1);
+        if (bc->client) bc->blocked_on_keys_explicit_unblock = 1;
     }
     moduleUnblockClientByHandle(bc,privdata);
     return REDISMODULE_OK;
@@ -8338,6 +8345,10 @@ void moduleHandleBlockedClients(void) {
             reply_us = elapsedUs(replyTimer);
             moduleFreeContext(&ctx);
         }
+        if (c && bc->blocked_on_keys_explicit_unblock) {
+            serverAssert(bc->blocked_on_keys);
+            moduleBlockedClientTimedOut(c);
+        }
         /* Hold onto the blocked client if module auth is in progress. The reply callback is invoked
          * when the client is reprocessed. */
         if (c && clientHasModuleAuthInProgress(c)) {
@@ -8358,11 +8369,12 @@ void moduleHandleBlockedClients(void) {
         /* Update stats now that we've finished the blocking operation.
          * This needs to be out of the reply callback above given that a
          * module might not define any callback and still do blocking ops.
+         *
+         * If the module is blocked on keys updateStatsOnUnblock will be
+         * called from moduleUnblockClientOnKey
          */
-        if (c && !clientHasModuleAuthInProgress(c)) {
-            int had_errors = c->deferred_reply_errors ? !!listLength(c->deferred_reply_errors) :
-                (server.stat_total_error_replies != prev_error_replies);
-            updateStatsOnUnblock(c, bc->background_duration, reply_us, had_errors);
+        if (c && !clientHasModuleAuthInProgress(c) && !bc->blocked_on_keys) {
+            updateStatsOnUnblock(c, bc->background_duration, reply_us, server.stat_total_error_replies != prev_error_replies);
         }
 
         if (c != NULL) {
@@ -8417,31 +8429,19 @@ int moduleBlockedClientMayTimeout(client *c) {
  * does not need to do any cleanup. Eventually the module will call the
  * API to unblock the client and the memory will be released. 
  *
- * If this function is called from a module, we handle the timeout callback
- * and the update of the unblock status in a thread-safe manner to avoid race
- * conditions with the main thread.
- * If this function is called from the main thread, we must handle the unblocking
+ * This function should only be called from the main thread, we must handle the unblocking
  * of the client synchronously. This ensures that we can reply to the client before
  * resetClient() is called. */
-void moduleBlockedClientTimedOut(client *c, int from_module) {
+void moduleBlockedClientTimedOut(client *c) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
 
-    /* Protect against re-processing: don't serve clients that are already
-     * in the unblocking list for any reason (including RM_UnblockClient()
-     * explicit call). See #6798. */
-    if (bc->unblocked) return;
-
     RedisModuleCtx ctx;
-    int flags = REDISMODULE_CTX_BLOCKED_TIMEOUT;
-    if (from_module) flags |= REDISMODULE_CTX_THREAD_SAFE;
-    moduleCreateContext(&ctx, bc->module, flags);
+    moduleCreateContext(&ctx, bc->module, REDISMODULE_CTX_BLOCKED_TIMEOUT);
     ctx.client = bc->client;
     ctx.blocked_client = bc;
     ctx.blocked_privdata = bc->privdata;
 
-    long long prev_error_replies;
-    if (!from_module)
-        prev_error_replies = server.stat_total_error_replies;
+    long long prev_error_replies = server.stat_total_error_replies;
 
     if (bc->timeout_callback) {
         /* In theory, the user should always pass the timeout handler as an
@@ -8451,8 +8451,7 @@ void moduleBlockedClientTimedOut(client *c, int from_module) {
 
     moduleFreeContext(&ctx);
 
-    if (!from_module)
-        updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
+    updateStatsOnUnblock(c, bc->background_duration, 0, server.stat_total_error_replies != prev_error_replies);
 
     /* For timeout events, we do not want to call the disconnect callback,
      * because the blocked client will be automatically disconnected in
@@ -12466,10 +12465,15 @@ void modulePipeReadable(aeEventLoop *el, int fd, void *privdata, int mask) {
 /* Helper function for the MODULE and HELLO command: send the list of the
  * loaded modules to the client. */
 void addReplyLoadedModules(client *c) {
+    const long ln = dictSize(modules);
+    /* In case no module is load we avoid iterator creation */
+    addReplyArrayLen(c,ln);
+    if (ln == 0) {
+        return;
+    }
     dictIterator *di = dictGetIterator(modules);
     dictEntry *de;
 
-    addReplyArrayLen(c,dictSize(modules));
     while ((de = dictNext(di)) != NULL) {
         sds name = dictGetKey(de);
         struct RedisModule *module = dictGetVal(de);
@@ -13073,7 +13077,7 @@ int RM_RdbLoad(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) {
     int ret = rdbLoad(stream->data.filename,NULL,RDBFLAGS_NONE);
 
     if (server.current_client) unprotectClient(server.current_client);
-    if (server.aof_state != AOF_OFF) startAppendOnly();
+    if (server.aof_enabled) startAppendOnlyWithRetry();
 
     if (ret != RDB_OK) {
         errno = (ret == RDB_NOT_EXIST) ? ENOENT : EIO;
@@ -13454,6 +13458,16 @@ int RM_RegisterDefragFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
     return REDISMODULE_OK;
 }
 
+/* Register a defrag callbacks that will be called when defrag operation starts and ends.
+ *
+ * The callbacks are the same as `RM_RegisterDefragFunc` but the user
+ * can also assume the callbacks are called when the defrag operation starts and ends. */
+int RM_RegisterDefragCallbacks(RedisModuleCtx *ctx, RedisModuleDefragFunc start, RedisModuleDefragFunc end) {
+    ctx->module->defrag_start_cb = start;
+    ctx->module->defrag_end_cb = end;
+    return REDISMODULE_OK;
+}
+
 /* When the data type defrag callback iterates complex structures, this
  * function should be called periodically. A zero (false) return
  * indicates the callback may continue its work. A non-zero value (true)
@@ -13530,6 +13544,30 @@ int RM_DefragCursorGet(RedisModuleDefragCtx *ctx, unsigned long *cursor) {
 void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
     UNUSED(ctx);
     return activeDefragAlloc(ptr);
+}
+
+/* Allocate memory for defrag purposes
+ *
+ * On the common cases user simply want to reallocate a pointer with a single
+ * owner. For such usecase RM_DefragAlloc is enough. But on some usecases the user
+ * might want to replace a pointer with multiple owners in different keys.
+ * In such case, an in place replacement can not work because the other key still
+ * keep a pointer to the old value. 
+ * 
+ * RM_DefragAllocRaw and RM_DefragFreeRaw allows to control when the memory
+ * for defrag purposes will be allocated and when it will be freed,
+ * allow to support more complex defrag usecases. */
+void *RM_DefragAllocRaw(RedisModuleDefragCtx *ctx, size_t size) {
+    UNUSED(ctx);
+    return activeDefragAllocRaw(size);
+}
+
+/* Free memory for defrag purposes
+ * 
+ * See RM_DefragAllocRaw for more information. */
+void RM_DefragFreeRaw(RedisModuleDefragCtx *ctx, void *ptr) {
+    UNUSED(ctx);
+    activeDefragFreeRaw(ptr);
 }
 
 /* Defrag a RedisModuleString previously allocated by RM_Alloc, RM_Calloc, etc.
@@ -13613,17 +13651,32 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
 
 /* Call registered module API defrag functions */
 void moduleDefragGlobals(void) {
-    dictIterator *di = dictGetIterator(modules);
-    dictEntry *de;
+    dictForEach(modules, struct RedisModule, module, 
+        if (module->defrag_cb) {
+            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            module->defrag_cb(&defrag_ctx);
+        }
+    );
+}
 
-    while ((de = dictNext(di)) != NULL) {
-        struct RedisModule *module = dictGetVal(de);
-        if (!module->defrag_cb)
-            continue;
-        RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
-        module->defrag_cb(&defrag_ctx);
-    }
-    dictReleaseIterator(di);
+/* Call registered module API defrag start functions */
+void moduleDefragStart(void) {
+    dictForEach(modules, struct RedisModule, module, 
+        if (module->defrag_start_cb) {
+            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            module->defrag_start_cb(&defrag_ctx);
+        }
+    );
+}
+
+/* Call registered module API defrag end functions */
+void moduleDefragEnd(void) {
+    dictForEach(modules, struct RedisModule, module, 
+        if (module->defrag_end_cb) {
+            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            module->defrag_end_cb(&defrag_ctx);
+        }
+    );
 }
 
 /* Returns the name of the key currently being processed.
@@ -13983,7 +14036,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCurrentCommandName);
     REGISTER_API(GetTypeMethodVersion);
     REGISTER_API(RegisterDefragFunc);
+    REGISTER_API(RegisterDefragCallbacks);
     REGISTER_API(DefragAlloc);
+    REGISTER_API(DefragAllocRaw);
+    REGISTER_API(DefragFreeRaw);
     REGISTER_API(DefragRedisModuleString);
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);

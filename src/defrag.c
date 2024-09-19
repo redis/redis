@@ -54,6 +54,17 @@ void* activeDefragAlloc(void *ptr) {
     return newptr;
 }
 
+/* Raw memory allocation for defrag, avoid using tcache. */
+void *activeDefragAllocRaw(size_t size) {
+    return zmalloc_no_tcache(size);
+}
+
+/* Raw memory free for defrag, avoid using tcache. */
+void activeDefragFreeRaw(void *ptr) {
+    zfree_no_tcache(ptr);
+    server.stat_active_defrag_hits++;
+}
+
 /*Defrag helper for sds strings
  *
  * returns NULL in case the allocation wasn't moved.
@@ -751,7 +762,7 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
     }
 
     /* Try to defrag robj and / or string value. */
-    if (unlikely(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob) != EB_EXPIRE_TIME_INVALID)) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
         /* Update its reference in the ebucket while defragging it. */
         newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob,
                              (ebDefragFunction *)activeDefragStringOb);
@@ -1078,6 +1089,7 @@ void activeDefragCycle(void) {
             slot = -1;
             defrag_later_item_in_progress = 0;
             db = NULL;
+            moduleDefragEnd();
             goto update_metrics;
         }
         return;
@@ -1119,6 +1131,10 @@ void activeDefragCycle(void) {
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
+            if (current_db == -1) {
+                moduleDefragStart();
+            }
+
             /* Move on to next database, and stop if we reached the last one. */
             if (++current_db >= server.dbnum) {
                 /* defrag other items not part of the db / keys */
@@ -1139,6 +1155,8 @@ void activeDefragCycle(void) {
                 defrag_later_item_in_progress = 0;
                 db = NULL;
                 server.active_defrag_running = 0;
+
+                moduleDefragEnd();
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
                 if (server.active_defrag_running != 0 && ustime() < endtime)
@@ -1257,6 +1275,16 @@ void activeDefragCycle(void) {
 void *activeDefragAlloc(void *ptr) {
     UNUSED(ptr);
     return NULL;
+}
+
+void *activeDefragAllocRaw(size_t size) {
+    /* fallback to regular allocation */
+    return zmalloc(size);
+}
+
+void activeDefragFreeRaw(void *ptr) {
+    /* fallback to regular free */
+    zfree(ptr);
 }
 
 robj *activeDefragStringOb(robj *ob) {

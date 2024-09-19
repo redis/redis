@@ -32,6 +32,14 @@
 #define redis_stat stat
 #endif
 
+#ifndef CACHE_LINE_SIZE
+#if defined(__aarch64__) && defined(__APPLE__)
+#define CACHE_LINE_SIZE 128
+#else
+#define CACHE_LINE_SIZE 64
+#endif
+#endif
+
 /* Test for proc filesystem */
 #ifdef __linux__
 #define HAVE_PROC_STAT 1

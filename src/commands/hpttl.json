@@ -14,6 +14,9 @@
         "acl_categories": [
             "HASH"
         ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
         "key_specs": [
             {
                 "flags": [

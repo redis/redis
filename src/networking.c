@@ -2,8 +2,13 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
@@ -21,7 +26,11 @@ static void setProtocolError(const char *errstr, client *c);
 static void pauseClientsByClient(mstime_t end, int isPauseClientAll);
 int postponeClientRead(client *c);
 char *getClientSockname(client *c);
+static inline int clientTypeIsSlave(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
+__thread sds thread_reusable_qb = NULL;
+__thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
+                                         * buffer due to nested command execution. */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -139,7 +148,7 @@ client *createClient(connection *conn) {
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
     c->qb_pos = 0;
-    c->querybuf = sdsempty();
+    c->querybuf = NULL;
     c->querybuf_peak = 0;
     c->reqtype = 0;
     c->argc = 0;
@@ -386,7 +395,7 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
      * replication link that caused a reply to be generated we'll simply disconnect it.
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
-    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+    if (unlikely(clientTypeIsSlave(c))) {
         sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
         logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command '%s'",
                                         cmdname ? cmdname : "<unknown>");
@@ -728,7 +737,7 @@ void *addReplyDeferredLen(client *c) {
      * replication link that caused a reply to be generated we'll simply disconnect it.
      * Note this is the simplest way to check a command added a response. Replication links are used to write data but
      * not for responses, so we should normally never get here on a replica client. */
-    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+    if (unlikely(clientTypeIsSlave(c))) {
         sds cmdname = c->lastcmd ? c->lastcmd->fullname : NULL;
         logInvalidUseAndFreeClientAsync(c, "Replica generated a reply to command '%s'",
                                         cmdname ? cmdname : "<unknown>");
@@ -922,9 +931,36 @@ void addReplyHumanLongDouble(client *c, long double d) {
     }
 }
 
+static inline void _addReplyLongLongSharedHdr(client *c, long long ll, char prefix,
+                                              robj *shared_hdr[OBJ_SHARED_BULKHDR_LEN])
+{
+    char buf[128];
+    int len;
+    const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
+
+    if (opt_hdr) {
+        _addReplyToBufferOrList(c, shared_hdr[ll]->ptr, OBJ_SHARED_HDR_STRLEN(ll));
+        return;
+    }
+
+    buf[0] = prefix;
+    len = ll2string(buf + 1, sizeof(buf) - 1, ll);
+    buf[len + 1] = '\r';
+    buf[len + 2] = '\n';
+    _addReplyToBufferOrList(c, buf, len + 3);
+}
+
+static inline void _addReplyLongLongBulk(client *c, long long ll) {
+    _addReplyLongLongSharedHdr(c, ll, '$', shared.bulkhdr);
+}
+
+static inline void _addReplyLongLongMBulk(client *c, long long ll) {
+    _addReplyLongLongSharedHdr(c, ll, '*', shared.mbulkhdr);
+}
+
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
-void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
+static void _addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     char buf[128];
     int len;
 
@@ -934,42 +970,53 @@ void addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
     const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
     const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);
     if (prefix == '*' && opt_hdr) {
-        addReplyProto(c,shared.mbulkhdr[ll]->ptr,hdr_len);
+        _addReplyToBufferOrList(c, shared.mbulkhdr[ll]->ptr, hdr_len);
         return;
     } else if (prefix == '$' && opt_hdr) {
-        addReplyProto(c,shared.bulkhdr[ll]->ptr,hdr_len);
+        _addReplyToBufferOrList(c, shared.bulkhdr[ll]->ptr, hdr_len);
         return;
     } else if (prefix == '%' && opt_hdr) {
-        addReplyProto(c,shared.maphdr[ll]->ptr,hdr_len);
+        _addReplyToBufferOrList(c, shared.maphdr[ll]->ptr, hdr_len);
         return;
     } else if (prefix == '~' && opt_hdr) {
-        addReplyProto(c,shared.sethdr[ll]->ptr,hdr_len);
+        _addReplyToBufferOrList(c, shared.sethdr[ll]->ptr, hdr_len);
         return;
     }
 
     buf[0] = prefix;
-    len = ll2string(buf+1,sizeof(buf)-1,ll);
-    buf[len+1] = '\r';
-    buf[len+2] = '\n';
-    addReplyProto(c,buf,len+3);
+    len = ll2string(buf + 1, sizeof(buf) - 1, ll);
+    buf[len + 1] = '\r';
+    buf[len + 2] = '\n';
+    _addReplyToBufferOrList(c, buf, len + 3);
 }
 
 void addReplyLongLong(client *c, long long ll) {
     if (ll == 0)
         addReply(c,shared.czero);
     else if (ll == 1)
-        addReply(c,shared.cone);
-    else
-        addReplyLongLongWithPrefix(c,ll,':');
+        addReply(c, shared.cone);
+    else {
+        if (prepareClientToWrite(c) != C_OK) return;
+        _addReplyLongLongWithPrefix(c, ll, ':');
+    }
+}
+
+void addReplyLongLongFromStr(client *c, robj *str) {
+    addReplyProto(c,":",1);
+    addReply(c,str);
+    addReplyProto(c,"\r\n",2);
 }
 
 void addReplyAggregateLen(client *c, long length, int prefix) {
     serverAssert(length >= 0);
-    addReplyLongLongWithPrefix(c,length,prefix);
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyLongLongWithPrefix(c, length, prefix);
 }
 
 void addReplyArrayLen(client *c, long length) {
-    addReplyAggregateLen(c,length,'*');
+    serverAssert(length >= 0);
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyLongLongMBulk(c, length);
 }
 
 void addReplyMapLen(client *c, long length) {
@@ -1025,8 +1072,8 @@ void addReplyNullArray(client *c) {
 /* Create the length prefix of a bulk reply, example: $2234 */
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len = stringObjectLen(obj);
-
-    addReplyLongLongWithPrefix(c,len,'$');
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyLongLongBulk(c, len);
 }
 
 /* Add a Redis Object as a bulk reply */
@@ -1038,16 +1085,22 @@ void addReplyBulk(client *c, robj *obj) {
 
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
-    addReplyLongLongWithPrefix(c,len,'$');
-    addReplyProto(c,p,len);
-    addReplyProto(c,"\r\n",2);
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyLongLongBulk(c, len);
+    _addReplyToBufferOrList(c, p, len);
+    _addReplyToBufferOrList(c, "\r\n", 2);
 }
 
 /* Add sds to reply (takes ownership of sds and frees it) */
-void addReplyBulkSds(client *c, sds s)  {
-    addReplyLongLongWithPrefix(c,sdslen(s),'$');
-    addReplySds(c,s);
-    addReplyProto(c,"\r\n",2);
+void addReplyBulkSds(client *c, sds s) {
+    if (prepareClientToWrite(c) != C_OK) {
+        sdsfree(s);
+        return;
+    }
+    _addReplyLongLongWithPrefix(c, sdslen(s), '$');
+    _addReplyToBufferOrList(c, s, sdslen(s));
+    sdsfree(s);
+    _addReplyToBufferOrList(c, "\r\n", 2);
 }
 
 /* Set sds to a deferred reply (for symmetry with addReplyBulkSds it also frees the sds) */
@@ -1228,7 +1281,7 @@ void copyReplicaOutputBuffer(client *dst, client *src) {
 /* Return true if the specified client has pending reply buffers to write to
  * the socket. */
 int clientHasPendingReplies(client *c) {
-    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+    if (unlikely(clientTypeIsSlave(c))) {
         /* Replicas use global shared replication buffer instead of
          * private output buffer. */
         serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
@@ -1561,6 +1614,28 @@ void deauthenticateAndCloseClient(client *c) {
     }
 }
 
+/* Resets the reusable query buffer used by the given client.
+ * If any data remained in the buffer, the client will take ownership of the buffer
+ * and a new empty buffer will be allocated for the reusable buffer. */
+static void resetReusableQueryBuf(client *c) {
+    serverAssert(c->flags & CLIENT_REUSABLE_QUERYBUFFER);
+    if (c->querybuf != thread_reusable_qb || sdslen(c->querybuf) > c->qb_pos) {
+        /* If querybuf has been reallocated or there is still data left,
+         * let the client take ownership of the reusable buffer. */
+        thread_reusable_qb = NULL;
+    } else {
+        /* It is safe to dereference and reuse the reusable query buffer. */
+        c->querybuf = NULL;
+        c->qb_pos = 0;
+        sdsclear(thread_reusable_qb);
+    } 
+
+    /* Mark that the client is no longer using the reusable query buffer
+     * and indicate that it is no longer used by any client. */
+    c->flags &= ~CLIENT_REUSABLE_QUERYBUFFER;
+    thread_reusable_qb_used = 0;
+}
+
 void freeClient(client *c) {
     listNode *ln;
 
@@ -1609,12 +1684,14 @@ void freeClient(client *c) {
     }
 
     /* Log link disconnection with slave */
-    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+    if (clientTypeIsSlave(c)) {
         serverLog(LL_NOTICE,"Connection with replica %s lost.",
             replicationGetSlaveName(c));
     }
 
     /* Free the query buffer */
+    if (c->flags & CLIENT_REUSABLE_QUERYBUFFER)
+        resetReusableQueryBuf(c);
     sdsfree(c->querybuf);
     c->querybuf = NULL;
 
@@ -1689,7 +1766,7 @@ void freeClient(client *c) {
         /* We need to remember the time when we started to have zero
          * attached slaves, as after some time we'll free the replication
          * backlog. */
-        if (getClientType(c) == CLIENT_TYPE_SLAVE && listLength(server.slaves) == 0)
+        if (clientTypeIsSlave(c) && listLength(server.slaves) == 0)
             server.repl_no_slaves_since = server.unixtime;
         refreshGoodSlavesCount();
         /* Fire the replica change modules event. */
@@ -1733,6 +1810,9 @@ void freeClientAsync(client *c) {
      * idle. */
     if (c->flags & CLIENT_CLOSE_ASAP || c->flags & CLIENT_SCRIPT) return;
     c->flags |= CLIENT_CLOSE_ASAP;
+    /* Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the
+     * replication backlog from been trimmed. */
+    if (c->flags & CLIENT_SLAVE) freeReplicaReferencedReplBuffer(c);
     if (server.io_threads_num == 1) {
         /* no need to bother with locking if there's just one thread (the main thread) */
         listAddNodeTail(server.clients_to_close,c);
@@ -1899,7 +1979,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
  * to client. */
 int _writeToClient(client *c, ssize_t *nwritten) {
     *nwritten = 0;
-    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+    if (unlikely(clientTypeIsSlave(c))) {
         serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
 
         replBufBlock *o = listNodeValue(c->ref_repl_buf_node);
@@ -1986,7 +2066,7 @@ int writeToClient(client *c, int handler_installed) {
             !(c->flags & CLIENT_SLAVE)) break;
     }
 
-    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+    if (unlikely(clientTypeIsSlave(c))) {
         atomicIncr(server.stat_net_repl_output_bytes, totwritten);
     } else {
         atomicIncr(server.stat_net_output_bytes, totwritten);
@@ -2190,7 +2270,7 @@ int processInlineBuffer(client *c) {
     /* Newline from slaves can be used to refresh the last ACK time.
      * This is useful for a slave to ping back while loading a big
      * RDB file. */
-    if (querylen == 0 && getClientType(c) == CLIENT_TYPE_SLAVE)
+    if (querylen == 0 && clientTypeIsSlave(c))
         c->repl_ack_time = server.unixtime;
 
     /* Masters should never send us inline protocol to run actual
@@ -2657,6 +2737,11 @@ void readQueryFromClient(connection *conn) {
     if (c->reqtype == PROTO_REQ_MULTIBULK && c->multibulklen && c->bulklen != -1
         && c->bulklen >= PROTO_MBULK_BIG_ARG)
     {
+        /* For big argv, the client always uses its private query buffer.
+         * Using the reusable query buffer would eventually expand it beyond 32k,
+         * causing the client to take ownership of the reusable query buffer. */
+        if (!c->querybuf) c->querybuf = sdsempty();
+
         ssize_t remaining = (size_t)(c->bulklen+2)-(sdslen(c->querybuf)-c->qb_pos);
         big_arg = 1;
 
@@ -2668,6 +2753,26 @@ void readQueryFromClient(connection *conn) {
          * but doesn't need align to the next arg, we can read more data. */
         if (c->flags & CLIENT_MASTER && readlen < PROTO_IOBUF_LEN)
             readlen = PROTO_IOBUF_LEN;
+    } else if (c->querybuf == NULL) {
+        if (unlikely(thread_reusable_qb_used)) {
+            /* The reusable query buffer is already used by another client,
+             * switch to using the client's private query buffer. This only
+             * occurs when commands are executed nested via processEventsWhileBlocked(). */
+            c->querybuf = sdsnewlen(NULL, PROTO_IOBUF_LEN);
+            sdsclear(c->querybuf);
+        } else {
+            /* Create the reusable query buffer if it doesn't exist. */
+            if (!thread_reusable_qb) {
+                thread_reusable_qb = sdsnewlen(NULL, PROTO_IOBUF_LEN);
+                sdsclear(thread_reusable_qb);
+            }
+
+            /* Assign the reusable query buffer to the client and mark it as in use. */
+            serverAssert(sdslen(thread_reusable_qb) == 0);
+            c->querybuf = thread_reusable_qb;
+            c->flags |= CLIENT_REUSABLE_QUERYBUFFER;
+            thread_reusable_qb_used = 1;
+        }
     }
 
     qblen = sdslen(c->querybuf);
@@ -2691,7 +2796,7 @@ void readQueryFromClient(connection *conn) {
     nread = connRead(c->conn, c->querybuf+qblen, readlen);
     if (nread == -1) {
         if (connGetState(conn) == CONN_STATE_CONNECTED) {
-            return;
+            goto done;
         } else {
             serverLog(LL_VERBOSE, "Reading from client: %s",connGetLastError(c->conn));
             freeClientAsync(c);
@@ -2743,6 +2848,10 @@ void readQueryFromClient(connection *conn) {
          c = NULL;
 
 done:
+    if (c && (c->flags & CLIENT_REUSABLE_QUERYBUFFER)) {
+        serverAssert(c->qb_pos == 0); /* Ensure the client's query buffer is trimmed in processInputBuffer */
+        resetReusableQueryBuf(c);
+    }
     beforeNextClient(c);
 }
 
@@ -2858,8 +2967,8 @@ sds catClientInfoString(sds s, client *client) {
         " ssub=%i", (int) dictSize(client->pubsubshard_channels),
         " multi=%i", (client->flags & CLIENT_MULTI) ? client->mstate.count : -1,
         " watch=%i", (int) listLength(client->watched_keys),
-        " qbuf=%U", (unsigned long long) sdslen(client->querybuf),
-        " qbuf-free=%U", (unsigned long long) sdsavail(client->querybuf),
+        " qbuf=%U", client->querybuf ? (unsigned long long) sdslen(client->querybuf) : 0,
+        " qbuf-free=%U", client->querybuf ? (unsigned long long) sdsavail(client->querybuf) : 0,
         " argv-mem=%U", (unsigned long long) client->argv_len_sum,
         " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
         " rbs=%U", (unsigned long long) client->buf_usable_size,
@@ -3645,29 +3754,30 @@ void helloCommand(client *c) {
     if (ver) c->resp = ver;
     addReplyMapLen(c,6 + !server.sentinel_mode);
 
-    addReplyBulkCString(c,"server");
-    addReplyBulkCString(c,"redis");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"server");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"redis");
 
-    addReplyBulkCString(c,"version");
-    addReplyBulkCString(c,REDIS_VERSION);
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"version");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,REDIS_VERSION);
 
-    addReplyBulkCString(c,"proto");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"proto");
+
     addReplyLongLong(c,c->resp);
 
-    addReplyBulkCString(c,"id");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"id");
     addReplyLongLong(c,c->id);
 
-    addReplyBulkCString(c,"mode");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"mode");
     if (server.sentinel_mode) addReplyBulkCString(c,"sentinel");
     else if (server.cluster_enabled) addReplyBulkCString(c,"cluster");
     else addReplyBulkCString(c,"standalone");
 
     if (!server.sentinel_mode) {
-        addReplyBulkCString(c,"role");
+        ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"role");
         addReplyBulkCString(c,server.masterhost ? "replica" : "master");
     }
 
-    addReplyBulkCString(c,"modules");
+    ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c,"modules");
     addReplyLoadedModules(c);
 }
 
@@ -3817,7 +3927,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
  * the caller wishes. The main usage of this function currently is
  * enforcing the client output length limits. */
 size_t getClientOutputBufferMemoryUsage(client *c) {
-    if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+    if (unlikely(clientTypeIsSlave(c))) {
         size_t repl_buf_size = 0;
         size_t repl_node_num = 0;
         size_t repl_node_size = sizeof(listNode) + sizeof(replBufBlock);
@@ -3839,9 +3949,10 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
  * the client output buffer memory usage portion of the total. */
 size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     size_t mem = getClientOutputBufferMemoryUsage(c);
+
     if (output_buffer_mem_usage != NULL)
         *output_buffer_mem_usage = mem;
-    mem += sdsZmallocSize(c->querybuf);
+    mem += c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     mem += zmalloc_size(c);
     mem += c->buf_usable_size;
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
@@ -3878,6 +3989,12 @@ int getClientType(client *c) {
         return CLIENT_TYPE_SLAVE;
     if (c->flags & CLIENT_PUBSUB) return CLIENT_TYPE_PUBSUB;
     return CLIENT_TYPE_NORMAL;
+}
+
+static inline int clientTypeIsSlave(client *c) {
+    if (unlikely((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)))
+        return 1;
+    return 0;
 }
 
 int getClientTypeByName(char *name) {
@@ -3969,7 +4086,7 @@ int closeClientOnOutputBufferLimitReached(client *c, int async) {
     serverAssert(c->reply_bytes < SIZE_MAX-(1024*64));
     /* Note that c->reply_bytes is irrelevant for replica clients
      * (they use the global repl buffers). */
-    if ((c->reply_bytes == 0 && getClientType(c) != CLIENT_TYPE_SLAVE) ||
+    if ((c->reply_bytes == 0 && !clientTypeIsSlave(c)) ||
         c->flags & CLIENT_CLOSE_ASAP) return 0;
     if (checkClientOutputBufferLimits(c)) {
         sds client = catClientInfoString(sdsempty(),c);
@@ -4196,13 +4313,6 @@ void processEventsWhileBlocked(void) {
  * ========================================================================== */
 
 #define IO_THREADS_MAX_NUM 128
-#ifndef CACHE_LINE_SIZE
-#if defined(__aarch64__) && defined(__APPLE__)
-#define CACHE_LINE_SIZE 128
-#else
-#define CACHE_LINE_SIZE 64
-#endif
-#endif
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) threads_pending {
     redisAtomic unsigned long value;
@@ -4406,7 +4516,7 @@ int handleClientsWithPendingWritesUsingThreads(void) {
          * buffer, to guarantee data accessing thread safe, we must put all
          * replicas client into io_threads_list[0] i.e. main thread handles
          * sending the output buffer of all replicas. */
-        if (getClientType(c) == CLIENT_TYPE_SLAVE) {
+        if (unlikely(clientTypeIsSlave(c))) {
             listAddNodeTail(io_threads_list[0],c);
             continue;
         }

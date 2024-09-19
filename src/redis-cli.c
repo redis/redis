@@ -3264,6 +3264,9 @@ static int issueCommandRepeat(int argc, char **argv, long repeat) {
                 config.cluster_reissue_command = 0;
                 return REDIS_ERR;
             }
+            /* Reset dbnum after reconnecting so we can re-select the previous db in cliSelect(). */
+            config.dbnum = 0;
+            cliSelect();
         }
         config.cluster_reissue_command = 0;
         if (config.cluster_send_asking) {
@@ -3691,6 +3694,8 @@ static int evalMode(int argc, char **argv) {
         /* Call it */
         int eval_ldb = config.eval_ldb; /* Save it, may be reverted. */
         retval = issueCommand(argc+3-got_comma, argv2);
+        for (j = 0; j < argc+3-got_comma; j++) sdsfree(argv2[j]);
+        free(argv2);
         if (eval_ldb) {
             if (!config.eval_ldb) {
                 /* If the debugging session ended immediately, there was an
@@ -6076,6 +6081,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
                 if (!clusterManagerCheckRedisReply(n, reply, NULL)) {
                     fixed = -1;
                     if (reply) freeReplyObject(reply);
+                    if (slot_nodes) listRelease(slot_nodes);
                     goto cleanup;
                 }
                 assert(reply->type == REDIS_REPLY_ARRAY);

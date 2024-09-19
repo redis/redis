@@ -1,7 +1,7 @@
 This README is just a fast *quick start* document. You can find more detailed documentation at [redis.io](https://redis.io).
 
 What is Redis?
---------------
+---
 
 Redis is often referred to as a *data structures* server. What this means is that Redis provides access to mutable data structures via a set of commands, which are sent using a *server-client* model with TCP sockets and a simple protocol. So different processes can query and modify the same data structures in a shared way.
 
@@ -16,12 +16,21 @@ Another good example is to think of Redis as a more complex version of memcached
 If you want to know more, this is a list of selected starting points:
 
 * Introduction to Redis data types. https://redis.io/topics/data-types-intro
-* Try Redis directly inside your browser. https://try.redis.io
 * The full list of Redis commands. https://redis.io/commands
 * There is much more inside the official Redis documentation. https://redis.io/documentation
 
+What is Redis Community Edition?
+---
+
+Redis OSS was renamed Redis Community Edition (CE) with the v7.4 release.
+
+Redis Ltd. also offers [Redis Software](https://redis.io/enterprise/), a self-managed software with additional compliance, reliability, and resiliency for enterprise scaling,
+and [Redis Cloud](https://redis.io/cloud/), a fully managed service integrated with Google Cloud, Azure, and AWS for production-ready apps.
+
+Read more about the differences between Redis Community Edition and Redis [here](https://redis.io/comparisons/oss-vs-enterprise/).
+
 Building Redis
---------------
+---
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
 We support big endian and little endian architectures, and both 32 bit
@@ -65,7 +74,7 @@ installed):
 
 
 Fixing build problems with dependencies or cached build options
----------
+---
 
 Redis has some dependencies which are included in the `deps` directory.
 `make` does not automatically rebuild dependencies even if something in
@@ -85,7 +94,7 @@ those options are cached indefinitely until you issue a `make distclean`
 command.
 
 Fixing problems building 32 bit binaries
----------
+---
 
 If after building Redis with a 32 bit target you need to rebuild it
 with a 64 bit target, or the other way around, you need to perform a
@@ -99,7 +108,7 @@ the following steps:
   `make CFLAGS="-m32 -march=native" LDFLAGS="-m32"`
 
 Allocator
----------
+---
 
 Selecting a non-default memory allocator when building Redis is done by setting
 the `MALLOC` environment variable. Redis is compiled and linked against libc
@@ -116,7 +125,7 @@ To compile against jemalloc on Mac OS X systems, use:
     % make MALLOC=jemalloc
 
 Monotonic clock
----------------
+---
 
 By default, Redis will build using the POSIX clock_gettime function as the
 monotonic clock source.  On most modern systems, the internal processor clock
@@ -128,7 +137,7 @@ To build with support for the processor's internal instruction clock, use:
     % make CFLAGS="-DUSE_PROCESSOR_CLOCK"
 
 Verbose build
--------------
+---
 
 Redis will build with a user-friendly colorized output by default.
 If you want to see a more verbose output, use the following:
@@ -136,7 +145,7 @@ If you want to see a more verbose output, use the following:
     % make V=1
 
 Running Redis
--------------
+---
 
 To run Redis with the default configuration, just type:
 
@@ -158,14 +167,14 @@ as options using the command line. Examples:
 All the options in redis.conf are also supported as options using the command
 line, with exactly the same name.
 
-Running Redis with TLS:
-------------------
+Running Redis with TLS
+---
 
 Please consult the [TLS.md](TLS.md) file for more information on
 how to use Redis with TLS.
 
 Playing with Redis
-------------------
+---
 
 You can use redis-cli to play with Redis. Start a redis-server instance,
 then in another terminal try the following:
@@ -187,7 +196,7 @@ then in another terminal try the following:
 You can find the list of all the available commands at https://redis.io/commands.
 
 Installing Redis
------------------
+---
 
 In order to install Redis binaries into /usr/local/bin, just use:
 
@@ -215,15 +224,15 @@ You'll be able to stop and start Redis using the script named
 `/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
 
 Code contributions
------------------
+---
 
 By contributing code to the Redis project in any form, including sending a pull request via GitHub,
 a code fragment or patch via private email or public discussion groups, you agree to release your
 code under the terms of the [Redis Software Grant and Contributor License Agreement][1]. Redis software
 contains contributions to the original Redis core project, which are owned by their contributors and
 licensed under the 3BSD license. Any copy of that license in this repository applies only to those
-contributions. Redis releases all Redis project versions from 7.4.x and thereafter under the
-RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis source distribution.
+contributions. Redis releases all Redis Community Edition versions from 7.4.x and thereafter under the
+RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis Community Edition source distribution.
 
 Please see the [CONTRIBUTING.md][1] file in this source distribution for more information. For
 security bugs and vulnerabilities, please see [SECURITY.md][3].
@@ -233,7 +242,7 @@ security bugs and vulnerabilities, please see [SECURITY.md][3].
 [3]: https://github.com/redis/redis/blob/unstable/SECURITY.md
 
 Redis Trademarks
-----------------
+---
 
 The purpose of a trademark is to identify the goods and services of a person or company without
 causing confusion. As the registered owner of its name and logo, Redis accepts certain limited uses
@@ -243,7 +252,7 @@ Guidelines available at: https://redis.com/legal/trademark-guidelines/.
 Redis internals
 ===
 
-If you are reading this README you are likely in front of a Github page
+If you are reading this README you are likely in front of a GitHub page
 or you just untarred the Redis distribution tar ball. In both the cases
 you are basically one step away from the source code, so here we explain
 the Redis source code layout, what is in each file as a general idea, the
@@ -259,7 +268,7 @@ Source code layout
 
 The Redis root directory just contains this README, the Makefile which
 calls the real Makefile inside the `src` directory and an example
-configuration for Redis and Sentinel. You can find a few shell
+configuration for Redis and Redis Sentinel. You can find a few shell
 scripts that are used in order to execute the Redis, Redis Cluster and
 Redis Sentinel unit tests, which are implemented inside the `tests`
 directory.

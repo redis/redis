@@ -33,6 +33,34 @@ struct clusterState;
 #define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
 
 /* ---------------------- API exported outside cluster.c -------------------- */
+
+/* We have 16384 hash slots. The hash slot of a given key is obtained
+ * as the least significant 14 bits of the crc16 of the key.
+ *
+ * However, if the key contains the {...} pattern, only the part between
+ * { and } is hashed. This may be useful in the future to force certain
+ * keys to be in the same node (assuming no resharding is in progress). */
+static inline unsigned int keyHashSlot(char *key, int keylen) {
+    int s, e; /* start-end indexes of { and } */
+
+    for (s = 0; s < keylen; s++)
+        if (key[s] == '{') break;
+
+    /* No '{' ? Hash the whole key. This is the base case. */
+    if (likely(s == keylen)) return crc16(key,keylen) & 0x3FFF;
+
+    /* '{' found? Check if we have the corresponding '}'. */
+    for (e = s+1; e < keylen; e++)
+        if (key[e] == '}') break;
+
+    /* No '}' or nothing between {} ? Hash the whole key. */
+    if (e == keylen || e == s+1) return crc16(key,keylen) & 0x3FFF;
+
+    /* If we are here there is both a { and a } on its right. Hash
+     * what is in the middle between { and }. */
+    return crc16(key+s+1,e-s-1) & 0x3FFF;
+}
+
 /* functions requiring mechanism specific implementations */
 void clusterInit(void);
 void clusterInitLast(void);
@@ -69,7 +97,7 @@ int clusterManualFailoverTimeLimit(void);
 void clusterCommandSlots(client * c);
 void clusterCommandMyId(client *c);
 void clusterCommandMyShardId(client *c);
-void clusterCommandShards(client *c);
+
 sds clusterGenNodeDescription(client *c, clusterNode *node, int tls_primary);
 
 int clusterNodeCoversSlot(clusterNode *n, int slot);
@@ -105,14 +133,32 @@ long long clusterNodeReplOffset(clusterNode *node);
 clusterNode *clusterLookupNode(const char *name, int length);
 
 /* functions with shared implementations */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, int *ask);
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, uint64_t cmd_flags, int *error_code);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 void migrateCloseTimedoutSockets(void);
-unsigned int keyHashSlot(char *key, int keylen);
 int patternHashSlot(char *pattern, int length);
 int isValidAuxString(char *s, unsigned int length);
 void migrateCommand(client *c);
 void clusterCommand(client *c);
 ConnectionType *connTypeOfCluster(void);
+
+void clusterGenNodesSlotsInfo(int filter);
+void clusterFreeNodesSlotsInfo(clusterNode *n);
+int clusterNodeSlotInfoCount(clusterNode *n);
+uint16_t clusterNodeSlotInfoEntry(clusterNode *n, int idx);
+int clusterNodeHasSlotInfo(clusterNode *n);
+
+int clusterGetShardCount(void);
+void *clusterGetShardIterator(void);
+void *clusterNextShardHandle(void *shard_iterator);
+void clusterFreeShardIterator(void *shard_iterator);
+int clusterGetShardNodeCount(void *shard);
+void *clusterShardHandleGetNodeIterator(void *shard);
+clusterNode *clusterShardNodeIteratorNext(void *node_iterator);
+void clusterShardNodeIteratorFree(void *node_iterator);
+clusterNode *clusterShardNodeFirst(void *shard);
+
+int clusterNodeTcpPort(clusterNode *node);
+int clusterNodeTlsPort(clusterNode *node);
 #endif /* __CLUSTER_H */

@@ -217,6 +217,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
 
     send_data_packet $::test_server_fd testing $name
 
+    set failed false
     set test_start_time [clock milliseconds]
     if {[catch {set retval [uplevel 1 $code]} error]} {
         set assertion [string match "assertion:*" $error]
@@ -231,6 +232,7 @@ proc test {name code {okpattern undefined} {tags {}}} {
             lappend ::tests_failed $details
 
             incr ::num_failed
+            set failed true
             send_data_packet $::test_server_fd err [join $details "\n"]
 
             if {$::stop_on_failure} {
@@ -253,7 +255,14 @@ proc test {name code {okpattern undefined} {tags {}}} {
             lappend ::tests_failed $details
 
             incr ::num_failed
+            set failed true
             send_data_packet $::test_server_fd err [join $details "\n"]
+        }
+    }
+
+    if {$::dump_logs && $failed} {
+        foreach srv $::servers {
+            dump_server_log $srv
         }
     }
 

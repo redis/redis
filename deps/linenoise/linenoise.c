@@ -296,7 +296,7 @@ static int isUnsupportedTerm(void) {
     return 0;
 }
 
-/* Raw mode: 1960 magic shit. */
+/* Raw mode: 1960's magic. */
 static int enableRawMode(int fd) {
     if (getenv("FAKETTY_WITH_PROMPT") != NULL) {
         return 0;

@@ -293,7 +293,6 @@ proc findKeyWithType {r type} {
 
 proc createComplexDataset {r ops {opt {}}} {
     set useexpire [expr {[lsearch -exact $opt useexpire] != -1}]
-    # TODO: Remove usehexpire on next commit, when RDB will support replication
     set usehexpire [expr {[lsearch -exact $opt usehexpire] != -1}]
 
     if {[lsearch -exact $opt usetag] != -1} {
@@ -486,8 +485,9 @@ proc find_available_port {start count} {
             set port $start
         }
         set fd1 -1
-        if {[catch {set fd1 [socket -server 127.0.0.1 $port]}] ||
-            [catch {set fd2 [socket -server 127.0.0.1 [expr $port+10000]]}]} {
+        proc dummy_accept {chan addr port} {}
+        if {[catch {set fd1 [socket -server dummy_accept -myaddr 127.0.0.1 $port]}] ||
+            [catch {set fd2 [socket -server dummy_accept -myaddr 127.0.0.1 [expr $port+10000]]}]} {
             if {$fd1 != -1} {
                 close $fd1
             }
@@ -698,7 +698,7 @@ proc latencyrstat_percentiles {cmd r} {
     }
 }
 
-proc generate_fuzzy_traffic_on_key {key duration} {
+proc generate_fuzzy_traffic_on_key {key type duration} {
     # Commands per type, blocking commands removed
     # TODO: extract these from COMMAND DOCS, and improve to include other types
     set string_commands {APPEND BITCOUNT BITFIELD BITOP BITPOS DECR DECRBY GET GETBIT GETRANGE GETSET INCR INCRBY INCRBYFLOAT MGET MSET MSETNX PSETEX SET SETBIT SETEX SETNX SETRANGE LCS STRLEN}
@@ -709,7 +709,6 @@ proc generate_fuzzy_traffic_on_key {key duration} {
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
     set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
 
-    set type [r type $key]
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
     set sent {}
@@ -1155,8 +1154,7 @@ proc system_backtrace_supported {} {
 
     # libmusl does not support backtrace. Also return 0 on
     # static binaries (ldd exit code 1) where we can't detect libmusl
-    catch {
-        set ldd [exec ldd src/redis-server]
+    if {![catch {set ldd [exec ldd src/redis-server]}]} {
         if {![string match {*libc.*musl*} $ldd]} {
             return 1
         }

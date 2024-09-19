@@ -51,6 +51,26 @@ start_server {tags {"introspection"}} {
         assert_morethan $newlru $oldlru
     } {} {needs:debug}
 
+    test {Operations in no-touch mode TOUCH alters the last access time of a key} {
+        r set foo bar
+        r client no-touch on
+        set oldlru [getlru foo]
+        after 1100
+        r touch foo
+        set newlru [getlru foo]
+        assert_morethan $newlru $oldlru
+    } {} {needs:debug}
+
+    test {Operations in no-touch mode TOUCH from script alters the last access time of a key} {
+        r set foo bar
+        r client no-touch on
+        set oldlru [getlru foo]
+        after 1100
+        assert_equal {1} [r eval "return redis.call('touch', 'foo')" 0]
+        set newlru [getlru foo]
+        assert_morethan $newlru $oldlru
+    } {} {needs:debug}
+
     test {TOUCH returns the number of existing keys specified} {
         r flushdb
         r set key1{t} 1
@@ -131,6 +151,10 @@ start_server {tags {"introspection"}} {
         assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags mset k1 v1 k2 v2]
         assert_equal {{k1 {RW access delete}} {k2 {RW insert}}} [r command getkeysandflags LMOVE k1 k2 left right]
         assert_equal {{k1 {RO access}} {k2 {OW update}}} [r command getkeysandflags sort k1 store k2]
+    }
+
+    test {COMMAND GETKEYSANDFLAGS invalid args} {
+        assert_error "ERR Invalid arguments*" {r command getkeysandflags ZINTERSTORE zz 1443677133621497600 asdf}
     }
 
     test {COMMAND GETKEYS MEMORY USAGE} {

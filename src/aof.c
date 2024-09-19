@@ -997,6 +997,29 @@ int startAppendOnly(void) {
     return C_OK;
 }
 
+void startAppendOnlyWithRetry(void) {
+    unsigned int tries, max_tries = 10;
+    for (tries = 0; tries < max_tries; ++tries) {
+        if (startAppendOnly() == C_OK)
+            break;
+        serverLog(LL_WARNING, "Failed to enable AOF! Trying it again in one second.");
+        sleep(1);
+    }
+    if (tries == max_tries) {
+        serverLog(LL_WARNING, "FATAL: AOF can't be turned on. Exiting now.");
+        exit(1);
+    }
+}
+
+/* Called after "appendonly" config is changed. */
+void applyAppendOnlyConfig(void) {
+    if (!server.aof_enabled && server.aof_state != AOF_OFF) {
+        stopAppendOnly();
+    } else if (server.aof_enabled && server.aof_state == AOF_OFF) {
+        startAppendOnlyWithRetry();
+    }
+}
+
 /* This is a wrapper to the write syscall in order to retry on short writes
  * or if the syscall gets interrupted. It could look strange that we retry
  * on short writes given that we are writing to a block device: normally if
@@ -1968,7 +1991,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     hashTypeIterator *hi;
     long long count = 0, items = hashTypeLength(o, 0);
 
-    int isHFE = hashTypeGetMinExpire(o) != EB_EXPIRE_TIME_INVALID;
+    int isHFE = hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
     hi = hashTypeInitIterator(o);
 
     if (!isHFE) {
