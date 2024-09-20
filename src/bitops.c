@@ -29,7 +29,7 @@ long long redisPopcount(void *s, long count) {
         count--;
     }
 
-    /* Count bits 32 bytes at a time */ */
+    /* Count bits 32 bytes at a time */
     while (i + 4*8 <= count) {
         bits += __builtin_popcountll(*(uint64_t*)(p + i));
         bits += __builtin_popcountll(*(uint64_t*)(p + i + 8));
