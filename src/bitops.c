@@ -104,18 +104,13 @@ long long redisPopcountSw(void *s, long count) {
     return bits;
 }
 
-long long redisPopcount(void *s, long count)
-{
+long long redisPopcount(void *s, long count) {
 #if defined(__x86_64__)
-    if(likely(__builtin_cpu_supports("popcnt")))
-    {
-        return redisPopcountHw(s, count); //use popcnt instruction
-    }
+    if (likely(__builtin_cpu_supports("popcnt")))
+        return redisPopcountHw(s, count); /* use popcnt instruction */
     else
 #endif
-    {
-        return redisPopcountSw(s, count); //generic implementation
-    }
+        return redisPopcountSw(s, count); /* generic implementation */
 }
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
