@@ -3,6 +3,7 @@
 #include "atomicvar.h"
 #include "functions.h"
 #include "cluster.h"
+#include "ebuckets.h"
 
 static redisAtomic size_t lazyfree_objects = 0;
 static redisAtomic size_t lazyfreed_objects = 0;
@@ -22,12 +23,21 @@ void lazyfreeFreeObject(void *args[]) {
 void lazyfreeFreeDatabase(void *args[]) {
     kvstore *da1 = args[0];
     kvstore *da2 = args[1];
-
+    ebuckets oldHfe = args[2];
+    ebDestroy(&oldHfe, &hashExpireBucketsType, NULL);
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
     kvstoreRelease(da2);
     atomicDecr(lazyfree_objects,numkeys);
     atomicIncr(lazyfreed_objects,numkeys);
+
+#if defined(USE_JEMALLOC)
+    /* Only clear the current thread cache.
+     * Ignore the return call since this will fail if the tcache is disabled. */
+    je_mallctl("thread.tcache.flush", NULL, NULL, NULL, 0);
+
+    jemalloc_purge();
+#endif
 }
 
 /* Release the key tracking table. */
@@ -62,8 +72,11 @@ void lazyFreeLuaScripts(void *args[]) {
 /* Release the functions ctx. */
 void lazyFreeFunctionsCtx(void *args[]) {
     functionsLibCtx *functions_lib_ctx = args[0];
+    dict *engs = args[1];
     size_t len = functionsLibCtxFunctionsLen(functions_lib_ctx);
     functionsLibCtxFree(functions_lib_ctx);
+    len += dictSize(engs);
+    dictRelease(engs);
     atomicDecr(lazyfree_objects,len);
     atomicIncr(lazyfreed_objects,len);
 }
@@ -193,10 +206,12 @@ void emptyDbAsync(redisDb *db) {
         flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
+    ebuckets oldHfe = db->hexpires;
     db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
     db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+    db->hexpires = ebCreate();
     atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 2, oldkeys, oldexpires);
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, oldkeys, oldexpires, oldHfe);
 }
 
 /* Free the key tracking table.
@@ -235,12 +250,13 @@ void freeLuaScriptsAsync(dict *lua_scripts, list *lua_scripts_lru_list, lua_Stat
 }
 
 /* Free functions ctx, if the functions ctx contains enough functions, free it in async way. */
-void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx) {
+void freeFunctionsAsync(functionsLibCtx *functions_lib_ctx, dict *engs) {
     if (functionsLibCtxFunctionsLen(functions_lib_ctx) > LAZYFREE_THRESHOLD) {
-        atomicIncr(lazyfree_objects,functionsLibCtxFunctionsLen(functions_lib_ctx));
-        bioCreateLazyFreeJob(lazyFreeFunctionsCtx,1,functions_lib_ctx);
+        atomicIncr(lazyfree_objects,functionsLibCtxFunctionsLen(functions_lib_ctx)+dictSize(engs));
+        bioCreateLazyFreeJob(lazyFreeFunctionsCtx,2,functions_lib_ctx,engs);
     } else {
         functionsLibCtxFree(functions_lib_ctx);
+        dictRelease(engs);
     }
 }
 

@@ -37,6 +37,18 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
+    proc wait_for_defrag_stop {maxtries delay} {
+        wait_for_condition $maxtries $delay {
+            [s active_defrag_running] eq 0
+        } else {
+            after 120 ;# serverCron only updates the info once in 100ms
+            puts [r info memory]
+            puts [r info stats]
+            puts [r memory malloc-stats]
+            fail "defrag didn't stop."
+        }
+    }
+
     proc test_active_defrag {type} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
@@ -90,14 +102,7 @@ run_solo {defrag} {
                 r config set active-defrag-cycle-max 75
 
                 # Wait for the active defrag to stop working.
-                wait_for_condition 2000 100 {
-                    [s active_defrag_running] eq 0
-                } else {
-                    after 120 ;# serverCron only updates the info once in 100ms
-                    puts [r info memory]
-                    puts [r memory malloc-stats]
-                    fail "defrag didn't stop."
-                }
+                wait_for_defrag_stop 2000 100
 
                 # Test the fragmentation is lower.
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -180,9 +185,10 @@ run_solo {defrag} {
         test "Active defrag eval scripts: $type" {
             r flushdb
             r script flush sync
-            r config resetstat
             r config set hz 100
             r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
@@ -240,14 +246,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0
-                } else {
-                    after 120 ;# serverCron only updates the info once in 100ms
-                    puts [r info memory]
-                    puts [r memory malloc-stats]
-                    fail "defrag didn't stop."
-                }
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -265,9 +264,10 @@ run_solo {defrag} {
 
         test "Active defrag big keys: $type" {
             r flushdb
-            r config resetstat
             r config set hz 100
             r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
             r config set active-defrag-max-scan-fields 1000
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
@@ -362,14 +362,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0
-                } else {
-                    after 120 ;# serverCron only updates the info once in 100ms
-                    puts [r info memory]
-                    puts [r memory malloc-stats]
-                    fail "defrag didn't stop."
-                }
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -406,9 +399,10 @@ run_solo {defrag} {
 
         test "Active defrag pubsub: $type" {
             r flushdb
-            r config resetstat
             r config set hz 100
             r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
@@ -467,14 +461,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0
-                } else {
-                    after 120 ;# serverCron only updates the info once in 100ms
-                    puts [r info memory]
-                    puts [r memory malloc-stats]
-                    fail "defrag didn't stop."
-                }
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -503,12 +490,106 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
+        test "Active Defrag HFE: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            # TODO: Lower the threshold after defraging the ebuckets.
+            # Now just to ensure that the reference is updated correctly.
+            r config set active-defrag-threshold-lower 12
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1500kb
+            r config set maxmemory 0
+            r config set hash-max-listpack-value 512
+            r config set hash-max-listpack-entries 10
+
+            # Populate memory with interleaving hash field of same size
+            set n 3000
+            set fields 16 ;# make all the fields in an eblist.
+            set dummy_field "[string repeat x 400]"
+            set rd [redis_deferring_client]
+            for {set i 0} {$i < $n} {incr i} {
+                for {set j 0} {$j < $fields} {incr j} {
+                    $rd hset h$i f$j $dummy_field
+                    $rd hexpire h$i 9999999 FIELDS 1 f$j
+                    $rd set "k$i$j" $dummy_field
+                }
+            }
+            for {set j 0} {$j < [expr $n*$fields]} {incr j} {
+                $rd read ; # Discard hset replies
+                $rd read ; # Discard hexpire replies
+                $rd read ; # Discard set replies
+            }
+
+            # Coverage for listpackex.
+            r hset h_lpex f0 $dummy_field
+            r hexpire h_lpex 9999999 FIELDS 1 f0
+            assert_encoding listpackex h_lpex
+
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_lessthan [s allocator_frag_ratio] 1.05
+
+            # Delete all the keys to create fragmentation
+            for {set i 0} {$i < $n} {incr i} {
+                for {set j 0} {$j < $fields} {incr j} {
+                    r del "k$i$j"
+                }
+            }
+            $rd close
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_morethan [s allocator_frag_ratio] 1.35
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+            
+                # wait for the active defrag to start working (decision once a second)
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # wait for the active defrag to stop working
+                wait_for_defrag_stop 500 100
+
+                # test the fragmentation is lower
+                after 120 ;# serverCron only updates the info once in 100ms
+                if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag [s allocator_frag_ratio]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
+                }
+                assert_lessthan_equal [s allocator_frag_ratio] 1.5
+            }
+        }
+
         if {$type eq "standalone"} { ;# skip in cluster mode
         test "Active defrag big list: $type" {
             r flushdb
-            r config resetstat
             r config set hz 100
             r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
             r config set active-defrag-max-scan-fields 1000
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
@@ -562,15 +643,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_condition 500 100 {
-                    [s active_defrag_running] eq 0
-                } else {
-                    after 120 ;# serverCron only updates the info once in 100ms
-                    puts [r info memory]
-                    puts [r info stats]
-                    puts [r memory malloc-stats]
-                    fail "defrag didn't stop."
-                }
+                wait_for_defrag_stop 500 100
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -585,12 +658,16 @@ run_solo {defrag} {
                     }
                 }
                 if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
                     puts "frag $frag"
                     puts "misses: $misses"
                     puts "hits: $hits"
                     puts "max latency $max_latency"
                     puts [r latency latest]
                     puts [r latency history active-defrag-cycle]
+                    puts [r memory malloc-stats]
                 }
                 assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
@@ -618,9 +695,10 @@ run_solo {defrag} {
             # this test is more consistent on a fresh server with no history
             start_server {tags {"defrag"} overrides {save ""}} {
                 r flushdb
-                r config resetstat
                 r config set hz 100
                 r config set activedefrag no
+                wait_for_defrag_stop 500 100
+                r config resetstat
                 r config set active-defrag-max-scan-fields 1000
                 r config set active-defrag-threshold-lower 5
                 r config set active-defrag-cycle-min 65
@@ -686,15 +764,7 @@ run_solo {defrag} {
                     }
 
                     # wait for the active defrag to stop working
-                    wait_for_condition 500 100 {
-                        [s active_defrag_running] eq 0
-                    } else {
-                        after 120 ;# serverCron only updates the info once in 100ms
-                        puts [r info memory]
-                        puts [r info stats]
-                        puts [r memory malloc-stats]
-                        fail "defrag didn't stop."
-                    }
+                    wait_for_defrag_stop 500 100
 
                     # test the fragmentation is lower
                     after 120 ;# serverCron only updates the info once in 100ms
@@ -720,11 +790,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo

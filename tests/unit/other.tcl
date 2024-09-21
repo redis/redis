@@ -75,6 +75,20 @@ start_server {tags {"other"}} {
             r flushall
             assert_equal [s rdb_changes_since_last_save] 0
         }
+
+        test {FLUSHALL and bgsave} {
+            r config set save "3600 1 300 100 60 10000"
+            r set x y
+            r bgsave
+            r set x y
+            r multi
+            r debug sleep 1
+            # by the time we'll get to run flushall, the child will finish,
+            # but the parent will be unaware of it, and it could wrongly set the dirty counter.
+            r flushall
+            r exec
+            assert_equal [s rdb_changes_since_last_save] 0
+        }
     }
 
     test {BGSAVE} {
@@ -124,7 +138,8 @@ start_server {tags {"other"}} {
         if {$::accurate} {set numops 10000} else {set numops 1000}
         test {Check consistency of different data types after a reload} {
             r flushdb
-            createComplexDataset r $numops usetag
+            # TODO: integrate usehexpire following next commit that will support replication
+            createComplexDataset r $numops {usetag usehexpire}
             if {$::ignoredigest} {
                 set _ 1
             } else {

@@ -87,4 +87,91 @@ start_server {tags {"lazyfree"}} {
         }
         assert_equal [s lazyfreed_objects] 0
     } {} {needs:config-resetstat}
+
+    test "FLUSHALL SYNC optimized to run in bg as blocking FLUSHALL ASYNC" {
+        set num_keys 1000
+        r config resetstat
+
+        # Verify at start there are no lazyfree pending objects
+        assert_equal [s lazyfree_pending_objects] 0
+
+        # Fillup DB with items
+        populate $num_keys
+
+        # Run FLUSHALL SYNC command, optimized as blocking ASYNC
+        r flushall
+
+        # Verify all keys counted as lazyfreed
+        assert_equal [s lazyfreed_objects] $num_keys
+    }
+
+    test "Run consecutive blocking FLUSHALL ASYNC successfully" {
+        r config resetstat
+        set rd [redis_deferring_client]
+
+        # Fillup DB with items
+        r set x 1
+        r set y 2
+
+        $rd write "FLUSHALL\r\nFLUSHALL\r\nFLUSHDB\r\n"
+        $rd flush
+        assert_equal [$rd read] {OK}
+        assert_equal [$rd read] {OK}
+        assert_equal [$rd read] {OK}
+        assert_equal [s lazyfreed_objects] 2
+        $rd close
+    }
+
+    test "FLUSHALL SYNC in MULTI not optimized to run as blocking FLUSHALL ASYNC" {
+        r config resetstat
+
+        # Fillup DB with items
+        r set x 11
+        r set y 22
+
+        # FLUSHALL SYNC in multi
+        r multi
+        r flushall
+        r exec
+
+        # Verify flushall not run as lazyfree
+        assert_equal [s lazyfree_pending_objects] 0
+        assert_equal [s lazyfreed_objects] 0
+    }
+
+    test "Client closed in the middle of blocking FLUSHALL ASYNC" {
+        set num_keys 100000
+        r config resetstat
+
+        # Fillup DB with items
+        populate $num_keys
+
+        # close client in the middle of ongoing Blocking FLUSHALL ASYNC
+        set rd [redis_deferring_client]
+        $rd flushall
+        $rd close
+
+        # Wait to verify all keys counted as lazyfreed
+        wait_for_condition 50 100 {
+            [s lazyfreed_objects] == $num_keys
+        } else {
+            fail "Unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
+        }
+    }
+
+    test "Pending commands in querybuf processed once unblocking FLUSHALL ASYNC" {
+        r config resetstat
+        set rd [redis_deferring_client]
+
+        # Fillup DB with items
+        r set x 1
+        r set y 2
+
+        $rd write "FLUSHALL\r\nPING\r\n"
+        $rd flush
+        assert_equal [$rd read] {OK}
+        assert_equal [$rd read] {PONG}
+        assert_equal [s lazyfreed_objects] 2
+        $rd close
+    }
 }

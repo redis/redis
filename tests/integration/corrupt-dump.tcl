@@ -59,6 +59,62 @@ test {corrupt payload: valid zipped hash header, dup records} {
     }
 }
 
+test {corrupt payload: hash listpackex with invalid string TTL} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x17\x2d\x2d\x00\x00\x00\x09\x00\x81\x61\x02\x01\x01\xf4\xa6\x96\x18\xb8\x8f\x01\x00\x00\x09\x82\x66\x31\x03\x82\x76\x31\x03\x83\x66\x6f\x6f\x04\x82\x66\x32\x03\x82\x76\x32\x03\x00\x01\xff\x0c\x00\xde\x40\xe5\x37\x51\x1c\x12\x56" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: hash listpackex with TTL large than EB_EXPIRE_TIME_MAX} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x17\x33\x33\x00\x00\x00\x09\x00\x00\x01\x00\x01\xf4\x01\xc5\x89\x95\x8f\x01\x00\x00\x09\x01\x01\x82\x5f\x31\x03\xf4\x29\x94\x97\x95\x8f\x01\x00\x00\x09\x02\x01\x02\x01\xf4\x01\x5e\xaf\x95\x8f\x01\x33\x00\x09\xff\x0c\x00\x7e\x4f\xf4\x33\xe9\xc5\x3e\x56" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: hash listpackex with unordered TTL fields} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x17\xc3\x30\x35\x14\x35\x00\x00\x00\t\x00\x82\x66\x32\x03\x82\x76\x32\x03\xf4\x80\x73\x16\xd1\x8f\x01\x20\x12\x02\x82\x66\x31\x20\x11\x03\x31\x03\xf4\x7f\xe0\x01\x11\x00\x33\x20\x11\x04\x33\x03\x00\x01\xff\x0c\x00\xf6\x70\x29\x57\x11\x68\x9d\xe5" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: hash listpackex field without TTL should not be followed by field with TTL} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x17\x2d\x2d\x00\x00\x00\x09\x00\x82\x66\x31\x03\x82\x76\x31\x03\x00\x01\x82\x66\x32\x03\x82\x76\x32\x03\xf4\xe0\x59\x7a\x96\x00\x00\x00\x00\x09\x82\x66\x33\x03\x82\x76\x33\x03\x00\x01\xff\x0c\x00\x42\x66\xd4\xbe\x17\xc3\x96\x72" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
+test {corrupt payload: hash hashtable with TTL large than EB_EXPIRE_TIME_MAX} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set hash-max-listpack-entries 0
+        r config set sanitize-dump-payload yes
+        catch {
+            r restore key 0 "\x16\x02\x81\x00\x01\x00\x00\x00\x00\x00\x00\x02\x66\x31\x02\x76\x31\x81\x00\x01\x00\x00\x00\x00\x00\x00\x02\x66\x32\x02\x76\x32\x0c\x00\xb9\x3c\x65\x28\x40\x94\x58\x36" replace
+        } err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 test {corrupt payload: quicklist big ziplist prev len} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
         r config set sanitize-dump-payload no
@@ -828,6 +884,52 @@ test {corrupt payload: fuzzer findings - set with duplicate elements causes sdif
         assert_equal {0 2 4 6 8 _1 _3 _5 _9} [lsort [r sdiff _key]]
     }
 } {} {logreqres:skip} ;# This test violates {"uniqueItems": true}
+
+test {corrupt payload: fuzzer findings - set with invalid length causes smembers to hang} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        # In the past, it generated a broken protocol and left the client hung in smembers
+        r config set sanitize-dump-payload no
+        assert_equal {OK} [r restore _set 0 "\x14\x16\x16\x00\x00\x00\x0c\x00\x81\x61\x02\x81\x62\x02\x81\x63\x02\x01\x01\x02\x01\x03\x01\xff\x0c\x00\x91\x00\x56\x73\xc1\x82\xd5\xbd" replace]
+        assert_encoding listpack _set
+        catch { r SMEMBERS _set } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
+test {corrupt payload: fuzzer findings - set with invalid length causes sscan to hang} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        # In the past, it generated a broken protocol and left the client hung in smembers
+        r config set sanitize-dump-payload no
+        assert_equal {OK} [r restore _set 0 "\x14\x16\x16\x00\x00\x00\x0c\x00\x81\x61\x02\x81\x62\x02\x81\x63\x02\x01\x01\x02\x01\x03\x01\xff\x0c\x00\x91\x00\x56\x73\xc1\x82\xd5\xbd" replace]
+        assert_encoding listpack _set
+        catch { r SSCAN _set 0 } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
+test {corrupt payload: zset listpack encoded with invalid length causes zscan to hang} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        assert_equal {OK} [r restore _zset 0 "\x11\x16\x16\x00\x00\x00\x1a\x00\x81\x61\x02\x01\x01\x81\x62\x02\x02\x01\x81\x63\x02\x03\x01\xff\x0c\x00\x81\xa7\xcd\x31\x22\x6c\xef\xf7" replace]
+        assert_encoding listpack _zset
+        catch { r ZSCAN _zset 0 } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
+
+test {corrupt payload: hash listpack encoded with invalid length causes hscan to hang} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload no
+        assert_equal {OK} [r restore _hash 0 "\x10\x17\x17\x00\x00\x00\x0e\x00\x82\x66\x31\x03\x82\x76\x31\x03\x82\x66\x32\x03\x82\x76\x32\x03\xff\x0c\x00\xf1\xc5\x36\x92\x29\x6a\x8c\xc5" replace]
+        assert_encoding listpack _hash
+        catch { r HSCAN _hash 0 } err
+        assert_equal [count_log_message 0 "crashed by signal"] 0
+        assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
+    }
+}
 
 } ;# tags
 

@@ -30,6 +30,7 @@
 
 #include "fmacros.h"
 #include "fpconv_dtoa.h"
+#include "fast_float_strtod.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -612,7 +613,7 @@ int string2ld(const char *s, size_t slen, long double *dp) {
 int string2d(const char *s, size_t slen, double *dp) {
     errno = 0;
     char *eptr;
-    *dp = strtod(s, &eptr);
+    *dp = fast_float_strtod(s, &eptr);
     if (slen == 0 ||
         isspace(((const char*)s)[0]) ||
         (size_t)(eptr-(char*)s) != slen ||
@@ -1176,7 +1177,10 @@ int fsyncFileDir(const char *filename) {
 int reclaimFilePageCache(int fd, size_t offset, size_t length) {
 #ifdef HAVE_FADVISE
     int ret = posix_fadvise(fd, offset, length, POSIX_FADV_DONTNEED);
-    if (ret) return -1;
+    if (ret) {
+        errno = ret;
+        return -1;
+    }
     return 0;
 #else
     UNUSED(fd);

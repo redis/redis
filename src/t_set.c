@@ -432,7 +432,7 @@ robj *setTypePopRandom(robj *set) {
     if (set->encoding == OBJ_ENCODING_LISTPACK) {
         /* Find random and delete it without re-seeking the listpack. */
         unsigned int i = 0;
-        unsigned char *p = lpNextRandom(set->ptr, lpFirst(set->ptr), &i, 1, 0);
+        unsigned char *p = lpNextRandom(set->ptr, lpFirst(set->ptr), &i, 1, 1);
         unsigned int len = 0; /* initialize to silence warning */
         long long llele = 0; /* initialize to silence warning */
         char *str = (char *)lpGetValue(p, &len, &llele);
@@ -815,7 +815,7 @@ void spopWithCountCommand(client *c) {
         unsigned int index = 0;
         unsigned char **ps = zmalloc(sizeof(char *) * count);
         for (unsigned long i = 0; i < count; i++) {
-            p = lpNextRandom(lp, p, &index, count - i, 0);
+            p = lpNextRandom(lp, p, &index, count - i, 1);
             unsigned int len;
             str = (char *)lpGetValue(p, &len, (long long *)&llele);
 
@@ -877,7 +877,7 @@ void spopWithCountCommand(client *c) {
             unsigned int index = 0;
             unsigned char **ps = zmalloc(sizeof(char *) * remaining);
             for (unsigned long i = 0; i < remaining; i++) {
-                p = lpNextRandom(lp, p, &index, remaining - i, 0);
+                p = lpNextRandom(lp, p, &index, remaining - i, 1);
                 unsigned int len;
                 str = (char *)lpGetValue(p, &len, (long long *)&llele);
                 setTypeAddAux(newset, str, len, llele, 0);
@@ -1103,7 +1103,7 @@ void srandmemberWithCountCommand(client *c) {
         unsigned int i = 0;
         addReplyArrayLen(c, count);
         while (count) {
-            p = lpNextRandom(lp, p, &i, count--, 0);
+            p = lpNextRandom(lp, p, &i, count--, 1);
             unsigned int len;
             str = (char *)lpGetValue(p, &len, (long long *)&llele);
             if (str == NULL) {
@@ -1244,7 +1244,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
     return 0;
 }
 
-/* SINTER / SMEMBERS / SINTERSTORE / SINTERCARD
+/* SINTER / SINTERSTORE / SINTERCARD
  *
  * 'cardinality_only' work for SINTERCARD, only return the cardinality
  * with minimum processing and memory overheads.
@@ -1418,6 +1418,36 @@ void sinterGenericCommand(client *c, robj **setkeys,
 /* SINTER key [key ...] */
 void sinterCommand(client *c) {
     sinterGenericCommand(c, c->argv+1,  c->argc-1, NULL, 0, 0);
+}
+
+/* SMEMBERS key */
+void smembersCommand(client *c) {
+    setTypeIterator *si;
+    char *str;
+    size_t len;
+    int64_t intobj;
+    robj *setobj = lookupKeyRead(c->db, c->argv[1]);
+    if (checkType(c,setobj,OBJ_SET)) return;
+    if (!setobj) {
+        addReply(c, shared.emptyset[c->resp]);
+        return;
+    }
+
+    /* Prepare the response. */
+    unsigned long length = setTypeSize(setobj);
+    addReplySetLen(c,length);
+    /* Iterate through the elements of the set. */
+    si = setTypeInitIterator(setobj);
+
+    while (setTypeNext(si, &str, &len, &intobj) != -1) {
+        if (str != NULL)
+            addReplyBulkCBuffer(c, str, len);
+        else
+            addReplyBulkLongLong(c, intobj);
+        length--;
+    }
+    setTypeReleaseIterator(si);
+    serverAssert(length == 0); /* fail on corrupt data */
 }
 
 /* SINTERCARD numkeys key [key ...] [LIMIT limit] */

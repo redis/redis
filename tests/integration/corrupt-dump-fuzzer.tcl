@@ -19,12 +19,14 @@ proc generate_collections {suffix elements} {
         # add both string values and integers
         if {$j % 2 == 0} {set val $j} else {set val "_$j"}
         $rd hset hash$suffix $j $val
+        $rd hset hashmd$suffix $j $val
+        $rd hexpire hashmd$suffix [expr {int(rand() * 10000)}] FIELDS 1 $j
         $rd lpush list$suffix $val
         $rd zadd zset$suffix $j $val
         $rd sadd set$suffix $val
         $rd xadd stream$suffix * item 1 value $val
     }
-    for {set j 0} {$j < $elements * 5} {incr j} {
+    for {set j 0} {$j < $elements * 7} {incr j} {
         $rd read ; # Discard replies
     }
     $rd close
@@ -120,6 +122,7 @@ foreach sanitize_dump {no yes} {
                 set restore_failed false
                 set report_and_restart false
                 set sent {}
+                set expired_subkeys [s expired_subkeys]
                 # RESTORE can fail, but hopefully not terminate
                 if { [catch { r restore "_$k" 0 $dump REPLACE } err] } {
                     set restore_failed true
@@ -143,7 +146,17 @@ foreach sanitize_dump {no yes} {
                     # if RESTORE didn't fail or terminate, run some random traffic on the new key
                     incr stat_successful_restore
                     if { [ catch {
-                        set sent [generate_fuzzy_traffic_on_key "_$k" 1] ;# traffic for 1 second
+                        set type [r type "_$k"]
+                        if {$type eq {none}} {
+                            # The key has been removed due to expiration.
+                            # Ensure the server didn't terminate during expiration and verify
+                            # expire stats to confirm the key was removed due to expiration.
+                            r ping
+                            assert_morethan [s expired_subkeys] $expired_subkeys
+                        } else {
+                            set sent [generate_fuzzy_traffic_on_key "_$k" $type 1] ;# traffic for 1 second
+                        }
+
                         incr stat_traffic_commands_sent [llength $sent]
                         r del "_$k" ;# in case the server terminated, here's where we'll detect it.
                         if {$dbsize != [r dbsize]} {
@@ -180,7 +193,7 @@ foreach sanitize_dump {no yes} {
                                 dump_server_log $srv
                             }
 
-                            puts "Server crashed (by signal: $by_signal), with payload: $printable_dump"
+                            puts "Server crashed (by signal: $by_signal, err: $err), with payload: $printable_dump"
                             set print_commands true
                         }
                     }

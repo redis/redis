@@ -55,7 +55,7 @@
  * c) there is a back pointer, so it's a doubly linked list with the back
  * pointers being only at "level 1". This allows to traverse the list
  * from tail to head, useful for ZREVRANGE. */
-
+#include "fast_float_strtod.h"
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
@@ -566,11 +566,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         spec->min = (long)min->ptr;
     } else {
         if (((char*)min->ptr)[0] == '(') {
-            spec->min = strtod((char*)min->ptr+1,&eptr);
+            spec->min = fast_float_strtod((char*)min->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
         } else {
-            spec->min = strtod((char*)min->ptr,&eptr);
+            spec->min = fast_float_strtod((char*)min->ptr,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
         }
     }
@@ -578,11 +578,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         spec->max = (long)max->ptr;
     } else {
         if (((char*)max->ptr)[0] == '(') {
-            spec->max = strtod((char*)max->ptr+1,&eptr);
+            spec->max = fast_float_strtod((char*)max->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
             spec->maxex = 1;
         } else {
-            spec->max = strtod((char*)max->ptr,&eptr);
+            spec->max = fast_float_strtod((char*)max->ptr,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
         }
     }
@@ -789,7 +789,7 @@ double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
         vlen = sizeof(buf) - 1;
     memcpy(buf,vstr,vlen);
     buf[vlen] = '\0';
-    return strtod(buf,NULL);
+    return fast_float_strtod(buf,NULL);
  }
 
 double zzlGetScore(unsigned char *sptr) {
@@ -1754,7 +1754,7 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
             *score = *(double*)dictGetVal(de);
     } else if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
         listpackEntry val;
-        lpRandomPair(zsetobj->ptr, zsetsize, key, &val);
+        lpRandomPair(zsetobj->ptr, zsetsize, key, &val, 2);
         if (score) {
             if (val.sval) {
                 *score = zzlStrtod(val.sval,val.slen);
@@ -4263,7 +4263,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             while (count) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
-                lpRandomPairs(zsetobj->ptr, sample_count, keys, vals);
+                lpRandomPairs(zsetobj->ptr, sample_count, keys, vals, 2);
                 zrandmemberReplyWithListpack(c, sample_count, keys, vals);
                 if (c->flags & CLIENT_CLOSE_ASAP)
                     break;
@@ -4317,7 +4317,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         keys = zmalloc(sizeof(listpackEntry)*count);
         if (withscores)
             vals = zmalloc(sizeof(listpackEntry)*count);
-        serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals) == count);
+        serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals, 2) == count);
         zrandmemberReplyWithListpack(c, count, keys, vals);
         zfree(keys);
         zfree(vals);

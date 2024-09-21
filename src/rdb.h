@@ -73,10 +73,14 @@
 #define RDB_TYPE_STREAM_LISTPACKS_2 19
 #define RDB_TYPE_SET_LISTPACK  20
 #define RDB_TYPE_STREAM_LISTPACKS_3 21
+#define RDB_TYPE_HASH_METADATA_PRE_GA 22      /* Hash with HFEs. Doesn't attach min TTL at start (7.4 RC) */
+#define RDB_TYPE_HASH_LISTPACK_EX_PRE_GA 23   /* Hash LP with HFEs. Doesn't attach min TTL at start (7.4 RC) */
+#define RDB_TYPE_HASH_METADATA 24             /* Hash with HFEs. Attach min TTL at start */
+#define RDB_TYPE_HASH_LISTPACK_EX 25          /* Hash LP with HFEs. Attach min TTL at start */
 /* NOTE: WHEN ADDING NEW RDB TYPE, UPDATE rdbIsObjectType(), and rdb_type_string[] */
 
 /* Test if a type is an object type. */
-#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 21))
+#define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 25))
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
 #define RDB_OPCODE_SLOT_INFO  244   /* Individual slot info, such as slot id and size (cluster mode only). */
@@ -101,10 +105,12 @@
 #define RDB_MODULE_OPCODE_STRING 5  /* String. */
 
 /* rdbLoad...() functions flags. */
-#define RDB_LOAD_NONE   0
-#define RDB_LOAD_ENC    (1<<0)
-#define RDB_LOAD_PLAIN  (1<<1)
-#define RDB_LOAD_SDS    (1<<2)
+#define RDB_LOAD_NONE     0
+#define RDB_LOAD_ENC      (1<<0)
+#define RDB_LOAD_PLAIN    (1<<1)
+#define RDB_LOAD_SDS      (1<<2)
+#define RDB_LOAD_HFLD     (1<<3)
+#define RDB_LOAD_HFLD_TTL (1<<4)
 
 /* flags on the purpose of rdb save or load */
 #define RDBFLAGS_NONE 0                 /* No special RDB loading or saving. */
@@ -116,8 +122,8 @@
 
 /* When rdbLoadObject() returns NULL, the err flag is
  * set to hold the type of error that occurred */
-#define RDB_LOAD_ERR_EMPTY_KEY  1   /* Error of empty key */
-#define RDB_LOAD_ERR_OTHER      2   /* Any other errors */
+#define RDB_LOAD_ERR_EMPTY_KEY       1   /* Error of empty key */
+#define RDB_LOAD_ERR_OTHER           2   /* Any other errors */
 
 ssize_t rdbWriteRaw(rio *rdb, void *p, size_t len);
 int rdbSaveType(rio *rdb, unsigned char type);
@@ -130,6 +136,7 @@ uint64_t rdbLoadLen(rio *rdb, int *isencoded);
 int rdbLoadLenByRef(rio *rdb, int *isencoded, uint64_t *lenptr);
 int rdbSaveObjectType(rio *rdb, robj *o);
 int rdbLoadObjectType(rio *rdb);
+int rdbLoadWithEmptyFunc(char *filename, rdbSaveInfo *rsi, int rdbflags, void (*emptyDbFunc)(void));
 int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags);
 int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags);
 int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi);

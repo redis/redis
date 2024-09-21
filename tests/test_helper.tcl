@@ -17,98 +17,22 @@ source tests/support/tmpfile.tcl
 source tests/support/test.tcl
 source tests/support/util.tcl
 
-set ::all_tests {
-    unit/printver
-    unit/dump
-    unit/auth
-    unit/protocol
-    unit/keyspace
-    unit/scan
-    unit/info
-    unit/info-command
-    unit/type/string
-    unit/type/incr
-    unit/type/list
-    unit/type/list-2
-    unit/type/list-3
-    unit/type/set
-    unit/type/zset
-    unit/type/hash
-    unit/type/stream
-    unit/type/stream-cgroups
-    unit/sort
-    unit/expire
-    unit/other
-    unit/multi
-    unit/quit
-    unit/aofrw
-    unit/acl
-    unit/acl-v2
-    unit/latency-monitor
-    integration/block-repl
-    integration/replication
-    integration/replication-2
-    integration/replication-3
-    integration/replication-4
-    integration/replication-psync
-    integration/replication-buffer
-    integration/shutdown
-    integration/aof
-    integration/aof-race
-    integration/aof-multi-part
-    integration/rdb
-    integration/corrupt-dump
-    integration/corrupt-dump-fuzzer
-    integration/convert-zipmap-hash-on-load
-    integration/convert-ziplist-hash-on-load
-    integration/convert-ziplist-zset-on-load
-    integration/logging
-    integration/psync2
-    integration/psync2-reg
-    integration/psync2-pingoff
-    integration/psync2-master-restart
-    integration/failover
-    integration/redis-cli
-    integration/redis-benchmark
-    integration/dismiss-mem
-    unit/pubsub
-    unit/pubsubshard
-    unit/slowlog
-    unit/scripting
-    unit/functions
-    unit/maxmemory
-    unit/introspection
-    unit/introspection-2
-    unit/limits
-    unit/obuf-limits
-    unit/bitops
-    unit/bitfield
-    unit/geo
-    unit/memefficiency
-    unit/hyperloglog
-    unit/lazyfree
-    unit/wait
-    unit/pause
-    unit/querybuf
-    unit/tls
-    unit/tracking
-    unit/oom-score-adj
-    unit/shutdown
-    unit/networking
-    unit/client-eviction
-    unit/violations
-    unit/replybufsize
-    unit/cluster/announced-endpoints
-    unit/cluster/misc
-    unit/cluster/cli
-    unit/cluster/scripting
-    unit/cluster/hostnames
-    unit/cluster/human-announced-nodename
-    unit/cluster/multi-slot-operations
-    unit/cluster/slot-ownership
-    unit/cluster/links
-    unit/cluster/cluster-response-tls
-    unit/cluster/failure-marking
+set dir [pwd]
+set ::all_tests []
+
+set test_dirs {
+    unit
+    unit/type
+    unit/cluster
+    integration
+}
+
+foreach test_dir $test_dirs {
+    set files [glob -nocomplain $dir/tests/$test_dir/*.tcl]
+
+    foreach file [lsort $files] {
+        lappend ::all_tests $test_dir/[file root [file tail $file]]
+    }
 }
 # Index to the next test to run in the ::all_tests list.
 set ::next_test 0

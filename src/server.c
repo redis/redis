@@ -2,8 +2,13 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
@@ -19,6 +24,8 @@
 #include "syscheck.h"
 #include "threads_mngr.h"
 #include "fmtargs.h"
+#include "mstr.h"
+#include "ebuckets.h"
 
 #include <time.h>
 #include <signal.h>
@@ -109,11 +116,13 @@ void serverLogRaw(int level, const char *msg) {
         int off;
         struct timeval tv;
         int role_char;
+        int daylight_active = 0;
         pid_t pid = getpid();
 
         gettimeofday(&tv,NULL);
         struct tm tm;
-        nolocks_localtime(&tm,tv.tv_sec,server.timezone,server.daylight_active);
+        atomicGet(server.daylight_active, daylight_active);
+        nolocks_localtime(&tm,tv.tv_sec,server.timezone,daylight_active);
         off = strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S.",&tm);
         snprintf(buf+off,sizeof(buf)-off,"%03d",(int)tv.tv_usec/1000);
         if (server.sentinel_mode) {
@@ -279,6 +288,18 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
+int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored)
+{
+    int l1,l2;
+    UNUSED(d);
+
+    l1 = sdslen((sds)sdsLookup);
+    l2 = hfieldlen((hfield)mstrStored);
+    if (l1 != l2) return 0;
+    return memcmp(sdsLookup, mstrStored, l1) == 0;
+}
+
+
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
 int dictSdsKeyCaseCompare(dict *d, const void *key1,
@@ -316,6 +337,10 @@ int dictObjKeyCompare(dict *d, const void *key1,
 uint64_t dictObjHash(const void *key) {
     const robj *o = key;
     return dictGenHashFunction(o->ptr, sdslen((sds)o->ptr));
+}
+
+uint64_t dictPtrHash(const void *key) {
+    return dictGenHashFunction((unsigned char*)&key,sizeof(key));
 }
 
 uint64_t dictSdsHash(const void *key) {
@@ -714,6 +739,8 @@ long long getInstantaneousMetric(int metric) {
  *
  * The function always returns 0 as it never terminates the client. */
 int clientsCronResizeQueryBuffer(client *c) {
+    /* If the client query buffer is NULL, it is using the reusable query buffer and there is nothing to do. */
+    if (c->querybuf == NULL) return 0;
     size_t querybuf_size = sdsalloc(c->querybuf);
     time_t idletime = server.unixtime - c->lastinteraction;
 
@@ -723,7 +750,18 @@ int clientsCronResizeQueryBuffer(client *c) {
         /* There are two conditions to resize the query buffer: */
         if (idletime > 2) {
             /* 1) Query is idle for a long time. */
-            c->querybuf = sdsRemoveFreeSpace(c->querybuf, 1);
+            size_t remaining = sdslen(c->querybuf) - c->qb_pos;
+            if (!(c->flags & CLIENT_MASTER) && !remaining) {
+                /* If the client is not a master and no data is pending,
+                 * The client can safely use the reusable query buffer in the next read - free the client's querybuf. */
+                sdsfree(c->querybuf);
+                /* By setting the querybuf to NULL, the client will use the reusable query buffer in the next read.
+                 * We don't move the client to the reusable query buffer immediately, because if we allocated a private
+                 * query buffer for the client, it's likely that the client will use it again soon. */
+                c->querybuf = NULL;
+            } else {
+                c->querybuf = sdsRemoveFreeSpace(c->querybuf, 1);
+            }
         } else if (querybuf_size > PROTO_RESIZE_THRESHOLD && querybuf_size/2 > c->querybuf_peak) {
             /* 2) Query buffer is too big for latest peak and is larger than
              *    resize threshold. Trim excess space but only up to a limit,
@@ -739,7 +777,7 @@ int clientsCronResizeQueryBuffer(client *c) {
 
     /* Reset the peak again to capture the peak memory usage in the next
      * cycle. */
-    c->querybuf_peak = sdslen(c->querybuf);
+    c->querybuf_peak = c->querybuf ? sdslen(c->querybuf) : 0;
     /* We reset to either the current used, or currently processed bulk size,
      * which ever is bigger. */
     if (c->bulklen != -1 && (size_t)c->bulklen + 2 > c->querybuf_peak) c->querybuf_peak = c->bulklen + 2;
@@ -814,8 +852,9 @@ size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
 
 int clientsCronTrackExpansiveClients(client *c, int time_idx) {
-    size_t in_usage = sdsZmallocSize(c->querybuf) + c->argv_len_sum +
-	              (c->argv ? zmalloc_size(c->argv) : 0);
+    size_t qb_size = c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
+    size_t argv_size = c->argv ? zmalloc_size(c->argv) : 0;
+    size_t in_usage = qb_size + c->argv_len_sum + argv_size;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
 
     /* Track the biggest values observed so far in this slot. */
@@ -1099,7 +1138,7 @@ static inline void updateCachedTimeWithUs(int update_daylight_info, const long l
         struct tm tm;
         time_t ut = server.unixtime;
         localtime_r(&ut,&tm);
-        server.daylight_active = tm.tm_isdst;
+        atomicSet(server.daylight_active, tm.tm_isdst);
     }
 }
 
@@ -1205,21 +1244,25 @@ void cronUpdateMemoryStats(void) {
          * The fragmentation ratio it'll show is potentially more accurate
          * it excludes other RSS pages such as: shared libraries, LUA and other non-zmalloc
          * allocations, and allocator reserved pages that can be pursed (all not actual frag) */
-        zmalloc_get_allocator_info(&server.cron_malloc_stats.allocator_allocated,
+        zmalloc_get_allocator_info(1,
+                                   &server.cron_malloc_stats.allocator_allocated,
                                    &server.cron_malloc_stats.allocator_active,
                                    &server.cron_malloc_stats.allocator_resident,
                                    NULL,
                                    &server.cron_malloc_stats.allocator_muzzy,
                                    &server.cron_malloc_stats.allocator_frag_smallbins_bytes);
+        if (server.lua_arena != UINT_MAX) {
+            zmalloc_get_allocator_info_by_arena(server.lua_arena,
+                                                0,
+                                                &server.cron_malloc_stats.lua_allocator_allocated,
+                                                &server.cron_malloc_stats.lua_allocator_active,
+                                                &server.cron_malloc_stats.lua_allocator_resident,
+                                                &server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes);
+        }
         /* in case the allocator isn't providing these stats, fake them so that
          * fragmentation info still shows some (inaccurate metrics) */
-        if (!server.cron_malloc_stats.allocator_resident) {
-            /* LUA memory isn't part of zmalloc_used, but it is part of the process RSS,
-             * so we must deduct it in order to be able to calculate correct
-             * "allocator fragmentation" ratio */
-            size_t lua_memory = evalMemory();
-            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss - lua_memory;
-        }
+        if (!server.cron_malloc_stats.allocator_resident)
+            server.cron_malloc_stats.allocator_resident = server.cron_malloc_stats.process_rss;
         if (!server.cron_malloc_stats.allocator_active)
             server.cron_malloc_stats.allocator_active = server.cron_malloc_stats.allocator_resident;
         if (!server.cron_malloc_stats.allocator_allocated)
@@ -1939,6 +1982,8 @@ void createSharedObjects(void) {
     shared.persist = createStringObject("PERSIST",7);
     shared.set = createStringObject("SET",3);
     shared.eval = createStringObject("EVAL",4);
+    shared.hpexpireat = createStringObject("HPEXPIREAT",10);
+    shared.hdel = createStringObject("HDEL",4);
 
     /* Shared command argument */
     shared.left = createStringObject("left",4);
@@ -2498,6 +2543,7 @@ void resetServerStats(void) {
     server.stat_numcommands = 0;
     server.stat_numconnections = 0;
     server.stat_expiredkeys = 0;
+    server.stat_expired_subkeys = 0;
     server.stat_expired_stale_perc = 0;
     server.stat_expired_time_cap_reached_count = 0;
     server.stat_expire_cycle_time_used = 0;
@@ -2646,6 +2692,7 @@ void initServer(void) {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags);
         server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].hexpires = ebCreate();
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -2754,6 +2801,7 @@ void initServer(void) {
         server.maxmemory_policy = MAXMEMORY_NO_EVICTION;
     }
 
+    luaEnvInit();
     scriptingInit(1);
     if (functionsInit() == C_ERR) {
         serverPanic("Functions initialization failed, check the server logs.");
@@ -3920,7 +3968,7 @@ int processCommand(client *c) {
         }
     }
 
-    uint64_t cmd_flags = getCommandFlags(c);
+    const uint64_t cmd_flags = getCommandFlags(c);
 
     int is_read_command = (cmd_flags & CMD_READONLY) ||
                            (c->cmd->proc == execCommand && (c->mstate.cmd_flags & CMD_READONLY));
@@ -3975,7 +4023,7 @@ int processCommand(client *c) {
     {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-                                        &c->slot,&error_code);
+                                        &c->slot,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);
@@ -3983,6 +4031,7 @@ int processCommand(client *c) {
                 flagTransaction(c);
             }
             clusterRedirectClient(c,n,c->slot,error_code);
+            c->duration = 0;
             c->cmd->rejected_calls++;
             return C_OK;
         }
@@ -5847,6 +5896,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "sync_full:%lld\r\n", server.stat_sync_full,
             "sync_partial_ok:%lld\r\n", server.stat_sync_partial_ok,
             "sync_partial_err:%lld\r\n", server.stat_sync_partial_err,
+            "expired_subkeys:%lld\r\n", server.stat_expired_subkeys,
             "expired_keys:%lld\r\n", server.stat_expiredkeys,
             "expired_stale_perc:%.2f\r\n", server.stat_expired_stale_perc*100,
             "expired_time_cap_reached_count:%lld\r\n", server.stat_expired_time_cap_reached_count,
@@ -6085,14 +6135,16 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys;
+            long long keys, vkeys, hexpires;
 
             keys = kvstoreSize(server.db[j].keys);
             vkeys = kvstoreSize(server.db[j].expires);
+            hexpires = ebGetTotalItems(server.db[j].hexpires, &hashExpireBucketsType);
+
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl);
+                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld,subexpiry=%lld\r\n",
+                    j, keys, vkeys, server.db[j].avg_ttl, hexpires);
             }
         }
     }
@@ -6118,7 +6170,11 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_aof_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_AOF].sum,
             "eventloop_duration_cron_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CRON].sum,
             "eventloop_duration_max:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].max,
-            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max));
+            "eventloop_cmd_per_cycle_max:%lld\r\n", server.el_cmd_cnt_max,
+            "allocator_allocated_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_allocated,
+            "allocator_active_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_active,
+            "allocator_resident_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_resident,
+            "allocator_frag_bytes_lua:%zu\r\n", server.cron_malloc_stats.lua_allocator_frag_smallbins_bytes));
     }
 
     return info;
@@ -6745,7 +6801,7 @@ void dismissMemory(void* ptr, size_t size_hint) {
 void dismissClientMemory(client *c) {
     /* Dismiss client query buffer and static reply buffer. */
     dismissMemory(c->buf, c->buf_usable_size);
-    dismissSds(c->querybuf);
+    if (c->querybuf) dismissSds(c->querybuf);
     /* Dismiss argv array only if we estimate it contains a big buffer. */
     if (c->argc && c->argv_len_sum/c->argc >= server.page_size) {
         for (int i = 0; i < c->argc; i++) {
@@ -7075,9 +7131,11 @@ struct redisTest {
     {"crc64", crc64Test},
     {"zmalloc", zmalloc_test},
     {"sds", sdsTest},
+    {"mstr", mstrTest},
     {"dict", dictTest},
     {"listpack", listpackTest},
     {"kvstore", kvstoreTest},
+    {"ebuckets", ebucketsTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -7104,6 +7162,7 @@ int main(int argc, char **argv) {
             if (!strcasecmp(arg, "--accurate")) flags |= REDIS_TEST_ACCURATE;
             else if (!strcasecmp(arg, "--large-memory")) flags |= REDIS_TEST_LARGE_MEMORY;
             else if (!strcasecmp(arg, "--valgrind")) flags |= REDIS_TEST_VALGRIND;
+            else if (!strcasecmp(arg, "--verbose")) flags |= REDIS_TEST_VERBOSE;
         }
 
         if (!strcasecmp(argv[2], "all")) {
@@ -7387,6 +7446,11 @@ int main(int argc, char **argv) {
         loadDataFromDisk();
         aofOpenIfNeededOnServerStart();
         aofDelHistoryFiles();
+        /* While loading data, we delay applying "appendonly" config change.
+         * If there was a config change while we were inside loadDataFromDisk()
+         * above, we'll apply it here. */
+        applyAppendOnlyConfig();
+
         if (server.cluster_enabled) {
             serverAssert(verifyClusterConfigWithData() == C_OK);
         }

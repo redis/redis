@@ -110,24 +110,23 @@ start_server {tags {"repl external:skip"}} {
             $A config resetstat
             set rd [redis_deferring_client]
             $rd brpoplpush a b 5
+            wait_for_blocked_client
             r lpush a foo
-            wait_for_condition 50 100 {
-                [$A debug digest] eq [$B debug digest]
-            } else {
-                fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-            }
+            wait_for_ofs_sync $B $A
+            assert_equal [$A debug digest] [$B debug digest]
             assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
             assert_match {} [cmdrstat lmove $A]
+            assert_equal [$rd read] {foo}
+            $rd close
         }
 
         test {BRPOPLPUSH replication, list exists} {
             $A config resetstat
-            set rd [redis_deferring_client]
             r lpush c 1
             r lpush c 2
             r lpush c 3
-            $rd brpoplpush c d 5
-            after 1000
+            assert_equal [r brpoplpush c d 5] {1}
+            wait_for_ofs_sync $B $A
             assert_equal [$A debug digest] [$B debug digest]
             assert_match {*calls=1,*} [cmdrstat rpoplpush $A]
             assert_match {} [cmdrstat lmove $A]
@@ -139,24 +138,24 @@ start_server {tags {"repl external:skip"}} {
                     $A config resetstat
                     set rd [redis_deferring_client]
                     $rd blmove a b $wherefrom $whereto 5
+                    $rd flush
+                    wait_for_blocked_client
                     r lpush a foo
-                    wait_for_condition 50 100 {
-                        [$A debug digest] eq [$B debug digest]
-                    } else {
-                        fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
-                    }
+                    wait_for_ofs_sync $B $A
+                    assert_equal [$A debug digest] [$B debug digest]
                     assert_match {*calls=1,*} [cmdrstat lmove $A]
                     assert_match {} [cmdrstat rpoplpush $A]
+                    assert_equal [$rd read] {foo}
+                    $rd close
                 }
 
                 test "BLMOVE ($wherefrom, $whereto) replication, list exists" {
                     $A config resetstat
-                    set rd [redis_deferring_client]
                     r lpush c 1
                     r lpush c 2
                     r lpush c 3
-                    $rd blmove c d $wherefrom $whereto 5
-                    after 1000
+                    r blmove c d $wherefrom $whereto 5
+                    wait_for_ofs_sync $B $A
                     assert_equal [$A debug digest] [$B debug digest]
                     assert_match {*calls=1,*} [cmdrstat lmove $A]
                     assert_match {} [cmdrstat rpoplpush $A]
@@ -167,6 +166,7 @@ start_server {tags {"repl external:skip"}} {
         test {BLPOP followed by role change, issue #2473} {
             set rd [redis_deferring_client]
             $rd blpop foo 0 ; # Block while B is a master
+            wait_for_blocked_client
 
             # Turn B into master of A
             $A slaveof no one
@@ -182,7 +182,7 @@ start_server {tags {"repl external:skip"}} {
             # If the client is still attached to the instance, we'll get
             # a desync between the two instances.
             $A rpush foo a b c
-            after 100
+            wait_for_ofs_sync $B $A
 
             wait_for_condition 50 100 {
                 [$A debug digest] eq [$B debug digest] &&
@@ -192,6 +192,9 @@ start_server {tags {"repl external:skip"}} {
                 fail "Master and replica have different digest: [$A debug digest] VS [$B debug digest]"
             }          
             assert_match {*calls=1,*,rejected_calls=0,failed_calls=1*} [cmdrstat blpop $B]
+
+            assert_error {UNBLOCKED*} {$rd read}
+            $rd close
         }
     }
 }
@@ -649,7 +652,6 @@ foreach testType {Successful Aborted} {
                     }
 
                     test {Blocked commands and configs during async-loading} {
-                        assert_error {LOADING*} {$replica config set appendonly no}
                         assert_error {LOADING*} {$replica REPLICAOF no one}
                     }
 
@@ -1451,6 +1453,146 @@ start_server {tags {"repl external:skip"}} {
 
             assert_equal "set" [$master type s]
             assert_equal "set" [$slave type s]
+        }
+    }
+}
+
+foreach disklessload {disabled on-empty-db} {
+    test "Replica should reply LOADING while flushing a large db (disklessload: $disklessload)" {
+        start_server {} {
+            set replica [srv 0 client]
+            start_server {} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+
+                $replica config set repl-diskless-load $disklessload
+
+                # Populate replica with many keys, master with a few keys.
+                $replica debug populate 2000000
+                populate 3 master 10
+
+                # Start the replication process...
+                $replica replicaof $master_host $master_port
+
+                wait_for_condition 100 100 {
+                    [s -1 loading] eq 1
+                } else {
+                    fail "Replica didn't get into loading mode"
+                }
+
+                # If replica has a large db, it may take some time to discard it
+                # after receiving new db from the master. In this case, replica
+                # should reply -LOADING. Replica may reply -LOADING while
+                # loading the new db as well. To test the first case, populated
+                # replica with large amount of keys and master with a few keys.
+                # Discarding old db will take a long time and loading new one
+                # will be quick. So, if we receive -LOADING, most probably it is
+                # when flushing the db.
+                wait_for_condition 1 10000 {
+                    [catch {$replica ping} err] &&
+                    [string match *LOADING* $err]
+                } else {
+                    # There is a chance that we may not catch LOADING response
+                    # if flushing db happens too fast compared to test execution
+                    # Then, we may consider increasing key count or introducing
+                    # artificial delay to db flush.
+                    fail "Replica did not reply LOADING."
+                }
+
+                catch {$replica shutdown nosave}
+            }
+        }
+    } {} {repl external:skip}
+}
+
+start_server {tags {"repl external:skip"} overrides {save {}}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+    populate 10000 master 10
+
+    start_server {overrides {save {} rdb-del-sync-files yes loading-process-events-interval-bytes 1024}} {
+        test "Allow appendonly config change while loading rdb on slave" {
+            set replica [srv 0 client]
+
+            # While loading rdb on slave, verify appendonly config changes are allowed
+            # 1- Change appendonly config from no to yes
+            $replica config set appendonly no
+            $replica config set key-load-delay 100
+            $replica debug populate 1000
+
+            # Start the replication process...
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 10 1000 {
+                [s loading] eq 1
+            } else {
+                fail "Replica didn't get into loading mode"
+            }
+
+            # Change config while replica is loading data
+            $replica config set appendonly yes
+            assert_equal 1 [s loading]
+
+            # Speed up loading and verify aof is enabled
+            $replica config set key-load-delay 0
+            wait_done_loading $replica
+            assert_equal 1 [s aof_enabled]
+
+            # Quick sanity for AOF
+            $replica replicaof no one
+            set prev [s aof_current_size]
+            $replica set x 100
+            assert_morethan [s aof_current_size] $prev
+
+            # 2- While loading rdb, change appendonly from yes to no
+            $replica config set appendonly yes
+            $replica config set key-load-delay 100
+            $replica flushall
+
+            # Start the replication process...
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 10 1000 {
+                [s loading] eq 1
+            } else {
+                fail "Replica didn't get into loading mode"
+            }
+
+            # Change config while replica is loading data
+            $replica config set appendonly no
+            assert_equal 1 [s loading]
+
+            # Speed up loading and verify aof is disabled
+            $replica config set key-load-delay 0
+            wait_done_loading $replica
+            assert_equal 0 [s 0 aof_enabled]
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set replica [srv 0 client]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test "Replica flushes db lazily when replica-lazy-flush enabled" {
+            $replica config set replica-lazy-flush yes
+            $replica debug populate 1000
+            populate 1 master 10
+
+            # Start the replication process...
+            $replica replicaof $master_host $master_port
+
+            wait_for_condition 100 100 {
+                [s -1 lazyfreed_objects] >= 1000 &&
+                [s -1 master_link_status] eq {up}
+            } else {
+                fail "Replica did not free db lazily"
+            }
         }
     }
 }

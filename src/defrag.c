@@ -46,12 +46,23 @@ void* activeDefragAlloc(void *ptr) {
     /* move this allocation to a new allocation.
      * make sure not to use the thread cache. so that we don't get back the same
      * pointers we try to free */
-    size = zmalloc_size(ptr);
+    size = zmalloc_usable_size(ptr);
     newptr = zmalloc_no_tcache(size);
     memcpy(newptr, ptr, size);
     zfree_no_tcache(ptr);
     server.stat_active_defrag_hits++;
     return newptr;
+}
+
+/* Raw memory allocation for defrag, avoid using tcache. */
+void *activeDefragAllocRaw(size_t size) {
+    return zmalloc_no_tcache(size);
+}
+
+/* Raw memory free for defrag, avoid using tcache. */
+void activeDefragFreeRaw(void *ptr) {
+    zfree_no_tcache(ptr);
+    server.stat_active_defrag_hits++;
 }
 
 /*Defrag helper for sds strings
@@ -66,6 +77,22 @@ sds activeDefragSds(sds sdsptr) {
         size_t offset = sdsptr - (char*)ptr;
         sdsptr = (char*)newptr + offset;
         return sdsptr;
+    }
+    return NULL;
+}
+
+/* Defrag helper for hfield strings
+ *
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
+hfield activeDefragHfield(hfield hf) {
+    void *ptr = hfieldGetAllocPtr(hf);
+    void *newptr = activeDefragAlloc(ptr);
+    if (newptr) {
+        size_t offset = hf - (char*)ptr;
+        hf = (char*)newptr + offset;
+        return hf;
     }
     return NULL;
 }
@@ -250,6 +277,31 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
     UNUSED(de);
 }
 
+void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
+    dict *d = privdata;
+    hfield newhf, hf = dictGetKey(de);
+
+    if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID) {
+        /* If the hfield does not have TTL, we directly defrag it. */
+        newhf = activeDefragHfield(hf);
+    } else {
+        /* Update its reference in the ebucket while defragging it. */
+        ebuckets *eb = hashTypeGetDictMetaHFE(d);
+        newhf = ebDefragItem(eb, &hashFieldExpireBucketsType, hf, (ebDefragFunction *)activeDefragHfield);
+    }
+    if (newhf) {
+        /* We can't search in dict for that key after we've released
+         * the pointer it holds, since it won't be able to do the string
+         * compare, but we can find the entry using key hash and pointer. */
+        dictUseStoredKeyApi(d, 1);
+        uint64_t hash = dictGetHash(d, newhf);
+        dictUseStoredKeyApi(d, 0);
+        dictEntry *de = dictFindEntryByPtrAndHash(d, hf, hash);
+        serverAssert(de);
+        dictSetKey(d, de, newhf);
+    }
+}
+
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
 void activeDefragSdsDict(dict* d, int val_type) {
     unsigned long cursor = 0;
@@ -265,6 +317,20 @@ void activeDefragSdsDict(dict* d, int val_type) {
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
                                 &defragfns, NULL);
+    } while (cursor != 0);
+}
+
+/* Defrag a dict with hfield key and sds value. */
+void activeDefragHfieldDict(dict *d) {
+    unsigned long cursor = 0;
+    dictDefragFunctions defragfns = {
+        .defragAlloc = activeDefragAlloc,
+        .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
+        .defragVal = (dictDefragAllocFunction *)activeDefragSds
+    };
+    do {
+        cursor = dictScanDefrag(d, cursor, activeDefragHfieldDictCallback,
+                                &defragfns, d);
     } while (cursor != 0);
 }
 
@@ -422,10 +488,10 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
-        .defragKey = (dictDefragAllocFunction *)activeDefragSds,
+        .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
         .defragVal = (dictDefragAllocFunction *)activeDefragSds
     };
-    *cursor = dictScanDefrag(d, *cursor, scanCallbackCountScanned, &defragfns, NULL);
+    *cursor = dictScanDefrag(d, *cursor, activeDefragHfieldDictCallback, &defragfns, d);
 }
 
 void defragQuicklist(redisDb *db, dictEntry *kde) {
@@ -477,7 +543,7 @@ void defragHash(redisDb *db, dictEntry *kde) {
     if (dictSize(d) > server.active_defrag_max_scan_fields)
         defragLater(db, kde);
     else
-        activeDefragSdsDict(d, DEFRAG_SDS_DICT_VAL_IS_SDS);
+        activeDefragHfieldDict(d);
     /* defrag the dict struct and tables */
     if ((newd = dictDefragTables(ob->ptr)))
         ob->ptr = newd;
@@ -672,7 +738,7 @@ void defragModule(redisDb *db, dictEntry *kde) {
  * all the various pointers it has. */
 void defragKey(defragCtx *ctx, dictEntry *de) {
     sds keysds = dictGetKey(de);
-    robj *newob, *ob;
+    robj *newob, *ob = dictGetVal(de);
     unsigned char *newzl;
     sds newsds;
     redisDb *db = ctx->privdata;
@@ -689,11 +755,22 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
             dictEntry *expire_de = kvstoreDictFindEntryByPtrAndHash(db->expires, slot, keysds, hash);
             if (expire_de) kvstoreDictSetKey(db->expires, slot, expire_de, newsds);
         }
+
+        /* Update the key's reference in the dict's metadata or the listpackEx. */
+        if (unlikely(ob->type == OBJ_HASH))
+            hashTypeUpdateKeyRef(ob, newsds);
     }
 
     /* Try to defrag robj and / or string value. */
-    ob = dictGetVal(de);
-    if ((newob = activeDefragStringOb(ob))) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
+        /* Update its reference in the ebucket while defragging it. */
+        newob = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob,
+                             (ebDefragFunction *)activeDefragStringOb);
+    } else {
+        /* If the dict doesn't have metadata, we directly defrag it. */
+        newob = activeDefragStringOb(ob);
+    }
+    if (newob) {
         kvstoreDictSetVal(db->keys, slot, de, newob);
         ob = newob;
     }
@@ -734,6 +811,12 @@ void defragKey(defragCtx *ctx, dictEntry *de) {
         if (ob->encoding == OBJ_ENCODING_LISTPACK) {
             if ((newzl = activeDefragAlloc(ob->ptr)))
                 ob->ptr = newzl;
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            listpackEx *newlpt, *lpt = (listpackEx*)ob->ptr;
+            if ((newlpt = activeDefragAlloc(lpt)))
+                ob->ptr = lpt = newlpt;
+            if ((newzl = activeDefragAlloc(lpt->lp)))
+                lpt->lp = newzl;
         } else if (ob->encoding == OBJ_ENCODING_HT) {
             defragHash(db, de);
         } else {
@@ -767,7 +850,16 @@ void defragScanCallback(void *privdata, const dictEntry *de) {
  * without the possibility of getting any results. */
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
     size_t resident, active, allocated, frag_smallbins_bytes;
-    zmalloc_get_allocator_info(&allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
+    zmalloc_get_allocator_info(1, &allocated, &active, &resident, NULL, NULL, &frag_smallbins_bytes);
+
+    if (server.lua_arena != UINT_MAX) {
+        size_t lua_resident, lua_active, lua_allocated, lua_frag_smallbins_bytes;
+        zmalloc_get_allocator_info_by_arena(server.lua_arena, 0, &lua_allocated, &lua_active, &lua_resident, &lua_frag_smallbins_bytes);
+        resident -= lua_resident;
+        active -= lua_active;
+        allocated -= lua_allocated;
+        frag_smallbins_bytes -= lua_frag_smallbins_bytes;
+    }
 
     /* Calculate the fragmentation ratio as the proportion of wasted memory in small
      * bins (which are defraggable) relative to the total allocated memory (including large bins).
@@ -997,6 +1089,7 @@ void activeDefragCycle(void) {
             slot = -1;
             defrag_later_item_in_progress = 0;
             db = NULL;
+            moduleDefragEnd();
             goto update_metrics;
         }
         return;
@@ -1038,6 +1131,10 @@ void activeDefragCycle(void) {
                 break; /* this will exit the function and we'll continue on the next cycle */
             }
 
+            if (current_db == -1) {
+                moduleDefragStart();
+            }
+
             /* Move on to next database, and stop if we reached the last one. */
             if (++current_db >= server.dbnum) {
                 /* defrag other items not part of the db / keys */
@@ -1058,6 +1155,8 @@ void activeDefragCycle(void) {
                 defrag_later_item_in_progress = 0;
                 db = NULL;
                 server.active_defrag_running = 0;
+
+                moduleDefragEnd();
 
                 computeDefragCycles(); /* if another scan is needed, start it right away */
                 if (server.active_defrag_running != 0 && ustime() < endtime)
@@ -1176,6 +1275,16 @@ void activeDefragCycle(void) {
 void *activeDefragAlloc(void *ptr) {
     UNUSED(ptr);
     return NULL;
+}
+
+void *activeDefragAllocRaw(size_t size) {
+    /* fallback to regular allocation */
+    return zmalloc(size);
+}
+
+void activeDefragFreeRaw(void *ptr) {
+    /* fallback to regular free */
+    zfree(ptr);
 }
 
 robj *activeDefragStringOb(robj *ob) {

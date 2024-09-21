@@ -113,6 +113,7 @@ typedef struct rax {
     raxNode *head;
     uint64_t numele;
     uint64_t numnodes;
+    void *metadata[];
 } rax;
 
 /* Stack data structure used by raxLowWalk() in order to, optionally, return
@@ -166,12 +167,16 @@ typedef struct raxIterator {
 
 /* Exported API. */
 rax *raxNew(void);
+rax *raxNewWithMetadata(int metaSize);
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
 int raxFind(rax *rax, unsigned char *s, size_t len, void **value);
 void raxFree(rax *rax);
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*));
+void raxFreeWithCbAndContext(rax *rax,
+                             void (*free_callback)(void *item, void *ctx),
+                             void *ctx);
 void raxStart(raxIterator *it, rax *rt);
 int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len);
 int raxNext(raxIterator *it);

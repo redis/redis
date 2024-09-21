@@ -7,7 +7,7 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-
+#include "fast_float_strtod.h"
 #include "server.h"
 #include "pqsort.h" /* Partial qsort for SORT+LIMIT */
 #include <math.h> /* isnan() */
@@ -94,7 +94,12 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
         /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
-        o = hashTypeGetValueObject(o, fieldobj->ptr);
+        int isHashDeleted;
+        o = hashTypeGetValueObject(db, o, fieldobj->ptr, HFE_LAZY_EXPIRE, &isHashDeleted);
+
+        if (isHashDeleted)
+            goto noobj;
+
     } else {
         if (o->type != OBJ_STRING) goto noobj;
 
@@ -467,7 +472,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 if (sdsEncodedObject(byval)) {
                     char *eptr;
 
-                    vector[j].u.score = strtod(byval->ptr,&eptr);
+                    vector[j].u.score = fast_float_strtod(byval->ptr,&eptr);
                     if (eptr[0] != '\0' || errno == ERANGE ||
                         isnan(vector[j].u.score))
                     {

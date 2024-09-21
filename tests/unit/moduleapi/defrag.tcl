@@ -18,6 +18,9 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             set info [r info defragtest_stats]
             assert {[getInfoProperty $info defragtest_datatype_attempts] > 0}
             assert_equal 0 [getInfoProperty $info defragtest_datatype_resumes]
+            assert_morethan [getInfoProperty $info defragtest_datatype_raw_defragged] 0
+            assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
+            assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
         }
 
         test {Module defrag: late defrag with cursor works} {
@@ -32,6 +35,9 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             set info [r info defragtest_stats]
             assert {[getInfoProperty $info defragtest_datatype_resumes] > 10}
             assert_equal 0 [getInfoProperty $info defragtest_datatype_wrong_cursor]
+            assert_morethan [getInfoProperty $info defragtest_datatype_raw_defragged] 0
+            assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
+            assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
         }
 
         test {Module defrag: global defrag works} {
@@ -41,6 +47,8 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             after 2000
             set info [r info defragtest_stats]
             assert {[getInfoProperty $info defragtest_global_attempts] > 0}
+            assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
+            assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
         }
     }
 }

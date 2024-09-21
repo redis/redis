@@ -684,7 +684,7 @@ start_server {tags {"introspection"}} {
         # Run a dummy server on used_port so we know we can't configure redis to 
         # use it. It's ok for this to fail because that means used_port is invalid 
         # anyway
-        catch {socket -server dummy_accept -myaddr 127.0.0.1 $used_port} e
+        catch {set sockfd [socket -server dummy_accept -myaddr 127.0.0.1 $used_port]} e
         if {$::verbose} { puts "dummy_accept: $e" }
 
         # Try to listen on the used port, pass some more configs to make sure the
@@ -706,6 +706,7 @@ start_server {tags {"introspection"}} {
         set r1 [redis_client]
         assert_equal [$r1 ping] "PONG"
         $r1 close
+        close $sockfd
     }
 
     test {CONFIG SET duplicate configs} {

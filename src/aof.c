@@ -997,6 +997,29 @@ int startAppendOnly(void) {
     return C_OK;
 }
 
+void startAppendOnlyWithRetry(void) {
+    unsigned int tries, max_tries = 10;
+    for (tries = 0; tries < max_tries; ++tries) {
+        if (startAppendOnly() == C_OK)
+            break;
+        serverLog(LL_WARNING, "Failed to enable AOF! Trying it again in one second.");
+        sleep(1);
+    }
+    if (tries == max_tries) {
+        serverLog(LL_WARNING, "FATAL: AOF can't be turned on. Exiting now.");
+        exit(1);
+    }
+}
+
+/* Called after "appendonly" config is changed. */
+void applyAppendOnlyConfig(void) {
+    if (!server.aof_enabled && server.aof_state != AOF_OFF) {
+        stopAppendOnly();
+    } else if (server.aof_enabled && server.aof_state == AOF_OFF) {
+        startAppendOnlyWithRetry();
+    }
+}
+
 /* This is a wrapper to the write syscall in order to retry on short writes
  * or if the syscall gets interrupted. It could look strange that we retry
  * on short writes given that we are writing to a block device: normally if
@@ -1939,19 +1962,21 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
  *
  * The function returns 0 on error, non-zero on success. */
 static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
-    if (hi->encoding == OBJ_ENCODING_LISTPACK) {
+    if ((hi->encoding == OBJ_ENCODING_LISTPACK) || (hi->encoding == OBJ_ENCODING_LISTPACK_EX)) {
         unsigned char *vstr = NULL;
         unsigned int vlen = UINT_MAX;
         long long vll = LLONG_MAX;
 
-        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll);
+        hashTypeCurrentFromListpack(hi, what, &vstr, &vlen, &vll, NULL);
         if (vstr)
             return rioWriteBulkString(r, (char*)vstr, vlen);
         else
             return rioWriteBulkLongLong(r, vll);
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        sds value = hashTypeCurrentFromHashTable(hi, what);
-        return rioWriteBulkString(r, value, sdslen(value));
+        char *str;
+        size_t len;
+        hashTypeCurrentFromHashTable(hi, what, &str, &len, NULL);
+        return rioWriteBulkString(r, str, len);
     }
 
     serverPanic("Unknown hash encoding");
@@ -1961,37 +1986,60 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
 /* Emit the commands needed to rebuild a hash object.
  * The function returns 0 on error, 1 on success. */
 int rewriteHashObject(rio *r, robj *key, robj *o) {
+    int res = 0; /*fail*/
+
     hashTypeIterator *hi;
-    long long count = 0, items = hashTypeLength(o);
+    long long count = 0, items = hashTypeLength(o, 0);
 
+    int isHFE = hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
     hi = hashTypeInitIterator(o);
-    while (hashTypeNext(hi) != C_ERR) {
-        if (count == 0) {
-            int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
-                AOF_REWRITE_ITEMS_PER_CMD : items;
 
-            if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
-                !rioWriteBulkString(r,"HMSET",5) ||
-                !rioWriteBulkObject(r,key)) 
-            {
-                hashTypeReleaseIterator(hi);
-                return 0;
+    if (!isHFE) {
+        while (hashTypeNext(hi, 0) != C_ERR) {
+            if (count == 0) {
+                int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
+                                AOF_REWRITE_ITEMS_PER_CMD : items;
+                if (!rioWriteBulkCount(r, '*', 2 + cmd_items * 2) ||
+                    !rioWriteBulkString(r, "HMSET", 5) ||
+                    !rioWriteBulkObject(r, key))
+                    goto reHashEnd;
+            }
+
+            if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
+                !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+                goto reHashEnd;
+
+            if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
+            items--;
+        }
+    } else {
+        while (hashTypeNext(hi, 0) != C_ERR) {
+
+            char hmsetCmd[] = "*4\r\n$5\r\nHMSET\r\n";
+            if ( (!rioWrite(r, hmsetCmd, sizeof(hmsetCmd) - 1)) ||
+                 (!rioWriteBulkObject(r, key)) ||
+                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) ||
+                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE)) )
+                goto reHashEnd;
+
+            if (hi->expire_time != EB_EXPIRE_TIME_INVALID) {
+                char cmd[] = "*6\r\n$10\r\nHPEXPIREAT\r\n";
+                if ( (!rioWrite(r, cmd, sizeof(cmd) - 1)) ||
+                     (!rioWriteBulkObject(r, key)) ||
+                     (!rioWriteBulkLongLong(r, hi->expire_time)) ||
+                     (!rioWriteBulkString(r, "FIELDS", 6)) ||
+                     (!rioWriteBulkString(r, "1", 1)) ||
+                     (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) )
+                    goto reHashEnd;
             }
         }
-
-        if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
-            !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
-        {
-            hashTypeReleaseIterator(hi);
-            return 0;           
-        }
-        if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
-        items--;
     }
 
-    hashTypeReleaseIterator(hi);
+    res = 1; /* success */
 
-    return 1;
+reHashEnd:
+    hashTypeReleaseIterator(hi);
+    return res;
 }
 
 /* Helper for rewriteStreamObject() that generates a bulk string into the

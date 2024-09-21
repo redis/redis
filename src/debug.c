@@ -4,6 +4,8 @@
  *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
@@ -13,8 +15,10 @@
 #include "bio.h"
 #include "quicklist.h"
 #include "fpconv_dtoa.h"
+#include "fast_float_strtod.h"
 #include "cluster.h"
 #include "threads_mngr.h"
+#include "script.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -200,17 +204,22 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
         }
     } else if (o->type == OBJ_HASH) {
         hashTypeIterator *hi = hashTypeInitIterator(o);
-        while (hashTypeNext(hi) != C_ERR) {
+        while (hashTypeNext(hi, 0) != C_ERR) {
             unsigned char eledigest[20];
             sds sdsele;
 
+            /* field */
             memset(eledigest,0,20);
             sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
+            /* val */
             sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
+            /* hash-field expiration (HFE) */
+            if (hi->expire_time != EB_EXPIRE_TIME_INVALID)
+                xorDigest(eledigest,"!!hexpire!!",11);
             xorDigest(digest,eledigest,20);
         }
         hashTypeReleaseIterator(hi);
@@ -445,9 +454,9 @@ void debugCommand(client *c) {
 "SEGFAULT",
 "    Crash the server with sigsegv.",
 "SET-ACTIVE-EXPIRE <0|1>",
-"    Setting it to 0 disables expiring keys in background when they are not",
-"    accessed (otherwise the Redis behavior). Setting it to 1 reenables back the",
-"    default.",
+"    Setting it to 0 disables expiring keys (and hash-fields) in background ",
+"    when they are not accessed (otherwise the Redis behavior). Setting it",
+"    to 1 reenables back the default.",
 "QUICKLIST-PACKED-THRESHOLD <size>",
 "    Sets the threshold for elements to be inserted as plain vs packed nodes",
 "    Default value is 1GB, allows values up to 4GB. Setting to 0 restores to default.",
@@ -476,6 +485,8 @@ void debugCommand(client *c) {
 "    Enable or disable the reply buffer resize cron job",
 "DICT-RESIZING <0|1>",
 "    Enable or disable the main dict and expire dict resizing.",
+"SCRIPT <LIST|<sha>>",
+"    Output SHA and content of all scripts or of a specific script with its SHA.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -557,6 +568,7 @@ NULL
             addReplyError(c,"Error trying to load the RDB dump, check server logs.");
             return;
         }
+        applyAppendOnlyConfig(); /* Check if AOF config was changed while loading */
         serverLog(LL_NOTICE,"DB reloaded by DEBUG RELOAD");
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"loadaof")) {
@@ -572,6 +584,7 @@ NULL
             addReplyError(c, "Error trying to load the AOF files, check server logs.");
             return;
         }
+        applyAppendOnlyConfig(); /* Check if AOF config was changed while loading */
         server.dirty = 0; /* Prevent AOF / replication */
         serverLog(LL_NOTICE,"Append Only File loaded by DEBUG LOADAOF");
         addReply(c,shared.ok);
@@ -664,10 +677,14 @@ NULL
         if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
 
-        if (o->encoding != OBJ_ENCODING_LISTPACK) {
+        if (o->encoding != OBJ_ENCODING_LISTPACK && o->encoding != OBJ_ENCODING_LISTPACK_EX) {
             addReplyError(c,"Not a listpack encoded object.");
         } else {
-            lpRepr(o->ptr);
+            if (o->encoding == OBJ_ENCODING_LISTPACK)
+                lpRepr(o->ptr);
+            else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+                lpRepr(((listpackEx*)o->ptr)->lp);
+
             addReplyStatus(c,"Listpack structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
@@ -817,7 +834,7 @@ NULL
             addReplyError(c,"Wrong protocol type name. Please use one of the following: string|integer|double|bignum|null|array|set|map|attrib|push|verbatim|true|false");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
-        double dtime = strtod(c->argv[2]->ptr,NULL);
+        double dtime = fast_float_strtod(c->argv[2]->ptr,NULL);
         long long utime = dtime*1000000;
         struct timespec tv;
 
@@ -1004,6 +1021,29 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr, "dict-resizing") && c->argc == 3) {
         server.dict_resizing = atoi(c->argv[2]->ptr);
         addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
+        if (!strcasecmp(c->argv[2]->ptr,"list")) {
+            dictIterator *di = dictGetIterator(evalScriptsDict());
+            dictEntry *de;
+            while ((de = dictNext(di)) != NULL) {
+                luaScript *script = dictGetVal(de);
+                sds *sha = dictGetKey(de);
+                serverLog(LL_WARNING, "SCRIPT SHA: %s\n%s", (char*)sha, (char*)script->body->ptr);
+            }
+            dictReleaseIterator(di);
+        } else if (sdslen(c->argv[2]->ptr) == 40) {
+            dictEntry *de;
+            if ((de = dictFind(evalScriptsDict(), c->argv[2]->ptr)) == NULL) {
+                addReplyErrorObject(c, shared.noscripterr);
+                return;
+            }
+            luaScript *script = dictGetVal(de);
+            serverLog(LL_WARNING, "SCRIPT SHA: %s\n%s", (char*)c->argv[2]->ptr, (char*)script->body->ptr);
+        } else {
+            addReplySubcommandSyntaxError(c);
+            return;
+        }
+        addReply(c,shared.ok);
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1032,6 +1072,11 @@ void _serverAssert(const char *estr, const char *file, int line) {
     bugReportEnd(0, 0);
 }
 
+/* Returns the amount of client's command arguments we allow logging */
+int clientArgsToLog(const client *c) {
+    return server.hide_user_data_from_log ? 1 : c->argc;
+}
+
 void _serverAssertPrintClientInfo(const client *c) {
     int j;
     char conninfo[CONN_INFO_LEN];
@@ -1042,6 +1087,10 @@ void _serverAssertPrintClientInfo(const client *c) {
     serverLog(LL_WARNING,"client->conn = %s", connGetInfo(c->conn, conninfo, sizeof(conninfo)));
     serverLog(LL_WARNING,"client->argc = %d", c->argc);
     for (j=0; j < c->argc; j++) {
+        if (j >= clientArgsToLog(c)) {
+            serverLog(LL_WARNING,"client->argv[%d] = *redacted*",j);
+            continue;
+        }
         char buf[128];
         char *arg;
 
@@ -1081,7 +1130,7 @@ void serverLogObjectDebugInfo(const robj *o) {
     } else if (o->type == OBJ_SET) {
         serverLog(LL_WARNING,"Set size: %d", (int) setTypeSize(o));
     } else if (o->type == OBJ_HASH) {
-        serverLog(LL_WARNING,"Hash size: %d", (int) hashTypeLength(o));
+        serverLog(LL_WARNING,"Hash size: %d", (int) hashTypeLength(o, 0));
     } else if (o->type == OBJ_ZSET) {
         serverLog(LL_WARNING,"Sorted set size: %d", (int) zsetLength(o));
         if (o->encoding == OBJ_ENCODING_SKIPLIST)
@@ -1240,6 +1289,10 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 
 REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
+    if (server.hide_user_data_from_log) {
+        serverLog(LL_NOTICE,"hide-user-data-from-log is on, skip logging stack content to avoid spilling PII.");
+        return;
+    }
     int i;
     for (i = 15; i >= 0; i--) {
         unsigned long addr = (unsigned long) sp+i;
@@ -2015,9 +2068,13 @@ void logCurrentClient(client *cc, const char *title) {
     sdsfree(client);
     serverLog(LL_WARNING|LL_RAW,"argc: '%d'\n", cc->argc);
     for (j = 0; j < cc->argc; j++) {
+        if (j >= clientArgsToLog(cc)) {
+            serverLog(LL_WARNING|LL_RAW,"argv[%d]: *redacted*\n",j);
+            continue;
+        }
         robj *decoded;
         decoded = getDecodedObject(cc->argv[j]);
-        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 128));
+        sds repr = sdscatrepr(sdsempty(),decoded->ptr, min(sdslen(decoded->ptr), 1024));
         serverLog(LL_WARNING|LL_RAW,"argv[%d]: '%s'\n", j, (char*)repr);
         if (!strcasecmp(decoded->ptr, "auth") || !strcasecmp(decoded->ptr, "auth2")) {
             sdsfree(repr);

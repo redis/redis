@@ -61,6 +61,6 @@ void luaCallFunction(scriptRunCtx* r_ctx, lua_State *lua, robj** keys, size_t nk
 void luaExtractErrorInformation(lua_State *lua, errorInfo *err_info);
 void luaErrorInformationDiscard(errorInfo *err_info);
 unsigned long luaMemory(lua_State *lua);
-
+void luaGC(lua_State *lua, int *gc_count);
 
 #endif /* __SCRIPT_LUA_H_ */

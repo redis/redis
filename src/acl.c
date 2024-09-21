@@ -485,15 +485,7 @@ void ACLFreeUserAndKillClients(user *u) {
              * this may result in some security hole: it's much
              * more defensive to set the default user and put
              * it in non authenticated mode. */
-            c->user = DefaultUser;
-            c->authenticated = 0;
-            /* We will write replies to this client later, so we can't
-             * close it directly even if async. */
-            if (c == server.current_client) {
-                c->flags |= CLIENT_CLOSE_AFTER_COMMAND;
-            } else {
-                freeClientAsync(c);
-            }
+            deauthenticateAndCloseClient(c);
         }
     }
     ACLFreeUser(u);
@@ -2010,7 +2002,7 @@ void ACLKillPubsubClientsIfNeeded(user *new, user *original) {
         if (c->user != original)
             continue;
         if (ACLShouldKillPubsubClient(c, channels))
-            freeClient(c);
+            deauthenticateAndCloseClient(c);
     }
 
     listRelease(channels);
@@ -2433,6 +2425,9 @@ sds ACLLoadFromFile(const char *filename) {
         listRewind(server.clients,&li);
         while ((ln = listNext(&li)) != NULL) {
             client *c = listNodeValue(ln);
+            /* a MASTER client can do everything (and user = NULL) so we can skip it */
+            if (c->flags & CLIENT_MASTER)
+                continue;
             user *original = c->user;
             list *channels = NULL;
             user *new = ACLGetUserByName(c->user->name, sdslen(c->user->name));
@@ -2444,7 +2439,7 @@ sds ACLLoadFromFile(const char *filename) {
             }
             /* When the new channel list is NULL, it means the new user's channel list is a superset of the old user's list. */
             if (!new || (channels && ACLShouldKillPubsubClient(c, channels))) {
-                freeClient(c);
+                deauthenticateAndCloseClient(c);
                 continue;
             }
             c->user = new;
@@ -2767,7 +2762,6 @@ void aclCatWithFlags(client *c, dict *commands, uint64_t cflag, int *arraylen) {
 
     while ((de = dictNext(di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
-        if (cmd->flags & CMD_MODULE) continue;
         if (cmd->acl_categories & cflag) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
             (*arraylen)++;
