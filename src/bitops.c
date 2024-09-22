@@ -20,13 +20,16 @@ __attribute__((target("popcnt")))
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
-    int use_popcnt = 0;
 #if HAS_BUILTIN_CPU_SUPPORTS
-    use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction */
+    int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
+#else
+    int use_popcnt = 0; /* Assume CPU does not support POPCNT if `__builtin_cpu_supports()`
+                         * is not available. */
 #endif
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
     
-    /* Count initial bytes not aligned to 64 bit. */
+    /* Count initial bytes not aligned to 64-bit when using the POPCNT instruction,
+     * otherwise align to 32-bit. */
     int align = use_popcnt ? 7 : 3;
     while ((unsigned long)p & align && count) {
         bits += bitsinbyte[*p++];
