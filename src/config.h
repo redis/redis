@@ -307,7 +307,7 @@ void setcpuaffinity(const char *cpulist);
 #define HAVE_FADVISE
 #endif
 
-#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(__clang__) && __clang_major__ >= 7)
+#if defined(__has_builtin)
     #if __has_builtin(__builtin_cpu_supports)
         #define HAS_BUILTIN_CPU_SUPPORTS
     #endif
