@@ -20,6 +20,7 @@ __attribute__((target("popcnt")))
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
+    uint32_t *p4;
 #if defined(HAS_BUILTIN_CPU_SUPPORTS)
     int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
 #else
@@ -50,7 +51,7 @@ long long redisPopcount(void *s, long count) {
     }
 
     /* Count bits 28 bytes at a time */
-    uint32_t *p4 = (uint32_t*)p;
+    p4 = (uint32_t*)p;
     while(count>=28) {
         uint32_t aux1, aux2, aux3, aux4, aux5, aux6, aux7;
 
