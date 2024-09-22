@@ -307,10 +307,4 @@ void setcpuaffinity(const char *cpulist);
 #define HAVE_FADVISE
 #endif
 
-#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(__clang__) && __clang_major__ >= 7)
-#if defined(__x86_64__)
-#define USE_POPCNT
-#endif
-#endif
-
 #endif

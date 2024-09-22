@@ -16,101 +16,73 @@
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
-#if defined(USE_POPCNT)
-
 __attribute__((target("popcnt")))
-long long redisPopcountHw(void *s, long count) {
+long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
+    int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction */
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
     
     /* Count initial bytes not aligned to 64 bit. */
-    while ((unsigned long)p & 7 && count) {
+    int align = use_popcnt ? 7 : 3;
+    while ((unsigned long)p & align && count) {
         bits += bitsinbyte[*p++];
         count--;
     }
 
-    /* Count bits 32 bytes at a time */
-    long i = 0;
-    while (i + 4*8 <= count) {
-        bits += __builtin_popcountll(*(uint64_t*)(p + i));
-        bits += __builtin_popcountll(*(uint64_t*)(p + i + 8));
-        bits += __builtin_popcountll(*(uint64_t*)(p + i + 16));
-        bits += __builtin_popcountll(*(uint64_t*)(p + i + 24));
-        i += 32;
+    if (use_popcnt) {
+        /* Count bits 32 bytes at a time */
+        while (count >= 32) {
+            bits += __builtin_popcountll(*(uint64_t*)(p));
+            bits += __builtin_popcountll(*(uint64_t*)(p + 8));
+            bits += __builtin_popcountll(*(uint64_t*)(p + 16));
+            bits += __builtin_popcountll(*(uint64_t*)(p + 24));
+            count -= 32;
+            p += 32;
+        }
+    } else {
+        /* Count bits 28 bytes at a time */
+        uint32_t *p4 = (uint32_t*)p;
+        while(count>=28) {
+            uint32_t aux1, aux2, aux3, aux4, aux5, aux6, aux7;
+
+            aux1 = *p4++;
+            aux2 = *p4++;
+            aux3 = *p4++;
+            aux4 = *p4++;
+            aux5 = *p4++;
+            aux6 = *p4++;
+            aux7 = *p4++;
+            count -= 28;
+
+            aux1 = aux1 - ((aux1 >> 1) & 0x55555555);
+            aux1 = (aux1 & 0x33333333) + ((aux1 >> 2) & 0x33333333);
+            aux2 = aux2 - ((aux2 >> 1) & 0x55555555);
+            aux2 = (aux2 & 0x33333333) + ((aux2 >> 2) & 0x33333333);
+            aux3 = aux3 - ((aux3 >> 1) & 0x55555555);
+            aux3 = (aux3 & 0x33333333) + ((aux3 >> 2) & 0x33333333);
+            aux4 = aux4 - ((aux4 >> 1) & 0x55555555);
+            aux4 = (aux4 & 0x33333333) + ((aux4 >> 2) & 0x33333333);
+            aux5 = aux5 - ((aux5 >> 1) & 0x55555555);
+            aux5 = (aux5 & 0x33333333) + ((aux5 >> 2) & 0x33333333);
+            aux6 = aux6 - ((aux6 >> 1) & 0x55555555);
+            aux6 = (aux6 & 0x33333333) + ((aux6 >> 2) & 0x33333333);
+            aux7 = aux7 - ((aux7 >> 1) & 0x55555555);
+            aux7 = (aux7 & 0x33333333) + ((aux7 >> 2) & 0x33333333);
+            bits += ((((aux1 + (aux1 >> 4)) & 0x0F0F0F0F) +
+                        ((aux2 + (aux2 >> 4)) & 0x0F0F0F0F) +
+                        ((aux3 + (aux3 >> 4)) & 0x0F0F0F0F) +
+                        ((aux4 + (aux4 >> 4)) & 0x0F0F0F0F) +
+                        ((aux5 + (aux5 >> 4)) & 0x0F0F0F0F) +
+                        ((aux6 + (aux6 >> 4)) & 0x0F0F0F0F) +
+                        ((aux7 + (aux7 >> 4)) & 0x0F0F0F0F))* 0x01010101) >> 24;
+        }
+        p = (unsigned char*)p4;
     }
 
     /* Count the remaining bytes. */
-    while (i < count) {
-        bits += bitsinbyte[p[i]];
-        i++;
-    }
-
-    return bits;
-}
-#endif
-
-long long redisPopcountSw(void *s, long count) {
-    long long bits = 0;
-    unsigned char *p = s;
-    uint32_t *p4;
-    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
-
-    /* Count initial bytes not aligned to 32 bit. */
-    while((unsigned long)p & 3 && count) {
-        bits += bitsinbyte[*p++];
-        count--;
-    }
-
-    /* Count bits 28 bytes at a time */
-    p4 = (uint32_t*)p;
-    while(count>=28) {
-        uint32_t aux1, aux2, aux3, aux4, aux5, aux6, aux7;
-
-        aux1 = *p4++;
-        aux2 = *p4++;
-        aux3 = *p4++;
-        aux4 = *p4++;
-        aux5 = *p4++;
-        aux6 = *p4++;
-        aux7 = *p4++;
-        count -= 28;
-
-        aux1 = aux1 - ((aux1 >> 1) & 0x55555555);
-        aux1 = (aux1 & 0x33333333) + ((aux1 >> 2) & 0x33333333);
-        aux2 = aux2 - ((aux2 >> 1) & 0x55555555);
-        aux2 = (aux2 & 0x33333333) + ((aux2 >> 2) & 0x33333333);
-        aux3 = aux3 - ((aux3 >> 1) & 0x55555555);
-        aux3 = (aux3 & 0x33333333) + ((aux3 >> 2) & 0x33333333);
-        aux4 = aux4 - ((aux4 >> 1) & 0x55555555);
-        aux4 = (aux4 & 0x33333333) + ((aux4 >> 2) & 0x33333333);
-        aux5 = aux5 - ((aux5 >> 1) & 0x55555555);
-        aux5 = (aux5 & 0x33333333) + ((aux5 >> 2) & 0x33333333);
-        aux6 = aux6 - ((aux6 >> 1) & 0x55555555);
-        aux6 = (aux6 & 0x33333333) + ((aux6 >> 2) & 0x33333333);
-        aux7 = aux7 - ((aux7 >> 1) & 0x55555555);
-        aux7 = (aux7 & 0x33333333) + ((aux7 >> 2) & 0x33333333);
-        bits += ((((aux1 + (aux1 >> 4)) & 0x0F0F0F0F) +
-                    ((aux2 + (aux2 >> 4)) & 0x0F0F0F0F) +
-                    ((aux3 + (aux3 >> 4)) & 0x0F0F0F0F) +
-                    ((aux4 + (aux4 >> 4)) & 0x0F0F0F0F) +
-                    ((aux5 + (aux5 >> 4)) & 0x0F0F0F0F) +
-                    ((aux6 + (aux6 >> 4)) & 0x0F0F0F0F) +
-                    ((aux7 + (aux7 >> 4)) & 0x0F0F0F0F))* 0x01010101) >> 24;
-    }
-    /* Count the remaining bytes. */
-    p = (unsigned char*)p4;
     while(count--) bits += bitsinbyte[*p++];
     return bits;
-}
-
-long long redisPopcount(void *s, long count) {
-#if defined(USE_POPCNT)
-    if (likely(__builtin_cpu_supports("popcnt")))
-        return redisPopcountHw(s, count); /* use popcnt instruction */
-    else
-#endif
-        return redisPopcountSw(s, count); /* generic implementation */
 }
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
