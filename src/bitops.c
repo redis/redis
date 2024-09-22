@@ -20,7 +20,7 @@ __attribute__((target("popcnt")))
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
-#if HAS_BUILTIN_CPU_SUPPORTS
+#if defined(HAS_BUILTIN_CPU_SUPPORTS)
     int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
 #else
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if `__builtin_cpu_supports()`
