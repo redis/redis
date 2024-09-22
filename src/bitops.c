@@ -36,7 +36,7 @@ long long redisPopcount(void *s, long count) {
         count--;
     }
 
-    if (use_popcnt) {
+    if (likely(use_popcnt)) {
         /* Count bits 32 bytes at a time */
         while (count >= 32) {
             bits += __builtin_popcountll(*(uint64_t*)(p));
@@ -46,46 +46,48 @@ long long redisPopcount(void *s, long count) {
             count -= 32;
             p += 32;
         }
-    } else {
-        /* Count bits 28 bytes at a time */
-        uint32_t *p4 = (uint32_t*)p;
-        while(count>=28) {
-            uint32_t aux1, aux2, aux3, aux4, aux5, aux6, aux7;
-
-            aux1 = *p4++;
-            aux2 = *p4++;
-            aux3 = *p4++;
-            aux4 = *p4++;
-            aux5 = *p4++;
-            aux6 = *p4++;
-            aux7 = *p4++;
-            count -= 28;
-
-            aux1 = aux1 - ((aux1 >> 1) & 0x55555555);
-            aux1 = (aux1 & 0x33333333) + ((aux1 >> 2) & 0x33333333);
-            aux2 = aux2 - ((aux2 >> 1) & 0x55555555);
-            aux2 = (aux2 & 0x33333333) + ((aux2 >> 2) & 0x33333333);
-            aux3 = aux3 - ((aux3 >> 1) & 0x55555555);
-            aux3 = (aux3 & 0x33333333) + ((aux3 >> 2) & 0x33333333);
-            aux4 = aux4 - ((aux4 >> 1) & 0x55555555);
-            aux4 = (aux4 & 0x33333333) + ((aux4 >> 2) & 0x33333333);
-            aux5 = aux5 - ((aux5 >> 1) & 0x55555555);
-            aux5 = (aux5 & 0x33333333) + ((aux5 >> 2) & 0x33333333);
-            aux6 = aux6 - ((aux6 >> 1) & 0x55555555);
-            aux6 = (aux6 & 0x33333333) + ((aux6 >> 2) & 0x33333333);
-            aux7 = aux7 - ((aux7 >> 1) & 0x55555555);
-            aux7 = (aux7 & 0x33333333) + ((aux7 >> 2) & 0x33333333);
-            bits += ((((aux1 + (aux1 >> 4)) & 0x0F0F0F0F) +
-                        ((aux2 + (aux2 >> 4)) & 0x0F0F0F0F) +
-                        ((aux3 + (aux3 >> 4)) & 0x0F0F0F0F) +
-                        ((aux4 + (aux4 >> 4)) & 0x0F0F0F0F) +
-                        ((aux5 + (aux5 >> 4)) & 0x0F0F0F0F) +
-                        ((aux6 + (aux6 >> 4)) & 0x0F0F0F0F) +
-                        ((aux7 + (aux7 >> 4)) & 0x0F0F0F0F))* 0x01010101) >> 24;
-        }
-        p = (unsigned char*)p4;
+        goto remain;
     }
 
+    /* Count bits 28 bytes at a time */
+    uint32_t *p4 = (uint32_t*)p;
+    while(count>=28) {
+        uint32_t aux1, aux2, aux3, aux4, aux5, aux6, aux7;
+
+        aux1 = *p4++;
+        aux2 = *p4++;
+        aux3 = *p4++;
+        aux4 = *p4++;
+        aux5 = *p4++;
+        aux6 = *p4++;
+        aux7 = *p4++;
+        count -= 28;
+
+        aux1 = aux1 - ((aux1 >> 1) & 0x55555555);
+        aux1 = (aux1 & 0x33333333) + ((aux1 >> 2) & 0x33333333);
+        aux2 = aux2 - ((aux2 >> 1) & 0x55555555);
+        aux2 = (aux2 & 0x33333333) + ((aux2 >> 2) & 0x33333333);
+        aux3 = aux3 - ((aux3 >> 1) & 0x55555555);
+        aux3 = (aux3 & 0x33333333) + ((aux3 >> 2) & 0x33333333);
+        aux4 = aux4 - ((aux4 >> 1) & 0x55555555);
+        aux4 = (aux4 & 0x33333333) + ((aux4 >> 2) & 0x33333333);
+        aux5 = aux5 - ((aux5 >> 1) & 0x55555555);
+        aux5 = (aux5 & 0x33333333) + ((aux5 >> 2) & 0x33333333);
+        aux6 = aux6 - ((aux6 >> 1) & 0x55555555);
+        aux6 = (aux6 & 0x33333333) + ((aux6 >> 2) & 0x33333333);
+        aux7 = aux7 - ((aux7 >> 1) & 0x55555555);
+        aux7 = (aux7 & 0x33333333) + ((aux7 >> 2) & 0x33333333);
+        bits += ((((aux1 + (aux1 >> 4)) & 0x0F0F0F0F) +
+                    ((aux2 + (aux2 >> 4)) & 0x0F0F0F0F) +
+                    ((aux3 + (aux3 >> 4)) & 0x0F0F0F0F) +
+                    ((aux4 + (aux4 >> 4)) & 0x0F0F0F0F) +
+                    ((aux5 + (aux5 >> 4)) & 0x0F0F0F0F) +
+                    ((aux6 + (aux6 >> 4)) & 0x0F0F0F0F) +
+                    ((aux7 + (aux7 >> 4)) & 0x0F0F0F0F))* 0x01010101) >> 24;
+    }
+    p = (unsigned char*)p4;
+
+remain:
     /* Count the remaining bytes. */
     while(count--) bits += bitsinbyte[*p++];
     return bits;
