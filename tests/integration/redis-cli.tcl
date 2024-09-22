@@ -808,6 +808,12 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
         assert_equal 3 [exec {*}$cmdline ZCARD new_zset]
         assert_equal "a\n1\nb\n2\nc\n3" [exec {*}$cmdline ZRANGE new_zset 0 -1 WITHSCORES]
     }
+
+    test "Send eval command by using --eval option" {
+        set tmpfile [write_tmpfile "return ARGV\[1\]"]
+        set cmdline [rediscli [srv host] [srv port]]
+        assert_equal "foo" [exec {*}$cmdline --eval $tmpfile , foo]
+    }
 }
 
 start_server {tags {"cli external:skip"}} {
