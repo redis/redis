@@ -810,7 +810,7 @@ if {!$::tls} { ;# fake_redis_node doesn't support TLS
     }
 
     test "Send eval command by using --eval option" {
-        set tmpfile [write_tmpfile "return ARGV\[1\]"]
+        set tmpfile [write_tmpfile {return ARGV[1]}]
         set cmdline [rediscli [srv host] [srv port]]
         assert_equal "foo" [exec {*}$cmdline --eval $tmpfile , foo]
     }
