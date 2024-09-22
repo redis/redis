@@ -39,14 +39,17 @@ long long redisPopcount(void *s, long count) {
 
     if (likely(use_popcnt)) {
         /* Count bits 32 bytes at a time */
+        uint64_t cnt[4];
+        for (int i = 0; i < 4; ++i) cnt[i] = 0;
         while (count >= 32) {
-            bits += __builtin_popcountll(*(uint64_t*)(p));
-            bits += __builtin_popcountll(*(uint64_t*)(p + 8));
-            bits += __builtin_popcountll(*(uint64_t*)(p + 16));
-            bits += __builtin_popcountll(*(uint64_t*)(p + 24));
+            cnt[0] += __builtin_popcountll(*(uint64_t*)(p));
+            cnt[1] += __builtin_popcountll(*(uint64_t*)(p + 8));
+            cnt[2] += __builtin_popcountll(*(uint64_t*)(p + 16));
+            cnt[3] += __builtin_popcountll(*(uint64_t*)(p + 24));
             count -= 32;
             p += 32;
         }
+        bits += cnt[0] + cnt[1] + cnt[2] + cnt[3];
         goto remain;
     }
 
