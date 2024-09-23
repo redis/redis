@@ -10,7 +10,7 @@
 #define __BIO_H
 
 typedef void lazy_free_fn(void *args[]);
-typedef void comp_fn(uint64_t user_data);
+typedef void comp_fn(uint64_t user_data, void *user_ptr);
 
 typedef enum bio_worker_t {
     BIO_WORKER_CLOSE_FILE = 0,
@@ -40,7 +40,7 @@ void bioCreateCloseJob(int fd, int need_fsync, int need_reclaim_cache);
 void bioCreateCloseAofJob(int fd, long long offset, int need_reclaim_cache);
 void bioCreateFsyncJob(int fd, long long offset, int need_reclaim_cache);
 void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...);
-void bioCreateCompRq(bio_worker_t assigned_worker, comp_fn *func, uint64_t user_data);
+void bioCreateCompRq(bio_worker_t assigned_worker, comp_fn *func, uint64_t user_data, void *user_ptr);
 
 
 #endif
