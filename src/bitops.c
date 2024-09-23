@@ -21,7 +21,7 @@ long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
     uint32_t *p4;
-#if defined(HAS_BUILTIN_CPU_SUPPORTS)
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
     int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
 #else
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if

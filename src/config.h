@@ -307,10 +307,4 @@ void setcpuaffinity(const char *cpulist);
 #define HAVE_FADVISE
 #endif
 
-/* __has_builtin is supported since GCC 10, so we can't use it to check
- * for __builtin_cpu_supports, which is supported since GCC 5.0. */
-#if (defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__))
-    #define HAS_BUILTIN_CPU_SUPPORTS
-#endif
-
 #endif
