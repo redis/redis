@@ -38,9 +38,15 @@ long long redisPopcount(void *s, long count) {
     }
 
     if (likely(use_popcnt)) {
-        /* Count bits 32 bytes at a time */
+        /* Use separate counters to make the CPU think there are no
+         * dependencies between these popcnt operations. */
         uint64_t cnt[4];
-        for (int i = 0; i < 4; ++i) cnt[i] = 0;
+        memset(cnt, 0, sizeof(cnt));
+
+        /* Count bits 32 bytes at a time by using popcnt.
+         * Unroll the loop to avoid the overhead of a single popcnt per iteration,
+         * allowing the CPU to extract more instruction-level parallelism.
+         * Reference: https://danluu.com/assembly-intrinsics/ */
         while (count >= 32) {
             cnt[0] += __builtin_popcountll(*(uint64_t*)(p));
             cnt[1] += __builtin_popcountll(*(uint64_t*)(p + 8));
