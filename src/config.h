@@ -309,7 +309,7 @@ void setcpuaffinity(const char *cpulist);
 
 /* __has_builtin is supported since GCC 10, so we can't use it to check
  * for __builtin_cpu_supports, which is supported since GCC 5.0. */
-#if (defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__) && __clang_major__ >= 34)
+#if (defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__))
     #define HAS_BUILTIN_CPU_SUPPORTS
 #endif
 
