@@ -1669,7 +1669,7 @@ void sflushCommand(client *c) {
     /* Update last pair if last cluster slot is also end of last range */
     if (inSlotRange) sflush->ranges[sflush->numRanges++].last = CLUSTER_SLOTS - 1;
     /* Flush all selected slots */
-    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, EMPTYDB_NO_FLAGS, sflush) == 0) {
+    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, sflush) == 0) {
         /* If not running as blocking ASYNC, reply with ranges */
         replySlotsFlush(c, sflush);
         zfree(sflush);
