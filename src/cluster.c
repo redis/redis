@@ -1558,7 +1558,7 @@ void readonlyCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void replySlotsFlush(client *c, SlotsFlush *sflush) {
+void replySlotsFlushAndFree(client *c, SlotsFlush *sflush) {
     addReplyArrayLen(c, sflush->numRanges);
     for (int i = 0 ; i < sflush->numRanges ; i++) {
         addReplyArrayLen(c, 2);
@@ -1668,12 +1668,10 @@ void sflushCommand(client *c) {
 
     /* Update last pair if last cluster slot is also end of last range */
     if (inSlotRange) sflush->ranges[sflush->numRanges++].last = CLUSTER_SLOTS - 1;
-    /* Flush all selected slots */
-    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, sflush) == 0) {
-        /* If not running as blocking ASYNC, reply with ranges */
-        replySlotsFlush(c, sflush);
-        zfree(sflush);
-    }
+    
+    /* Flush selected slots. If not flush as blocking async, then reply immediately */
+    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, sflush) == 0)
+        replySlotsFlushAndFree(c, sflush);
 }
 
 /* The READWRITE command just clears the READONLY command state. */

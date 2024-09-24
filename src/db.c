@@ -747,7 +747,7 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
 
     /* Only SFLUSH command pass pointer to `SlotsFlush` */
     if (slotsFlush)
-        replySlotsFlush(c, slotsFlush);
+        replySlotsFlushAndFree(c, slotsFlush);
     else
         addReply(c, shared.ok);
 

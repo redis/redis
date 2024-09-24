@@ -3419,7 +3419,7 @@ typedef struct SlotsFlush {
     int numRanges;
     SlotRange ranges[];
 } SlotsFlush;
-void replySlotsFlush(client *c, SlotsFlush *sflush);
+void replySlotsFlushAndFree(client *c, SlotsFlush *sflush);
 int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
