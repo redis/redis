@@ -732,7 +732,7 @@ void flushAllDataAndResetRDB(int flags) {
  * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
  */
 void flushallSyncBgDone(uint64_t client_id, void *sflush) {
-    SlotsFlush *slotFlush = (SlotsFlush *)sflush;
+    SlotsFlush *slotsFlush = (SlotsFlush *)sflush;
     client *c = lookupClientByID(client_id);
 
     /* Verify that client still exists */
@@ -746,11 +746,10 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     updateStatsOnUnblock(c, 0 /*blocked_us*/, elapsedUs(c->bstate.lazyfreeStartTime), 0);
 
     /* Only SFLUSH command pass pointer to `SlotsFlush` */
-    if (slotFlush) {
-        replySlotsFlush(c, slotFlush);
-    } else {
+    if (slotsFlush)
+        replySlotsFlush(c, slotsFlush);
+    else
         addReply(c, shared.ok);
-    }
 
     /* mark client as unblocked */
     unblockClient(c, 1);
@@ -770,10 +769,12 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
  *
- * sflush - provided only by SFLUSH command, otherwise NULL
+ * sflush - provided only by SFLUSH command, otherwise NULL. Will be used on 
+ *          completion to reply with the slots flush result. Ownership is passed
+ *          to the completion job in case of `blocking_async`.
  */
 int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
-    int blocking_async = 0; /* FLUSHALL\FLUSHDB SYNC opt to run as blocking ASYNC */
+    int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
     if ((!(flags & EMPTYDB_ASYNC)) && (!(c->flags & CLIENT_AVOID_BLOCKING_ASYNC_FLUSH))) {

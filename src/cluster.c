@@ -1634,9 +1634,9 @@ void sflushCommand(client *c) {
 
     /* Verify slotsToFlushRq[] covers ALL slots of myNode. */
     clusterNode *myNode = getMyClusterNode();
-    /* During iteration trace also the slot range pairs and save in SlotsFlush
-     * Allocated on heap since there is a chance that FLUSH SYNC will be run as
-     * blocking ASYNC and only later reply with slot ranges */
+    /* During iteration trace also the slot range pairs and save in SlotsFlush.
+     * It is allocated on heap since there is a chance that FLUSH SYNC will be 
+     * running as blocking ASYNC and only later reply with slot ranges */
     int capacity = 32; /* Initial capacity */
     SlotsFlush *sflush = zmalloc(sizeof(SlotsFlush) + sizeof(SlotRange) * capacity);
     sflush->numRanges = 0;
@@ -1644,7 +1644,7 @@ void sflushCommand(client *c) {
     for (int i = 0; i < CLUSTER_SLOTS; i++) {
         if (myNode == getNodeBySlot(i)) {
             if (!slotsToFlushRq[i]) {
-                addReplySetLen(c, 0); /* Not all slots of my node got covered */
+                addReplySetLen(c, 0); /* Not all slots of mynode got covered. See sflushCommand() comment. */
                 zfree(sflush);
                 return;
             }
