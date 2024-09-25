@@ -19,7 +19,7 @@
  * - array_callback
  * - set_callback
  * - map_callback
- * 
+ *
  * These callbacks need to continue parsing by calling parseReply a number of
  * times, according to the supplied length. Subsequent parseReply calls may use
  * a different p_ctx, which will be used for nested CallReply objects.
@@ -133,7 +133,7 @@ static int parseDouble(ReplyParser *parser, void *p_ctx) {
     if (len <= MAX_LONG_DOUBLE_CHARS) {
         memcpy(buf,proto+1,len);
         buf[len] = '\0';
-        d = fast_float_strtod(buf,NULL); /* We expect a valid representation. */
+        d = strtod(buf,NULL); /* We expect a valid representation. */
     } else {
         d = 0;
     }

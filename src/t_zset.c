@@ -353,7 +353,7 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             /* rank+1 is the first element in range, so we need n+1 steps to reach target. */
-            for (i = 0; i < n + 1; i++) { 
+            for (i = 0; i < n + 1; i++) {
                 x = x->level[0].forward;
             }
         } else {
@@ -550,11 +550,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         spec->min = (long)min->ptr;
     } else {
         if (((char*)min->ptr)[0] == '(') {
-            spec->min = fast_float_strtod((char*)min->ptr+1,&eptr);
+            spec->min = strtod((char*)min->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
         } else {
-            spec->min = fast_float_strtod((char*)min->ptr,&eptr);
+            spec->min = strtod((char*)min->ptr,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
         }
     }
@@ -562,11 +562,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         spec->max = (long)max->ptr;
     } else {
         if (((char*)max->ptr)[0] == '(') {
-            spec->max = fast_float_strtod((char*)max->ptr+1,&eptr);
+            spec->max = strtod((char*)max->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
             spec->maxex = 1;
         } else {
-            spec->max = fast_float_strtod((char*)max->ptr,&eptr);
+            spec->max = strtod((char*)max->ptr,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
         }
     }
@@ -720,11 +720,11 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
             }
         }
         /* Check if zsl is long enough. */
-        if ((unsigned long)(edge_rank + n) >= zsl->length) return NULL; 
+        if ((unsigned long)(edge_rank + n) >= zsl->length) return NULL;
         if (n < ZSKIPLIST_MAX_SEARCH) {
             /* If offset is small, we can just jump node by node */
             /* rank+1 is the first element in range, so we need n+1 steps to reach target. */
-            for (i = 0; i < n + 1; i++) { 
+            for (i = 0; i < n + 1; i++) {
                 x = x->level[0].forward;
             }
         } else {
@@ -773,7 +773,7 @@ double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
         vlen = sizeof(buf) - 1;
     memcpy(buf,vstr,vlen);
     buf[vlen] = '\0';
-    return fast_float_strtod(buf,NULL);
+    return strtod(buf,NULL);
  }
 
 double zzlGetScore(unsigned char *sptr) {
@@ -1218,7 +1218,7 @@ unsigned long zsetLength(const robj *zobj) {
  * and the value len hint indicates the approximate individual size of the added elements,
  * they are used to determine the initial representation.
  *
- * If the hints are not known, and underestimation or 0 is suitable. 
+ * If the hints are not known, and underestimation or 0 is suitable.
  * We should never pass a negative value because it will convert to a very large unsigned number. */
 robj *zsetTypeCreate(size_t size_hint, size_t val_len_hint) {
     if (size_hint <= server.zset_max_listpack_entries &&
@@ -1364,7 +1364,7 @@ int zsetScore(robj *zobj, sds member, double *score) {
 /* Add a new element or update the score of an existing element in a sorted
  * set, regardless of its encoding.
  *
- * The set of flags change the command behavior. 
+ * The set of flags change the command behavior.
  *
  * The input flags are the following:
  *
@@ -1373,9 +1373,9 @@ int zsetScore(robj *zobj, sds member, double *score) {
  *            assume 0 as previous score.
  * ZADD_NX:   Perform the operation only if the element does not exist.
  * ZADD_XX:   Perform the operation only if the element already exist.
- * ZADD_GT:   Perform the operation on existing elements only if the new score is 
+ * ZADD_GT:   Perform the operation on existing elements only if the new score is
  *            greater than the current score.
- * ZADD_LT:   Perform the operation on existing elements only if the new score is 
+ * ZADD_LT:   Perform the operation on existing elements only if the new score is
  *            less than the current score.
  *
  * When ZADD_INCR is used, the new score of the element is stored in
@@ -1624,7 +1624,7 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
         }
 
         if (eptr != NULL) {
-            if (output_score) 
+            if (output_score)
                 *output_score = zzlGetScore(sptr);
             if (reverse)
                 return llen-rank;
@@ -1809,7 +1809,7 @@ void zaddGenericCommand(client *c, int flags) {
             "XX and NX options at the same time are not compatible");
         return;
     }
-    
+
     if ((gt && nx) || (lt && nx) || (gt && lt)) {
         addReplyError(c,
             "GT, LT, and/or NX options at the same time are not compatible");
@@ -3237,7 +3237,7 @@ void zrevrangeCommand(client *c) {
 
 /* This command implements ZRANGEBYSCORE, ZREVRANGEBYSCORE. */
 void genericZrangebyscoreCommand(zrange_result_handler *handler,
-    zrangespec *range, robj *zobj, long offset, long limit, 
+    zrangespec *range, robj *zobj, long offset, long limit,
     int reverse) {
     unsigned long rangelen = 0;
 
