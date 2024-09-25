@@ -2170,6 +2170,11 @@ void clusterProcessGossipSection(clusterMsg *hdr, clusterLink *link) {
                 node->tls_port = msg_tls_port;
                 node->cport = ntohs(g->cport);
                 node->flags &= ~CLUSTER_NODE_NOADDR;
+
+                /* Check if this is our master and we have to change the
+                 * replication target as well. */
+                if (nodeIsSlave(myself) && myself->slaveof == node)
+                    replicationSetMaster(node->ip, getNodeDefaultReplicationPort(node));
             }
         } else if (!node) {
             /* If it's not in NOADDR state and we don't have it, we
