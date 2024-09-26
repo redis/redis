@@ -1581,7 +1581,7 @@ void replySlotsFlushAndFree(client *c, SlotsFlush *sflush) {
  * optimization.
  */
 void sflushCommand(client *c) {
-    int flags = EMPTYDB_NO_FLAGS, argc = c->argc;
+    int flags, argc = c->argc;
 
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
@@ -1590,10 +1590,13 @@ void sflushCommand(client *c) {
 
     /* check if last argument is SYNC or ASYNC */
     if (!strcasecmp(c->argv[c->argc-1]->ptr,"sync")) {
+        flags = EMPTYDB_NO_FLAGS;
         argc--;
     } else if (!strcasecmp(c->argv[c->argc-1]->ptr,"async")) {
-        flags |= EMPTYDB_ASYNC;
+        flags = EMPTYDB_ASYNC;
         argc--;
+    } else if (server.lazyfree_lazy_user_flush) {
+        flags = EMPTYDB_ASYNC;
     }
 
     /* parse the slot range */
