@@ -79,9 +79,9 @@ static pthread_mutex_t bio_mutex_comp;
 static int job_comp_pipe[2];   /* Pipe used to awake the event loop */
 
 typedef struct bio_comp_item {
-    comp_fn  *func;    /* callback after completion job will be processed  */
-    uint64_t arg;      /* user data to be passed to the function */
-    void     *ptr;     /* user pointer to be passed to the function */
+    comp_fn *func;    /* callback after completion job will be processed  */
+    uint64_t arg;     /* user data to be passed to the function */
+    void *ptr;        /* user pointer to be passed to the function */
 } bio_comp_item;
 
 /* This structure represents a background Job. It is only used locally to this

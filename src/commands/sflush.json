@@ -16,7 +16,25 @@
         "command_tips": [
         ],
         "reply_schema": {
-            "const": "OK"
+            "description": "List of slot ranges",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "type": "array",
+                "minItems": 2,
+                "maxItems": 2,
+                "items": [
+                    {
+                        "description": "start slot number",
+                        "type": "integer"
+                    },
+                    {
+                        "description": "end slot number",
+                        "type": "integer"
+                    }
+                ]
+            }
         },
         "arguments": [
             {

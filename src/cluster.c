@@ -1576,8 +1576,9 @@ void replySlotsFlushAndFree(client *c, SlotsFlush *sflush) {
  * flushing a single shard as a whole, but in the future the same command may be
  * used to partially flush a shard based on hash slots. Currently only if provided
  * slots cover entirely the slots of a node, the node will be flushed and the
- * return value will be pairs of slot ranges and the node. Otherwise, a single empty
- * set will be returned. If possible, SFLUSH SYNC will be run as blocking ASYNC.
+ * return value will be pairs of slot ranges. Otherwise, a single empty set will 
+ * be returned. If possible, SFLUSH SYNC will be run as blocking ASYNC as an 
+ * optimization.
  */
 void sflushCommand(client *c) {
     int flags = EMPTYDB_NO_FLAGS, argc = c->argc;

@@ -732,7 +732,7 @@ void flushAllDataAndResetRDB(int flags) {
  * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
  */
 void flushallSyncBgDone(uint64_t client_id, void *sflush) {
-    SlotsFlush *slotsFlush = (SlotsFlush *)sflush;
+    SlotsFlush *slotsFlush = sflush;
     client *c = lookupClientByID(client_id);
 
     /* Verify that client still exists */
