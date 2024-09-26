@@ -60,10 +60,13 @@ typedef long long ustime_t;
 #define REDISMODULE_OPEN_KEY_NOEXPIRE (1<<19)
 /* Avoid any effects from fetching the key */
 #define REDISMODULE_OPEN_KEY_NOEFFECTS (1<<20)
+/* Allow access expired key that haven't deleted yet */
+#define REDISMODULE_OPEN_KEY_ACCESS_EXPIRED (1<<21)
+
 /* Mask of all REDISMODULE_OPEN_KEY_* values. Any new mode should be added to this list.
  * Should not be used directly by the module, use RM_GetOpenKeyModesAll instead.
  * Located here so when we will add new modes we will not forget to update it. */
-#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS
+#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED
 
 /* List push and pop */
 #define REDISMODULE_LIST_HEAD 0

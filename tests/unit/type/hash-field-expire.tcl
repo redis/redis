@@ -199,12 +199,12 @@ start_server {tags {"external:skip needs:debug"}} {
             set hash_sizes {1 15 16 17 31 32 33 40}
             foreach h $hash_sizes {
                 for {set i 1} {$i <= $h} {incr i} {
-                    # random expiration time
+                    # Random expiration time (Take care expired not after "mix$h")
                     r hset hrand$h f$i v$i
-                    r hpexpire hrand$h [expr {50 + int(rand() * 50)}] FIELDS 1 f$i
+                    r hpexpire hrand$h [expr {70 + int(rand() * 30)}] FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS hrand$h f$i]
 
-                    # same expiration time
+                    # Same expiration time (Take care expired not after "mix$h")
                     r hset same$h f$i v$i
                     r hpexpire same$h 100 FIELDS 1 f$i
                     assert_equal 1 [r HEXISTS same$h f$i]
@@ -286,10 +286,9 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HEXPIRETIME - returns TTL in Unix timestamp ($type)" {
             r del myhash
             r HSET myhash field1 value1
-            r HPEXPIRE myhash 1000 NX FIELDS 1 field1
-
             set lo [expr {[clock seconds] + 1}]
             set hi [expr {[clock seconds] + 2}]
+            r HPEXPIRE myhash 1000 NX FIELDS 1 field1
             assert_range [r HEXPIRETIME myhash FIELDS 1 field1] $lo $hi
             assert_range [r HPEXPIRETIME myhash FIELDS 1 field1] [expr $lo*1000] [expr $hi*1000]
         }
@@ -599,6 +598,20 @@ start_server {tags {"external:skip needs:debug"}} {
             wait_for_condition 30 10 { [r exists myhash2] == 0 } else { fail "`myhash2` should be expired" }
         }
 
+        test "Test RENAME hash that had HFEs but not during the rename ($type)" {
+            r del h1
+            r hset h1 f1 v1 f2 v2
+            r hpexpire h1 1 FIELDS 1 f1
+            after 20
+            r rename h1 h1_renamed
+            assert_equal [r exists h1] 0
+            assert_equal [r exists h1_renamed] 1
+            assert_equal [r hgetall h1_renamed] {f2 v2}
+            r hpexpire h1_renamed 1 FIELDS 1 f2
+            # Only active expire will delete the key
+            wait_for_condition 30 10 { [r exists h1_renamed] == 0 } else { fail "`h1_renamed` should be expired" }
+        }
+
         test "MOVE to another DB hash with fields to be expired ($type)" {
             r select 9
             r flushall
@@ -642,6 +655,20 @@ start_server {tags {"external:skip needs:debug"}} {
 
         } {} {singledb:skip}
 
+        test "Test COPY hash that had HFEs but not during the copy ($type)" {
+            r del h1
+            r hset h1 f1 v1 f2 v2
+            r hpexpire h1 1 FIELDS 1 f1
+            after 20
+            r COPY h1 h1_copy
+            assert_equal [r exists h1] 1
+            assert_equal [r exists h1_copy] 1
+            assert_equal [r hgetall h1_copy] {f2 v2}
+            r hpexpire h1_copy 1 FIELDS 1 f2
+            # Only active expire will delete the key
+            wait_for_condition 30 10 { [r exists h1_copy] == 0 } else { fail "`h1_copy` should be expired" }
+        }
+
         test "Test SWAPDB hash-fields to be expired ($type)" {
             r select 9
             r flushall
@@ -658,6 +685,29 @@ start_server {tags {"external:skip needs:debug"}} {
             r select 10
             assert_equal [r hget myhash field1] "value1"
             assert_equal [r dbsize] 1
+
+            # Eventually the field will be expired and the key will be deleted
+            wait_for_condition 20 10 { [r exists myhash] == 0 } else { fail "'myhash' should be expired" }
+        } {} {singledb:skip}
+
+        test "Test SWAPDB hash that had HFEs but not during the swap ($type)" {
+            r select 9
+            r flushall
+            r hset myhash f1 v1 f2 v2
+            r hpexpire myhash 1 NX FIELDS 1 f1
+            after 10
+
+            r swapdb 9 10
+
+            # Verify the key and its field doesn't exist in the source DB
+            assert_equal [r exists myhash] 0
+            assert_equal [r dbsize] 0
+
+            # Verify the key and its field exists in the target DB
+            r select 10
+            assert_equal [r hgetall myhash] {f2 v2}
+            assert_equal [r dbsize] 1
+            r hpexpire myhash 1 NX FIELDS 1 f2
 
             # Eventually the field will be expired and the key will be deleted
             wait_for_condition 20 10 { [r exists myhash] == 0 } else { fail "'myhash' should be expired" }
@@ -729,6 +779,20 @@ start_server {tags {"external:skip needs:debug"}} {
             r restore myhash 0 $encoded
             assert_equal [lsort [r hgetall myhash]] "1 2 3 a b c"
             assert_equal [r hexpiretime myhash FIELDS 3 a b c] {2524600800 2524600801 -1}
+        }
+
+        test {RESTORE hash that had in the past HFEs but not during the dump} {
+            r config set sanitize-dump-payload yes
+            r del myhash
+            r hmset myhash a 1 b 2 c 3
+            r hpexpire myhash 1 fields 1 a
+            after 10
+            set encoded [r dump myhash]
+            r del myhash
+            r restore myhash 0 $encoded
+            assert_equal [lsort [r hgetall myhash]] "2 3 b c"
+            r hpexpire myhash 1 fields 2 b c
+            wait_for_condition 30 10 { [r exists myhash] == 0 } else { fail "`myhash` should be expired" }
         }
 
         test {DUMP / RESTORE are able to serialize / unserialize a hash with TTL 0 for all fields} {
@@ -950,6 +1014,7 @@ start_server {tags {"external:skip needs:debug"}} {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
 
                 set aof [get_last_incr_aof_path r]
+                r debug set-active-expire 0 ;# Prevent fields from being expired during data preparation
 
                 # Time is in the past so it should propagate HDELs to replica
                 # and delete the fields
@@ -976,6 +1041,7 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hpexpireat h2 [expr [clock seconds]*1000+100000] LT FIELDS 1 f3
                 r hexpireat h2 [expr [clock seconds]+10] NX FIELDS 1 f4
 
+                r debug set-active-expire 1
                 wait_for_condition 50 100 {
                     [r hlen h2] eq 2
                 } else {
@@ -1004,7 +1070,7 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hdel h2 f2}
                 }
             }
-        }
+        } {} {needs:debug}
 
         test "Lazy Expire - fields are lazy deleted and propagated to replicas ($type)" {
             start_server {overrides {appendonly {yes} appendfsync always} tags {external:skip}} {
