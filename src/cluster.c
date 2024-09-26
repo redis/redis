@@ -1581,7 +1581,7 @@ void replySlotsFlushAndFree(client *c, SlotsFlush *sflush) {
  * optimization.
  */
 void sflushCommand(client *c) {
-    int flags, argc = c->argc;
+    int flags = EMPTYDB_NO_FLAGS, argc = c->argc;
 
     if (server.cluster_enabled == 0) {
         addReplyError(c,"This instance has cluster support disabled");
