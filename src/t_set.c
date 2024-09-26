@@ -2,8 +2,13 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
@@ -1492,6 +1497,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     robj **sets = zmalloc(sizeof(robj*)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
+    int dstset_encoding = OBJ_ENCODING_INTSET;
     char *str;
     size_t len;
     int64_t llval;
@@ -1509,6 +1515,23 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         if (checkType(c,setobj,OBJ_SET)) {
             zfree(sets);
             return;
+        }
+        /* For a SET's encoding, according to the factory method setTypeCreate(), currently have 3 types:
+         * 1. OBJ_ENCODING_INTSET
+         * 2. OBJ_ENCODING_LISTPACK
+         * 3. OBJ_ENCODING_HT
+         * 'dstset_encoding' is used to determine which kind of encoding to use when initialize 'dstset'.
+         *
+         * If all sets are all OBJ_ENCODING_INTSET encoding or 'dstkey' is not null, keep 'dstset'
+         * OBJ_ENCODING_INTSET encoding when initialize. Otherwise it is not efficient to create the 'dstset'
+         * from intset and then convert to listpack or hashtable.
+         *
+         * If one of the set is OBJ_ENCODING_LISTPACK, let's set 'dstset' to hashtable default encoding,
+         * the hashtable is more efficient when find and compare than the listpack. The corresponding
+         * time complexity are O(1) vs O(n). */
+        if (!dstkey && dstset_encoding == OBJ_ENCODING_INTSET &&
+            (setobj->encoding == OBJ_ENCODING_LISTPACK || setobj->encoding == OBJ_ENCODING_HT)) {
+            dstset_encoding = OBJ_ENCODING_HT;
         }
         sets[j] = setobj;
         if (j > 0 && sets[0] == sets[j]) {
@@ -1552,7 +1575,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     /* We need a temp set object to store our union/diff. If the dstkey
      * is not NULL (that is, we are inside an SUNIONSTORE/SDIFFSTORE operation) then
      * this set object will be the resulting object to set into the target key*/
-    dstset = createIntsetObject();
+    if (dstset_encoding == OBJ_ENCODING_INTSET) {
+        dstset = createIntsetObject();
+    } else {
+        dstset = createSetObject();
+    }
 
     if (op == SET_OP_UNION) {
         /* Union is trivial, just add every element of every set to the

@@ -30,6 +30,7 @@
 
 #include "fmacros.h"
 #include "fpconv_dtoa.h"
+#include "fast_float_strtod.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -612,7 +613,7 @@ int string2ld(const char *s, size_t slen, long double *dp) {
 int string2d(const char *s, size_t slen, double *dp) {
     errno = 0;
     char *eptr;
-    *dp = strtod(s, &eptr);
+    *dp = fast_float_strtod(s, &eptr);
     if (slen == 0 ||
         isspace(((const char*)s)[0]) ||
         (size_t)(eptr-(char*)s) != slen ||

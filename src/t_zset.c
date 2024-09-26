@@ -1,31 +1,15 @@
-/*
- * Copyright (c) 2009-current, Redis Ltd.
- * Copyright (c) 2009-2012, Pieter Noordhuis <pcnoordhuis at gmail dot com>
+/* t_zset.c -- zset data type implementation.
+ *
+ * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
  *
- *   * Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *   * Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *   * Neither the name of Redis nor the names of its contributors may be used
- *     to endorse or promote products derived from this software without
- *     specific prior written permission.
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 /*-----------------------------------------------------------------------------
@@ -55,7 +39,7 @@
  * c) there is a back pointer, so it's a doubly linked list with the back
  * pointers being only at "level 1". This allows to traverse the list
  * from tail to head, useful for ZREVRANGE. */
-
+#include "fast_float_strtod.h"
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
@@ -566,11 +550,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         spec->min = (long)min->ptr;
     } else {
         if (((char*)min->ptr)[0] == '(') {
-            spec->min = strtod((char*)min->ptr+1,&eptr);
+            spec->min = fast_float_strtod((char*)min->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
             spec->minex = 1;
         } else {
-            spec->min = strtod((char*)min->ptr,&eptr);
+            spec->min = fast_float_strtod((char*)min->ptr,&eptr);
             if (eptr[0] != '\0' || isnan(spec->min)) return C_ERR;
         }
     }
@@ -578,11 +562,11 @@ static int zslParseRange(robj *min, robj *max, zrangespec *spec) {
         spec->max = (long)max->ptr;
     } else {
         if (((char*)max->ptr)[0] == '(') {
-            spec->max = strtod((char*)max->ptr+1,&eptr);
+            spec->max = fast_float_strtod((char*)max->ptr+1,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
             spec->maxex = 1;
         } else {
-            spec->max = strtod((char*)max->ptr,&eptr);
+            spec->max = fast_float_strtod((char*)max->ptr,&eptr);
             if (eptr[0] != '\0' || isnan(spec->max)) return C_ERR;
         }
     }
@@ -789,7 +773,7 @@ double zzlStrtod(unsigned char *vstr, unsigned int vlen) {
         vlen = sizeof(buf) - 1;
     memcpy(buf,vstr,vlen);
     buf[vlen] = '\0';
-    return strtod(buf,NULL);
+    return fast_float_strtod(buf,NULL);
  }
 
 double zzlGetScore(unsigned char *sptr) {
@@ -2611,16 +2595,6 @@ static void zdiff(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen,
     }
 }
 
-dictType setAccumulatorDictType = {
-    dictSdsHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictSdsKeyCompare,         /* key compare */
-    NULL,                      /* key destructor */
-    NULL,                      /* val destructor */
-    NULL                       /* allow to expand */
-};
-
 /* The zunionInterDiffGenericCommand() function is called in order to implement the
  * following commands: ZUNION, ZINTER, ZDIFF, ZUNIONSTORE, ZINTERSTORE, ZDIFFSTORE,
  * ZINTERCARD.
@@ -2816,7 +2790,6 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiClearIterator(&src[0]);
         }
     } else if (op == SET_OP_UNION) {
-        dict *accumulator = dictCreate(&setAccumulatorDictType);
         dictIterator *di;
         dictEntry *de, *existing;
         double score;
@@ -2824,7 +2797,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         if (setnum) {
             /* Our union is at least as large as the largest set.
              * Resize the dictionary ASAP to avoid useless rehashing. */
-            dictExpand(accumulator,zuiLength(&src[setnum-1]));
+            dictExpand(dstzset->dict,zuiLength(&src[setnum-1]));
         }
 
         /* Step 1: Create a dictionary of elements -> aggregated-scores
@@ -2839,7 +2812,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 if (isnan(score)) score = 0;
 
                 /* Search for this element in the accumulating dictionary. */
-                de = dictAddRaw(accumulator,zuiSdsFromValue(&zval),&existing);
+                de = dictAddRaw(dstzset->dict,zuiSdsFromValue(&zval),&existing);
                 /* If we don't have it, we need to create a new entry. */
                 if (!existing) {
                     tmp = zuiNewSdsFromValue(&zval);
@@ -2849,7 +2822,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                      totelelen += sdslen(tmp);
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
                     /* Update the element with its initial score. */
-                    dictSetKey(accumulator, de, tmp);
+                    dictSetKey(dstzset->dict, de, tmp);
                     dictSetDoubleVal(de,score);
                 } else {
                     /* Update the score with the score of the new instance
@@ -2866,21 +2839,15 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         }
 
         /* Step 2: convert the dictionary into the final sorted set. */
-        di = dictGetIterator(accumulator);
-
-        /* We now are aware of the final size of the resulting sorted set,
-         * let's resize the dictionary embedded inside the sorted set to the
-         * right size, in order to save rehashing time. */
-        dictExpand(dstzset->dict,dictSize(accumulator));
+        di = dictGetIterator(dstzset->dict);
 
         while((de = dictNext(di)) != NULL) {
             sds ele = dictGetKey(de);
             score = dictGetDoubleVal(de);
             znode = zslInsert(dstzset->zsl,score,ele);
-            dictAdd(dstzset->dict,ele,&znode->score);
+            dictSetVal(dstzset->dict,de,&znode->score);
         }
         dictReleaseIterator(di);
-        dictRelease(accumulator);
     } else if (op == SET_OP_DIFF) {
         zdiff(src, setnum, dstzset, &maxelelen, &totelelen);
     } else {

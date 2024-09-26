@@ -931,6 +931,33 @@ void addReplyHumanLongDouble(client *c, long double d) {
     }
 }
 
+static inline void _addReplyLongLongSharedHdr(client *c, long long ll, char prefix,
+                                              robj *shared_hdr[OBJ_SHARED_BULKHDR_LEN])
+{
+    char buf[128];
+    int len;
+    const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
+
+    if (opt_hdr) {
+        _addReplyToBufferOrList(c, shared_hdr[ll]->ptr, OBJ_SHARED_HDR_STRLEN(ll));
+        return;
+    }
+
+    buf[0] = prefix;
+    len = ll2string(buf + 1, sizeof(buf) - 1, ll);
+    buf[len + 1] = '\r';
+    buf[len + 2] = '\n';
+    _addReplyToBufferOrList(c, buf, len + 3);
+}
+
+static inline void _addReplyLongLongBulk(client *c, long long ll) {
+    _addReplyLongLongSharedHdr(c, ll, '$', shared.bulkhdr);
+}
+
+static inline void _addReplyLongLongMBulk(client *c, long long ll) {
+    _addReplyLongLongSharedHdr(c, ll, '*', shared.mbulkhdr);
+}
+
 /* Add a long long as integer reply or bulk len / multi bulk count.
  * Basically this is used to output <prefix><long long><crlf>. */
 static void _addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
@@ -987,7 +1014,9 @@ void addReplyAggregateLen(client *c, long length, int prefix) {
 }
 
 void addReplyArrayLen(client *c, long length) {
-    addReplyAggregateLen(c,length,'*');
+    serverAssert(length >= 0);
+    if (prepareClientToWrite(c) != C_OK) return;
+    _addReplyLongLongMBulk(c, length);
 }
 
 void addReplyMapLen(client *c, long length) {
@@ -1044,7 +1073,7 @@ void addReplyNullArray(client *c) {
 void addReplyBulkLen(client *c, robj *obj) {
     size_t len = stringObjectLen(obj);
     if (prepareClientToWrite(c) != C_OK) return;
-    _addReplyLongLongWithPrefix(c, len, '$');
+    _addReplyLongLongBulk(c, len);
 }
 
 /* Add a Redis Object as a bulk reply */
@@ -1057,7 +1086,7 @@ void addReplyBulk(client *c, robj *obj) {
 /* Add a C buffer as bulk reply */
 void addReplyBulkCBuffer(client *c, const void *p, size_t len) {
     if (prepareClientToWrite(c) != C_OK) return;
-    _addReplyLongLongWithPrefix(c, len, '$');
+    _addReplyLongLongBulk(c, len);
     _addReplyToBufferOrList(c, p, len);
     _addReplyToBufferOrList(c, "\r\n", 2);
 }

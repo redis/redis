@@ -255,6 +255,20 @@ typedef struct ExpireInfo {
                                      EB_EXPIRE_TIME_INVALID if none left. */
 } ExpireInfo;
 
+/* Iterator to traverse ebuckets items */
+typedef struct EbucketsIterator {
+    /* private data of iterator */
+    ebuckets eb;
+    EbucketsType *type;
+    raxIterator raxIter;
+    int isRax;
+
+    /* public read only */
+    eItem currItem;               /* Current item ref. Use ebGetMetaExpTime()
+                                     on `currItem` to get expiration time.*/
+    uint64_t itemsCurrBucket;     /* Number of items in current bucket. */
+} EbucketsIterator;
+
 /* ebuckets API */
 
 static inline ebuckets ebCreate(void) { return NULL; } /* Empty ebuckets */
@@ -280,6 +294,14 @@ int ebRemove(ebuckets *eb, EbucketsType *type, eItem item);
 int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime);
 
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item);
+
+void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type);
+
+void ebStop(EbucketsIterator *iter);
+
+int ebNext(EbucketsIterator *iter);
+
+int ebNextBucket(EbucketsIterator *iter);
 
 typedef eItem (ebDefragFunction)(const eItem item);
 eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *fn);
