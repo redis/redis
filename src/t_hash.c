@@ -2350,7 +2350,7 @@ void hgetdelCommand(client *c) {
         server.dirty += deleted;
     }
 
-    addHashFieldToReply(c, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE);
+    addReplyArrayLen(c, deleted);
 }
 
 void hmgetCommand(client *c) {
