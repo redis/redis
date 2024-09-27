@@ -3734,6 +3734,7 @@ void hexpireatCommand(client *c);
 void httlCommand(client *c);
 void hpttlCommand(client *c);
 void hexpiretimeCommand(client *c);
+void hgetdelCommand(client *c);
 void hpexpiretimeCommand(client *c);
 void hpersistCommand(client *c);
 void hsetnxCommand(client *c);

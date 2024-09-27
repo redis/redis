@@ -2318,6 +2318,41 @@ void hgetCommand(client *c) {
     addHashFieldToReply(c, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE);
 }
 
+void hgetdelCommand(client *c) {
+    robj *o;
+    int j, deleted = 0, keyremoved = 0;
+
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,o,OBJ_HASH)) return;
+
+    int isHFE = hashTypeIsFieldsWithExpire(o);
+
+    for (j = 2; j < c->argc; j++) {
+        if (hashTypeDelete(o,c->argv[j]->ptr,1)) {
+            deleted++;
+            if (hashTypeLength(o, 0) == 0) {
+                dbDelete(c->db,c->argv[1]);
+                keyremoved = 1;
+                break;
+            }
+        }
+    }
+    if (deleted) {
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
+        if (keyremoved) {
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        } else {
+            if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0)) /* is it last HFE */
+                ebRemove(&c->db->hexpires, &hashExpireBucketsType, o);
+        }
+
+        server.dirty += deleted;
+    }
+
+    addHashFieldToReply(c, o, c->argv[2]->ptr, HFE_LAZY_EXPIRE);
+}
+
 void hmgetCommand(client *c) {
     GetFieldRes res = GETF_OK;
     robj *o;

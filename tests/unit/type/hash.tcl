@@ -272,6 +272,22 @@ start_server {tags {"hash"}} {
         set _ $err
     } {}
 
+    test {HGETDEL - partial hash key delete} {
+        r del myhash
+        r hmset myhash a 1 b 2 c 3
+        set result [r hgetdel myhash a b]
+        assert_equal 1 [r hexists myhash c]
+        set _ $result
+    } {a 1 b 2 1}
+
+    test {HGETDEL - delete hash key completely} {
+        r del myhash
+        r hmset myhash a 1 b 2 c 3
+        set result [r hgetdel myhash a b c]
+        assert_equal 0 [r hexists myhash c]
+        set _ $result
+    } {a 1 b 2 c 3 0}
+
     test {HGET against non existing key} {
         set rv {}
         lappend rv [r hget smallhash __123123123__]
