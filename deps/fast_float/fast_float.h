@@ -3679,7 +3679,7 @@ template <typename T, typename UC, typename>
 FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
 from_chars(UC const *first, UC const *last, T &value,
            chars_format fmt /*= chars_format::general*/) noexcept {
-            assert(false);
+            abort();
   return from_chars_caller<T>::call(first, last, value,
                                     parse_options_t<UC>(fmt));
 }
@@ -3817,7 +3817,7 @@ from_chars_advanced(UC const *first, UC const *last, T &value,
 template <typename T, typename UC, typename>
 FASTFLOAT_CONSTEXPR20 from_chars_result_t<UC>
 from_chars(UC const *first, UC const *last, T &value, int base) noexcept {
-  assert(false);
+  abort();
   static_assert(is_supported_char_type<UC>(),
                 "only char, wchar_t, char16_t and char32_t are supported");
 
