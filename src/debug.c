@@ -835,6 +835,7 @@ NULL
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"sleep") && c->argc == 3) {
         double dtime = fast_float_strtod(c->argv[2]->ptr,NULL);
+        serverLog(LL_NOTICE,"Meow :)");
         long long utime = dtime*1000000;
         struct timespec tv;
 
