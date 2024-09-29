@@ -1558,6 +1558,126 @@ void readonlyCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+void replySlotsFlushAndFree(client *c, SlotsFlush *sflush) {
+    addReplyArrayLen(c, sflush->numRanges);
+    for (int i = 0 ; i < sflush->numRanges ; i++) {
+        addReplyArrayLen(c, 2);
+        addReplyLongLong(c, sflush->ranges[i].first);
+        addReplyLongLong(c, sflush->ranges[i].last);
+    }
+    zfree(sflush);
+}
+
+/* Partially flush destination DB in a cluster node, based on the slot range.
+ *
+ * Usage: SFLUSH <start-slot> <end slot> [<start-slot> <end slot>]* [SYNC|ASYNC]
+ *
+ * This is an initial implementation of SFLUSH (slots flush) which is limited to
+ * flushing a single shard as a whole, but in the future the same command may be
+ * used to partially flush a shard based on hash slots. Currently only if provided
+ * slots cover entirely the slots of a node, the node will be flushed and the
+ * return value will be pairs of slot ranges. Otherwise, a single empty set will 
+ * be returned. If possible, SFLUSH SYNC will be run as blocking ASYNC as an 
+ * optimization.
+ */
+void sflushCommand(client *c) {
+    int flags = EMPTYDB_NO_FLAGS, argc = c->argc;
+
+    if (server.cluster_enabled == 0) {
+        addReplyError(c,"This instance has cluster support disabled");
+        return;
+    }
+
+    /* check if last argument is SYNC or ASYNC */
+    if (!strcasecmp(c->argv[c->argc-1]->ptr,"sync")) {
+        flags = EMPTYDB_NO_FLAGS;
+        argc--;
+    } else if (!strcasecmp(c->argv[c->argc-1]->ptr,"async")) {
+        flags = EMPTYDB_ASYNC;
+        argc--;
+    } else if (server.lazyfree_lazy_user_flush) {
+        flags = EMPTYDB_ASYNC;
+    }
+
+    /* parse the slot range */
+    if (argc % 2 == 0) {
+        addReplyErrorArity(c);
+        return;
+    }
+
+    /* Verify <first, last> slot pairs are valid and not overlapping */
+    long long j, first, last;
+    unsigned char slotsToFlushRq[CLUSTER_SLOTS] = {0};
+    for (j = 1; j < argc; j += 2) {
+        /* check if the first slot is valid */
+        if (getLongLongFromObject(c->argv[j], &first) != C_OK || first < 0 || first >= CLUSTER_SLOTS) {
+            addReplyError(c,"Invalid or out of range slot");
+            return;
+        }
+
+        /* check if the last slot is valid */
+        if (getLongLongFromObject(c->argv[j+1], &last) != C_OK || last < 0 || last >= CLUSTER_SLOTS) {
+            addReplyError(c,"Invalid or out of range slot");
+            return;
+        }
+
+        if (first > last) {
+            addReplyErrorFormat(c,"start slot number %lld is greater than end slot number %lld", first, last);
+            return;
+        }
+
+        /* Mark the slots in slotsToFlushRq[] */
+        for (int i = first; i <= last; i++) {
+            if (slotsToFlushRq[i]) {
+                addReplyErrorFormat(c, "Slot %d specified multiple times", i);
+                return;
+            }
+            slotsToFlushRq[i] = 1;
+        }
+    }
+
+    /* Verify slotsToFlushRq[] covers ALL slots of myNode. */
+    clusterNode *myNode = getMyClusterNode();
+    /* During iteration trace also the slot range pairs and save in SlotsFlush.
+     * It is allocated on heap since there is a chance that FLUSH SYNC will be 
+     * running as blocking ASYNC and only later reply with slot ranges */
+    int capacity = 32; /* Initial capacity */
+    SlotsFlush *sflush = zmalloc(sizeof(SlotsFlush) + sizeof(SlotRange) * capacity);
+    sflush->numRanges = 0;
+    int inSlotRange = 0;
+    for (int i = 0; i < CLUSTER_SLOTS; i++) {
+        if (myNode == getNodeBySlot(i)) {
+            if (!slotsToFlushRq[i]) {
+                addReplySetLen(c, 0); /* Not all slots of mynode got covered. See sflushCommand() comment. */
+                zfree(sflush);
+                return;
+            }
+
+            if (!inSlotRange) { /* If start another slot range */
+                sflush->ranges[sflush->numRanges].first = i;
+                inSlotRange = 1;
+            }
+        } else {
+            if (inSlotRange) { /* If end another slot range */
+                sflush->ranges[sflush->numRanges++].last = i - 1;
+                inSlotRange = 0;
+                /* If reached 'sflush' capacity, double the capacity */
+                if (sflush->numRanges >= capacity) {
+                    capacity *= 2;
+                    sflush = zrealloc(sflush, sizeof(SlotsFlush) + sizeof(SlotRange) * capacity);
+                }
+            }
+        }
+    }
+
+    /* Update last pair if last cluster slot is also end of last range */
+    if (inSlotRange) sflush->ranges[sflush->numRanges++].last = CLUSTER_SLOTS - 1;
+    
+    /* Flush selected slots. If not flush as blocking async, then reply immediately */
+    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, sflush) == 0)
+        replySlotsFlushAndFree(c, sflush);
+}
+
 /* The READWRITE command just clears the READONLY command state. */
 void readwriteCommand(client *c) {
     if (server.cluster_enabled == 0) {

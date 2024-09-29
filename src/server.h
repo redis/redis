@@ -3411,7 +3411,18 @@ int dbDelete(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 robj *dbUnshareStringValueWithDictEntry(redisDb *db, robj *key, robj *o, dictEntry *de);
 
-
+#define FLUSH_TYPE_ALL   0
+#define FLUSH_TYPE_DB    1
+#define FLUSH_TYPE_SLOTS 2
+typedef struct SlotRange {
+    unsigned short first, last;
+} SlotRange;
+typedef struct SlotsFlush {
+    int numRanges;
+    SlotRange ranges[];
+} SlotsFlush;
+void replySlotsFlushAndFree(client *c, SlotsFlush *sflush);
+int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 #define EMPTYDB_NOFUNCTIONS (1<<1) /* Indicate not to flush the functions. */
@@ -3782,6 +3793,7 @@ void migrateCommand(client *c);
 void askingCommand(client *c);
 void readonlyCommand(client *c);
 void readwriteCommand(client *c);
+void sflushCommand(client *c);
 int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr);
 void dumpCommand(client *c);
 void objectCommand(client *c);
