@@ -611,6 +611,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
      * best heuristic but seems to work in practice. */
     s = sdsMakeRoomFor(s, strlen(fmt)*2);
     va_start(ap,fmt);
+    f = fmt;    /* Next format specifier byte to process. */
     i = initlen; /* Position of the next byte to write to dest str. */
     while(*f) {
         char next, *str;
