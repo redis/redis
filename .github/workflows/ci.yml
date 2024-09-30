@@ -79,7 +79,7 @@ jobs:
     - uses: actions/checkout@v4
     - name: make
       run: |
-        dnf -y install which gcc make g++
+        dnf -y install which gcc make g++ REDIS_CC=g++
         make REDIS_CFLAGS='-Werror'
 
   build-old-chain-jemalloc:
