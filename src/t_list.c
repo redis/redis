@@ -901,8 +901,7 @@ void ltrimCommand(client *c) {
         quicklistDelRange(o->ptr,0,ltrim);
         quicklistDelRange(o->ptr,-rtrim,rtrim);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        o->ptr = lpDeleteRange(o->ptr,0,ltrim);
-        o->ptr = lpDeleteRange(o->ptr,-rtrim,rtrim);
+        o->ptr = lpTrim(o->ptr, ltrim, rtrim);
     } else {
         serverPanic("Unknown list encoding");
     }

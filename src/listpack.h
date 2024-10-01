@@ -53,6 +53,7 @@ unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned
 unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
                              listpackEntry *entries, unsigned int len, unsigned char **newp);
 unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
+unsigned char *lpTrim(unsigned char *lp, unsigned long ltrim, unsigned long rtrim);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
 unsigned char *lpDup(unsigned char *lp);
 unsigned long lpLength(unsigned char *lp);
