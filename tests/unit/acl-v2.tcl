@@ -1,4 +1,6 @@
-start_server {tags {"acl external:skip"}} {
+set server_path [tmpdir "acl-v2.acl"]
+exec touch $server_path/user.acl
+start_server [list overrides [list "dir" $server_path "aclfile" "user.acl"] tags [list "acl" "external:skip"]] {
     set r2 [redis_client]
     test {Test basic multiple selectors} {
         r ACL SETUSER selector-1 on -@all resetkeys nopass
@@ -495,6 +497,32 @@ start_server {tags {"acl external:skip"}} {
         
         catch {r ACL DRYRUN test-dry-run SET} e
         assert_equal "ERR wrong number of arguments for 'set' command" $e
+    }
+
+    test {Test selectors with closing parenthesis} {
+        r ACL SETUSER selector-store ON NOPASS +@all "(+@all ~bar))"
+        r ACL SETUSER selector-wo-parenthesis ON NOPASS +@all "(+@all ~bar)"
+
+        # Verify selector is wrapped in quote if parenthesis exists.
+        set response [lindex [r ACL LIST] [lsearch [r ACL LIST] "user selector-store*"]]
+        assert_equal "user selector-store on nopass sanitize-payload resetchannels +@all \"(~bar) resetchannels +@all)\"" $response
+        
+        # Verify selector is not wrapped in quote if parenthesis doesn't exists.
+        set response [lindex [r ACL LIST] [lsearch [r ACL LIST] "user selector-wo-parenthesis*"]]
+        assert_equal "user selector-wo-parenthesis on nopass sanitize-payload resetchannels +@all (~bar resetchannels +@all)" $response
+
+        # Verify the key permissions
+        assert_equal "OK" [r ACL DRYRUN selector-store SET bar) world]
+        assert_equal "OK" [r ACL DRYRUN selector-store GET bar)]
+        assert_match {*has no permissions to access the 'bar))' key*} [r ACL DRYRUN selector-store SET bar)) world]
+    }   
+
+    test {Test ACL SAVE/LOAD with selectors containing closing parenthesis} {
+        set users_before_load [r ACL LIST]
+        r ACL SAVE
+        r ACL LOAD
+        set users_after_load [r ACL LIST]
+        assert_equal $users_before_load $users_after_load
     }
 
     $r2 close
