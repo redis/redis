@@ -602,7 +602,7 @@ sds sdscatprintf(sds s, const char *fmt, ...) {
  */
 sds sdscatfmt(sds s, char const *fmt, ...) {
     size_t initlen = sdslen(s);
-    const char *f = fmt;
+    const char *f;
     long i;
     va_list ap;
 
@@ -611,6 +611,7 @@ sds sdscatfmt(sds s, char const *fmt, ...) {
      * best heuristic but seems to work in practice. */
     s = sdsMakeRoomFor(s, strlen(fmt)*2);
     va_start(ap,fmt);
+    f = fmt;
     i = initlen; /* Position of the next byte to write to dest str. */
     while(*f) {
         char next, *str;
