@@ -273,6 +273,11 @@ proc ::redis_cluster::get_keys_from_command {cmd argv} {
         eval {return [lrange $argv 2 1+[lindex $argv 1]]}
         evalsha {return [lrange $argv 2 1+[lindex $argv 1]]}
         spublish {return [list [lindex $argv 1]]}
+        pubsub {
+            if {[lindex $argv 0] eq "shardnumsub"} {
+                return [list [lindex $argv 1]]
+            }
+        }
     }
 
     # All the remaining commands are not handled.

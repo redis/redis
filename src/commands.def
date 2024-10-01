@@ -4912,7 +4912,9 @@ struct COMMAND_ARG PUBSUB_SHARDCHANNELS_Args[] = {
 
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* PUBSUB SHARDNUMSUB key specs */
-#define PUBSUB_SHARDNUMSUB_Keyspecs NULL
+keySpec PUBSUB_SHARDNUMSUB_Keyspecs[1] = {
+{NULL,CMD_KEY_NOT_KEY,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={-1,1,0}}
+};
 #endif
 
 /* PUBSUB SHARDNUMSUB argument table */
@@ -4927,7 +4929,7 @@ struct COMMAND_STRUCT PUBSUB_Subcommands[] = {
 {MAKE_CMD("numpat","Returns a count of unique pattern subscriptions.","O(1)","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_NUMPAT_History,0,PUBSUB_NUMPAT_Tips,0,pubsubCommand,2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_NUMPAT_Keyspecs,0,NULL,0)},
 {MAKE_CMD("numsub","Returns a count of subscribers to channels.","O(N) for the NUMSUB subcommand, where N is the number of requested channels","2.8.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_NUMSUB_History,0,PUBSUB_NUMSUB_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_NUMSUB_Keyspecs,0,NULL,1),.args=PUBSUB_NUMSUB_Args},
 {MAKE_CMD("shardchannels","Returns the active shard channels.","O(N) where N is the number of active shard channels, and assuming constant time pattern matching (relatively short shard channels).","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_SHARDCHANNELS_History,0,PUBSUB_SHARDCHANNELS_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_SHARDCHANNELS_Keyspecs,0,NULL,1),.args=PUBSUB_SHARDCHANNELS_Args},
-{MAKE_CMD("shardnumsub","Returns the count of subscribers of shard channels.","O(N) for the SHARDNUMSUB subcommand, where N is the number of requested shard channels","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_SHARDNUMSUB_History,0,PUBSUB_SHARDNUMSUB_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_SHARDNUMSUB_Keyspecs,0,NULL,1),.args=PUBSUB_SHARDNUMSUB_Args},
+{MAKE_CMD("shardnumsub","Returns the count of subscribers of shard channels.","O(N) for the SHARDNUMSUB subcommand, where N is the number of requested shard channels","7.0.0",CMD_DOC_NONE,NULL,NULL,"pubsub",COMMAND_GROUP_PUBSUB,PUBSUB_SHARDNUMSUB_History,0,PUBSUB_SHARDNUMSUB_Tips,0,pubsubCommand,-2,CMD_PUBSUB|CMD_LOADING|CMD_STALE,0,PUBSUB_SHARDNUMSUB_Keyspecs,1,NULL,1),.args=PUBSUB_SHARDNUMSUB_Args},
 {0}
 };
 
