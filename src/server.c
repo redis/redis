@@ -887,10 +887,6 @@ static inline clientMemUsageBucket *getMemUsageBucket(size_t mem) {
  * This method updates the client memory usage and update the
  * server stats for client type.
  *
- * This method is called from the clientsCron to have updated
- * stats for non CLIENT_TYPE_NORMAL/PUBSUB clients to accurately
- * provide information around clients memory usage.
- *
  * It is also used in updateClientMemUsageAndBucket to have latest
  * client memory usage information to place it into appropriate client memory
  * usage bucket.
@@ -941,24 +937,19 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * all clients with roughly the same amount of memory. This way we group
  * together clients consuming about the same amount of memory and can quickly
  * free them in case we reach maxmemory-clients (client eviction).
- *
- * Note: This function filters clients of type no-evict, master or replica regardless
- * of whether the eviction is enabled or not, so the memory usage we get from these
- * types of clients via the INFO command may be out of date.
- *
- * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
-int updateClientMemUsageAndBucket(client *c) {
+void updateClientMemUsageAndBucket(client *c) {
     serverAssert(io_threads_op == IO_THREADS_OP_IDLE && c->conn);
+
+    /* Update client memory usage. */
+    updateClientMemoryUsage(c);
+
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 
     if (!allow_eviction) {
-        return 0;
+        return;
     }
-
-    /* Update client memory usage. */
-    updateClientMemoryUsage(c);
 
     /* Update the client in the mem usage buckets */
     clientMemUsageBucket *bucket = getMemUsageBucket(c->last_memory_usage);
@@ -971,7 +962,6 @@ int updateClientMemUsageAndBucket(client *c) {
         listAddNodeTail(bucket->clients, c);
         c->mem_usage_bucket_node = listLast(bucket->clients);
     }
-    return 1;
 }
 
 /* Return the max samples in the memory usage of clients tracked by
@@ -1051,18 +1041,7 @@ void clientsCron(void) {
         if (clientsCronHandleTimeout(c,now)) continue;
         if (clientsCronResizeQueryBuffer(c)) continue;
         if (clientsCronResizeOutputBuffer(c,now)) continue;
-
         if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
-
-        /* Iterating all the clients in getMemoryOverheadData() is too slow and
-         * in turn would make the INFO command too slow. So we perform this
-         * computation incrementally and track the (not instantaneous but updated
-         * to the second) total memory used by clients using clientsCron() in
-         * a more incremental way (depending on server.hz).
-         * If client eviction is enabled, update the bucket as well. */
-        if (!updateClientMemUsageAndBucket(c))
-            updateClientMemoryUsage(c);
-
         if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
     }
 }
