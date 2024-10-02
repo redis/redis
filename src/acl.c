@@ -1051,7 +1051,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
                     flags |= ACL_READ_PERMISSION;
                 } else if (toupper(op[offset]) == 'W' && !(flags & ACL_WRITE_PERMISSION)) {
                     flags |= ACL_WRITE_PERMISSION;
-                } else if (op[offset] == '~') {
+                } else if (op[offset] == '~' && flags) {
                     offset++;
                     break;
                 } else {
