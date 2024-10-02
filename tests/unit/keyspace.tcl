@@ -485,4 +485,10 @@ start_server {tags {"keyspace"}} {
         r SET aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 1
         r KEYS "a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b"
     } {}
+
+    test {Regression for pattern matching very long nested loops} {
+        r flushdb
+        r SET [string repeat "a" 50000] 1
+        r KEYS [string repeat "*?" 50000]
+    } {}
 }
