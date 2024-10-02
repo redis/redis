@@ -13,6 +13,19 @@ SECURITY: There are security fixes in the release.
 
 
 ================================================================================
+Redis Community Edition 7.4.1    Released Wed 02 Oct 2024 20:17:04 IDT
+================================================================================
+
+Upgrade urgency SECURITY: See security fixes below.
+
+Security fixes
+==============
+
+* (CVE-2024-31449) Lua library commands may lead to stack overflow and potential RCE.
+* (CVE-2024-31227) Potential Denial-of-service due to malformed ACL selectors.
+* (CVE-2024-31228) Potential Denial-of-service due to unbounded pattern matching.
+
+================================================================================
 Redis Community Edition 7.4.0 GA   Released Mon Jul 29 2024 9:00:00 IDT
 ================================================================================
 
