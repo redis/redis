@@ -132,6 +132,7 @@ static int bit_tohex(lua_State *L)
   const char *hexdigits = "0123456789abcdef";
   char buf[8];
   int i;
+  if (n == INT32_MIN) n = INT32_MIN+1;
   if (n < 0) { n = -n; hexdigits = "0123456789ABCDEF"; }
   if (n > 8) n = 8;
   for (i = (int)n; --i >= 0; ) { buf[i] = hexdigits[b & 15]; b >>= 4; }
