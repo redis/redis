@@ -55,8 +55,11 @@
 
 /* Glob-style pattern matching. */
 static int stringmatchlen_impl(const char *pattern, int patternLen,
-        const char *string, int stringLen, int nocase, int *skipLongerMatches)
+        const char *string, int stringLen, int nocase, int *skipLongerMatches, int nesting)
 {
+    /* Protection against abusive patterns. */
+    if (nesting > 1000) return 0;
+
     while(patternLen && stringLen) {
         switch(pattern[0]) {
         case '*':
@@ -68,7 +71,7 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
                 return 1; /* match */
             while(stringLen) {
                 if (stringmatchlen_impl(pattern+1, patternLen-1,
-                            string, stringLen, nocase, skipLongerMatches))
+                            string, stringLen, nocase, skipLongerMatches, nesting+1))
                     return 1; /* match */
                 if (*skipLongerMatches)
                     return 0; /* no match */
@@ -190,7 +193,7 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
 int stringmatchlen(const char *pattern, int patternLen,
         const char *string, int stringLen, int nocase) {
     int skipLongerMatches = 0;
-    return stringmatchlen_impl(pattern,patternLen,string,stringLen,nocase,&skipLongerMatches);
+    return stringmatchlen_impl(pattern,patternLen,string,stringLen,nocase,&skipLongerMatches,0);
 }
 
 int stringmatch(const char *pattern, const char *string, int nocase) {

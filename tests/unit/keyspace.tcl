@@ -509,6 +509,12 @@ foreach {type large} [array get largevalue] {
         r KEYS "a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*a*b"
     } {}
 
+    test {Regression for pattern matching very long nested loops} {
+        r flushdb
+        r SET [string repeat "a" 50000] 1
+        r KEYS [string repeat "*?" 50000]
+    } {}
+
     test {Coverage: basic SWAPDB test and unhappy path} {
        r flushall
        r select 0
