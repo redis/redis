@@ -114,9 +114,7 @@ static int stringmatchlen_impl(const char *pattern, int patternLen,
                 } else if (pattern[0] == ']') {
                     break;
                 } else if (patternLen == 0) {
-                    pattern--;
-                    patternLen++;
-                    break;
+                    return 0; /* invalid pattern */
                 } else if (patternLen >= 3 && pattern[1] == '-') {
                     int start = pattern[0];
                     int end = pattern[2];
