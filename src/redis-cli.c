@@ -270,8 +270,15 @@ static struct config {
 
 /* User preferences. */
 static struct pref {
-    int hints;
+    // Hints
+    char hints;
+    char hints_keys_values;
+    unsigned int hints_keys_values_count;
 } pref;
+#define HINTS_ON                    '1'
+#define HINTS_OFF                   '0'
+#define HINTS_KEYS_VALUES_COUNT     5
+#define HINTS_KEYS_VALUES_COUNT_MAX 20
 
 static volatile sig_atomic_t force_cancel_loop = 0;
 static void usage(int err);
@@ -983,6 +990,9 @@ static void cliOutputGenericHelp(void) {
         "To set redis-cli preferences:\n"
         "      \":set hints\" enable online hints\n"
         "      \":set nohints\" disable online hints\n"
+        "      \":set hints-keys-values\" enable online hints of actual keys' values (by default it's OFF)\n"
+        "      \":set nohints-keys-values\" enable online hints of actual keys' values\n"
+        "      \":set hints-keys-value-counts X\" set online hints of actual keys' values to X items (default: 5, max: 20)\n"
         "Set your preferences in ~/.redisclirc\n",
         version
     );
@@ -1500,11 +1510,59 @@ static helpEntry* findHelpEntry(int argc, char **argv) {
     return entry;
 }
 
+/* Add the actual keys' values hint instead of only hint word "key" for GET command.
+ *
+ * This method depends on:
+ * 1) The hint value to be "key"
+ * 2) SCAN command(since: v2.8.0) with pattern[PREFIX*]
+ * 
+ * By default hints_keys_values is OFF.
+ * The default hints_keys_values_count is 5 keys.
+ */
+static void addActualKeysValuesHint(const sds* secondArgv, hisds* hint) {
+
+    if (*secondArgv && *hint && strcmp((*hint), "key") == 0) {
+
+        (*hint) = sdsnew("key: [ ");
+
+        // Form pattern: e.g. "GET X" pattern will be "X*"
+        sds matchPattern = sdsnew((*secondArgv));
+        matchPattern = sdscat(matchPattern, "*");
+        
+        redisReply *reply = NULL;
+        unsigned int cur = 0, cnt = 0;
+        do {
+            reply = redisCommand(context,"SCAN %d MATCH %s COUNT 10000",cur, matchPattern);
+            cur = atoi(reply->element[0]->str);
+            reply = reply->element[1];
+
+            for (unsigned int j = 0; j < reply->elements; j++) {
+                (*hint) = sdscat((*hint), reply->element[j]->str);
+                (*hint) = sdscat((*hint), ", ");
+                if (++cnt >= pref.hints_keys_values_count) {
+                    cur = 0;
+                    break;
+                }
+            }
+        } while(cur != 0 && cnt < pref.hints_keys_values_count);
+
+        (*hint) = sdscat((*hint), "]");
+
+        sdsfree(matchPattern);
+        freeReplyObject(reply);
+    }
+}
+
 /* Returns the command-line hint string for a given partial input. */
 static sds getHintForInput(const char *charinput) {
     sds hint = NULL;
+
     int inputargc, inputlen = strlen(charinput);
     sds *inputargv = sdssplitargs(charinput, &inputargc);
+
+    int secondArgc;
+    sds *secondArgv = sdssplitargs(charinput+3, &secondArgc);
+
     int endspace = inputlen && isspace(charinput[inputlen-1]);
 
     /* Don't match the last word until the user has typed a space after it. */
@@ -1514,13 +1572,21 @@ static sds getHintForInput(const char *charinput) {
     if (entry) {
        hint = makeHint(inputargv, matchargc, entry->argc, entry->docs);
     }
+    
+    if (pref.hints_keys_values == HINTS_ON && !endspace && *secondArgv
+        && *inputargv && strcasecmp((*inputargv), "get") == 0) {
+        addActualKeysValuesHint(secondArgv, &hint);
+    }
+
     sdsfreesplitres(inputargv, inputargc);
+    sdsfreesplitres(secondArgv, secondArgc);
+
     return hint;
 }
 
 /* Linenoise hints callback. */
 static char *hintsCallback(const char *buf, int *color, int *bold) {
-    if (!pref.hints) return NULL;
+    if (pref.hints != HINTS_ON) return NULL;
 
     sds hint = getHintForInput(buf);
     if (hint == NULL) {
@@ -3322,8 +3388,18 @@ static sds *cliSplitArgs(char *line, int *argc) {
  * set user preferences. */
 void cliSetPreferences(char **argv, int argc, int interactive) {
     if (!strcasecmp(argv[0],":set") && argc >= 2) {
-        if (!strcasecmp(argv[1],"hints")) pref.hints = 1;
-        else if (!strcasecmp(argv[1],"nohints")) pref.hints = 0;
+        if (!strcasecmp(argv[1],"hints")) pref.hints = HINTS_ON;
+        else if (!strcasecmp(argv[1],"nohints")) pref.hints = HINTS_OFF;
+        else if (!strcasecmp(argv[1],"hints-keys-values")) pref.hints_keys_values = HINTS_ON;
+        else if (!strcasecmp(argv[1],"hints-keys-values-count")){
+            if (argc >= 3) {
+                unsigned int hints_keys_values_count_value = (unsigned int)atoi(argv[2]);
+                if (hints_keys_values_count_value >= 1 && hints_keys_values_count_value <= HINTS_KEYS_VALUES_COUNT_MAX) {
+                    pref.hints_keys_values_count = hints_keys_values_count_value;
+                }
+            }
+        }
+        else if (!strcasecmp(argv[1],"nohints-keys-values")) pref.hints_keys_values = HINTS_OFF;
         else {
             printf("%sunknown redis-cli preference '%s'\n",
                 interactive ? "" : ".redisclirc: ",
@@ -10657,7 +10733,9 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.threshold =
         CLUSTER_MANAGER_REBALANCE_THRESHOLD;
     config.cluster_manager_command.backup_dir = NULL;
-    pref.hints = 1;
+    pref.hints = HINTS_ON;
+    pref.hints_keys_values = HINTS_OFF;
+    pref.hints_keys_values_count = HINTS_KEYS_VALUES_COUNT;
 
     spectrum_palette = spectrum_palette_color;
     spectrum_palette_size = spectrum_palette_color_size;
