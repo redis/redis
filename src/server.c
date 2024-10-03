@@ -1177,7 +1177,7 @@ void exitExecutionUnit(void) {
     --server.execution_nesting;
 }
 
-void checkChildrenDone(void) {
+int handleCompletedChildren(void) {
     int statloc = 0;
     pid_t pid;
 
@@ -1222,10 +1222,9 @@ void checkChildrenDone(void) {
                           (long) pid);
             }
         }
-
-        /* start any pending forks immediately. */
-        replicationStartPendingFork();
+        return 1;
     }
+    return 0;
 }
 
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
@@ -1421,7 +1420,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     if (hasActiveChildProcess() || ldbPendingChildren())
     {
         run_with_period(1000) receiveChildInfo();
-        checkChildrenDone();
+        handleCompletedChildren();
     } else {
         /* If there is not a background saving/rewrite in progress check if
          * we have to save/rewrite now. */
