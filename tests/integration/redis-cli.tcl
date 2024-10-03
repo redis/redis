@@ -393,6 +393,12 @@ start_server {tags {"cli"}} {
         # quotes after the argument are weird, but should be allowed
         assert_equal "OK" [run_command $fd "set key\"\" bar"]
         assert_equal "bar" [r get key]
+
+        # backslash should also be quoted in single quotes
+        # We need four \ to represent one backslash as \ also needs to
+        # be quoted in double quotes.
+        assert_equal "OK" [run_command $fd "set key '\\\\\\' bar\\\\'"]
+        assert_equal "\\' bar\\" [r get key]
     }
 
     test_interactive_cli "Subscribed mode" {
