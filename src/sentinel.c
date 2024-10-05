@@ -3111,7 +3111,7 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
         SENTINEL_MAX_PENDING_COMMANDS * ri->link->refcount) return;
 
     /* If this is a slave of a master in O_DOWN condition we start sending
-     * it INFO every second, instead of the usual SENTINEL_INFO_PERIOD
+     * it INFO every 100 milliseconds, instead of the usual SENTINEL_INFO_PERIOD
      * period. In this state we want to closely monitor slaves in case they
      * are turned into masters by another Sentinel, or by the sysadmin.
      *
@@ -3122,7 +3122,7 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
         ((ri->master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS)) ||
          (ri->master_link_down_time != 0)))
     {
-        info_period = 1000;
+        info_period = 100;
     } else {
         info_period = sentinel_info_period;
     }
