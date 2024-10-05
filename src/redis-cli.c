@@ -4006,6 +4006,13 @@ static int getClusterHostFromCmdArgs(int argc, char **argv,
     return 1;
 }
 
+static int checkIsValidDir(const char *dir) {
+    struct stat sb;
+    if (stat(dir, &sb) == 0 && S_ISDIR(sb.st_mode))
+        return 1;
+    return 0;
+}
+
 static void freeClusterManagerNodeFlags(list *flags) {
     listIter li;
     listNode *ln;
@@ -8172,14 +8179,15 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     UNUSED(argc);
     int success = 1, port = 0;
     char *ip = NULL;
-    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
+    if (!getClusterHostFromCmdArgs(1, argv, &ip, &port))
+        goto invalid_host_args;
+    if (!checkIsValidDir(argv[1])) goto invalid_dir_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
     int no_issues = clusterManagerCheckCluster(0);
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
     config.cluster_manager_command.backup_dir = argv[1];
-    /* TODO: check if backup_dir is a valid directory. */
     sds json = sdsnew("[\n");
     int first_node = 0;
     listIter li;
@@ -8227,8 +8235,11 @@ cleanup:
                             config.cluster_manager_command.backup_dir);
     } else clusterManagerLogOk("[ERR] Failed to back cluster!\n");
     return success;
-invalid_args:
+invalid_host_args:
     fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    return 0;
+invalid_dir_args:
+    fprintf(stderr, "[ERR] Invalid arguments: you need to pass either a valid backup directory\n");
     return 0;
 }
 
