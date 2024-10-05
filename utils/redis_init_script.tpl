@@ -15,8 +15,13 @@ case "$1" in
             echo "$PIDFILE does not exist, process is not running"
         else
             PID=$(cat $PIDFILE)
+            AUTH=$(awk '/^requirepass/ { print $2 }' $CONF)
+            if [ -n "$AUTH" ]
+            then
+                AUTH="-a $AUTH"
+            fi
             echo "Stopping ..."
-            $CLIEXEC -p $REDISPORT shutdown
+            $CLIEXEC -p $REDISPORT $AUTH shutdown
             while [ -x /proc/${PID} ]
             do
                 echo "Waiting for Redis to shutdown ..."
