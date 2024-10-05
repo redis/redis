@@ -588,6 +588,7 @@ void poolAllocRelease(RedisModuleCtx *ctx) {
  * The function returns NULL if `bytes` is 0. */
 void *RM_PoolAlloc(RedisModuleCtx *ctx, size_t bytes) {
     if (bytes == 0) return NULL;
+    if (bytes > SIZE_MAX - sizeof(RedisModulePoolAllocBlock)) return NULL;
     RedisModulePoolAllocBlock *b = ctx->pa_head;
     size_t left = b ? b->size - b->used : 0;
 
