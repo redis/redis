@@ -8,6 +8,7 @@
         "container": "COMMAND",
         "function": "commandCountCommand",
         "command_flags": [
+            "FAST",
             "LOADING",
             "STALE",
             "SENTINEL"

@@ -8,6 +8,7 @@
         "container": "SCRIPT",
         "function": "scriptCommand",
         "command_flags": [
+            "FAST",
             "LOADING",
             "STALE"
         ],

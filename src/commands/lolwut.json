@@ -1,6 +1,7 @@
 {
     "LOLWUT": {
         "summary": "Displays computer art and the Redis version",
+        "complexity": "O(1)",
         "group": "server",
         "since": "5.0.0",
         "arity": -1,

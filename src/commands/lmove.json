@@ -7,6 +7,7 @@
         "arity": 5,
         "function": "lmoveCommand",
         "command_flags": [
+            "FAST",
             "WRITE",
             "DENYOOM"
         ],

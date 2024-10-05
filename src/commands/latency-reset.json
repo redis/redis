@@ -1,13 +1,14 @@
 {
     "RESET": {
         "summary": "Resets the latency data for one or more events.",
-        "complexity": "O(1)",
+        "complexity": "O(N) where N is the number of event samples.",
         "group": "server",
         "since": "2.8.13",
         "arity": -2,
         "container": "LATENCY",
         "function": "latencyCommand",
         "command_flags": [
+            "FAST",
             "ADMIN",
             "NOSCRIPT",
             "LOADING",

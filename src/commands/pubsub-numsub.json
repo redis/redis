@@ -8,6 +8,7 @@
         "container": "PUBSUB",
         "function": "pubsubCommand",
         "command_flags": [
+            "FAST",
             "PUBSUB",
             "LOADING",
             "STALE"

@@ -8,6 +8,7 @@
         "container": "CLIENT",
         "function": "clientSetinfoCommand",
         "command_flags": [
+            "FAST",
             "NOSCRIPT",
             "LOADING",
             "STALE",

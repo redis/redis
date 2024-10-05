@@ -8,6 +8,7 @@
         "container": "OBJECT",
         "function": "objectCommand",
         "command_flags": [
+            "FAST",
             "READONLY"
         ],
         "acl_categories": [

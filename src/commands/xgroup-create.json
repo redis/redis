@@ -15,6 +15,7 @@
         ],
         "command_flags": [
             "WRITE",
+            "FAST",
             "DENYOOM"
         ],
         "acl_categories": [
