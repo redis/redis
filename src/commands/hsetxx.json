@@ -1,0 +1,69 @@
+{
+    "HSETXX": {
+        "summary": "Update the value of a field in a hash only when the key and field exists.",
+        "complexity": "O(1)",
+        "group": "hash",
+        "since": "2.0.0",
+        "arity": 4,
+        "function": "hsetxxCommand",
+        "command_flags": [
+            "WRITE",
+            "DENYOOM",
+            "FAST"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "The field exists in the hash and value was set.",
+                    "const": 1
+                },
+                {
+                    "description": "The field doesn't exists in the hash and no operation was performed.",
+                    "const": 0
+                },
+                {
+                    "description": "The hash doesn't exists and no operation was performed.",
+                    "const": null
+                }
+            ]
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "field",
+                "type": "string"
+            },
+            {
+                "name": "value",
+                "type": "string"
+            }
+        ]
+    }
+}

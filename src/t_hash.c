@@ -2155,6 +2155,22 @@ void hsetnxCommand(client *c) {
     server.dirty++;
 }
 
+void hsetxxCommand(client *c) {
+    robj *o;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL || checkType(c,o,OBJ_HASH)) return;
+
+    if (!hashTypeExists(o, c->argv[2]->ptr)) {
+        addReply(c, shared.czero);
+    } else {
+        hashTypeTryConversion(o,c->argv,2,3);
+        hashTypeSet(o,c->argv[2]->ptr,c->argv[3]->ptr,HASH_SET_COPY);
+        addReply(c, shared.cone);
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
+        server.dirty++;
+    }
+}
+
 void hsetCommand(client *c) {
     int i, created = 0;
     robj *o;
