@@ -29,10 +29,12 @@
 
 #ifdef HAVE_BACKTRACE
 #include <execinfo.h>
+#ifndef __HAIKU__
 #ifndef __OpenBSD__
 #include <ucontext.h>
 #else
 typedef ucontext_t sigcontext_t;
+#endif
 #endif
 #endif /* HAVE_BACKTRACE */
 
@@ -1281,6 +1283,12 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
     GET_SET_RETURN(uc->uc_mcontext.mc_rip, eip);
 #elif defined(__sun) && defined(__x86_64__)
     GET_SET_RETURN(uc->uc_mcontext.gregs[REG_RIP], eip);
+#elif defined(__HAIKU__)
+#if defined(__x86_64__)
+    GET_SET_RETURN(uc->uc_mcontext.rip, eip);
+#elif defined(__aarch64__)
+    GET_SET_RETURN(uc->uc_mcontext.elr, eip);
+#endif
 #else
     NOT_SUPPORTED();
 #endif
@@ -1811,6 +1819,61 @@ void logRegisters(ucontext_t *uc) {
         (unsigned long) uc->uc_mcontext.gregs[REG_CS]
     );
     logStackContent((void**)uc->uc_mcontext.gregs[REG_RSP]);
+    #endif
+#elif defined(__HAIKU__)
+    #if defined(__x86_64__)
+    serverLog(LL_WARNING,
+    "\n"
+    "RAX:%016lx RBX:%016lx\nRCX:%016lx RDX:%016lx\n"
+    "RDI:%016lx RSI:%016lx\nRBP:%016lx RSP:%016lx\n"
+    "R8 :%016lx R9 :%016lx\nR10:%016lx R11:%016lx\n"
+    "R12:%016lx R13:%016lx\nR14:%016lx R15:%016lx\n"
+    "RIP:%016lx EFL:%016lx\n",
+        (unsigned long) uc->uc_mcontext.rax,
+        (unsigned long) uc->uc_mcontext.rbx,
+        (unsigned long) uc->uc_mcontext.rcx,
+        (unsigned long) uc->uc_mcontext.rdx,
+        (unsigned long) uc->uc_mcontext.rdi,
+        (unsigned long) uc->uc_mcontext.rsi,
+        (unsigned long) uc->uc_mcontext.rbp,
+        (unsigned long) uc->uc_mcontext.rsp,
+        (unsigned long) uc->uc_mcontext.r8,
+        (unsigned long) uc->uc_mcontext.r9,
+        (unsigned long) uc->uc_mcontext.r10,
+        (unsigned long) uc->uc_mcontext.r11,
+        (unsigned long) uc->uc_mcontext.r12,
+        (unsigned long) uc->uc_mcontext.r13,
+        (unsigned long) uc->uc_mcontext.r14,
+        (unsigned long) uc->uc_mcontext.r15,
+        (unsigned long) uc->uc_mcontext.rip,
+        (unsigned long) uc->uc_mcontext.rflags
+    );
+    logStackContent((void**)uc->uc_mcontext.rsp);
+    #elif defined(__aarch64__)
+    serverLog(LL_WARNING,
+	      "\n"
+	      "X18:%016lx X19:%016lx\nX20:%016lx X21:%016lx\n"
+	      "X22:%016lx X23:%016lx\nX24:%016lx X25:%016lx\n"
+	      "X26:%016lx X27:%016lx\nX28:%016lx X29:%016lx\n"
+	      "X30:%016lx\n"
+	      "pc:%016lx sp:%016lx\n",
+	      (unsigned long) uc->uc_mcontext.x[18],
+	      (unsigned long) uc->uc_mcontext.x[19],
+	      (unsigned long) uc->uc_mcontext.x[20],
+	      (unsigned long) uc->uc_mcontext.x[21],
+	      (unsigned long) uc->uc_mcontext.x[22],
+	      (unsigned long) uc->uc_mcontext.x[23],
+	      (unsigned long) uc->uc_mcontext.x[24],
+	      (unsigned long) uc->uc_mcontext.x[25],
+	      (unsigned long) uc->uc_mcontext.x[26],
+	      (unsigned long) uc->uc_mcontext.x[27],
+	      (unsigned long) uc->uc_mcontext.x[28],
+	      (unsigned long) uc->uc_mcontext.x[29],
+	      (unsigned long) uc->uc_mcontext.x[30],
+	      (unsigned long) uc->uc_mcontext.elr,
+	      (unsigned long) uc->uc_mcontext.sp
+		      );
+	      logStackContent((void**)uc->uc_mcontext.sp);
     #endif
 #else
     NOT_SUPPORTED();
