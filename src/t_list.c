@@ -1118,46 +1118,101 @@ robj *getStringObjectFromListPosition(int position) {
     }
 }
 
-void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
-    robj *sobj, *value;
-    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
+void lmoveGenericCommand(client *c, int wherefrom, int whereto, int countIndex) {
+    robj *sobj;
+    int hascount = (c->argc == (countIndex + 1));
+    long count = 0;
+
+    if (hascount) {
+        /* Parse the optional count argument. */
+        if (getPositiveLongFromObjectOrReply(c,c->argv[countIndex],&count,NULL) != C_OK)
+            return;
+    }
+
+    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],hascount ? shared.nullarray[c->resp]: shared.null[c->resp]))
         == NULL || checkType(c,sobj,OBJ_LIST)) return;
 
-    if (listTypeLength(sobj) == 0) {
-        /* This may only happen after loading very old RDB files. Recent
-         * versions of Redis delete keys of empty lists. */
-        addReplyNull(c);
-    } else {
-        robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
-        robj *touchedkey = c->argv[1];
+    if (hascount && !count) {
+        /* Fast exit path. */
+        addReply(c,shared.emptyarray);
+        return;
+    }
 
-        if (checkType(c,dobj,OBJ_LIST)) return;
-        value = listTypePop(sobj,wherefrom);
-        serverAssert(value); /* assertion for valgrind (avoid NPD) */
-        lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
-        listElementsRemoved(c,touchedkey,wherefrom,sobj,1,1,NULL);
+    if (!count) {
+        robj *value;
+        if (listTypeLength(sobj) == 0) {
+            /* This may only happen after loading very old RDB files. Recent
+            * versions of Redis delete keys of empty lists. */
+            addReplyNull(c);
+        } else {
+            robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
+            robj *touchedkey = c->argv[1];
 
-        /* listTypePop returns an object with its refcount incremented */
-        decrRefCount(value);
+            if (checkType(c,dobj,OBJ_LIST)) return;
+            value = listTypePop(sobj,wherefrom);
+            serverAssert(value); /* assertion for valgrind (avoid NPD) */
+            /* Create the list if the key does not exist */
+            if (!dobj) {
+                dobj = createListListpackObject();
+                dbAdd(c->db,c->argv[2],dobj);
+            }
+            lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
+            listElementsRemoved(c,touchedkey,wherefrom,sobj,1,1,NULL);
 
-        if (c->cmd->proc == blmoveCommand) {
-            rewriteClientCommandVector(c,5,shared.lmove,
-                                       c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
-        } else if (c->cmd->proc == brpoplpushCommand) {
-            rewriteClientCommandVector(c,3,shared.rpoplpush,
-                                       c->argv[1],c->argv[2]);
+            /* listTypePop returns an object with its refcount incremented */
+            decrRefCount(value);
         }
+    } else {
+        if (listTypeLength(sobj) == 0) {
+            /* This may only happen after loading very old RDB files. Recent
+            * versions of Redis delete keys of empty lists. */
+            addReply(c,shared.emptyarray);
+        } else {
+            robj *dobj = lookupKeyWrite(c->db,c->argv[2]);
+            robj *touchedkey = c->argv[1];
+
+            if (checkType(c,dobj,OBJ_LIST)) return;
+            long llen = listTypeLength(sobj);
+            long rangelen = (count > llen) ? llen : count;
+            addReplyArrayLen(c,rangelen);
+
+            long int j;
+            if (!dobj) {
+                dobj = createListListpackObject();
+                dbAdd(c->db,c->argv[2],dobj);
+            }
+
+            for (j = 0; j < rangelen; j++) {
+                robj *value;
+
+                value = listTypePop(sobj,wherefrom);
+                serverAssert(value); /* assertion for valgrind (avoid NPD) */
+                lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
+                listElementsRemoved(c,touchedkey,wherefrom,sobj,1,1,NULL);
+
+                /* listTypePop returns an object with its refcount incremented */
+                decrRefCount(value);
+            }
+        }
+    }
+
+    if (c->cmd->proc == blmoveCommand) {
+        rewriteClientCommandVector(c,5,shared.lmove,
+                                c->argv[1],c->argv[2],c->argv[3],c->argv[4]);
+    } else if (c->cmd->proc == brpoplpushCommand) {
+        rewriteClientCommandVector(c,3,shared.rpoplpush,
+                                c->argv[1],c->argv[2]);
     }
 }
 
-/* LMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) */
+/* LMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) [count]*/
 void lmoveCommand(client *c) {
     int wherefrom, whereto;
     if (getListPositionFromObjectOrReply(c,c->argv[3],&wherefrom)
         != C_OK) return;
     if (getListPositionFromObjectOrReply(c,c->argv[4],&whereto)
         != C_OK) return;
-    lmoveGenericCommand(c, wherefrom, whereto);
+    lmoveGenericCommand(c, wherefrom, whereto, 5);
 }
 
 /* This is the semantic of this command:
@@ -1176,7 +1231,7 @@ void lmoveCommand(client *c) {
  * as well. This command was originally proposed by Ezra Zygmuntowicz.
  */
 void rpoplpushCommand(client *c) {
-    lmoveGenericCommand(c, LIST_TAIL, LIST_HEAD);
+    lmoveGenericCommand(c, LIST_TAIL, LIST_HEAD, -1);
 }
 
 /* Blocking RPOP/LPOP/LMPOP
@@ -1280,11 +1335,11 @@ void blmoveGenericCommand(client *c, int wherefrom, int whereto, mstime_t timeou
         /* The list exists and has elements, so
          * the regular lmoveCommand is executed. */
         serverAssertWithInfo(c,key,listTypeLength(key) > 0);
-        lmoveGenericCommand(c,wherefrom,whereto);
+        lmoveGenericCommand(c,wherefrom,whereto,6);
     }
 }
 
-/* BLMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) <timeout> */
+/* BLMOVE <source> <destination> (LEFT|RIGHT) (LEFT|RIGHT) <timeout> [count]*/
 void blmoveCommand(client *c) {
     mstime_t timeout;
     int wherefrom, whereto;
