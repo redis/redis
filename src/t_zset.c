@@ -4138,12 +4138,12 @@ void blockingGenericZpopCommand(client *c, robj **keys, int numkeys, int where,
     blockForKeys(c,BLOCKED_ZSET,keys,numkeys,timeout,0);
 }
 
-// BZPOPMIN key [key ...] timeout
+/* BZPOPMIN key [key ...] timeout */
 void bzpopminCommand(client *c) {
     blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MIN, c->argc-1, -1, 0, 0);
 }
 
-// BZPOPMAX key [key ...] timeout
+/* BZPOPMAX key [key ...] timeout */
 void bzpopmaxCommand(client *c) {
     blockingGenericZpopCommand(c, c->argv+1, c->argc-2, ZSET_MAX, c->argc-1, -1, 0, 0);
 }
