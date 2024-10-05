@@ -1018,6 +1018,11 @@ sds getAbsolutePath(char *filename) {
         }
     }
 
+    /* Then we remove the "./" if it exists of the relpath */
+    if (sdslen(relpath) >= 2 && relpath[0] == '.' && relpath[1] == '/') {
+        sdsrange(relpath,2,-1);
+    }
+
     /* Finally glue the two parts together. */
     abspath = sdscatsds(abspath,relpath);
     sdsfree(relpath);
