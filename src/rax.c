@@ -1058,8 +1058,8 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
                 h = new;
             }
         }
-    } else if (h->size == 1) {
-        /* If the node had just one child, after the removal of the key
+    } else if (h->size == 1 || h->iscompr) {
+        /* If the node had just one child, or a compressed node, after the removal of the key
          * further compression with adjacent nodes is potentially possible. */
         trycompress = 1;
     }
