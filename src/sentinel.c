@@ -5007,42 +5007,38 @@ int sentinelStartFailoverIfNeeded(sentinelRedisInstance *master) {
  * NULL if no suitable slave was found.
  */
 
-/* Helper for sentinelSelectSlave(). This is used by qsort() in order to
- * sort suitable slaves in a "better first" order, to take the first of
- * the list. */
-int compareSlavesForPromotion(const void *a, const void *b) {
-    sentinelRedisInstance **sa = (sentinelRedisInstance **)a,
-                          **sb = (sentinelRedisInstance **)b;
+/* Helper for sentinelSelectSlave(). Arguments are pointers of the two slaves
+ * to be compared, return an integer less than, equal to, or greater than zero
+ * if the first slave is considered to be respectively better than, equal to,
+ * or worse than the second slave. */
+int compareSlavesForPromotion(sentinelRedisInstance *sa, sentinelRedisInstance *sb) {
     char *sa_runid, *sb_runid;
 
-    if ((*sa)->slave_priority != (*sb)->slave_priority)
-        return (*sa)->slave_priority - (*sb)->slave_priority;
+    if (sa->slave_priority != sb->slave_priority)
+        return sa->slave_priority - sb->slave_priority;
 
     /* If priority is the same, select the slave with greater replication
      * offset (processed more data from the master). */
-    if ((*sa)->slave_repl_offset > (*sb)->slave_repl_offset) {
-        return -1; /* a < b */
-    } else if ((*sa)->slave_repl_offset < (*sb)->slave_repl_offset) {
-        return 1; /* a > b */
+    if (sa->slave_repl_offset > sb->slave_repl_offset) {
+        return -1; /* sa is better */
+    } else if (sa->slave_repl_offset < sb->slave_repl_offset) {
+        return 1; /* sb is better */
     }
 
     /* If the replication offset is the same select the slave with that has
      * the lexicographically smaller runid. Note that we try to handle runid
      * == NULL as there are old Redis versions that don't publish runid in
      * INFO. A NULL runid is considered bigger than any other runid. */
-    sa_runid = (*sa)->runid;
-    sb_runid = (*sb)->runid;
+    sa_runid = sa->runid;
+    sb_runid = sb->runid;
     if (sa_runid == NULL && sb_runid == NULL) return 0;
-    else if (sa_runid == NULL) return 1;  /* a > b */
-    else if (sb_runid == NULL) return -1; /* a < b */
+    else if (sa_runid == NULL) return 1;  /* sb is better */
+    else if (sb_runid == NULL) return -1; /* sa is better */
     return strcasecmp(sa_runid, sb_runid);
 }
 
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
-    sentinelRedisInstance **instance =
-        zmalloc(sizeof(instance[0])*dictSize(master->slaves));
     sentinelRedisInstance *selected = NULL;
-    int instances = 0;
     dictIterator *di;
     dictEntry *de;
     mstime_t max_master_down_time = 0;
@@ -5071,15 +5067,10 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
             info_validity_time = sentinel_info_period*3;
         if (mstime() - slave->info_refresh > info_validity_time) continue;
         if (slave->master_link_down_time > max_master_down_time) continue;
-        instance[instances++] = slave;
+        if (selected == NULL || compareSlavesForPromotion(slave, selected) < 0)
+            selected = slave;
     }
     dictReleaseIterator(di);
-    if (instances) {
-        qsort(instance,instances,sizeof(sentinelRedisInstance*),
-            compareSlavesForPromotion);
-        selected = instance[0];
-    }
-    zfree(instance);
     return selected;
 }
 
