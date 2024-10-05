@@ -1513,25 +1513,22 @@ void memoryCommand(client *c) {
 NULL
         };
         addReplyHelp(c, help);
-    } else if (!strcasecmp(c->argv[1]->ptr,"usage") && c->argc >= 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"usage") && (c->argc == 3 || c->argc == 5)) {
         dictEntry *de;
         long long samples = OBJ_COMPUTE_SIZE_DEF_SAMPLES;
-        for (int j = 3; j < c->argc; j++) {
-            if (!strcasecmp(c->argv[j]->ptr,"samples") &&
-                j+1 < c->argc)
-            {
-                if (getLongLongFromObjectOrReply(c,c->argv[j+1],&samples,NULL)
-                     == C_ERR) return;
-                if (samples < 0) {
-                    addReplyErrorObject(c,shared.syntaxerr);
-                    return;
-                }
-                if (samples == 0) samples = LLONG_MAX;
-                j++; /* skip option argument. */
-            } else {
+         if (c->argc == 5) {
+            if (strcasecmp(c->argv[3]->ptr, "samples")) {
                 addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
+            if (getLongLongFromObjectOrReply(c,c->argv[4],&samples,NULL) == C_ERR)
+                return;
+            if (samples < 0) {
+                addReplyErrorObject(c,shared.syntaxerr);
+                return;
+            }
+            if (samples == 0)
+                samples = LLONG_MAX;
         }
         if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyNull(c);
