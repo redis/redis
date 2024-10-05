@@ -47,4 +47,20 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         R 0 config set cluster-announce-bus-port 0
         assert_match "*@$base_bus_port *" [R 0 CLUSTER NODES]
     }
+
+    test "Test change cluster-announce-ip at runtime" {
+        assert_error "ERR CONFIG SET failed*" {
+            R 0 config set cluster-announce-ip 127.0.0.1:1234
+        }
+        assert_error "ERR CONFIG SET failed*" {
+            R 0 config set cluster-announce-ip redis.example.com:1234
+        }
+        # Check that we accept an IP or a hostname (for backward compatibility)
+        assert_equal OK [R 0 config set cluster-announce-ip 127.0.0.1]
+        assert_equal {cluster-announce-ip 127.0.0.1} [R 0 config get cluster-announce-ip]
+        assert_equal OK [R 0 config set cluster-announce-ip redis.example.com]
+        assert_equal {cluster-announce-ip redis.example.com} [R 0 config get cluster-announce-ip]
+        assert_equal OK [R 0 config set cluster-announce-ip ""]
+        assert_equal {cluster-announce-ip {}} [R 0 config get cluster-announce-ip]
+    }
 }
