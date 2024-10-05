@@ -673,7 +673,7 @@ int d2string(char *buf, size_t len, double value) {
         else
             len = snprintf(buf,len,"inf");
     } else if (value == 0) {
-        /* See: http://en.wikipedia.org/wiki/Signed_zero, "Comparisons". */
+        /* See: https://en.wikipedia.org/wiki/Signed_zero, "Comparisons". */
         if (1.0/value < 0)
             len = snprintf(buf,len,"-0");
         else

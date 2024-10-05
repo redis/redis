@@ -1,7 +1,7 @@
 The utilities in this directory plot the distribution of SRANDMEMBER to
 evaluate how fair it is.
 
-See http://theshfl.com/redis_sets for more information on the topic that lead
+See https://theshfl.com/redis_sets for more information on the topic that lead
 to such investigation fix.
 
 showdist.rb -- shows the distribution of the frequency elements are returned.
