@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "sha256.h"
+#include "util.h"
 
 /****************************** MACROS ******************************/
 #define ROTLEFT(a,b) (((a) << (b)) | ((a) >> (32-(b))))
@@ -133,7 +134,7 @@ void sha256_final(SHA256_CTX *ctx, BYTE hash[])
 		while (i < 64)
 			ctx->data[i++] = 0x00;
 		sha256_transform(ctx, ctx->data);
-		memset(ctx->data, 0, 56);
+		redis_memzero(ctx->data, 56);
 	}
 
 	// Append to the padding the total message's length in bits and transform.
