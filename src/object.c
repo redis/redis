@@ -1667,7 +1667,7 @@ NULL
         addReplyVerbatim(c,report,sdslen(report),"txt");
         sdsfree(report);
     } else if (!strcasecmp(c->argv[1]->ptr,"purge") && c->argc == 2) {
-        if (jemalloc_purge() == 0)
+        if (zlibc_purge() == 0)
             addReply(c, shared.ok);
         else
             addReplyError(c, "Error purging dirty pages");

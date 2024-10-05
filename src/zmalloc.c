@@ -19,6 +19,9 @@
 #ifdef __linux__
 #include <sys/mman.h>
 #endif
+#ifdef __APPLE__
+#include <malloc/malloc.h>
+#endif
 
 /* This function provide us access to the original libc free(). This is useful
  * for instance to free results obtained by backtrace_symbols(). We need
@@ -1030,6 +1033,20 @@ size_t zmalloc_get_memory_size(void) {
 #endif
 #else
     return 0L;          /* Unknown OS. */
+#endif
+}
+
+int zlibc_purge(void) {
+#if defined(USE_JEMALLOC)
+    return jemalloc_purge();
+#elif defined(__linux__)
+    /* We try to return free memory back to the OS */
+    return malloc_trim(0) == 1 ? 0 : -1;
+#elif defined(__APPLE__)
+    /* All memory zones are passed through and */
+    /* an attempt is made to release the pressure upon */
+    size_t rel = malloc_zone_pressure_relief(NULL, 0);
+    return rel > 0 ? 0 : -1;
 #endif
 }
 
