@@ -4800,7 +4800,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     di = dictGetIterator(master->sentinels);
     while((de = dictNext(di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
-        if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
+        if (ri->leader != NULL && ri->leader_epoch == epoch)
             sentinelLeaderIncr(counters,ri->leader);
     }
     dictReleaseIterator(di);
