@@ -2258,6 +2258,15 @@ int processInlineBuffer(client *c) {
 
     /* Split the input buffer up to the \r\n */
     querylen = newline-(c->querybuf+c->qb_pos);
+
+    /* Handle annotations, begin with '#' prefix. */
+    if (querylen > 0 && *(c->querybuf+c->qb_pos) == '#') {
+        /* Move querybuffer position to the next query in the buffer, then
+         * return directly, since we don't process annotations now. */
+        c->qb_pos += querylen+linefeed_chars;
+        return C_OK;
+    }
+
     aux = sdsnewlen(c->querybuf+c->qb_pos,querylen);
     argv = sdssplitargs(aux,&argc);
     sdsfree(aux);
