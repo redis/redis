@@ -5270,6 +5270,32 @@ next:
     return success;
 }
 
+/* Ignore acceptable errors when moving the slot. 
+ * See issues #9223 and 11104. 
+ */
+static int clusterManagerIsAcceptableError(char**err, int ignore_warning)
+{
+    // do nothing if err is NULL.
+    if (err == NULL) return 1;
+
+    const char *acceptables[] = {
+        "ERR Please use SETSLOT only with masters.",
+        "LOADING Redis is loading the dataset in memory"
+    };
+    const int acceptables_len = sizeof(acceptables) / sizeof(char*);
+
+    for (int i = 0; i < acceptables_len; i++) {
+        if (!strncmp(*err, acceptables[i], strlen(acceptables[i]))) {
+            if (!ignore_warning) clusterManagerLogWarn("\n*** Ignored: %s\n", *err);
+            zfree(*err);
+            *err = NULL;
+            return 1;
+        }
+    }
+    clusterManagerLogErr("\nAborted: %s\n", *err);
+    return 0;
+}
+
 /* Move slots between source and target nodes using MIGRATE.
  *
  * Options:
@@ -5323,13 +5349,7 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
          * source node has turned itself into a replica. This is not an error in
          * this scenario so we ignore it. See issue #9223. */
         success = clusterManagerSetSlot(source, target, slot, "node", err);
-        const char *acceptable = "ERR Please use SETSLOT only with masters.";
-        if (!success && err && !strncmp(*err, acceptable, strlen(acceptable))) {
-            zfree(*err);
-            *err = NULL;
-        } else if (!success && err) {
-            return 0;
-        }
+        if (!success && err && !clusterManagerIsAcceptableError(err, 0)) return 0;
 
         /* We also inform the other nodes to avoid redirects in case the target
          * node is slow to propagate the change to the entire cluster. */
@@ -5341,7 +5361,7 @@ static int clusterManagerMoveSlot(clusterManagerNode *source,
             if (n == target || n == source) continue; /* already done */
             if (n->flags & CLUSTER_MANAGER_FLAG_SLAVE) continue;
             success = clusterManagerSetSlot(n, target, slot, "node", err);
-            if (!success) return 0;
+            if (!success && err && !clusterManagerIsAcceptableError(err, 1)) return 0;
         }
     }
     /* Update the node logical config */
