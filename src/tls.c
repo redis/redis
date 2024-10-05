@@ -240,6 +240,11 @@ static SSL_CTX *createSSLContext(redisTLSContextConfig *ctx_config, int protocol
         goto error;
     }
 
+    if (ctx_config->crl_file != NULL && SSL_CTX_load_verify_locations(ctx, ctx_config->crl_file, 0)) {
+        X509_STORE *st = SSL_CTX_get_cert_store(ctx);
+        X509_STORE_set_flags(st, X509_V_FLAG_CRL_CHECK|X509_V_FLAG_CRL_CHECK_ALL);
+    }
+
     if (ctx_config->ciphers && !SSL_CTX_set_cipher_list(ctx, ctx_config->ciphers)) {
         serverLog(LL_WARNING, "Failed to configure ciphers: %s", ctx_config->ciphers);
         goto error;

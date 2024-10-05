@@ -1488,6 +1488,7 @@ typedef struct redisTLSContextConfig {
     char *dh_params_file;
     char *ca_cert_file;
     char *ca_cert_dir;
+    char *crl_file;
     char *protocols;
     char *ciphers;
     char *ciphersuites;
