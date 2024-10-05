@@ -158,7 +158,8 @@ struct hdr_histogram;
 #define STATS_METRIC_NET_OUTPUT_REPLICATION 4   /* Bytes written to network during replication. */
 #define STATS_METRIC_EL_CYCLE 5     /* Number of eventloop cycled. */
 #define STATS_METRIC_EL_DURATION 6  /* Eventloop duration. */
-#define STATS_METRIC_COUNT 7
+#define STATS_METRIC_CMD_DURATION 7  /* Command duration. */
+#define STATS_METRIC_COUNT 8
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
