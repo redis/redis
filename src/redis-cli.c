@@ -3436,6 +3436,54 @@ static int isSensitiveCommand(int argc, char **argv) {
     return 0;
 }
 
+/* Use ROLE to get master_host and master_port, then connect to master. Or use
+ * ROLE to get one of replica_host and replica_port, then connect to it */
+static void tryConnectMasterOrReplica(int master) {
+    if (context == NULL) {
+        fprintf(stderr, "not connected with any node\n");
+        return;
+    }
+    redisReply *reply = redisCommand(context, "ROLE");
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return;
+    } else if (reply->type == REDIS_REPLY_ERROR) {
+        fprintf(stderr, "ROLE failed: %s\n", reply->str);
+        freeReplyObject(reply);
+        return;
+    } else if (reply->type != REDIS_REPLY_ARRAY) {
+        fprintf(stderr, "Non Array response from ROLE!\n");
+        freeReplyObject(reply);
+        return;
+    }
+
+    redisReply *role = reply->element[0];
+    if (!strcasecmp(role->str,"master")) {
+        if (master) {
+            fprintf(stderr, "I'm already master!\n");
+            return;
+        }
+        redisReply *replicas = reply->element[2];
+        if (replicas->elements == 0) {
+            fprintf(stderr, "Non available replicas!\n");
+            return;
+        }
+        redisReply *replica = replicas->element[0];
+        config.conn_info.hostip = sdsnew(replica->element[0]->str);
+        config.conn_info.hostport = atoi(replica->element[1]->str);
+    } else {
+        if (!master) {
+            fprintf(stderr, "I'm already replica!\n");
+            return;
+        }
+        config.conn_info.hostip = sdsnew(reply->element[1]->str);
+        config.conn_info.hostport = reply->element[2]->integer;
+    }
+    cliRefreshPrompt();
+    cliConnect(CC_FORCE);
+    freeReplyObject(reply);
+}
+
 static void repl(void) {
     sds historyfile = NULL;
     int history = 0;
@@ -3546,6 +3594,10 @@ static void repl(void) {
                 config.conn_info.hostport = atoi(argv[2]);
                 cliRefreshPrompt();
                 cliConnect(CC_FORCE);
+            } else if (argc == 2 && !strcasecmp(argv[0],"connect") &&
+                (!strcasecmp(argv[1],"master") || !strcasecmp(argv[1],"replica")))
+            {
+                tryConnectMasterOrReplica(strcasecmp(argv[1], "master") == 0);
             } else if (argc == 1 && !strcasecmp(argv[0],"clear")) {
                 linenoiseClearScreen();
             } else {
