@@ -51,23 +51,28 @@ keySpec BITCOUNT_Keyspecs[1] = {
 };
 #endif
 
-/* BITCOUNT range unit argument table */
-struct COMMAND_ARG BITCOUNT_range_unit_Subargs[] = {
+/* BITCOUNT range end_unit_block unit argument table */
+struct COMMAND_ARG BITCOUNT_range_end_unit_block_unit_Subargs[] = {
 {MAKE_ARG("byte",ARG_TYPE_PURE_TOKEN,-1,"BYTE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("bit",ARG_TYPE_PURE_TOKEN,-1,"BIT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* BITCOUNT range end_unit_block argument table */
+struct COMMAND_ARG BITCOUNT_range_end_unit_block_Subargs[] = {
+{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_range_end_unit_block_unit_Subargs},
 };
 
 /* BITCOUNT range argument table */
 struct COMMAND_ARG BITCOUNT_range_Subargs[] = {
 {MAKE_ARG("start",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("end",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unit",ARG_TYPE_ONEOF,-1,NULL,NULL,"7.0.0",CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_range_unit_Subargs},
+{MAKE_ARG("end-unit-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_range_end_unit_block_Subargs},
 };
 
 /* BITCOUNT argument table */
 struct COMMAND_ARG BITCOUNT_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=BITCOUNT_range_Subargs},
+{MAKE_ARG("range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=BITCOUNT_range_Subargs},
 };
 
 /********** BITFIELD ********************/

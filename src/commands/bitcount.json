@@ -54,24 +54,31 @@
                         "type": "integer"
                     },
                     {
-                        "name": "end",
-                        "type": "integer"
-                    },
-                    {
-                        "name": "unit",
-                        "type": "oneof",
+                        "name": "end-unit-block",
+                        "type": "block",
                         "optional": true,
-                        "since": "7.0.0",
                         "arguments": [
                             {
-                                "name": "byte",
-                                "type": "pure-token",
-                                "token": "BYTE"
+                                "name": "end",
+                                "type": "integer"
                             },
                             {
-                                "name": "bit",
-                                "type": "pure-token",
-                                "token": "BIT"
+                                "name": "unit",
+                                "type": "oneof",
+                                "optional": true,
+                                "since": "7.0.0",
+                                "arguments": [
+                                    {
+                                        "name": "byte",
+                                        "type": "pure-token",
+                                        "token": "BYTE"
+                                    },
+                                    {
+                                        "name": "bit",
+                                        "type": "pure-token",
+                                        "token": "BIT"
+                                    }
+                                ]
                             }
                         ]
                     }
