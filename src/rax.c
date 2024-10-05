@@ -1618,8 +1618,11 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                 if (nodechar > keychar) {
                     if (!raxIteratorNextStep(it,0)) return 0;
                 } else {
-                    if (!raxIteratorAddChars(it,it->node->data,it->node->size))
-                        return 0;
+                    it->node = raxStackPop(&it->stack);
+                    if (it->key_len == 0) {
+                        it->flags |= RAX_ITER_EOF;
+                        return 1;
+                    }
                     if (!raxIteratorNextStep(it,1)) return 0;
                 }
             }
@@ -1632,8 +1635,11 @@ int raxSeek(raxIterator *it, const char *op, unsigned char *ele, size_t len) {
                     if (!raxSeekGreatest(it)) return 0;
                     it->data = raxGetData(it->node);
                 } else {
-                    if (!raxIteratorAddChars(it,it->node->data,it->node->size))
-                        return 0;
+                    it->node = raxStackPop(&it->stack);
+                    if (it->key_len == 0) {
+                        it->flags |= RAX_ITER_EOF;
+                        return 1;
+                    }
                     if (!raxIteratorPrevStep(it,1)) return 0;
                 }
             }
