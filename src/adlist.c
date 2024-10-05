@@ -127,6 +127,13 @@ void listLinkNodeTail(list *list, listNode *node) {
     list->len++;
 }
 
+/* Insert a new node to the list, before or after 'old_node', containing
+ * the specified 'value' pointer as value.
+ *
+ * On error, NULL is returned and no operation is performed (i.e. the
+ * list remains unaltered).
+ * On success, the 'list' pointer you pass to the function is returned.
+ */
 list *listInsertNode(list *list, listNode *old_node, void *value, int after) {
     listNode *node;
 
