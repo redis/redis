@@ -6126,8 +6126,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info,
         "# Cluster\r\n"
-        "cluster_enabled:%d\r\n",
-        server.cluster_enabled);
+        "cluster_enabled:%d\r\n"
+        "cluster_announce_ip:%s\r\n",
+        server.cluster_enabled,
+        server.cluster_announce_ip ? server.cluster_announce_ip : "0");
     }
 
     /* Key space */
