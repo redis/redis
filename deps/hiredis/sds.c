@@ -90,6 +90,7 @@ hisds hi_sdsnewlen(const void *init, size_t initlen) {
     int hdrlen = hi_sdsHdrSize(type);
     unsigned char *fp; /* flags pointer. */
 
+    assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
     sh = hi_s_malloc(hdrlen+initlen+1);
     if (sh == NULL) return NULL;
     if (!init)
@@ -206,6 +207,7 @@ hisds hi_sdsMakeRoomFor(hisds s, size_t addlen) {
     len = hi_sdslen(s);
     sh = (char*)s-hi_sdsHdrSize(oldtype);
     newlen = (len+addlen);
+    assert(newlen > len); /* Catch size_t overflow */
     if (newlen < HI_SDS_MAX_PREALLOC)
         newlen *= 2;
     else
@@ -219,6 +221,7 @@ hisds hi_sdsMakeRoomFor(hisds s, size_t addlen) {
     if (type == HI_SDS_TYPE_5) type = HI_SDS_TYPE_8;
 
     hdrlen = hi_sdsHdrSize(type);
+    assert(hdrlen + newlen + 1 > len); /* Catch size_t overflow */
     if (oldtype==type) {
         newsh = hi_s_realloc(sh, hdrlen+newlen+1);
         if (newsh == NULL) return NULL;
