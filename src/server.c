@@ -4150,7 +4150,7 @@ int processCommand(client *c) {
      * when replica-serve-stale-data is no and we are a replica with a broken
      * link with master. */
     if (server.masterhost && server.repl_state != REPL_STATE_CONNECTED &&
-        server.repl_serve_stale_data == 0 &&
+        (server.repl_serve_stale_data == 0 || replicationGetSlaveOffset() == 0) &&
         is_denystale_command)
     {
         rejectCommand(c, shared.masterdownerr);
