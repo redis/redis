@@ -1048,10 +1048,12 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster --log-req-res --dont-clean --force-resp3 ${{github.event.inputs.cluster_test_args}}
     - name: Install Python dependencies
+      if: ${{success() || failure()}}
       uses: py-actions/py-dependency-install@v4
       with:
         path: "./utils/req-res-validator/requirements.txt"
     - name: validator
+      if: ${{success() || failure()}}
       run: ./utils/req-res-log-validator.py --verbose --fail-missing-reply-schemas ${{ (!contains(github.event.inputs.skiptests, 'redis') && !contains(github.event.inputs.skiptests, 'module') && !contains(github.event.inputs.sentinel, 'redis') && !contains(github.event.inputs.skiptests, 'cluster')) && github.event.inputs.test_args == '' && github.event.inputs.cluster_test_args == '' && '--fail-commands-not-all-hit' || '' }}
 
   test-old-chain-jemalloc:
