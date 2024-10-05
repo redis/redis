@@ -6158,6 +6158,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
               * We resize by vector_len-1 elements, because we held
               * one element in argv for the vector already */
              argv_size += vlen-1;
+             serverAssert(argv_size > 0);
              argv = zrealloc(argv,sizeof(robj*)*argv_size);
 
              size_t i = 0;
