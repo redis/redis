@@ -497,23 +497,35 @@ lcov:
 bench: $(REDIS_BENCHMARK_NAME)
 	./$(REDIS_BENCHMARK_NAME)
 
+.PHONY: bench
+
 32bit:
 	@echo ""
 	@echo "WARNING: if it fails under Linux you probably need to install libc6-dev-i386"
 	@echo ""
 	$(MAKE) CFLAGS="-m32" LDFLAGS="-m32"
 
+.PHONY: 32bit
+
 gcov:
 	$(MAKE) REDIS_CFLAGS="-fprofile-arcs -ftest-coverage -DCOVERAGE_TEST" REDIS_LDFLAGS="-fprofile-arcs -ftest-coverage"
+
+.PHONY: gcov
 
 noopt:
 	$(MAKE) OPTIMIZATION="-O0"
 
+.PHONY: noopt
+
 valgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc"
 
+.PHONY: valgrind
+
 helgrind:
 	$(MAKE) OPTIMIZATION="-O0" MALLOC="libc" CFLAGS="-D__ATOMIC_VAR_FORCE_SYNC_MACROS" REDIS_CFLAGS="-I/usr/local/include" REDIS_LDFLAGS="-L/usr/local/lib"
+
+.PHONY: helgrind
 
 install: all
 	@mkdir -p $(INSTALL_BIN)
@@ -526,3 +538,5 @@ install: all
 
 uninstall:
 	rm -f $(INSTALL_BIN)/{$(REDIS_SERVER_NAME),$(REDIS_BENCHMARK_NAME),$(REDIS_CLI_NAME),$(REDIS_CHECK_RDB_NAME),$(REDIS_CHECK_AOF_NAME),$(REDIS_SENTINEL_NAME)}
+
+.PHONY: uninstall
