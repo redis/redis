@@ -36,6 +36,13 @@ typedef ucontext_t sigcontext_t;
 #endif
 #endif /* HAVE_BACKTRACE */
 
+#ifdef __FreeBSD__
+#include <sys/types.h>
+#include <sys/sysctl.h>
+#include <sys/user.h>
+#include <sys/mman.h>
+#endif
+
 #ifdef __CYGWIN__
 #ifndef SA_ONSTACK
 #define SA_ONSTACK 0x08000000
@@ -2171,6 +2178,73 @@ int memtest_test_linux_anonymous_maps(void) {
 }
 #endif /* HAVE_PROC_MAPS */
 
+#if defined(__FreeBSD__)
+
+#define MEMTEST_MAX_REGIONS 128
+
+int memtest_test_bsd_anonymous_maps(void) {
+    char *buf, *base, *end;
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_VMMAP, -1};
+    uintptr_t start_vect[MEMTEST_MAX_REGIONS];
+    uintptr_t size_vect[MEMTEST_MAX_REGIONS];
+    char logbuf[1024];
+    size_t buflen;
+    int regions = 0, errors = 0, j;
+
+    if (sysctl(mib, 4, NULL, &buflen, NULL, 0) < 0) {
+        return 0;
+    }
+
+    buflen = buflen * 4 / 3;
+    buf = mmap(NULL, buflen, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+
+    if (buf == MAP_FAILED) {
+        return 0;
+    }
+
+    int fd = openDirectLogFiledes();
+    if (!fd) {
+        goto end;
+    }
+
+    if (sysctl(mib, 4, buf, &buflen, NULL, 0) < 0) {
+        goto end;
+    }
+
+    base = buf;
+    end = base + buflen;
+
+    while (base < end && regions < MEMTEST_MAX_REGIONS) {
+        struct kinfo_vmentry *region = (struct kinfo_vmentry *)base;
+        if ((region->kve_protection & KVME_PROT_READ) &&
+            (region->kve_protection & KVME_PROT_WRITE)) {
+            uintptr_t start = (uintptr_t)region->kve_start;
+            uintptr_t end = (uintptr_t)region->kve_end;
+            start_vect[regions] = start;
+            size_vect[regions] = end - start;
+            snprintf(logbuf,sizeof(logbuf),
+                    "*** Preparing to test memory region %lx (%lu bytes)\n",
+                    start_vect[regions],
+                    size_vect[regions]);
+            if (write(fd,logbuf,strlen(logbuf)) == -1) { /* Nothing to do. */ }
+            regions++;
+        }
+        base += region->kve_structsize;
+    }
+
+    for (j = 0; j < regions; j++) {
+        if (write(fd,".",1) == -1) { /* Nothing to do. */ }
+        errors += memtest_preserving_test((void*)start_vect[j],size_vect[j],1);
+        if (write(fd, errors ? "E" : "O",1) == -1) { /* Nothing to do. */ }
+    }
+    if (write(fd,"\n",1) == -1) { /* Nothing to do. */ }
+end:
+    munmap(buf, buflen);
+    closeDirectLogFiledes(fd);
+    return errors;
+}
+#endif
+
 static void killMainThread(void) {
     int err;
     if (pthread_self() != server.main_thread_id && pthread_cancel(server.main_thread_id) == 0) {
@@ -2193,12 +2267,16 @@ void killThreads(void) {
 }
 
 void doFastMemoryTest(void) {
-#if defined(HAVE_PROC_MAPS)
+#if defined(HAVE_PROC_MAPS) || defined(__FreeBSD__)
     if (server.memcheck_enabled) {
         /* Test memory */
         serverLogRaw(LL_WARNING|LL_RAW, "\n------ FAST MEMORY TEST ------\n");
         killThreads();
+#if defined(HAVE_PROC_MAPS)
         if (memtest_test_linux_anonymous_maps()) {
+#else
+        if (memtest_test_bsd_anonymous_maps()) {
+#endif
             serverLogRaw(LL_WARNING|LL_RAW,
                 "!!! MEMORY ERROR DETECTED! Check your memory ASAP !!!\n");
         } else {
