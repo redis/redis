@@ -226,6 +226,7 @@ static StkId adjust_varargs (lua_State *L, Proto *p, int actual) {
   }
 #endif
   /* move fixed parameters to final position */
+  luaD_checkstack(L, p->maxstacksize);  /* check again for new 'base' */
   fixed = L->top - actual;  /* first fixed argument */
   base = L->top;  /* final position of first argument */
   for (i=0; i<nfixargs; i++) {
@@ -245,8 +246,10 @@ static StkId tryfuncTM (lua_State *L, StkId func) {
   const TValue *tm = luaT_gettmbyobj(L, func, TM_CALL);
   StkId p;
   ptrdiff_t funcr = savestack(L, func);
-  if (!ttisfunction(tm))
+  if (!ttisfunction(tm)) {
+    luaD_checkstack(L, 1);
     luaG_typeerror(L, func, "call");
+  }
   /* Open a hole inside the stack at `func' */
   for (p = L->top; p > func; p--) setobjs2s(L, p, p-1);
   incr_top(L);
