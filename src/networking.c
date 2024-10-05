@@ -1933,7 +1933,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         }
 
         iov[iovcnt].iov_base = o->buf + offset;
-        iov[iovcnt].iov_len = o->used - offset;
+        iov[iovcnt].iov_len = (o->used - offset)>(NET_MAX_WRITES_PER_EVENT)?(NET_MAX_WRITES_PER_EVENT):(o->used - offset);
         iov_bytes_len += iov[iovcnt++].iov_len;
         offset = 0;
     }
