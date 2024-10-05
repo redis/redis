@@ -259,6 +259,17 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
         enc[3] = (value>>16)&0xFF;
         enc[4] = (value>>24)&0xFF;
         return 5;
+    } else if (value >= LLONG_MIN && value <= LLONG_MAX) {
+        enc[0] = (RDB_ENCVAL<<6)|RDB_ENC_INT64;
+        enc[1] = value&0xFF;
+        enc[2] = (value>>8)&0xFF;
+        enc[3] = (value>>16)&0xFF;
+        enc[4] = (value>>24)&0xFF;
+        enc[5] = (value>>32)&0xFF;
+        enc[6] = (value>>40)&0xFF;
+        enc[7] = (value>>48)&0xFF;
+        enc[8] = (value>>56)&0xFF;
+        return 9;
     } else {
         return 0;
     }
@@ -272,7 +283,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
     int sdsFlag = flags & RDB_LOAD_SDS;
     int hfldFlag = flags & (RDB_LOAD_HFLD|RDB_LOAD_HFLD_TTL);
     int encode = flags & RDB_LOAD_ENC;
-    unsigned char enc[4];
+    unsigned char enc[8];
     long long val;
 
     if (enctype == RDB_ENC_INT8) {
@@ -292,6 +303,18 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
             ((uint32_t)enc[2]<<16)|
             ((uint32_t)enc[3]<<24);
         val = (int32_t)v;
+    } else if (enctype == RDB_ENC_INT64) {
+        uint64_t v;
+        if (rioRead(rdb,enc,8) == 0) return NULL;
+        v = (uint64_t)enc[0];
+        v|= (uint64_t)enc[1]<<8;
+        v|= (uint64_t)enc[2]<<16;
+        v|= (uint64_t)enc[3]<<24;
+        v|= (uint64_t)enc[4]<<32;
+        v|= (uint64_t)enc[5]<<40;
+        v|= (uint64_t)enc[6]<<48;
+        v|= (uint64_t)enc[7]<<56;
+        val = (int64_t)v;
     } else {
         rdbReportCorruptRDB("Unknown RDB integer encoding type %d",enctype);
         return NULL; /* Never reached. */
@@ -436,8 +459,8 @@ ssize_t rdbSaveRawString(rio *rdb, unsigned char *s, size_t len) {
     ssize_t n, nwritten = 0;
 
     /* Try integer encoding */
-    if (len <= 11) {
-        unsigned char buf[5];
+    if (len <= 20) {
+        unsigned char buf[32];
         if ((enclen = rdbTryIntegerEncoding((char*)s,len,buf)) > 0) {
             if (rdbWriteRaw(rdb,buf,enclen) == -1) return -1;
             return enclen;
@@ -527,6 +550,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         case RDB_ENC_INT8:
         case RDB_ENC_INT16:
         case RDB_ENC_INT32:
+        case RDB_ENC_INT64:
             return rdbLoadIntegerObject(rdb,len,flags,lenptr);
         case RDB_ENC_LZF:
             return rdbLoadLzfStringObject(rdb,flags,lenptr);
