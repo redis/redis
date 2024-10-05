@@ -2659,7 +2659,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
         if(tids_count == TIDS_MAX_SIZE) break;
     }
 
-    /* Swap the last tid with the the current thread id */
+    /* Swap the last tid with the current thread id */
     if(current_thread_index != -1) {
         pid_t last_tid = tids[tids_count - 1];
 
