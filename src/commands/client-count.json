@@ -1,0 +1,25 @@
+{
+  "COUNT": {
+    "summary": "Returns client count among the user.",
+    "complexity": "O(1)",
+    "group": "connection",
+    "since": "7.2.5",
+    "arity": 3,
+    "container": "CLIENT",
+    "function": "clientCommand",
+    "command_flags": [
+      "ADMIN",
+      "NOSCRIPT",
+      "LOADING",
+      "STALE",
+      "SENTINEL"
+    ],
+    "acl_categories": [
+      "CONNECTION"
+    ],
+    "reply_schema": {
+      "type": "string",
+      "description": "client count among user"
+    }
+  }
+}
