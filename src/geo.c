@@ -44,6 +44,9 @@ int zslValueLteMax(double value, zrangespec *spec);
  *   - geoadd - add coordinates for value to geoset
  *   - georadius - search radius by coordinates in geoset
  *   - georadiusbymember - search radius based on geoset member position
+ *   - geodist - calculate distance between two geoset members
+ *   - geohash - show geoset member position with geohash format
+ *   - geopos - show geoset member position with coordinates
  * ==================================================================== */
 
 /* ====================================================================
