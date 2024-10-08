@@ -42,6 +42,7 @@
 #include "fast_float_strtod.h"
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "mt19937-64.h"
 #include <math.h>
 
 /*-----------------------------------------------------------------------------
@@ -108,11 +109,23 @@ void zslFree(zskiplist *zsl) {
  * (both inclusive), with a powerlaw-alike distribution where higher
  * levels are less likely to be returned. */
 int zslRandomLevel(void) {
-    static const int threshold = ZSKIPLIST_P*RAND_MAX;
+#if ZSKIPLIST_P_DENOMINATOR == 4 && ZSKIPLIST_MAXLEVEL == 32
+    /* Optimized implementation for P = 1/4 and MAXLEVEL = 32.
+     * Only a single random number is generated, enhancing performance.
+     * Calculate the count of trailing zeros in a 64-bit random number. The random
+     * number is bitwise OR'ed with 1<<63 to ensure it's not zero. */
+    int ctz = __builtin_ctzll(genrand64_int64()|(1LL<<63));
+    /* Calculate the level based on ctz, with a division by 2 to balance the probability to 1/4. */
+    int level = 1+(ctz/2);
+    serverAssert(level<=ZSKIPLIST_MAXLEVEL);
+    return level;
+#else
+    static const int threshold = RAND_MAX/ZSKIPLIST_P_DENOMINATOR;
     int level = 1;
     while (random() < threshold)
         level += 1;
     return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
+#endif
 }
 
 /* Insert a new node in the skiplist. Assumes the element does not already
