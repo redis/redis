@@ -171,7 +171,7 @@ struct hdr_histogram;
 
 #define REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME 5000 /* 5 seconds */
 
-/* When configuring the server eventloop, we setup it so that the total number
+/* When configuring the server eventloop, we set up it so that the total number
  * of file descriptors we can handle are server.maxclients + RESERVED_FDS +
  * a few more to stay safe. Since RESERVED_FDS defaults to 32, we add 96
  * in order to make sure of not over provisioning more than 128 fds. */
@@ -250,7 +250,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * Each key-spec may must have exactly one of these. Any operation that's not
  * distinctly deletion, overwrite or read-only would be marked as RW. */
 #define CMD_KEY_RO (1ULL<<0)     /* Read-Only - Reads the value of the key, but
-                                  * doesn't necessarily returns it. */
+                                  * doesn't necessarily return it. */
 #define CMD_KEY_RW (1ULL<<1)     /* Read-Write - Modifies the data stored in the
                                   * value of the key or its metadata. */
 #define CMD_KEY_OW (1ULL<<2)     /* Overwrite - Overwrites the data stored in
@@ -328,7 +328,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_CLOSE_AFTER_REPLY (1<<6) /* Close after writing entire reply. */
 #define CLIENT_UNBLOCKED (1<<7) /* This client was unblocked and is stored in
                                   server.unblocked_clients */
-#define CLIENT_SCRIPT (1<<8) /* This is a non connected client used by Lua */
+#define CLIENT_SCRIPT (1<<8) /* This is a non-connected client used by Lua */
 #define CLIENT_ASKING (1<<9)     /* Client issued the ASKING command */
 #define CLIENT_CLOSE_ASAP (1<<10)/* Close this client ASAP */
 #define CLIENT_UNIX_SOCKET (1<<11) /* Client connected via Unix domain socket */
@@ -1246,7 +1246,7 @@ typedef struct client {
                              * to disconnect the client if the module is
                              * unloaded for cleanup. Opaque for Redis Core.*/
 
-    /* If this client is in tracking mode and this field is non zero,
+    /* If this client is in tracking mode and this field is non-zero,
      * invalidation messages for keys fetched by this client will be sent to
      * the specified client ID. */
     uint64_t client_tracking_redirection;
@@ -1555,7 +1555,7 @@ struct redisServer {
     char *executable;           /* Absolute executable file path. */
     char **exec_argv;           /* Executable argv vector (copy). */
     int dynamic_hz;             /* Change hz value depending on # of clients. */
-    int config_hz;              /* Configured HZ value. May be different than
+    int config_hz;              /* Configured HZ value. May be different from
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
     mode_t umask;               /* The umask value of the process on startup */
@@ -2336,7 +2336,7 @@ typedef int redisGetKeysProc(struct redisCommand *cmd, robj **argv, int argc, ge
  * 4) The admin flag implies the @admin and @dangerous ACL category.
  * 5) The pub-sub flag implies the @pubsub ACL category.
  * 6) The lack of fast flag implies the @slow ACL category.
- * 7) The non obvious "keyspace" category includes the commands
+ * 7) The non-obvious "keyspace" category includes the commands
  *    that interact with keys without having anything to do with
  *    specific data structures, such as: DEL, RENAME, MOVE, SELECT,
  *    TYPE, EXPIRE*, PEXPIRE*, TTL, PTTL, ...
