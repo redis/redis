@@ -70,8 +70,11 @@
 
 #define CLUSTER_MANAGER_INVALID_HOST_ARG \
     "[ERR] Invalid arguments: you need to pass either a valid " \
-    "address (ie. 120.0.0.1:7000) or space separated IP " \
-    "and port (ie. 120.0.0.1 7000)\n"
+    "address (e.g. 120.0.0.1:7000) or space separated IP " \
+    "and port (e.g. 120.0.0.1 7000)\n"
+#define CLUSTER_MANAGER_INVALID_HOST_ARG_NEW \
+    "[ERR] Invalid arguments: you need to pass a valid " \
+    "address (e.g. 120.0.0.1:7000)\n"
 #define CLUSTER_MANAGER_MODE() (config.cluster_manager_command.name != NULL)
 #define CLUSTER_MANAGER_MASTERS_COUNT(nodes, replicas) ((nodes)/((replicas) + 1))
 #define CLUSTER_MANAGER_COMMAND(n,...) \
@@ -7274,13 +7277,14 @@ cleanup:
 }
 
 static int clusterManagerCommandAddNode(int argc, char **argv) {
+    UNUSED(argc);
     int success = 1;
     redisReply *reply = NULL;
     redisReply *function_restore_reply = NULL;
     redisReply *function_list_reply = NULL;
     char *ref_ip = NULL, *ip = NULL;
     int ref_port = 0, port = 0;
-    if (!getClusterHostFromCmdArgs(argc - 1, argv + 1, &ref_ip, &ref_port))
+    if (!getClusterHostFromCmdArgs(1, argv + 1, &ref_ip, &ref_port))
         goto invalid_args;
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port))
         goto invalid_args;
@@ -7427,7 +7431,7 @@ cleanup:
     if (function_list_reply) freeReplyObject(function_list_reply);
     return success;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG_NEW);
     return 0;
 }
 
@@ -7494,7 +7498,7 @@ static int clusterManagerCommandDeleteNode(int argc, char **argv) {
     if (r) freeReplyObject(r);
     return success;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG_NEW);
     return 0;
 }
 
@@ -7965,7 +7969,7 @@ reply_err:;
                           ok_count, err_count);
     return 1;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG_NEW);
     return 0;
 }
 
@@ -8164,7 +8168,7 @@ static int clusterManagerCommandCall(int argc, char **argv) {
     zfree(argvlen);
     return 1;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG_NEW);
     return 0;
 }
 
@@ -8228,7 +8232,7 @@ cleanup:
     } else clusterManagerLogOk("[ERR] Failed to back cluster!\n");
     return success;
 invalid_args:
-    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG);
+    fprintf(stderr, CLUSTER_MANAGER_INVALID_HOST_ARG_NEW);
     return 0;
 }
 
