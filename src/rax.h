@@ -122,11 +122,13 @@ typedef struct rax {
 #define RAX_STACK_STATIC_ITEMS 32
 typedef struct raxStack {
     void **stack; /* Points to static_items or an heap allocated array. */
+    uint8_t *offsets; /* stack (vector) of offsets */
     size_t items, maxitems; /* Number of items contained and total space. */
     /* Up to RAXSTACK_STACK_ITEMS items we avoid to allocate on the heap
      * and use this static array of pointers instead. */
     void *static_items[RAX_STACK_STATIC_ITEMS];
     int oom; /* True if pushing into this stack failed for OOM at some point. */
+    uint8_t static_offsets[RAX_STACK_STATIC_ITEMS];
 } raxStack;
 
 /* Optional callback used for iterators and be notified on each rax node,
@@ -150,8 +152,7 @@ typedef int (*raxNodeCallback)(raxNode **noderef);
                                        element for the first iteration and
                                        clear the flag. */
 #define RAX_ITER_EOF (1<<1)    /* End of iteration reached. */
-#define RAX_ITER_SAFE (1<<2)   /* Safe iterator, allows operations while
-                                  iterating. But it is slower. */
+
 typedef struct raxIterator {
     int flags;
     rax *rt;                /* Radix tree we are iterating. */
@@ -159,10 +160,11 @@ typedef struct raxIterator {
     void *data;             /* Data associated to this key. */
     size_t key_len;         /* Current key length. */
     size_t key_max;         /* Max key len the current key buffer can hold. */
-    unsigned char key_static_string[RAX_ITER_STATIC_LEN];
     raxNode *node;          /* Current node. Only for unsafe iteration. */
-    raxStack stack;         /* Stack used for unsafe iteration. */
+    uint8_t child_offset;    /* Current child offset. */
     raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
+    unsigned char key_static_string[RAX_ITER_STATIC_LEN];
+    raxStack stack;         /* Stack used for unsafe iteration. */
 } raxIterator;
 
 /* Exported API. */
