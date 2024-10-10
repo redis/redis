@@ -48,6 +48,28 @@ start_server {} {
             run_cmd_verify_hist {r set mykey $base_string}  "db0_STR:$log_value=1"            
         }
     }
+
+    test {KEYSIZES - Histogram of values of Bytes, Kilo and Mega} {
+        run_cmd_verify_hist {r FLUSHALL} {}
+        run_cmd_verify_hist {r set x 0123456789ABCDEF} {db0_STR:16=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:32=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:64=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:128=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:256=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:512=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:1K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:2K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:4K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:8K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:16K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:32K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:64K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:128K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:256K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:512K=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:1M=1}
+        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:2M=1}               
+    }
             
     test {KEYSIZES - Test List} {
         # FLUSHALL
@@ -308,29 +330,7 @@ start_server {} {
         run_cmd_verify_hist {r bitfield b3 set u8 65 255} {db0_STR:8=1}
         run_cmd_verify_hist {r bitfield b4 set u8 1000 255} {db0_STR:8=1,64=1}
     }    
-    
-    test {KEYSIZES - Histogram of values of Bytes, Kilo and Mega} {
-        run_cmd_verify_hist {r FLUSHALL} {}
-        run_cmd_verify_hist {r set x 0123456789ABCDEF} {db0_STR:16=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:32=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:64=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:128=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:256=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:512=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:1K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:2K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:4K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:8K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:16K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:32K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:64K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:128K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:256K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:512K=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:1M=1}
-        run_cmd_verify_hist {r APPEND x [r get x]} {db0_STR:2M=1}               
-    }
-    
+       
     test {KEYSIZES - Test RESTORE} {
         run_cmd_verify_hist {r FLUSHALL} {}
         run_cmd_verify_hist {r RPUSH l10 1 2 3 4} {db0_LIST:4=1}
