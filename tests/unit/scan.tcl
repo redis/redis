@@ -332,6 +332,7 @@ proc test_scan {type} {
 
         # We start scanning here, so keys from 0 to 99 should all be
         # reported at the end of the iteration.
+        set cur 0
         set keys {}
         while 1 {
             set res [r scan $cur]
