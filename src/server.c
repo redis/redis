@@ -6178,7 +6178,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             
             for (int type = 0 ; type < OBJ_TYPE_BASIC_MAX ; type++) {
                 uint64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
-                char buf[1000];
+                char buf[10000];
                 int cnt = 0, buflen = 0;
                 UNUSED(cnt);
 
@@ -6189,8 +6189,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     if (kvstoreHist[i] == 0) 
                         continue;
                     
-                    buflen += snprintf(buf + buflen, sizeof(buf) - buflen,
+                    int res = snprintf(buf + buflen, sizeof(buf) - buflen,
                                        (cnt == 0) ? "%s=%" PRIu64 : ",%s=%" PRIu64, expSizeLabels[i], kvstoreHist[i]);
+                    if (res < 0) break;
+                    buflen += res;
                     cnt += kvstoreHist[i];
                 }
 
