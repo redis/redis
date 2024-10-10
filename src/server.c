@@ -6190,7 +6190,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                         continue;
                     
                     buflen += snprintf(buf + buflen, sizeof(buf) - buflen,
-                                       (cnt == 0) ? "%s=%lu" : ",%s=%lu", expSizeLabels[i], kvstoreHist[i]);
+                                       (cnt == 0) ? "%s=%" PRIu64 : ",%s=%" PRIu64, expSizeLabels[i], kvstoreHist[i]);
                     cnt += kvstoreHist[i];
                 }
 
