@@ -462,6 +462,7 @@ void listTypeDelRange(robj *subject, long start, long count) {
 /* Implements LPUSH/RPUSH/LPUSHX/RPUSHX. 
  * 'xx': push if key exists. */
 void pushGenericCommand(client *c, int where, int xx) {
+    unsigned long llen;
     int j;
 
     robj *lobj = lookupKeyWrite(c->db, c->argv[1]);
@@ -482,11 +483,13 @@ void pushGenericCommand(client *c, int where, int xx) {
         server.dirty++;
     }
 
-    addReplyLongLong(c, listTypeLength(lobj));
+    llen = listTypeLength(lobj);
+    addReplyLongLong(c, llen);
 
     char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen - (c->argc - 2), llen);
 }
 
 /* LPUSH <key> <element> [<element> ...] */
@@ -548,11 +551,13 @@ void linsertCommand(client *c) {
     }
     listTypeReleaseIterator(iter);
 
-    if (inserted) {
+    if (inserted) {        
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"linsert",
                             c->argv[1],c->db->id);
         server.dirty++;
+        unsigned long ll = listTypeLength(subject);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll-1, ll);
     } else {
         /* Notify client of a failed insert */
         addReplyLongLong(c,-1);
@@ -736,9 +741,11 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
  * if the key got deleted by this function. */
 void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
-
+    unsigned long llen = listTypeLength(o);
+    
     notifyKeyspaceEvent(NOTIFY_LIST, event, key, c->db->id);
-    if (listTypeLength(o) == 0) {
+    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_LIST, llen + count, llen);
+    if (llen == 0) {
         if (deleted) *deleted = 1;
 
         dbDelete(c->db, key);
@@ -870,7 +877,7 @@ void lrangeCommand(client *c) {
 /* LTRIM <key> <start> <stop> */
 void ltrimCommand(client *c) {
     robj *o;
-    long start, end, llen, ltrim, rtrim;
+    long start, end, llen, ltrim, rtrim, llenNew;;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
@@ -908,12 +915,13 @@ void ltrimCommand(client *c) {
     }
 
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
-    if (listTypeLength(o) == 0) {
+    if ((llenNew = listTypeLength(o)) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     } else {
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
     }
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
     signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty += (ltrim + rtrim);
     addReply(c,shared.ok);
@@ -1065,9 +1073,12 @@ void lremCommand(client *c) {
     }
     listTypeReleaseIterator(li);
 
-    if (removed) {
+    if (removed) {        
+        long ll = listTypeLength(subject);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll + removed, ll);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
-        if (listTypeLength(subject) == 0) {
+        
+        if (ll == 0) {
             dbDelete(c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         } else {
@@ -1089,6 +1100,10 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
     listTypeTryConversionAppend(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
     signalModifiedKey(c,c->db,dstkey);
+
+    long ll = listTypeLength(dstobj);
+    updateKeysizesHist(c->db, getKeySlot(dstkey->ptr), OBJ_LIST, ll - 1, ll);
+
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",
                         dstkey,

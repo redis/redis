@@ -603,6 +603,8 @@ void saddCommand(client *c) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
     }
     if (added) {
+        unsigned long size = setTypeSize(set);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size - added, size);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
     }
@@ -628,6 +630,8 @@ void sremCommand(client *c) {
         }
     }
     if (deleted) {
+        unsigned long size = setTypeSize(set);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size + deleted, size);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
         if (keyremoved)
@@ -669,8 +673,12 @@ void smoveCommand(client *c) {
     }
     notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
 
+    /* Update keysizes histogram */
+    unsigned long srcLen = setTypeSize(srcset); 
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, srcLen + 1, srcLen);
+
     /* Remove the src set from the database when empty */
-    if (setTypeSize(srcset) == 0) {
+    if (srcLen == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
@@ -686,6 +694,8 @@ void smoveCommand(client *c) {
 
     /* An extra key has changed when ele was successfully added to dstset */
     if (setTypeAdd(dstset,ele->ptr)) {
+        unsigned long dstLen = setTypeSize(dstset);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_SET, dstLen - 1, dstLen);
         server.dirty++;
         signalModifiedKey(c,c->db,c->argv[2]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
@@ -743,7 +753,7 @@ void scardCommand(client *c) {
 
 void spopWithCountCommand(client *c) {
     long l;
-    unsigned long count, size;
+    unsigned long count, size, toRemove;
     robj *set;
 
     /* Get the count argument */
@@ -763,10 +773,12 @@ void spopWithCountCommand(client *c) {
     }
 
     size = setTypeSize(set);
+    toRemove = (count >= size) ? size : count;
 
     /* Generate an SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
-    server.dirty += (count >= size) ? size : count;
+    server.dirty += toRemove;
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - toRemove);
 
     /* CASE 1:
      * The number of requested elements is greater than or equal to
@@ -949,6 +961,7 @@ void spopWithCountCommand(client *c) {
 }
 
 void spopCommand(client *c) {
+    unsigned long size;
     robj *set, *ele;
 
     if (c->argc == 3) {
@@ -967,6 +980,8 @@ void spopCommand(client *c) {
     /* Pop a random element from the set */
     ele = setTypePopRandom(set);
 
+    size = setTypeSize(set);
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size + 1, size);
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
     /* Replicate/AOF this command as an SREM operation */

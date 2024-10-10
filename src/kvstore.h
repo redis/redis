@@ -4,6 +4,16 @@
 #include "dict.h"
 #include "adlist.h"
 
+/* Per dict metadata. Memset zero on init. Managed outside kvstore */
+typedef struct {
+    uint64_t keysizes_hist[5/*OBJ_TYPE_BASIC_MAX*/][64]; /* static_assert at db.c */
+} kvstoreDictMetadata;
+
+/* kvstore metadata. Memset zero on init. Managed outside kvstore */
+typedef struct {
+    uint64_t keysizes_hist[5/*OBJ_TYPE_BASIC_MAX*/][64]; /* static_assert at db.c */
+} kvstoreMetadata;
+
 typedef struct _kvstore kvstore;
 typedef struct _kvstoreIterator kvstoreIterator;
 typedef struct _kvstoreDictIterator kvstoreDictIterator;
@@ -71,6 +81,8 @@ void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val);
 dictEntry *kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, dictEntry ***plink, int *table_index);
 void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntry *he, dictEntry **plink, int table_index);
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
+kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx);
+kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs);
 
 #ifdef REDIS_TEST
 int kvstoreTest(int argc, char *argv[], int flags);
