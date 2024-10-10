@@ -8849,9 +8849,9 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
              * it will not be notified about it. */
             int prev_active = sub->active;
             sub->active = 1;
-            server.lazy_expire_disabled++;
+            server.allow_access_expired++;
             sub->notify_callback(&ctx, type, event, key);
-            server.lazy_expire_disabled--;
+            server.allow_access_expired--;
             sub->active = prev_active;
             moduleFreeContext(&ctx);
         }
@@ -11890,7 +11890,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
 /* When a key is deleted (in dbAsyncDelete/dbSyncDelete/setKey), it
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
-    server.lazy_expire_disabled++;
+    server.allow_access_expired++;
     int subevent = REDISMODULE_SUBEVENT_KEY_DELETED;
     if (flags & DB_FLAG_KEY_EXPIRED) {
         subevent = REDISMODULE_SUBEVENT_KEY_EXPIRED;
@@ -11913,7 +11913,7 @@ void moduleNotifyKeyUnlink(robj *key, robj *val, int dbid, int flags) {
             mt->unlink(key,mv->value);
         }
     }
-    server.lazy_expire_disabled--;
+    server.allow_access_expired--;
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 

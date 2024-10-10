@@ -747,7 +747,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
     }
 
     if ((server.loading) ||
-        (server.lazy_expire_disabled) ||
+        (server.allow_access_expired) ||
         (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL) ||
         (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return GETF_EXPIRED;
@@ -1929,7 +1929,7 @@ static int hashTypeExpireIfNeeded(redisDb *db, robj *o) {
 
     /* Follow expireIfNeeded() conditions of when not lazy-expire */
     if ( (server.loading) ||
-         (server.lazy_expire_disabled) ||
+         (server.allow_access_expired) ||
          (server.masterhost) ||  /* master-client or user-client, don't delete */
          (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return 0;
