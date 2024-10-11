@@ -242,6 +242,7 @@ foreach type {single multiple single_multiple} {
         assert_error "ERR syntax error*" {r sintercard 1 myset{t} myset2{t}}
         assert_error "ERR syntax error*" {r sintercard 1 myset{t} bar_arg}
         assert_error "ERR syntax error*" {r sintercard 1 myset{t} LIMIT}
+        assert_error "ERR syntax error*" {r sintercard 1 myset{t} LIMIT 0 LIMIT 1}
 
         assert_error "ERR LIMIT*" {r sintercard 1 myset{t} LIMIT -1}
         assert_error "ERR LIMIT*" {r sintercard 1 myset{t} LIMIT a}
