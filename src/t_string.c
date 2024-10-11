@@ -491,7 +491,7 @@ void getrangeCommand(client *c) {
         return;
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
         return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL ||
         checkType(c,o,OBJ_STRING)) return;
 
     if (o->encoding == OBJ_ENCODING_INT) {
