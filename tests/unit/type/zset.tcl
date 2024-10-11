@@ -376,6 +376,28 @@ start_server {tags {"zset"}} {
             r zrem ztmp a b c d e f g
         } {3}
 
+        test "ZRANGE* with wrong offset or limit should throw error" {
+            r del src{t} dst{t}
+
+            foreach offset {-1 -100 str NaN} {
+                assert_error "ERR*offset*" {r ZRANGE src{t} 0 -1 byscore limit $offset 1}
+                assert_error "ERR*offset*" {r ZRANGESTORE dst{t} src{t} 0 -1 byscore limit $offset 4}
+                assert_error "ERR*offset*" {r ZRANGEBYLEX src{t} (az (b limit $offset 5}
+                assert_error "ERR*offset*" {r ZRANGEBYSCORE src{t} 0 -1 limit $offset 2}
+                assert_error "ERR*offset*" {r ZREVRANGEBYLEX src{t} (az (b limit $offset 6}
+                assert_error "ERR*offset*" {r ZREVRANGEBYSCORE src{t} -1 0 limit $offset 3}
+            }
+
+            foreach limit {str NaN} {
+                assert_error "ERR value*" {r ZRANGE src{t} 0 -1 byscore limit 0 $limit}
+                assert_error "ERR value*" {r ZRANGESTORE dst{t} src{t} 0 -1 byscore limit 0 $limit}
+                assert_error "ERR value*" {r ZRANGEBYLEX src{t} (az (b limit 0 $limit}
+                assert_error "ERR value*" {r ZRANGEBYSCORE src{t} 0 -1 limit 0 $limit}
+                assert_error "ERR value*" {r ZREVRANGEBYLEX src{t} (az (b limit 0 $limit}
+                assert_error "ERR value*" {r ZREVRANGEBYSCORE src{t} -1 0 limit 0 $limit}
+            }
+        }
+
         test "ZRANGE basics - $encoding" {
             r del ztmp
             r zadd ztmp 1 a
