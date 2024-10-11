@@ -188,13 +188,6 @@ void restoreCommand(client *c) {
         }
     }
 
-    /* Make sure this key does not already exist here... */
-    robj *key = c->argv[1];
-    if (!replace && lookupKeyWrite(c->db,key) != NULL) {
-        addReplyErrorObject(c,shared.busykeyerr);
-        return;
-    }
-
     /* Check if the TTL value makes sense */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&ttl,NULL) != C_OK) {
         return;
@@ -207,6 +200,13 @@ void restoreCommand(client *c) {
     if (verifyDumpPayload(c->argv[3]->ptr,sdslen(c->argv[3]->ptr),NULL) == C_ERR)
     {
         addReplyError(c,"DUMP payload version or checksum are wrong");
+        return;
+    }
+
+    /* Make sure this key does not already exist here... */
+    robj *key = c->argv[1];
+    if (!replace && lookupKeyWrite(c->db,key) != NULL) {
+        addReplyErrorObject(c,shared.busykeyerr);
         return;
     }
 
