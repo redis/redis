@@ -1454,6 +1454,8 @@ start_server {
             assert_equal [dict get $group entries-read] 3
             assert_equal [dict get $group lag] 0
 
+            wait_for_ofs_sync $master $replica
+
             set reply [$replica XINFO STREAM mystream FULL]
             set group [lindex [dict get $reply groups] 0]
             assert_equal [dict get $group entries-read] 3
