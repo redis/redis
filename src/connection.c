@@ -29,27 +29,35 @@
 
 static ConnectionType *connTypes[CONN_TYPE_MAX];
 
+/* Registers a new connection type */
 int connTypeRegister(ConnectionType *ct) {
     const char *typename = ct->get_type(NULL);
     ConnectionType *tmpct;
     int type;
 
-    /* find an empty slot to store the new connection type */
+    /* Find an empty slot to store the new connection type */
     for (type = 0; type < CONN_TYPE_MAX; type++) {
         tmpct = connTypes[type];
         if (!tmpct)
             break;
 
-        /* ignore case, we really don't care "tls"/"TLS" */
+        /* Ignore case, we don't differentiate "tls"/"TLS" */
         if (!strcasecmp(typename, tmpct->get_type(NULL))) {
-            serverLog(LL_WARNING, "Connection types %s already registered", typename);
+            serverLog(LL_WARNING, "Connection type %s already registered", typename);
             return C_ERR;
         }
     }
 
-    serverLog(LL_VERBOSE, "Connection type %s registered", typename);
+    /* Handle case where no empty slot is found */
+    if (type == CONN_TYPE_MAX) {
+        serverLog(LL_WARNING, "No available slot for connection type %s", typename);
+        return C_ERR;
+    }
+
+    serverLog(LL_INFO, "Connection type %s registered", typename);
     connTypes[type] = ct;
 
+    /* Initialize the connection type if needed */
     if (ct->init) {
         ct->init();
     }
@@ -57,37 +65,42 @@ int connTypeRegister(ConnectionType *ct) {
     return C_OK;
 }
 
+/* Initializes all required connection types */
 int connTypeInitialize(void) {
-    /* currently socket connection type is necessary  */
-    serverAssert(RedisRegisterConnectionTypeSocket() == C_OK);
+    /* Socket connection type is mandatory */
+    if (RedisRegisterConnectionTypeSocket() != C_OK) {
+        serverLog(LL_ERROR, "Failed to register socket connection type");
+        return C_ERR;
+    }
 
-    /* currently unix socket connection type is necessary  */
-    serverAssert(RedisRegisterConnectionTypeUnix() == C_OK);
+    /* Unix socket connection type is mandatory */
+    if (RedisRegisterConnectionTypeUnix() != C_OK) {
+        serverLog(LL_ERROR, "Failed to register Unix connection type");
+        return C_ERR;
+    }
 
-    /* may fail if without BUILD_TLS=yes */
+    /* TLS connection type may fail if TLS support is not enabled */
     RedisRegisterConnectionTypeTLS();
 
     return C_OK;
 }
 
+/* Retrieves a connection type by its string name */
 ConnectionType *connectionByType(const char *typename) {
     ConnectionType *ct;
 
     for (int type = 0; type < CONN_TYPE_MAX; type++) {
         ct = connTypes[type];
-        if (!ct)
-            break;
-
-        if (!strcasecmp(typename, ct->get_type(NULL)))
+        if (ct && !strcasecmp(typename, ct->get_type(NULL))) {
             return ct;
+        }
     }
 
-    serverLog(LL_WARNING, "Missing implement of connection type %s", typename);
-
+    serverLog(LL_WARNING, "Missing implementation of connection type %s", typename);
     return NULL;
 }
 
-/* Cache TCP connection type, query it by string once */
+/* Caches and returns the TCP connection type */
 ConnectionType *connectionTypeTcp(void) {
     static ConnectionType *ct_tcp = NULL;
 
@@ -100,13 +113,11 @@ ConnectionType *connectionTypeTcp(void) {
     return ct_tcp;
 }
 
-/* Cache TLS connection type, query it by string once */
+/* Caches and returns the TLS connection type, which can be missing */
 ConnectionType *connectionTypeTls(void) {
     static ConnectionType *ct_tls = NULL;
     static int cached = 0;
 
-    /* Unlike the TCP and Unix connections, the TLS one can be missing
-     * So we need the cached pointer to handle NULL correctly too. */
     if (!cached) {
         cached = 1;
         ct_tls = connectionByType(CONN_TYPE_TLS);
@@ -115,7 +126,7 @@ ConnectionType *connectionTypeTls(void) {
     return ct_tls;
 }
 
-/* Cache Unix connection type, query it by string once */
+/* Caches and returns the Unix connection type */
 ConnectionType *connectionTypeUnix(void) {
     static ConnectionType *ct_unix = NULL;
 
@@ -126,26 +137,25 @@ ConnectionType *connectionTypeUnix(void) {
     return ct_unix;
 }
 
+/* Returns the index of a connection type by its string name */
 int connectionIndexByType(const char *typename) {
     ConnectionType *ct;
 
     for (int type = 0; type < CONN_TYPE_MAX; type++) {
         ct = connTypes[type];
-        if (!ct)
-            break;
-
-        if (!strcasecmp(typename, ct->get_type(NULL)))
+        if (ct && !strcasecmp(typename, ct->get_type(NULL))) {
             return type;
+        }
     }
 
     return -1;
 }
 
+/* Cleans up all registered connection types */
 void connTypeCleanupAll(void) {
     ConnectionType *ct;
-    int type;
 
-    for (type = 0; type < CONN_TYPE_MAX; type++) {
+    for (int type = 0; type < CONN_TYPE_MAX; type++) {
         ct = connTypes[type];
         if (!ct)
             break;
@@ -155,13 +165,12 @@ void connTypeCleanupAll(void) {
     }
 }
 
-/* walk all the connection types until has pending data */
+/* Checks if any connection type has pending data */
 int connTypeHasPendingData(void) {
     ConnectionType *ct;
-    int type;
     int ret = 0;
 
-    for (type = 0; type < CONN_TYPE_MAX; type++) {
+    for (int type = 0; type < CONN_TYPE_MAX; type++) {
         ct = connTypes[type];
         if (ct && ct->has_pending_data && (ret = ct->has_pending_data())) {
             return ret;
@@ -171,13 +180,12 @@ int connTypeHasPendingData(void) {
     return ret;
 }
 
-/* walk all the connection types and process pending data for each connection type */
+/* Processes pending data for each connection type */
 int connTypeProcessPendingData(void) {
     ConnectionType *ct;
-    int type;
     int ret = 0;
 
-    for (type = 0; type < CONN_TYPE_MAX; type++) {
+    for (int type = 0; type < CONN_TYPE_MAX; type++) {
         ct = connTypes[type];
         if (ct && ct->process_pending_data) {
             ret += ct->process_pending_data();
@@ -187,6 +195,7 @@ int connTypeProcessPendingData(void) {
     return ret;
 }
 
+/* Generates a string with information about all listeners */
 sds getListensInfoString(sds info) {
     for (int j = 0; j < CONN_TYPE_MAX; j++) {
         connListener *listener = &server.listeners[j];
