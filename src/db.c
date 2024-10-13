@@ -75,14 +75,14 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, uint64_t oldLen,ui
 
     if (oldLen != 0) {
         int oLdBin = log2ceil(oldLen);
-        debugServerAssertWithInfo(oLdBin < MAX_KEYSIZES_BINS);
+        debugServerAssertWithInfo(server.current_client, NULL, oLdBin < MAX_KEYSIZES_BINS);
         --dictHist[oLdBin];
         --kvstoreHist[oLdBin];
     }
     
     if (newLen != 0) {
         int newBin = log2ceil(newLen);
-        debugServerAssertWithInfo(newBin < MAX_KEYSIZES_BINS);
+        debugServerAssertWithInfo(server.current_client, NULL, newBin < MAX_KEYSIZES_BINS);
         ++dictHist[newBin];
         ++kvstoreHist[newBin];
     }
