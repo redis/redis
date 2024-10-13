@@ -88,6 +88,10 @@ static inline int log2ceil(size_t x) {
 #endif    
 }
 
+#ifndef static_assert
+#define static_assert(expr, lit) extern char __static_assert_failure[(expr) ? 1:-1]
+#endif
+
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int flags);
 #endif

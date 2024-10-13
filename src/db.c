@@ -21,6 +21,8 @@
  * C-level DB API
  *----------------------------------------------------------------------------*/
 
+static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX, "Must be equal");
+
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
@@ -73,12 +75,14 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, uint64_t oldLen,ui
 
     if (oldLen != 0) {
         int oLdBin = log2ceil(oldLen);
+        debugServerAssertWithInfo(oLdBin < MAX_KEYSIZES_BINS);
         --dictHist[oLdBin];
         --kvstoreHist[oLdBin];
     }
     
     if (newLen != 0) {
         int newBin = log2ceil(newLen);
+        debugServerAssertWithInfo(newBin < MAX_KEYSIZES_BINS);
         ++dictHist[newBin];
         ++kvstoreHist[newBin];
     }

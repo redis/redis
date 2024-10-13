@@ -508,18 +508,25 @@ start_server {tags {"other external:skip"}} {
     test "Redis can resize empty dict" {
         # Write and then delete 128 keys, creating an empty dict
         r flushall
+        
+        # Add one key to the db just to create the dict and get its initial size
+        r set x 1        
+        set initial_size [dict get [r memory stats] db.9 overhead.hashtable.main] 
+        
+        # Now add 128 keys and then delete them
         for {set j 1} {$j <= 128} {incr j} {
             r set $j{b} a
         }
+        
         for {set j 1} {$j <= 128} {incr j} {
             r del $j{b}
         }
-        # The dict containing 128 keys must have expanded,
-        # its hash table itself takes a lot more than 400 bytes
+        
+        # dict must have expanded. Verify it eventually shrinks back to its initial size.        
         wait_for_condition 100 50 {
-            [dict get [r memory stats] db.9 overhead.hashtable.main] < 400
+            [dict get [r memory stats] db.9 overhead.hashtable.main] == $initial_size
         } else {
-            fail "dict did not resize in time"
-        }   
+            fail "dict did not resize in time to its initial size"
+        }
     }
 }

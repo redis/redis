@@ -6185,7 +6185,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 /* Print histogram to temp buf[]. First bin is garbage */
                 buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, typestr[type]);
 
-                for (int i = 0; i < 48; i++) {
+                for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
                     if (kvstoreHist[i] == 0) 
                         continue;
                     

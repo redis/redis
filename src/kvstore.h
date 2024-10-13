@@ -4,14 +4,18 @@
 #include "dict.h"
 #include "adlist.h"
 
+/* maximum number of bins of keysizes histogram */
+#define MAX_KEYSIZES_BINS 48
+#define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
+
 /* Per dict metadata. Memset zero on init. Managed outside kvstore */
 typedef struct {
-    uint64_t keysizes_hist[5/*OBJ_TYPE_BASIC_MAX*/][64]; /* static_assert at db.c */
+    uint64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS]; 
 } kvstoreDictMetadata;
 
 /* kvstore metadata. Memset zero on init. Managed outside kvstore */
 typedef struct {
-    uint64_t keysizes_hist[5/*OBJ_TYPE_BASIC_MAX*/][64]; /* static_assert at db.c */
+    uint64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 } kvstoreMetadata;
 
 typedef struct _kvstore kvstore;

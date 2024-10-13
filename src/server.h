@@ -41,10 +41,6 @@
 #include <systemd/sd-daemon.h>
 #endif
 
-#ifndef static_assert
-#define static_assert(expr, lit) extern char __static_assert_failure[(expr) ? 1:-1]
-#endif
-
 typedef long long mstime_t; /* millisecond time type. */
 typedef long long ustime_t; /* microsecond time type. */
 
