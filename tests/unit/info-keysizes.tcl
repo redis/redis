@@ -127,7 +127,7 @@ start_server {} {
         run_cmd_verify_hist {r RPUSH l9 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {r SET l9 1234567} {db0_STR:4=1}
         run_cmd_verify_hist {r DEL l9} {}                            
-    }
+    } {} {cluster:skip}
 
     test {KEYSIZES - Test SET} {
         run_cmd_verify_hist {r FLUSHALL} {}
@@ -140,6 +140,9 @@ start_server {} {
         run_cmd_verify_hist {r SREM s2 3} {db0_SET:2=1,8=1}
         run_cmd_verify_hist {r SMOVE s2 s3 2} {db0_SET:1=2,8=1}
         run_cmd_verify_hist {r SPOP s3} {db0_SET:1=1,8=1}
+        run_cmd_verify_hist {r SPOP s3} {db0_SET:8=1}
+        run_cmd_verify_hist {r SPOP s3} {}
+        
         # SDIFFSTORE
         run_cmd_verify_hist {r flushall} {}
         run_cmd_verify_hist {r SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
@@ -171,7 +174,7 @@ start_server {} {
         run_cmd_verify_hist {r SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
         run_cmd_verify_hist {r SET s1 1234567} {db0_STR:4=1}
         run_cmd_verify_hist {r DEL s1} {}        
-    }    
+    } {} {cluster:skip}
      
     test {KEYSIZES - Test ZSET} {
         # ZADD, ZREM
@@ -234,7 +237,7 @@ start_server {} {
         run_cmd_verify_hist {r ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
         run_cmd_verify_hist {r SET z1 1234567} {db0_STR:4=1}
         run_cmd_verify_hist {r DEL z1} {}
-    }    
+    } {} {cluster:skip}    
     
     test {KEYSIZES - Test STRING} {        
         # SETRANGE
@@ -260,7 +263,7 @@ start_server {} {
         run_cmd_verify_hist {r SET s1 842} {db0_STR:2=1}
         run_cmd_verify_hist {r SET s1 2} {db0_STR:1=1}
         run_cmd_verify_hist {r SET s1 1234567} {db0_STR:4=1}        
-    }
+    } {} {cluster:skip}
     
     foreach type {listpackex hashtable} {
         # Test different implementations of hash tables and listpacks
@@ -329,7 +332,7 @@ start_server {} {
         run_cmd_verify_hist {r bitfield b3 set u8 6 255} {db0_STR:2=1}
         run_cmd_verify_hist {r bitfield b3 set u8 65 255} {db0_STR:8=1}
         run_cmd_verify_hist {r bitfield b4 set u8 1000 255} {db0_STR:8=1,64=1}
-    }    
+    } {} {cluster:skip}
        
     test {KEYSIZES - Test RESTORE} {
         run_cmd_verify_hist {r FLUSHALL} {}
@@ -343,14 +346,14 @@ start_server {} {
         run_cmd_verify_hist {r FLUSHALL} {}
         run_cmd_verify_hist {r RPUSH l12 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {r RENAME l12 l13} {db0_LIST:4=1}
-    }    
+    } {} {cluster:skip}
     
     test {KEYSIZES - Test MOVE} {
         run_cmd_verify_hist {r FLUSHALL} {}
         run_cmd_verify_hist {r RPUSH l1 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {r RPUSH l2 1} {db0_LIST:1=1,4=1}
         run_cmd_verify_hist {r MOVE l1 1} {db0_LIST:1=1 db1_LIST:4=1}
-    }    
+    } {} {cluster:skip}
     
     test {KEYSIZES - Test SWAPDB} {
         run_cmd_verify_hist {r FLUSHALL} {}        
@@ -369,7 +372,7 @@ start_server {} {
         run_cmd_verify_hist {r ZADD z1 1 a 2 b 3 c} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
         run_cmd_verify_hist {r SAVE} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}        
         run_cmd_verify_hist {restart_server 0 true false} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
-    }    
+    } {} {external:skip}
 
     # Start another server to test replication of KEYSIZES
     start_server {tags {needs:repl external:skip}} {

@@ -64,13 +64,17 @@ void updateLFU(robj *val) {
  *               [1,2)->0 [2,4)->1 [4,8)->2 [8,16)->3
  */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, uint64_t oldLen,uint64_t newLen) {
+    uint64_t dummyHist[MAX_KEYSIZES_BINS];
+
     if  (unlikely(type >= OBJ_TYPE_BASIC_MAX)) 
         return;
 
     kvstoreDictMetadata *metadata = kvstoreGetDictMetadata(db->keys, didx);
-    serverAssert(metadata != NULL);
-    
-    uint64_t *dictHist = metadata->keysizes_hist[type];
+
+    /* If following key deletion, If it is last one in slot's dict, then 
+     * slot's dict might get released as well. Verify if metadata is available. */
+    uint64_t *dictHist = (metadata != NULL) ? metadata->keysizes_hist[type] : dummyHist;
+
     uint64_t *kvstoreHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
 
     if (oldLen != 0) {
