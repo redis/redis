@@ -517,6 +517,11 @@ class Subcommand(Command):
 
 
 def create_command(name, desc):
+    flags = desc.get("command_flags")
+    if flags and "EXPERIMENTAL" in flags:
+        print("Command %s is experimental, skipping..." % name)
+        return
+
     if desc.get("container"):
         cmd = Subcommand(name.upper(), desc)
         subcommands.setdefault(desc["container"].upper(), {})[name] = cmd
