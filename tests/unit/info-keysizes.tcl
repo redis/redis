@@ -133,15 +133,16 @@ start_server {} {
         run_cmd_verify_hist {r FLUSHALL} {}
         # SADD
         run_cmd_verify_hist {r SADD s1 1 2 3 4 5} {db0_SET:4=1}
-        run_cmd_verify_hist {r SADD s1 6 7 8 9} {db0_SET:8=1}                        
+        run_cmd_verify_hist {r SADD s1 6 7 8} {db0_SET:8=1}                        
         # Test also SADD, SREM, SMOVE, SPOP
         run_cmd_verify_hist {r SADD s2 1} {db0_SET:1=1,8=1}
         run_cmd_verify_hist {r SADD s2 2} {db0_SET:2=1,8=1}
         run_cmd_verify_hist {r SREM s2 3} {db0_SET:2=1,8=1}
         run_cmd_verify_hist {r SMOVE s2 s3 2} {db0_SET:1=2,8=1}
         run_cmd_verify_hist {r SPOP s3} {db0_SET:1=1,8=1}
-        run_cmd_verify_hist {r SPOP s3} {db0_SET:8=1}
-        run_cmd_verify_hist {r SPOP s3} {}
+        run_cmd_verify_hist {r SPOP s2} {db0_SET:8=1}
+        run_cmd_verify_hist {r SPOP s1} {db0_SET:4=1}
+        run_cmd_verify_hist {r del s1} {}
         
         # SDIFFSTORE
         run_cmd_verify_hist {r flushall} {}
