@@ -1,5 +1,5 @@
 SRC_DIR = src
-MODULE_VERSION = v9.99.99
+MODULE_VERSION = v7.99.1
 MODULE_REPO = https://github.com/redisjson/redisjson
 TARGET_MODULE = $(SRC_DIR)/bin/$(FULL_VARIANT)/rejson.so
 
