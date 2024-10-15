@@ -241,6 +241,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if { [lsearch $tags "experimental"] >=0 && [lsearch $::allowtags "experimental"] == -1 } {
+        set err "experimental test not allowed"
+        return 0
+    }
+
     return 1
 }
 
