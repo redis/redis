@@ -108,7 +108,7 @@ test "DELSLOTSRANGE command with several boundary conditions test suite" {
 }
 } cluster_allocate_with_continuous_slots_local
 
-start_cluster 2 0 {tags {external:skip cluster}} {
+start_cluster 2 0 {tags {external:skip cluster experimental}} {
 
 set master1 [srv 0 "client"]
 set master2 [srv -1 "client"]
@@ -156,7 +156,7 @@ test "SFLUSH - Errors and output validation" {
 
     # restore master1 continuous slots
     $master1 cluster ADDSLOTSRANGE 1000 2000
-} {OK} {experimental}
+}
 
 test "SFLUSH - Deletes the keys with argument <NONE>/SYNC/ASYNC" {
     foreach op {"" "SYNC" "ASYNC"} {
@@ -177,6 +177,6 @@ test "SFLUSH - Deletes the keys with argument <NONE>/SYNC/ASYNC" {
         assert_match "{8192 16383}" [ $master2 SFLUSH 8192 16383]
         assert {[$master2 DBSIZE] == 0}
     }
-} {} {experimental}
+}
 
 }
