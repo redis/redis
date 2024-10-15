@@ -66,7 +66,7 @@ typedef struct {
     listNode *rehashing_node;   /* list node in rehashing list */
     
     /* External metadata */
-    kvstoreDictMetadata meta;   
+    kvstoreDictMetadata meta;
 } kvstoreDictMetadataEx;
 
 /**********************************/
@@ -270,7 +270,7 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
     kvs->overhead_hashtable_rehashing = 0;
     
     /* metadata memset zero on init, but Managed outside kvstore */
-    memset (&kvs->metadata, 0, sizeof(kvs->metadata));
+    memset(&kvs->metadata, 0, sizeof(kvs->metadata));
     
     return kvs;
 }
@@ -868,7 +868,7 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
 kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx) {
     dict *d = kvstoreGetDict(kvs, didx);
     if (!d) return NULL;
-    kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(d);    
+    kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(d);
     return &(metadata->meta);
 }
 

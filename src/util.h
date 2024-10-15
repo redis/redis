@@ -81,7 +81,7 @@ size_t redis_strlcat(char *dst, const char *src, size_t dsize);
 
 /* to keep it opt without conditions Works only for: 0 < x < 2^63 */
 static inline int log2ceil(size_t x) {
-#if UINTPTR_MAX == 0xffffffffffffffff    
+#if UINTPTR_MAX == 0xffffffffffffffff
     return  63 - __builtin_clzll(x);
 #else
     return 31 - __builtin_clz(x);

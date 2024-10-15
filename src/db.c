@@ -63,7 +63,7 @@ void updateLFU(robj *val) {
  * Examples to LEN values and corresponding bins in histogram: 
  *               [1,2)->0 [2,4)->1 [4,8)->2 [8,16)->3
  */
-void updateKeysizesHist(redisDb *db, int didx, uint32_t type, uint64_t oldLen,uint64_t newLen) {
+void updateKeysizesHist(redisDb *db, int didx, uint32_t type, uint64_t oldLen, uint64_t newLen) {
     uint64_t dummyHist[MAX_KEYSIZES_BINS];
 
     if  (unlikely(type >= OBJ_TYPE_BASIC_MAX)) 
