@@ -6205,8 +6205,15 @@ void monitorCommand(client *c) {
         return;
     }
 
-    /* ignore MONITOR if already slave or in monitor mode */
-    if (c->flags & CLIENT_SLAVE) return;
+    /* ignore MONITOR if already slave */
+    if (c->flags & CLIENT_SLAVE) {
+        if (c->flags & CLIENT_MONITOR) {
+            addReplyError(c, "already monitoring");
+            return;
+        } else {
+            return;
+        }
+    }
 
     c->flags |= (CLIENT_SLAVE|CLIENT_MONITOR);
     listAddNodeTail(server.monitors,c);
