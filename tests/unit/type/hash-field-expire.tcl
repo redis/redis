@@ -887,6 +887,23 @@ start_server {tags {"external:skip needs:debug"}} {
         }
     }
 
+    test "Lazy expiry of last HFE will update subexpiry statistics ($type)" {
+        r debug set-active-expire 0
+        r flushall
+        r hset myhash f1 v1 f2 v2 f3 v3
+        r hpexpire myhash 5 FIELDS 2 f1 f2
+        after 10
+        # Expected to count single hash with subexpiry
+        assert_match  [ get_stat_subexpiry r] 1
+        # Lazy expiry of f1
+        assert_equal "" [r hget myhash f1]
+        assert_match  [ get_stat_subexpiry r] 1
+        # Lazy expiry of f2
+        assert_equal "" [r hget myhash f2]
+        assert_match  [   get_stat_subexpiry r] 0
+        r debug set-active-expire 1
+    }
+
     r config set hash-max-listpack-entries 512
 }
 

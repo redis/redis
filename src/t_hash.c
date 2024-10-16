@@ -53,6 +53,7 @@ static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static uint64_t hashTypeExpire(robj *o, ExpireCtx *expireCtx, int updateGlobalHFE);
 static void hfieldPersist(robj *hashObj, hfield field);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
+static int hashTypeIsFieldsWithExpire(robj *o);
 
 /* hash dictType funcs */
 static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
@@ -772,7 +773,15 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
         res = GETF_EXPIRED_HASH;
-    }
+    } else {
+        /* Check if it is the removed HFE is the last one in the hash, then we must
+         * remove the hash from global HFE for the sake of subexpiry statistics. In
+         * case there are more HFEs, then no need to update. Active expiration
+         * will update the minimum expiration time of the hash in the global HFE
+         * DS gracefully (Optimization). */
+        if (!hashTypeIsFieldsWithExpire(o))
+            ebRemove(&db->hexpires, &hashExpireBucketsType, o);
+   }
     signalModifiedKey(NULL, db, keyObj);
     decrRefCount(keyObj);
     return res;
@@ -2011,7 +2020,7 @@ uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o) {
     return expireTime;
 }
 
-int hashTypeIsFieldsWithExpire(robj *o) {
+static int hashTypeIsFieldsWithExpire(robj *o) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         return 0;
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
