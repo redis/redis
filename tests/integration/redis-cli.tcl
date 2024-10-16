@@ -538,6 +538,10 @@ start_server {tags {"cli"}} {
         assert_equal \{\"K\\\\x00\\\\x01ey\":\"V\\\\x00\\\\x01alue\"\} [run_cli --quoted-json hgetall npkey]
     }
 
+    test_tty_cli "Disable raw output while queueing commands in MULTI" {
+        assert_equal "OK\nQUEUED\nQUEUED" [run_cli_with_input_pipe x "echo 'multi\ninfo\ninfo'"]
+    }
+
     test_nontty_cli "Status reply" {
         assert_equal "OK" [run_cli set key bar]
         assert_equal "bar" [r get key]

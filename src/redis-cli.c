@@ -2407,7 +2407,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
     if (context == NULL) return REDIS_ERR;
 
     output_raw = 0;
-    if (!strcasecmp(command,"info") ||
+    if (!config.in_multi && (!strcasecmp(command,"info") ||
         !strcasecmp(command,"lolwut") ||
         (argc >= 2 && !strcasecmp(command,"debug") &&
                        !strcasecmp(argv[1],"htstats")) ||
@@ -2431,7 +2431,7 @@ static int cliSendCommand(int argc, char **argv, long repeat) {
         /* Format PROXY INFO command for Redis Cluster Proxy:
          * https://github.com/artix75/redis-cluster-proxy */
         (argc >= 2 && !strcasecmp(command,"proxy") &&
-                       !strcasecmp(argv[1],"info")))
+                       !strcasecmp(argv[1],"info"))))
     {
         output_raw = 1;
     }
