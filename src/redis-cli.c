@@ -7023,17 +7023,15 @@ static int clusterManagerCommandCreate(int argc, char **argv) {
     int replicas = config.cluster_manager_command.replicas;
     int masters_count = CLUSTER_MANAGER_MASTERS_COUNT(node_len, replicas);
     if (masters_count < 3) {
-        clusterManagerLogErr(
-            "*** ERROR: Invalid configuration for cluster creation.\n"
-            "*** Redis Cluster requires at least 3 master nodes.\n"
-            "*** This is not possible with %d nodes and %d replicas per node.",
-            node_len, replicas);
-        clusterManagerLogErr("\n*** At least %d nodes are required.\n",
-                             3 * (replicas + 1));
-        return 0;
+        int ignore_force = 0;
+        clusterManagerLogInfo("Requested to create a cluster with %d masters and "
+                              "%d replicas per master.\n", masters_count, replicas);
+        if (!confirmWithYes("Redis Cluster requires at least 3 master nodes for "
+                            "automatic failover. Are you sure?", ignore_force))
+            return 0;
     }
     clusterManagerLogInfo(">>> Performing hash slots allocation "
-                          "on %d nodes...\n", node_len);
+                          "on %d node(s)...\n", node_len);
     int interleaved_len = 0, ip_count = 0;
     clusterManagerNode **interleaved = zcalloc(node_len*sizeof(**interleaved));
     char **ips = zcalloc(node_len * sizeof(char*));
