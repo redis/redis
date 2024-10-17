@@ -13,6 +13,10 @@
 #include <stdint.h>
 #include <math.h>
 
+#if defined (__x86_64__)
+#include <immintrin.h>
+#endif
+
 /* The Redis HyperLogLog implementation is based on the following ideas:
  *
  * * The use of a 64 bit hash function as proposed in [1], in order to estimate
@@ -183,6 +187,14 @@ struct hllhdr {
 #define HLL_SPARSE 1 /* Sparse encoding. */
 #define HLL_RAW 255 /* Only used internally, never exposed. */
 #define HLL_MAX_ENCODING 1
+
+/* Detect whether we can enable AVX2 optimizations. 
+ * The conditions are picked loosely and can be adjusted as needed. */
+#if (defined(__GNUC__) && __GNUC__ >= 7) || (defined(__clang__) && __clang_major__ >= 7)
+#if defined(__x86_64__)
+#define HLL_ENABLE_AVX2
+#endif
+#endif
 
 static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 
@@ -1041,6 +1053,120 @@ int hllAdd(robj *o, unsigned char *ele, size_t elesize) {
     }
 }
 
+#if defined(HLL_ENABLE_AVX2)
+/* Optimized for the default configuration: 16384 registers of 6 bits each. */
+__attribute__((__target__("avx2")))
+void hllMergeDense_AVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
+    const __m256i shuffle = _mm256_setr_epi8( //
+        4, 5, 6, -1,                             //
+        7, 8, 9, -1,                             //
+        10, 11, 12, -1,                          //
+        13, 14, 15, -1,                          //
+        0, 1, 2, -1,                             //
+        3, 4, 5, -1,                             //
+        6, 7, 8, -1,                             //
+        9, 10, 11, -1                            //
+    );
+
+    /* Merge the first 32 registers normally 
+     * as the AVX2 algorithm needs 4 padding bytes at the start */
+    uint8_t val;
+    for (int i = 0; i < 32; i++) {
+        HLL_DENSE_GET_REGISTER(val, reg_dense, i);
+        if (val > reg_raw[i]) {
+            reg_raw[i] = val;
+        }
+    }
+
+    /* Dense to Raw:
+     *
+     * 4 registers in 3 bytes:
+     * {bbaaaaaa|ccccbbbb|ddddddcc}
+     * 
+     * LOAD 32 bytes (32 registers) per iteration:
+     * 4(padding) + 12(16 registers) + 12(16 registers) + 4(padding)
+     * {XXXX|AAAB|BBCC|CDDD|EEEF|FFGG|GHHH|XXXX}
+     * 
+     * SHUFFLE to:
+     * {AAA0|BBB0|CCC0|DDD0|EEE0|FFF0|GGG0|HHH0}
+     * {bbaaaaaa|ccccbbbb|ddddddcc|00000000} x8
+     *
+     * extract registers in each group with AND and SHIFT:
+     * {00aaaaaa|00000000|00000000|00000000} x8
+     * {00000000|00bbbbbb|00000000|00000000} x8
+     * {00000000|00000000|00cccccc|00000000} x8
+     * {00000000|00000000|00000000|00dddddd} x8
+     *
+     * merge the extracted registers with OR:
+     * {00aaaaaa|00bbbbbb|00cccccc|00dddddd} x8
+     *
+     * Finally, compute MAX(reg_raw, merged) and STORE it back to reg_raw
+     */
+
+    const uint8_t *r = reg_dense + 24 - 4;
+    uint8_t *t = reg_raw + 32;
+
+    for (int i = 0; i < HLL_REGISTERS / 32 - 2; ++i) {
+        __m256i x0, x;
+        x0 = _mm256_loadu_si256((__m256i *)r);
+        x = _mm256_shuffle_epi8(x0, shuffle);
+
+        __m256i a1, a2, a3, a4;
+        a1 = _mm256_and_si256(x, _mm256_set1_epi32(0x0000003f));
+        a2 = _mm256_and_si256(x, _mm256_set1_epi32(0x00000fc0));
+        a3 = _mm256_and_si256(x, _mm256_set1_epi32(0x0003f000));
+        a4 = _mm256_and_si256(x, _mm256_set1_epi32(0x00fc0000));
+
+        a2 = _mm256_slli_epi32(a2, 2);
+        a3 = _mm256_slli_epi32(a3, 4);
+        a4 = _mm256_slli_epi32(a4, 6);
+
+        __m256i y1, y2, y;
+        y1 = _mm256_or_si256(a1, a2);
+        y2 = _mm256_or_si256(a3, a4);
+        y = _mm256_or_si256(y1, y2);
+
+        __m256i z = _mm256_loadu_si256((__m256i *)t);
+
+        z = _mm256_max_epu8(z, y);
+
+        _mm256_storeu_si256((__m256i *)t, z);
+
+        r += 24;
+        t += 32;
+    }
+
+    /* Merge the last 32 registers normally 
+     * as the AVX2 algorithm needs 4 padding bytes at the end */
+    for (int i = HLL_REGISTERS - 32; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_GET_REGISTER(val, reg_dense, i);
+        if (val > reg_raw[i]) {
+            reg_raw[i] = val;
+        }
+    }
+}
+#endif
+
+/* Merge dense-encoded registers to raw registers array. */
+void hllMergeDense(uint8_t* reg_raw, const uint8_t* reg_dense) {
+#if defined (HLL_ENABLE_AVX2)
+    if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
+        if (__builtin_cpu_supports("avx2")) {
+            hllMergeDense_AVX2(reg_raw, reg_dense);
+            return;
+        }
+    }
+#endif
+
+    uint8_t val;
+    for (int i = 0; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_GET_REGISTER(val, reg_dense, i);
+        if (val > reg_raw[i]) {
+            reg_raw[i] = val;
+        }
+    }
+}
+
 /* Merge by computing MAX(registers[i],hll[i]) the HyperLogLog 'hll'
  * with an array of uint8_t HLL_REGISTERS registers pointed by 'max'.
  *
@@ -1054,12 +1180,7 @@ int hllMerge(uint8_t *max, robj *hll) {
     int i;
 
     if (hdr->encoding == HLL_DENSE) {
-        uint8_t val;
-
-        for (i = 0; i < HLL_REGISTERS; i++) {
-            HLL_DENSE_GET_REGISTER(val,hdr->registers,i);
-            if (val > max[i]) max[i] = val;
-        }
+        hllMergeDense(max, hdr->registers);
     } else {
         uint8_t *p = hll->ptr, *end = p + sdslen(hll->ptr);
         long runlen, regval;
@@ -1089,6 +1210,106 @@ int hllMerge(uint8_t *max, robj *hll) {
         if (i != HLL_REGISTERS) return C_ERR;
     }
     return C_OK;
+}
+
+#if defined(HLL_ENABLE_AVX2)
+/* Optimized for the default configuration: 16384 registers of 6 bits each. */
+__attribute__((__target__("avx2")))
+void hllDenseCompress_AVX2(uint8_t *reg_dense, const uint8_t *reg_raw) {
+    const __m256i shuffle = _mm256_setr_epi8( //
+        0, 1, 2,                              //
+        4, 5, 6,                              //
+        8, 9, 10,                             //
+        12, 13, 14,                           //
+        -1, -1, -1, -1,               //
+        0, 1, 2,                              //
+        4, 5, 6,                              //
+        8, 9, 10,                             //
+        12, 13, 14,                           //
+        -1, -1, -1, -1                //
+    );
+
+    /* Raw to Dense:
+     * 
+     * LOAD 32 bytes (32 registers) per iteration:
+     * {00aaaaaa|00bbbbbb|00cccccc|00dddddd} x8
+     *
+     * move the registers to correct positions with AND and SHIFT:
+     * {00aaaaaa|00000000|00000000|00000000} x8
+     * {bb000000|0000bbbb|00000000|00000000} x8
+     * {00000000|cccc0000|000000cc|00000000} x8
+     * {00000000|00000000|dddddd00|00000000} x8
+     *
+     * merge the registers with OR:
+     * {bbaaaaaa|ccccbbbb|ddddddcc|00000000} x8
+     * {AAA0|BBB0|CCC0|DDD0|EEE0|FFF0|GGG0|HHH0}
+     *
+     * SHUFFLE to:
+     * {AAAB|BBCC|CDDD|0000|EEEF|FFGG|GHHH|0000}
+     *
+     * STORE the lower half and higher half respectively:
+     * AAABBBCCCDDD0000 
+     *             EEEFFFGGGHHH0000
+     * AAABBBCCCDDDEEEFFFGGGHHH0000
+     *
+     * Note that the last 4 bytes are padding bytes.
+     */
+
+    const uint8_t *r = reg_raw;
+    uint8_t *t = reg_dense;
+
+    for (int i = 0; i < HLL_REGISTERS / 32 - 1; ++i) {
+        __m256i x = _mm256_loadu_si256((__m256i *)r);
+
+        __m256i a1, a2, a3, a4;
+        a1 = _mm256_and_si256(x, _mm256_set1_epi32(0x0000003f));
+        a2 = _mm256_and_si256(x, _mm256_set1_epi32(0x00003f00));
+        a3 = _mm256_and_si256(x, _mm256_set1_epi32(0x003f0000));
+        a4 = _mm256_and_si256(x, _mm256_set1_epi32(0x3f000000));
+
+        a2 = _mm256_srli_epi32(a2, 2);
+        a3 = _mm256_srli_epi32(a3, 4);
+        a4 = _mm256_srli_epi32(a4, 6);
+
+        __m256i y1, y2, y;
+        y1 = _mm256_or_si256(a1, a2);
+        y2 = _mm256_or_si256(a3, a4);
+        y = _mm256_or_si256(y1, y2);
+        y = _mm256_shuffle_epi8(y, shuffle);
+
+        __m128i lower, higher;
+        lower = _mm256_castsi256_si128(y);
+        higher = _mm256_extracti128_si256(y, 1);
+
+        _mm_storeu_si128((__m128i *)t, lower);
+        _mm_storeu_si128((__m128i *)(t + 12), higher);
+
+        r += 32;
+        t += 24;
+    }
+
+    /* Merge the last 32 registers normally 
+     * as the AVX2 algorithm needs 4 padding bytes at the end */
+    for (int i = HLL_REGISTERS - 32; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_SET_REGISTER(reg_dense, i, reg_raw[i]);
+    }
+}
+#endif
+
+/* Compress raw registers to dense representation. */
+void hllDenseCompress(uint8_t *reg_dense, const uint8_t *reg_raw) {
+#if defined (HLL_ENABLE_AVX2)
+    if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
+        if (__builtin_cpu_supports("avx2")) {
+            hllDenseCompress_AVX2(reg_dense, reg_raw);
+            return;
+        }
+    }
+#endif
+
+    for (int i = 0; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_SET_REGISTER(reg_dense, i, reg_raw[i]);
+    }
 }
 
 /* ========================== HyperLogLog commands ========================== */
@@ -1350,12 +1571,16 @@ void pfmergeCommand(client *c) {
 
     /* Write the resulting HLL to the destination HLL registers and
      * invalidate the cached value. */
-    for (j = 0; j < HLL_REGISTERS; j++) {
-        if (max[j] == 0) continue;
-        hdr = o->ptr;
-        switch(hdr->encoding) {
-        case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
-        case HLL_SPARSE: hllSparseSet(o,j,max[j]); break;
+    if(use_dense) {
+        hllDenseCompress(hdr->registers, max);
+    } else {
+        for (j = 0; j < HLL_REGISTERS; j++) {
+            if (max[j] == 0) continue;
+            hdr = o->ptr;
+            switch(hdr->encoding) {
+            case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
+            case HLL_SPARSE: hllSparseSet(o,j,max[j]); break;
+            }
         }
     }
     hdr = o->ptr; /* o->ptr may be different now, as a side effect of

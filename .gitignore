@@ -42,3 +42,4 @@ Makefile.dep
 .ccls-cache/*
 compile_commands.json
 redis.code-workspace
+.cache/clangd
