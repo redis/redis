@@ -307,4 +307,15 @@ void setcpuaffinity(const char *cpulist);
 #define HAVE_FADVISE
 #endif
 
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
+    #if defined(__has_attribute) && __has_attribute(target)
+        #define HAVE_POPCNT
+        #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
+    #else
+        #define ATTRIBUTE_TARGET_POPCNT
+    #endif
+#else
+    #define ATTRIBUTE_TARGET_POPCNT
+#endif
+
 #endif

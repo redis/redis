@@ -16,17 +16,6 @@
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
-#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
-    #if defined(__has_attribute) && __has_attribute(target)
-        #define HAVE_POPCNT
-        #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
-    #else
-        #define ATTRIBUTE_TARGET_POPCNT
-    #endif
-#else
-    #define ATTRIBUTE_TARGET_POPCNT
-#endif
-
 ATTRIBUTE_TARGET_POPCNT
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
