@@ -305,7 +305,7 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
         }
 
         if (te->when <= now) {
-            int retval;
+            long long retval;
 
             id = te->id;
             te->refcount++;
