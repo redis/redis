@@ -700,6 +700,9 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     case REDISMODULE_KEYTYPE_STREAM:
         obj = createStreamObject();
         break;
+    case REDISMODULE_KEYTYPE_SET:
+        obj = createSetObject();
+        break;
     default: return REDISMODULE_ERR;
     }
     dbAdd(key->db,key->key,obj);
@@ -13700,6 +13703,111 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
     return ctx->dbid;
 }
 
+/* --------------------------------------------------------------------------
+ * ## Key API for Set type
+ *
+ * See also RM_ValueLength(), which returns the cardinality of a set.
+ * -------------------------------------------------------------------------- */
+
+/* Add new elements into a set.
+ *
+ * Returns REDISMODULE_OK if elements have been added successfully.
+ * On failure, REDISMODULE_ERR is returned and `errno` is set as follows:
+ *
+ * - EBADF if the key was not opened for writing
+ * - ENOTSUP if the key is of another type than set.
+ *
+ * In order to know the number of elements were added, the additional argument
+ * 'added' must be passed, that populates the integer by reference
+ * setting it to the number of elements added depending on the outcome of the operation.
+ * The 'added' argument can be NULL if the caller is not interested
+ * to know if the number of elements were really added.
+ *
+ * Empty keys will be created with set key type and continue. */
+int RM_SetAdd(RedisModuleKey *key, RedisModuleString **elements, size_t numeles, size_t *added) {
+    if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF;
+        return REDISMODULE_ERR;
+    }
+    if (key->value && key->value->type != OBJ_SET) {
+        errno = ENOTSUP;
+        return REDISMODULE_ERR;
+    }
+    if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_SET);
+    size_t i, numadded = 0;
+    for (i = 0; i < numeles; i++) {
+        numadded += setTypeAdd(key->value,elements[i]->ptr);
+    }
+    if (added) *added = numadded;
+
+    return REDISMODULE_OK;
+}
+
+/* Remove the specified element from the set and the key will be
+ * removed if has no any element in after remove elements operation.
+ *
+ * Returns REDISMODULE_OK on success. On failure, REDISMODULE_ERR is returned
+ * and `errno` is set as follows:
+ *
+ * - EINVAL if called with invalid arguments
+ * - ENOTSUP if the key refers to a value of a type other than set
+ * - EBADF if the key was not opened for writing
+ *
+ * Key will be removed if has no any element in after remove elements operation
+ *
+ * The return value does NOT indicate the fact the element was really
+ * removed (since it existed) or not, just if the function was executed
+ * with success.
+ *
+ * In order to know the number of elements were removed, the additional argument
+ * 'deleted' must be passed, that populates the integer by reference
+ * setting it to the number of elements removed depending on the outcome of the operation.
+ * The 'deleted' argument can be NULL if the caller is not interested
+ * to know if the number of elements were really removed.
+ *
+ * Empty keys will be handled correctly by doing nothing. */
+int RM_SetRem(RedisModuleKey *key, RedisModuleString **elements, size_t numeles, size_t *deleted) {
+    size_t numdeleted = 0;
+    if (!key) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    } else if (!key->value) {
+        /*return 0 for empty key*/
+        if (deleted) *deleted = numdeleted;
+        return REDISMODULE_OK;
+    } else if (key->value->type != OBJ_SET) {
+        errno = ENOTSUP; /* wrong type */
+        return REDISMODULE_ERR;
+    } else if (!(key->mode & REDISMODULE_WRITE)) {
+        errno = EBADF; /* key not opened for writing */
+        return REDISMODULE_ERR;
+    }
+    for (size_t i = 0; i < numeles; i++) {
+        numdeleted += setTypeRemove(key->value,elements[i]->ptr);
+        if (moduleDelKeyIfEmpty(key)) break;
+    }
+    if (deleted) *deleted = numdeleted;
+    return REDISMODULE_OK;
+}
+
+/* Query if member is a member of the set stored at key
+ *
+ * Returns 0 if member is not a member of the set stored at key. 
+ * Returns 1 if member is a member of the set stored at key. 
+ * On failure, -1 is returned and `errno` is set as follows:
+ *
+ * - ENOTSUP if the key refers to a value of a type other than set */
+int RM_SetIsMember(RedisModuleKey *key, RedisModuleString *ele) {
+    if (!key || !key->value) {
+        /* return 0 for empty key */
+        return 0;
+    } else if (key->value->type != OBJ_SET) {
+        errno = ENOTSUP; /* wrong type */
+        return -1;
+    }
+    return setTypeIsMember(key->value,ele->ptr);
+}
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -13835,6 +13943,9 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StreamIteratorDelete);
     REGISTER_API(StreamTrimByLength);
     REGISTER_API(StreamTrimByID);
+    REGISTER_API(SetAdd);
+    REGISTER_API(SetRem);
+    REGISTER_API(SetIsMember);
     REGISTER_API(IsKeysPositionRequest);
     REGISTER_API(KeyAtPos);
     REGISTER_API(KeyAtPosWithFlags);
