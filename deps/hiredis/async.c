@@ -478,7 +478,7 @@ static int __redisGetSubscribeCallback(redisAsyncContext *ac, redisReply *reply,
 
     /* Match reply with the expected format of a pushed message.
      * The type and number of elements (3 to 4) are specified at:
-     * https://redis.io/topics/pubsub#format-of-pushed-messages */
+     * https://redis.io/docs/latest/develop/interact/pubsub/#format-of-pushed-messages */
     if ((reply->type == REDIS_REPLY_ARRAY && !(c->flags & REDIS_SUPPORTS_PUSH) && reply->elements >= 3) ||
         reply->type == REDIS_REPLY_PUSH) {
         assert(reply->element[0]->type == REDIS_REPLY_STRING);

@@ -983,7 +983,7 @@ int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int ar
  *
  * These functions are used to implement custom Redis commands.
  *
- * For examples, see https://redis.io/topics/modules-intro.
+ * For examples, see https://redis.io/docs/latest/develop/reference/modules/.
  * -------------------------------------------------------------------------- */
 
 /* Return non-zero if a module command, that was declared with the
@@ -1197,7 +1197,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *                    from the same input arguments and key values.
  *                    Starting from Redis 7.0 this flag has been deprecated.
  *                    Declaring a command as "random" can be done using
- *                    command tips, see https://redis.io/topics/command-tips.
+ *                    command tips, see https://redis.io/docs/latest/develop/reference/command-tips/.
  * * **"allow-stale"**: The command is allowed to run on slaves that don't
  *                      serve stale data. Don't use if you don't know what
  *                      this means.
@@ -1587,7 +1587,7 @@ int RM_SetCommandACLCategories(RedisModuleCommand *command, const char *aclflags
  *     both strings set to NULL.
  *
  * - `tips`: A string of space-separated tips regarding this command, meant for
- *   clients and proxies. See https://redis.io/topics/command-tips.
+ *   clients and proxies. See https://redis.io/docs/latest/develop/reference/command-tips/.
  *
  * - `arity`: Number of arguments, including the command name itself. A positive
  *   number specifies an exact number of arguments and a negative number
@@ -5433,7 +5433,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
 /* --------------------------------------------------------------------------
  * ## Key API for Stream type
  *
- * For an introduction to streams, see https://redis.io/topics/streams-intro.
+ * For an introduction to streams, see https://redis.io/docs/latest/develop/data-types/streams/.
  *
  * The type RedisModuleStreamID, which is used in stream functions, is a struct
  * with two 64-bit fields and is defined as
@@ -6306,7 +6306,7 @@ fmterr:
  *        // Do something with myval.
  *      }
  *
- * This API is documented here: https://redis.io/topics/modules-intro
+ * This API is documented here: https://redis.io/docs/latest/develop/reference/modules/
  */
 RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
     client *c = NULL;
@@ -6816,7 +6816,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
 
 /* Register a new data type exported by the module. The parameters are the
  * following. Please for in depth documentation check the modules API
- * documentation, especially https://redis.io/topics/modules-native-types.
+ * documentation, especially https://redis.io/docs/latest/develop/reference/modules/modules-native-types/.
  *
  * * **name**: A 9 characters data type name that MUST be unique in the Redis
  *   Modules ecosystem. Be creative... and there will be no collisions. Use
@@ -7705,7 +7705,7 @@ void RM_LatencyAddSample(const char *event, mstime_t latency) {
  * ## Blocking clients from modules
  *
  * For a guide about blocking commands in modules, see
- * https://redis.io/topics/modules-blocking-ops.
+ * https://redis.io/docs/latest/develop/reference/modules/modules-blocking-ops/.
  * -------------------------------------------------------------------------- */
 
 /* Returns 1 if the client already in the moduleUnblocked list, 0 otherwise. */
@@ -8717,7 +8717,7 @@ void moduleReleaseGIL(void) {
  * runs is dangerous and discouraged. In order to react to key space events with
  * write actions, please refer to `RM_AddPostNotificationJob`.
  *
- * See https://redis.io/topics/notifications for more information.
+ * See https://redis.io/docs/latest/develop/use/keyspace-notifications/ for more information.
  */
 int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
     RedisModuleKeyspaceSubscriber *sub = zmalloc(sizeof(*sub));
