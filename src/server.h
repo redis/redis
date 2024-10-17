@@ -1663,6 +1663,7 @@ struct redisServer {
     double stat_expired_stale_perc; /* Percentage of keys probably expired */
     long long stat_expired_time_cap_reached_count; /* Early expire cycle stops.*/
     long long stat_expire_cycle_time_used; /* Cumulative microseconds used. */
+    long long stat_active_rehashing_time_used; /* Cumulative microseconds used in activerehashing. */
     long long stat_evictedkeys;     /* Number of evicted keys (maxmemory) */
     long long stat_evictedclients;  /* Number of evicted clients */
     long long stat_evictedscripts;  /* Number of evicted lua scripts. */
