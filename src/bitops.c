@@ -23,6 +23,8 @@
     #else
         #define ATTRIBUTE_TARGET_POPCNT
     #endif
+#else
+    #define ATTRIBUTE_TARGET_POPCNT
 #endif
 
 ATTRIBUTE_TARGET_POPCNT
