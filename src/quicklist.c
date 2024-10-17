@@ -1244,10 +1244,17 @@ int quicklistDelRange(quicklist *quicklist, const long start,
 
 /* compare between a two entries */
 int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len) {
-    if (unlikely(QL_NODE_IS_PLAIN(entry->node))) {
+    if (entry->value) {
         return ((entry->sz == p2_len) && (memcmp(entry->value, p2, p2_len) == 0));
+    } else {
+        /* We use string2ll() to get an integer representation of the
+         * string 'p2' and compare it to 'entry->longval', it's much
+         * faster than convert integer to string and comparing. */
+        long long sval;
+        if (string2ll((const char*)p2, p2_len, &sval))
+            return entry->longval == sval;
     }
-    return lpCompare(entry->zi, p2, p2_len);
+    return 0;
 }
 
 /* Returns a quicklist iterator 'iter'. After the initialization every
