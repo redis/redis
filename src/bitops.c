@@ -16,16 +16,47 @@
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
+__attribute__((target("popcnt")))
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
     uint32_t *p4;
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
+    int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
+#else
+    int use_popcnt = 0; /* Assume CPU does not support POPCNT if
+                         * __builtin_cpu_supports() is not available. */
+#endif
     static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
-
-    /* Count initial bytes not aligned to 32 bit. */
-    while((unsigned long)p & 3 && count) {
+    
+    /* Count initial bytes not aligned to 64-bit when using the POPCNT instruction,
+     * otherwise align to 32-bit. */
+    int align = use_popcnt ? 7 : 3;
+    while ((unsigned long)p & align && count) {
         bits += bitsinbyte[*p++];
         count--;
+    }
+
+    if (likely(use_popcnt)) {
+        /* Use separate counters to make the CPU think there are no
+         * dependencies between these popcnt operations. */
+        uint64_t cnt[4];
+        memset(cnt, 0, sizeof(cnt));
+
+        /* Count bits 32 bytes at a time by using popcnt.
+         * Unroll the loop to avoid the overhead of a single popcnt per iteration,
+         * allowing the CPU to extract more instruction-level parallelism.
+         * Reference: https://danluu.com/assembly-intrinsics/ */
+        while (count >= 32) {
+            cnt[0] += __builtin_popcountll(*(uint64_t*)(p));
+            cnt[1] += __builtin_popcountll(*(uint64_t*)(p + 8));
+            cnt[2] += __builtin_popcountll(*(uint64_t*)(p + 16));
+            cnt[3] += __builtin_popcountll(*(uint64_t*)(p + 24));
+            count -= 32;
+            p += 32;
+        }
+        bits += cnt[0] + cnt[1] + cnt[2] + cnt[3];
+        goto remain;
     }
 
     /* Count bits 28 bytes at a time */
@@ -64,8 +95,10 @@ long long redisPopcount(void *s, long count) {
                     ((aux6 + (aux6 >> 4)) & 0x0F0F0F0F) +
                     ((aux7 + (aux7 >> 4)) & 0x0F0F0F0F))* 0x01010101) >> 24;
     }
-    /* Count the remaining bytes. */
     p = (unsigned char*)p4;
+
+remain:
+    /* Count the remaining bytes. */
     while(count--) bits += bitsinbyte[*p++];
     return bits;
 }
