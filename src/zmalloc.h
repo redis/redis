@@ -14,7 +14,23 @@
 #define __xstr(s) __str(s)
 #define __str(s) #s
 
-#if defined(USE_TCMALLOC)
+#if defined(USE_MIMALLOC)
+#include <mimalloc.h>
+#define ZMALLOC_LIB ("mimalloc-" MIMALLOC_VERSION)
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) mi_malloc_usable_size(p)
+
+#elif defined(USE_SNMALLOC)
+#define ZMALLOC_LIB ("snmalloc-" SNMALLOC_VERSION)
+#define HAVE_MALLOC_SIZE 1
+#define zmalloc_size(p) sn_malloc_usable_size(p)
+extern size_t sn_malloc_usable_size(void *);
+extern void * sn_malloc(size_t);
+extern void sn_free(void *);
+extern void * sn_realloc(void *, size_t);
+extern void * sn_calloc(size_t, size_t);
+
+#elif defined(USE_TCMALLOC)
 #define ZMALLOC_LIB ("tcmalloc-" __xstr(TC_VERSION_MAJOR) "." __xstr(TC_VERSION_MINOR))
 #include <google/tcmalloc.h>
 #if (TC_VERSION_MAJOR == 1 && TC_VERSION_MINOR >= 6) || (TC_VERSION_MAJOR > 1)

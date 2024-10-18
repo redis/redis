@@ -123,3 +123,21 @@ jemalloc: .make-prerequisites
 	cd jemalloc && $(MAKE) lib/libjemalloc.a
 
 .PHONY: jemalloc
+
+mimalloc: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd mimalloc && cmake . -DCMAKE_BUILD_TYPE=Release -DMI_OVERRIDE=OFF && cmake --build . --target mimalloc-static
+
+.PHONY: mimalloc
+
+snmalloc: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd snmalloc && cmake . && cmake --build . --target snmallocshim-static
+
+.PHONY: snmalloc
+
+snmalloc-1mib: .make-prerequisites
+	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
+	cd snmalloc && cmake . && cmake --build . --target snmallocshim-1mib-static
+
+.PHONY: snmalloc-1mib
