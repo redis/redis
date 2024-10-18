@@ -1,0 +1,24 @@
+coverage:
+  status:
+    patch:
+      default:
+        informational: true
+    project:
+      default:
+        target: 68%  # the required coverage value
+        threshold: 1% # the leniency in hitting the target
+        # Use Codecov in informational mode. The CI will pass no matter what 
+        # the coverage is or what other settings are specified.
+        # https://docs.codecov.com/docs/commit-status#informational
+        informational: true
+
+comment:
+  require_changes: false
+  require_head: false
+  require_base: false
+  layout: "condensed_header, diff, files"
+  hide_project_coverage: false
+  behavior: default
+
+github_checks:
+  annotations: false
