@@ -652,6 +652,27 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     }
     when += basetime;
 
+    if (checkAlreadyExpired(when)) {
+        robj *aux;
+
+        int deleted = dbGenericDelete(c->db, key, server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
+        /* key not exist */
+        if (!deleted) {
+            addReply(c, shared.czero);
+            return;
+        }
+
+        server.dirty++;
+
+        /* Replicate/AOF this as an explicit DEL or UNLINK. */
+        aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
+        rewriteClientCommandVector(c, 2, aux, key);
+        signalModifiedKey(c, c->db, key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+        addReply(c, shared.cone);
+        return;
+    }
+
     /* No key, return zero. */
     if (lookupKeyWrite(c->db,key) == NULL) {
         addReply(c,shared.czero);
@@ -702,21 +723,6 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         }
     }
 
-    if (checkAlreadyExpired(when)) {
-        robj *aux;
-
-        int deleted = dbGenericDelete(c->db,key,server.lazyfree_lazy_expire,DB_FLAG_KEY_EXPIRED);
-        serverAssertWithInfo(c,key,deleted);
-        server.dirty++;
-
-        /* Replicate/AOF this as an explicit DEL or UNLINK. */
-        aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
-        rewriteClientCommandVector(c,2,aux,key);
-        signalModifiedKey(c,c->db,key);
-        notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-        addReply(c, shared.cone);
-        return;
-    } else {
         setExpire(c,c->db,key,when);
         addReply(c,shared.cone);
         /* Propagate as PEXPIREAT millisecond-timestamp
@@ -736,7 +742,6 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
         return;
-    }
 }
 
 /* EXPIRE key seconds [ NX | XX | GT | LT] */
