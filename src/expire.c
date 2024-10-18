@@ -714,6 +714,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         rewriteClientCommandVector(c,2,aux,key);
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
+        notifyKeyspaceEvent(NOTIFY_EXPIRED, "expired", key, c->db->id);
         addReply(c, shared.cone);
         return;
     } else {
