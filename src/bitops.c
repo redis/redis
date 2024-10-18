@@ -16,12 +16,12 @@
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
-__attribute__((target("popcnt")))
+ATTRIBUTE_TARGET_POPCNT
 long long redisPopcount(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
     uint32_t *p4;
-#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
+#if defined(HAVE_POPCNT)
     int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
 #else
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if
