@@ -73,7 +73,7 @@ start_server {
     set result [create_random_dataset 16 lpush]
     test "SORT GET #" {
         assert_equal [lsort -integer $result] [r sort tosort GET #]
-    } {} {cluster:skip}
+    }
 
 foreach command {SORT SORT_RO} {
     test "$command GET <const>" {
@@ -392,6 +392,11 @@ start_cluster 1 0 {tags {"external:skip cluster sort"}} {
         assert_match {ERR GET option of SORT denied in Cluster mode when *} $e
         r sort "{a}mylist" by "{a}by*" get "{a}get*"
     } {30 200 100}
+
+    test "sort get # in cluster mode" {
+        assert_equal [r sort "{a}mylist" by "{a}by*" get # ] {3 1 2}
+        r sort "{a}mylist" by "{a}by*" get "{a}get*" get #
+    } {30 3 200 1 100 2}
 
     test "sort_ro by in cluster mode" {
         catch {r sort_ro "{a}mylist" by by*} e
