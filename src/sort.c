@@ -244,7 +244,7 @@ void sortCommandGeneric(client *c, int readonly) {
              * as the key to sort. */
             if (server.cluster_enabled &&
                 patternHashSlot(c->argv[j+1]->ptr, sdslen(c->argv[j+1]->ptr)) != getKeySlot(c->argv[1]->ptr) &&
-                strcasecmp(c->argv[j]->ptr,"#"))
+                strcmp(c->argv[j+1]->ptr, "#"))
             {
                 addReplyError(c, "GET option of SORT denied in Cluster mode when "
                               "keys formed by the pattern may be in different slots.");
