@@ -306,7 +306,7 @@ run_solo {defrag} {
             r set "{bigstream}smallitem" val
 
 
-            set expected_frag 1.7
+            set expected_frag 1.5
             if {$::accurate} {
                 # scale the hash to 1m fields in order to have a measurable the latency
                 for {set j 10000} {$j < 1000000} {incr j} {
@@ -601,7 +601,7 @@ run_solo {defrag} {
             # create big keys with 10k items
             set rd [redis_deferring_client]
 
-            set expected_frag 1.7
+            set expected_frag 1.5
             # add a mass of list nodes to two lists (allocations are interlaced)
             set val [string repeat A 100] ;# 5 items of 100 bytes puts us in the 640 bytes bin, which has 32 regs, so high potential for fragmentation
             set elements 500000

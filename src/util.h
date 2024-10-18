@@ -79,6 +79,19 @@ int snprintf_async_signal_safe(char *to, size_t n, const char *fmt, ...);
 size_t redis_strlcpy(char *dst, const char *src, size_t dsize);
 size_t redis_strlcat(char *dst, const char *src, size_t dsize);
 
+/* to keep it opt without conditions Works only for: 0 < x < 2^63 */
+static inline int log2ceil(size_t x) {
+#if UINTPTR_MAX == 0xffffffffffffffff
+    return  63 - __builtin_clzll(x);
+#else
+    return 31 - __builtin_clz(x);
+#endif    
+}
+
+#ifndef static_assert
+#define static_assert(expr, lit) extern char __static_assert_failure[(expr) ? 1:-1]
+#endif
+
 #ifdef REDIS_TEST
 int utilTest(int argc, char **argv, int flags);
 #endif

@@ -4,6 +4,20 @@
 #include "dict.h"
 #include "adlist.h"
 
+/* maximum number of bins of keysizes histogram */
+#define MAX_KEYSIZES_BINS 48
+#define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
+
+/* Per dict metadata. Memset zero on init. Managed outside kvstore */
+typedef struct {
+    uint64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS]; 
+} kvstoreDictMetadata;
+
+/* kvstore metadata. Memset zero on init. Managed outside kvstore */
+typedef struct {
+    uint64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+} kvstoreMetadata;
+
 typedef struct _kvstore kvstore;
 typedef struct _kvstoreIterator kvstoreIterator;
 typedef struct _kvstoreDictIterator kvstoreDictIterator;
@@ -71,6 +85,8 @@ void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val);
 dictEntry *kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, dictEntry ***plink, int *table_index);
 void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntry *he, dictEntry **plink, int table_index);
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
+kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx);
+kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs);
 
 #ifdef REDIS_TEST
 int kvstoreTest(int argc, char *argv[], int flags);

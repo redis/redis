@@ -42,6 +42,7 @@ struct _kvstore {
     unsigned long long *dict_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
     size_t overhead_hashtable_lut;         /* The overhead of all dictionaries. */
     size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
+    kvstoreMetadata metadata;
 };
 
 /* Structure for kvstore iterator that allows iterating across multiple dicts. */
@@ -61,8 +62,12 @@ struct _kvstoreDictIterator {
 
 /* Dict metadata for database, used for record the position in rehashing list. */
 typedef struct {
+    /* Internal metadata */
     listNode *rehashing_node;   /* list node in rehashing list */
-} kvstoreDictMetadata;
+    
+    /* External metadata */
+    kvstoreDictMetadata meta;
+} kvstoreDictMetadataEx;
 
 /**********************************/
 /*** Helpers **********************/
@@ -184,7 +189,7 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
  * If there's one dict, bucket count can be retrieved directly from single dict bucket. */
 static void kvstoreDictRehashingStarted(dict *d) {
     kvstore *kvs = d->type->userdata;
-    kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
+    kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(d);
     listAddNodeTail(kvs->rehashing, d);
     metadata->rehashing_node = listLast(kvs->rehashing);
 
@@ -201,7 +206,7 @@ static void kvstoreDictRehashingStarted(dict *d) {
  * the old ht size of the dictionary from the total sum of buckets for a DB.  */
 static void kvstoreDictRehashingCompleted(dict *d) {
     kvstore *kvs = d->type->userdata;
-    kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
+    kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(d);
     if (metadata->rehashing_node) {
         listDelNode(kvs->rehashing, metadata->rehashing_node);
         metadata->rehashing_node = NULL;
@@ -217,7 +222,7 @@ static void kvstoreDictRehashingCompleted(dict *d) {
 /* Returns the size of the DB dict metadata in bytes. */
 static size_t kvstoreDictMetadataSize(dict *d) {
     UNUSED(d);
-    return sizeof(kvstoreDictMetadata);
+    return sizeof(kvstoreDictMetadataEx);
 }
 
 /**********************************/
@@ -263,7 +268,10 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
     kvs->bucket_count = 0;
     kvs->overhead_hashtable_lut = 0;
     kvs->overhead_hashtable_rehashing = 0;
-
+    
+    /* metadata memset zero on init, but Managed outside kvstore */
+    memset(&kvs->metadata, 0, sizeof(kvs->metadata));
+    
     return kvs;
 }
 
@@ -272,9 +280,10 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         dict *d = kvstoreGetDict(kvs, didx);
         if (!d)
             continue;
-        kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
+        kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
+        memset(&metadata->meta.keysizes_hist, 0, sizeof(metadata->meta.keysizes_hist));
         dictEmpty(d, callback);
         freeDictIfNeeded(kvs, didx);
     }
@@ -296,7 +305,7 @@ void kvstoreRelease(kvstore *kvs) {
         dict *d = kvstoreGetDict(kvs, didx);
         if (!d)
             continue;
-        kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(d);
+        kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         dictRelease(d);
@@ -785,7 +794,7 @@ void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) 
 
             /* After defragmenting the dict, update its corresponding
              * rehashing node in the kvstore's rehashing list. */
-            kvstoreDictMetadata *metadata = (kvstoreDictMetadata *)dictMetadata(*d);
+            kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(*d);
             if (metadata->rehashing_node)
                 metadata->rehashing_node->value = *d;
         }
@@ -854,6 +863,17 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
         freeDictIfNeeded(kvs, didx);
     }
     return ret;
+}
+
+kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx) {
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (!d) return NULL;
+    kvstoreDictMetadataEx *metadata = (kvstoreDictMetadataEx *)dictMetadata(d);
+    return &(metadata->meta);
+}
+
+kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs) {
+    return &kvs->metadata;
 }
 
 #ifdef REDIS_TEST
