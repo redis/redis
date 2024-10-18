@@ -8359,11 +8359,16 @@ static void latencyMode(void) {
 
         if (config.latency_history && mstime()-history_start > history_interval)
         {
-            printf(" -- %.2f seconds range\n", (float)(mstime()-history_start)/1000);
+            char buf[64];
+            time_t hs = (time_t)(history_start / 1000);
+            struct tm *t = localtime(&hs);
+            strftime(buf,sizeof(buf),"%d %b %Y %H:%M:%S", t);
+            printf(" -- %.2f seconds range, start at %s\n", (float)(mstime()-history_start)/1000, buf);
             history_start = mstime();
             min = max = tot = count = 0;
+        }else {
+            usleep(LATENCY_SAMPLE_RATE * 1000);
         }
-        usleep(LATENCY_SAMPLE_RATE * 1000);
     }
 }
 
