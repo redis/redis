@@ -398,7 +398,6 @@ start_cluster 1 0 {tags {"external:skip cluster sort"}} {
         r sort "{a}mylist" by "{a}by*" get "{a}get*" get #
     } {30 3 200 1 100 2}
 
-
     test "sort_ro by in cluster mode" {
         catch {r sort_ro "{a}mylist" by by*} e
         assert_match {ERR BY option of SORT denied in Cluster mode when *} $e
