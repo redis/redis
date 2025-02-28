@@ -1230,6 +1230,10 @@ typedef struct {
     size_t mem_usage_sum;
 } clientMemUsageBucket;
 
+#define SHOULD_CLUSTER_COMPATIBILITY_SAMPLE() \
+            (server.cluster_compatibility_sample_ratio == 100 || \
+             (double)rand()/RAND_MAX * 100 < server.cluster_compatibility_sample_ratio)
+
 #ifdef LOG_REQ_RES
 /* Structure used to log client's requests and their
  * responses (see logreqres.c) */
@@ -1839,6 +1843,7 @@ struct redisServer {
     redisAtomic long long stat_io_writes_processed[IO_THREADS_MAX_NUM]; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
+    long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -1894,6 +1899,8 @@ struct redisServer {
     int latency_tracking_info_percentiles_len;
     unsigned int max_new_tls_conns_per_cycle; /* The maximum number of tls connections that will be accepted during each invocation of the event loop. */
     unsigned int max_new_conns_per_cycle; /* The maximum number of tcp connections that will be accepted during each invocation of the event loop. */
+    int cluster_compatibility_sample_ratio; /* Sampling ratio for cluster mode incompatible commands. */
+
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */

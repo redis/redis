@@ -182,6 +182,10 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             return C_ERR;
         }
 
+        if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && !server.cluster_enabled) {
+            server.stat_cluster_incompatible_ops++;
+        }
+
         if (running_stale && !(script_flags & SCRIPT_FLAG_ALLOW_STALE)) {
             addReplyError(caller, "-MASTERDOWN Link with MASTER is down, "
                              "replica-serve-stale-data is set to 'no' "

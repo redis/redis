@@ -2660,6 +2660,7 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
+    server.stat_cluster_incompatible_ops = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
@@ -4122,6 +4123,28 @@ int processCommand(client *c) {
             c->cmd->rejected_calls++;
             return C_OK;
         }
+    }
+
+    /* Check if the command has cross slot keys, incompatible with cluster mode. */
+    if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
+        !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0) &&
+        SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
+    {
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        int numkeys = getKeysFromCommand(c->cmd, c->argv, c->argc, &result);
+        if (numkeys > 1) {
+            int slot = -1;
+            for (int j = 0; j < numkeys; j++) {
+                robj *thiskey = c->argv[result.keys[j].pos];
+                int thisslot = keyHashSlot(thiskey->ptr, sdslen(thiskey->ptr));
+                if (slot == -1) slot = thisslot;
+                if (thisslot != slot) {
+                    server.stat_cluster_incompatible_ops++;
+                    break;
+                }
+            }
+        }
+        getKeysFreeResult(&result);
     }
 
     /* Disconnect some clients if total clients memory is too high. We do this
@@ -6081,7 +6104,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "eventloop_duration_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_EL].sum,
             "eventloop_duration_cmd_sum:%llu\r\n", server.duration_stats[EL_DURATION_TYPE_CMD].sum,
             "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
-            "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION)));
+            "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION),
+            "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops));
         info = genRedisInfoStringACLStats(info);
     }
 
