@@ -1404,6 +1404,10 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
+    /* We will encounter an error as above if cluster is enable */
+    if ((flags & CMD_MODULE_NO_CLUSTER) && !server.cluster_enabled)
+        server.stat_cluster_incompatible_ops++;
+
     struct redisCommand *parent_cmd = parent->rediscmd;
 
     if (parent_cmd->parent)

@@ -530,3 +530,163 @@ start_server {tags {"other external:skip"}} {
         }
     }
 }
+
+start_server {tags {"other external:skip"}} {
+    test {Cross DB command is incompatible with cluster mode} {
+        set incompatible_ops [s cluster_incompatible_ops]
+
+        # SELECT with 0 is compatible command in cluster mode
+        assert_equal {OK} [r select 0]
+        assert_equal $incompatible_ops [s cluster_incompatible_ops]
+
+        # SELECT with nonzero is incompatible command in cluster mode
+        assert_equal {OK} [r select 1]
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+
+        # SWAPDB is incompatible command in cluster mode
+        assert_equal {OK} [r swapdb 0 1]
+        assert_equal [expr $incompatible_ops + 2] [s cluster_incompatible_ops]
+
+
+        # If destination db in COPY command is equal to source db, it is compatible
+        # in cluster mode, otherwise it is incompatible.
+        r select 0
+        r set key1 value1
+        set incompatible_ops [s cluster_incompatible_ops]
+        assert_equal {1} [r copy key1 key2] ;# destination db is equal to source db
+        assert_equal $incompatible_ops [s cluster_incompatible_ops]
+        assert_equal {1} [r copy key2 key1 db 1] ;# destination db is not equal to source db
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+
+        r set key3 value3
+        assert_equal {1} [r move key3 1]
+        assert_equal [expr $incompatible_ops + 2] [s cluster_incompatible_ops]
+    } {} {cluster:skip}
+
+    test {Function no-cluster flag is incompatible with cluster mode} {
+        set incompatible_ops [s cluster_incompatible_ops]
+
+        # no-cluster flag is incompatible with cluster mode
+        r function load {#!lua name=test
+            redis.register_function{function_name='f1', callback=function() return 'hello' end, flags={'no-cluster'}}
+        }
+        r fcall f1 0
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+
+        # It is compatible without no-cluster flag, should not increase the cluster_incompatible_ops
+        r function load {#!lua name=test2
+            redis.register_function{function_name='f2', callback=function() return 'hello' end}
+        }
+        r fcall f2 0
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+    } {} {cluster:skip}
+
+    test {Script no-cluster flag is incompatible with cluster mode} {
+        set incompatible_ops [s cluster_incompatible_ops]
+
+        # no-cluster flag is incompatible with cluster mode
+        r eval {#!lua flags=no-cluster
+                return 1
+            } 0
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+
+        # It is compatible without no-cluster flag, should not increase the cluster_incompatible_ops
+        r eval {#!lua
+                return 1
+            } 0
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+    } {} {cluster:skip}
+
+    test {SORT command incompatible operations with cluster mode} {
+        r config set cluster-compatibility-sample-ratio 100
+        set incompatible_ops [s cluster_incompatible_ops]
+
+        # If the BY pattern slot is not equal with the slot of keys, we consider
+        # an incompatible behavior, otherwise it is compatible, should not increase
+        # the cluster_incompatible_ops
+        r lpush mylist 1 2 3
+        for {set i 1} {$i < 4} {incr i} {
+            r set weight_$i [expr 4 - $i]
+        }
+        assert_equal {3 2 1} [r sort mylist BY weight_*]
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+        # weight{mylist}_* and mylist have the same slot
+        for {set i 1} {$i < 4} {incr i} {
+            r set weight{mylist}_$i [expr 4 - $i]
+        }
+        assert_equal {3 2 1} [r sort mylist BY weight{mylist}_*]
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+
+        # If the GET pattern slot is not equal with the slot of keys, we consider
+        # an incompatible behavior, otherwise it is compatible, should not increase
+        # the cluster_incompatible_ops
+        for {set i 1} {$i < 4} {incr i} {
+            r set object_$i o_$i
+        }
+        assert_equal {o_3 o_2 o_1} [r sort mylist BY weight{mylist}_* GET object_*]
+        assert_equal [expr $incompatible_ops + 2] [s cluster_incompatible_ops]
+        # object{mylist}_*, weight{mylist}_* and mylist have the same slot
+        for {set i 1} {$i < 4} {incr i} {
+            r set object{mylist}_$i o_$i
+        }
+        assert_equal {o_3 o_2 o_1} [r sort mylist BY weight{mylist}_* GET object{mylist}_*]
+        assert_equal [expr $incompatible_ops + 2] [s cluster_incompatible_ops]
+    } {} {cluster:skip}
+
+    test {Cross slot command is incompatible with cluster mode} {
+        r config set cluster-compatibility-sample-ratio 100
+        set incompatible_ops [s cluster_incompatible_ops]
+
+        # Normal cross slot command
+        r mset foo bar bar foo ;# 1
+        r del foo bar ;# 2
+
+        # Lua script
+        r eval {#!lua
+            redis.call('mset', KEYS[1], 0, KEYS[2], 0)
+        } 2 foo bar ;# 3
+
+        # Transaction
+        r multi
+        r mset foo bar bar foo ;# 4
+        r del foo bar ;# 5
+        r exec
+
+        # Function call
+        r function flush
+        r function load {#!lua name=test
+            redis.register_function('ftest', function(KEYS, ARGV)
+                redis.call('mset', KEYS[1], 0, KEYS[2], 0)
+            end)
+        }
+        r fcall ftest 2 foo bar ;# 6
+        # Total 6 operations that are incompatible
+        assert_equal [expr $incompatible_ops + 6] [s cluster_incompatible_ops]
+    } {} {cluster:skip}
+
+    test {cluster-compatibility-sample-ratio configuration can work} {
+        # Disable cluster compatibility sampling, no increase in cluster_incompatible_ops
+        set incompatible_ops [s cluster_incompatible_ops]
+        r config set cluster-compatibility-sample-ratio 0
+        for {set i 0} {$i < 100} {incr i} {
+            r mset foo bar$i bar foo$i
+        }
+        assert_equal $incompatible_ops [s cluster_incompatible_ops]
+
+        # 100% sample ratio, all operations should increase cluster_incompatible_ops
+        set incompatible_ops [s cluster_incompatible_ops]
+        r config set cluster-compatibility-sample-ratio 100
+         for {set i 0} {$i < 100} {incr i} {
+            r mset foo bar$i bar foo$i
+        }
+        assert_equal [expr $incompatible_ops + 100] [s cluster_incompatible_ops]
+
+        # 50% sample ratio, cluster_incompatible_ops should increase between 40% and 60%
+        set incompatible_ops [s cluster_incompatible_ops]
+        r config set cluster-compatibility-sample-ratio 50
+         for {set i 0} {$i < 1000} {incr i} {
+            r mset foo bar$i bar foo$i
+        }
+        assert_range [s cluster_incompatible_ops] [expr $incompatible_ops + 400] [expr $incompatible_ops + 600]
+    } {} {cluster:skip}
+}

@@ -236,9 +236,9 @@ void sortCommandGeneric(client *c, int readonly) {
                 if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
                     SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
                 {
-                    if (patternHashSlot(sortby->ptr, sdslen(sortby->ptr)) != getKeySlot(c->argv[1]->ptr)) {
+                    if (patternHashSlot(sortby->ptr, sdslen(sortby->ptr)) !=
+                        (int)keyHashSlot(c->argv[1]->ptr, sdslen(c->argv[1]->ptr)))
                         server.stat_cluster_incompatible_ops++;
-                    }
                 }
 
                 /* If BY is specified with a real pattern, we can't accept
@@ -271,7 +271,8 @@ void sortCommandGeneric(client *c, int readonly) {
                 strcmp(c->argv[j+1]->ptr, "#") &&
                 SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
             {
-                if (patternHashSlot(c->argv[j+1]->ptr,sdslen(c->argv[j+1]->ptr)) != getKeySlot(c->argv[1]->ptr))
+                if (patternHashSlot(c->argv[j+1]->ptr, sdslen(c->argv[j+1]->ptr)) !=
+                    (int)keyHashSlot(c->argv[1]->ptr, sdslen(c->argv[1]->ptr)))
                     server.stat_cluster_incompatible_ops++;
             }
 
