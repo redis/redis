@@ -265,7 +265,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 break;
             }
 
-            /* If the pattern slot is not equal with the slot of keys, we will record
+            /* If the GET pattern slot is not equal with the slot of keys, we will record
              * an incompatible behavior as above comments. */
             if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
                 strcmp(c->argv[j+1]->ptr, "#") &&

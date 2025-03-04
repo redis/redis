@@ -182,6 +182,7 @@ int scriptPrepareForRun(scriptRunCtx *run_ctx, client *engine_client, client *ca
             return C_ERR;
         }
 
+        /* Can't run script with 'non-cluster' flag as above when cluster is enabled. */
         if ((script_flags & SCRIPT_FLAG_NO_CLUSTER) && !server.cluster_enabled) {
             server.stat_cluster_incompatible_ops++;
         }

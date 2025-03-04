@@ -549,7 +549,7 @@ start_server {tags {"other external:skip"}} {
 
 
         # If destination db in COPY command is equal to source db, it is compatible
-        # in cluster mode, otherwise it is incompatible.
+        # with cluster mode, otherwise it is incompatible.
         r select 0
         r set key1 value1
         set incompatible_ops [s cluster_incompatible_ops]
@@ -558,6 +558,8 @@ start_server {tags {"other external:skip"}} {
         assert_equal {1} [r copy key2 key1 db 1] ;# destination db is not equal to source db
         assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
 
+        # If destination db in MOVE command is equal to source db, it is incompatible
+        # with cluster mode.
         r set key3 value3
         assert_equal {1} [r move key3 1]
         assert_equal [expr $incompatible_ops + 2] [s cluster_incompatible_ops]

@@ -4130,21 +4130,7 @@ int processCommand(client *c) {
         !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0) &&
         SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
     {
-        getKeysResult result = GETKEYS_RESULT_INIT;
-        int numkeys = getKeysFromCommand(c->cmd, c->argv, c->argc, &result);
-        if (numkeys > 1) {
-            int slot = -1;
-            for (int j = 0; j < numkeys; j++) {
-                robj *thiskey = c->argv[result.keys[j].pos];
-                int thisslot = keyHashSlot(thiskey->ptr, sdslen(thiskey->ptr));
-                if (slot == -1) slot = thisslot;
-                if (thisslot != slot) {
-                    server.stat_cluster_incompatible_ops++;
-                    break;
-                }
-            }
-        }
-        getKeysFreeResult(&result);
+        checkCommandKeysCrossSlot(c);
     }
 
     /* Disconnect some clients if total clients memory is too high. We do this
@@ -4337,6 +4323,26 @@ int processCommand(client *c) {
             handleClientsBlockedOnKeys();
     }
     return C_OK;
+}
+
+/* Check if the multiple keys of command are cross slot,
+ * if it is, increment the server stat to record. */
+void checkCommandKeysCrossSlot(client *c) {
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(c->cmd, c->argv, c->argc, &result);
+    if (numkeys > 1) {
+        int slot = -1;
+        for (int j = 0; j < numkeys; j++) {
+            robj *thiskey = c->argv[result.keys[j].pos];
+            int thisslot = keyHashSlot(thiskey->ptr, sdslen(thiskey->ptr));
+            if (slot == -1) slot = thisslot;
+            if (thisslot != slot) {
+                server.stat_cluster_incompatible_ops++;
+                break;
+            }
+        }
+    }
+    getKeysFreeResult(&result);
 }
 
 /* ====================== Error lookup and execution ===================== */

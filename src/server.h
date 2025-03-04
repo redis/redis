@@ -3230,6 +3230,7 @@ int processCommand(client *c);
 void commandProcessed(client *c);
 int processPendingCommandAndInputBuffer(client *c);
 int processCommandAndResetClient(client *c);
+void checkCommandKeysCrossSlot(client *c);
 void setupSignalHandlers(void);
 int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
 connListener *listenerByType(const char *typename);
