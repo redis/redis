@@ -661,12 +661,21 @@ int string2d(const char *s, size_t slen, double *dp) {
     errno = 0;
     char *eptr;
     *dp = fast_float_strtod(s, &eptr);
-    if (slen == 0 ||
+    if (unlikely(slen == 0 ||
         isspace(((const char*)s)[0]) ||
-        (size_t)(eptr-(char*)s) != slen ||
-        (errno == ERANGE &&
-            (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)) ||
-        isnan(*dp))
+        isnan(*dp)))
+        return 0;
+    /* If `fast_float_strtod` didn't consume full input, try `strtod`
+     * Given fast_float does not support hexadecimal strings representation */
+    if (unlikely((size_t)(eptr - (char*)s) != slen)) {
+        char *fallback_eptr;
+        *dp = strtod(s, &fallback_eptr);
+        if ((size_t)(fallback_eptr - (char*)s) != slen) return 0;
+    }
+    if (unlikely(errno == ERANGE &&
+        (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)))
+        return 0;
+    if (unlikely(errno == EINVAL))
         return 0;
     return 1;
 }
