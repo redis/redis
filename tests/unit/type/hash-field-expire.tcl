@@ -937,8 +937,8 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HGETEX - Test 'EXAT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetex myhash EXAT 4000000000 FIELDS 1 field2] [list "value2"]
-            assert_range [expr [r httl myhash FIELDS 1 field2] + [clock seconds]] 3900000000 4000000000
+            assert_equal [r hgetex myhash EXAT [expr [clock seconds] + 10] FIELDS 1 field2] [list "value2"]
+            assert_range [r httl myhash FIELDS 1 field2] 5 10
         }
 
         test "HGETEX - Test 'PX' flag ($type)" {
@@ -951,8 +951,8 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HGETEX - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2 field3 value3
-            assert_equal [r hgetex myhash PXAT 4000000000000 FIELDS 1 field3] [list "value3"]
-            assert_range [expr [r httl myhash FIELDS 1 field3] + [clock seconds]] 3900000000 4000000000
+            assert_equal [r hgetex myhash PXAT [expr [clock milliseconds] + 10000] FIELDS 1 field3] [list "value3"]
+            assert_range [r httl myhash FIELDS 1 field3] 5 10
         }
 
         test "HGETEX - Test 'PERSIST' flag ($type)" {
@@ -1200,8 +1200,8 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HSETEX - Test 'EXAT' flag ($type)" {
             r del myhash
             r hset myhash f1 v1 f2 v2
-            assert_equal [r hsetex myhash EXAT 4000000000 FIELDS 1 f3 v3] 1
-            assert_range [expr [r httl myhash FIELDS 1 f3] + [clock seconds]] 3900000000 4000000000
+            assert_equal [r hsetex myhash EXAT [expr [clock seconds] + 10] FIELDS 1 f3 v3] 1
+            assert_range [r httl myhash FIELDS 1 f3] 5 10
         }
 
         test "HSETEX - Test 'PX' flag ($type)" {
@@ -1213,8 +1213,8 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HSETEX - Test 'PXAT' flag ($type)" {
             r del myhash
             r hset myhash f1 v2 f2 v2 f3 v3
-            assert_equal [r hsetex myhash PXAT 4000000000000 FIELDS 1 f2 v2] 1
-            assert_range [expr [r httl myhash FIELDS 1 f2] + [clock seconds]] 3900000000 4000000000
+            assert_equal [r hsetex myhash PXAT [expr [clock milliseconds] + 10000] FIELDS 1 f2 v2] 1
+            assert_range [r httl myhash FIELDS 1 f2] 5 10
         }
 
         test "HSETEX - Test 'KEEPTTL' flag ($type)" {

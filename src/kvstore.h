@@ -18,7 +18,7 @@
 #include "adlist.h"
 
 /* maximum number of bins of keysizes histogram */
-#define MAX_KEYSIZES_BINS 48
+#define MAX_KEYSIZES_BINS 60
 #define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
 
 /* When creating kvstore with flag `KVSTORE_ALLOC_META_KEYS_HIST`, then kvstore 

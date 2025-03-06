@@ -310,6 +310,9 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         freeDictIfNeeded(kvs, didx);
     }
 
+    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST)
+        memset(kvstoreGetMetadata(kvs), 0, sizeof(kvstoreMetadata));
+
     listEmpty(kvs->rehashing);
 
     kvs->key_count = 0;

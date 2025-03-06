@@ -20,6 +20,11 @@ proc get_stripped_info {server} {
 #                 Instead of the output of "strings_len_exp_distrib" write "STR". 
 #                 Similarly for LIST, SET, ZSET and HASH. Spaces and newlines are 
 #                 ignored.
+#
+#                 Alternatively, you can set "__EVAL_DB_HIST__". The function
+#                 will read all the keys from the server for selected db index,
+#                 ask for their length and compute the expected output.
+
 #  waitCond    -  If set to 1, the function wait_for_condition 50x50msec for the 
 #                 expOutput to match the actual output. 
 # 
@@ -28,48 +33,120 @@ proc get_stripped_info {server} {
 #                  for the replica to catch up and verify the output on the replica
 #                  as well. Otherwise, just run the command on the leader and verify 
 #                  the output.
-proc run_cmd_verify_hist {cmd expOutput {waitCond 0} } {   
+proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
     uplevel 1 $cmd
     global replicaMode
 
-    # ref the leader with `server` variable 
-    if {$replicaMode eq 1} { set server [srv -1 client] } else { set server [srv 0 client] }
-    
+    # ref the leader with `server` variable
+    if {$replicaMode eq 1} {
+        set server [srv -1 client]
+        set replica [srv 0 client]
+    } else {
+        set server [srv 0 client]
+    }
+
+    # If need eval expected histogram by reading all the keys & lengths from the
+    # server.
+    if {[regexp {^__EVAL_DB_HIST__\s+(\d+)$} $expOutput -> dbid]} {
+        set expOutput [eval_db_histogram $server $dbid]
+    }
+
     # Replace all placeholders with the actual values. Remove spaces & newlines.
     set expStripped [string map {
-        "STR" "distrib_strings_sizes" 
-        "LIST" "distrib_lists_items" 
-        "SET" "distrib_sets_items" 
-        "ZSET" "distrib_zsets_items" 
+        "STR" "distrib_strings_sizes"
+        "LIST" "distrib_lists_items"
+        "SET" "distrib_sets_items"
+        "ZSET" "distrib_zsets_items"
         "HASH" "distrib_hashes_items"
         " " "" "\n" "" "\r" ""
     } $expOutput]
-                     
+
+    # Compare the stripped expected output with the actual output from the server
     if {$waitCond} {
-         wait_for_condition 50 50 {
+        wait_for_condition 50 50 {
             $expStripped eq [get_stripped_info $server]
-         } else {
+        } else {
             fail "Unexpected KEYSIZES. Expected: `$expStripped` \
                 but got: `[get_stripped_info $server]`. Failed after command: $cmd"
-
-         }                
+        }
     } else {
-        set infoStripped  [get_stripped_info $server]
+        set infoStripped [get_stripped_info $server]
         if {$expStripped ne $infoStripped} {
             fail "Unexpected KEYSIZES. Expected: `$expStripped` \
                 but got: `$infoStripped`. Failed after command: $cmd"
         }
     }
-    
-    # If we are testing `replicaMode` then need to wait for the replica to catch up    
-    if {$replicaMode eq 1} {        
-         wait_for_condition 50 50 {
-            $expStripped eq [get_stripped_info $server]
-         } else {
+
+    # If we are testing `replicaMode` then need to wait for the replica to catch up
+    if {$replicaMode eq 1} {
+        wait_for_condition 50 50 {
+            $expStripped eq [get_stripped_info $replica]
+        } else {
             fail "Unexpected replica KEYSIZES. Expected: `$expStripped` \
-                but got: `[get_stripped_info $server]`. Failed after command: $cmd"
-         }
+                but got: `[get_stripped_info $replica]`. Failed after command: $cmd"
+        }
     }
+}
+
+## eval_db_histogram - eval The expected histogram for current db, by
+## reading all the keys from the server, query for their length, and computing
+## the expected output.
+proc eval_db_histogram {server dbid} {
+    array set type_counts {}
+
+    set keys [$server keys *]
+    foreach key $keys {
+        set key_type [$server type $key]
+        switch -exact $key_type {
+            "string" {
+                set value [$server strlen $key]
+                set type "STR"
+            }
+            "list" {
+                set value [$server llen $key]
+                set type "LIST"
+            }
+            "set" {
+                set value [$server scard $key]
+                set type "SET"
+            }
+            "zset" {
+                set value [$server zcard $key]
+                set type "ZSET"
+            }
+            "hash" {
+                set value [$server hlen $key]
+                set type "HASH"
+            }
+            default {
+                continue  ; # Skip unknown types
+            }
+        }
+
+        set power 1
+        while { ($power * 2) <= $value } { set power [expr {$power * 2}] }
+        # Store counts by type and size bucket
+        incr type_counts($type,$power)
+    }
+
+    set result {}
+    foreach type {STR LIST SET ZSET HASH} {
+        if {[array exists type_counts] && [array names type_counts $type,*] ne ""} {
+            set sorted_powers [lsort -integer [lmap item [array names type_counts $type,*] {
+                lindex [split $item ,] 1  ; # Extracts only the numeric part
+            }]]
+
+            set type_result {}
+            foreach power $sorted_powers {
+                set display_power $power
+                if { $power >= 1024 } {  set display_power "[expr {$power / 1024}]K" }
+                lappend type_result "$display_power=$type_counts($type,$power)"
+            }
+            lappend result "db${dbid}_$type: [join $type_result ", "]"
+        }
+    }
+
+    return [join $result " | "]
 }
 
 proc test_all_keysizes { {replMode 0} } {
@@ -80,7 +157,8 @@ proc test_all_keysizes { {replMode 0} } {
     set replicaMode $replMode    
     # ref the leader with `server` variable
     if {$replicaMode eq 1} { 
-        set server [srv -1 client] 
+        set server [srv -1 client]
+        set replica [srv 0 client]
         set suffixRepl "(replica)"
     } else { 
         set server [srv 0 client]
@@ -94,7 +172,7 @@ proc test_all_keysizes { {replMode 0} } {
             append base_string "x"
             set log_value [expr {1 << int(log($i) / log(2))}]
             #puts "Iteration $i: $base_string (Log base 2 pattern: $log_value)"
-            run_cmd_verify_hist {$server set mykey $base_string}  "db0_STR:$log_value=1"            
+            run_cmd_verify_hist {$server set mykey $base_string}  "db0_STR:$log_value=1"
         }
     }
 
@@ -119,13 +197,47 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:1M=1}
         run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:2M=1}               
     }
+
+    # It is difficult to predict the actual string length of hyperloglog. To address
+    # this, we will create expected output by indicating __EVAL_DB_HIST__ to read
+    # all keys & lengths from server. Based on it, generate the expected output.
+    test "KEYSIZES - Test hyperloglog $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        # PFADD (sparse & dense)
+        for {set i 1} {$i <= 3000} {incr i} {
+            run_cmd_verify_hist {$server PFADD hll1 a$i b$i c$i} {__EVAL_DB_HIST__ 0}
+            run_cmd_verify_hist {$server PFADD hll2 x$i y$i z$i} {__EVAL_DB_HIST__ 0}
+        }
+        # PFMERGE, PFCOUNT (sparse & dense)
+        for {set i 1} {$i <= 3000} {incr i} {
+            run_cmd_verify_hist {$server PFADD hll3 x$i y$i z$i} {__EVAL_DB_HIST__ 0}
+            run_cmd_verify_hist {$server PFMERGE hll4 hll1 hll2 hll3} {__EVAL_DB_HIST__ 0}
+            run_cmd_verify_hist {$server PFCOUNT hll1 hll2 hll3 hll4} {__EVAL_DB_HIST__ 0}
+        }
+        # DEL
+        run_cmd_verify_hist {$server DEL hll4} {__EVAL_DB_HIST__ 0}
+        run_cmd_verify_hist {$server DEL hll3} {__EVAL_DB_HIST__ 0}
+        run_cmd_verify_hist {$server DEL hll1} {__EVAL_DB_HIST__ 0}
+        run_cmd_verify_hist {$server DEL hll2} {}
+        # SET overwrites
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server PFADD hll1 a b c d e f g h i j k l m} {db0_STR:32=1}
+        run_cmd_verify_hist {$server SET hll1 1234567} {db0_STR:4=1}
+        catch {run_cmd_verify_hist {$server PFADD hll1 a b c d e f g h i j k l m} {db0_STR:4=1}}
+        run_cmd_verify_hist {} {db0_STR:4=1}
+        # EXPIRE
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server PFADD hll1 a b c d e f g h i j k l m} {db0_STR:32=1}
+        run_cmd_verify_hist {$server PEXPIRE hll1 50} {db0_STR:32=1}
+        run_cmd_verify_hist {} {} 1
+    } {} {cluster:skip}
             
     test "KEYSIZES - Test List $suffixRepl" {
         # FLUSHALL
         run_cmd_verify_hist {$server FLUSHALL} {}
         # RPUSH
         run_cmd_verify_hist {$server RPUSH l1 1 2 3 4 5} {db0_LIST:4=1}
-        run_cmd_verify_hist {$server RPUSH l1 6 7 8 9} {db0_LIST:8=1}                        
+        run_cmd_verify_hist {$server RPUSH l1 6 7 8 9} {db0_LIST:8=1}
         # Test also LPUSH, RPUSH, LPUSHX, RPUSHX
         run_cmd_verify_hist {$server LPUSH l2 1} {db0_LIST:1=1,8=1}
         run_cmd_verify_hist {$server LPUSH l2 2} {db0_LIST:2=1,8=1}
@@ -313,6 +425,20 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server SET s1 842} {db0_STR:2=1}
         run_cmd_verify_hist {$server SET s1 2} {db0_STR:1=1}
         run_cmd_verify_hist {$server SET s1 1234567} {db0_STR:4=1}        
+
+        # SET (string of length 0)
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SET s1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server SET s1 ""} {db0_STR:0=1}
+        run_cmd_verify_hist {$server SET s2 ""} {db0_STR:0=2}
+        run_cmd_verify_hist {$server SET s2 "bla"} {db0_STR:0=1,2=1}
+        run_cmd_verify_hist {$server SET s2 ""} {db0_STR:0=2}
+        run_cmd_verify_hist {$server HSET h f v} {db0_STR:0=2 db0_HASH:1=1}
+        run_cmd_verify_hist {$server SET h ""} {db0_STR:0=3}
+        run_cmd_verify_hist {$server DEL h} {db0_STR:0=2}
+        run_cmd_verify_hist {$server DEL s2} {db0_STR:0=1}
+        run_cmd_verify_hist {$server DEL s1} {}
+
     } {} {cluster:skip}
     
     foreach type {listpackex hashtable} {
@@ -364,7 +490,7 @@ proc test_all_keysizes { {replMode 0} } {
             run_cmd_verify_hist {$server HMSET h1 1 1 2 2 3 3} {db0_HASH:2=1}
             run_cmd_verify_hist {$server HMSET h1 1 1 2 2 3 3} {db0_HASH:2=1}
             run_cmd_verify_hist {$server HMSET h1 1 1 2 2 3 3 4 4} {db0_HASH:4=1}
-                    
+
             # HINCRBY
             run_cmd_verify_hist {$server FLUSHALL} {}
             run_cmd_verify_hist {$server hincrby h1 f1 10} {db0_HASH:1=1}
@@ -386,7 +512,103 @@ proc test_all_keysizes { {replMode 0} } {
             run_cmd_verify_hist {$server HPEXPIRE h1 50 FIELDS 1 f3} {db0_HASH:1=1}
             run_cmd_verify_hist {} {} 1
         }
-    }    
+
+        test "KEYSIZES - Test Hash field lazy expiration ($type) $suffixRepl" {
+            $server debug set-active-expire 0
+
+            # HGET
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGET h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGET h1 f2} {}
+
+            # HMGET
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HMGET h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HMGET h1 f2} {}
+
+            # HGETDEL
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGETDEL h1 FIELDS 1 f1}  {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGETDEL h1 FIELDS 1 f2}  {}
+
+            # HGETEX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGETEX h1 PX 1 FIELDS 1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGETEX h1 PX 1 FIELDS 1 f2} {}
+
+            # HSETNX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETNX h1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server DEL h1} {}
+            run_cmd_verify_hist {$server HSETEX h2 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETNX h2 f1 v1} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETNX h2 f2 v2} {db0_HASH:2=1}
+
+            # HSETEX
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 v1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HGET h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HGET h1 f2} {}
+
+            # HEXISTS
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HEXISTS h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HEXISTS h1 f2} {}
+
+            # HSTRLEN
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 2 f1 v1 f2 v2} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSTRLEN h1 f1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSTRLEN h1 f2} {}
+
+            # HINCRBYFLOAT
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HINCRBYFLOAT h1 f1 1.5} {db0_HASH:1=1}
+
+            # HINCRBY
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HINCRBY h1 f1 1} {db0_HASH:1=1}
+            run_cmd_verify_hist {$server HSETEX h1 PX 1 FIELDS 1 f2 1} {db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HINCRBY h1 f2 1} {db0_HASH:2=1}
+
+            # SORT
+            run_cmd_verify_hist {$server FLUSHALL} {}
+            run_cmd_verify_hist {$server RPUSH user_ids 1 2} {db0_LIST:2=1}
+            run_cmd_verify_hist {$server HSET user:1 name "Alice" score 50} {db0_LIST:2=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETEX user:2 PX 1 FIELDS 2 name "Bob" score 70} {db0_LIST:2=1 db0_HASH:2=2}
+            run_cmd_verify_hist {after 5} {db0_LIST:2=1 db0_HASH:2=2}
+            run_cmd_verify_hist {$server SORT user_ids BY user:*->score GET user:*->name GET user:*->score}  {db0_LIST:2=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server DEL user_ids} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server RPUSH user_ids 1} {db0_LIST:1=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server HSETEX user:1 PX 1 FIELDS 2 name "Alice" score 50} {db0_LIST:1=1 db0_HASH:2=1}
+            run_cmd_verify_hist {after 5} {db0_LIST:1=1 db0_HASH:2=1}
+            run_cmd_verify_hist {$server SORT user_ids BY user:*->score GET user:*->name GET user:*->score}  {db0_LIST:1=1}
+
+            $server debug set-active-expire 1
+        } {OK} {cluster:skip needs:debug}
+    }
     
     test "KEYSIZES - Test STRING BITS $suffixRepl" {
         # BITOPS
@@ -415,8 +637,8 @@ proc test_all_keysizes { {replMode 0} } {
         set encoded [$server dump l10]
         run_cmd_verify_hist {$server del l10} {}         
         run_cmd_verify_hist {$server restore l11 0 $encoded} {db0_LIST:4=1}
-    }    
-    
+    }
+
     test "KEYSIZES - Test RENAME $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server RPUSH l12 1 2 3 4} {db0_LIST:4=1}
@@ -439,15 +661,25 @@ proc test_all_keysizes { {replMode 0} } {
         $server select 0    
     } {OK} {singledb:skip}
     
+    test "KEYSIZES - DEBUG RELOAD reset keysizes $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server RPUSH l10 1 2 3 4} {db0_LIST:4=1}
+        run_cmd_verify_hist {$server SET s2 1234567890} {db0_STR:8=1 db0_LIST:4=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1 db0_LIST:4=1}
+        run_cmd_verify_hist {$server DEL l10} {db0_STR:8=1}
+        run_cmd_verify_hist {$server DEBUG RELOAD} {db0_STR:8=1}
+    } {} {cluster:skip needs:debug}
+
     test "KEYSIZES - Test RDB $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
-        # Write list, set and zset to db0 
+        # Write list, set and zset to db0
         run_cmd_verify_hist {$server RPUSH l1 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {$server SADD s1 1 2 3 4 5} {db0_LIST:4=1 db0_SET:4=1}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
         run_cmd_verify_hist {$server SAVE} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
-        if {$replicaMode eq 1} {        
-            run_cmd_verify_hist {restart_server -1 true false} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
+        if {$replicaMode eq 1} {
+            run_cmd_verify_hist {$replica SAVE} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
+            run_cmd_verify_hist {restart_server 0 true false} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1} 1
         } else {
             run_cmd_verify_hist {restart_server 0 true false} {db0_LIST:4=1 db0_SET:4=1 db0_ZSET:2=1}
         }
@@ -458,7 +690,6 @@ start_server {} {
     # Test KEYSIZES on a single server
     r select 0
     test_all_keysizes 0
-
     # Start another server to test replication of KEYSIZES
     start_server {tags {needs:repl external:skip}} {
         # Set the outer layer server as primary
@@ -471,7 +702,7 @@ start_server {} {
         # Server should have role replica
         $replica replicaof $primary_host $primary_port
         wait_for_condition 50 100 { [s 0 role] eq {slave} } else { fail "Replication not started." }
-        
+
         # Test KEYSIZES on leader and replica
         $primary select 0
         test_all_keysizes 1

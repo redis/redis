@@ -435,6 +435,17 @@ start_server {
 
         # verify nil is still received when reading last entry
         assert_equal [r XREAD STREAMS lestream +] {}
+
+        # case when stream created empty
+
+        # make sure the stream is not initialized
+        r DEL lestream
+
+        # create empty stream with XGROUP CREATE
+        r XGROUP CREATE lestream legroup $ MKSTREAM
+
+        # verify nil is received when reading last entry
+        assert_equal [r XREAD STREAMS lestream +] {}
     }
 
     test {XREAD last element blocking from empty stream} {
@@ -508,6 +519,22 @@ start_server {
 
         # verify only last entry was read, even though COUNT > 1
         assert_equal $res {{lestream {{3-0 {k3 v3}}}}}
+    }
+
+    test "XREAD: read last element after XDEL (issue #13628)" {
+        # Should return actual last element after XDEL of current last element
+
+        # Add 2 entries to a stream and delete last one
+        r DEL stream
+        r XADD stream 1-0 f 1
+        r XADD stream 2-0 f 2
+        r XDEL stream 2-0
+
+        # Read last entry
+        set res [r XREAD STREAMS stream +]
+
+        # Verify the last entry was read
+        assert_equal $res {{stream {{1-0 {f 1}}}}}
     }
 
     test "XREAD: XADD + DEL should not awake client" {

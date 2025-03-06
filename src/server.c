@@ -80,11 +80,24 @@ struct redisServer server; /* Server global state */
 /*============================ Internal prototypes ========================== */
 
 static inline int isShutdownInitiated(void);
+static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg);
 int isReadyToShutdown(void);
 int finishShutdown(void);
 const char *replstateToString(int replstate);
 
 /*============================ Utility functions ============================ */
+
+/* Check if a given command can be reused without performing a lookup.
+ * A command is reusable if:
+ * - It is not NULL.
+ * - It does not have subcommands (subcommands_dict == NULL).
+ *   This preserves simplicity on the check and accounts for the majority of the use cases.
+ * - Its full name matches the provided command argument. */
+static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg) {
+    return cmd != NULL &&
+           cmd->subcommands_dict == NULL &&
+           strcasecmp(cmd->fullname, commandArg->ptr) == 0;
+}
 
 /* This macro tells if we are in the context of loading an AOF. */
 #define isAOFLoadingContext() \
@@ -274,6 +287,19 @@ void dictDictDestructor(dict *d, void *val)
 {
     UNUSED(d);
     dictRelease((dict*)val);
+}
+
+size_t dictSdsKeyLen(dict *d, const void *key) {
+    UNUSED(d);
+    return sdslen((sds)key);
+}
+
+int dictSdsKeyCompareWithLen(dict *d, const void *key1, const size_t l1,
+                                      const void *key2, const size_t l2)
+{
+    UNUSED(d);
+    if (l1 != l2) return 0;
+    return memcmp(key1, key2, l1) == 0;
 }
 
 int dictSdsKeyCompare(dict *d, const void *key1,
@@ -500,6 +526,8 @@ dictType dbDictType = {
     dictSdsDestructor,          /* key destructor */
     dictObjectDestructor,       /* val destructor */
     dictResizeAllowed,          /* allow to resize */
+    .keyLen = dictSdsKeyLen,    /* key length */
+    .keyCompareWithLen = dictSdsKeyCompareWithLen /* key compare with length */
 };
 
 /* Db->expires */
@@ -3979,8 +4007,12 @@ int processCommand(client *c) {
      * In case we are reprocessing a command after it was blocked,
      * we do not have to repeat the same checks */
     if (!client_reprocessing_command) {
-        struct redisCommand *cmd = c->iolookedcmd ? c->iolookedcmd : lookupCommand(c->argv, c->argc);
-
+        /* check if we can reuse the last command instead of looking up if we already have that info */
+        struct redisCommand *cmd = NULL;
+        if (isCommandReusable(c->lastcmd, c->argv[0]))
+            cmd = c->lastcmd;
+        else
+            cmd = c->iolookedcmd ? c->iolookedcmd : lookupCommand(c->argv, c->argc);
         if (!cmd) {
             /* Handle possible security attacks. */
             if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
@@ -6285,13 +6317,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
             char *expSizeLabels[] = {
-                "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
+                "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
                 "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
                 "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", /* Mega */
                 "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G", /* Giga */
                 "1T", "2T", "4T", "8T", "16T", "32T", "64T", "128T", "256T", "512T", /* Tera */
                 "1P", "2P", "4P", "8P", "16P", "32P", "64P", "128P", "256P", "512P", /* Peta */
-                "1E", "2E", "4E", "8E"                                               /* Exa */
+                "1E", "2E", "4E"                                               /* Exa */
             };
                                  
             if (kvstoreSize(server.db[dbnum].keys) == 0)

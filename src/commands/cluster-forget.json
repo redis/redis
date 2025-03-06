@@ -7,12 +7,6 @@
         "arity": 3,
         "container": "CLUSTER",
         "function": "clusterCommand",
-        "history": [
-            [
-                "7.2.0",
-                "Forgotten nodes are automatically propagated across the cluster via gossip."
-            ]
-        ],
         "command_flags": [
             "NO_ASYNC_LOADING",
             "ADMIN",

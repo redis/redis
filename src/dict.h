@@ -28,6 +28,8 @@
 
 typedef struct dictEntry dictEntry; /* opaque */
 typedef struct dict dict;
+typedef size_t (*keyLenFunc)(dict *d, const void *key1);
+typedef int (*keyCmpFuncWithLen)(dict *d, const void *key1, const size_t key1_len, const void *key2, const size_t key2_len);
 
 typedef struct dictType {
     /* Callbacks */
@@ -92,6 +94,10 @@ typedef struct dictType {
 
     /* Optional callback called when the dict is destroyed. */
     void (*onDictRelease)(dict *d);
+
+    /* Optional keylen to avoid duplication computation of key lengths. */
+    keyLenFunc keyLen;
+    keyCmpFuncWithLen keyCompareWithLen;
 } dictType;
 
 #define DICTHT_SIZE(exp) ((exp) == -1 ? 0 : (unsigned long)1<<(exp))

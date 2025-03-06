@@ -126,7 +126,6 @@ static_assert(offsetof(defragPubSubCtx, kvstate) == 0, "defragStageKvstoreHelper
 
 typedef struct {
     sds module_name;
-    RedisModuleDefragCtx *module_ctx;
     unsigned long cursor;
 } defragModuleCtx;
 
@@ -1229,18 +1228,15 @@ static doneStatus defragModuleGlobals(void *ctx, monotime endtime) {
     /* Interval shouldn't exceed 1 hour  */
     serverAssert(!endtime || llabs((long long)endtime - (long long)getMonotonicUs()) < 60*60*1000*1000LL);
 
-    /* Set up context for the module's defrag callback. */
-    defrag_module_ctx->module_ctx->endtime = endtime;
-    defrag_module_ctx->module_ctx->cursor = &defrag_module_ctx->cursor;
-
     /* Call appropriate version of module's defrag callback:
      * 1. Version 2 (defrag_cb_2): Supports incremental defrag and returns whether more work is needed
      * 2. Version 1 (defrag_cb): Legacy version, performs all work in one call.
      *    Note: V1 doesn't support incremental defragmentation, may block for longer periods. */
+    RedisModuleDefragCtx defrag_ctx = { endtime, &defrag_module_ctx->cursor, NULL, -1, -1, -1 };
     if (module->defrag_cb_2) {
-        return module->defrag_cb_2(defrag_module_ctx->module_ctx) ? DEFRAG_NOT_DONE : DEFRAG_DONE;
+        return module->defrag_cb_2(&defrag_ctx) ? DEFRAG_NOT_DONE : DEFRAG_DONE;
     } else if (module->defrag_cb) {
-        module->defrag_cb(defrag_module_ctx->module_ctx);
+        module->defrag_cb(&defrag_ctx);
         return DEFRAG_DONE;
     } else {
         redis_unreachable();
@@ -1258,7 +1254,6 @@ static void freeDefragKeysContext(void *ctx) {
 static void freeDefragModelContext(void *ctx) {
     defragModuleCtx *defrag_model_ctx = ctx;
     sdsfree(defrag_model_ctx->module_name);
-    zfree(defrag_model_ctx->module_ctx);
     zfree(defrag_model_ctx);
 }
 
@@ -1554,7 +1549,6 @@ static void beginDefragCycle(void) {
             defragModuleCtx *ctx = zmalloc(sizeof(defragModuleCtx));
             ctx->cursor = 0;
             ctx->module_name = sdsnew(module->name);
-            ctx->module_ctx = zcalloc(sizeof(RedisModuleDefragCtx));
             addDefragStage(defragModuleGlobals, freeDefragModelContext, ctx);
         }
     }

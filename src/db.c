@@ -35,9 +35,12 @@ typedef enum {
     KEY_DELETED /* The key was deleted now. */
 } keyStatus;
 
+static inline keyStatus expireIfNeededWithSlot(redisDb *db, robj *key, int flags, const int keySlot);
 keyStatus expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
 static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
+static inline dictEntry *dbFindWithKeySlot(redisDb *db, void *key, int keySlot);
+static inline dictEntry *dbFindExpiresWithKeySlot(redisDb *db, void *key, int keySlot);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -57,36 +60,51 @@ void updateLFU(robj *val) {
  * The histogram is a base-2 logarithmic histogram, with 64 bins. The i'th bin 
  * represents the number of keys with a size in the range 2^i and 2^(i+1) 
  * exclusive. oldLen/newLen must be smaller than 2^48, and if their value 
- * equals 0, it means that the key is being created/deleted, respectively. Each 
+ * equals -1, it means that the key is being created/deleted, respectively. Each
  * data type has its own histogram and it is per database (In addition, there is 
  * histogram per slot for future cluster use).
- * 
- * Examples to LEN values and corresponding bins in histogram: 
- *               [1,2)->0 [2,4)->1 [4,8)->2 [8,16)->3
+ *
+ * Example mapping of key lengths to bins:
+ *               [1,2)->1 [2,4)->2 [4,8)->3 [8,16)->4 ...
+ *
+ * Since strings can be zero length, the histogram also tracks:
+ *               [0,1)->0
  */
-void updateKeysizesHist(redisDb *db, int didx, uint32_t type, uint64_t oldLen, uint64_t newLen) {
+void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen) {
     if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
         return;
 
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
 
-    if (oldLen != 0) {
-        int old_bin = log2ceil(oldLen);
+    if (oldLen > 0) {
+        int old_bin = log2ceil(oldLen) + 1;
         debugServerAssertWithInfo(server.current_client, NULL, old_bin < MAX_KEYSIZES_BINS);        
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
         if(dictMeta) dictMeta->keysizes_hist[type][old_bin]--;
         kvstoreMeta->keysizes_hist[type][old_bin]--;
+    } else {
+        /* here, oldLen can be either 0 or -1 */
+        if (oldLen == 0) {
+            if (dictMeta) dictMeta->keysizes_hist[type][0]--;
+            kvstoreMeta->keysizes_hist[type][0]--;
+        }
     }
     
-    if (newLen != 0) {
-        int new_bin = log2ceil(newLen);
+    if (newLen > 0) {
+        int new_bin = log2ceil(newLen) + 1;
         debugServerAssertWithInfo(server.current_client, NULL, new_bin < MAX_KEYSIZES_BINS);
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
         if(dictMeta) dictMeta->keysizes_hist[type][new_bin]++;
         kvstoreMeta->keysizes_hist[type][new_bin]++;
+    } else {
+        /* here, newLen can be either 0 or -1 */
+        if (newLen == 0) {
+            if (dictMeta) dictMeta->keysizes_hist[type][0]++;
+            kvstoreMeta->keysizes_hist[type][0]++;
+        }
     }
 }
 
@@ -121,7 +139,8 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, uint64_t oldLen, u
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
 robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry **deref) {
-    dictEntry *de = dbFind(db, key->ptr);
+    const int key_slot = getKeySlot(key->ptr);
+    dictEntry *de = dbFindWithKeySlot(db, key->ptr, key_slot);
     robj *val = NULL;
     if (de) {
         val = dictGetVal(de);
@@ -141,7 +160,7 @@ robj *lookupKey(redisDb *db, robj *key, int flags, dictEntry **deref) {
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
         if (flags & LOOKUP_ACCESS_EXPIRED)
             expire_flags |= EXPIRE_ALLOW_ACCESS_EXPIRED;
-        if (expireIfNeeded(db, key, expire_flags) != KEY_VALID) {
+        if (expireIfNeededWithSlot(db, key, expire_flags, key_slot) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
         }
@@ -249,7 +268,7 @@ static dictEntry *dbAddInternal(redisDb *db, robj *key, robj *val, int update_if
     kvstoreDictSetVal(db->keys, slot, de, val);
     signalKeyAsReady(db, key, val->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
-    updateKeysizesHist(db, slot, val->type, 0, getObjectLength(val)); /* add hist */
+    updateKeysizesHist(db, slot, val->type, -1, getObjectLength(val)); /* add hist */
     return de;
 }
 
@@ -295,7 +314,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
     int slot = getKeySlot(key);
     dictEntry *de = kvstoreDictAddRaw(db->keys, slot, key, NULL);
     if (de == NULL) return 0;
-    updateKeysizesHist(db, slot, val->type, 0, getObjectLength(val)); /* add hist */
+    updateKeysizesHist(db, slot, val->type, -1, getObjectLength(val)); /* add hist */
     initObjectLRUOrLFU(val);
     kvstoreDictSetVal(db->keys, slot, de, val);
     return 1;
@@ -320,7 +339,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
     robj *old = dictGetVal(de);
 
     /* Remove old key from keysizes histogram */
-    updateKeysizesHist(db, slot, old->type, getObjectLength(old), 0); /* remove hist */
+    updateKeysizesHist(db, slot, old->type, getObjectLength(old), -1); /* remove hist */
 
     val->lru = old->lru;
 
@@ -341,7 +360,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
     kvstoreDictSetVal(db->keys, slot, de, val);
 
     /* Add new key to keysizes histogram */
-    updateKeysizesHist(db, slot, val->type, 0, getObjectLength(val));
+    updateKeysizesHist(db, slot, val->type, -1, getObjectLength(val));
 
     /* if hash with HFEs, take care to remove from global HFE DS */
     if (old->type == OBJ_HASH)
@@ -438,7 +457,7 @@ robj *dbRandomKey(redisDb *db) {
              * return a key name that may be already expired. */
             return keyobj;
         }
-        if (expireIfNeeded(db,keyobj,0) != KEY_VALID) {
+        if (expireIfNeededWithSlot(db,keyobj,0,randomSlot) != KEY_VALID) {
             decrRefCount(keyobj);
             continue; /* search for another key. This expired. */
         }
@@ -457,7 +476,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         robj *val = dictGetVal(de);
 
         /* remove key from histogram */
-        updateKeysizesHist(db, slot, val->type, getObjectLength(val), 0);
+        updateKeysizesHist(db, slot, val->type, getObjectLength(val), -1);
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (val->type == OBJ_HASH)
@@ -2045,6 +2064,17 @@ void setExpireWithDictEntry(client *c, redisDb *db, robj *key, long long when, d
 
 /* Return the expire time of the specified key, or -1 if no expire
  * is associated with this key (i.e. the key is non volatile) */
+static inline long long getExpireWithSlot(redisDb *db, robj *key, int keySlot) {
+    dictEntry *de;
+
+    if ((de = dbFindExpiresWithKeySlot(db, key->ptr, keySlot)) == NULL)
+        return -1;
+
+    return dictGetSignedIntegerVal(de);
+}
+
+/* Return the expire time of the specified key, or -1 if no expire
+ * is associated with this key (i.e. the key is non volatile) */
 long long getExpire(redisDb *db, robj *key) {
     dictEntry *de;
 
@@ -2160,21 +2190,25 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[1]);
 }
 
-/* Check if the key is expired. */
-int keyIsExpired(redisDb *db, robj *key) {
+/* Internal Check if the key is expired based upon mstime_t. */
+static inline int keyIsExpiredInternal(mstime_t when) {
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
-
-    mstime_t when = getExpire(db,key);
-    mstime_t now;
-
     if (when < 0) return 0; /* No expire for this key */
-
-    now = commandTimeSnapshot();
-
+    const mstime_t now = commandTimeSnapshot();
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
     return now > when;
+}
+
+/* Check if the key is expired. */
+static inline int keyIsExpiredWithSlot(redisDb *db, robj *key, int keySlot) {
+    return keyIsExpiredInternal(getExpireWithSlot(db,key,keySlot));
+}
+
+/* Check if the key is expired. */
+int keyIsExpired(redisDb *db, robj *key) {
+    return keyIsExpiredInternal(getExpire(db,key));
 }
 
 /* This function is called when we are going to perform some operation
@@ -2209,9 +2243,13 @@ int keyIsExpired(redisDb *db, robj *key) {
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
  * or returns KEY_DELETED if the key is expired and deleted. */
 keyStatus expireIfNeeded(redisDb *db, robj *key, int flags) {
+    return expireIfNeededWithSlot(db,key,flags,getKeySlot(key->ptr));
+}
+
+static inline keyStatus expireIfNeededWithSlot(redisDb *db, robj *key, int flags, const int keySlot) {
     if ((server.allow_access_expired) ||
         (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
-        (!keyIsExpired(db,key)))
+        (!keyIsExpiredWithSlot(db,key,keySlot)))
         return KEY_VALID;
 
     /* If we are running in the context of a replica, instead of
@@ -2289,12 +2327,24 @@ int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand) {
     return dbExpandGeneric(db->expires, db_size, try_expand);
 }
 
+static inline dictEntry *dbFindGenericWithKeySlot(kvstore *kvs, void *key, int keySlot) {
+    return kvstoreDictFind(kvs, keySlot, key);
+}
+
 static dictEntry *dbFindGeneric(kvstore *kvs, void *key) {
     return kvstoreDictFind(kvs, getKeySlot(key), key);
 }
 
 dictEntry *dbFind(redisDb *db, void *key) {
     return dbFindGeneric(db->keys, key);
+}
+
+static inline dictEntry *dbFindWithKeySlot(redisDb *db, void *key, int keySlot) {
+    return dbFindGenericWithKeySlot(db->keys, key, keySlot);
+}
+
+static inline dictEntry *dbFindExpiresWithKeySlot(redisDb *db, void *key, int keySlot) {
+    return dbFindGenericWithKeySlot(db->expires, key, keySlot);
 }
 
 dictEntry *dbFindExpires(redisDb *db, void *key) {
