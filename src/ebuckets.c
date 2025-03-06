@@ -1820,6 +1820,7 @@ int ebDefragRaxNode(raxNode **noderef, void *privdata) {
 }
 
 void ebDefragList(ebuckets *eb, EbucketsType *type, ebDefragFunctions *defragfns, void *privdata) {
+    assert(ebIsList(*eb));
     ExpireMeta *prevem = NULL;
     eItem newitem, curitem = ebGetListPtr(type, *eb);
     while (curitem != NULL) {
@@ -1837,7 +1838,10 @@ void ebDefragList(ebuckets *eb, EbucketsType *type, ebDefragFunctions *defragfns
     }
 }
 
-int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor, ebDefragFunctions *defragfns, void *privdata) {
+int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
+                ebDefragFunctions *defragfns, void *privdata)
+{
+    assert(!ebIsList(*eb));
     rax *rax = ebGetRaxPtr(*eb);
     raxIterator ri;
     static unsigned char last[EB_KEY_SIZE];
@@ -1864,76 +1868,87 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor, ebDefra
     }
 
     (*cursor)++;
-    if (raxNext(&ri)) {
-        FirstSegHdr *firstSegHdr = ri.data;
-        eItem newiter, iter = firstSegHdr->head;;
-        ExpireMeta *mIter, *mHead;
+    if (!raxNext(&ri)) {
+        *cursor = 0;
+        raxStop(&ri);
+        return 0;
+    }
 
-        mHead = type->getExpireMeta(iter);
-        CommonSegHdr *newSegHdr, *currentSegHdr = (CommonSegHdr*)firstSegHdr;
-        ExpireMeta *preLastIter = NULL;
-        while (1) {
-            unsigned int numItems = mHead->numItems;
-            assert(numItems);  /* Avoid compiler warning with old build chain. */
-            ExpireMeta *prevIter = NULL;
-            for (unsigned int i = 0; i < numItems; ++i) {
-                if ((newiter = defragfns->defragItem(iter, privdata))) {
-                    iter = newiter;
+    FirstSegHdr *firstSegHdr = ri.data;
+    eItem iter = firstSegHdr->head;;
+    ExpireMeta *mHead = type->getExpireMeta(iter);
+    CommonSegHdr *currentSegHdr = (CommonSegHdr*)firstSegHdr;
+    ExpireMeta *prevSegLastItem = NULL; /* The last item of the previous segment */
+    while (1) {
+        unsigned int numItems = mHead->numItems;
+        assert(numItems);  /* Avoid compiler warning with old build chain. */
+        ExpireMeta *prevIter = NULL;
+        eItem newiter;
+        ExpireMeta *mIter;
+        CommonSegHdr *newSegHdr;
 
-                    if (prevIter == NULL) {
-                        /* If this is the first item in the segment, update the segment
-                         * header to point to the new item location. */
-                        currentSegHdr->head = iter;
-                    } else {
-                        /* Update the previous item's next pointer to point to the newly defragmented item */
-                        prevIter->next = iter;
-                    }
-                }
-                mIter = type->getExpireMeta(iter);
-                prevIter = mIter;
-                iter = mIter->next;
-            }
+        for (unsigned int i = 0; i < numItems; ++i) {
+            if ((newiter = defragfns->defragItem(iter, privdata))) {
+                iter = newiter;
 
-            if ((newSegHdr = defragfns->defragAlloc(currentSegHdr))) {
-                if (currentSegHdr == ri.data) {
-                    /* If the first segment is updated, need to update the rax data. */
-                    raxSetData(ri.node, ri.data=newSegHdr);
+                if (prevIter == NULL) {
+                    /* If this is the first item in the segment, update the segment
+                        * header to point to the new item location. */
+                    currentSegHdr->head = iter;
                 } else {
-                    /* For non-first segments, update the next pointer of previous
-                     * item to point to the newly defragmented segment. */
-                    preLastIter->next = newSegHdr;
+                    /* Update the previous item's next pointer to point to the newly defragmented item */
+                    prevIter->next = iter;
                 }
-                currentSegHdr = newSegHdr;
             }
-
-            preLastIter = mIter;
-            if (mIter->lastItemBucket) {
-                mIter->next = currentSegHdr; /* The last eitem needs to point back to the segment. */
-                break;
-            }
-
-            NextSegHdr *nextSegHdr = mIter->next;
-            nextSegHdr->prevSeg = currentSegHdr; /* If not the last segment, update the prevSeg
-                                                  * pointer to the newly defragged segment. */
-            iter = nextSegHdr->head;
-            mHead = type->getExpireMeta(iter);
+            mIter = type->getExpireMeta(iter);
+            prevIter = mIter;
+            iter = mIter->next;
         }
 
-        assert(ri.key_len==sizeof(last));
-        memcpy(last,ri.key,ri.key_len);
-        raxStop(&ri);
-        return 1;
+        if ((newSegHdr = defragfns->defragAlloc(currentSegHdr))) {
+            if (currentSegHdr == ri.data) {
+                /* If the first segment is updated, need to update the rax data. */
+                raxSetData(ri.node, ri.data=newSegHdr);
+            } else {
+                /* For non-first segments, update the next pointer of previous
+                 * item to point to the newly defragmented segment. */
+                prevSegLastItem->next = newSegHdr;
+            }
+            currentSegHdr = newSegHdr;
+        }
+
+        /* Store last eitem in current segment to update its 'next'
+         * pointer when reallocating next segment. */
+        prevSegLastItem = mIter;
+
+        if (mIter->lastItemBucket) {
+            /* The last eitem needs to point back to the segment. */
+            if (newSegHdr) mIter->next = currentSegHdr;
+            break;
+        }
+
+        NextSegHdr *nextSegHdr = mIter->next;
+        if (newSegHdr) nextSegHdr->prevSeg = newSegHdr; /* If not the last segment, update the prevSeg
+                                                         * pointer to the newly defragged segment. */
+        iter = nextSegHdr->head;
+        mHead = type->getExpireMeta(iter);
     }
+
+    assert(ri.key_len==sizeof(last));
+    memcpy(last,ri.key,ri.key_len);
     raxStop(&ri);
-    *cursor = 0;
-    return 0; 
+    return 1;
 }
 
 int ebDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor, ebDefragFunctions *defragfns, void *privdata) {
-    if (ebIsEmpty(*eb)) return 0;
+    if (ebIsEmpty(*eb)) {
+        *cursor = 0;
+        return 0;
+    }
 
     if (ebIsList(*eb)) {
         ebDefragList(eb, type, defragfns, privdata);
+        *cursor = 0;
         return 0;
     } else {
         return ebDefragRax(eb, type, cursor, defragfns, privdata);
