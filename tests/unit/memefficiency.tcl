@@ -550,7 +550,7 @@ run_solo {defrag} {
             }
 
             # Coverage for listpackex.
-            r hset h_lpex $dummy_field f0
+            r hset h_lpex $dummy_field v
             r hexpire h_lpex 9999999 FIELDS 1 f0
             assert_encoding listpackex h_lpex
 
