@@ -538,7 +538,7 @@ run_solo {defrag} {
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
                 for {set j 0} {$j < $fields} {incr j} {
-                    $rd hset h$i f$j $dummy_field
+                    $rd hset h$i $dummy_field$j v
                     $rd hexpire h$i 9999999 FIELDS 1 f$j
                     $rd set "k$i$j" $dummy_field
                 }
@@ -594,7 +594,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.2
+                wait_for_defrag_stop 500 100 1.1
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
