@@ -683,12 +683,12 @@ start_server {tags {"other external:skip"}} {
         }
         assert_equal [expr $incompatible_ops + 100] [s cluster_incompatible_ops]
 
-        # 50% sample ratio, cluster_incompatible_ops should increase between 40% and 60%
+        # 30% sample ratio, cluster_incompatible_ops should increase between 20% and 40%
         set incompatible_ops [s cluster_incompatible_ops]
-        r config set cluster-compatibility-sample-ratio 50
+        r config set cluster-compatibility-sample-ratio 30
          for {set i 0} {$i < 1000} {incr i} {
             r mset foo bar$i bar foo$i
         }
-        assert_range [s cluster_incompatible_ops] [expr $incompatible_ops + 400] [expr $incompatible_ops + 600]
+        assert_range [s cluster_incompatible_ops] [expr $incompatible_ops + 200] [expr $incompatible_ops + 400]
     } {} {cluster:skip}
 }
