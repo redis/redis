@@ -1856,7 +1856,7 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         raxSeek(&ri,"^",NULL,0);
     } else {
         /* if cursor is non-zero, we seek to the static 'last' */
-        if (!raxSeek(&ri,">", last, EB_KEY_SIZE)) {
+        if (!raxSeek(&ri,">=", last, EB_KEY_SIZE)) {
             *cursor = 0;
             raxStop(&ri);
             return 0;
@@ -1932,6 +1932,14 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
                                                          * pointer to the newly defragged segment. */
         iter = nextSegHdr->head;
         mHead = type->getExpireMeta(iter);
+    }
+
+    /* Move to next node. */
+    if (!raxNext(&ri)) {
+        /* If we reached the end, we can stop. */
+        *cursor = 0;
+        raxStop(&ri);
+        return 0;
     }
 
     assert(ri.key_len==sizeof(last));
