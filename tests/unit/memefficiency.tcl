@@ -521,9 +521,7 @@ run_solo {defrag} {
             r config set activedefrag no
             wait_for_defrag_stop 500 100
             r config resetstat
-            # TODO: Lower the threshold after defraging the ebuckets.
-            # Now just to ensure that the reference is updated correctly.
-            r config set active-defrag-threshold-lower 12
+            r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
