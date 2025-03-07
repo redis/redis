@@ -672,7 +672,7 @@ int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) 
         raxSeek(&ri,"^",NULL,0);
     } else {
         /* if cursor is non-zero, we seek to the static 'last' */
-        if (!raxSeek(&ri,">", last, sizeof(last))) {
+        if (!raxSeek(&ri,">=", last, sizeof(last))) {
             *cursor = 0;
             raxStop(&ri);
             return 0;
@@ -690,6 +690,13 @@ int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) 
         server.stat_active_defrag_scanned++;
         if (++iterations > 128) {
             if (getMonotonicUs() > endtime) {
+                /* Move to next node. */
+                if (!raxNext(&ri)) {
+                    /* If we reached the end, we can stop */
+                    *cursor = 0;
+                    raxStop(&ri);
+                    return 0;
+                }
                 serverAssert(ri.key_len==sizeof(last));
                 memcpy(last,ri.key,ri.key_len);
                 raxStop(&ri);
