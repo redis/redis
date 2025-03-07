@@ -609,7 +609,7 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
         if (!*cursor) defrag_phase = HASH_DEFRAG_EBUCKETS;
     }
 
-    /* Defrag ebuckets metadata and TTL fields. */
+    /* Defrag ebuckets and TTL fields. */
     if (defrag_phase == HASH_DEFRAG_EBUCKETS) {
         if (d->type == &mstrHashDictTypeWithHFE) {
             ebDefragFunctions eb_defragfns = {
@@ -903,9 +903,9 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de) {
             hashTypeUpdateKeyRef(ob, newsds);
     }
 
-    /* Try to defrag robj and / or string value. */
+    /* Try to defrag robj and/or string value. For hash objects with HFEs,
+     * defer defragmentation until processing db's hexpires. */
     if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
-        /* If the dict doesn't have metadata, we directly defrag it. */
         if ((newob = activeDefragStringOb(ob))) {
             kvstoreDictSetVal(db->keys, slot, de, newob);
             ob = newob;
