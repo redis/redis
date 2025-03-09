@@ -68,8 +68,8 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
-static int dictDefaultCompare(dict *d, const void *key1, const void *key2);
-static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntry ***bucket);
+static int dictDefaultCompare(dictCmpCache *c, const void *key1, const void *key2);
+static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *bucket);
 dictEntLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
 static dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntLink link);
 
@@ -82,8 +82,11 @@ int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
 
 /* -------------------------- misc inline functions -------------------------------- */
 
-typedef int (*keyCmpFunc)(dict *d, const void *key1, const void *key2);
-static inline keyCmpFunc dictGetKeyCmpFunc(dict *d) {
+typedef int (*keyCmpFunc)(dictCmpCache *c, const void *key1, const void *key2);
+static inline keyCmpFunc dictGetCmpFuncAndResetCache(dict *d, dictCmpCache *cmpCache) {
+    cmpCache->useCache = 0;
+    cmpCache->data[0].u64 = 0;
+    cmpCache->data[1].u64 = 0;
     if (d->useStoredKeyApi && d->type->storedKeyCompare)
         return d->type->storedKeyCompare;
     if (d->type->keyCompare)
@@ -645,6 +648,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
+    dictCmpCache cmpCache;
     uint64_t h, idx;
     dictEntry *he, *prevHe;
     int table;
@@ -658,7 +662,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d,idx);
 
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    keyCmpFunc cmpFunc = dictGetCmpFuncAndResetCache(d, &cmpCache);
 
     for (table = 0; table <= 1; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue;
@@ -667,7 +671,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         prevHe = NULL;
         while(he) {
             void *he_key = dictGetKey(he);
-            if (key == he_key || cmpFunc(d, key, he_key)) {
+            if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     dictSetNext(prevHe, dictGetNext(he));
@@ -779,6 +783,7 @@ void dictRelease(dict *d)
  * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
  */
 static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *bucket) {
+    dictCmpCache cmpCache;
     dictEntLink link;
     uint64_t idx;
     int table;
@@ -793,7 +798,7 @@ static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *b
     }
 
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    keyCmpFunc cmpFunc = dictGetCmpFuncAndResetCache(d, &cmpCache);
 
     /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d,idx);
@@ -814,7 +819,7 @@ static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *b
             /* Prefetch the next entry to improve cache efficiency */
             redis_prefetch_read(dictGetNext(*link));
 
-            if (key == visitedKey || cmpFunc(d, key, visitedKey))                
+            if (key == visitedKey || cmpFunc( &cmpCache, key, visitedKey))                
                 return link;
 
             link = dictGetNextLink(*link);
@@ -948,13 +953,14 @@ void *dictFetchValue(dict *d, const void *key) {
  * to the second one to avoid repeating the lookup
  */
 dictEntLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index) {
+    dictCmpCache cmpCache;
     uint64_t h, idx, table;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
-    h = dictHashKey(d, key, d->useStoredKeyApi);
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    h = dictHashKey(d, key, d->useStoredKeyApi);    
+    keyCmpFunc cmpFunc = dictGetCmpFuncAndResetCache(d, &cmpCache);
 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
@@ -962,7 +968,7 @@ dictEntLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index) {
         dictEntry **ref = &d->ht_table[table][idx];
         while (ref && *ref) {
             void *de_key = dictGetKey(*ref);
-            if (key == de_key || cmpFunc(d, key, de_key)) {
+            if (key == de_key || cmpFunc(&cmpCache, key, de_key)) {
                 *table_index = table;
                 dictPauseRehashing(d);
                 return ref;
@@ -1740,6 +1746,7 @@ static signed char _dictNextExp(unsigned long size)
  * 'existing' entry pointer is populated, if provided. */
 dictEntLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing) {
     unsigned long idx, table;
+    dictCmpCache cmpCache;
     dictEntry *he;
     uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
     if (existing) *existing = NULL;
@@ -1750,7 +1757,7 @@ dictEntLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing
 
     /* Expand the hash table if needed */
     _dictExpandIfNeeded(d);
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    keyCmpFunc cmpFunc = dictGetCmpFuncAndResetCache(d, &cmpCache);
 
     for (table = 0; table <= 1; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue; 
@@ -1759,7 +1766,7 @@ dictEntLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing
         he = d->ht_table[table][idx];
         while(he) {
             void *he_key = dictGetKey(he);
-            if (key == he_key || cmpFunc(d, key, he_key)) {
+            if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 if (existing) *existing = he;
                 return NULL;
             }
@@ -1913,8 +1920,8 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     orig_buf[orig_bufsize-1] = '\0';
 }
 
-static int dictDefaultCompare(dict *d, const void *key1, const void *key2) {
-    (void)(d); /*unused*/
+static int dictDefaultCompare(dictCmpCache *c, const void *key1, const void *key2) {
+    (void)(c); /*unused*/
     return key1 == key2;
 }
 
@@ -1930,9 +1937,9 @@ uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-int compareCallback(dict *d, const void *key1, const void *key2) {
+int compareCallback(dictCmpCache *c, const void *key1, const void *key2) {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(c);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);

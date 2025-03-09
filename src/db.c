@@ -480,7 +480,7 @@ void setKey(client *c, redisDb *db, robj *key, robj **valref, int flags) {
  * - If flags is set with SETKEY_DOESNT_EXIST, then if `link` is provided, it
  *   will point to the bucket where the key should be added. Can also set to NULL. 
  *   
- * On return, link get updated, by need, to the inserted key.   
+ * On return, link get updated, by need, to the inserted kvobj.
  */
 void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntLink *plink) {
     dictEntLink dummy = NULL, *link = plink ? plink : &dummy;

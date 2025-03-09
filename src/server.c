@@ -294,31 +294,41 @@ size_t dictSdsKeyLen(dict *d, const void *key) {
     return sdslen((sds)key);
 }
 
-int dictSdsKeyCompareWithLen(dict *d, const void *key1, const size_t l1,
-                                      const void *key2, const size_t l2)
-{
-    UNUSED(d);
-    if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
-}
-
 static uint64_t dictHashKV(const void *kv) {
     sds sdsKey = kvobjGetKey((kvobj *) kv);
     return dictGenHashFunction(sdsKey, sdslen(sdsKey));
 }
 
-int dictCompareKV(dict *d, const void *kv1, const void *kv2)
-{ 
-    sds key1 = kvobjGetKey((kvobj *) kv1);
+int dictCompareKV(dictCmpCache *c, const void *kv1, const void *kv2) 
+{
+    /* Use caching to avoid compute key&len for each comparison on given lookup */
+    if (c->useCache == 0) {
+        c->useCache = 1;
+        c->data[0].p = kvobjGetKey((kvobj *) kv1);
+        c->data[1].sz = sdslen((sds) c->data[0].p); 
+    }
+        
+    sds key1 = c->data[0].p;
     sds key2 = kvobjGetKey((kvobj *) kv2);
-    return dictSdsKeyCompare(d, key1, key2);
+    int l1 = (int) c->data[1].sz; 
+    int l2 = sdslen((sds)key2);
+    if (l1 != l2) return 0;
+    return memcmp(key1, key2, l1) == 0;
 }
 
-int dictSdsCompareKV(dict *d, const void *sdsLookup, const void *kv)
+int dictSdsCompareKV(dictCmpCache *c, const void *sdsLookup, const void *kv)
 {
-    sds key = kvobjGetKey((kvobj *)kv);
-    serverAssert(((kvobj *)kv)->iskvobj);
-    return dictSdsKeyCompare(d, (sds)sdsLookup, key);
+    /* is first cmp call of a new lookup */
+    if (c->useCache == 0) {
+        c->useCache = 1;
+        c->data[0].sz = sdslen((sds) sdsLookup);
+    }
+
+    sds key2 = kvobjGetKey((kvobj *)kv);
+    size_t l1 = c->data[0].sz;
+    size_t l2 = sdslen((sds)key2);
+    if (l1 != l2) return 0;
+    return memcmp(sdsLookup, key2, l1) == 0;
 }
 
 static void dictDestructorKV(dict *d, void *kv) {
@@ -327,11 +337,11 @@ static void dictDestructorKV(dict *d, void *kv) {
     decrRefCount(kv);
 }
 
-int dictSdsKeyCompare(dict *d, const void *key1,
+int dictSdsKeyCompare(dictCmpCache *c, const void *key1,
         const void *key2)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(c);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -339,10 +349,10 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored)
+int dictSdsMstrKeyCompare(dictCmpCache *c, const void *sdsLookup, const void *mstrStored)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(c);
 
     l1 = sdslen((sds)sdsLookup);
     l2 = hfieldlen((hfield)mstrStored);
@@ -353,10 +363,10 @@ int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
-int dictSdsKeyCaseCompare(dict *d, const void *key1,
+int dictSdsKeyCaseCompare(dictCmpCache *c, const void *key1,
         const void *key2)
 {
-    UNUSED(d);
+    UNUSED(c);
     return strcasecmp(key1, key2) == 0;
 }
 
@@ -378,11 +388,11 @@ void *dictSdsDup(dict *d, const void *key) {
     return sdsdup((const sds) key);
 }
 
-int dictObjKeyCompare(dict *d, const void *key1,
+int dictObjKeyCompare(dictCmpCache *c, const void *key1,
         const void *key2)
 {
     const robj *o1 = key1, *o2 = key2;
-    return dictSdsKeyCompare(d, o1->ptr,o2->ptr);
+    return dictSdsKeyCompare(c, o1->ptr,o2->ptr);
 }
 
 uint64_t dictObjHash(const void *key) {
@@ -418,15 +428,15 @@ uint64_t dictClientHash(const void *key) {
 }
 
 /* Dict compare function for client */
-int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
+int dictClientKeyCompare(dictCmpCache *c, const void *key1, const void *key2) {
+    UNUSED(c);
     return ((client *)key1)->id == ((client *)key2)->id;
 }
 
 /* Dict compare function for null terminated string */
-int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
+int dictCStrKeyCompare(dictCmpCache *c, const void *key1, const void *key2) {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(c);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
@@ -435,12 +445,12 @@ int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
 }
 
 /* Dict case insensitive compare function for null terminated string */
-int dictCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
+int dictCStrKeyCaseCompare(dictCmpCache *c, const void *key1, const void *key2) {
+    UNUSED(c);
     return strcasecmp(key1, key2) == 0;
 }
 
-int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
+int dictEncObjKeyCompare(dictCmpCache *c, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
     int cmp;
@@ -455,7 +465,7 @@ int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
      * objects as well. */
     if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(d,o1->ptr,o2->ptr);
+    cmp = dictSdsKeyCompare(c,o1->ptr,o2->ptr);
     if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;

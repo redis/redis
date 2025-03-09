@@ -55,7 +55,7 @@ static void hfieldPersist(robj *hashObj, hfield field);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
 
 /* hash dictType funcs */
-static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2);
+static int dictHfieldKeyCompare(dictCmpCache *c, const void *key1, const void *key2);
 static uint64_t dictMstrHash(const void *key);
 static void dictHfieldDestructor(dict *d, void *field);
 static size_t hashDictWithExpireMetadataBytes(dict *d);
@@ -231,10 +231,10 @@ void hashTypeSetExDone(HashTypeSetEx *e);
  * Accessor functions for dictType of hash
  *----------------------------------------------------------------------------*/
 
-static int dictHfieldKeyCompare(dict *d, const void *key1, const void *key2)
+static int dictHfieldKeyCompare(dictCmpCache *c, const void *key1, const void *key2)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(c);
 
     l1 = hfieldlen((hfield)key1);
     l2 = hfieldlen((hfield)key2);

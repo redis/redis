@@ -27,15 +27,34 @@
 #define HASHTABLE_MIN_FILL        8      /* Minimal hash table fill 12.5%(100/8) */
 
 typedef struct dictEntry dictEntry; /* opaque */
-typedef struct dict dict; 
+typedef struct dict dict;
 typedef dictEntry **dictEntLink; /* See description of dictFindLink() */
+
+/* Searching for a key in a dict may involve few comparisons.
+ * If extracting the looked-up key is expensive (e.g., sdslen(), kvobjGetKey()),  
+ * caching can be used to reduce those repetitive computations.  
+ *  
+ * This struct, passed to the comparison function as temporary caching, if 
+ * needed by the function across comparison of a given lookup. 
+ * for the looked-up key and resets before each new lookup. */
+typedef struct dictCmpCache {
+    int useCache;
+    
+    union {
+        uint64_t u64;
+        int64_t i64;
+        int i;
+        size_t sz;
+        void *p;
+    } data[2];
+} dictCmpCache;
 
 typedef struct dictType {
     /* Callbacks */
     uint64_t (*hashFunction)(const void *key);
     void *(*keyDup)(dict *d, const void *key);
     void *(*valDup)(dict *d, const void *obj);
-    int (*keyCompare)(dict *d, const void *key1, const void *key2);
+    int (*keyCompare)(dictCmpCache *c, const void *key1, const void *key2);
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*resizeAllowed)(size_t moreMem, double usedRatio);
@@ -89,7 +108,7 @@ typedef struct dictType {
      *
      * Set to NULL both functions, if you don't want to support this feature. */
     uint64_t (*storedHashFunction)(const void *key);
-    int (*storedKeyCompare)(dict *d, const void *key1, const void *key2);
+    int (*storedKeyCompare)(dictCmpCache *c, const void *key1, const void *key2);
 
     /* Optional callback called when the dict is destroyed. */
     void (*onDictRelease)(dict *d);
