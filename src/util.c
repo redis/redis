@@ -1544,6 +1544,25 @@ static void test_string2l(void) {
 #endif
 }
 
+
+static void test_string2d(void) {
+    char buf[1024];
+    double v;
+
+    /* Valid hexadecimal value. */
+    redis_strlcpy(buf,"0x0p+0",sizeof(buf));
+    assert(string2d(buf,strlen(buf),&v) == 1);
+    assert(v == 0.0);
+
+    redis_strlcpy(buf,"0x1p+0",sizeof(buf));
+    assert(string2d(buf,strlen(buf),&v) == 1);
+    assert(v == 1.0);
+
+    /* overflow. */
+    redis_strlcpy(buf,"23456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789",sizeof(buf));
+    assert(string2d(buf,strlen(buf),&v) == 0);
+}
+
 static void test_ll2string(void) {
     char buf[32];
     long long v;
@@ -1702,6 +1721,7 @@ int utilTest(int argc, char **argv, int flags) {
 
     test_string2ll();
     test_string2l();
+    test_string2d();
     test_ll2string();
     test_ld2string();
     test_fixedpoint_d2string();
