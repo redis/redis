@@ -674,7 +674,7 @@ int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) 
         /* if cursor is non-zero, we seek to the static 'next'.
          * Since node_cb is set after seek operation, any node traversed during seek wouldn't
          * be defragmented. To prevent this, we advance to next node before exiting previous
-         * run, ensuring it gets defragmented instead of being skipped during next seek. */
+         * run, ensuring it gets defragmented instead of being skipped during current seek. */
         if (!raxSeek(&ri,">=", next, sizeof(next))) {
             *cursor = 0;
             raxStop(&ri);
