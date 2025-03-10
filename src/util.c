@@ -660,11 +660,11 @@ int string2ld(const char *s, size_t slen, long double *dp) {
 int string2d(const char *s, size_t slen, double *dp) {
     errno = 0;
     char *eptr;
-    *dp = fast_float_strtod(s, &eptr);
+    /* Fast path to reject empty strings, or strings starting by space explicitly */
     if (unlikely(slen == 0 ||
-        isspace(((const char*)s)[0]) ||
-        isnan(*dp)))
+        isspace(((const char*)s)[0])))
         return 0;
+    *dp = fast_float_strtod(s, &eptr);
     /* If `fast_float_strtod` didn't consume full input, try `strtod`
      * Given fast_float does not support hexadecimal strings representation */
     if (unlikely((size_t)(eptr - (char*)s) != slen)) {
@@ -672,10 +672,10 @@ int string2d(const char *s, size_t slen, double *dp) {
         *dp = strtod(s, &fallback_eptr);
         if ((size_t)(fallback_eptr - (char*)s) != slen) return 0;
     }
-    if (unlikely(errno == ERANGE &&
-        (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)))
-        return 0;
-    if (unlikely(errno == EINVAL))
+    if (unlikely(errno == EINVAL ||
+        (errno == ERANGE &&
+        (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)) ||
+        isnan(*dp)))
         return 0;
     return 1;
 }
@@ -1557,6 +1557,45 @@ static void test_string2d(void) {
     redis_strlcpy(buf,"0x1p+0",sizeof(buf));
     assert(string2d(buf,strlen(buf),&v) == 1);
     assert(v == 1.0);
+
+    /* Valid floating-point numbers */
+    redis_strlcpy(buf, "1.5", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 1);
+    assert(v == 1.5);
+
+    redis_strlcpy(buf, "-3.14", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 1);
+    assert(v == -3.14);
+
+    redis_strlcpy(buf, "2.0e10", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 1);
+    assert(v == 2.0e10);
+
+    redis_strlcpy(buf, "1e-3", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 1);
+    assert(v == 0.001);
+
+    /* Valid integer */
+    redis_strlcpy(buf, "42", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 1);
+    assert(v == 42.0);
+
+    /* Invalid cases */
+    /* Empty. */
+    redis_strlcpy(buf, "", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 0);
+
+    /* Starting by space. */
+    redis_strlcpy(buf, " 1.23", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 0);
+
+    /* Invalid hexadecimal format. */
+    redis_strlcpy(buf, "0x1.2g", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 0);
+
+    /* Hexadecimal NaN */
+    redis_strlcpy(buf, "0xNan", sizeof(buf));
+    assert(string2d(buf, strlen(buf), &v) == 0);
 
     /* overflow. */
     redis_strlcpy(buf,"23456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789123456789",sizeof(buf));
