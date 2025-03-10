@@ -674,7 +674,7 @@ int string2d(const char *s, size_t slen, double *dp) {
     }
     if (unlikely(errno == EINVAL ||
         (errno == ERANGE &&
-        (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)) ||
+            (*dp == HUGE_VAL || *dp == -HUGE_VAL || fpclassify(*dp) == FP_ZERO)) ||
         isnan(*dp)))
         return 0;
     return 1;
