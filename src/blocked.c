@@ -270,6 +270,7 @@ void disconnectAllBlockedClients(void) {
 
             if (c->bstate.btype == BLOCKED_LAZYFREE) {
                 addReply(c, shared.ok); /* No reason lazy-free to fail */
+                updateStatsOnUnblock(c, 0, 0, 0);
                 c->flags &= ~CLIENT_PENDING_COMMAND;
                 unblockClient(c, 1);
             } else {
