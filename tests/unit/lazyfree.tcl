@@ -186,5 +186,5 @@ start_server {tags {"lazyfree"}} {
         r ping
         $rd close
         r slaveof no one
-    }
+    } {0} {needs:debug}
 }
