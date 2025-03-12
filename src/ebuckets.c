@@ -1819,62 +1819,28 @@ int ebDefragRaxNode(raxNode **noderef, void *privdata) {
     return 0;
 }
 
+/* Defragments items in list-based bucket. */
 void ebDefragList(ebuckets *eb, EbucketsType *type, ebDefragFunctions *defragfns, void *privdata) {
-    assert(ebIsList(*eb));
-    ExpireMeta *prevem = NULL;
+    ExpireMeta *previtem = NULL;
     eItem newitem, curitem = ebGetListPtr(type, *eb);
     while (curitem != NULL) {
         if ((newitem = defragfns->defragItem(curitem, privdata))) {
             curitem = newitem;
-            if (prevem) {
-                prevem->next = curitem;
+            if (previtem) {
+                previtem->next = curitem;
             } else {
                 *eb = ebMarkAsList(curitem);
             }
         }
         /* Move to the next item in the list. */
-        prevem = type->getExpireMeta(curitem);
-        curitem = prevem->next;
+        previtem = type->getExpireMeta(curitem);
+        curitem = previtem->next;
     }
 }
 
-int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
-                ebDefragFunctions *defragfns, void *privdata)
-{
-    assert(!ebIsList(*eb));
-    rax *rax = ebGetRaxPtr(*eb);
-    raxIterator ri;
-    static unsigned char last[EB_KEY_SIZE];
-
-    raxStart(&ri,rax);
-    if (!*cursor) {
-        ebDefragRaxNode(&rax->head, defragfns);
-        /* assign the iterator node callback before the seek, so that the
-         * initial nodes that are processed till the first item are covered */
-        ri.node_cb = ebDefragRaxNode;
-        ri.privdata = defragfns;
-        raxSeek(&ri,"^",NULL,0);
-    } else {
-        /* if cursor is non-zero, we seek to the static 'last' */
-        if (!raxSeek(&ri,">=", last, EB_KEY_SIZE)) {
-            *cursor = 0;
-            raxStop(&ri);
-            return 0;
-        }
-        /* assign the iterator node callback after the seek, so that the
-         * initial nodes that are processed till now aren't covered */
-        ri.node_cb = ebDefragRaxNode;
-        ri.privdata = defragfns;
-    }
-
-    (*cursor)++;
-    if (!raxNext(&ri)) {
-        *cursor = 0;
-        raxStop(&ri);
-        return 0;
-    }
-
-    FirstSegHdr *firstSegHdr = ri.data;
+/* Defragments a single bucket in rax, including its segments and items. */
+void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri, ebDefragFunctions *defragfns, void *privdata) {
+    FirstSegHdr *firstSegHdr = ri->data;
     eItem iter = firstSegHdr->head;;
     ExpireMeta *mHead = type->getExpireMeta(iter);
     CommonSegHdr *currentSegHdr = (CommonSegHdr*)firstSegHdr;
@@ -1906,9 +1872,9 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         }
 
         if ((newSegHdr = defragfns->defragAlloc(currentSegHdr))) {
-            if (currentSegHdr == ri.data) {
+            if (currentSegHdr == ri->data) {
                 /* If the first segment is updated, need to update the rax data. */
-                raxSetData(ri.node, ri.data=newSegHdr);
+                raxSetData(ri->node, ri->data=newSegHdr);
             } else {
                 /* For non-first segments, update the next pointer of previous
                  * item to point to the newly defragmented segment. */
@@ -1933,6 +1899,40 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         iter = nextSegHdr->head;
         mHead = type->getExpireMeta(iter);
     }
+}
+
+/* Defragments items in rax-based bucket.
+ * returns 0 if no more work needs to be been done, and 1 if more work is needed. */
+int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
+                ebDefragFunctions *defragfns, void *privdata)
+{
+    rax *rax = ebGetRaxPtr(*eb);
+    raxIterator ri;
+    static unsigned char last[EB_KEY_SIZE];
+
+    raxStart(&ri,rax);
+    if (!*cursor) {
+        ebDefragRaxNode(&rax->head, defragfns);
+        /* assign the iterator node callback before the seek, so that the
+         * initial nodes that are processed till the first item are covered */
+        ri.node_cb = ebDefragRaxNode;
+        ri.privdata = defragfns;
+        raxSeek(&ri,"^",NULL,0);
+    } else {
+        /* if cursor is non-zero, we seek to the static 'last' */
+        if (!raxSeek(&ri,">=", last, EB_KEY_SIZE)) {
+            *cursor = 0;
+            raxStop(&ri);
+            return 0;
+        }
+        /* assign the iterator node callback after the seek, so that the
+         * initial nodes that are processed till now aren't covered */
+        ri.node_cb = ebDefragRaxNode;
+        ri.privdata = defragfns;
+    }
+
+    /* Defrag the bucket in the rax node. */
+    ebDefragRaxBucket(type, &ri, defragfns, privdata);
 
     /* Move to next node. */
     if (!raxNext(&ri)) {
