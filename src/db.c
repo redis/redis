@@ -812,8 +812,8 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     SlotsFlush *slotsFlush = sflush;
     client *c = lookupClientByID(client_id);
 
-    /* Verify that client still exists */
-    if (!c) {
+    /* Verify that client still exists and being blocked. */
+    if (!(c && c->flags & CLIENT_BLOCKED)) {
         zfree(sflush);
         return;
     }
