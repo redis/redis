@@ -464,7 +464,7 @@ void activeDefragHfieldDict(dict *d) {
             .defragItem = activeDefragHfieldAndUpdateRef
         };
         ebuckets *eb = hashTypeGetDictMetaHFE(d);
-        while (ebDefrag(eb, &hashFieldExpireBucketsType, &cursor, &eb_defragfns, d)) {}
+        while (ebScanDefrag(eb, &hashFieldExpireBucketsType, &cursor, &eb_defragfns, d)) {}
     }
 }
 
@@ -628,7 +628,7 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
                 .defragItem = activeDefragHfieldAndUpdateRef
             };
             ebuckets *eb = hashTypeGetDictMetaHFE(d);
-            ebDefrag(eb, &hashFieldExpireBucketsType, cursor, &eb_defragfns, d);
+            ebScanDefrag(eb, &hashFieldExpireBucketsType, cursor, &eb_defragfns, d);
         } else {
             /* Finish defragmentation if this dict doesn't have expired fields. */
             *cursor = 0;
@@ -1266,12 +1266,14 @@ static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
         scanCallbackCountScanned, NULL, &defragfns);
 }
 
+/* Defragment hash object with HFE and update its reference in the DB keys. */
 void *activeDefragHExpiresOB(void *ptr, void *privdata) {
     robj *ob = ptr;
     redisDb *db = privdata;
     serverAssert(ob->type == OBJ_HASH);
 
     if ((ob = activeDefragAlloc(ob))) {
+        /* Retrieve the associated key string from the hash object. */
         sds keystr;
         if (ob->encoding == OBJ_ENCODING_LISTPACK_EX) {
             keystr = ((listpackEx*)ob->ptr)->key;
@@ -1282,6 +1284,7 @@ void *activeDefragHExpiresOB(void *ptr, void *privdata) {
             keystr = dictExpireMeta->key;
         }
 
+        /* Update its reference in the DB keys. */
         unsigned int slot = calculateKeySlot(keystr);
         dictEntry *de = kvstoreDictFind(db->keys, slot, keystr);
         serverAssert(de);
@@ -1305,7 +1308,7 @@ static doneStatus defragStageHExpires(void *ctx, monotime endtime) {
     };
     while (1) {
         if (++iterations > 16 && getMonotonicUs() >= endtime) break;
-        if (!ebDefrag(&db->hexpires, &hashExpireBucketsType, &defrag_hexpires_ctx->cursor, &eb_defragfns, db))
+        if (!ebScanDefrag(&db->hexpires, &hashExpireBucketsType, &defrag_hexpires_ctx->cursor, &eb_defragfns, db))
             return DEFRAG_DONE;
     }
 

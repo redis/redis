@@ -1948,7 +1948,15 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
     return 1;
 }
 
-int ebDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor, ebDefragFunctions *defragfns, void *privdata) {
+/* Reallocates the memory used by ebucket components (segments and items) 
+ * using the provided allocation functions. This feature was added for
+ * the active defrag feature.
+ *
+ * The 'defragfns' callbacks are called with a pointer to memory that callback
+ * can reallocate. The callbacks should return a new memory address or NULL,
+ * where NULL means that no reallocation happened and the old memory is still
+ * valid. */
+int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor, ebDefragFunctions *defragfns, void *privdata) {
     if (ebIsEmpty(*eb)) {
         *cursor = 0;
         return 0;
@@ -2670,7 +2678,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 .defragAlloc = defragCallback,
                 .defragItem = defragItemCallback,
             };
-            while (ebDefrag(&eb, &myEbucketsType, &cursor, &defragfns, items)) {}
+            while (ebScanDefrag(&eb, &myEbucketsType, &cursor, &defragfns, items)) {}
             ebValidate(eb, &myEbucketsType);
             ebDestroy(&eb, &myEbucketsType, NULL);
         }
