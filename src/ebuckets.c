@@ -1839,7 +1839,9 @@ void ebDefragList(ebuckets *eb, EbucketsType *type, ebDefragFunctions *defragfns
 }
 
 /* Defragments a single bucket in rax, including its segments and items. */
-void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri, ebDefragFunctions *defragfns, void *privdata) {
+void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
+                       ebDefragFunctions *defragfns, void *privdata)
+{
     FirstSegHdr *firstSegHdr = ri->data;
     eItem iter = firstSegHdr->head;
     ExpireMeta *mHead = type->getExpireMeta(iter);
