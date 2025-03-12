@@ -1908,7 +1908,7 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
 {
     rax *rax = ebGetRaxPtr(*eb);
     raxIterator ri;
-    static unsigned char last[EB_KEY_SIZE];
+    static unsigned char next[EB_KEY_SIZE];
 
     raxStart(&ri,rax);
     if (!*cursor) {
@@ -1919,8 +1919,8 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         ri.privdata = defragfns;
         raxSeek(&ri,"^",NULL,0);
     } else {
-        /* if cursor is non-zero, we seek to the static 'last' */
-        if (!raxSeek(&ri,">=", last, EB_KEY_SIZE)) {
+        /* if cursor is non-zero, we seek to the static 'next' */
+        if (!raxSeek(&ri,">=", next, EB_KEY_SIZE)) {
             *cursor = 0;
             raxStop(&ri);
             return 0;
@@ -1942,8 +1942,8 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         return 0;
     }
 
-    assert(ri.key_len==sizeof(last));
-    memcpy(last,ri.key,ri.key_len);
+    assert(ri.key_len==sizeof(next));
+    memcpy(next,ri.key,ri.key_len);
     raxStop(&ri);
     return 1;
 }
