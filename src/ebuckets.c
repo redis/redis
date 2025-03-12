@@ -1841,7 +1841,7 @@ void ebDefragList(ebuckets *eb, EbucketsType *type, ebDefragFunctions *defragfns
 /* Defragments a single bucket in rax, including its segments and items. */
 void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri, ebDefragFunctions *defragfns, void *privdata) {
     FirstSegHdr *firstSegHdr = ri->data;
-    eItem iter = firstSegHdr->head;;
+    eItem iter = firstSegHdr->head;
     ExpireMeta *mHead = type->getExpireMeta(iter);
     CommonSegHdr *currentSegHdr = (CommonSegHdr*)firstSegHdr;
     ExpireMeta *prevSegLastItem = NULL; /* The last item of the previous segment */
@@ -1917,10 +1917,10 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
          * initial nodes that are processed till the first item are covered */
         ri.node_cb = ebDefragRaxNode;
         ri.privdata = defragfns;
-        raxSeek(&ri,"^",NULL,0);
+        raxSeek(&ri, "^", NULL, 0);
     } else {
         /* if cursor is non-zero, we seek to the static 'next' */
-        if (!raxSeek(&ri,">=", next, EB_KEY_SIZE)) {
+        if (!raxSeek(&ri, ">=", next, EB_KEY_SIZE)) {
             *cursor = 0;
             raxStop(&ri);
             return 0;
@@ -1942,8 +1942,8 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         return 0;
     }
 
-    assert(ri.key_len==sizeof(next));
-    memcpy(next,ri.key,ri.key_len);
+    assert(ri.key_len == sizeof(next));
+    memcpy(next, ri.key, ri.key_len);
     raxStop(&ri);
     return 1;
 }
@@ -1956,7 +1956,9 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
  * can reallocate. The callbacks should return a new memory address or NULL,
  * where NULL means that no reallocation happened and the old memory is still
  * valid. */
-int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor, ebDefragFunctions *defragfns, void *privdata) {
+int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
+                 ebDefragFunctions *defragfns, void *privdata)
+{
     if (ebIsEmpty(*eb)) {
         *cursor = 0;
         return 0;
