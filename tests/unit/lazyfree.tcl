@@ -178,7 +178,7 @@ start_server {tags {"lazyfree"}} {
     test "Unblocks client blocked on lazyfree via REPLICAOF command" {
         set rd [redis_deferring_client]
 
-        populate 50000
+        populate 50000 ;# Just to make flushdb async slower
         $rd flushdb
         wait_for_blocked_client
         # Test that slaveof command unblocks clients without assertion failure
