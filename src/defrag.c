@@ -195,23 +195,33 @@ sds activeDefragSds(sds sdsptr) {
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-void *activeDefragHfield(void *hfptr, void *privdata) {
-    hfield hf = hfptr, newhf = NULL;
-    dict *d = privdata;
-
+hfield activeDefragHfield(hfield hf) {
     void *ptr = hfieldGetAllocPtr(hf);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
         size_t offset = hf - (char*)ptr;
-        newhf = (char*)newptr + offset;
+        hf = (char*)newptr + offset;
+        return hf;
+    }
+    return NULL;
+}
 
+/* Defrag helper for hfield strings and update the reference in the dict.
+ *
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
+void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
+    dict *d = privdata;
+    hfield newhf = activeDefragHfield(ptr);
+    if (newhf) {
         /* We can't search in dict for that key after we've released
          * the pointer it holds, since it won't be able to do the string
          * compare, but we can find the entry using key hash and pointer. */
         dictUseStoredKeyApi(d, 1);
         uint64_t hash = dictGetHash(d, newhf);
         dictUseStoredKeyApi(d, 0);
-        dictEntry *de = dictFindByHashAndPtr(d, hf, hash);
+        dictEntry *de = dictFindByHashAndPtr(d, ptr, hash);
         serverAssert(de);
         dictSetKey(d, de, newhf);
     }
@@ -401,11 +411,12 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de) {
 
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de) {
     dict *d = privdata;
-    hfield hf = dictGetKey(de);
+    hfield newhf, hf = dictGetKey(de);
 
     if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID) {
         /* If the hfield does not have TTL, we directly defrag it. */
-        activeDefragHfield(hf, d);
+        if ((newhf = activeDefragHfield(hf)))
+            dictSetKey(d, (dictEntry *)de, newhf);
     } else {
         /* Skip fields with TTL here, they will be defragmented later during 
          * the hash expiry ebuckets defragmentation phase. */
@@ -450,7 +461,7 @@ void activeDefragHfieldDict(dict *d) {
         cursor = 0;
         ebDefragFunctions eb_defragfns = {
             .defragAlloc = activeDefragAlloc,
-            .defragItem = activeDefragHfield
+            .defragItem = activeDefragHfieldAndUpdateRef
         };
         ebuckets *eb = hashTypeGetDictMetaHFE(d);
         while (ebDefrag(eb, &hashFieldExpireBucketsType, &cursor, &eb_defragfns, d)) {}
@@ -614,7 +625,7 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
         if (d->type == &mstrHashDictTypeWithHFE) {
             ebDefragFunctions eb_defragfns = {
                 .defragAlloc = activeDefragAlloc,
-                .defragItem = activeDefragHfield
+                .defragItem = activeDefragHfieldAndUpdateRef
             };
             ebuckets *eb = hashTypeGetDictMetaHFE(d);
             ebDefrag(eb, &hashFieldExpireBucketsType, cursor, &eb_defragfns, d);
