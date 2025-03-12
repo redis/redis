@@ -178,13 +178,14 @@ start_server {tags {"lazyfree"}} {
     test "Unblocks client blocked on lazyfree via REPLICAOF command" {
         set rd [redis_deferring_client]
 
-        r debug populate 100000 key 1000
+        populate 50000
         $rd flushdb
         wait_for_blocked_client
         # Test that slaveof command unblocks clients without assertion failure
         r slaveof 127.0.0.1 0
-        r ping
+        assert_equal [$rd read] {OK}
         $rd close
+        r ping
         r slaveof no one
-    } {0} {external:skip needs:debug}
+    } {OK} {external:skip}
 }
