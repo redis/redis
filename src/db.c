@@ -978,7 +978,7 @@ void selectCommand(client *c) {
         return;
     }
 
-    if (!server.cluster_enabled && id != 0) {
+    if (id != 0) {
         server.stat_cluster_incompatible_ops++;
     }
 
@@ -1790,7 +1790,7 @@ void copyCommand(client *c) {
         return;
     }
 
-    if (!server.cluster_enabled && (srcid != 0 || dbid != 0)) {
+    if (srcid != 0 || dbid != 0) {
         server.stat_cluster_incompatible_ops++;
     }
 
