@@ -1300,7 +1300,10 @@ static doneStatus defragStageHExpires(void *ctx, monotime endtime) {
         .defragItem = activeDefragHExpiresOB
     };
     while (1) {
-        if (++iterations > 16 && getMonotonicUs() >= endtime) break;
+        if (++iterations > 16) {
+            if (getMonotonicUs() >= endtime) break;
+            iterations = 0;
+        }
         if (!ebScanDefrag(&db->hexpires, &hashExpireBucketsType, &defrag_hexpires_ctx->cursor, &eb_defragfns, db))
             return DEFRAG_DONE;
     }
