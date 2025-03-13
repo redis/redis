@@ -4127,8 +4127,8 @@ int processCommand(client *c) {
 
     /* Check if the command has cross slot keys, incompatible with cluster mode. */
     if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
-        !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0) &&
-        SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
+        !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
+          c->cmd->proc != execCommand) && SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
     {
         checkCommandKeysCrossSlot(c);
     }
@@ -4328,21 +4328,39 @@ int processCommand(client *c) {
 /* Check if the multiple keys of command are cross slot,
  * if it is, increment the server stat to record. */
 void checkCommandKeysCrossSlot(client *c) {
-    getKeysResult result = GETKEYS_RESULT_INIT;
-    int numkeys = getKeysFromCommand(c->cmd, c->argv, c->argc, &result);
-    if (numkeys > 1) {
-        int slot = -1;
+    int slot = -1;
+    multiState *ms = NULL;
+
+    if (c->cmd->proc == execCommand) {
+        if (!(c->flags & CLIENT_MULTI)) return;
+        else ms = &c->mstate;
+    }
+
+    /* If client is in multi-exec, we need to check the slot of all keys
+     * in the transaction. */
+    for (int i = 0; i < (ms ? ms->count : 1); i++) {
+        struct redisCommand *cmd = ms ? ms->commands[i].cmd : c->cmd;
+        robj **argv = ms ? ms->commands[i].argv : c->argv;
+        int argc = ms ? ms->commands[i].argc : c->argc;
+
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
+        keyReference *keyindex = result.keys;
+
+        /* Check if all keys have the same slots, increment the metric if not */
         for (int j = 0; j < numkeys; j++) {
-            robj *thiskey = c->argv[result.keys[j].pos];
-            int thisslot = keyHashSlot(thiskey->ptr, sdslen(thiskey->ptr));
-            if (slot == -1) slot = thisslot;
-            if (thisslot != slot) {
+            robj *thiskey = argv[keyindex[j].pos];
+            int thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
+            if (slot == -1) {
+                slot = thisslot;
+            } else if (slot != thisslot) {
                 server.stat_cluster_incompatible_ops++;
-                break;
+                getKeysFreeResult(&result);
+                return;
             }
         }
+        getKeysFreeResult(&result);
     }
-    getKeysFreeResult(&result);
 }
 
 /* ====================== Error lookup and execution ===================== */
@@ -6112,7 +6130,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
             "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION)));
         info = genRedisInfoStringACLStats(info);
-        if (!server.cluster_enabled) {
+        if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
             sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);
         }
     }

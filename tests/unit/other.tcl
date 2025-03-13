@@ -531,7 +531,7 @@ start_server {tags {"other external:skip"}} {
     }
 }
 
-start_server {tags {"other external:skip"}} {
+start_server {tags {"other external:skip"} overrides {cluster-compatibility-sample-ratio 100}} {
     test {Cross DB command is incompatible with cluster mode} {
         set incompatible_ops [s cluster_incompatible_ops]
 
@@ -553,9 +553,9 @@ start_server {tags {"other external:skip"}} {
         r select 0
         r set key1 value1
         set incompatible_ops [s cluster_incompatible_ops]
-        assert_equal {1} [r copy key1 key2] ;# destination db is equal to source db
+        assert_equal {1} [r copy key1 key2{key1}] ;# destination db is equal to source db
         assert_equal $incompatible_ops [s cluster_incompatible_ops]
-        assert_equal {1} [r copy key2 key1 db 1] ;# destination db is not equal to source db
+        assert_equal {1} [r copy key2{key1} key1 db 1] ;# destination db is not equal to source db
         assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
 
         # If destination db in MOVE command is equal to source db, it is incompatible
@@ -600,7 +600,6 @@ start_server {tags {"other external:skip"}} {
     } {} {cluster:skip}
 
     test {SORT command incompatible operations with cluster mode} {
-        r config set cluster-compatibility-sample-ratio 100
         set incompatible_ops [s cluster_incompatible_ops]
 
         # If the BY pattern slot is not equal with the slot of keys, we consider
@@ -636,7 +635,6 @@ start_server {tags {"other external:skip"}} {
     } {} {cluster:skip}
 
     test {Cross slot command is incompatible with cluster mode} {
-        r config set cluster-compatibility-sample-ratio 100
         set incompatible_ops [s cluster_incompatible_ops]
 
         # Normal cross slot command
@@ -648,10 +646,10 @@ start_server {tags {"other external:skip"}} {
             redis.call('mset', KEYS[1], 0, KEYS[2], 0)
         } 2 foo bar ;# 3
 
-        # Transaction
+        # Transaction, SET and DEL have keys with different slots, 4
         r multi
-        r mset foo bar bar foo ;# 4
-        r del foo bar ;# 5
+        r set foo bar
+        r del bar
         r exec
 
         # Function call
@@ -661,9 +659,14 @@ start_server {tags {"other external:skip"}} {
                 redis.call('mset', KEYS[1], 0, KEYS[2], 0)
             end)
         }
-        r fcall ftest 2 foo bar ;# 6
-        # Total 6 operations that are incompatible
-        assert_equal [expr $incompatible_ops + 6] [s cluster_incompatible_ops]
+        r fcall ftest 2 foo bar ;# 5
+
+        # Shard pub/sub commands
+        set rd1 [redis_deferring_client]
+        assert_equal {1 2} [ssubscribe $rd1 {foo bar}] ;# 6
+        r spublish foo bar ;# 7
+        # Total 7 operations that are incompatible
+        assert_equal [expr $incompatible_ops + 7] [s cluster_incompatible_ops]
     } {} {cluster:skip}
 
     test {cluster-compatibility-sample-ratio configuration can work} {
@@ -673,12 +676,14 @@ start_server {tags {"other external:skip"}} {
         for {set i 0} {$i < 100} {incr i} {
             r mset foo bar$i bar foo$i
         }
+        # Enable cluster compatibility sampling again to show the metric
+        r config set cluster-compatibility-sample-ratio 1
         assert_equal $incompatible_ops [s cluster_incompatible_ops]
 
         # 100% sample ratio, all operations should increase cluster_incompatible_ops
         set incompatible_ops [s cluster_incompatible_ops]
         r config set cluster-compatibility-sample-ratio 100
-         for {set i 0} {$i < 100} {incr i} {
+        for {set i 0} {$i < 100} {incr i} {
             r mset foo bar$i bar foo$i
         }
         assert_equal [expr $incompatible_ops + 100] [s cluster_incompatible_ops]
@@ -686,7 +691,7 @@ start_server {tags {"other external:skip"}} {
         # 30% sample ratio, cluster_incompatible_ops should increase between 20% and 40%
         set incompatible_ops [s cluster_incompatible_ops]
         r config set cluster-compatibility-sample-ratio 30
-         for {set i 0} {$i < 1000} {incr i} {
+        for {set i 0} {$i < 1000} {incr i} {
             r mset foo bar$i bar foo$i
         }
         assert_range [s cluster_incompatible_ops] [expr $incompatible_ops + 200] [expr $incompatible_ops + 400]
