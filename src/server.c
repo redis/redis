@@ -4125,12 +4125,19 @@ int processCommand(client *c) {
         }
     }
 
-    /* Check if the command has cross slot keys, incompatible with cluster mode. */
+    /* Check if the command keys are all in the same slot for cluster compatibility */
     if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
         !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
           c->cmd->proc != execCommand) && SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
     {
-        checkCommandKeysCrossSlot(c);
+        c->cluster_compatibility_check_slot = -1;
+        if (!areCommandKeysInSameSlot(c, &c->cluster_compatibility_check_slot)) {
+            server.stat_cluster_incompatible_ops++;
+            /* If we find cross slot keys, reset slot to -2 to indicate we won't
+             * check this command again. That is useful for script, since we need
+             * this variable to decide if we continue checking accessing keys. */
+            c->cluster_compatibility_check_slot = -2;
+        }
     }
 
     /* Disconnect some clients if total clients memory is too high. We do this
@@ -4325,14 +4332,15 @@ int processCommand(client *c) {
     return C_OK;
 }
 
-/* Check if the multiple keys of command are cross slot,
- * if it is, increment the server stat to record. */
-void checkCommandKeysCrossSlot(client *c) {
+/* Checks if all keys in a command (or a MULTI-EXEC) belong to the same hash slot.
+ * If yes, return 1, otherwise 0. If hashslot is not NULL, it will be set to the
+ * slot of the keys. */
+int areCommandKeysInSameSlot(client *c, int *hashslot) {
     int slot = -1;
     multiState *ms = NULL;
 
     if (c->cmd->proc == execCommand) {
-        if (!(c->flags & CLIENT_MULTI)) return;
+        if (!(c->flags & CLIENT_MULTI)) return 1;
         else ms = &c->mstate;
     }
 
@@ -4354,13 +4362,14 @@ void checkCommandKeysCrossSlot(client *c) {
             if (slot == -1) {
                 slot = thisslot;
             } else if (slot != thisslot) {
-                server.stat_cluster_incompatible_ops++;
                 getKeysFreeResult(&result);
-                return;
+                return 0;
             }
         }
         getKeysFreeResult(&result);
     }
+    if (hashslot) *hashslot = slot;
+    return 1;
 }
 
 /* ====================== Error lookup and execution ===================== */

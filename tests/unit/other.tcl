@@ -634,39 +634,73 @@ start_server {tags {"other external:skip"} overrides {cluster-compatibility-samp
         assert_equal [expr $incompatible_ops + 2] [s cluster_incompatible_ops]
     } {} {cluster:skip}
 
-    test {Cross slot command is incompatible with cluster mode} {
+    test {Normal cross slot commands are incompatible with cluster mode} {
+        # Normal cross slot command
+        set incompatible_ops [s cluster_incompatible_ops]
+        r mset foo bar bar foo
+        r del foo bar
+        assert_equal [expr $incompatible_ops + 2] [s cluster_incompatible_ops]
+    } {} {cluster:skip}
+
+    test {Transaction is incompatible with cluster mode} {
         set incompatible_ops [s cluster_incompatible_ops]
 
-        # Normal cross slot command
-        r mset foo bar bar foo ;# 1
-        r del foo bar ;# 2
+        # Incomplete transaction
+        catch {r EXEC}
+        r multi
+        r exec
+        assert_equal $incompatible_ops [s cluster_incompatible_ops]
 
-        # Lua script
-        r eval {#!lua
-            redis.call('mset', KEYS[1], 0, KEYS[2], 0)
-        } 2 foo bar ;# 3
-
-        # Transaction, SET and DEL have keys with different slots, 4
+        # Transaction, SET and DEL have keys with different slots
         r multi
         r set foo bar
         r del bar
         r exec
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+    } {} {cluster:skip}
 
-        # Function call
-        r function flush
-        r function load {#!lua name=test
-            redis.register_function('ftest', function(KEYS, ARGV)
-                redis.call('mset', KEYS[1], 0, KEYS[2], 0)
-            end)
-        }
-        r fcall ftest 2 foo bar ;# 5
+    test {Lua scripts are incompatible with cluster mode} {
+        # Lua script, declared keys have different slots, it is not a compatible operation
+        set incompatible_ops [s cluster_incompatible_ops]
+        r eval {#!lua
+            redis.call('mset', KEYS[1], 0, KEYS[2], 0)
+        } 2 foo bar
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
 
-        # Shard pub/sub commands
+        # Lua script, no declared keys, but accessing keys have different slots,
+        # it is not a compatible operation
+        set incompatible_ops [s cluster_incompatible_ops]
+        r eval {#!lua
+            redis.call('mset', 'foo', 0, 'bar', 0)
+        } 0
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+
+        # Lua script, declared keys have the same slot, but accessing keys
+        # have different slots in one command, even with flag 'allow-cross-slot-keys',
+        # it still is not a compatible operation
+        set incompatible_ops [s cluster_incompatible_ops]
+        r eval {#!lua flags=allow-cross-slot-keys
+            redis.call('mset', 'foo', 0, 'bar', 0)
+            redis.call('mset', KEYS[1], 0, KEYS[2], 0)
+        } 2 foo bar{foo}
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
+
+        # Lua script, declared keys have the same slot, but accessing keys have different slots
+        # in multiple commands, and with flag 'allow-cross-slot-keys', it is a compatible operation
+        set incompatible_ops [s cluster_incompatible_ops]
+        r eval {#!lua flags=allow-cross-slot-keys
+            redis.call('set', 'foo', 0)
+            redis.call('set', 'bar', 0)
+            redis.call('mset', KEYS[1], 0, KEYS[2], 0)
+        } 2 foo bar{foo}
+        assert_equal $incompatible_ops [s cluster_incompatible_ops]
+    } {} {cluster:skip}
+
+    test {Shard subscribe commands are incompatible with cluster mode} {
         set rd1 [redis_deferring_client]
-        assert_equal {1 2} [ssubscribe $rd1 {foo bar}] ;# 6
-        r spublish foo bar ;# 7
-        # Total 7 operations that are incompatible
-        assert_equal [expr $incompatible_ops + 7] [s cluster_incompatible_ops]
+        set incompatible_ops [s cluster_incompatible_ops]
+        assert_equal {1 2} [ssubscribe $rd1 {foo bar}]
+        assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
     } {} {cluster:skip}
 
     test {cluster-compatibility-sample-ratio configuration can work} {

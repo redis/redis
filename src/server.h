@@ -1300,6 +1300,8 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
+    int cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
+                                           * Set to -2 if we don't check slot, -1 if no slot is being used */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
@@ -3230,7 +3232,7 @@ int processCommand(client *c);
 void commandProcessed(client *c);
 int processPendingCommandAndInputBuffer(client *c);
 int processCommandAndResetClient(client *c);
-void checkCommandKeysCrossSlot(client *c);
+int areCommandKeysInSameSlot(client *c, int *hashslot);
 void setupSignalHandlers(void);
 int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
 connListener *listenerByType(const char *typename);
