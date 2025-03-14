@@ -86,12 +86,14 @@ typedef struct quicklistBookmark {
 #   define QL_FILL_BITS 14
 #   define QL_COMP_BITS 14
 #   define QL_BM_BITS 4
+#   define QL_SIZE_LIMIT_BITS 17
 #elif UINTPTR_MAX == 0xffffffffffffffff
 /* 64-bit */
 #   define QL_FILL_BITS 16
 #   define QL_COMP_BITS 16
 #   define QL_BM_BITS 4 /* we can encode more, but we rather limit the user
                            since they cause performance degradation. */
+#   define QL_SIZE_LIMIT_BITS 17
 #else
 #   error unknown arch bits count
 #endif
@@ -112,6 +114,7 @@ typedef struct quicklist {
     signed int fill : QL_FILL_BITS;       /* fill factor for individual nodes */
     unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
     unsigned int bookmark_count: QL_BM_BITS;
+    unsigned int size_limit : QL_SIZE_LIMIT_BITS; /* size limit of the quicklist node, only valid when fill is negative */
     quicklistBookmark bookmarks[];
 } quicklist;
 
