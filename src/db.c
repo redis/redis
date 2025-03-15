@@ -834,8 +834,13 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     /* mark client as unblocked */
     unblockClient(c, 1);
 
-    /* FLUSH command is finished. resetClient() and update replication offset. */
-    commandProcessed(c);
+    if (c->flags & CLIENT_PENDING_COMMAND) {
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+        /* The FLUSH command won't be reprocessed, FLUSH command is finished, but
+         * we still need to complete its full processing flow, including updating
+         * the replication offset. */
+        commandProcessed(c);
+    }
 
     /* On flush completion, update the client's memory */
     updateClientMemUsageAndBucket(c);
@@ -880,6 +885,7 @@ int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
         elapsedStart(&c->bstate.lazyfreeStartTime);
 
         c->bstate.timeout = 0;
+        c->flags |= CLIENT_PENDING_COMMAND;
         blockClient(c,BLOCKED_LAZYFREE);
         bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, sflush);
     }
