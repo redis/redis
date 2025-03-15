@@ -139,17 +139,22 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
-        if (p != NULL)
-            p = lpFind(lp, p, (unsigned char*)str, len, 0);
+
+        if (p != NULL) {
+            if (str == tmpbuf) {
+                p = lpFindInteger(lp, p, llval, 0);
+            } else {
+                p = lpFind(lp, p, (unsigned char*)str, len, 0);
+            }
+        }
+
         if (p == NULL) {
-            /* Not found.  */
+            /* Not found, so we add the new member */
             if (lpLength(lp) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 lpSafeToAdd(lp, len))
             {
                 if (str == tmpbuf) {
-                    /* This came in as integer so we can avoid parsing it again.
-                     * TODO: Create and use lpFindInteger; don't go via string. */
                     lp = lpAppendInteger(lp, llval);
                 } else {
                     lp = lpAppend(lp, (unsigned char*)str, len);
@@ -162,6 +167,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             }
             return 1;
         }
+
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
         long long value;
         if (string2ll(str, len, &value)) {

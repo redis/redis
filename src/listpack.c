@@ -913,6 +913,30 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
+/*
+ * lpFindInteger is used to directly search for an integer value inside a listpack.
+ */
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
+                             long long value, unsigned int skip) {
+    while (p) {
+        unsigned int slen = 0;
+        long long llval = 0;
+        unsigned char *str = lpGetValue(p, &slen, &llval);
+        if (str == NULL) {
+            /* It's an integer node */
+            if (llval == value) {
+                if (skip == 0) {
+                    return p;
+                } else {
+                    skip--;
+                }
+            }
+        }
+        p = lpNext(lp, p);
+    }
+    return NULL;
+}
+
 /* Insert, delete or replace the specified string element 'elestr' of length
  * 'size' or integer element 'eleint' at the specified position 'p', with 'p'
  * being a listpack element pointer obtained with lpFirst(), lpLast(), lpNext(),
@@ -3185,6 +3209,55 @@ int listpackTest(int argc, char *argv[], int flags) {
         printf("Done. usec=%lld\n\n", usec()-start);
     }
 
+    TEST("Test lpFindInteger") {
+        // Create a listpack with a mix of integers and strings
+        unsigned char *lp = lpNew(0);
+        lp = lpAppendInteger(lp, 100);
+        lp = lpAppend(lp, (unsigned char*)"hello", 5);
+        lp = lpAppendInteger(lp, -50);
+        lp = lpAppendInteger(lp, 200);
+        lp = lpAppend(lp, (unsigned char*)"world", 5);
+        lp = lpAppendInteger(lp, 300);
+    
+        // Find integer values in the listpack
+        unsigned char *p;
+        
+        // Test finding an integer that exists in the listpack
+        p = lpFindInteger(lp, NULL, 100, 0);
+        assert(p != NULL);
+        long long val;
+        lpGetIntegerValue(p, &val);
+        assert(val == 100);
+    
+        p = lpFindInteger(lp, NULL, -50, 0);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == -50);
+    
+        p = lpFindInteger(lp, NULL, 200, 0);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == 200);
+    
+        p = lpFindInteger(lp, NULL, 300, 0);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == 300);
+    
+        // Test finding an integer that does not exist
+        p = lpFindInteger(lp, NULL, 999, 0);
+        assert(p == NULL);
+    
+        // Test skipping occurrences (second occurrence)
+        lp = lpAppendInteger(lp, 100);
+        p = lpFindInteger(lp, NULL, 100, 1); // Skip the first occurrence
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == 100);
+    
+        lpFree(lp);
+    }    
+    
     /* Benchmarks */
     {
         int iteration = accurate ? 100000 : 100;
