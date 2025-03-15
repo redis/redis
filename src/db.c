@@ -446,7 +446,7 @@ robj *dbRandomKey(redisDb *db) {
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (allvolatile && server.masterhost && --maxtries == 0) {
+        if (allvolatile && (server.masterhost || isPausedActions(PAUSE_ACTION_EXPIRE)) && --maxtries == 0) {
             /* If the DB is composed only of keys with an expire set,
              * it could happen that all the keys are already logically
              * expired in the slave, so the function cannot stop because
