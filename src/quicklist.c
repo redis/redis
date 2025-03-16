@@ -105,7 +105,7 @@ void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklistNode *node, int offset, int after);
 REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
 
-static size_t quicklistNodeNegFillLimit(int fill);
+REDIS_STATIC size_t quicklistNodeNegFillLimit(int fill);
 
 /* Simple way to give quicklistEntry structs default values with one call. */
 #define initEntry(e)                                                           \
@@ -160,7 +160,7 @@ void quicklistSetFill(quicklist *quicklist, int fill) {
         fill = -5;
     }
     quicklist->fill = fill;
-    quicklist->size_limit = (fill < 0? quicklistNodeNegFillLimit(fill) : 0);
+    quicklist->size_limit = (fill < 0 ? quicklistNodeNegFillLimit(fill) : 0);
 }
 
 void quicklistSetOptions(quicklist *quicklist, int fill, int compress) {
@@ -465,7 +465,7 @@ REDIS_STATIC void _quicklistInsertNodeAfter(quicklist *quicklist,
 #define sizeMeetsSafetyLimit(sz) ((sz) <= SIZE_SAFETY_LIMIT)
 
 /* Calculate the size limit of the quicklist node based on negative 'fill'. */
-static size_t quicklistNodeNegFillLimit(int fill) {
+REDIS_STATIC size_t quicklistNodeNegFillLimit(int fill) {
     assert(fill < 0);
     size_t offset = (-fill) - 1;
     size_t max_level = sizeof(optimization_level) / sizeof(*optimization_level);
