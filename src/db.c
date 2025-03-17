@@ -885,6 +885,9 @@ int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
         elapsedStart(&c->bstate.lazyfreeStartTime);
 
         c->bstate.timeout = 0;
+        /* We still need to perform cleanup operations for the command, including
+         * updating the replication offset, so mark this command as pending to
+         * avoid command from being reset during unblock. */
         c->flags |= CLIENT_PENDING_COMMAND;
         blockClient(c,BLOCKED_LAZYFREE);
         bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, sflush);
