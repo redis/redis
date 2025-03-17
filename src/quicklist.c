@@ -45,9 +45,7 @@
 
 /* Optimization levels for size-based filling.
  * Note that the largest possible limit is 64k, so even if each record takes
- * just one byte, it still won't overflow the 16 bit count field.
- * If you modify this array, you should also modify the QL_SIZE_LIMIT_BITS
- * macro in quicklist.h to bit length of the largest element in this array. */
+ * just one byte, it still won't overflow the 16 bit count field. */
 static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
 
 /* This is for test suite development purposes only, 0 means disabled. */
@@ -136,8 +134,8 @@ quicklist *quicklistCreate(void) {
     quicklist->len = 0;
     quicklist->count = 0;
     quicklist->compress = 0;
-    quicklist->fill = -2;
-    quicklist->size_limit = quicklistNodeNegFillLimit(-2);
+    quicklist->limit_type = QUICKLIST_NODE_SIZE_LIMIT_TYPE;
+    quicklist->limit = quicklistNodeNegFillLimit(-2);
     quicklist->bookmark_count = 0;
     return quicklist;
 }
@@ -159,8 +157,19 @@ void quicklistSetFill(quicklist *quicklist, int fill) {
     } else if (fill < -5) {
         fill = -5;
     }
-    quicklist->fill = fill;
-    quicklist->size_limit = (fill < 0 ? quicklistNodeNegFillLimit(fill) : 0);
+
+    if (fill >= 0) {
+        quicklist->limit_type = QUICKLIST_COUNT_LIMIT_TYPE;
+        quicklist->limit = (fill == 0) ? 1 : fill;
+    } else {
+        quicklist->limit_type = QUICKLIST_NODE_SIZE_LIMIT_TYPE;
+        quicklist->limit = quicklistNodeNegFillLimit(fill);
+    }
+}
+
+REDIS_STATIC void quicklistSetLimit(quicklist *quicklist, int limit_type, size_t limit) {
+    quicklist->limit_type = limit_type;
+    quicklist->limit = limit;
 }
 
 void quicklistSetOptions(quicklist *quicklist, int fill, int compress) {
@@ -475,9 +484,7 @@ REDIS_STATIC size_t quicklistNodeNegFillLimit(int fill) {
 
 /* Calculate the size limit or length limit of the quicklist node
  * based on 'fill', and is also used to limit list listpack. */
-REDIS_STATIC void _quicklistNodeLimit(int fill, size_t *size,
-                                      unsigned int *count,
-                                      size_t size_limit) {
+void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     *size = SIZE_MAX;
     *count = UINT_MAX;
 
@@ -485,24 +492,31 @@ REDIS_STATIC void _quicklistNodeLimit(int fill, size_t *size,
         /* Ensure that one node have at least one entry */
         *count = (fill == 0) ? 1 : fill;
     } else {
-        *size = (size_limit? size_limit : quicklistNodeNegFillLimit(fill));
+        *size = quicklistNodeNegFillLimit(fill);
     }
 }
 
-void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
-    _quicklistNodeLimit(fill, size, count, 0);
+REDIS_STATIC void _quicklistNodeLimit(const quicklist *quicklist, size_t *size,
+                                      unsigned int *count) {
+    *size = SIZE_MAX;
+    *count = UINT_MAX;
+
+    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE) {
+        /* Ensure that one node have at least one entry */
+        *count = quicklist->limit;
+    } else {
+        *size = quicklist->limit;
+    }
 }
 
 /* Check if the limit of the quicklist node has been reached to determine if
  * insertions, merges or other operations that would increase the size of
  * the node can be performed.
  * Return 1 if exceeds the limit, otherwise 0. */
-REDIS_STATIC int _quicklistNodeExceedsLimit(int fill, size_t new_sz,
-                                            unsigned int new_count,
-                                            size_t size_limit) {
+int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count) {
     size_t sz_limit;
     unsigned int count_limit;
-    _quicklistNodeLimit(fill, &sz_limit, &count_limit, size_limit);
+    quicklistNodeLimit(fill, &sz_limit, &count_limit);
 
     if (likely(sz_limit != SIZE_MAX)) {
         return new_sz > sz_limit;
@@ -516,28 +530,42 @@ REDIS_STATIC int _quicklistNodeExceedsLimit(int fill, size_t new_sz,
     redis_unreachable();
 }
 
-int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count) {
-    return _quicklistNodeExceedsLimit(fill, new_sz, new_count, 0);
+REDIS_STATIC int _quicklistNodeExceedsLimit(const quicklist *quicklist, size_t new_sz,
+                                            unsigned int new_count) {
+    size_t sz_limit;
+    unsigned int count_limit;
+    _quicklistNodeLimit(quicklist, &sz_limit, &count_limit);
+
+    if (likely(sz_limit != SIZE_MAX)) {
+        return new_sz > sz_limit;
+    } else if (count_limit != UINT_MAX) {
+        /* when we reach here we know that the limit is a size limit (which is
+         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
+        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
+        return new_count > count_limit;
+    }
+
+    redis_unreachable();
 }
 
 /* Determines whether a given size qualifies as a large element based on a threshold
  * determined by the 'fill'. If the size is considered large, it will be stored in
  * a plain node. */
-static int isLargeElement(size_t sz, int fill, size_t size_limit) {
+static int isLargeElement(const quicklist *quicklist, size_t sz) {
     if (unlikely(packed_threshold != 0)) return sz >= packed_threshold;
-    if (fill >= 0)
+    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE)
         return !sizeMeetsSafetyLimit(sz);
     else
-        return sz > size_limit;
+        return sz > quicklist->limit;
 }
 
-REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
-                                           const int fill, const size_t sz,
-                                           const size_t size_limit) {
+REDIS_STATIC int _quicklistNodeAllowInsert(const quicklist *quicklist,
+                                           const quicklistNode *node,
+                                           const size_t sz) {
     if (unlikely(!node))
         return 0;
 
-    if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(sz, fill, size_limit)))
+    if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(quicklist, sz)))
         return 0;
 
     /* Estimate how many bytes will be added to the listpack by this one entry.
@@ -546,15 +574,14 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklistNode *node,
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
     size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
-    if (unlikely(_quicklistNodeExceedsLimit(fill, new_sz, node->count + 1, size_limit)))
+    if (unlikely(_quicklistNodeExceedsLimit(quicklist, new_sz, node->count + 1)))
         return 0;
     return 1;
 }
 
-REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
-                                          const quicklistNode *b,
-                                          const int fill,
-                                          const size_t size_limit) {
+REDIS_STATIC int _quicklistNodeAllowMerge(const quicklist *quicklist,
+                                          const quicklistNode *a,
+                                          const quicklistNode *b) {
     if (!a || !b)
         return 0;
 
@@ -564,7 +591,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     /* approximate merged listpack size (- 7 to remove one listpack
      * header/trailer, see LP_HDR_SIZE and LP_EOF) */
     unsigned int merge_sz = a->sz + b->sz - 7;
-    if (unlikely(_quicklistNodeExceedsLimit(fill, merge_sz, a->count + b->count, size_limit)))
+    if (unlikely(_quicklistNodeExceedsLimit(quicklist, merge_sz, a->count + b->count)))
         return 0;
     return 1;
 }
@@ -602,15 +629,14 @@ static void __quicklistInsertPlainNode(quicklist *quicklist, quicklistNode *old_
  * Returns 1 if new head created. */
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
-    size_t size_limit = quicklist->size_limit;
 
-    if (unlikely(isLargeElement(sz, quicklist->fill, size_limit))) {
+    if (unlikely(isLargeElement(quicklist, sz))) {
         __quicklistInsertPlainNode(quicklist, quicklist->head, value, sz, 0);
         return 1;
     }
 
     if (likely(
-            _quicklistNodeAllowInsert(quicklist->head, quicklist->fill, sz, size_limit))) {
+            _quicklistNodeAllowInsert(quicklist, quicklist->head, sz))) {
         quicklist->head->entry = lpPrepend(quicklist->head->entry, value, sz);
         quicklistNodeUpdateSz(quicklist->head);
     } else {
@@ -631,14 +657,13 @@ int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
  * Returns 1 if new tail created. */
 int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_tail = quicklist->tail;
-    size_t size_limit = quicklist->size_limit;
-    if (unlikely(isLargeElement(sz, quicklist->fill, size_limit))) {
+    if (unlikely(isLargeElement(quicklist, sz))) {
         __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, 1);
         return 1;
     }
 
     if (likely(
-            _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz, size_limit))) {
+            _quicklistNodeAllowInsert(quicklist, quicklist->tail, sz))) {
         quicklist->tail->entry = lpAppend(quicklist->tail->entry, value, sz);
         quicklistNodeUpdateSz(quicklist->tail);
     } else {
@@ -797,8 +822,7 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
     quicklistNode *node = entry->node;
     unsigned char *newentry;
 
-    if (likely(!QL_NODE_IS_PLAIN(entry->node) &&
-        !isLargeElement(sz, quicklist->fill, quicklist->size_limit) &&
+    if (likely(!QL_NODE_IS_PLAIN(entry->node) && !isLargeElement(quicklist, sz) &&
         (newentry = lpReplace(entry->node->entry, &entry->zi, data, sz)) != NULL))
     {
         entry->node->entry = newentry;
@@ -806,7 +830,7 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
         /* quicklistNext() and quicklistGetIteratorEntryAtIdx() provide an uncompressed node */
         quicklistCompress(quicklist, entry->node);
     } else if (QL_NODE_IS_PLAIN(entry->node)) {
-        if (isLargeElement(sz, quicklist->fill, quicklist->size_limit)) {
+        if (isLargeElement(quicklist, sz)) {
             zfree(entry->node->entry);
             entry->node->entry = zmalloc(sz);
             entry->node->sz = sz;
@@ -826,7 +850,7 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
 
         /* Create a new node and insert it after the original node.
          * If the original node was split, insert the split node after the new node. */
-        new_node = __quicklistCreateNode(isLargeElement(sz, quicklist->fill, quicklist->size_limit) ?
+        new_node = __quicklistCreateNode(isLargeElement(quicklist, sz) ?
             QUICKLIST_NODE_CONTAINER_PLAIN : QUICKLIST_NODE_CONTAINER_PACKED, data, sz);
         __quicklistInsertNode(quicklist, node, new_node, 1);
         if (split_node) __quicklistInsertNode(quicklist, new_node, split_node, 1);
@@ -928,8 +952,6 @@ REDIS_STATIC quicklistNode *_quicklistListpackMerge(quicklist *quicklist,
  * Returns the new 'center' after merging.
  */
 REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center) {
-    int fill = quicklist->fill;
-    size_t size_limit = quicklist->size_limit;
     quicklistNode *prev, *prev_prev, *next, *next_next, *target;
     prev = prev_prev = next = next_next = target = NULL;
 
@@ -946,19 +968,19 @@ REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklist
     }
 
     /* Try to merge prev_prev and prev */
-    if (_quicklistNodeAllowMerge(prev, prev_prev, fill, size_limit)) {
+    if (_quicklistNodeAllowMerge(quicklist, prev, prev_prev)) {
         _quicklistListpackMerge(quicklist, prev_prev, prev);
         prev_prev = prev = NULL; /* they could have moved, invalidate them. */
     }
 
     /* Try to merge next and next_next */
-    if (_quicklistNodeAllowMerge(next, next_next, fill, size_limit)) {
+    if (_quicklistNodeAllowMerge(quicklist, next, next_next)) {
         _quicklistListpackMerge(quicklist, next, next_next);
         next = next_next = NULL; /* they could have moved, invalidate them. */
     }
 
     /* Try to merge center node and previous node */
-    if (_quicklistNodeAllowMerge(center, center->prev, fill, size_limit)) {
+    if (_quicklistNodeAllowMerge(quicklist, center, center->prev)) {
         target = _quicklistListpackMerge(quicklist, center->prev, center);
         center = NULL; /* center could have been deleted, invalidate it. */
     } else {
@@ -967,7 +989,7 @@ REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklist
     }
 
     /* Use result of center merge (or original) to merge with next node. */
-    if (_quicklistNodeAllowMerge(target, target->next, fill, size_limit)) {
+    if (_quicklistNodeAllowMerge(quicklist, target, target->next)) {
         target = _quicklistListpackMerge(quicklist, target, target->next);
     }
     return target;
@@ -1035,15 +1057,13 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
 {
     quicklist *quicklist = iter->quicklist;
     int full = 0, at_tail = 0, at_head = 0, avail_next = 0, avail_prev = 0;
-    int fill = quicklist->fill;
-    size_t size_limit = quicklist->size_limit;
     quicklistNode *node = entry->node;
     quicklistNode *new_node = NULL;
 
     if (!node) {
         /* we have no reference node, so let's create only node in the list */
         D("No node given!");
-        if (unlikely(isLargeElement(sz, fill, size_limit))) {
+        if (unlikely(isLargeElement(quicklist, sz))) {
             __quicklistInsertPlainNode(quicklist, quicklist->tail, value, sz, after);
             return;
         }
@@ -1056,7 +1076,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
     }
 
     /* Populate accounting flags for easier boolean checks later */
-    if (!_quicklistNodeAllowInsert(node, fill, sz, size_limit)) {
+    if (!_quicklistNodeAllowInsert(quicklist, node, sz)) {
         D("Current node is full with count %d with requested fill %d",
           node->count, fill);
         full = 1;
@@ -1065,7 +1085,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
     if (after && (entry->offset == node->count - 1 || entry->offset == -1)) {
         D("At Tail of current listpack");
         at_tail = 1;
-        if (_quicklistNodeAllowInsert(node->next, fill, sz, size_limit)) {
+        if (_quicklistNodeAllowInsert(quicklist, node->next, sz)) {
             D("Next node is available.");
             avail_next = 1;
         }
@@ -1074,13 +1094,13 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
     if (!after && (entry->offset == 0 || entry->offset == -(node->count))) {
         D("At Head");
         at_head = 1;
-        if (_quicklistNodeAllowInsert(node->prev, fill, sz, size_limit)) {
+        if (_quicklistNodeAllowInsert(quicklist, node->prev, sz)) {
             D("Prev node is available.");
             avail_prev = 1;
         }
     }
 
-    if (unlikely(isLargeElement(sz, fill, size_limit))) {
+    if (unlikely(isLargeElement(quicklist, sz))) {
         if (QL_NODE_IS_PLAIN(node) || (at_tail && after) || (at_head && !after)) {
             __quicklistInsertPlainNode(quicklist, node, value, sz, after);
         } else {
@@ -1484,7 +1504,9 @@ void quicklistSetDirection(quicklistIter *iter, int direction) {
 quicklist *quicklistDup(quicklist *orig) {
     quicklist *copy;
 
-    copy = quicklistNew(orig->fill, orig->compress);
+    copy = quicklistCreate();
+    quicklistSetLimit(copy, orig->limit_type, orig->limit);
+    quicklistSetCompressDepth(copy, orig->compress);
 
     for (quicklistNode *current = orig->head; current;
          current = current->next) {
@@ -1709,7 +1731,10 @@ void quicklistRepr(unsigned char *ql, int full) {
     quicklist *quicklist  = (struct quicklist*) ql;
     printf("{count : %ld}\n", quicklist->count);
     printf("{len : %ld}\n", quicklist->len);
-    printf("{fill : %d}\n", quicklist->fill);
+    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE)
+        printf("{count limit : %d}\n", quicklist->limit);
+    else
+        printf("{node size limit : %d}\n", quicklist->limit);
     printf("{compress : %d}\n", quicklist->compress);
     printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
     quicklistNode* node = quicklist->head;

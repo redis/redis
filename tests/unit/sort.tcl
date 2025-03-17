@@ -365,7 +365,7 @@ foreach command {SORT SORT_RO} {
         r lpush lst{t} {*}[split [string repeat "1" 6000] ""]
         r sort lst{t} store lst_dst{t}
         assert_encoding quicklist lst_dst{t}
-        assert_match "*ql_listpack_max:-1 ql_compressed:1*" [r debug object lst_dst{t}]
+        assert_match "*ql_node_size_limit:4096 ql_compressed:1*" [r debug object lst_dst{t}]
         config_set list-max-listpack-size $origin_config
     } {} {needs:debug}
 }

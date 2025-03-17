@@ -629,10 +629,16 @@ NULL
             used = snprintf(nextra, remaining, " ql_avg_node:%.2f", avg);
             nextra += used;
             remaining -= used;
-            /* Add quicklist fill level / max listpack size */
-            used = snprintf(nextra, remaining, " ql_listpack_max:%d", ql->fill);
-            nextra += used;
-            remaining -= used;
+            /* Add quicklist count limit / node size limit */
+            if (ql->limit_type == QUICKLIST_COUNT_LIMIT_TYPE) {
+                used = snprintf(nextra, remaining, " ql_count_limit:%d", ql->limit);
+                nextra += used;
+                remaining -= used;
+            } else {
+                used = snprintf(nextra, remaining, " ql_node_size_limit:%d", ql->limit);
+                nextra += used;
+                remaining -= used;
+            }
             /* Add isCompressed? */
             int compressed = ql->compress != 0;
             used = snprintf(nextra, remaining, " ql_compressed:%d", compressed);
