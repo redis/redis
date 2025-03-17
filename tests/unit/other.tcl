@@ -558,7 +558,7 @@ start_server {tags {"other external:skip"} overrides {cluster-compatibility-samp
         assert_equal {1} [r copy key2{key1} key1 db 1] ;# destination db is not equal to source db
         assert_equal [expr $incompatible_ops + 1] [s cluster_incompatible_ops]
 
-        # If destination db in MOVE command is equal to source db, it is incompatible
+        # If destination db in MOVE command is not equal to source db, it is incompatible
         # with cluster mode.
         r set key3 value3
         assert_equal {1} [r move key3 1]

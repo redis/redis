@@ -1301,7 +1301,10 @@ typedef struct client {
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
     int cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
-                                           * Set to -2 if we don't check slot, -1 if no slot is being used */
+                                           * -2 means we don't need to check slot violation, or we already found
+                                           * a violation, reported it and don't need to continue checking.
+                                           * -1 means we're looking for the slot number and didn't find it yet.
+                                           * any positive number means we found a slot and no violation yet. */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;

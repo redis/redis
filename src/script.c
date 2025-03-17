@@ -530,10 +530,11 @@ static int scriptVerifyClusterState(scriptRunCtx *run_ctx, client *c, client *or
 
 static void scriptCheckClusterCompatibility(scriptRunCtx *run_ctx, client *c) {
     int hashslot = -1;
+
+    /* If we don't need to detect for this script or slot violation already
+     * detected and reported for this script, exit */
     if (run_ctx->cluster_compatibility_check_slot == -2)  return;
 
-    /* If the command is not in the same slot, we will return errors
-     * as shown in 'scriptVerifyClusterState'. */
     if (!areCommandKeysInSameSlot(c, &hashslot)) {
         server.stat_cluster_incompatible_ops++;
         /* Already found cross slot usage, skip the check for the rest of the script */
