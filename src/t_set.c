@@ -167,7 +167,6 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             }
             return 1;
         }
-
     } else if (set->encoding == OBJ_ENCODING_INTSET) {
         long long value;
         if (string2ll(str, len, &value)) {

@@ -918,27 +918,52 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
-/*
- * lpFindInteger is used to directly search for an integer value inside a listpack.
+/* Search for a specific long long integer value in the listpack.
+ *
+ * 'lp' is the pointer to the listpack.
+ * 'p' is the starting position within the listpack (if NULL, search starts from the first entry).
+ * 'value' is the target integer value to search for.
+ * 'skip' specifies the number of entries to skip between each comparison.
+ *
+ * Returns a pointer to the matching entry if found, otherwise NULL.
  */
-unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
-                             long long value, unsigned int skip) {
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p, long long value, unsigned int skip)
+{
+    int skipcnt = 0;
+    uint32_t lp_bytes = lpBytes(lp);
+
+    if (!p)
+        p = lpFirst(lp);
+
     while (p) {
-        unsigned int slen = 0;
-        long long llval = 0;
-        unsigned char *str = lpGetValue(p, &slen, &llval);
-        if (str == NULL) {
-            /* It's an integer node */
-            if (llval == value) {
-                if (skip == 0) {
+        if (skipcnt == 0) {
+            long long lval;
+            if (lpGetIntegerValue(p, &lval)) {
+                if (lval == value) {
                     return p;
-                } else {
-                    skip--;
                 }
             }
+            /* Reset skip count */
+            skipcnt = skip;
+        } else {
+          /* Skip entry */
+            skipcnt--;
+          /* Move to next entry, avoid use `lpNext` due to `lpAssertValidEntry` in
+           * `lpNext` will call `lpBytes`, will cause performance degradation */
+            p = lpSkip(p);
         }
-        p = lpNext(lp, p);
+
+        /* The next call to lpGetIntegerValue could read at most 8 bytes past `p`
+         * We use the slower validation call only when necessary. */
+        if (p + 8 >= lp + lp_bytes) {
+            lpAssertValidEntry(lp, lp_bytes, p);
+        } else {
+            assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
+        }
+
+        if (p[0] == LP_EOF) break;
     }
+
     return NULL;
 }
 
@@ -3079,6 +3104,38 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpFree(lp);
     }
 
+    TEST("Test lpFindInteger") {
+        /* Create a listpack with a mix of integers and strings */
+        unsigned char *lp = lpNew(0);
+        lp = lpAppendInteger(lp, 100);
+        lp = lpAppend(lp, (unsigned char*)"hello", 5);
+        lp = lpAppendInteger(lp, -50);
+        unsigned char *p;
+        long long val;
+
+        /* Test: Find an existing integer (100) */
+        p = lpFindInteger(lp, NULL, 100, 0);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == 100);
+
+        /* Test: Find an existing integer (-50) */
+        p = lpFindInteger(lp, NULL, -50, 0);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == -50);
+
+        /* Test: Skip occurrences - Append a duplicate and skip the first occurrence */
+        lp = lpAppendInteger(lp, 100);
+        /* Here, 'skip' is set to 1 to skip the first occurrence of 100 */
+        p = lpFindInteger(lp, NULL, 100, 1);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == 100);
+
+        lpFree(lp);
+	}
+
     TEST("Test lpFindCb") {
         lp = createList(); /* "hello", "foo", "quux", "1024" */
         assert(lpFindCb(lp, lpFirst(lp), "abc", lpFindCbCmp, 0) == NULL);
@@ -3214,54 +3271,6 @@ int listpackTest(int argc, char *argv[], int flags) {
         printf("Done. usec=%lld\n\n", usec()-start);
     }
 
-    TEST("Test lpFindInteger") {
-        // Create a listpack with a mix of integers and strings
-        unsigned char *lp = lpNew(0);
-        lp = lpAppendInteger(lp, 100);
-        lp = lpAppend(lp, (unsigned char*)"hello", 5);
-        lp = lpAppendInteger(lp, -50);
-        lp = lpAppendInteger(lp, 200);
-        lp = lpAppend(lp, (unsigned char*)"world", 5);
-        lp = lpAppendInteger(lp, 300);
-    
-        // Find integer values in the listpack
-        unsigned char *p;
-        
-        // Test finding an integer that exists in the listpack
-        p = lpFindInteger(lp, NULL, 100, 0);
-        assert(p != NULL);
-        long long val;
-        lpGetIntegerValue(p, &val);
-        assert(val == 100);
-    
-        p = lpFindInteger(lp, NULL, -50, 0);
-        assert(p != NULL);
-        lpGetIntegerValue(p, &val);
-        assert(val == -50);
-    
-        p = lpFindInteger(lp, NULL, 200, 0);
-        assert(p != NULL);
-        lpGetIntegerValue(p, &val);
-        assert(val == 200);
-    
-        p = lpFindInteger(lp, NULL, 300, 0);
-        assert(p != NULL);
-        lpGetIntegerValue(p, &val);
-        assert(val == 300);
-    
-        // Test finding an integer that does not exist
-        p = lpFindInteger(lp, NULL, 999, 0);
-        assert(p == NULL);
-    
-        // Test skipping occurrences (second occurrence)
-        lp = lpAppendInteger(lp, 100);
-        p = lpFindInteger(lp, NULL, 100, 1); // Skip the first occurrence
-        assert(p != NULL);
-        lpGetIntegerValue(p, &val);
-        assert(val == 100);
-    
-        lpFree(lp);
-    }    
     
     /* Benchmarks */
     {
