@@ -3110,7 +3110,6 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpFree(lp);
     }
 
-
     TEST("Test lpFindCb") {
         lp = createList(); /* "hello", "foo", "quux", "1024" */
         assert(lpFindCb(lp, lpFirst(lp), "abc", lpFindCbCmp, 0) == NULL);
