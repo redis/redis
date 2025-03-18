@@ -29,21 +29,22 @@
 /* Creates an object, optionally with embedded key and expire fields. The key
  * and expire fields can be omitted by passing NULL and -1, respectively. */
 kvobj *kvobjCreate(int type, const sds key, void *valptr, long long expire) {
-    /* Calculate sizes */
+    /* Determine embedded key and expiration flags */
+    int iskvobj = key != NULL;
     int has_expire = (expire != -1 ||
-                      (key != NULL && sdslen(key) >= KEY_SIZE_TO_INCLUDE_EXPIRE_THRESHOLD));
-    size_t key_sds_size = 0;
-    size_t min_size = sizeof(kvobj);
+                      (iskvobj && sdslen(key) >= KEY_SIZE_TO_INCLUDE_EXPIRE_THRESHOLD));
     
-    if (has_expire) min_size += sizeof(long long);   
+    /* Calculate embedded key size */
+    size_t key_sds_len = iskvobj ? sdslen(key) : 0;
+    char key_sds_type = iskvobj ? sdsReqType(key_sds_len) : 0;
+    size_t key_sds_size = iskvobj ? sdsReqSize(key_sds_len, key_sds_type) : 0;
 
-    if (key != NULL) {
-        /* Size of embedded key, incl. 1 byte for prefixed sds hdr size. */
-        key_sds_size = sdscopytobuffer(NULL, 0, key, NULL);
-        min_size += 1 + key_sds_size;
-    }
-    
-    /* Allocate and set the declared fields. */
+    /* Compute the base object size */
+    size_t min_size = sizeof(robj);
+    if (has_expire) min_size += sizeof(long long);
+    if (iskvobj) min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
+
+    /* Allocate object memory */
     size_t bufsize = 0;
     robj *o = zmalloc_usable(min_size, &bufsize);
     o->type = type;
@@ -51,18 +52,17 @@ kvobj *kvobjCreate(int type, const sds key, void *valptr, long long expire) {
     o->ptr = valptr;
     o->refcount = 1;
     o->lru = 0;
-    o->iskvobj = (key != NULL);
+    o->iskvobj = iskvobj;
 
-    /* If the allocation has enough space for an expire field, add it even if we
-     * don't need it now. Then we don't need to realloc if it's needed later. */
-    if (key != NULL && !has_expire && bufsize >= min_size + sizeof(long long)) {
+    /* If extra space allows, pre-allocate anyway expiration */
+    if (iskvobj && !has_expire && bufsize >= min_size + sizeof(long long)) {
         has_expire = 1;
         min_size += sizeof(long long);
     }
     o->expirable = has_expire;
 
     /* The memory after the struct where we embedded data. */
-    unsigned char *data = (void *)(o + 1);
+    char *data = (void *)(o + 1);
 
     /* Set the expire field. */
     if (o->expirable) {
@@ -70,10 +70,10 @@ kvobj *kvobjCreate(int type, const sds key, void *valptr, long long expire) {
         data += sizeof(long long);
     }
 
-    /* Copy embedded key. */
+    /* Store embedded key. */
     if (o->iskvobj) {
-        sdscopytobuffer(data + 1, key_sds_size, key, data);
-        data += 1 + key_sds_size;
+        *data++ = sdsHdrSize(key_sds_type);
+        sdsnewplacement(data, key_sds_size, key_sds_type, key, key_sds_len);
     }
 
     return o;
@@ -126,21 +126,23 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr,
                                                const sds key,
                                                long long expire)
 {
-    /* Calculate sizes */
-    size_t key_sds_size = 0;
-    size_t min_size = sizeof(kvobj);
-    if (expire != -1) {
-        min_size += sizeof(long long);
-    }
-    if (key != NULL) {  
-        /* Size of embedded key, incl. 1 byte for prefixed sds hdr size. */
-        key_sds_size = sdscopytobuffer(NULL, 0, key, NULL);
-        min_size += 1 + key_sds_size;
-    }
-    /* Size of embedded value (EMBSTR) including \0 term. */
-    min_size += sizeof(struct sdshdr8) + val_len + 1;
+    /* Determine embedded key presence */
+    int iskvobj = (key != NULL);
 
-    /* Allocate and set the declared fields. */
+    /* Calculate sizes for embedded key */
+    size_t key_sds_len = iskvobj ? sdslen(key) : 0;
+    char key_sds_type = iskvobj ? sdsReqType(key_sds_len) : 0;
+    size_t key_sds_size = iskvobj ? sdsReqSize(key_sds_len, key_sds_type) : 0;
+
+    /* Calculate size for embedded value (always SDS_TYPE_8) */
+    size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
+
+    /* Compute base object size */
+    size_t min_size = sizeof(robj) + val_sds_size;
+    if (expire != -1) min_size += sizeof(long long);
+    if (iskvobj) min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
+
+    /* Allocate object memory */
     size_t bufsize = 0;
     robj *o = zmalloc_usable(min_size, &bufsize);
     o->type = OBJ_STRING;
@@ -148,7 +150,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr,
     o->refcount = 1;
     o->lru = 0;
     o->expirable = (expire != -1);
-    o->iskvobj = (key != NULL);
+    o->iskvobj = iskvobj;
 
     /* If the allocation has enough space for an expire field, add it even if we
      * don't need it now. Then we don't need to realloc if it's needed later. */
@@ -158,7 +160,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr,
     }
 
     /* The memory after the struct where we embedded data. */
-    unsigned char *data = (void *)(o + 1);
+    char *data = (char *)(o + 1);
 
     /* Set the expire field. */
     if (o->expirable) {
@@ -166,29 +168,17 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr,
         data += sizeof(long long);
     }
 
-    /* Copy embedded key. */
+    /* Store embedded key */
     if (o->iskvobj) {
-        sdscopytobuffer(data + 1, key_sds_size, key, data);
-        data += 1 + key_sds_size;
+        *data++ = sdsHdrSize(key_sds_type);
+        sdsnewplacement(data, key_sds_size, key_sds_type, key, key_sds_len);
+        data += key_sds_size;
     }
 
-    /* Copy embedded value (EMBSTR). */
-    struct sdshdr8 *sh = (void *)data;
-    sh->flags = SDS_TYPE_8;
-    sh->len = val_len;
-    size_t capacity = bufsize - (min_size - val_len);
-    sh->alloc = capacity;
-    serverAssert(capacity == sh->alloc); /* Overflow check. */
-    if (val_ptr == SDS_NOINIT) {
-        sh->buf[val_len] = '\0';
-    } else if (val_ptr != NULL) {
-        memcpy(sh->buf, val_ptr, val_len);
-        sh->buf[val_len] = '\0';
-    } else {
-        memset(sh->buf, 0, val_len + 1);
-    }
-    o->ptr = sh->buf;
-
+    /* Copy embedded value (EMBSTR) always as SDS TYPE 8. Account for unused
+     * memory in the SDS alloc field. */
+    size_t remaining_size = bufsize - (data - (char *)(void *)o);
+    o->ptr = sdsnewplacement(data, remaining_size, SDS_TYPE_8, val_ptr, val_len);
     return o;
 }
 
@@ -1729,7 +1719,6 @@ NULL
             return;
         }
         size_t usage = objectComputeSize(c->argv[2], (robj *)kv,samples,c->db->id);
-        usage += dictEntryMemUsage(1);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();

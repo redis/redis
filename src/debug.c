@@ -668,15 +668,19 @@ NULL
         if (kv->type != OBJ_STRING || !sdsEncodedObject(val)) {
             addReplyError(c,"Not an sds encoded string.");
         } else {
+            /* The key's allocation size reflects the entire robj allocation.  
+             * For embedded values, report an allocation size of 0. */
+            size_t obj_alloc = zmalloc_usable_size(val);
+            size_t val_alloc = val->encoding == OBJ_ENCODING_RAW ? sdsAllocSize(val->ptr) : 0;
             addReplyStatusFormat(c,
                 "key_sds_len:%lld, key_sds_avail:%lld, key_zmalloc: %lld, "
                 "val_sds_len:%lld, val_sds_avail:%lld, val_zmalloc: %lld",
                 (long long) sdslen(key),
                 (long long) sdsavail(key),
-                (long long) sdslen(key), /* Embedded key, avoid calling sdsZmallocSize(key) */
+                (long long) obj_alloc,
                 (long long) sdslen(val->ptr),
                 (long long) sdsavail(val->ptr),
-                (long long) getStringObjectSdsUsedMemory(val));
+                (long long) val_alloc);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"listpack") && c->argc == 3) {
         kvobj *kv;

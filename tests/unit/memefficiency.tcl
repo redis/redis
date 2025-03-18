@@ -326,7 +326,7 @@ run_solo {defrag} {
             r set "{bigstream}smallitem" val
 
 
-            set expected_frag 1.5
+            set expected_frag 1.49
             if {$::accurate} {
                 # scale the hash to 1m fields in order to have a measurable the latency
                 for {set j 10000} {$j < 1000000} {incr j} {

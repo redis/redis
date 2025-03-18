@@ -73,6 +73,18 @@ typedef struct redisObject robj;
  * and can optionally enforce explicit casting, later on. An `robj` is identified 
  * to be `kvobj` if `iskvobj` flag is set. 
  * 
+ * Example to kvobj layout with key "mykey" and expiry: 
+ *    +--------------+--------------+--------------+--------------------+
+ *    | serverObject | Expiry Time  | key-hdr-size | sdshdr5 "mykey" \0 |
+ *    | 16 bytes     | 8 byte       | 1 byte       | 1      +   5   + 1 |
+ *    +--------------+--------------+--------------+--------------------+
+ *
+ * Example to kvobj layout with key and embedded value "myvalue":
+ *    +--------------+--------------+--------------------+----------------------+
+ *    | serverObject | key-hdr-size | sdshdr5 "mykey" \0 | sdshdr8 "myvalue" \0 |
+ *    | 16 bytes     | 1 byte       | 1      +   5   + 1 | 3    +      7    + 1 |
+ *    +--------------+--------------+--------------------+----------------------+
+ * 
  * Functions specific to `kvobj`:
  * - kvobjGetKey(): Returns the key associated with this KV object.
  * - kvobjGetExpire(): Returns the expiration time of the KV object.

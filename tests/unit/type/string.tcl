@@ -671,4 +671,30 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_encoding "int" bar
         lappend res [r get bar]
     } {12 12}
+    
+    if {[string match {*jemalloc*} [s mem_allocator]]} {
+        test {Check MEMORY USAGE for embedded key strings with jemalloc} {
+        
+            # 16 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 5 (val) + 1 (\0) = 32bytes 
+            r set x234 y2345
+            assert_equal [r memory usage x234] 32
+            assert_equal [r debug sdslen x234] "key_sds_len:4, key_sds_avail:0, key_zmalloc: 32, val_sds_len:5, val_sds_avail:0, val_zmalloc: 0"
+            
+            # 16 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 6 (val) + 1 (\0) = 33bytes 
+            r set x234 y23456
+            assert_equal [r memory usage x234] 40
+            assert_equal [r debug sdslen x234] "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:6, val_sds_avail:7, val_zmalloc: 0"
+            
+            # 16 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 13 (val) + 1 (\0) = 40bytes 
+            r set x234 y234561234567
+            assert_equal [r memory usage x234] 40
+            assert_equal [r debug sdslen x234] "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:13, val_sds_avail:0, val_zmalloc: 0"            
+
+            # 16 (kvobj) + 8 (expiry) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 13 (val) + 1 (\0) = 48bytes
+            r expire x234 10
+            assert_equal [r memory usage x234] 48
+            assert_equal [r debug sdslen x234] "key_sds_len:4, key_sds_avail:0, key_zmalloc: 48, val_sds_len:13, val_sds_avail:0, val_zmalloc: 0"
+
+        } {} {needs:debug}
+    }
 }
