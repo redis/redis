@@ -139,22 +139,26 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
     } else if (set->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
+
         if (p != NULL) {
-            if (str == tmpbuf)
+            if (str == tmpbuf) {
                 p = lpFindInteger(lp, p, llval, 0);
-            else
+            } else {
                 p = lpFind(lp, p, (unsigned char*)str, len, 0);
+            }
         }
+
         if (p == NULL) {
             /* Not found. */
             if (lpLength(lp) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 lpSafeToAdd(lp, len))
             {
-                if (str == tmpbuf)
+                if (str == tmpbuf) {
                     lp = lpAppendInteger(lp, llval);
-                else
+                } else {
                     lp = lpAppend(lp, (unsigned char*)str, len);
+                }
                 set->ptr = lp;
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
