@@ -1085,7 +1085,10 @@ void clientsCron(void) {
 
     /* Pause the IO threads that are processing clients, to let us access clients
      * safely. In order to avoid increasing CPU usage by pausing all threads when
-     * there are too many io threads, we pause io threads in multiple batches. */
+     * there are too many io threads, we pause io threads in multiple batches.
+     * NOTE: If the number of IO threads exceeds 8 (CLIENTS_CRON_PAUSE_IOTHREAD),
+     * processing all clients may take a few seconds, potentially breaking the
+     * assumption that all clients are processed within 1 second. */
     static int start = 1, end = 0;
     if (server.io_threads_num >= 1 && listLength(server.clients) > 0) {
         end = start + CLIENTS_CRON_PAUSE_IOTHREAD - 1;
