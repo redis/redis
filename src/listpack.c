@@ -919,8 +919,7 @@ static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p,
     (void) lp;
     (void) p;
     if (s != NULL) return 1;  /* Skip if current entry is a string */
-    long long *target = user;
-    return (ll == *target) ? 0 : 1;
+	return (ll == *(long long *)user) ? 0 : 1;
 }
 
 /* Search for a specific long long integer value in the listpack.
