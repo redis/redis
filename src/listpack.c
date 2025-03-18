@@ -3245,7 +3245,6 @@ int listpackTest(int argc, char *argv[], int flags) {
         stress(1,100000,maxsize,256);
         printf("Done. usec=%lld\n\n", usec()-start);
     }
-
     
     /* Benchmarks */
     {
