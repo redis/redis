@@ -918,18 +918,14 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
-struct lpFindIntegerArg {
-    long long target; /* Item to search */
-};
-
 /* Comparator function to find Integer item */
 static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p,
                                    void *user, unsigned char *s, long long ll) {
     (void) lp;
     (void) p;
-    struct lpFindIntegerArg *arg = user;
-    if (s != NULL) return 1;
-    return (ll == arg->target) ? 0 : 1;
+    if (s != NULL) return 1;  /* Skip if current entry is a string */
+    long long *target = user;
+    return (ll == *target) ? 0 : 1;
 }
 
 /* Search for a specific long long integer value in the listpack.
@@ -942,8 +938,7 @@ static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p,
  * Returns a pointer to the matching entry if found, otherwise NULL. */
 unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
                              long long value, unsigned int skip) {
-    struct lpFindIntegerArg arg = { .target = value };
-    return lpFindCbInternal(lp, p, &arg, lpFindIntegerCmp, skip);
+    return lpFindCbInternal(lp, p, &value, lpFindIntegerCmp, skip);
 }
 
 /* Insert, delete or replace the specified string element 'elestr' of length
