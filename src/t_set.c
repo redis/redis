@@ -146,7 +146,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 p = lpFind(lp, p, (unsigned char*)str, len, 0);
         }
         if (p == NULL) {
-            /* Not found, so we add the new member */
+            /* Not found. */
             if (lpLength(lp) < server.set_max_listpack_entries &&
                 len <= server.set_max_listpack_value &&
                 lpSafeToAdd(lp, len))
