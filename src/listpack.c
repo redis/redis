@@ -3112,6 +3112,10 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpGetIntegerValue(p, &val);
         assert(val == -50);
 
+        /* Test: Find a non-existent integer (200) */
+        p = lpFindInteger(lp, NULL, 200, 0);
+        assert(p == NULL);
+
         lpFree(lp);
     }
 
