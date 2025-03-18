@@ -920,10 +920,9 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * 'value' is the target integer value to search for.
  * 'skip' specifies the number of entries to skip between each comparison.
  *
- * Returns a pointer to the matching entry if found, otherwise NULL.
- */
-unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p, long long value, unsigned int skip)
-{
+ * Returns a pointer to the matching entry if found, otherwise NULL. */
+unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
+                             long long value, unsigned int skip) {
     int skipcnt = 0;
     uint32_t lp_bytes = lpBytes(lp);
 
@@ -941,10 +940,10 @@ unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p, long long valu
             /* Reset skip count */
             skipcnt = skip;
         } else {
-          /* Skip entry */
+            /* Skip entry */
             skipcnt--;
-          /* Move to next entry, avoid use `lpNext` due to `lpAssertValidEntry` in
-           * `lpNext` will call `lpBytes`, will cause performance degradation */
+            /* Move to next entry, avoid use `lpNext` due to `lpAssertValidEntry` in
+             * `lpNext` will call `lpBytes`, will cause performance degradation */
             p = lpSkip(p);
         }
 
@@ -3120,16 +3119,22 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpGetIntegerValue(p, &val);
         assert(val == -50);
 
-        /* Test: Skip occurrences - Append a duplicate and skip the first occurrence */
+        /* Test: Find first occurrence of 100 with skip=1 */
         lp = lpAppendInteger(lp, 100);
-        /* Here, 'skip' is set to 1 to skip the first occurrence of 100 */
         p = lpFindInteger(lp, NULL, 100, 1);
         assert(p != NULL);
         lpGetIntegerValue(p, &val);
         assert(val == 100);
 
+        /* Test: Find first occurrence of 50 with skip=1 */
+        lp = lpAppendInteger(lp, -50);
+        p = lpFindInteger(lp, NULL, -50, 1);
+        assert(p != NULL);
+        lpGetIntegerValue(p, &val);
+        assert(val == -50);
+
         lpFree(lp);
-	}
+    }
 
     TEST("Test lpFindCb") {
         lp = createList(); /* "hello", "foo", "quux", "1024" */
