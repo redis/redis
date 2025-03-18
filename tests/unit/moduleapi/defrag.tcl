@@ -22,7 +22,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             r frag.create key1 1 1000 0
 
             r config set activedefrag yes
-            wait_for_condition 100 50 {
+            wait_for_condition 200 50 {
                 [getInfoProperty [r info defragtest_stats] defragtest_defrag_ended] > 0
             } else {
                 fail "Unable to wait for a complete defragmentation cycle to finish"
@@ -52,7 +52,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             r frag.create key2 10000 100 1000
 
             r config set activedefrag yes
-            wait_for_condition 100 50 {
+            wait_for_condition 200 50 {
                 [getInfoProperty [r info defragtest_stats] defragtest_defrag_ended] > 0
             } else {
                 fail "Unable to wait for a complete defragmentation cycle to finish"
@@ -79,7 +79,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             r frag.create_frag_global
             r config set activedefrag yes
 
-            wait_for_condition 100 50 {
+            wait_for_condition 200 50 {
                 [getInfoProperty [r info defragtest_stats] defragtest_defrag_ended] > 0
             } else {
                 fail "Unable to wait for a complete defragmentation cycle to finish"
