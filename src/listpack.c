@@ -913,6 +913,20 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
     return lpFindCbInternal(lp, p, &arg, lpFindCmp, skip);
 }
 
+struct lpFindIntegerArg {
+    long long target; /* Item to search */
+};
+
+/* Comparator function to find Integer item */
+static inline int lpFindIntegerCmp(const unsigned char *lp, unsigned char *p,
+                                   void *user, unsigned char *s, long long ll) {
+    (void) lp;
+    (void) p;
+    struct lpFindIntegerArg *arg = user;
+    if (s != NULL) return 1;
+    return (ll == arg->target) ? 0 : 1;
+}
+
 /* Search for a specific long long integer value in the listpack.
  *
  * 'lp' is the pointer to the listpack.
@@ -923,42 +937,8 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * Returns a pointer to the matching entry if found, otherwise NULL. */
 unsigned char *lpFindInteger(unsigned char *lp, unsigned char *p,
                              long long value, unsigned int skip) {
-    int skipcnt = 0;
-    uint32_t lp_bytes = lpBytes(lp);
-
-    if (!p)
-        p = lpFirst(lp);
-
-    while (p) {
-        if (skipcnt == 0) {
-            long long lval;
-            if (lpGetIntegerValue(p, &lval)) {
-                if (lval == value) {
-                    return p;
-                }
-            }
-            /* Reset skip count */
-            skipcnt = skip;
-        } else {
-            /* Skip entry */
-            skipcnt--;
-            /* Move to next entry, avoid use `lpNext` due to `lpAssertValidEntry` in
-             * `lpNext` will call `lpBytes`, will cause performance degradation */
-            p = lpSkip(p);
-        }
-
-        /* The next call to lpGetIntegerValue could read at most 8 bytes past `p`
-         * We use the slower validation call only when necessary. */
-        if (p + 8 >= lp + lp_bytes) {
-            lpAssertValidEntry(lp, lp_bytes, p);
-        } else {
-            assert(p >= lp + LP_HDR_SIZE && p < lp + lp_bytes);
-        }
-
-        if (p[0] == LP_EOF) break;
-    }
-
-    return NULL;
+    struct lpFindIntegerArg arg = { .target = value };
+    return lpFindCbInternal(lp, p, &arg, lpFindIntegerCmp, skip);
 }
 
 /* Insert, delete or replace the specified string element 'elestr' of length
@@ -3135,6 +3115,7 @@ int listpackTest(int argc, char *argv[], int flags) {
 
         lpFree(lp);
     }
+
 
     TEST("Test lpFindCb") {
         lp = createList(); /* "hello", "foo", "quux", "1024" */
