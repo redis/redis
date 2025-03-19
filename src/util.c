@@ -1544,7 +1544,6 @@ static void test_string2l(void) {
 #endif
 }
 
-
 static void test_string2d(void) {
     char buf[1024];
     double v;
