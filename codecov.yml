@@ -1,0 +1,19 @@
+coverage:
+  status:
+    patch:
+      default:
+        informational: true
+    project:
+      default:
+        informational: true
+
+comment:
+  require_changes: false
+  require_head: false
+  require_base: false
+  layout: "condensed_header, diff, files"
+  hide_project_coverage: false
+  behavior: default
+
+github_checks:
+  annotations: false

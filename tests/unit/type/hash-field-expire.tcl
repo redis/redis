@@ -855,6 +855,430 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r HINCRBYFLOAT h1 f1 2.5] 12.5
             assert_range [r HPTTL h1 FIELDS 1 f1] 1 20
         }
+
+        test "HGETDEL - delete field with ttl ($type)" {
+            r debug set-active-expire 0
+            r del h1
+
+            # Test deleting only field in a hash. Due to lazy expiry,
+            # reply will be null and the field and the key will be deleted.
+            r hsetex h1 PX 5 FIELDS 1 f1 10
+            after 15
+            assert_equal [r hgetdel h1 fields 1 f1] "{}"
+            assert_equal [r exists h1]  0
+
+            # Test deleting one field among many. f2 will lazily expire
+            r hsetex h1 FIELDS 3 f1 10 f2 20 f3 value3
+            r hpexpire h1 5 FIELDS 1 f2
+            after 15
+            assert_equal [r hgetdel h1 fields 2 f2 f3] "{} value3"
+            assert_equal [lsort [r hgetall h1]] [lsort "f1 10"]
+
+            # Try to delete the last field, along with non-existing fields
+            assert_equal [r hgetdel h1 fields 4 f1 f2 f3 f4] "10 {} {} {}"
+            r debug set-active-expire 1
+        }
+
+        test "HGETEX - input validation ($type)" {
+            r del h1
+            assert_error "*wrong number of arguments*" {r HGETEX}
+            assert_error "*wrong number of arguments*" {r HGETEX h1}
+            assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS}
+            assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 0}
+            assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 1}
+            assert_error "*argument FIELDS is missing*" {r HGETEX h1 XFIELDX 1 a}
+            assert_error "*argument FIELDS is missing*" {r HGETEX h1 PXAT 1 1}
+            assert_error "*argument FIELDS is missing*" {r HGETEX h1 PERSIST 1 FIELDS 1 a}
+            assert_error "*must match the number of arguments*" {r HGETEX h1 FIELDS 2 a}
+            assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 0 a}
+            assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS -1 a}
+            assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 9223372036854775808 a}
+        }
+
+        test "HGETEX - input validation (expire time) ($type)" {
+            assert_error "*value is not an integer or out of range*" {r HGETEX h1 EX bla FIELDS 1 a}
+            assert_error "*value is not an integer or out of range*" {r HGETEX h1 EX 9223372036854775808 FIELDS 1 a}
+            assert_error "*value is not an integer or out of range*" {r HGETEX h1 EXAT 9223372036854775808 FIELDS 1 a}
+            assert_error "*invalid expire time, must be >= 0*" {r HGETEX h1 PX -1 FIELDS 1 a}
+            assert_error "*invalid expire time, must be >= 0*" {r HGETEX h1 PXAT -1 FIELDS 1 a}
+            assert_error "*invalid expire time*" {r HGETEX h1 EX -1 FIELDS 1 a}
+            assert_error "*invalid expire time*" {r HGETEX h1 EX [expr (1<<48)] FIELDS 1 a}
+            assert_error "*invalid expire time*" {r HGETEX h1 EX [expr (1<<46) - [clock seconds] + 100 ] FIELDS 1 a}
+            assert_error "*invalid expire time*" {r HGETEX h1 EXAT [expr (1<<46) + 100 ] FIELDS 1 a}
+            assert_error "*invalid expire time*" {r HGETEX h1 PX [expr (1<<46) - [clock milliseconds] + 100 ] FIELDS 1 a}
+            assert_error "*invalid expire time*" {r HGETEX h1 PXAT [expr (1<<46) + 100 ] FIELDS 1 a}
+        }
+
+        test "HGETEX - get without setting ttl ($type)" {
+            r del h1
+            r hset h1 a 1 b 2 c strval
+            assert_equal [r hgetex h1 fields 1 a] "1"
+            assert_equal [r hgetex h1 fields 2 a b] "1 2"
+            assert_equal [r hgetex h1 fields 3 a b c] "1 2 strval"
+            assert_equal [r HTTL h1 FIELDS 3 a b c] "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
+        }
+
+        test "HGETEX - get and set the ttl ($type)" {
+            r del h1
+            r hset h1 a 1 b 2 c strval
+            assert_equal [r hgetex h1 EX 10000 fields 1 a] "1"
+            assert_range [r HTTL h1 FIELDS 1 a] 9000 10000
+            assert_equal [r hgetex h1 EX 10000 fields 1 c] "strval"
+            assert_range [r HTTL h1 FIELDS 1 c] 9000 10000
+        }
+
+        test "HGETEX - Test 'EX' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetex myhash EX 1000 FIELDS 1 field1] [list "value1"]
+            assert_range [r httl myhash FIELDS 1 field1] 1 1000
+        }
+
+        test "HGETEX - Test 'EXAT' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetex myhash EXAT [expr [clock seconds] + 10] FIELDS 1 field2] [list "value2"]
+            assert_range [r httl myhash FIELDS 1 field2] 5 10
+        }
+
+        test "HGETEX - Test 'PX' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetex myhash PX 1000000 FIELDS 1 field3] [list "value3"]
+            assert_range [r httl myhash FIELDS 1 field3] 900 1000
+        }
+
+        test "HGETEX - Test 'PXAT' flag ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2 field3 value3
+            assert_equal [r hgetex myhash PXAT [expr [clock milliseconds] + 10000] FIELDS 1 field3] [list "value3"]
+            assert_range [r httl myhash FIELDS 1 field3] 5 10
+        }
+
+        test "HGETEX - Test 'PERSIST' flag ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hsetex myhash PX 5000 FIELDS 3 f1 v1 f2 v2 f3 v3
+            assert_not_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
+            assert_not_equal [r httl myhash FIELDS 1 f3] "$T_NO_EXPIRY"
+
+            # Persist f1 and verify it does not have TTL anymore
+            assert_equal [r hgetex myhash PERSIST FIELDS 1 f1] "v1"
+            assert_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
+
+            # Persist rest of the fields
+            assert_equal [r hgetex myhash PERSIST FIELDS 2 f2 f3] "v2 v3"
+            assert_equal [r httl myhash FIELDS 2 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # Redo the operation. It should be noop as fields are persisted already.
+            assert_equal [r hgetex myhash PERSIST FIELDS 2 f2 f3] "v2 v3"
+            assert_equal [r httl myhash FIELDS 2 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # Final sanity, fields exist and have no attached ttl.
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2 f3 v3"]
+            assert_equal [r httl myhash FIELDS 3 f1 f2 f3]  "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
+            r debug set-active-expire 1
+        }
+
+        test "HGETEX - Test setting ttl in the past will delete the key ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            # hgetex without setting ttl
+            assert_equal [lsort [r hgetex myhash fields 3 f1 f2 f3]] [lsort "v1 v2 v3"]
+            assert_equal [r httl myhash FIELDS 3 f1 f2 f3] "$T_NO_EXPIRY $T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # set an expired ttl and verify the key is deleted
+            r hgetex myhash PXAT 1 fields 3 f1 f2 f3
+            assert_equal [r exists myhash] 0
+        }
+
+        test "HGETEX - Test active expiry ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+            assert_equal [lsort [r hgetex myhash PXAT 1 FIELDS 5 f1 f2 f3 f4 f5]] [lsort "v1 v2 v3 v4 v5"]
+
+            r debug set-active-expire 1
+            wait_for_condition 50 20 { [r EXISTS myhash] == 0 } else { fail "'myhash' should be expired" }
+        }
+
+        test "HGETEX - A field with TTL overridden with another value (TTL discarded) ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hgetex myhash PX 10000 FIELDS 1 f1
+            r hgetex myhash EX 100 FIELDS 1 f2
+
+            # f2 ttl will be discarded
+            r hset myhash f2 v22
+            assert_equal [r hget myhash f2] "v22"
+            assert_equal [r httl myhash FIELDS 2 f2 f3] "$T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # Other field is not affected (still has TTL)
+            assert_not_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
+        }
+
+        test "HGETEX - Test with lazy expiry ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hsetex myhash PX 1 FIELDS 2 f1 v1 f2 v2
+            after 5
+            assert_equal [r hgetex myhash FIELDS 2 f1 f2] "{} {}"
+            assert_equal [r exists myhash] 0
+
+            r debug set-active-expire 1
+        }
+
+        test "HSETEX - input validation ($type)" {
+            assert_error {*wrong number of arguments*} {r hsetex myhash}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 1}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 2 a b}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 2 a b c}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 2 a b c d e}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b c d}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b c d e}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b c d e f g}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 1 a b unknown}
+            assert_error {*unknown argument*} {r hsetex myhash nx fields 1 a b}
+            assert_error {*unknown argument*} {r hsetex myhash 1 fields 1 a b}
+
+            # Only one of FNX or FXX
+            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fxx EX 100 fields 1 a b}
+            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fnx EX 100 fields 1 a b}
+            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fnx fxx EX 100 fields 1 a b}
+            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fnx fnx EX 100 fields 1 a b}
+            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fnx fxx EX 100 fields 1 a b}
+            assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fnx fxx fnx EX 100 fields 1 a b}
+
+            # Only one of EX, PX, EXAT, PXAT or KEEPTTL can be specified
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EX 100 PX 1000 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EX 100 EXAT 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EXAT 100 EX 1000 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EXAT 100 PX 1000 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash PX 100 EXAT 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash PX 100 PXAT 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash PXAT 100 EX 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash PXAT 100 EXAT 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EX 100 KEEPTTL fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash KEEPTTL EX 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EX 100 EX 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash EXAT 100 EXAT 100 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash PX 10 PX 10 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash PXAT 10 PXAT 10 fields 1 a b}
+            assert_error {*Only one of EX, PX, EXAT, PXAT or KEEPTTL arguments*} {r hsetex myhash KEEPTTL KEEPTTL fields 1 a b}
+
+            # missing expire time
+            assert_error {*not an integer or out of range*} {r hsetex myhash ex fields 1 a b}
+            assert_error {*not an integer or out of range*} {r hsetex myhash px fields 1 a b}
+            assert_error {*not an integer or out of range*} {r hsetex myhash exat fields 1 a b}
+            assert_error {*not an integer or out of range*} {r hsetex myhash pxat fields 1 a b}
+
+            # expire time more than 2 ^ 48
+            assert_error {*invalid expire time*} {r hsetex myhash EXAT [expr (1<<48)] 1 a b}
+            assert_error {*invalid expire time*} {r hsetex myhash PXAT [expr (1<<48)] 1 a b}
+            assert_error {*invalid expire time*} {r hsetex myhash EX [expr (1<<48) - [clock seconds] + 1000 ] 1 a b}
+            assert_error {*invalid expire time*} {r hsetex myhash PX [expr (1<<48) - [clock milliseconds] + 1000 ] 1 a b}
+
+            # invalid expire time
+            assert_error {*invalid expire time*} {r hsetex myhash EXAT -1 1 a b}
+            assert_error {*not an integer or out of range*} {r hsetex myhash EXAT 9223372036854775808 1 a b}
+            assert_error {*not an integer or out of range*} {r hsetex myhash EXAT x 1 a b}
+
+            # invalid numfields arg
+            assert_error {*invalid number of fields*} {r hsetex myhash fields x a b}
+            assert_error {*invalid number of fields*} {r hsetex myhash fields 9223372036854775808 a b}
+            assert_error {*invalid number of fields*} {r hsetex myhash fields 0 a b}
+            assert_error {*invalid number of fields*} {r hsetex myhash fields -1 a b}
+        }
+        
+        test "HSETEX - Basic test ($type)" {
+            r del myhash
+
+            # set field
+            assert_equal [r hsetex myhash FIELDS 1 f1 v1] 1
+            assert_equal [r hget myhash f1] "v1"
+
+            # override
+            assert_equal [r hsetex myhash FIELDS 1 f1 v11] 1
+            assert_equal [r hget myhash f1] "v11"
+
+            # set multiple
+            assert_equal [r hsetex myhash FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2"]
+            assert_equal [r hsetex myhash FIELDS 3 f1 v111 f2 v222 f3 v333] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v111 f2 v222 f3 v333"]
+        }
+
+        test "HSETEX - Test FXX flag ($type)" {
+            r del myhash
+
+            # Key is empty, command fails due to FXX
+            assert_equal [r hsetex myhash FXX FIELDS 2 f1 v1 f2 v2] 0
+            # Verify it did not leave the key empty
+            assert_equal [r exists myhash] 0
+
+            # Command fails and no change on fields
+            r hset myhash f1 v1
+            assert_equal [r hsetex myhash FXX FIELDS 2 f1 v1 f2 v2] 0
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1"]
+
+            # Command executed successfully
+            assert_equal [r hsetex myhash FXX FIELDS 1 f1 v11] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v11"]
+
+            # Try with multiple fields
+            r hset myhash f2 v2
+            assert_equal [r hsetex myhash FXX FIELDS 2 f1 v111 f2 v222] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v111 f2 v222"]
+
+            # Try with expiry
+            assert_equal [r hsetex myhash FXX EX 100 FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2"]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
+            assert_range [r httl myhash FIELDS 1 f2] 80 100
+
+            # Try with expiry, FXX arg comes after TTL
+            assert_equal [r hsetex myhash PX 5000 FXX FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2"]
+            assert_range [r hpttl myhash FIELDS 1 f1] 4500 5000
+            assert_range [r hpttl myhash FIELDS 1 f2] 4500 5000
+        }
+
+        test "HSETEX - Test FXX flag with lazy expire ($type)" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hsetex myhash PX 10 FIELDS 1 f1 v1
+            after 15
+            assert_equal [r hsetex myhash FXX FIELDS 1 f1 v11] 0
+            assert_equal [r exists myhash] 0
+            r debug set-active-expire 1
+        }
+
+        test "HSETEX - Test FNX flag ($type)" {
+            r del myhash
+
+            # Command successful on an empty key
+            assert_equal [r hsetex myhash FNX FIELDS 1 f1 v1] 1
+
+            # Command fails and no change on fields
+            assert_equal [r hsetex myhash FNX FIELDS 2 f1 v1 f2 v2] 0
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1"]
+
+            # Command executed successfully
+            assert_equal [r hsetex myhash FNX FIELDS 2 f2 v2 f3 v3] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2 f3 v3"]
+            assert_equal [r hsetex myhash FXX FIELDS 3 f1 v11 f2 v22 f3 v33] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v11 f2 v22 f3 v33"]
+
+            # Try with expiry
+            r del myhash
+            assert_equal [r hsetex myhash FNX EX 100 FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2"]
+            assert_range [r httl myhash FIELDS 1 f1] 80 100
+            assert_range [r httl myhash FIELDS 1 f2] 80 100
+
+            # Try with expiry, FNX arg comes after TTL
+            assert_equal [r hsetex myhash PX 5000 FNX FIELDS 1 f3 v3] 1
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2 f3 v3"]
+            assert_range [r hpttl myhash FIELDS 1 f3] 4500 5000
+        }
+
+        test "HSETEX - Test 'EX' flag ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            assert_equal [r hsetex myhash EX 1000 FIELDS 1 f3 v3 ] 1
+            assert_range [r httl myhash FIELDS 1 f3] 900 1000
+        }
+
+        test "HSETEX - Test 'EXAT' flag ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            assert_equal [r hsetex myhash EXAT [expr [clock seconds] + 10] FIELDS 1 f3 v3] 1
+            assert_range [r httl myhash FIELDS 1 f3] 5 10
+        }
+
+        test "HSETEX - Test 'PX' flag ($type)" {
+            r del myhash
+            assert_equal [r hsetex myhash PX 1000000 FIELDS 1 f3 v3] 1
+            assert_range [r httl myhash FIELDS 1 f3] 990 1000
+        }
+
+        test "HSETEX - Test 'PXAT' flag ($type)" {
+            r del myhash
+            r hset myhash f1 v2 f2 v2 f3 v3
+            assert_equal [r hsetex myhash PXAT [expr [clock milliseconds] + 10000] FIELDS 1 f2 v2] 1
+            assert_range [r httl myhash FIELDS 1 f2] 5 10
+        }
+
+        test "HSETEX - Test 'KEEPTTL' flag ($type)" {
+            r del myhash
+
+            r hsetex myhash FIELDS 2 f1 v1 f2 v2
+            r hsetex myhash PX 20000 FIELDS 1 f2 v2
+
+            # f1 does not have ttl
+            assert_equal [r httl myhash FIELDS 1 f1] "$T_NO_EXPIRY"
+
+            # f2 has ttl
+            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
+
+            # Validate KEEPTTL preserves the TTL
+            assert_equal [r hsetex myhash KEEPTTL FIELDS 1 f2 v22] 1
+            assert_equal [r hget myhash f2] "v22"
+            assert_not_equal [r httl myhash FIELDS 1 f2] "$T_NO_EXPIRY"
+
+            # Try with multiple fields. First, set fields and TTL
+            r hsetex myhash EX 10000 FIELDS 3 f1 v1 f2 v2 f3 v3
+
+            # Update fields with KEEPTTL flag
+            r hsetex myhash KEEPTTL FIELDS 3 f1 v111 f2 v222 f3 v333
+
+            # Verify values are set, ttls are untouched
+            assert_equal [lsort [r hgetall myhash]] [lsort "f1 v111 f2 v222 f3 v333"]
+            assert_range [r httl myhash FIELDS 1 f1] 9000 10000
+            assert_range [r httl myhash FIELDS 1 f2] 9000 10000
+            assert_range [r httl myhash FIELDS 1 f3] 9000 10000
+        }
+
+        test "HSETEX - Test no expiry flag discards TTL ($type)" {
+            r del myhash
+
+            r hsetex myhash FIELDS 1 f1 v1
+            r hsetex myhash PX 100000 FIELDS 1 f2 v2
+            assert_range [r hpttl myhash FIELDS 1 f2] 1 100000
+
+            assert_equal [r hsetex myhash FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [r httl myhash FIELDS 2 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
+        }
+
+        test "HSETEX - Test with active expiry" {
+            r del myhash
+            r debug set-active-expire 0
+
+            r hsetex myhash PX 10 FIELDS 5 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+            r debug set-active-expire 1
+            wait_for_condition 50 20 { [r EXISTS myhash] == 0 } else { fail "'myhash' should be expired" }
+        }
+
+        test "HSETEX - Set time in the past ($type)" {
+            r del myhash
+
+            # Try on an empty key
+            assert_equal [r hsetex myhash EXAT [expr {[clock seconds] - 1}] FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [r hexists myhash field1] 0
+
+            # Try with existing fields
+            r hset myhash fields 2 f1 v1 f2 v2
+            assert_equal [r hsetex myhash EXAT [expr {[clock seconds] - 1}] FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [r hexists myhash field1] 0
+        }
     }
 
     test "Statistics - Hashes with HFEs ($type)" {
@@ -879,12 +1303,34 @@ start_server {tags {"external:skip needs:debug"}} {
         r hdel myhash3 f2
         assert_match  [get_stat_subexpiry r] 2
 
+        # hash4: 2 fields, 1 with TTL. HGETDEL field with TTL. subexpiry decr -1
+        r hset myhash4 f1 v1 f2 v2
+        r hpexpire myhash4 100 FIELDS 1 f2
+        assert_match [get_stat_subexpiry r] 3
+        r hgetdel myhash4 FIELDS 1 f2
+        assert_match [get_stat_subexpiry r] 2
+
         # Expired fields of hash1 and hash2. subexpiry decr -2
         wait_for_condition 50 50 {
                 [get_stat_subexpiry r] == 0
         } else {
                 fail "Hash field expiry statistics failed"
         }
+    }
+
+    test "HFE commands against wrong type" {
+        r set wrongtype somevalue
+        assert_error "WRONGTYPE Operation against a key*" {r hexpire wrongtype 10 fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hexpireat wrongtype 10 fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hpexpire wrongtype 10 fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hpexpireat wrongtype 10 fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hexpiretime wrongtype fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hpexpiretime wrongtype fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r httl wrongtype fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hpttl wrongtype fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hpersist wrongtype fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hgetex wrongtype fields 1 f1}
+        assert_error "WRONGTYPE Operation against a key*" {r hsetex wrongtype fields 1 f1 v1}
     }
 
     r config set hash-max-listpack-entries 512
@@ -1048,6 +1494,54 @@ start_server {tags {"external:skip needs:debug"}} {
                     fail "Field f2 of hash h2 wasn't deleted"
                 }
 
+                # HSETEX
+                r hsetex h3 FIELDS 1 f1 v1
+                r hsetex h3 FXX FIELDS 1 f1 v11
+                r hsetex h3 FNX FIELDS 1 f2 v22
+                r hsetex h3 KEEPTTL FIELDS 1 f2 v22
+
+                # Next one will fail due to FNX arg and it won't be replicated
+                r hsetex h3 FNX FIELDS 2 f1 v1 f2 v2
+
+                # Commands with EX/PX/PXAT/EXAT will be replicated as PXAT
+                r hsetex h3 EX 10000 FIELDS 1 f1 v111
+                r hsetex h3 PX 10000 FIELDS 1 f1 v111
+                r hsetex h3 PXAT [expr [clock milliseconds]+100000] FIELDS 1 f1 v111
+                r hsetex h3 EXAT [expr [clock seconds]+100000] FIELDS 1 f1 v111
+
+                # Following commands will set and then delete the fields because
+                # of TTL in the past. HDELs will be propagated.
+                r hsetex h3 PX 0 FIELDS 1 f1 v111
+                r hsetex h3 PX 0 FIELDS 3 f1 v2 f2 v2 f3 v3
+
+                # HGETEX
+                r hsetex h4 FIELDS 3 f1 v1 f2 v2 f3 v3
+                # No change on expiry, it won't be replicated.
+                r hgetex h4 FIELDS 1 f1
+
+                # Commands with EX/PX/PXAT/EXAT will be replicated as
+                # HPEXPIREAT command.
+                r hgetex h4 EX 10000 FIELDS 1 f1
+                r hgetex h4 PX 10000 FIELDS 1 f1
+                r hgetex h4 PXAT [expr [clock milliseconds]+100000] FIELDS 1 f1
+                r hgetex h4 EXAT [expr [clock seconds]+100000] FIELDS 1 f1
+
+                # Following commands will delete the fields because of TTL in
+                # the past. HDELs will be propagated.
+                r hgetex h4 PX 0 FIELDS 1 f1
+                # HDELs will be propagated for f2 and f3 as only those exist.
+                r hgetex h4 PX 0 FIELDS 3 f1 f2 f3
+
+                # HGETEX with PERSIST flag will be replicated as HPERSIST
+                r hsetex h4 EX 1000 FIELDS 1 f4 v4
+                r hgetex h4 PERSIST FIELDS 1 f4
+
+                # Nothing will be replicated as f4 is persisted already.
+                r hgetex h4 PERSIST FIELDS 1 f4
+
+                # Replicated as hdel
+                r hgetdel h4 FIELDS 1 f4
+
                 # Assert that each TTL-related command are persisted with absolute timestamps in AOF
                 assert_aof_content $aof {
                     {select *}
@@ -1068,6 +1562,33 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hdel h1 f2}
                     {hdel h2 f1}
                     {hdel h2 f2}
+                    {hsetex h3 FIELDS 1 f1 v1}
+                    {hsetex h3 FXX FIELDS 1 f1 v11}
+                    {hsetex h3 FNX FIELDS 1 f2 v22}
+                    {hsetex h3 KEEPTTL FIELDS 1 f2 v22}
+                    {hsetex h3 PXAT * 1 f1 v111}
+                    {hsetex h3 PXAT * 1 f1 v111}
+                    {hsetex h3 PXAT * 1 f1 v111}
+                    {hsetex h3 PXAT * 1 f1 v111}
+                    {hdel h3 f1}
+                    {multi}
+                        {hdel h3 f1}
+                        {hdel h3 f2}
+                        {hdel h3 f3}
+                    {exec}
+                    {hsetex h4 FIELDS 3 f1 v1 f2 v2 f3 v3}
+                    {hpexpireat h4 * FIELDS 1 f1}
+                    {hpexpireat h4 * FIELDS 1 f1}
+                    {hpexpireat h4 * FIELDS 1 f1}
+                    {hpexpireat h4 * FIELDS 1 f1}
+                    {hdel h4 f1}
+                    {multi}
+                        {hdel h4 f2}
+                        {hdel h4 f3}
+                    {exec}
+                    {hsetex h4 PXAT * FIELDS 1 f4 v4}
+                    {hpersist h4 FIELDS 1 f4}
+                    {hdel h4 f4}
                 }
             }
         } {} {needs:debug}
@@ -1135,6 +1656,16 @@ start_server {tags {"external:skip needs:debug"}} {
                 r hpexpire h2 1 FIELDS 2 f1 f2
                 after 200
 
+                r hsetex h3 EX 100000 FIELDS 2 f1 v1 f2 v2
+                r hsetex h3 EXAT [expr [clock seconds] + 1000] FIELDS 2 f1 v1 f2 v2
+                r hsetex h3 PX 100000 FIELDS 2 f1 v1 f2 v2
+                r hsetex h3 PXAT [expr [clock milliseconds]+100000] FIELDS 2 f1 v1 f2 v2
+
+                r hgetex h3 EX 100000 FIELDS 2 f1 f2
+                r hgetex h3 EXAT [expr [clock seconds] + 1000] FIELDS 2 f1 f2
+                r hgetex h3 PX 100000 FIELDS 2 f1 f2
+                r hgetex h3 PXAT [expr [clock milliseconds]+100000] FIELDS 2 f1 f2
+
                 assert_aof_content $aof {
                     {select *}
                     {hset h1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5 f6 v6}
@@ -1146,6 +1677,14 @@ start_server {tags {"external:skip needs:debug"}} {
                     {hpexpireat h2 * FIELDS 2 f1 f2}
                     {hdel h2 *}
                     {hdel h2 *}
+                    {hsetex h3 PXAT * FIELDS 2 f1 v1 f2 v2}
+                    {hsetex h3 PXAT * FIELDS 2 f1 v1 f2 v2}
+                    {hsetex h3 PXAT * FIELDS 2 f1 v1 f2 v2}
+                    {hsetex h3 PXAT * FIELDS 2 f1 v1 f2 v2}
+                    {hpexpireat h3 * FIELDS 2 f1 f2}
+                    {hpexpireat h3 * FIELDS 2 f1 f2}
+                    {hpexpireat h3 * FIELDS 2 f1 f2}
+                    {hpexpireat h3 * FIELDS 2 f1 f2}
                 }
 
                 array set keyAndFields1 [dumpAllHashes r]
@@ -1265,6 +1804,23 @@ start_server {tags {"external:skip needs:debug"}} {
                 $primary hpexpireat h5 [expr [clock milliseconds]-100000] FIELDS 1 f
                 $primary hset h9 f v
 
+                $primary hsetex h10 EX 100000 FIELDS 1 f v
+                $primary hsetex h11 EXAT [expr [clock seconds] + 1000] FIELDS 1 f v
+                $primary hsetex h12 PX 100000 FIELDS 1 f v
+                $primary hsetex h13 PXAT [expr [clock milliseconds]+100000] FIELDS 1 f v
+                $primary hsetex h14 PXAT 1 FIELDS 1 f v
+
+                $primary hsetex h15 FIELDS 1 f v
+                $primary hgetex h15 EX 100000 FIELDS 1 f
+                $primary hsetex h16 FIELDS 1 f v
+                $primary hgetex h16 EXAT [expr [clock seconds] + 1000] FIELDS 1 f
+                $primary hsetex h17 FIELDS 1 f v
+                $primary hgetex h17 PX 100000 FIELDS 1 f
+                $primary hsetex h18 FIELDS 1 f v
+                $primary hgetex h18 PXAT [expr [clock milliseconds]+100000] FIELDS 1 f
+                $primary hsetex h19 FIELDS 1 f v
+                $primary hgetex h19 PXAT 1 FIELDS 1 f
+
                 # Wait for replica to get the keys and TTLs
                 assert {[$primary wait 1 0] == 1}
 
@@ -1273,5 +1829,102 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
             }
         }
+
+        test "Test HSETEX command replication" {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            # Create a field and delete it in a single command due to timestamp
+            # being in the past. It will be propagated as HDEL.
+            r hsetex h1 PXAT 1 FIELDS 1 f1 v1
+
+            # Following ones will be propagated with PXAT arg
+            r hsetex h1 EX 100000 FIELDS 1 f1 v1
+            r hsetex h1 EXAT [expr [clock seconds] + 1000] FIELDS 1 f1 v1
+            r hsetex h1 PX 100000 FIELDS 1 f1 v1
+            r hsetex h1 PXAT [expr [clock milliseconds]+100000] FIELDS 1 f1 v1
+
+            # Propagate with KEEPTTL flag
+            r hsetex h1 KEEPTTL FIELDS 1 f1 v1
+
+            # Following commands will fail and won't be propagated
+            r hsetex h1 FNX FIELDS 1 f1 v11
+            r hsetex h1 FXX FIELDS 1 f2 v2
+
+            # Propagate with FNX and FXX flags
+            r hsetex h1 FNX FIELDS 1 f2 v2
+            r hsetex h1 FXX FIELDS 1 f2 v22
+
+            assert_replication_stream $repl {
+                {select *}
+                {hdel h1 f1}
+                {hsetex h1 PXAT * FIELDS 1 f1 v1}
+                {hsetex h1 PXAT * FIELDS 1 f1 v1}
+                {hsetex h1 PXAT * FIELDS 1 f1 v1}
+                {hsetex h1 PXAT * FIELDS 1 f1 v1}
+                {hsetex h1 KEEPTTL FIELDS 1 f1 v1}
+                {hsetex h1 FNX FIELDS 1 f2 v2}
+                {hsetex h1 FXX FIELDS 1 f2 v22}
+            }
+            close_replication_stream $repl
+        } {} {needs:repl}
+
+        test "Test HGETEX command replication" {
+            r flushall
+            r debug set-active-expire 0
+            set repl [attach_to_replication_stream]
+
+            # If no fields are found, command won't be replicated
+            r hgetex h1 EX 10000 FIELDS 1 f0
+            r hgetex h1 PERSIST FIELDS 1 f0
+
+            # Get without setting expiry will not be replicated
+            r hsetex h1 FIELDS 1 f0 v0
+            r hgetex h1 FIELDS 1 f0
+
+            # Lazy expired field will be replicated as HDEL
+            r hsetex h1 PX 10 FIELDS 1 f1 v1
+            after 15
+            r hgetex h1 EX 1000 FIELDS 1 f1
+
+            # If new TTL is in the past, it will be replicated as HDEL
+            r hsetex h1 EX 10000 FIELDS 1 f2 v2
+            r hgetex h1 EXAT 1 FIELDS 1 f2
+
+            # A field will expire lazily and other field will be deleted due to
+            # TTL is being in the past. It'll be propagated as two HDEL's.
+            r hsetex h1 PX 10 FIELDS 1 f3 v3
+            after 15
+            r hsetex h1 FIELDS 1 f4 v4
+            r hgetex h1 EXAT 1 FIELDS 2 f3 f4
+
+            # TTL update, it will be replicated as HPEXPIREAT
+            r hsetex h1 FIELDS 1 f5 v5
+            r hgetex h1 EX 10000 FIELDS 1 f5
+
+            # If PERSIST flag is used, it will be replicated as HPERSIST
+            r hsetex h1 EX 10000 FIELDS 1 f6 v6
+            r hgetex h1 PERSIST FIELDS 1 f6
+
+            assert_replication_stream $repl {
+                {select *}
+                {hsetex h1 FIELDS 1 f0 v0}
+                {hsetex h1 PXAT * FIELDS 1 f1 v1}
+                {hdel h1 f1}
+                {hsetex h1 PXAT * FIELDS 1 f2 v2}
+                {hdel h1 f2}
+                {hsetex h1 PXAT * FIELDS 1 f3 v3}
+                {hsetex h1 FIELDS 1 f4 v4}
+                {multi}
+                    {hdel h1 f3}
+                    {hdel h1 f4}
+                {exec}
+                {hsetex h1 FIELDS 1 f5 v5}
+                {hpexpireat h1 * FIELDS 1 f5}
+                {hsetex h1 PXAT * FIELDS 1 f6 v6}
+                {hpersist h1 FIELDS 1 f6}
+            }
+            close_replication_stream $repl
+        } {} {needs:repl}
     }
 }

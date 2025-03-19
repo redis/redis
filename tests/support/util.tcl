@@ -1,3 +1,16 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 proc randstring {min max {type binary}} {
     set len [expr {$min+int(rand()*($max-$min+1))}]
     set output {}
@@ -118,11 +131,11 @@ proc wait_for_sync r {
     }
 }
 
-proc wait_replica_online r {
-    wait_for_condition 50 100 {
-        [string match "*slave0:*,state=online*" [$r info replication]]
+proc wait_replica_online {r {replica_id 0} {maxtries 50} {delay 100}} {
+    wait_for_condition $maxtries $delay {
+        [string match "*slave$replica_id:*,state=online*" [$r info replication]]
     } else {
-        fail "replica didn't online in time"
+        fail "replica $replica_id did not become online in time"
     }
 }
 
@@ -565,10 +578,11 @@ proc find_valgrind_errors {stderr on_termination} {
 }
 
 # Execute a background process writing random data for the specified number
-# of seconds to the specified Redis instance.
-proc start_write_load {host port seconds} {
+# of seconds to the specified Redis instance. If key is omitted, a random key
+# is used for every SET command.
+proc start_write_load {host port seconds {key ""}} {
     set tclsh [info nameofexecutable]
-    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls &
+    exec $tclsh tests/helpers/gen_write_load.tcl $host $port $seconds $::tls $key &
 }
 
 # Stop a process generating write load executed with start_write_load.
@@ -677,6 +691,12 @@ proc pause_process pid {
 }
 
 proc resume_process pid {
+    wait_for_condition 50 1000 {
+        [string match "T*" [exec ps -o state= -p $pid]]
+    } else {
+        puts [exec ps j $pid]
+        fail "process was not stopped"
+    }
     exec kill -SIGCONT $pid
 }
 

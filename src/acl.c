@@ -7,6 +7,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 #include "sha256.h"
 #include <fcntl.h>
 #include <ctype.h>
@@ -277,7 +278,7 @@ int ACLListMatchSds(void *a, void *b) {
 
 /* Method to free list elements from ACL users password/patterns lists. */
 void ACLListFreeSds(void *item) {
-    sdsfree(item);
+    sdsfreegeneric(item);
 }
 
 /* Method to duplicate list elements from ACL users password/patterns lists. */
@@ -467,6 +468,11 @@ void ACLFreeUser(user *u) {
     listRelease(u->passwords);
     listRelease(u->selectors);
     zfree(u);
+}
+
+/* Generic version of ACLFreeUser. */
+void ACLFreeUserGeneric(void *u) {
+    ACLFreeUser((user *)u);
 }
 
 /* When a user is deleted we need to cycle the active
@@ -1061,18 +1067,23 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
         int flags = 0;
         size_t offset = 1;
         if (op[0] == '%') {
+            int perm_ok = 1;
             for (; offset < oplen; offset++) {
                 if (toupper(op[offset]) == 'R' && !(flags & ACL_READ_PERMISSION)) {
                     flags |= ACL_READ_PERMISSION;
                 } else if (toupper(op[offset]) == 'W' && !(flags & ACL_WRITE_PERMISSION)) {
                     flags |= ACL_WRITE_PERMISSION;
-                } else if (op[offset] == '~' && flags) {
+                } else if (op[offset] == '~') {
                     offset++;
                     break;
                 } else {
-                    errno = EINVAL;
-                    return C_ERR;
+                    perm_ok = 0;
+                    break;
                 }
+            }
+            if (!flags || !perm_ok) {
+                errno = EINVAL;
+                return C_ERR;
             }
         } else {
             flags = ACL_ALL_PERMISSION;
@@ -2454,12 +2465,12 @@ sds ACLLoadFromFile(const char *filename) {
         }
 
         if (user_channels)
-            raxFreeWithCallback(user_channels, (void(*)(void*))listRelease);
-        raxFreeWithCallback(old_users,(void(*)(void*))ACLFreeUser);
+            raxFreeWithCallback(user_channels, listReleaseGeneric);
+        raxFreeWithCallback(old_users, ACLFreeUserGeneric);
         sdsfree(errors);
         return NULL;
     } else {
-        raxFreeWithCallback(Users,(void(*)(void*))ACLFreeUser);
+        raxFreeWithCallback(Users, ACLFreeUserGeneric);
         Users = old_users;
         errors = sdscat(errors,"WARNING: ACL errors detected, no change to the previously active ACL rules was performed");
         return errors;
@@ -3184,6 +3195,38 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
     setDeferredSetLen(c, flaglen, flagcount);
 }
 
+/* When successful, initiates an internal connection, that is able to execute
+ * internal commands (see CMD_INTERNAL). */
+static void internalAuth(client *c) {
+    if (server.cluster == NULL) {
+        addReplyError(c, "Cannot authenticate as an internal connection on non-cluster instances");
+        return;
+    }
+
+    sds password = c->argv[2]->ptr;
+
+    /* Get internal secret. */
+    size_t len = -1;
+    const char *internal_secret = clusterGetSecret(&len);
+    if (sdslen(password) != len) {
+        addReplyError(c, "-WRONGPASS invalid internal password");
+        return;
+    }
+    if (!time_independent_strcmp((char *)internal_secret, (char *)password, len)) {
+        c->flags |= CLIENT_INTERNAL;
+        /* No further authentication is needed. */
+        c->authenticated = 1;
+        /* Set the user to the unrestricted user, if it is not already set (default). */
+        if (c->user != NULL) {
+            c->user = NULL;
+            moduleNotifyUserChanged(c);
+        }
+        addReply(c, shared.ok);
+    } else {
+        addReplyError(c, "-WRONGPASS invalid internal password");
+    }
+}
+
 /* AUTH <password>
  * AUTH <username> <password> (Redis >= 6.0 form)
  *
@@ -3217,6 +3260,14 @@ void authCommand(client *c) {
         username = c->argv[1];
         password = c->argv[2];
         redactClientCommandArgument(c, 2);
+
+        /* Handle internal authentication commands.
+         * Note: No user-defined ACL user can have this username (no spaces
+         * allowed), thus no conflicts with ACL possible. */
+        if (!strcmp(username->ptr, "internal connection")) {
+            internalAuth(c);
+            return;
+        }
     }
 
     robj *err = NULL;

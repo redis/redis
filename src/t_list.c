@@ -875,7 +875,7 @@ void lrangeCommand(client *c) {
 /* LTRIM <key> <start> <stop> */
 void ltrimCommand(client *c) {
     robj *o;
-    long start, end, llen, ltrim, rtrim, llenNew;;
+    long start, end, llen, ltrim, rtrim, llenNew;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;

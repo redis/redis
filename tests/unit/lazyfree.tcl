@@ -10,7 +10,6 @@ start_server {tags {"lazyfree"}} {
         set peak_mem [s used_memory]
         assert {[r unlink myset] == 1}
         assert {$peak_mem > $orig_mem+1000000}
-        reconnect ;# free the memory of reused argv of client
         wait_for_condition 50 100 {
             [s used_memory] < $peak_mem &&
             [s used_memory] < $orig_mem*2
@@ -33,7 +32,6 @@ start_server {tags {"lazyfree"}} {
         set peak_mem [s used_memory]
         r flushdb async
         assert {$peak_mem > $orig_mem+1000000}
-        reconnect ;# free the memory of reused argv of client
         wait_for_condition 50 100 {
             [s used_memory] < $peak_mem &&
             [s used_memory] < $orig_mem*2
@@ -176,4 +174,18 @@ start_server {tags {"lazyfree"}} {
         assert_equal [s lazyfreed_objects] 2
         $rd close
     }
+
+    test "Unblocks client blocked on lazyfree via REPLICAOF command" {
+        set rd [redis_deferring_client]
+
+        populate 50000 ;# Just to make flushdb async slower
+        $rd flushdb
+        wait_for_blocked_client
+        # Test that slaveof command unblocks clients without assertion failure
+        r slaveof 127.0.0.1 0
+        assert_equal [$rd read] {OK}
+        $rd close
+        r ping
+        r slaveof no one
+    } {OK} {external:skip}
 }

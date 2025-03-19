@@ -1,3 +1,16 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 proc test_memory_efficiency {range} {
     r flushall
     set rd [redis_deferring_client]
@@ -37,15 +50,19 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
-    proc wait_for_defrag_stop {maxtries delay} {
+    proc wait_for_defrag_stop {maxtries delay {expect_frag 0}} {
         wait_for_condition $maxtries $delay {
-            [s active_defrag_running] eq 0
+            [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
         } else {
             after 120 ;# serverCron only updates the info once in 100ms
             puts [r info memory]
             puts [r info stats]
             puts [r memory malloc-stats]
-            fail "defrag didn't stop."
+            if {$expect_frag != 0} {
+                fail "defrag didn't stop or failed to achieve expected frag ratio ([s allocator_frag_ratio] > $expect_frag)"
+            } else {
+                fail "defrag didn't stop."
+            }
         }
     }
 
@@ -102,7 +119,7 @@ run_solo {defrag} {
                 r config set active-defrag-cycle-max 75
 
                 # Wait for the active defrag to stop working.
-                wait_for_defrag_stop 2000 100
+                wait_for_defrag_stop 2000 100 1.1
 
                 # Test the fragmentation is lower.
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -124,7 +141,6 @@ run_solo {defrag} {
                     puts [r latency latest]
                     puts [r latency history active-defrag-cycle]
                 }
-                assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
@@ -142,6 +158,11 @@ run_solo {defrag} {
                 # reset stats and load the AOF file
                 r config resetstat
                 r config set key-load-delay -25 ;# sleep on average 1/25 usec
+                # Note: This test is checking if defrag is working DURING AOF loading (while
+                #       timers are not active).  So we don't give any extra time, and we deactivate
+                #       defrag immediately after the AOF loading is complete.  During loading,
+                #       defrag will get invoked less often, causing starvation prevention.  We
+                #       should expect longer latency measurements.
                 r debug loadaof
                 r config set activedefrag no
                 # measure hits and misses right after aof loading
@@ -246,7 +267,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100
+                wait_for_defrag_stop 500 100 1.05
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -256,7 +277,6 @@ run_solo {defrag} {
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
                 }
-                assert_lessthan_equal [s allocator_frag_ratio] 1.05
             }
             # Flush all script to make sure we don't crash after defragging them
             r script flush sync
@@ -362,7 +382,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100
+                wait_for_defrag_stop 500 100 1.1
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -384,7 +404,6 @@ run_solo {defrag} {
                     puts [r latency latest]
                     puts [r latency history active-defrag-cycle]
                 }
-                assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
@@ -464,7 +483,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100
+                wait_for_defrag_stop 500 100 1.05
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -474,7 +493,6 @@ run_solo {defrag} {
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
                 }
-                assert_lessthan_equal [s allocator_frag_ratio] 1.05
             }
 
             # Publishes some message to all the pubsub clients to make sure that
@@ -572,7 +590,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100
+                wait_for_defrag_stop 500 100 1.5
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -582,7 +600,6 @@ run_solo {defrag} {
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
                 }
-                assert_lessthan_equal [s allocator_frag_ratio] 1.5
             }
         }
 
@@ -682,7 +699,13 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100
+                if {$io_threads == 1} {
+                    wait_for_defrag_stop 500 100 1.05
+                } else {
+                    # TODO: When multithreading is enabled, argv may be created in the io thread
+                    # and kept in the main thread, which can cause fragmentation to become worse.
+                    wait_for_defrag_stop 500 100 1.1
+                }
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -691,14 +714,6 @@ run_solo {defrag} {
                     puts "rss [s allocator_active]"
                     puts "frag [s allocator_frag_ratio]"
                     puts "frag_bytes [s allocator_frag_bytes]"
-                }
-
-                if {$io_threads == 1} {
-                    assert_lessthan_equal [s allocator_frag_ratio] 1.05
-                } else {
-                    # TODO: When multithreading is enabled, argv may be created in the io thread
-                    # and kept in the main thread, which can cause fragmentation to become worse.
-                    assert_lessthan_equal [s allocator_frag_ratio] 1.1
                 }
             }
         }
@@ -763,7 +778,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100
+                wait_for_defrag_stop 500 100 1.1
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -789,7 +804,6 @@ run_solo {defrag} {
                     puts [r latency history active-defrag-cycle]
                     puts [r memory malloc-stats]
                 }
-                assert {$frag < 1.1}
                 # due to high fragmentation, 100hz, and active-defrag-cycle-max set to 75,
                 # we expect max latency to be not much higher than 7.5ms but due to rare slowness threshold is set higher
                 if {!$::no_latency} {
@@ -884,7 +898,7 @@ run_solo {defrag} {
                     }
 
                     # wait for the active defrag to stop working
-                    wait_for_defrag_stop 500 100
+                    wait_for_defrag_stop 500 100 1.1
 
                     # test the fragmentation is lower
                     after 120 ;# serverCron only updates the info once in 100ms
@@ -896,7 +910,6 @@ run_solo {defrag} {
                         puts "hits: $hits"
                         puts "misses: $misses"
                     }
-                    assert {$frag < 1.1}
                     assert {$misses < 10000000} ;# when defrag doesn't stop, we have some 30m misses, when it does, we have 2m misses
                 }
 

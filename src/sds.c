@@ -174,6 +174,11 @@ void sdsfree(sds s) {
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
 
+/* Generic version of sdsfree. */
+void sdsfreegeneric(void *s) {
+    sdsfree((sds)s);
+}
+
 /* Set the sds string length to the length as obtained with strlen(), so
  * considering as content only up to the first null term character.
  *
@@ -1443,29 +1448,29 @@ int sdsTest(int argc, char **argv, int flags) {
         /* Test sdsresize - extend */
         x = sdsnew("1234567890123456789012345678901234567890");
         x = sdsResize(x, 200, 1);
-        test_cond("sdsrezie() expand len", sdslen(x) == 40);
-        test_cond("sdsrezie() expand strlen", strlen(x) == 40);
-        test_cond("sdsrezie() expand alloc", sdsalloc(x) == 200);
+        test_cond("sdsresize() expand len", sdslen(x) == 40);
+        test_cond("sdsresize() expand strlen", strlen(x) == 40);
+        test_cond("sdsresize() expand alloc", sdsalloc(x) == 200);
         /* Test sdsresize - trim free space */
         x = sdsResize(x, 80, 1);
-        test_cond("sdsrezie() shrink len", sdslen(x) == 40);
-        test_cond("sdsrezie() shrink strlen", strlen(x) == 40);
-        test_cond("sdsrezie() shrink alloc", sdsalloc(x) == 80);
+        test_cond("sdsresize() shrink len", sdslen(x) == 40);
+        test_cond("sdsresize() shrink strlen", strlen(x) == 40);
+        test_cond("sdsresize() shrink alloc", sdsalloc(x) == 80);
         /* Test sdsresize - crop used space */
         x = sdsResize(x, 30, 1);
-        test_cond("sdsrezie() crop len", sdslen(x) == 30);
-        test_cond("sdsrezie() crop strlen", strlen(x) == 30);
-        test_cond("sdsrezie() crop alloc", sdsalloc(x) == 30);
+        test_cond("sdsresize() crop len", sdslen(x) == 30);
+        test_cond("sdsresize() crop strlen", strlen(x) == 30);
+        test_cond("sdsresize() crop alloc", sdsalloc(x) == 30);
         /* Test sdsresize - extend to different class */
         x = sdsResize(x, 400, 1);
-        test_cond("sdsrezie() expand len", sdslen(x) == 30);
-        test_cond("sdsrezie() expand strlen", strlen(x) == 30);
-        test_cond("sdsrezie() expand alloc", sdsalloc(x) == 400);
+        test_cond("sdsresize() expand len", sdslen(x) == 30);
+        test_cond("sdsresize() expand strlen", strlen(x) == 30);
+        test_cond("sdsresize() expand alloc", sdsalloc(x) == 400);
         /* Test sdsresize - shrink to different class */
         x = sdsResize(x, 4, 1);
-        test_cond("sdsrezie() crop len", sdslen(x) == 4);
-        test_cond("sdsrezie() crop strlen", strlen(x) == 4);
-        test_cond("sdsrezie() crop alloc", sdsalloc(x) == 4);
+        test_cond("sdsresize() crop len", sdslen(x) == 4);
+        test_cond("sdsresize() crop strlen", strlen(x) == 4);
+        test_cond("sdsresize() crop alloc", sdsalloc(x) == 4);
         sdsfree(x);
     }
     return 0;

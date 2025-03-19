@@ -2,8 +2,13 @@
  * Copyright (c) 2016-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 /* --------------------------------------------------------------------------
@@ -439,7 +444,7 @@ typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, R
 struct ModuleConfig {
     sds name;           /* Fullname of the config (as it appears in the config file) */
     sds alias;          /* Optional alias for the configuration. NULL if none exists */
-    
+
     int unprefixedFlag; /* Indicates if the REDISMODULE_CONFIG_UNPREFIXED flag was set. 
                          * If the configuration name was prefixed,during get_fn/set_fn 
                          * callbacks, it should be reported without the prefix */
@@ -1151,6 +1156,7 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
+        else if (!strcasecmp(t, "internal")) flags |= (CMD_INTERNAL|CMD_NOSCRIPT); /* We also disallow internal commands in scripts. */
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -1235,6 +1241,9 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *                     RM_Yield.
  * * **"getchannels-api"**: The command implements the interface to return
  *                          the arguments that are channels.
+ * * **"internal"**: Internal command, one that should not be exposed to the user connections.
+ *                   For example, module commands that are called by the modules,
+ *                   commands that do not perform ACL validations (relying on earlier checks)
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
@@ -2300,6 +2309,7 @@ void RM_SetModuleAttribs(RedisModuleCtx *ctx, const char *name, int ver, int api
     module->options = 0;
     module->info_cb = 0;
     module->defrag_cb = 0;
+    module->defrag_cb_2 = 0;
     module->defrag_start_cb = 0;
     module->defrag_end_cb = 0;
     module->loadmod = NULL;
@@ -3901,6 +3911,9 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *                                 context is using RESP3.
  *
  *  * REDISMODULE_CTX_FLAGS_SERVER_STARTUP: The Redis instance is starting
+ *
+ *  * REDISMODULE_CTX_FLAGS_DEBUG_ENABLED: Debug commands are enabled for this
+ *                                         context.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
     int flags = 0;
@@ -3922,6 +3935,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
         client *c = ctx->blocked_client ? ctx->blocked_client->client : ctx->client;
         if (c && (c->flags & (CLIENT_DIRTY_CAS|CLIENT_DIRTY_EXEC))) {
             flags |= REDISMODULE_CTX_FLAGS_MULTI_DIRTY;
+        }
+        if (c && allowProtectedAction(server.enable_debug_cmd, c)) {
+            flags |= REDISMODULE_CTX_FLAGS_DEBUG_ENABLED;
         }
     }
 
@@ -3989,6 +4005,11 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     /* Non-empty server.loadmodule_queue means that Redis is starting. */
     if (listLength(server.loadmodule_queue) > 0)
         flags |= REDISMODULE_CTX_FLAGS_SERVER_STARTUP;
+
+    /* If debug commands are completely enabled */
+    if (server.enable_debug_cmd == PROTECTED_ACTION_ALLOWED_YES) {
+        flags |= REDISMODULE_CTX_FLAGS_DEBUG_ENABLED;
+    }
 
     return flags;
 }
@@ -6284,6 +6305,8 @@ fmterr:
  *              dependent activity, such as ACL checks within scripts will proceed as
  *              expected.
  *              Otherwise, the command will run as the Redis unrestricted user.
+ *              Upon sending a command from an internal connection, this flag is
+ *              ignored and the command will run as the Redis unrestricted user.
  *     * `S` -- Run the command in a script mode, this means that it will raise
  *              an error if a command which are not allowed inside a script
  *              (flagged with the `deny-script` flag) is invoked (like SHUTDOWN).
@@ -6392,8 +6415,12 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
     }
     if (ctx->module) ctx->module->in_call++;
 
+    /* Attach the user of the context or client.
+     * Internal connections always run with the unrestricted user. */
     user *user = NULL;
-    if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
+    if ((flags & REDISMODULE_ARGV_RUN_AS_USER) &&
+        !(ctx->client->flags & CLIENT_INTERNAL))
+    {
         user = ctx->user ? ctx->user->user : ctx->client->user;
         if (!user) {
             errno = ENOTSUP;
@@ -6424,6 +6451,17 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      * if necessary.
      */
     c->cmd = c->lastcmd = c->realcmd = lookupCommand(c->argv,c->argc);
+
+    /* We nullify the command if it is not supposed to be seen by the client,
+     * such that it will be rejected like an unknown command. */
+    if (c->cmd &&
+        (c->cmd->flags & CMD_INTERNAL) &&
+        (flags & REDISMODULE_ARGV_RUN_AS_USER) &&
+        !((ctx->client->flags & CLIENT_INTERNAL) || mustObeyClient(ctx->client)))
+    {
+        c->cmd = c->lastcmd = c->realcmd = NULL;
+    }
+
     sds err;
     if (!commandCheckExistence(c, error_as_call_replies? &err : NULL)) {
         errno = ENOENT;
@@ -6544,7 +6582,9 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
      *
      * If RM_SetContextUser has set a user, that user is used, otherwise
      * use the attached client's user. If there is no attached client user and no manually
-     * set user, an error will be returned */
+     * set user, an error will be returned.
+     * An internal command should only succeed for an internal connection, AOF,
+     * and master commands. */
     if (flags & REDISMODULE_ARGV_RUN_AS_USER) {
         int acl_errpos;
         int acl_retval;
@@ -10557,7 +10597,7 @@ RedisModuleServerInfoData *RM_GetServerInfo(RedisModuleCtx *ctx, const char *sec
  * context instead of passing NULL. */
 void RM_FreeServerInfo(RedisModuleCtx *ctx, RedisModuleServerInfoData *data) {
     if (ctx != NULL) autoMemoryFreed(ctx,REDISMODULE_AM_INFO,data);
-    raxFreeWithCallback(data->rax, (void(*)(void*))sdsfree);
+    raxFreeWithCallback(data->rax, sdsfreegeneric);
     zfree(data);
 }
 
@@ -11224,7 +11264,7 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  * The way it should be used:
  *
  *      RedisModuleScanCursor *c = RedisModule_ScanCursorCreate();
- *      RedisModuleKey *key = RedisModule_OpenKey(...)
+ *      RedisModuleKey *key = RedisModule_OpenKey(...);
  *      while(RedisModule_ScanKey(key, c, callback, privateData));
  *      RedisModule_CloseKey(key);
  *      RedisModule_ScanCursorDestroy(c);
@@ -11234,13 +11274,13 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de) {
  *
  *      RedisModuleScanCursor *c = RedisModule_ScanCursorCreate();
  *      RedisModule_ThreadSafeContextLock(ctx);
- *      RedisModuleKey *key = RedisModule_OpenKey(...)
+ *      RedisModuleKey *key = RedisModule_OpenKey(...);
  *      while(RedisModule_ScanKey(ctx, c, callback, privateData)){
  *          RedisModule_CloseKey(key);
  *          RedisModule_ThreadSafeContextUnlock(ctx);
  *          // do some background job
  *          RedisModule_ThreadSafeContextLock(ctx);
- *          RedisModuleKey *key = RedisModule_OpenKey(...)
+ *          key = RedisModule_OpenKey(...);
  *      }
  *      RedisModule_CloseKey(key);
  *      RedisModule_ScanCursorDestroy(c);
@@ -12465,8 +12505,8 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
     ctx.module->onload = 0;
 
     int post_load_err = 0;
-    if (listLength(ctx.module->module_configs) && !ctx.module->configs_initialized) {
-        serverLogRaw(LL_WARNING, "Module Configurations were not set, likely a missing LoadConfigs call. Unloading the module.");
+    if (listLength(ctx.module->module_configs) && !(ctx.module->configs_initialized & MODULE_CONFIGS_USER_VALS)) {
+        serverLogRaw(LL_WARNING, "Module Configurations were not set, missing LoadConfigs call. Unloading the module.");
         post_load_err = 1;
     }
 
@@ -12856,6 +12896,22 @@ long long getModuleNumericConfig(ModuleConfig *module_config) {
     return module_config->get_fn.get_numeric(rname, module_config->privdata);
 }
 
+int loadModuleDefaultConfigs(RedisModule *module) {
+    listIter li;
+    listNode *ln;
+    const char *err = NULL;
+    listRewind(module->module_configs, &li);
+    while ((ln = listNext(&li))) {
+        ModuleConfig *module_config = listNodeValue(ln);
+        if (!performModuleConfigSetDefaultFromName(module_config->name, &err)) {
+            serverLog(LL_WARNING, "Issue attempting to set default value of configuration %s : %s", module_config->name, err);
+            return REDISMODULE_ERR;
+        }
+    }
+    module->configs_initialized |= MODULE_CONFIGS_DEFAULTS;
+    return REDISMODULE_OK;
+}
+
 /* This function takes a module and a list of configs stored as sds NAME VALUE pairs.
  * It attempts to call set on each of these configs. */
 int loadModuleConfigs(RedisModule *module) {
@@ -12863,13 +12919,14 @@ int loadModuleConfigs(RedisModule *module) {
     listNode *ln;
     const char *err = NULL;
     listRewind(module->module_configs, &li);
+    const int set_default_if_missing = !(module->configs_initialized & MODULE_CONFIGS_DEFAULTS);
     while ((ln = listNext(&li))) {
         ModuleConfig *module_config = listNodeValue(ln);
         dictEntry *de = dictUnlink(server.module_configs_queue, module_config->name);
         if ((!de) && (module_config->alias))
             de = dictUnlink(server.module_configs_queue, module_config->alias);
-        
-        /* If found in the queue, set the value. Otherwise, set the default value. */                
+
+        /* If found in the queue, set the value. Otherwise, set the default value. */
         if (de) {
             if (!performModuleConfigSetFromName(dictGetKey(de), dictGetVal(de), &err)) {
                 serverLog(LL_WARNING, "Issue during loading of configuration %s : %s", (sds) dictGetKey(de), err);
@@ -12878,7 +12935,7 @@ int loadModuleConfigs(RedisModule *module) {
                 return REDISMODULE_ERR;
             }
             dictFreeUnlinkedEntry(server.module_configs_queue, de);
-        } else {
+        } else if (set_default_if_missing) {
             if (!performModuleConfigSetDefaultFromName(module_config->name, &err)) {
                 serverLog(LL_WARNING, "Issue attempting to set default value of configuration %s : %s", module_config->name, err);
                 dictEmpty(server.module_configs_queue, NULL);
@@ -12886,7 +12943,7 @@ int loadModuleConfigs(RedisModule *module) {
             }
         }
     }
-    module->configs_initialized = 1;
+    module->configs_initialized = MODULE_CONFIGS_ALL_APPLIED;
     return REDISMODULE_OK;
 }
 
@@ -13232,6 +13289,24 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
     return REDISMODULE_OK;
 }
 
+/* Applies all default configurations for the parameters the module registered.
+ * Only call this function if the module would like to make changes to the
+ * configuration values before the actual values are applied by RedisModule_LoadConfigs.
+ * Otherwise it's sufficient to call RedisModule_LoadConfigs, it should already set the default values if needed.
+ * This makes it possible to distinguish between default values and user provided values and apply other changes between setting the defaults and the user values.
+ * This will return REDISMODULE_ERR if it is called:
+ * 1. outside RedisModule_OnLoad
+ * 2. more than once
+ * 3. after the RedisModule_LoadConfigs call */
+int RM_LoadDefaultConfigs(RedisModuleCtx *ctx) {
+    if (!ctx || !ctx->module || !ctx->module->onload || ctx->module->configs_initialized) {
+        return REDISMODULE_ERR;
+    }
+    RedisModule *module = ctx->module;
+    /* Load default configs of the module */
+    return loadModuleDefaultConfigs(module);
+}
+
 /* Applies all pending configurations on the module load. This should be called
  * after all of the configurations have been registered for the module inside of RedisModule_OnLoad.
  * This will return REDISMODULE_ERR if it is called outside RedisModule_OnLoad.
@@ -13243,8 +13318,7 @@ int RM_LoadConfigs(RedisModuleCtx *ctx) {
     }
     RedisModule *module = ctx->module;
     /* Load configs from conf file or arguments from loadex */
-    if (loadModuleConfigs(module)) return REDISMODULE_ERR;
-    return REDISMODULE_OK;
+    return loadModuleConfigs(module);
 }
 
 /* --------------------------------------------------------------------------
@@ -13376,6 +13450,17 @@ int RM_RdbSave(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) {
 
     errno = 0;
     return REDISMODULE_OK;
+}
+
+/* Returns the internal secret of the cluster.
+ * Should be used to authenticate as an internal connection to a node in the
+ * cluster, and by that gain the permissions to execute internal commands.
+ */
+const char* RM_GetInternalSecret(RedisModuleCtx *ctx, size_t *len) {
+    UNUSED(ctx);
+    serverAssert(len != NULL);
+    const char *secret = clusterGetSecret(len);
+    return secret;
 }
 
 /* Redis MODULE command.
@@ -13699,21 +13784,22 @@ const char *RM_GetCurrentCommandName(RedisModuleCtx *ctx) {
  * ## Defrag API
  * -------------------------------------------------------------------------- */
 
-/* The defrag context, used to manage state during calls to the data type
- * defrag callback.
- */
-struct RedisModuleDefragCtx {
-    long long int endtime;
-    unsigned long *cursor;
-    struct redisObject *key; /* Optional name of key processed, NULL when unknown. */
-    int dbid;                /* The dbid of the key being processed, -1 when unknown. */
-};
-
 /* Register a defrag callback for global data, i.e. anything that the module
  * may allocate that is not tied to a specific data type.
  */
 int RM_RegisterDefragFunc(RedisModuleCtx *ctx, RedisModuleDefragFunc cb) {
     ctx->module->defrag_cb = cb;
+    return REDISMODULE_OK;
+}
+
+/* Register a defrag callback for global data, i.e. anything that the module
+ * may allocate that is not tied to a specific data type.
+ * This is a more advanced version of RM_RegisterDefragFunc, in that it takes
+ * a callbacks that has a return value, and can use RM_DefragShouldStop
+ * in and indicate that it should be called again later, or is it done (returned 0).
+ */
+int RM_RegisterDefragFunc2(RedisModuleCtx *ctx, RedisModuleDefragFunc2 cb) {
+    ctx->module->defrag_cb_2 = cb;
     return REDISMODULE_OK;
 }
 
@@ -13737,12 +13823,27 @@ int RM_RegisterDefragCallbacks(RedisModuleCtx *ctx, RedisModuleDefragFunc start,
  *
  * When stopped and more work is left to be done, the callback should
  * return 1. Otherwise, it should return 0.
- *
- * NOTE: Modules should consider the frequency in which this function is called,
- * so it generally makes sense to do small batches of work in between calls.
  */
 int RM_DefragShouldStop(RedisModuleDefragCtx *ctx) {
-    return (ctx->endtime != 0 && ctx->endtime < ustime());
+    if (ctx->stopping) /* Return immediately if already stopping */
+        return 1;
+    if (!ctx->endtime) /* Return if no time limit set */
+        return 0;
+
+    /* We use certain thresholds to avoid excessive system calls.
+     * Time checks are only performed when any threshold is reached,
+     * which means we might slightly exceed the expected end time. */
+    if (server.stat_active_defrag_hits - ctx->last_stop_check_hits >= 512 ||
+        server.stat_active_defrag_misses - ctx->last_stop_check_misses >= 1024)
+    {
+        if (ctx->endtime <= getMonotonicUs()) {
+            ctx->stopping = 1;
+            return 1;
+        }
+        ctx->last_stop_check_hits = server.stat_active_defrag_hits;
+        ctx->last_stop_check_misses = server.stat_active_defrag_misses;
+    }
+    return 0;
 }
 
 /* Store an arbitrary cursor value for future re-use.
@@ -13844,17 +13945,102 @@ RedisModuleString *RM_DefragRedisModuleString(RedisModuleDefragCtx *ctx, RedisMo
     return activeDefragStringOb(str);
 }
 
+/* Defrag callback for radix tree iterator, called for each node,
+ * used in order to defrag the nodes allocations. */
+int moduleDefragRaxNode(raxNode **noderef) {
+    raxNode *newnode = activeDefragAlloc(*noderef);
+    if (newnode) {
+        *noderef = newnode;
+        return 1;
+    }
+    return 0;
+}
+
+/* Defragment a Redis Module Dictionary by scanning its contents and calling a value
+ * callback for each value.
+ *
+ * The callback gets the current value in the dict, and should update newptr to the new pointer,
+ * if the value was re-allocated to a different address. The callback also gets the key name just as a reference.
+ * The callback returns 0 when defrag is complete for this node, 1 when node needs more work.
+ *
+ * The API can work incrementally by accepting a seek position to continue from, and
+ * returning the next position to seek to on the next call (or return NULL when the iteration is completed).
+ *
+ * This API returns a new dict if it was re-allocated to a new address (will only
+ * be attempted when *seekTo is NULL on entry).
+ */
+RedisModuleDict *RM_DefragRedisModuleDict(RedisModuleDefragCtx *ctx, RedisModuleDict *dict, RedisModuleDefragDictValueCallback valueCB, RedisModuleString **seekTo) {
+    RedisModuleDict *newdict = NULL;
+    raxIterator ri;
+
+    if (*seekTo == NULL) {
+        /* if last seek is NULL, we start new iteration */
+        rax* newrax = NULL;
+        if ((newdict = activeDefragAlloc(dict)))
+            dict = newdict;
+        if ((newrax = activeDefragAlloc(dict->rax)))
+            dict->rax = newrax;
+    }
+
+    raxStart(&ri,dict->rax);
+    if (*seekTo == NULL) {
+        /* if last seek is NULL, we start new iteration */
+        moduleDefragRaxNode(&dict->rax->head);
+        /* assign the iterator node callback before the seek, so that the
+         * initial nodes that are processed till the first item are covered */
+        ri.node_cb = moduleDefragRaxNode;
+        raxSeek(&ri,"^",NULL,0);
+    } else {
+        /* Seek to the static 'seekTo'. */
+        if (!raxSeek(&ri,">=", (*seekTo)->ptr, sdslen((*seekTo)->ptr))) {
+            goto cleanup;
+        }
+        /* assign the iterator node callback after the seek, so that the
+         * initial nodes that are processed till now aren't covered */
+        ri.node_cb = moduleDefragRaxNode;
+    }
+
+    while (raxNext(&ri)) {
+        int ret = 0;
+        void *newdata = NULL;
+
+        if (valueCB) {
+            ret = valueCB(ctx, ri.data, ri.key, ri.key_len, &newdata);
+            if (newdata)
+                raxSetData(ri.node, ri.data=newdata);
+        }
+
+        /* Check if we need to interrupt defragmentation.
+         * - For explicit interruption, use current position
+         * - For timeout interruption, try to advance to next node if possible */
+        if (ret == 1 || RM_DefragShouldStop(ctx)) {
+            if (ret == 0 && !raxNext(&ri)) goto cleanup; /* Last node and no more work needed. */
+            if (*seekTo) RM_FreeString(NULL, *seekTo);
+            *seekTo = RM_CreateString(NULL, (const char *)ri.key, ri.key_len);
+            raxStop(&ri);
+            return newdict;
+        }
+    }
+cleanup:
+    if (*seekTo) RM_FreeString(NULL, *seekTo);
+    *seekTo = NULL;
+    raxStop(&ri);
+    return newdict;
+}
 
 /* Perform a late defrag of a module datatype key.
  *
  * Returns a zero value (and initializes the cursor) if no more needs to be done,
  * or a non-zero value otherwise.
  */
-int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, long long endtime, int dbid) {
+int moduleLateDefrag(robj *key, robj *value, unsigned long *cursor, monotime endtime, int dbid) {
     moduleValue *mv = value->ptr;
     moduleType *mt = mv->type;
 
-    RedisModuleDefragCtx defrag_ctx = { endtime, cursor, key, dbid};
+    /* Interval shouldn't exceed 1 hour. */
+    serverAssert(!endtime || llabs((long long)endtime - (long long)getMonotonicUs()) < 60*60*1000*1000LL);
+
+    RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(endtime, cursor, key, dbid);
 
     /* Invoke callback. Note that the callback may be missing if the key has been
      * replaced with a different type since our last visit.
@@ -13903,26 +14089,16 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
         return 0;  /* Defrag later */
     }
 
-    RedisModuleDefragCtx defrag_ctx = { 0, NULL, key, dbid };
+    RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, key, dbid);
     mt->defrag(&defrag_ctx, key, &mv->value);
     return 1;
-}
-
-/* Call registered module API defrag functions */
-void moduleDefragGlobals(void) {
-    dictForEach(modules, struct RedisModule, module, 
-        if (module->defrag_cb) {
-            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
-            module->defrag_cb(&defrag_ctx);
-        }
-    );
 }
 
 /* Call registered module API defrag start functions */
 void moduleDefragStart(void) {
     dictForEach(modules, struct RedisModule, module, 
         if (module->defrag_start_cb) {
-            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_start_cb(&defrag_ctx);
         }
     );
@@ -13932,7 +14108,7 @@ void moduleDefragStart(void) {
 void moduleDefragEnd(void) {
     dictForEach(modules, struct RedisModule, module, 
         if (module->defrag_end_cb) {
-            RedisModuleDefragCtx defrag_ctx = { 0, NULL, NULL, -1};
+            RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_end_cb(&defrag_ctx);
         }
     );
@@ -14297,11 +14473,13 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetCurrentCommandName);
     REGISTER_API(GetTypeMethodVersion);
     REGISTER_API(RegisterDefragFunc);
+    REGISTER_API(RegisterDefragFunc2);
     REGISTER_API(RegisterDefragCallbacks);
     REGISTER_API(DefragAlloc);
     REGISTER_API(DefragAllocRaw);
     REGISTER_API(DefragFreeRaw);
     REGISTER_API(DefragRedisModuleString);
+    REGISTER_API(DefragRedisModuleDict);
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);
     REGISTER_API(DefragCursorGet);
@@ -14313,10 +14491,12 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RegisterNumericConfig);
     REGISTER_API(RegisterStringConfig);
     REGISTER_API(RegisterEnumConfig);
+    REGISTER_API(LoadDefaultConfigs);
     REGISTER_API(LoadConfigs);
     REGISTER_API(RegisterAuthCallback);
     REGISTER_API(RdbStreamCreateFromFile);
     REGISTER_API(RdbStreamFree);
     REGISTER_API(RdbLoad);
     REGISTER_API(RdbSave);
+    REGISTER_API(GetInternalSecret);
 }

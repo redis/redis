@@ -63,7 +63,8 @@ TEST_MODULES = \
     postnotifications.so \
     moduleauthtwo.so \
     rdbloadsave.so \
-    crash.so
+    crash.so \
+    internalsecret.so
 
 .PHONY: all
 

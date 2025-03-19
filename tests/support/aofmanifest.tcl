@@ -122,7 +122,7 @@ proc assert_aof_manifest_content {manifest_path content} {
     assert_equal [llength $lines] [llength $content]
 
     for { set i 0 } { $i < [llength $lines] } {incr i} {
-        assert_equal [lindex $lines $i] [lindex $content $i]
+        assert {[string first [lindex $content $i] [lindex $lines $i]] != -1}
     }
 }
 

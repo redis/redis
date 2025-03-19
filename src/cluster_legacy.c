@@ -1030,6 +1030,8 @@ void clusterInit(void) {
     clusterUpdateMyselfIp();
     clusterUpdateMyselfHostname();
     clusterUpdateMyselfHumanNodename();
+
+    getRandomHexChars(server.cluster->internal_secret, CLUSTER_INTERNALSECRETLEN);
 }
 
 void clusterInitLast(void) {
@@ -1577,6 +1579,14 @@ clusterNode *clusterLookupNode(const char *name, int length) {
     sdsfree(s);
     if (de == NULL) return NULL;
     return dictGetVal(de);
+}
+
+const char *clusterGetSecret(size_t *len) {
+    if (!server.cluster) {
+        return NULL;
+    }
+    *len = CLUSTER_INTERNALSECRETLEN;
+    return server.cluster->internal_secret;
 }
 
 /* Get all the nodes in my shard.
@@ -2503,6 +2513,10 @@ uint32_t getShardIdPingExtSize(void) {
     return getAlignedPingExtSize(sizeof(clusterMsgPingExtShardId));
 }
 
+uint32_t getInternalSecretPingExtSize(void) {
+    return getAlignedPingExtSize(sizeof(clusterMsgPingExtInternalSecret));
+}
+
 uint32_t getForgottenNodeExtSize(void) {
     return getAlignedPingExtSize(sizeof(clusterMsgPingExtForgottenNode));
 }
@@ -2594,6 +2608,17 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
     totlen += getShardIdPingExtSize();
     extensions++;
 
+    /* Populate insternal secret */
+    if (cursor != NULL) {
+        clusterMsgPingExtInternalSecret *ext = preparePingExt(cursor, CLUSTERMSG_EXT_TYPE_INTERNALSECRET, getInternalSecretPingExtSize());
+        memcpy(ext->internal_secret, server.cluster->internal_secret, CLUSTER_INTERNALSECRETLEN);
+
+        /* Move the write cursor */
+        cursor = nextPingExt(cursor);
+    }
+    totlen += getInternalSecretPingExtSize();
+    extensions++;
+
     if (hdr != NULL) {
         hdr->extensions = htons(extensions);
     }
@@ -2634,9 +2659,14 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
         } else if (type == CLUSTERMSG_EXT_TYPE_SHARDID) {
             clusterMsgPingExtShardId *shardid_ext = (clusterMsgPingExtShardId *) &(ext->ext[0].shard_id);
             ext_shardid = shardid_ext->shard_id;
+        } else if (type == CLUSTERMSG_EXT_TYPE_INTERNALSECRET) {
+            clusterMsgPingExtInternalSecret *internal_secret_ext = (clusterMsgPingExtInternalSecret *) &(ext->ext[0].internal_secret);
+            if (memcmp(server.cluster->internal_secret, internal_secret_ext->internal_secret, CLUSTER_INTERNALSECRETLEN) > 0 ) {
+                memcpy(server.cluster->internal_secret, internal_secret_ext->internal_secret, CLUSTER_INTERNALSECRETLEN);
+            }
         } else {
             /* Unknown type, we will ignore it but log what happened. */
-            serverLog(LL_WARNING, "Received unknown extension type %d", type);
+            serverLog(LL_VERBOSE, "Received unknown extension type %d", type);
         }
 
         /* We know this will be valid since we validated it ahead of time */

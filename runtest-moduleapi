@@ -56,4 +56,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/moduleauth \
 --single unit/moduleapi/rdbloadsave \
 --single unit/moduleapi/crash \
+--single unit/moduleapi/internalsecret \
 "${@}"

@@ -89,6 +89,7 @@ start_server {tags {"dismiss external:skip"}} {
         start_server {} {
             r slaveof [srv -1 host] [srv -1 port]
             wait_for_sync r
+            waitForBgsave $master
 
             set bigstr [string repeat A 8192]
             for {set i 0} {$i < 20} {incr i} {

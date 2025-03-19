@@ -198,6 +198,7 @@ static void luaEngineFreeCtx(void *engine_ctx) {
     unsigned int lua_tcache = (unsigned int)(uintptr_t)ud;
 #endif
 
+    lua_gc(lua_engine_ctx->lua, LUA_GCCOLLECT, 0);
     lua_close(lua_engine_ctx->lua);
     zfree(lua_engine_ctx);
 

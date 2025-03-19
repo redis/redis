@@ -32,7 +32,7 @@
  * (if the flag was 0 -> set to 1, if it's already 1 -> do nothing, but the final result is that the flag is set), 
  * and also it has a full barrier (__sync_lock_test_and_set has acquire barrier).
  * 
- * NOTE2: Unlike other atomic type, which aren't guaranteed to be lock free, c11 atmoic_flag does.
+ * NOTE2: Unlike other atomic type, which aren't guaranteed to be lock free, c11 atomic_flag does.
  * To check whether a type is lock free, atomic_is_lock_free() can be used. 
  * It can be considered to limit the flag type to atomic_flag to improve performance.
  * 

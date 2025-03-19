@@ -728,7 +728,7 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
                 x = x->level[0].forward;
             }
         } else {
-            /* If offset is big, we caasn jump from the last zsl->level-1 node. */
+            /* If offset is big, we can jump from the last zsl->level-1 node. */
             rank_diff = edge_rank + 1 + n - last_highest_level_rank;
             x = zslGetElementByRankFromNode(last_highest_level_node, zsl->level - 1, rank_diff);
         }
