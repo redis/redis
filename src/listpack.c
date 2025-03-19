@@ -3078,6 +3078,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpAppendInteger(lp, 100);
         lp = lpAppend(lp, (unsigned char*)"hello", 5);
         lp = lpAppendInteger(lp, -50);
+        lp = lpAppend(lp, (unsigned char*)"1024", 4);
         unsigned char *p;
         long long val;
 
@@ -3093,19 +3094,21 @@ int listpackTest(int argc, char *argv[], int flags) {
         lpGetIntegerValue(p, &val);
         assert(val == -50);
 
-        /* Test: Find first occurrence of 100 with skip=1 */
-        lp = lpAppendInteger(lp, 100);
+        /* Test: Find an existing integer (100) with skip=1 */
         p = lpFindInteger(lp, NULL, 100, 1);
         assert(p != NULL);
         lpGetIntegerValue(p, &val);
         assert(val == 100);
 
-        /* Test: Find first occurrence of 50 with skip=1 */
-        lp = lpAppendInteger(lp, -50);
+        /* Test: Find an existing integer (-50) with skip=1 */
         p = lpFindInteger(lp, NULL, -50, 1);
         assert(p != NULL);
         lpGetIntegerValue(p, &val);
         assert(val == -50);
+
+        /* Test: Find an existing integer (-50) with skip=2 */
+        p = lpFindInteger(lp, NULL, -50, 2);
+        assert(p == NULL);
 
         /* Test: Find a non-existent integer (200) */
         p = lpFindInteger(lp, NULL, 200, 0);
@@ -3248,7 +3251,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         stress(1,100000,maxsize,256);
         printf("Done. usec=%lld\n\n", usec()-start);
     }
-    
+
     /* Benchmarks */
     {
         int iteration = accurate ? 100000 : 100;
