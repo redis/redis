@@ -167,7 +167,7 @@ void quicklistSetFill(quicklist *quicklist, int fill) {
     }
 }
 
-REDIS_STATIC void quicklistSetLimit(quicklist *quicklist, int limit_type, size_t limit) {
+REDIS_STATIC void quicklistSetLimit(quicklist *quicklist, unsigned int limit_type, size_t limit) {
     quicklist->limit_type = limit_type;
     quicklist->limit = limit;
 }
@@ -496,56 +496,42 @@ void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     }
 }
 
-REDIS_STATIC void _quicklistNodeLimit(const quicklist *quicklist, size_t *size,
-                                      unsigned int *count) {
-    *size = SIZE_MAX;
-    *count = UINT_MAX;
-
-    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE) {
-        /* Ensure that one node have at least one entry */
-        *count = quicklist->limit;
-    } else {
-        *size = quicklist->limit;
+REDIS_STATIC int _quicklistCountOrNodeSizeExceedsLimit(size_t new_sz, unsigned int new_count,
+                                                       size_t sz_limit, unsigned int count_limit) {
+    if (likely(sz_limit != SIZE_MAX)) {
+        return new_sz > sz_limit;
+    } else if (count_limit != UINT_MAX) {
+        /* when we reach here we know that the limit is a size limit (which is
+         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
+        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
+        return new_count > count_limit;
     }
+
+    redis_unreachable();
 }
 
 /* Check if the limit of the quicklist node has been reached to determine if
  * insertions, merges or other operations that would increase the size of
  * the node can be performed.
  * Return 1 if exceeds the limit, otherwise 0. */
-int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count) {
+REDIS_STATIC int quicklistNodeExceedsLimit(const quicklist *quicklist, size_t new_sz,
+                                           unsigned int new_count) {
+    size_t sz_limit = SIZE_MAX;
+    unsigned int count_limit = UINT_MAX;
+
+    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE)
+        count_limit = quicklist->limit;
+    else
+        sz_limit = quicklist->limit;
+
+    return _quicklistCountOrNodeSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
+}
+
+ int quicklistNodeExceedsFillLimit(int fill, size_t new_sz, unsigned int new_count) {
     size_t sz_limit;
     unsigned int count_limit;
     quicklistNodeLimit(fill, &sz_limit, &count_limit);
-
-    if (likely(sz_limit != SIZE_MAX)) {
-        return new_sz > sz_limit;
-    } else if (count_limit != UINT_MAX) {
-        /* when we reach here we know that the limit is a size limit (which is
-         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
-        return new_count > count_limit;
-    }
-
-    redis_unreachable();
-}
-
-REDIS_STATIC int _quicklistNodeExceedsLimit(const quicklist *quicklist, size_t new_sz,
-                                            unsigned int new_count) {
-    size_t sz_limit;
-    unsigned int count_limit;
-    _quicklistNodeLimit(quicklist, &sz_limit, &count_limit);
-
-    if (likely(sz_limit != SIZE_MAX)) {
-        return new_sz > sz_limit;
-    } else if (count_limit != UINT_MAX) {
-        /* when we reach here we know that the limit is a size limit (which is
-         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
-        return new_count > count_limit;
-    }
-
-    redis_unreachable();
+    return _quicklistCountOrNodeSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
 }
 
 /* Determines whether a given size qualifies as a large element based on a threshold
@@ -574,7 +560,7 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklist *quicklist,
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
     size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
-    if (unlikely(_quicklistNodeExceedsLimit(quicklist, new_sz, node->count + 1)))
+    if (unlikely(quicklistNodeExceedsLimit(quicklist, new_sz, node->count + 1)))
         return 0;
     return 1;
 }
@@ -591,7 +577,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklist *quicklist,
     /* approximate merged listpack size (- 7 to remove one listpack
      * header/trailer, see LP_HDR_SIZE and LP_EOF) */
     unsigned int merge_sz = a->sz + b->sz - 7;
-    if (unlikely(_quicklistNodeExceedsLimit(quicklist, merge_sz, a->count + b->count)))
+    if (unlikely(quicklistNodeExceedsLimit(quicklist, merge_sz, a->count + b->count)))
         return 0;
     return 1;
 }

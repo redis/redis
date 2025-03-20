@@ -630,15 +630,10 @@ NULL
             nextra += used;
             remaining -= used;
             /* Add quicklist count limit / node size limit */
-            if (ql->limit_type == QUICKLIST_COUNT_LIMIT_TYPE) {
-                used = snprintf(nextra, remaining, " ql_count_limit:%d", ql->limit);
-                nextra += used;
-                remaining -= used;
-            } else {
-                used = snprintf(nextra, remaining, " ql_node_size_limit:%d", ql->limit);
-                nextra += used;
-                remaining -= used;
-            }
+            used = snprintf(nextra, remaining, " ql_node_%s_limit:%d",
+                ql->limit_type == QUICKLIST_COUNT_LIMIT_TYPE ? "count" : "size",  ql->limit);
+            nextra += used;
+            remaining -= used;
             /* Add isCompressed? */
             int compressed = ql->compress != 0;
             used = snprintf(nextra, remaining, " ql_compressed:%d", compressed);
