@@ -96,8 +96,8 @@ typedef struct quicklistBookmark {
 #   error unknown arch bits count
 #endif
 
-#define QUICKLIST_NODE_SIZE_LIMIT_TYPE 0
-#define QUICKLIST_COUNT_LIMIT_TYPE 1
+#define QUICKLIST_NODE_LIMIT_SIZE 0
+#define QUICKLIST_NODE_LIMIT_COUNT 1
 
 /* quicklist is a 40 byte struct (on 64-bit systems) describing a quicklist.
  * 'count' is the number of total entries.

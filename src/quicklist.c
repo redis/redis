@@ -134,7 +134,7 @@ quicklist *quicklistCreate(void) {
     quicklist->len = 0;
     quicklist->count = 0;
     quicklist->compress = 0;
-    quicklist->limit_type = QUICKLIST_NODE_SIZE_LIMIT_TYPE;
+    quicklist->limit_type = QUICKLIST_NODE_LIMIT_SIZE;
     quicklist->limit = quicklistNodeNegFillLimit(-2);
     quicklist->bookmark_count = 0;
     return quicklist;
@@ -159,17 +159,17 @@ void quicklistSetFill(quicklist *quicklist, int fill) {
     }
 
     if (fill >= 0) {
-        quicklist->limit_type = QUICKLIST_COUNT_LIMIT_TYPE;
+        quicklist->limit_type = QUICKLIST_NODE_LIMIT_COUNT;
         quicklist->limit = (fill == 0) ? 1 : fill;
     } else {
-        quicklist->limit_type = QUICKLIST_NODE_SIZE_LIMIT_TYPE;
+        quicklist->limit_type = QUICKLIST_NODE_LIMIT_SIZE;
         quicklist->limit = quicklistNodeNegFillLimit(fill);
     }
 }
 
-REDIS_STATIC void quicklistSetLimit(quicklist *quicklist, unsigned int limit_type, size_t limit) {
-    quicklist->limit_type = limit_type;
-    quicklist->limit = limit;
+REDIS_STATIC void quicklistSetLimit(quicklist *ql, unsigned int limit_type, size_t limit) {
+    ql->limit_type = limit_type;
+    ql->limit = limit;
 }
 
 void quicklistSetOptions(quicklist *quicklist, int fill, int compress) {
@@ -519,7 +519,7 @@ REDIS_STATIC int quicklistNodeExceedsLimit(const quicklist *quicklist, size_t ne
     size_t sz_limit = SIZE_MAX;
     unsigned int count_limit = UINT_MAX;
 
-    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE)
+    if (quicklist->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
         count_limit = quicklist->limit;
     else
         sz_limit = quicklist->limit;
@@ -539,7 +539,7 @@ REDIS_STATIC int quicklistNodeExceedsLimit(const quicklist *quicklist, size_t ne
  * a plain node. */
 static int isLargeElement(const quicklist *quicklist, size_t sz) {
     if (unlikely(packed_threshold != 0)) return sz >= packed_threshold;
-    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE)
+    if (quicklist->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
         return !sizeMeetsSafetyLimit(sz);
     else
         return sz > quicklist->limit;
@@ -1717,10 +1717,8 @@ void quicklistRepr(unsigned char *ql, int full) {
     quicklist *quicklist  = (struct quicklist*) ql;
     printf("{count : %ld}\n", quicklist->count);
     printf("{len : %ld}\n", quicklist->len);
-    if (quicklist->limit_type == QUICKLIST_COUNT_LIMIT_TYPE)
-        printf("{count limit : %d}\n", quicklist->limit);
-    else
-        printf("{node size limit : %d}\n", quicklist->limit);
+    printf("{node %s limit : %d}\n",
+            quicklist->limit_type == QUICKLIST_NODE_LIMIT_COUNT ? "count" : "size", quicklist->limit);
     printf("{compress : %d}\n", quicklist->compress);
     printf("{bookmark_count : %d}\n", quicklist->bookmark_count);
     quicklistNode* node = quicklist->head;

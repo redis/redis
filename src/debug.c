@@ -631,7 +631,7 @@ NULL
             remaining -= used;
             /* Add quicklist count limit / node size limit */
             used = snprintf(nextra, remaining, " ql_node_%s_limit:%d",
-                ql->limit_type == QUICKLIST_COUNT_LIMIT_TYPE ? "count" : "size",  ql->limit);
+                ql->limit_type == QUICKLIST_NODE_LIMIT_COUNT ? "count" : "size",  ql->limit);
             nextra += used;
             remaining -= used;
             /* Add isCompressed? */
