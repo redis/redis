@@ -629,7 +629,7 @@ NULL
             used = snprintf(nextra, remaining, " ql_avg_node:%.2f", avg);
             nextra += used;
             remaining -= used;
-            /* Add quicklist count limit / node size limit */
+            /* Add quicklist node count limit / size limit */
             used = snprintf(nextra, remaining, " ql_node_%s_limit:%d",
                 ql->limit_type == QUICKLIST_NODE_LIMIT_COUNT ? "count" : "size",  ql->limit);
             nextra += used;

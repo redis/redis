@@ -496,7 +496,7 @@ void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     }
 }
 
-REDIS_STATIC int _quicklistCountOrNodeSizeExceedsLimit(size_t new_sz, unsigned int new_count,
+REDIS_STATIC int _quicklistNodeCountOrSizeExceedsLimit(size_t new_sz, unsigned int new_count,
                                                        size_t sz_limit, unsigned int count_limit) {
     if (likely(sz_limit != SIZE_MAX)) {
         return new_sz > sz_limit;
@@ -510,48 +510,51 @@ REDIS_STATIC int _quicklistCountOrNodeSizeExceedsLimit(size_t new_sz, unsigned i
     redis_unreachable();
 }
 
-/* Check if the limit of the quicklist node has been reached to determine if
- * insertions, merges or other operations that would increase the size of
- * the node can be performed.
+/* Determine whether the quicklist node has reached its limit before performing
+ * insertions, merges, or other operations that would increase the node size.
  * Return 1 if exceeds the limit, otherwise 0. */
-REDIS_STATIC int quicklistNodeExceedsLimit(const quicklist *quicklist, size_t new_sz,
+REDIS_STATIC int quicklistNodeExceedsLimit(const quicklist *ql, size_t new_sz,
                                            unsigned int new_count) {
     size_t sz_limit = SIZE_MAX;
     unsigned int count_limit = UINT_MAX;
 
-    if (quicklist->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
-        count_limit = quicklist->limit;
+    if (ql->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
+        count_limit = ql->limit;
     else
-        sz_limit = quicklist->limit;
+        sz_limit = ql->limit;
 
-    return _quicklistCountOrNodeSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
+    return _quicklistNodeCountOrSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
 }
 
- int quicklistNodeExceedsFillLimit(int fill, size_t new_sz, unsigned int new_count) {
+/* Determine whether the quicklist node has reached its limit based on the
+ * user-requested (or default) fill factor before performing insertions,
+ * merges, or other operations that would increase the node size.
+ * Return 1 if exceeds the limit, otherwise 0. */
+int quicklistNodeExceedsFillLimit(int fill, size_t new_sz, unsigned int new_count) {
     size_t sz_limit;
     unsigned int count_limit;
     quicklistNodeLimit(fill, &sz_limit, &count_limit);
-    return _quicklistCountOrNodeSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
+    return _quicklistNodeCountOrSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
 }
 
-/* Determines whether a given size qualifies as a large element based on a threshold
- * determined by the 'fill'. If the size is considered large, it will be stored in
+/* Determines whether a given size qualifies as a large element based on the 'limit' and
+ * 'limit_type' in the quicklist. If the size is considered large, it will be stored in
  * a plain node. */
-static int isLargeElement(const quicklist *quicklist, size_t sz) {
+static int isLargeElement(const quicklist *ql, size_t sz) {
     if (unlikely(packed_threshold != 0)) return sz >= packed_threshold;
-    if (quicklist->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
+    if (ql->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
         return !sizeMeetsSafetyLimit(sz);
     else
-        return sz > quicklist->limit;
+        return sz > ql->limit;
 }
 
-REDIS_STATIC int _quicklistNodeAllowInsert(const quicklist *quicklist,
+REDIS_STATIC int _quicklistNodeAllowInsert(const quicklist *ql,
                                            const quicklistNode *node,
                                            const size_t sz) {
     if (unlikely(!node))
         return 0;
 
-    if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(quicklist, sz)))
+    if (unlikely(QL_NODE_IS_PLAIN(node) || isLargeElement(ql, sz)))
         return 0;
 
     /* Estimate how many bytes will be added to the listpack by this one entry.
@@ -560,12 +563,12 @@ REDIS_STATIC int _quicklistNodeAllowInsert(const quicklist *quicklist,
      * Note: No need to check for overflow below since both `node->sz` and
      * `sz` are to be less than 1GB after the plain/large element check above. */
     size_t new_sz = node->sz + sz + SIZE_ESTIMATE_OVERHEAD;
-    if (unlikely(quicklistNodeExceedsLimit(quicklist, new_sz, node->count + 1)))
+    if (unlikely(quicklistNodeExceedsLimit(ql, new_sz, node->count + 1)))
         return 0;
     return 1;
 }
 
-REDIS_STATIC int _quicklistNodeAllowMerge(const quicklist *quicklist,
+REDIS_STATIC int _quicklistNodeAllowMerge(const quicklist *ql,
                                           const quicklistNode *a,
                                           const quicklistNode *b) {
     if (!a || !b)
@@ -577,7 +580,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklist *quicklist,
     /* approximate merged listpack size (- 7 to remove one listpack
      * header/trailer, see LP_HDR_SIZE and LP_EOF) */
     unsigned int merge_sz = a->sz + b->sz - 7;
-    if (unlikely(quicklistNodeExceedsLimit(quicklist, merge_sz, a->count + b->count)))
+    if (unlikely(quicklistNodeExceedsLimit(ql, merge_sz, a->count + b->count)))
         return 0;
     return 1;
 }
