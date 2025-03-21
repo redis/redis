@@ -446,7 +446,7 @@ robj *dbRandomKey(redisDb *db) {
 
         key = dictGetKey(de);
         keyobj = createStringObject(key,sdslen(key));
-        if (allvolatile && server.masterhost && --maxtries == 0) {
+        if (allvolatile && (server.masterhost || isPausedActions(PAUSE_ACTION_EXPIRE)) && --maxtries == 0) {
             /* If the DB is composed only of keys with an expire set,
              * it could happen that all the keys are already logically
              * expired in the slave, so the function cannot stop because
@@ -812,8 +812,8 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     SlotsFlush *slotsFlush = sflush;
     client *c = lookupClientByID(client_id);
 
-    /* Verify that client still exists */
-    if (!c) {
+    /* Verify that client still exists and being blocked. */
+    if (!(c && c->flags & CLIENT_BLOCKED)) {
         zfree(sflush);
         return;
     }
@@ -834,8 +834,13 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     /* mark client as unblocked */
     unblockClient(c, 1);
 
-    /* FLUSH command is finished. resetClient() and update replication offset. */
-    commandProcessed(c);
+    if (c->flags & CLIENT_PENDING_COMMAND) {
+        c->flags &= ~CLIENT_PENDING_COMMAND;
+        /* The FLUSH command won't be reprocessed, FLUSH command is finished, but
+         * we still need to complete its full processing flow, including updating
+         * the replication offset. */
+        commandProcessed(c);
+    }
 
     /* On flush completion, update the client's memory */
     updateClientMemUsageAndBucket(c);
@@ -880,6 +885,10 @@ int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
         elapsedStart(&c->bstate.lazyfreeStartTime);
 
         c->bstate.timeout = 0;
+        /* We still need to perform cleanup operations for the command, including
+         * updating the replication offset, so mark this command as pending to
+         * avoid command from being reset during unblock. */
+        c->flags |= CLIENT_PENDING_COMMAND;
         blockClient(c,BLOCKED_LAZYFREE);
         bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, sflush);
     }
@@ -977,6 +986,11 @@ void selectCommand(client *c) {
         addReplyError(c,"SELECT is not allowed in cluster mode");
         return;
     }
+
+    if (id != 0) {
+        server.stat_cluster_incompatible_ops++;
+    }
+
     if (selectDb(c,id) == C_ERR) {
         addReplyError(c,"DB index is out of range");
     } else {
@@ -1689,6 +1703,9 @@ void moveCommand(client *c) {
         return;
     }
 
+    /* Record incompatible operations in cluster mode */
+    server.stat_cluster_incompatible_ops++;
+
     /* Check if the element exists and get a reference */
     o = lookupKeyWrite(c->db,c->argv[1]);
     if (!o) {
@@ -1780,6 +1797,10 @@ void copyCommand(client *c) {
     if (src == dst && (sdscmp(key->ptr, newkey->ptr) == 0)) {
         addReplyErrorObject(c,shared.sameobjecterr);
         return;
+    }
+
+    if (srcid != 0 || dbid != 0) {
+        server.stat_cluster_incompatible_ops++;
     }
 
     /* Check if the element exists and get a reference */
@@ -2020,6 +2041,7 @@ void swapdbCommand(client *c) {
         RedisModuleSwapDbInfo si = {REDISMODULE_SWAPDBINFO_VERSION,id1,id2};
         moduleFireServerEvent(REDISMODULE_EVENT_SWAPDB,0,&si);
         server.dirty++;
+        server.stat_cluster_incompatible_ops++;
         addReply(c,shared.ok);
     }
 }

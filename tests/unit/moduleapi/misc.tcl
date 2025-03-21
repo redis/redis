@@ -561,3 +561,27 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal {OK} [r module unload misc]
     }
 }
+
+start_server {tags {"modules"}} {
+    test {Detect incompatible operations in cluster mode for module} {
+        r config set cluster-compatibility-sample-ratio 100
+        set incompatible_ops [s cluster_incompatible_ops]
+
+        # since test.no_cluster_cmd and its subcommand have 'no-cluster' flag,
+        # they should not be counted as incompatible ops, increment the counter by 2
+        r module load $testmodule
+        assert_equal [expr $incompatible_ops+2] [s cluster_incompatible_ops]
+
+        # incompatible_cluster_cmd is similar with MSET, check if it is counted as
+        # incompatible ops with different number of keys
+        # only 1 key, should not increment the counter
+        r test.incompatible_cluster_cmd foo bar
+        assert_equal [expr $incompatible_ops+2] [s cluster_incompatible_ops]
+        # 2 cross slot keys, should increment the counter
+        r test.incompatible_cluster_cmd foo bar bar foo
+        assert_equal [expr $incompatible_ops+3] [s cluster_incompatible_ops]
+        # 2 non cross slot keys, should not increment the counter
+        r test.incompatible_cluster_cmd foo bar bar{foo} bar
+        assert_equal [expr $incompatible_ops+3] [s cluster_incompatible_ops]
+    }
+}
