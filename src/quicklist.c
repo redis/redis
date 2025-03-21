@@ -46,7 +46,7 @@
 /* Optimization levels for size-based filling.
  * Note that the largest possible limit is 64k, so even if each record takes
  * just one byte, it still won't overflow the 16 bit count field. */
-static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65536};
+static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65535};
 
 /* This is for test suite development purposes only, 0 means disabled. */
 static size_t packed_threshold = 0;
@@ -150,7 +150,7 @@ void quicklistSetCompressDepth(quicklist *quicklist, int compress) {
     quicklist->compress = compress;
 }
 
-#define FILL_MAX ((1 << (QL_FILL_BITS-1))-1)
+#define FILL_MAX ((1 << (QL_LIMIT_BITS-1))-1)
 void quicklistSetFill(quicklist *quicklist, int fill) {
     if (fill > FILL_MAX) {
         fill = FILL_MAX;

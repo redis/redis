@@ -83,12 +83,14 @@ typedef struct quicklistBookmark {
 
 #if UINTPTR_MAX == 0xffffffff
 /* 32-bit */
-#   define QL_FILL_BITS 14
-#   define QL_COMP_BITS 14
+#   define QL_LIMIT_BITS 16
+#   define QL_LIMIT_TYPE_BITS 1
+#   define QL_COMP_BITS 11
 #   define QL_BM_BITS 4
 #elif UINTPTR_MAX == 0xffffffffffffffff
 /* 64-bit */
-#   define QL_FILL_BITS 16
+#   define QL_LIMIT_BITS 16
+#   define QL_LIMIT_TYPE_BITS 1
 #   define QL_COMP_BITS 16
 #   define QL_BM_BITS 4 /* we can encode more, but we rather limit the user
                            since they cause performance degradation. */
@@ -113,8 +115,8 @@ typedef struct quicklist {
     quicklistNode *tail;
     unsigned long count;        /* total count of all entries in all listpacks */
     unsigned long len;          /* number of quicklistNodes */
-    unsigned int limit;         /* size limit of the quicklist node, or count limit, according to limit_type */
-    unsigned int limit_type: 1;   /* 0: limit for size, 1: limit for count */
+    unsigned int limit: QL_LIMIT_BITS; /* size limit of the quicklist node, or count limit, according to limit_type */
+    unsigned int limit_type: QL_LIMIT_TYPE_BITS; /* 0: limit for size, 1: limit for count */
     unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
     unsigned int bookmark_count: QL_BM_BITS;
     quicklistBookmark bookmarks[];
