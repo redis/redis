@@ -1046,9 +1046,9 @@ char *getObjectTypeName(robj*);
 #define initStaticStringObject(_var,_ptr) do { \
     _var.refcount = OBJ_STATIC_REFCOUNT; \
     _var.type = OBJ_STRING; \
-    _var.encoding = OBJ_ENCODING_RAW;          \
-    _var.expirable = 0;                  \
-    _var.iskvobj = 0;                  \
+    _var.encoding = OBJ_ENCODING_RAW; \
+    _var.expirable = 0; \
+    _var.iskvobj = 0; \
     _var.ptr = _ptr; \
 } while(0)
 

@@ -4445,7 +4445,6 @@ void sentinelSetCommand(client *c) {
 
             /* If the target name is the same as the source name there
              * is no need to add an entry mapping to itself. */
-            
             if (strcasecmp(oldname, newname) != 0) {
                 oldname = sdsdup(oldname);
                 newname = sdsdup(newname);

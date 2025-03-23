@@ -56,8 +56,7 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_EXAT (1<<6)            /* Set if timestamp in second is given */
 #define OBJ_PXAT (1<<7)            /* Set if timestamp in ms is given */
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
-#define OBJ_ARGV3 (1 << 9)         /* Set if the value is at argv[3]; otherwise it's \
-                                    * at argv[2]. */
+#define OBJ_ARGV3 (1 << 9)         /* Set if the value is at argv[3]; otherwise it's at argv[2]. */
 
 
 /* Forward declaration */

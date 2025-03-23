@@ -300,8 +300,8 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
         if (adjustTypeIfNeeded(&type, &hdrlen, bufsize)) {
             memmove((char *)newsh + hdrlen, s, len + 1);
             s = (char *)newsh + hdrlen;
-        s[-1] = type;
-        sdssetlen(s, len);
+            s[-1] = type;
+            sdssetlen(s, len);
         }
     } else {
         /* Since the header size changes, need to move the string forward,
@@ -466,12 +466,11 @@ void *sdsAllocPtr(sds s) {
  * sdsIncrLen(s, nread);
  */
 void sdsIncrLen(sds s, ssize_t incr) {
-    unsigned char flags = s[-1];
     size_t len;
-    switch(flags&SDS_TYPE_MASK) {
+    switch(sdsType(s)) {
         case SDS_TYPE_5: {
             unsigned char *fp = ((unsigned char*)s)-1;
-            unsigned char oldlen = SDS_TYPE_5_LEN(flags);
+            unsigned char oldlen = SDS_TYPE_5_LEN(s);
             assert((incr > 0 && oldlen+incr < 32) || (incr < 0 && oldlen >= (unsigned int)(-incr)));
             *fp = SDS_TYPE_5 | ((oldlen+incr) << SDS_TYPE_BITS);
             len = oldlen+incr;
@@ -1477,7 +1476,7 @@ int sdsTest(int argc, char **argv, int flags) {
             for (i = 0; i < 10; i++) {
                 size_t oldlen = sdslen(x);
                 x = sdsMakeRoomFor(x,step);
-                int type = x[-1]&SDS_TYPE_MASK;
+                int type = sdsType(x);
 
                 test_cond("sdsMakeRoomFor() len", sdslen(x) == oldlen);
                 if (type != SDS_TYPE_5) {

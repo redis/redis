@@ -84,9 +84,7 @@ int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
 
 typedef int (*keyCmpFunc)(dictCmpCache *c, const void *key1, const void *key2);
 static inline keyCmpFunc dictGetCmpFuncAndResetCache(dict *d, dictCmpCache *cmpCache) {
-    cmpCache->useCache = 0;
-    cmpCache->data[0].u64 = 0;
-    cmpCache->data[1].u64 = 0;
+    memset(cmpCache, 0, sizeof(dictCmpCache));
     if (d->useStoredKeyApi && d->type->storedKeyCompare)
         return d->type->storedKeyCompare;
     if (d->type->keyCompare)
