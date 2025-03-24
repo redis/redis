@@ -931,10 +931,6 @@ static void updateShardId(clusterNode *node, const char *shard_id) {
                 if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
                     assignShardIdToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
             }
-        } else {
-            clusterNode *masternode = node->slaveof;
-            if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
-                assignShardIdToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
         }
     }
 }
