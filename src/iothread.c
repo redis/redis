@@ -28,6 +28,17 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
     if (unbind) connUnbindEventLoop(c->conn);
     /* Just skip if it already is transferred. */
     if (c->io_thread_client_list_node) {
+        /* If there are several clients to process, let the main thread handle them ASAP. */
+        if (listLength(IOThreads[c->tid].pending_clients_to_main_thread) >= 8) {
+            int has_pending = 0;
+            pthread_mutex_lock(&mainThreadPendingClientsMutexes[c->tid]);
+            has_pending = listLength(mainThreadPendingClients[c->tid]);
+            listJoin(mainThreadPendingClients[c->tid],
+                        IOThreads[c->tid].pending_clients_to_main_thread);
+            pthread_mutex_unlock(&mainThreadPendingClientsMutexes[c->tid]);
+            if (!has_pending)
+                triggerEventNotifier(mainThreadPendingClientsNotifiers[c->tid]);
+        }
         listDelNode(IOThreads[c->tid].clients, c->io_thread_client_list_node);
         c->io_thread_client_list_node = NULL;
         /* Disable read and write to avoid race when main thread processes. */
