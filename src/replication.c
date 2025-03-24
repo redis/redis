@@ -2259,6 +2259,7 @@ void readSyncBulkPayload(connection *conn) {
              * replicationEmptyDbCallback() may yield back to event-loop to
              * reply -LOADING. */
             emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
+            functions_lib_ctx = functionsLibCtxGetCurrent();
         }
         loadingFireEvent(RDBFLAGS_REPLICATION);
 
