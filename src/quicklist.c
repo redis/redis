@@ -2072,7 +2072,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
 
     int options[] = {0, 1, 2, 3, 4, 5, 6, 10};
     int fills[] = {-5, -4, -3, -2, -1, 0,
-                   1, 2, 32, 66, 128, 999};
+                   1, 2, 32, 66, 128, 999, UINT32_MAX};
     size_t option_count = sizeof(options) / sizeof(*options);
     int fill_count = (int)(sizeof(fills) / sizeof(*fills));
     long long runtime[option_count];
