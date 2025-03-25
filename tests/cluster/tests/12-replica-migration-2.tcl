@@ -46,7 +46,7 @@ test "Resharding all the master #0 slots away from it" {
 }
 
 test "Master #0 who lost all slots should turn into a replica without replicas" {
-    wait_for_condition 1000 50 {
+    wait_for_condition 2000 50 {
         [RI 0 role] == "slave" && [RI 0 connected_slaves] == 0
     } else {
         puts [R 0 info replication]

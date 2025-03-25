@@ -778,6 +778,11 @@ dictEntry *dictFindByHash(dict *d, const void *key, const uint64_t hash) {
     /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d,idx);
 
+    /* Check if we can use the compare function with length to avoid recomputing length of key always */
+    keyCmpFuncWithLen cmpFuncWithLen = d->type->keyCompareWithLen;
+    keyLenFunc keyLenFunc = d->type->keyLen;
+    const int has_len_fn = (keyLenFunc != NULL && cmpFuncWithLen != NULL);
+    const size_t key_len = has_len_fn ? keyLenFunc(d,key) : 0;
     for (table = 0; table <= 1; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue;
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
@@ -791,9 +796,12 @@ dictEntry *dictFindByHash(dict *d, const void *key, const uint64_t hash) {
 
             /* Prefetch the next entry to improve cache efficiency */
             redis_prefetch_read(dictGetNext(he));
-
-            if (key == he_key || cmpFunc(d, key, he_key))
+            if (key == he_key || (has_len_fn ?
+                cmpFuncWithLen(d, key, key_len, he_key, keyLenFunc(d,he_key)) :
+                cmpFunc(d, key, he_key)))
+            {
                 return he;
+            }
             he = dictGetNext(he);
         }
         /* Use unlikely to optimize branch prediction for the common case */

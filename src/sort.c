@@ -230,6 +230,17 @@ void sortCommandGeneric(client *c, int readonly) {
                     syntax_error++;
                     break;
                 }
+
+                /* If the BY pattern slot is not equal with the slot of keys, we will record
+                 * an incompatible behavior as above comments. */
+                if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
+                    SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
+                {
+                    if (patternHashSlot(sortby->ptr, sdslen(sortby->ptr)) !=
+                        (int)keyHashSlot(c->argv[1]->ptr, sdslen(c->argv[1]->ptr)))
+                        server.stat_cluster_incompatible_ops++;
+                }
+
                 /* If BY is specified with a real pattern, we can't accept
                  * it if no full ACL key access is applied for this command. */
                 if (!user_has_full_key_access) {
@@ -253,6 +264,18 @@ void sortCommandGeneric(client *c, int readonly) {
                 syntax_error++;
                 break;
             }
+
+            /* If the GET pattern slot is not equal with the slot of keys, we will record
+             * an incompatible behavior as above comments. */
+            if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
+                strcmp(c->argv[j+1]->ptr, "#") &&
+                SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
+            {
+                if (patternHashSlot(c->argv[j+1]->ptr, sdslen(c->argv[j+1]->ptr)) !=
+                    (int)keyHashSlot(c->argv[1]->ptr, sdslen(c->argv[1]->ptr)))
+                    server.stat_cluster_incompatible_ops++;
+            }
+
             if (!user_has_full_key_access) {
                 addReplyError(c,"GET option of SORT denied due to insufficient ACL permissions.");
                 syntax_error++;

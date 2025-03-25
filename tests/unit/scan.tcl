@@ -109,9 +109,25 @@ proc test_scan {type} {
 
         after 2
 
-        assert_error "*unknown type name*" {r scan 0 type "string1"}
+        # TODO: remove this in redis 8.0
+        set cur 0
+        set keys {}
+        while 1 {
+            set res [r scan $cur type "string1"]
+            set cur [lindex $res 0]
+            set k [lindex $res 1]
+            lappend keys {*}$k
+            if {$cur == 0} break
+        }
+
+        assert_equal 0 [llength $keys]
+        # make sure that expired key have been removed by scan command
+        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+
+        # TODO: uncomment in redis 8.0
+        #assert_error "*unknown type name*" {r scan 0 type "string1"}
         # expired key will be no touched by scan command
-        assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
@@ -175,8 +191,11 @@ proc test_scan {type} {
 
         assert_equal 1000 [llength $keys]
 
+        # make sure that expired key have been removed by scan command
+        assert_equal 1000 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        # TODO: uncomment in redis 8.0
         # make sure that only the expired key in the type match will been removed by scan command
-        assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
+        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
 
         r debug set-active-expire 1
     } {OK} {needs:debug}

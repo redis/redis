@@ -12,9 +12,15 @@
  * Copyright (c) 2011-Present, Redis Ltd. and contributors.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
+
 #include "fmacros.h"
 
 #include <string.h>
@@ -303,6 +309,9 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         dictEmpty(d, callback);
         freeDictIfNeeded(kvs, didx);
     }
+
+    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST)
+        memset(kvstoreGetMetadata(kvs), 0, sizeof(kvstoreMetadata));
 
     listEmpty(kvs->rehashing);
 
@@ -802,10 +811,14 @@ unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dic
  * within dict, it only reallocates the memory used by the dict structure itself using 
  * the provided allocation function. This feature was added for the active defrag feature.
  *
- * The 'defragfn' callback is called with a reference to the dict
- * that callback can reallocate. */
-void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) {
-    for (int didx = 0; didx < kvs->num_dicts; didx++) {
+ * With 16k dictionaries for cluster mode with 1 shard, this operation may require substantial time
+ * to execute.  A "cursor" is used to perform the operation iteratively.  When first called, a
+ * cursor value of 0 should be provided.  The return value is an updated cursor which should be
+ * provided on the next iteration.  The operation is complete when 0 is returned.
+ *
+ * The 'defragfn' callback is called with a reference to the dict that callback can reallocate. */
+unsigned long kvstoreDictLUTDefrag(kvstore *kvs, unsigned long cursor, kvstoreDictLUTDefragFunction *defragfn) {
+    for (int didx = cursor; didx < kvs->num_dicts; didx++) {
         dict **d = kvstoreGetDictRef(kvs, didx), *newd;
         if (!*d)
             continue;
@@ -818,7 +831,9 @@ void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn) 
             if (metadata->rehashing_node)
                 metadata->rehashing_node->value = *d;
         }
+        return (didx + 1);
     }
+    return 0;
 }
 
 uint64_t kvstoreGetHash(kvstore *kvs, const void *key)
@@ -1059,13 +1074,14 @@ int kvstoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("Verify that a rehashing dict's node in the rehashing list is correctly updated after defragmentation") {
+        unsigned long cursor = 0;
         kvstore *kvs = kvstoreCreate(&KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
         for (i = 0; i < 256; i++) {
             de = kvstoreDictAddRaw(kvs, 0, stringFromInt(i), NULL);
             if (listLength(kvs->rehashing)) break;
         }
         assert(listLength(kvs->rehashing));
-        kvstoreDictLUTDefrag(kvs, defragLUTTestCallback);
+        while ((cursor = kvstoreDictLUTDefrag(kvs, cursor, defragLUTTestCallback)) != 0) {}
         while (kvstoreIncrementallyRehash(kvs, 1000)) {}
         kvstoreRelease(kvs);
     }

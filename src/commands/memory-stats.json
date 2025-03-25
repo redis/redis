@@ -29,6 +29,9 @@
                 "replication.backlog": {
                     "type": "integer"
                 },
+                "replica.fullsync.buffer": {
+                    "type": "integer"
+                },
                 "clients.slaves": {
                     "type": "integer"
                 },

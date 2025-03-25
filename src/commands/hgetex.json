@@ -1,11 +1,11 @@
 {
-    "HPEXPIRE": {
-        "summary": "Set expiry for hash field using relative time to expire (milliseconds)",
+    "HGETEX": {
+        "summary": "Get the value of one or more fields of a given hash key, and optionally set their expiration.",
         "complexity": "O(N) where N is the number of specified fields",
         "group": "hash",
-        "since": "7.4.0",
-        "arity": -6,
-        "function": "hpexpireCommand",
+        "since": "8.0.0",
+        "arity": -5,
+        "function": "hgetexCommand",
         "history": [],
         "command_flags": [
             "WRITE",
@@ -16,8 +16,10 @@
         ],
         "key_specs": [
             {
+                "notes": "RW and UPDATE because it changes the TTL",
                 "flags": [
                     "RW",
+                    "ACCESS",
                     "UPDATE"
                 ],
                 "begin_search": {
@@ -35,27 +37,16 @@
             }
         ],
         "reply_schema": {
-            "description": "Array of results. Returns empty array if the key does not exist.",
+            "description": "List of values associated with the given fields, in the same order as they are requested.",
             "type": "array",
-            "minItems": 0,
-            "maxItems": 4294967295,
+            "minItems": 1,
             "items": {
                 "oneOf": [
                     {
-                        "description": "The field does not exist.",
-                        "const": -2
+                        "type": "string"
                     },
                     {
-                        "description": "Specified NX | XX | GT | LT condition not met",
-                        "const": 0
-                    },
-                    {
-                        "description": "Expiration time was set or updated.",
-                        "const": 1
-                    },
-                    {
-                        "description": "Field deleted because the specified expiration time is in the past.",
-                        "const": 2
+                        "type": "null"
                     }
                 ]
             }
@@ -67,33 +58,34 @@
                 "key_spec_index": 0
             },
             {
-                "name": "milliseconds",
-                "type": "integer"
-            },
-            {
-                "name": "condition",
+                "name": "expiration",
                 "type": "oneof",
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "nx",
-                        "type": "pure-token",
-                        "token": "NX"
+                        "name": "seconds",
+                        "type": "integer",
+                        "token": "EX"
                     },
                     {
-                        "name": "xx",
-                        "type": "pure-token",
-                        "token": "XX"
+                        "name": "milliseconds",
+                        "type": "integer",
+                        "token": "PX"
                     },
                     {
-                        "name": "gt",
-                        "type": "pure-token",
-                        "token": "GT"
+                        "name": "unix-time-seconds",
+                        "type": "unix-time",
+                        "token": "EXAT"
                     },
                     {
-                        "name": "lt",
+                        "name": "unix-time-milliseconds",
+                        "type": "unix-time",
+                        "token": "PXAT"
+                    },
+                    {
+                        "name": "persist",
                         "type": "pure-token",
-                        "token": "LT"
+                        "token": "PERSIST"
                     }
                 ]
             },
@@ -116,3 +108,4 @@
         ]
     }
 }
+

@@ -208,11 +208,13 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_ASYNC_LOADING (1<<23)
 /* Redis is starting. */
 #define REDISMODULE_CTX_FLAGS_SERVER_STARTUP (1<<24)
+/* This context can call execute debug commands. */
+#define REDISMODULE_CTX_FLAGS_DEBUG_ENABLED (1<<25)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<25)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<26)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -838,7 +840,9 @@ typedef struct RedisModuleDefragCtx RedisModuleDefragCtx;
  * exposed since you can't cast a function pointer to (void *). */
 typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_report);
 typedef void (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
+typedef int (*RedisModuleDefragFunc2)(RedisModuleDefragCtx *ctx);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
+typedef int (*RedisModuleDefragDictValueCallback)(RedisModuleDefragCtx *ctx, void *data, unsigned char *key, size_t keylen, void **newptr);
 
 /* ------------------------- End of common defines ------------------------ */
 
@@ -1303,11 +1307,13 @@ REDISMODULE_API int *(*RedisModule_GetCommandKeys)(RedisModuleCtx *ctx, RedisMod
 REDISMODULE_API int *(*RedisModule_GetCommandKeysWithFlags)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int *num_keys, int **out_flags) REDISMODULE_ATTR;
 REDISMODULE_API const char *(*RedisModule_GetCurrentCommandName)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterDefragFunc)(RedisModuleCtx *ctx, RedisModuleDefragFunc func) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_RegisterDefragFunc2)(RedisModuleCtx *ctx, RedisModuleDefragFunc2 func) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterDefragCallbacks)(RedisModuleCtx *ctx, RedisModuleDefragFunc start, RedisModuleDefragFunc end) REDISMODULE_ATTR;
 REDISMODULE_API void *(*RedisModule_DefragAlloc)(RedisModuleDefragCtx *ctx, void *ptr) REDISMODULE_ATTR;
 REDISMODULE_API void *(*RedisModule_DefragAllocRaw)(RedisModuleDefragCtx *ctx, size_t size) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DefragFreeRaw)(RedisModuleDefragCtx *ctx, void *ptr) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString *(*RedisModule_DefragRedisModuleString)(RedisModuleDefragCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleDict *(*RedisModule_DefragRedisModuleDict)(RedisModuleDefragCtx *ctx, RedisModuleDict *dict, RedisModuleDefragDictValueCallback valueCB, RedisModuleString **seekTo) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DefragShouldStop)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DefragCursorSet)(RedisModuleDefragCtx *ctx, unsigned long cursor) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DefragCursorGet)(RedisModuleDefragCtx *ctx, unsigned long *cursor) REDISMODULE_ATTR;
@@ -1321,10 +1327,12 @@ REDISMODULE_API int (*RedisModule_RegisterNumericConfig)(RedisModuleCtx *ctx, co
 REDISMODULE_API int (*RedisModule_RegisterStringConfig)(RedisModuleCtx *ctx, const char *name, const char *default_val, unsigned int flags, RedisModuleConfigGetStringFunc getfn, RedisModuleConfigSetStringFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RegisterEnumConfig)(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, const char **enum_values, const int *int_values, int num_enum_vals, RedisModuleConfigGetEnumFunc getfn, RedisModuleConfigSetEnumFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_LoadConfigs)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_LoadDefaultConfigs)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleRdbStream *(*RedisModule_RdbStreamCreateFromFile)(const char *filename) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_RdbStreamFree)(RedisModuleRdbStream *stream) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RdbLoad)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RdbSave)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
+REDISMODULE_API const char * (*RedisModule_GetInternalSecret)(RedisModuleCtx *ctx, size_t *len) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1674,11 +1682,13 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetCommandKeysWithFlags);
     REDISMODULE_GET_API(GetCurrentCommandName);
     REDISMODULE_GET_API(RegisterDefragFunc);
+    REDISMODULE_GET_API(RegisterDefragFunc2);
     REDISMODULE_GET_API(RegisterDefragCallbacks);
     REDISMODULE_GET_API(DefragAlloc);
     REDISMODULE_GET_API(DefragAllocRaw);
     REDISMODULE_GET_API(DefragFreeRaw);
     REDISMODULE_GET_API(DefragRedisModuleString);
+    REDISMODULE_GET_API(DefragRedisModuleDict);
     REDISMODULE_GET_API(DefragShouldStop);
     REDISMODULE_GET_API(DefragCursorSet);
     REDISMODULE_GET_API(DefragCursorGet);
@@ -1692,10 +1702,12 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RegisterStringConfig);
     REDISMODULE_GET_API(RegisterEnumConfig);
     REDISMODULE_GET_API(LoadConfigs);
+    REDISMODULE_GET_API(LoadDefaultConfigs);
     REDISMODULE_GET_API(RdbStreamCreateFromFile);
     REDISMODULE_GET_API(RdbStreamFree);
     REDISMODULE_GET_API(RdbLoad);
     REDISMODULE_GET_API(RdbSave);
+    REDISMODULE_GET_API(GetInternalSecret);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

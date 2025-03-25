@@ -1,6 +1,20 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of the Redis Source Available License 2.0
+# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 # This test group aims to test that all replicas share one global replication buffer,
 # two replicas don't make replication buffer size double, and when there is no replica,
 # replica buffer will shrink.
+foreach rdbchannel {"yes" "no"} {
 start_server {tags {"repl external:skip"}} {
 start_server {} {
 start_server {} {
@@ -8,6 +22,10 @@ start_server {} {
     set replica1 [srv -3 client]
     set replica2 [srv -2 client]
     set replica3 [srv -1 client]
+
+    $replica1 config set repl-rdb-channel $rdbchannel
+    $replica2 config set repl-rdb-channel $rdbchannel
+    $replica3 config set repl-rdb-channel $rdbchannel
 
     set master [srv 0 client]
     set master_host [srv 0 host]
@@ -18,6 +36,7 @@ start_server {} {
     $master config set repl-diskless-sync-delay 5
     $master config set repl-diskless-sync-max-replicas 1
     $master config set client-output-buffer-limit "replica 0 0 0"
+    $master config set repl-rdb-channel $rdbchannel
 
     # Make sure replica3 is synchronized with master
     $replica3 replicaof $master_host $master_port
@@ -39,7 +58,7 @@ start_server {} {
         fail "fail to sync with replicas"
     }
 
-    test {All replicas share one global replication buffer} {
+    test "All replicas share one global replication buffer rdbchannel=$rdbchannel" {
         set before_used [s used_memory]
         populate 1024 "" 1024 ; # Write extra 1M data
         # New data uses 1M memory, but all replicas use only one
@@ -47,7 +66,13 @@ start_server {} {
         # more than double of replication buffer.
         set repl_buf_mem [s mem_total_replication_buffers]
         set extra_mem [expr {[s used_memory]-$before_used-1024*1024}]
-        assert {$extra_mem < 2*$repl_buf_mem}
+        if {$rdbchannel == "yes"} {
+            # master's replication buffers should not grow
+            assert {$extra_mem < 1024*1024}
+            assert {$repl_buf_mem < 1024*1024}
+        } else {
+            assert {$extra_mem < 2*$repl_buf_mem}
+        }
 
         # Kill replica1, replication_buffer will not become smaller
         catch {$replica1 shutdown nosave}
@@ -59,7 +84,7 @@ start_server {} {
         assert_equal $repl_buf_mem [s mem_total_replication_buffers]
     }
 
-    test {Replication buffer will become smaller when no replica uses} {
+    test "Replication buffer will become smaller when no replica uses rdbchannel=$rdbchannel" {
         # Make sure replica3 catch up with the master
         wait_for_ofs_sync $master $replica3
 
@@ -71,8 +96,14 @@ start_server {} {
         } else {
             fail "replica2 doesn't disconnect with master"
         }
-        assert {[expr $repl_buf_mem - 1024*1024] > [s mem_total_replication_buffers]}
+        if {$rdbchannel == "yes"} {
+            # master's replication buffers should not grow
+            assert {1024*512 > [s mem_total_replication_buffers]}
+        } else {
+            assert {[expr $repl_buf_mem - 1024*1024] > [s mem_total_replication_buffers]}
+        }
     }
+}
 }
 }
 }
@@ -84,6 +115,7 @@ start_server {} {
 # partial re-synchronization. Of course, replication backlog memory also can
 # become smaller when master disconnects with slow replicas since output buffer
 # limit is reached.
+foreach rdbchannel {"yes" "no"} {
 start_server {tags {"repl external:skip"}} {
 start_server {} {
 start_server {} {
@@ -98,6 +130,7 @@ start_server {} {
 
     $master config set save ""
     $master config set repl-backlog-size 16384
+    $master config set repl-rdb-channel $rdbchannel
     $master config set client-output-buffer-limit "replica 0 0 0"
 
     # Executing 'debug digest' on master which has many keys costs much time
@@ -105,12 +138,16 @@ start_server {} {
     # with master.
     $master config set repl-timeout 1000
     $replica1 config set repl-timeout 1000
+    $replica1 config set repl-rdb-channel $rdbchannel
+    $replica1 config set client-output-buffer-limit "replica 1024 0 0"
     $replica2 config set repl-timeout 1000
+    $replica2 config set client-output-buffer-limit "replica 1024 0 0"
+    $replica2 config set repl-rdb-channel $rdbchannel
 
     $replica1 replicaof $master_host $master_port
     wait_for_sync $replica1
 
-    test {Replication backlog size can outgrow the backlog limit config} {
+    test "Replication backlog size can outgrow the backlog limit config rdbchannel=$rdbchannel" {
         # Generating RDB will take 1000 seconds
         $master config set rdb-key-save-delay 1000000
         populate 1000 master 10000
@@ -124,7 +161,7 @@ start_server {} {
         }
         # Replication actual backlog grow more than backlog setting since
         # the slow replica2 kept replication buffer.
-        populate 10000 master 10000
+        populate 20000 master 10000
         assert {[s repl_backlog_histlen] > [expr 10000*10000]}
     }
 
@@ -135,7 +172,7 @@ start_server {} {
         fail "Replica offset didn't catch up with the master after too long time"
     }
 
-    test {Replica could use replication buffer (beyond backlog config) for partial resynchronization} {
+    test "Replica could use replication buffer (beyond backlog config) for partial resynchronization rdbchannel=$rdbchannel" {
         # replica1 disconnects with master
         $replica1 replicaof [srv -1 host] [srv -1 port]
         # Write a mass of data that exceeds repl-backlog-size
@@ -155,7 +192,7 @@ start_server {} {
         assert_equal [$master debug digest] [$replica1 debug digest]
     }
 
-    test {Replication backlog memory will become smaller if disconnecting with replica} {
+    test "Replication backlog memory will become smaller if disconnecting with replica rdbchannel=$rdbchannel" {
         assert {[s repl_backlog_histlen] > [expr 2*10000*10000]}
         assert_equal [s connected_slaves] {2}
 
@@ -165,8 +202,11 @@ start_server {} {
         r set key [string repeat A [expr 64*1024]]
         # master will close replica2's connection since replica2's output
         # buffer limit is reached, so there only is replica1.
+        # In case of rdbchannel=yes, main channel will be disconnected only.
         wait_for_condition 100 100 {
-            [s connected_slaves] eq {1}
+            [s connected_slaves] eq {1} ||
+            ([s connected_slaves] eq {2} &&
+            [string match {*slave*state=wait_bgsave*} [$master info]])
         } else {
             fail "master didn't disconnect with replica2"
         }
@@ -185,15 +225,19 @@ start_server {} {
 }
 }
 }
+}
 
-test {Partial resynchronization is successful even client-output-buffer-limit is less than repl-backlog-size} {
+foreach rdbchannel {"yes" "no"} {
+test "Partial resynchronization is successful even client-output-buffer-limit is less than repl-backlog-size rdbchannel=$rdbchannel" {
     start_server {tags {"repl external:skip"}} {
         start_server {} {
             r config set save ""
             r config set repl-backlog-size 100mb
             r config set client-output-buffer-limit "replica 512k 0 0"
+            r config set repl-rdb-channel $rdbchannel
 
             set replica [srv -1 client]
+            $replica config set repl-rdb-channel $rdbchannel
             $replica replicaof [srv 0 host] [srv 0 port]
             wait_for_sync $replica
 
@@ -231,7 +275,7 @@ test {Partial resynchronization is successful even client-output-buffer-limit is
 }
 
 # This test was added to make sure big keys added to the backlog do not trigger psync loop.
-test {Replica client-output-buffer size is limited to backlog_limit/16 when no replication data is pending} {
+test "Replica client-output-buffer size is limited to backlog_limit/16 when no replication data is pending rdbchannel=$rdbchannel" {
     proc client_field {r type f} {
         set client [$r client list type $type]
         if {![regexp $f=(\[a-zA-Z0-9-\]+) $client - res]} {
@@ -252,6 +296,8 @@ test {Replica client-output-buffer size is limited to backlog_limit/16 when no r
 
             $master config set repl-backlog-size 16384
             $master config set client-output-buffer-limit "replica 32768 32768 60"
+            $master config set repl-rdb-channel $rdbchannel
+            $replica config set repl-rdb-channel $rdbchannel
             # Key has has to be larger than replica client-output-buffer limit.
             set keysize [expr 256*1024]
 
@@ -303,5 +349,6 @@ test {Replica client-output-buffer size is limited to backlog_limit/16 when no r
             }
         }
     }
+}
 }
 

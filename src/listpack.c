@@ -231,6 +231,11 @@ void lpFree(unsigned char *lp) {
     lp_free(lp);
 }
 
+/* Generic version of lpFree. */
+void lpFreeGeneric(void *lp) {
+    lp_free((unsigned char *)lp);
+}
+
 /* Shrink the memory to fit. */
 unsigned char* lpShrinkToFit(unsigned char *lp) {
     size_t size = lpGetTotalBytes(lp);
@@ -3120,7 +3125,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         for (i = 0; i < iteration; i++) {
             lp = lpNew(0);
             ref = listCreate();
-            listSetFreeMethod(ref,(void (*)(void*))sdsfree);
+            listSetFreeMethod(ref, sdsfreegeneric);
             len = rand() % 256;
 
             /* Create lists */

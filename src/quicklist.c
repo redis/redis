@@ -2126,7 +2126,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
             quicklistRelease(ql);
         }
 
-        TEST("Comprassion Plain node") {
+        TEST("Compression Plain node") {
         for (int f = 0; f < fill_count; f++) {
             size_t large_limit = (fills[f] < 0) ? quicklistNodeNegFillLimit(fills[f]) + 1 : SIZE_SAFETY_LIMIT + 1;
 
@@ -3301,7 +3301,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
         }
 
 #if ULONG_MAX >= 0xffffffffffffffff
-        TEST("compress and decomress quicklist plain node large than UINT32_MAX") {
+        TEST("compress and decompress quicklist plain node larger than UINT32_MAX") {
             size_t sz = (1ull << 32);
             unsigned char *s = zmalloc(sz);
             randstring(s, sz);

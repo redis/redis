@@ -144,6 +144,10 @@ static void engineLibraryFree(functionLibInfo* li) {
     zfree(li);
 }
 
+static void engineLibraryFreeGeneric(void *li) {
+    engineLibraryFree((functionLibInfo *)li);
+}
+
 static void engineLibraryDispose(dict *d, void *obj) {
     UNUSED(d);
     engineLibraryFree(obj);
@@ -338,7 +342,7 @@ static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *
             } else {
                 if (!old_libraries_list) {
                     old_libraries_list = listCreate();
-                    listSetFreeMethod(old_libraries_list, (void (*)(void*))engineLibraryFree);
+                    listSetFreeMethod(old_libraries_list, engineLibraryFreeGeneric);
                 }
                 libraryUnlink(functions_lib_ctx_dst, old_li);
                 listAddNodeTail(old_libraries_list, old_li);

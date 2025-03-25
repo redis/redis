@@ -3,6 +3,10 @@ set testmodule [file normalize tests/modules/keyspace_events.so]
 tags "modules" {
     start_server [list overrides [list loadmodule "$testmodule"]] {
 
+        # avoid using shared integers, to increase the chance of detection heap issues
+        r config set maxmemory-policy allkeys-lru
+        r config set maxmemory 1gb
+
         test {Test loaded key space event} {
             r set x 1
             r hset y f v

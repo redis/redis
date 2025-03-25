@@ -27,7 +27,7 @@ jobs:
             --tags -slow
     - name: Archive redis log
       if: ${{ failure() }}
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-external-redis-log
         path: external-redis.log
@@ -55,7 +55,7 @@ jobs:
             --tags -slow
     - name: Archive redis log
       if: ${{ failure() }}
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-external-cluster-log
         path: external-redis-cluster.log
@@ -79,7 +79,7 @@ jobs:
             --tags "-slow -needs:debug"
       - name: Archive redis log
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-external-redis-nodebug-log
           path: external-redis-nodebug.log

@@ -414,6 +414,58 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
         r debug set-active-expire 1
 
+
+        # Test HSETEX, HGETEX and HGETDEL notifications
+        r hsetex myhash FIELDS 3 f4 v4 f5 v5 f6 v6
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+
+        # hgetex sets ttl in past
+        r hgetex myhash PX 0 FIELDS 1 f4
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+
+        # hgetex sets ttl
+        r hgetex myhash EXAT [expr {[clock seconds] + 999999}] FIELDS 1 f5
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+
+        # hgetex persists field
+        r hgetex myhash PERSIST FIELDS 1 f5
+        assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
+
+        # hgetdel deletes a field
+        r hgetdel myhash FIELDS 1 f5
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+
+        # hsetex sets field and expiry time
+        r hsetex myhash EXAT [expr {[clock seconds] + 999999}] FIELDS 1 f6 v6
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+
+        # hsetex sets field and ttl in the past
+        r hsetex myhash PX 0 FIELDS 1 f6 v6
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+
+        # Test that we will get `hexpired` notification when a hash field is
+        # removed by lazy expire using hgetdel command
+        r debug set-active-expire 0
+        r hsetex myhash PX 10 FIELDS 1 f1 v1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+
+        # Set another field
+        r hsetex myhash FIELDS 1 f2 v2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        # Wait until field expires
+        after 20
+        r hgetdel myhash FIELDS 1 f1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        # Get and delete the only field
+        r hgetdel myhash FIELDS 1 f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+        r debug set-active-expire 1
+
         $rd1 close
     } {0} {needs:debug}
     } ;# foreach

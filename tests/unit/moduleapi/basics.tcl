@@ -44,3 +44,27 @@ start_server {tags {"modules external:skip"} overrides {enable-module-command no
        assert_error "ERR *MODULE command not allowed*" {r module load $testmodule}
     }
 }
+
+start_server {tags {"modules external:skip"} overrides {enable-debug-command no}} {
+    r module load $testmodule
+
+    test {debug command disabled} {
+        assert_equal {no} [r test.candebug]
+    }
+}
+
+start_server {tags {"modules external:skip"} overrides {enable-debug-command yes}} {
+    r module load $testmodule
+
+    test {debug command enabled} {
+        assert_equal {yes} [r test.candebug]
+    }
+}
+
+start_server {tags {"modules external:skip"} overrides {enable-debug-command local}} {
+    r module load $testmodule
+
+    test {debug commands are enabled for local connection} {
+        assert_equal {yes} [r test.candebug]
+    }
+}

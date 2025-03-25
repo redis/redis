@@ -1,0 +1,24 @@
+name: "Codecov"
+
+# Enabling on each push is to display the coverage changes in every PR, 
+# where each PR needs to be compared against the coverage of the head commit
+on: [push, pull_request]
+
+jobs:
+  code-coverage:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install lcov and run test
+      run: |
+        sudo apt-get install lcov
+        make lcov
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v4
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./src/redis.info

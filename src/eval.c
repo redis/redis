@@ -93,7 +93,7 @@ struct ldbState {
  * bodies in order to obtain the Lua function name, and in the implementation
  * of redis.sha1().
  *
- * 'digest' should point to a 41 bytes buffer: 40 for SHA1 converted into an
+ * 'digest' should point to a 41 bytes buffer: 40 for SHA1 converted into a
  * hexadecimal number, plus 1 byte for null term. */
 void sha1hex(char *digest, char *script, size_t len) {
     SHA1_CTX ctx;
@@ -266,6 +266,7 @@ void freeLuaScriptsSync(dict *lua_scripts, list *lua_scripts_lru_list, lua_State
     unsigned int lua_tcache = (unsigned int)(uintptr_t)ud;
 #endif
 
+    lua_gc(lua, LUA_GCCOLLECT, 0);
     lua_close(lua);
 
 #if defined(USE_JEMALLOC)
@@ -758,7 +759,7 @@ void ldbInit(void) {
     ldb.conn = NULL;
     ldb.active = 0;
     ldb.logs = listCreate();
-    listSetFreeMethod(ldb.logs,(void (*)(void*))sdsfree);
+    listSetFreeMethod(ldb.logs, sdsfreegeneric);
     ldb.children = listCreate();
     ldb.src = NULL;
     ldb.lines = 0;

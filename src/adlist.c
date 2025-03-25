@@ -61,6 +61,11 @@ void listRelease(list *list)
     zfree(list);
 }
 
+/* Generic version of listRelease. */
+void listReleaseGeneric(void *list) {
+    listRelease((struct list*)list);
+}
+
 /* Add a new node to the list, to head, containing the specified 'value'
  * pointer as value.
  *

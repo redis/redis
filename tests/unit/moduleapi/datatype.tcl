@@ -136,4 +136,103 @@ start_server {tags {"modules"}} {
 
         assert_equal 1 [llength $keys]
     }
+
+    if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
+        test {Reduce defrag CPU usage when module data can't be defragged} {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 25
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 100kb
+
+            # Populate memory with interleaving field of same size.
+            set n 20000
+            set dummy "[string repeat x 400]"
+            set rd [redis_deferring_client]
+            for {set i 0} {$i < $n} {incr i} { $rd datatype.set k$i 1 $dummy }
+            for {set i 0} {$i < [expr $n]} {incr i} { $rd read } ;# Discard replies
+
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_lessthan [s allocator_frag_ratio] 1.05
+
+            for {set i 0} {$i < $n} {incr i 2} { $rd del k$i }
+            for {set j 0} {$j < $n} {incr j 2} { $rd read } ; # Discard del replies
+            after 120 ;# serverCron only updates the info once in 100ms
+            assert_morethan [s allocator_frag_ratio] 1.4
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+                # wait for the active defrag to start working (decision once a second)
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+                assert_morethan [s allocator_frag_ratio] 1.4
+
+                # The cpu usage of defragment will drop to active-defrag-cycle-min
+                wait_for_condition 1000 50 {
+                    [s active_defrag_running] == 25
+                } else {
+                    fail "Unable to reduce the defragmentation speed."
+                }
+
+                # Fuzzy test to restore defragmentation speed to normal
+                set end_time [expr {[clock seconds] + 10}]
+                set speed_restored 0
+                while {[clock seconds] < $end_time} {
+                    for {set i 0} {$i < 500} {incr i} {
+                    switch [expr {int(rand() * 3)}] {
+                        0 {
+                            # Randomly delete a key
+                            set random_key [r RANDOMKEY]
+                            if {$random_key != ""} {
+                                r DEL $random_key
+                            }
+                        }
+                        1 {
+                            # Randomly overwrite a key
+                            set random_key [r RANDOMKEY]
+                            if {$random_key != ""} {
+                                r datatype.set $random_key 1 $dummy
+                            }
+                        }
+                        2 {
+                            # Randomly generate a new key
+                            set random_key "key_[expr {int(rand() * 10000)}]"
+                            r datatype.set $random_key 1 $dummy
+                        }
+                    } ;# end of switch
+                    } ;# end of for
+
+                    # Wait for defragmentation speed to restore.
+                    if {{[count_log_message $loglines "*Starting active defrag, frag=*%, frag_bytes=*, cpu=5?%*"]} > 1} {
+                        set speed_restored 1
+                        break;
+                    }
+                }
+                # Make sure the speed is restored
+                assert_equal $speed_restored 1
+
+                # After the traffic disappears, the defragmentation speed will decrease again.
+                wait_for_condition 1000 50 {
+                    [s active_defrag_running] == 25
+                } else {
+                    fail "Unable to reduce the defragmentation speed after traffic disappears."
+                } 
+            }
+        }
+    }
 }

@@ -116,6 +116,32 @@ start_server {tags {"acl external:skip"}} {
         assert_match "*NOPERM*key*" $err
     }
 
+    test {Validate read and write permissions format - empty permission} {
+        catch {r ACL SETUSER key-permission-RW %~} err
+        set err
+    } {ERR Error in ACL SETUSER modifier '%~': Syntax error}
+
+    test {Validate read and write permissions format - empty selector} {
+        catch {r ACL SETUSER key-permission-RW %} err
+        set err
+    } {ERR Error in ACL SETUSER modifier '%': Syntax error}
+
+    test {Validate read and write permissions format - empty pattern} {
+        # Empty pattern results with R/W access to no key
+        r ACL SETUSER key-permission-RW on nopass %RW~ +@all
+        $r2 auth key-permission-RW password
+        catch {$r2 SET x 5} err
+        set err
+    } {NOPERM No permissions to access a key}
+
+    test {Validate read and write permissions format - no pattern} {
+        # No pattern results with R/W access to no key (currently we accept this syntax error)
+        r ACL SETUSER key-permission-RW on nopass %RW +@all
+        $r2 auth key-permission-RW password
+        catch {$r2 SET x 5} err
+        set err
+    } {NOPERM No permissions to access a key}
+
     test {Test separate read and write permissions on different selectors are not additive} {
         r ACL SETUSER key-permission-RW-selector on nopass "(%R~read* +@all)" "(%W~write* +@all)"
         $r2 auth key-permission-RW-selector password

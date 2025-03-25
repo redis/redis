@@ -988,7 +988,7 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
     dict *d;
     dictIterator *di;
     struct dictEntry *de;
-    size_t asize = 0, elesize = 0, samples = 0;
+    size_t asize = 0, elesize = 0, elecount = 0, samples = 0;
 
     if (o->type == OBJ_STRING) {
         if(o->encoding == OBJ_ENCODING_INT) {
@@ -1007,9 +1007,10 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             asize = sizeof(*o)+sizeof(quicklist);
             do {
                 elesize += sizeof(quicklistNode)+zmalloc_size(node->entry);
+                elecount += node->count;
                 samples++;
             } while ((node = node->next) && samples < sample_size);
-            asize += (double)elesize/samples*ql->len;
+            asize += (double)elesize/elecount*ql->count;
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
         } else {
@@ -1209,6 +1210,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
             server.repl_backlog->blocks_index->numnodes * sizeof(raxNode) +
             raxSize(server.repl_backlog->blocks_index) * sizeof(void*);
     }
+
+    mh->replica_fullsync_buffer = server.repl_full_sync_buffer.mem_used;
+    mem_total += mh->replica_fullsync_buffer;
     mem_total += mh->repl_backlog;
     mem_total += mh->clients_slaves;
 
@@ -1560,7 +1564,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
 
-        addReplyMapLen(c,32+mh->num_dbs);
+        addReplyMapLen(c,33+mh->num_dbs);
 
         addReplyBulkCString(c,"peak.allocated");
         addReplyLongLong(c,mh->peak_allocated);
@@ -1573,6 +1577,9 @@ NULL
 
         addReplyBulkCString(c,"replication.backlog");
         addReplyLongLong(c,mh->repl_backlog);
+
+        addReplyBulkCString(c,"replica.fullsync.buffer");
+        addReplyLongLong(c,mh->replica_fullsync_buffer);
 
         addReplyBulkCString(c,"clients.slaves");
         addReplyLongLong(c,mh->clients_slaves);

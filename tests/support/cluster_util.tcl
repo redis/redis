@@ -5,8 +5,9 @@ proc cluster_config_consistent {} {
     for {set j 0} {$j < [llength $::servers]} {incr j} {
         if {$j == 0} {
             set base_cfg [R $j cluster slots]
+            set base_secret [R $j debug internal_secret]
         } else {
-            if {[R $j cluster slots] != $base_cfg} {
+            if {[R $j cluster slots] != $base_cfg || [R $j debug internal_secret] != $base_secret} {
                 return 0
             }
         }

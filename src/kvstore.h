@@ -1,3 +1,16 @@
+/*
+ * Copyright (c) 2009-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+ */
+
 #ifndef DICTARRAY_H_
 #define DICTARRAY_H_
 
@@ -5,7 +18,7 @@
 #include "adlist.h"
 
 /* maximum number of bins of keysizes histogram */
-#define MAX_KEYSIZES_BINS 48
+#define MAX_KEYSIZES_BINS 60
 #define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
 
 /* When creating kvstore with flag `KVSTORE_ALLOC_META_KEYS_HIST`, then kvstore 
@@ -78,7 +91,7 @@ unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, uns
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size);
 unsigned long kvstoreDictScanDefrag(kvstore *kvs, int didx, unsigned long v, dictScanFunction *fn, dictDefragFunctions *defragfns, void *privdata);
 typedef dict *(kvstoreDictLUTDefragFunction)(dict *d);
-void kvstoreDictLUTDefrag(kvstore *kvs, kvstoreDictLUTDefragFunction *defragfn);
+unsigned long kvstoreDictLUTDefrag(kvstore *kvs, unsigned long cursor, kvstoreDictLUTDefragFunction *defragfn);
 void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key);
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing);

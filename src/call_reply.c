@@ -533,7 +533,7 @@ CallReply *callReplyCreateError(sds reply, void *private_data) {
         sdsfree(reply);
     }
     list *deferred_error_list = listCreate();
-    listSetFreeMethod(deferred_error_list, (void (*)(void*))sdsfree);
+    listSetFreeMethod(deferred_error_list, sdsfreegeneric);
     listAddNodeTail(deferred_error_list, sdsnew(err_buff));
     return callReplyCreate(err_buff, deferred_error_list, private_data);
 }
