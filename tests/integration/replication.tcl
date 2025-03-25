@@ -1619,3 +1619,32 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
+start_server {tags {"repl external:skip"}} {
+    set replica [srv 0 client]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test "Test replication with functions when repl-diskless-load is set to on-empty-db" {
+            $replica config set repl-diskless-load on-empty-db
+
+            populate 10 master 10
+            $master function load {#!lua name=test
+                redis.register_function{function_name='func1', callback=function() return 'hello' end, flags={'no-writes'}}
+            }
+
+            $replica replicaof $master_host $master_port
+
+            # Wait until replication is completed
+            wait_replica_online $master 0 1000 100
+            wait_for_ofs_sync $master $replica
+
+            # Sanity check
+            assert_equal [$replica fcall func1 0] "hello"
+            assert_morethan [$replica dbsize] 0
+            assert_equal [$master debug digest] [$replica debug digest]
+        }
+    }
+}
