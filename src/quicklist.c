@@ -47,7 +47,8 @@
  * Note that the largest possible limit is 64k, so even if each record takes
  * just one byte, it still won't overflow the 16 bit count field. */
 static const size_t optimization_level[] = {4096, 8192, 16384, 32768, 65535};
-static_assert(((1 << (QL_LIMIT_BITS)) - 1 >= 65535), "QL_LIMIT_BITS is too small");
+#define LIMIT_MAX ((1 << (QL_LIMIT_BITS))-1)
+static_assert((LIMIT_MAX >= 65535), "QL_LIMIT_BITS is too small");
 
 /* This is for test suite development purposes only, 0 means disabled. */
 static size_t packed_threshold = 0;
@@ -150,10 +151,9 @@ void quicklistSetCompressDepth(quicklist *quicklist, int compress) {
     quicklist->compress = compress;
 }
 
-#define FILL_MAX ((1 << (QL_LIMIT_BITS-1))-1)
 void quicklistSetFill(quicklist *quicklist, int fill) {
-    if (fill > FILL_MAX) {
-        fill = FILL_MAX;
+    if (fill > LIMIT_MAX) {
+        fill = LIMIT_MAX;
     } else if (fill < -5) {
         fill = -5;
     }
