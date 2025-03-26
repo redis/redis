@@ -1269,7 +1269,6 @@ typedef struct {
 #endif
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) client {
-    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
     listNode clients_pending_write_node; /* list node in clients_pending_write list.
                                             accessed together with flags field */
@@ -1281,6 +1280,7 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) client {
     uint8_t authenticated;  /* Needed when the default user requires auth. */
     uint8_t replstate;      /* Replication state if this is a slave. */
     uint8_t reqtype;            /* Request protocol type: PROTO_REQ_* */
+    long bulklen;           /* Length of bulk argument in multi bulk request. */
 
     /* Response buffer */
     size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
@@ -1316,7 +1316,7 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) client {
                                user is set to NULL the connection can do
                                anything (admin). */
     uint64_t id;            /* Client incremental unique ID. */
-    long bulklen;           /* Length of bulk argument in multi bulk request. */
+    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     connection *conn;
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     time_t ctime;           /* Client creation time. */
