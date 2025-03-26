@@ -20,6 +20,7 @@
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "bio.h"
+#include "cluster.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -1396,9 +1397,22 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
 
     kvs_it = kvstoreIteratorInit(db->keys);
     int last_slot = -1;
+    clusterNode *myNode = NULL;
+    if (server.cluster_enabled) {
+        myNode = getMyClusterNode();
+        if (NULL == myNode) {
+            goto werr;
+        }
+    }
     /* Iterate this DB writing every entry */
     while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
         int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+        if (server.cluster_enabled) {
+            if (getNodeBySlot(curr_slot) != myNode) {
+                kvstoreSkipToNextDict(kvs_it);
+                continue;
+            }
+        }
         /* Save slot info. */
         if (server.cluster_enabled && curr_slot != last_slot) {
             if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;

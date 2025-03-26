@@ -654,6 +654,11 @@ dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it) {
     return de;
 }
 
+void kvstoreSkipToNextDict(kvstoreIterator *kvs_it) {
+    dict *d = kvstoreIteratorNextDict(kvs_it);
+    if (d) dictInitSafeIterator(&kvs_it->di, d);
+}
+
 /* This method traverses through kvstore dictionaries and triggers a resize.
  * It first tries to shrink if needed, and if it isn't, it tries to expand. */
 void kvstoreTryResizeDicts(kvstore *kvs, int limit) {

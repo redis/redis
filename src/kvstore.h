@@ -68,6 +68,7 @@ uint64_t kvstoreGetHash(kvstore *kvs, const void *key);
 kvstoreIterator *kvstoreIteratorInit(kvstore *kvs);
 void kvstoreIteratorRelease(kvstoreIterator *kvs_it);
 dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it);
+void kvstoreSkipToNextDict(kvstoreIterator *kvs_it);
 int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it);
 dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
 
