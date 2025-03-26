@@ -1268,19 +1268,22 @@ typedef struct {
 } clientReqResInfo;
 #endif
 
-typedef struct client {
-    uint64_t id;            /* Client incremental unique ID. */
+typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) client {
+    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
     listNode clients_pending_write_node; /* list node in clients_pending_write list.
                                             accessed together with flags field */
-    connection *conn;
     sds querybuf;           /* Buffer we use to accumulate client queries. */
     size_t qb_pos;          /* The position we have read in querybuf. */
     int bufpos;
 
+    uint8_t resp;           /* RESP protocol version. Can be 2 or 3. */
+    uint8_t authenticated;  /* Needed when the default user requires auth. */
+    uint8_t replstate;      /* Replication state if this is a slave. */
+    uint8_t reqtype;            /* Request protocol type: PROTO_REQ_* */
+
     /* Response buffer */
     size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
-    long bulklen;           /* Length of bulk argument in multi bulk request. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     struct redisCommand *realcmd; /* The original command that was executed by the client,
                                      Used to update error stats in case the c->cmd was modified
@@ -1292,11 +1295,14 @@ typedef struct client {
     time_t obuf_soft_limit_reached_time;
     uint8_t io_flags;       /* Accessed by both main and IO threads, but not modified concurrently */
     uint8_t read_error;     /* Client read error: CLIENT_READ_* macros. */
-
-    uint8_t resp;           /* RESP protocol version. Can be 2 or 3. */
-    uint8_t authenticated;  /* Needed when the default user requires auth. */
-    uint8_t replstate;      /* Replication state if this is a slave. */
-    uint8_t reqtype;            /* Request protocol type: PROTO_REQ_* */
+    int16_t slot;           /* The slot the client is executing against. Set to -1 if no slot is being used */
+    int16_t cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
+    * -2 means we don't need to check slot violation, or we already found
+    * a violation, reported it and don't need to continue checking.
+    * -1 means we're looking for the slot number and didn't find it yet.
+    * any positive number means we found a slot and no violation yet. */
+    uint8_t tid;            /* Thread assigned ID this client is bound to. */
+    uint8_t running_tid;    /* Thread assigned ID this client is running on. */
 
 
     redisDb *db;            /* Pointer to currently SELECTed DB. */
@@ -1309,17 +1315,13 @@ typedef struct client {
     user *user;             /* User associated with this connection. If the
                                user is set to NULL the connection can do
                                anything (admin). */
-    unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
+    uint64_t id;            /* Client incremental unique ID. */
+    long bulklen;           /* Length of bulk argument in multi bulk request. */
+    connection *conn;
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
     time_t ctime;           /* Client creation time. */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
-    int16_t slot;           /* The slot the client is executing against. Set to -1 if no slot is being used */
-    int16_t cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
-    * -2 means we don't need to check slot violation, or we already found
-    * a violation, reported it and don't need to continue checking.
-    * -1 means we're looking for the slot number and didn't find it yet.
-    * any positive number means we found a slot and no violation yet. */
     mstime_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
     size_t buf_usable_size; /* Usable size of buffer. */
     char *buf;
@@ -1329,8 +1331,6 @@ typedef struct client {
     int original_argc;      /* Num of arguments of original command if arguments were rewritten. */
     int argv_len;           /* Size of argv array (may be more than argc) */
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
-    uint8_t tid;            /* Thread assigned ID this client is bound to. */
-    uint8_t running_tid;    /* Thread assigned ID this client is running on. */
     int repl_start_cmd_stream_on_ack; /* Install slave write handler on first ACK. */
     int repldbfd;           /* Replication DB file descriptor. */
     off_t repldboff;        /* Replication DB file offset. */
