@@ -62,39 +62,39 @@ start_server {tags {"dump"}} {
 
 
      test {smoking test RESTORE can set LFU} {
-            r set foo bar
-            set encoded [r dump foo]
-            r del foo
-            r config set maxmemory-policy allkeys-lfu
-            r restore foo 0 $encoded freq 100
+        r set foo bar
+        set encoded [r dump foo]
+        r del foo
+        r config set maxmemory-policy allkeys-lfu
+        r restore foo 0 $encoded freq 100
 
-            # We need to determine whether the `object` operation happens within the same minute or crosses into a new one
-            # This will help us verify if the freq remains 100 or decays due to a minute transition
-            set remainder_before [clock format [clock seconds] -format %M]
+        # We need to determine whether the `object` operation happens within the same minute or crosses into a new one
+        # This will help us verify if the freq remains 100 or decays due to a minute transition
+        set remainder_before [clock format [clock seconds] -format %M]
 
-            set continue_loop 1
-            while { $continue_loop } {
-                set time_result [r time]
-                set server_unixtime [lindex $time_result 0]
-                set remainder [expr $server_unixtime % 60]
-                if { $remainder >= 58 } {
-                    set continue_loop 0
-                } else {
-                    after 500
-                }
+        set continue_loop 1
+        while { $continue_loop } {
+            set time_result [r time]
+            set server_unixtime [lindex $time_result 0]
+            set remainder [expr $server_unixtime % 60]
+            if { $remainder >= 58 } {
+                set continue_loop 0
+            } else {
+                after 500
             }
-            after 2000
+        }
+        after 2000
 
-            set freq [r object freq foo]
-            set remainder_after [clock format [clock seconds] -format %M]
+        set freq [r object freq foo]
+        set remainder_after [clock format [clock seconds] -format %M]
 
-            assert { $remainder_before != $remainder_after }
-            assert {($freq == 100)
+        assert { $remainder_before != $remainder_after }
+        assert {($freq == 100)}
 
-            r get foo
-            assert_equal [r get foo] {bar}
-            r config set maxmemory-policy noeviction
-        } {OK} {needs:config-maxmemory}
+        r get foo
+        assert_equal [r get foo] {bar}
+        r config set maxmemory-policy noeviction
+     } {OK} {needs:config-maxmemory}
     
     test {RESTORE can set LFU} {
         r set foo bar
