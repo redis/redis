@@ -66,7 +66,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #define REDISMODULE_CORE 1
 typedef struct redisObject robj;
 
-/* kvobj - A specific type of robj that holds also embedded key
+/* kvobj - A specific type of robj that holds also embedded key 
  * 
  * Since robj is being overused as general purpose object, `kvobj` distincts only 
  * at the declarative level. This distinction assist to the clarity of the code

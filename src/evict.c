@@ -129,7 +129,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
     int slot = kvstoreGetFairRandomDictIndex(samplekvs);
     count = kvstoreDictGetSomeKeys(samplekvs,slot,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
-        unsigned long long idle;        
+        unsigned long long idle;
         
         dictEntry *de = samples[j];
         kvobj *kv = dictGetKV(de);

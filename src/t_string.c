@@ -102,7 +102,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
-    if (expire) {        
+    if (expire) {
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
          * EX/PX/EXAT flag. */
         if (!(flags & OBJ_PXAT)) {
@@ -571,10 +571,9 @@ void msetGenericCommand(client *c, int nx) {
 
     int setkey_flags = nx ? SETKEY_DOESNT_EXIST : 0;
     for (j = 1; j < c->argc; j += 2) {
-        robj *val = tryObjectEncoding(c->argv[j+1]);
-        setKey(c, c->db, c->argv[j], &val, setkey_flags);
-        incrRefCount(val);  /* adding ... */
-        c->argv[j+1] = val;
+        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
+        setKey(c, c->db, c->argv[j], &(c->argv[j+1]) , setkey_flags);
+        incrRefCount(c->argv[j+1]);  /* refcnt not incr by setKey() */
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
         /* In MSETNX, It could be that we're overriding the same key, we can't be sure it doesn't exist. */
         if (nx)

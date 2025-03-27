@@ -3658,7 +3658,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
 
             /* Release key (sds), dictEntry stores a copy of it in embedded data */
-            sdsfree(key);            
+            sdsfree(key);
         }
 
         /* Loading the database more slowly is useful in order to test

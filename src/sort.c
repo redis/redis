@@ -577,6 +577,7 @@ void sortCommandGeneric(client *c, int readonly) {
                 }
             }
         }
+        
         if (outputlen) {
             listTypeTryConversion(sobj,LIST_CONV_AUTO,NULL,NULL);
             setKey(c, c->db, storekey, &sobj, 0);
@@ -587,12 +588,15 @@ void sortCommandGeneric(client *c, int readonly) {
                                 c->db->id);
             server.dirty += outputlen;
             /* Ownership of sobj transferred to the db. No need to free it. */
-        } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c,c->db,storekey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
-            server.dirty++;
+        } else {
+            if (dbDelete(c->db, storekey)) {
+                signalModifiedKey(c, c->db, storekey);
+                notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
+                server.dirty++;
+            }
+            decrRefCount(sobj);
         }
-        if (sobj != NULL) decrRefCount(sobj);
+
         addReplyLongLong(c,outputlen);
     }
 

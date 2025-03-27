@@ -39,7 +39,11 @@ kvobj *kvobjCreate(int type, const sds key, void *valptr, long long expire) {
     char key_sds_type = iskvobj ? sdsReqType(key_sds_len) : 0;
     size_t key_sds_size = iskvobj ? sdsReqSize(key_sds_len, key_sds_type) : 0;
 
-    /* Compute the base object size */
+    /* Compute the base object size. Example of kvobj "mykey" and expiry:
+     *    +------+--------+--------------+--------------------+
+     *    | robj | expiry | key-hdr-size | sdshdr5 "mykey" \0 | 16+8+1+7 = 32bytes
+     *    +------+--------+--------------+--------------------+
+     */
     size_t min_size = sizeof(robj);
     if (has_expire) min_size += sizeof(long long);
     if (iskvobj) min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
@@ -137,7 +141,11 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr,
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
 
-    /* Compute base object size */
+    /* Compute base object size. Example of kvobj "mykey" with embedded "myvalue":
+     *    +------+--------------+--------------------+----------------------+
+     *    | robj | key-hdr-size | sdshdr5 "mykey" \0 | sdshdr8 "myvalue" \0 | 16+1+7+11 = 35bytes
+     *    +------+--------------+--------------------+----------------------+
+     */
     size_t min_size = sizeof(robj) + val_sds_size;
     if (expire != -1) min_size += sizeof(long long);
     if (iskvobj) min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
