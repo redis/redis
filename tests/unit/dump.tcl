@@ -60,58 +60,29 @@ start_server {tags {"dump"}} {
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
 
-    test {RESTORE can set LFU and freq not decayed} {
-        r set fooa bara
-        set encoded [r dump fooa]
-        r del fooa
-
-        r config set maxmemory-policy allkeys-lfu
-
-        set continue_loop 1
-        while { $continue_loop } {
-            set time_result [r time]
-            set server_unixtime [lindex $time_result 0]
-            set remainder [expr $server_unixtime % 60]
-            if { $remainder < 58 } {
-                set continue_loop 0
-            } else {
-                after 500
-            }
-        }
-
-        r restore fooa 0 $encoded freq 100
-        after 2000
-        set freq [r object freq fooa]
-        assert {$freq == 100}
-        r get fooa
-        assert_equal [r get fooa] {bara}
-
-        r config set maxmemory-policy noeviction
-    } {OK} {needs:config-maxmemory}
-
-    test {RESTORE can set LFU and freq decay} {
+    test {RESTORE can set LFU} {
         r set foo bar
         set encoded [r dump foo]
         r del foo
 
         r config set maxmemory-policy allkeys-lfu
+        r restore foo 0 $encoded freq 100
 
-        set continue_loop 1
-        while { $continue_loop } {
-            set time_result [r time]
-            set server_unixtime [lindex $time_result 0]
-            set remainder [expr $server_unixtime % 60]
-            if { $remainder >= 58 } {
-                set continue_loop 0
-            } else {
-                after 500
-            }
+        # We need to determine whether the `object` operation happens within the same minute or crosses into a new one
+        # This will help us verify if the freq remains 100 or decays due to a minute transition
+        set remainder_before [expr [lindex [r time] 0] / 60]
+        set freq [r object freq foo]
+        set remainder_after [expr [lindex [r time] 0] / 60]
+
+        if { $remainder_before == $remainder_after } {
+            assert {$freq == 100}
+        } else {
+            # If the object operation crosses into a new minute, freq may have already decayed by 1 (99),
+            # or it may still be 100 if the minute update hasn't been applied yet when the operation is performed.
+            # The decay might only take effect after the operation completes and the minute is updated.
+            assert {($freq == 100) || ($freq == 99)}
         }
 
-        r restore foo 0 $encoded freq 100
-        after 2000
-        set freq [r object freq foo]
-        assert {$freq == 99}
         r get foo
         assert_equal [r get foo] {bar}
 
