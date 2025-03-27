@@ -67,13 +67,13 @@ start_server {tags {"dump"}} {
 
         r config set maxmemory-policy allkeys-lfu
 
-        set continueLoop 1
-        while { $continueLoop } {
+        set continue_loop 1
+        while { $continue_loop } {
             set time_result [r time]
             set server_unixtime [lindex $time_result 0]
             set remainder [expr $server_unixtime % 60]
             if { $remainder < 58 } {
-                set continueLoop 0
+                set continue_loop 0
             } else {
                 after 500
             }
@@ -96,13 +96,13 @@ start_server {tags {"dump"}} {
 
         r config set maxmemory-policy allkeys-lfu
 
-        set continueLoop 1
-        while { $continueLoop } {
+        set continue_loop 1
+        while { $continue_loop } {
             set time_result [r time]
             set server_unixtime [lindex $time_result 0]
             set remainder [expr $server_unixtime % 60]
             if { $remainder >= 58 } {
-                set continueLoop 0
+                set continue_loop 0
             } else {
                 after 500
             }
