@@ -59,32 +59,61 @@ start_server {tags {"dump"}} {
         assert_equal [r get foo] {bar}
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
-    
-    test {RESTORE can set LFU} {
+
+    test {RESTORE can set LFU and freq not decayed yet} {
+        r set fooa bara
+        set encoded [r dump fooa]
+        r del fooa
+
+        r config set maxmemory-policy allkeys-lfu
+
+        set continueLoop 1
+        while { $continueLoop } {
+            set time_result [r time]
+            set server_unixtime [lindex $time_result 0]
+            set remainder [expr $server_unixtime % 60]  ;
+            if { $remainder < 58 } {
+                set continueLoop 0
+            } else {
+                after 500
+            }
+        }
+
+        r restore fooa 0 $encoded freq 100
+        after 2000
+        set freq [r object freq fooa]
+        assert {$freq == 100}
+        r get fooa
+        assert_equal [r get fooa] {bara}
+
+        r config set maxmemory-policy noeviction
+    } {OK} {needs:config-maxmemory}
+
+    test {RESTORE can set LFU and freq decay} {
         r set foo bar
         set encoded [r dump foo]
         r del foo
 
         r config set maxmemory-policy allkeys-lfu
-        r config set lfu-decay-time 0
+
+        set continueLoop 1
+        while { $continueLoop } {
+            set time_result [r time]
+            set server_unixtime [lindex $time_result 0]
+            set remainder [expr $server_unixtime % 60]  ;
+            if { $remainder >= 58 } {
+                set continueLoop 0
+            } else {
+                after 500
+            }
+        }
+
         r restore foo 0 $encoded freq 100
-        after 60000
+        after 2000
         set freq [r object freq foo]
-        assert {$freq == 100}
+        assert {$freq == 99}
         r get foo
         assert_equal [r get foo] {bar}
-
-        r set fooa bara
-        set encoded [r dump fooa]
-        r del fooa
-        r config set maxmemory-policy allkeys-lfu
-        r config set lfu-decay-time 1
-        r restore fooa 0 $encoded freq 100
-        after 60000
-        set freq [r object freq fooa]
-        assert {$freq <= 99}
-        r get fooa
-        assert_equal [r get fooa] {bara}
 
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
