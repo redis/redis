@@ -84,7 +84,6 @@ start_server {tags {"dump"}} {
 
         r get foo
         assert_equal [r get foo] {bar}
-
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
 
