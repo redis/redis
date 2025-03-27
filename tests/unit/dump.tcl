@@ -60,7 +60,7 @@ start_server {tags {"dump"}} {
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
 
-    test {RESTORE can set LFU and freq not decayed yet} {
+    test {RESTORE can set LFU and freq not decayed} {
         r set fooa bara
         set encoded [r dump fooa]
         r del fooa
@@ -71,7 +71,7 @@ start_server {tags {"dump"}} {
         while { $continueLoop } {
             set time_result [r time]
             set server_unixtime [lindex $time_result 0]
-            set remainder [expr $server_unixtime % 60]  ;
+            set remainder [expr $server_unixtime % 60]
             if { $remainder < 58 } {
                 set continueLoop 0
             } else {
@@ -100,7 +100,7 @@ start_server {tags {"dump"}} {
         while { $continueLoop } {
             set time_result [r time]
             set server_unixtime [lindex $time_result 0]
-            set remainder [expr $server_unixtime % 60]  ;
+            set remainder [expr $server_unixtime % 60]
             if { $remainder >= 58 } {
                 set continueLoop 0
             } else {
