@@ -110,6 +110,8 @@ start_server {tags {"dump"}} {
         set remainder_after [clock format [clock seconds] -format %M]
 
         if { $remainder_before == $remainder_after } {
+            # If the minutes haven't changed (i.e., the restore and object happened within the same minute),
+            # the freq should remain 100 as no decay has occurred yet.
             assert {$freq == 100}
         } else {
             # If the object operation crosses into a new minute, freq may have already decayed by 1 (99),
