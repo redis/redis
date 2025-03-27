@@ -911,15 +911,15 @@ static void assignShardIdToNode(clusterNode *node, const char *shard_id, int fla
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
     if (shard_id && memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-        /* If the replica or master does not support shard-id (old version),
-         * we still need to make our best effort to keep their shard-id consistent.
+        /* We always make our best effort to keep the shard-id consistent
+         * between the master and its replicas:
          *
-         * 1. Master supports but the replica does not.
-         *    All replicas under master will receive master shard-id. When coming
-         *    from a release with no shard-id the master shard-id will be randomly
-         *    generated.
-         * 2. If the master does not support but the replica does.
-         *    Only update replica shard-id after master has provided one. */
+         * 1. When updating the master's shard-id, we simultaneously update the
+         *    shard-id of all its replicas to ensure consistency.
+         * 2. When updating replica's shard-id, if it differs from its master's shard-id,
+         *    we discard this replica's shard-id and continue using master's shard-id.
+         *    This applies even if the master does not support shard-id, in which
+         *    case we rely on the master's randomly generated shard-id. */
         if (node->slaveof == NULL) {
             assignShardIdToNode(node, shard_id, CLUSTER_TODO_SAVE_CONFIG);
             for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
