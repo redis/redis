@@ -69,9 +69,9 @@ start_server {tags {"dump"}} {
 
         # We need to determine whether the `object` operation happens within the same minute or crosses into a new one
         # This will help us verify if the freq remains 100 or decays due to a minute transition
-        set remainder_before [expr [lindex [r time] 0] / 60]
+        set remainder_before [clock format [clock seconds] -format %M]
         set freq [r object freq foo]
-        set remainder_after [expr [lindex [r time] 0] / 60]
+        set remainder_after [clock format [clock seconds] -format %M]
 
         if { $remainder_before == $remainder_after } {
             assert {$freq == 100}
