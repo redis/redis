@@ -64,7 +64,6 @@ start_server {tags {"dump"}} {
         r set foo bar
         set encoded [r dump foo]
         r del foo
-
         r config set maxmemory-policy allkeys-lfu
         r restore foo 0 $encoded freq 100
 
