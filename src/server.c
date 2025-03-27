@@ -5920,7 +5920,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_fragmentation_bytes:%zd\r\n", mh->total_frag_bytes,
             "mem_not_counted_for_evict:%zu\r\n", freeMemoryGetNotCountedMemory(),
             "mem_replication_backlog:%zu\r\n", mh->repl_backlog,
-            "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem,
+            "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem + server.repl_full_sync_buffer.mem_used,
             "mem_replica_full_sync_buffer:%zu\r\n", server.repl_full_sync_buffer.mem_used,
             "mem_clients_slaves:%zu\r\n", mh->clients_slaves,
             "mem_clients_normal:%zu\r\n", mh->clients_normal,

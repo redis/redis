@@ -381,7 +381,6 @@ start_server {tags {"repl external:skip"}} {
     $master config set repl-rdb-channel yes
     $master config set repl-backlog-size 1mb
     $master config set client-output-buffer-limit "replica 100k 0 0"
-    $master config set loglevel debug
     $master config set repl-diskless-sync-delay 3
 
     start_server {} {
@@ -389,7 +388,6 @@ start_server {tags {"repl external:skip"}} {
         set replica_pid [srv 0 pid]
 
         $replica config set repl-rdb-channel yes
-        $replica config set loglevel debug
         $replica config set repl-timeout 10
         $replica config set key-load-delay 10000
         $replica config set loading-process-events-interval-bytes 1024
@@ -441,19 +439,16 @@ start_server {tags {"repl external:skip"}} {
     $master config set rdb-key-save-delay 300
     $master config set client-output-buffer-limit "replica 0 0 0"
     $master config set repl-diskless-sync-delay 5
-    $master config set loglevel debug
 
     populate 10000 master 1
 
     start_server {} {
         set replica1 [srv 0 client]
         $replica1 config set repl-rdb-channel yes
-        $replica1 config set loglevel debug
 
         start_server {} {
             set replica2 [srv 0 client]
             $replica2 config set repl-rdb-channel yes
-            $replica2 config set loglevel debug
 
             set load_handle [start_write_load $master_host $master_port 100 "key"]
 
@@ -539,7 +534,6 @@ start_server {tags {"repl external:skip"}} {
 
     $master config set repl-diskless-sync yes
     $master config set repl-rdb-channel yes
-    $master config set loglevel debug
     $master config set rdb-key-save-delay 1000
 
     populate 3000 prefix1 1
@@ -550,7 +544,6 @@ start_server {tags {"repl external:skip"}} {
         set replica_pid [srv 0 pid]
 
         $replica config set repl-rdb-channel yes
-        $replica config set loglevel debug
         $replica config set repl-timeout 10
 
         set load_handle [start_write_load $master_host $master_port 100 "key"]

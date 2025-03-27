@@ -1336,6 +1336,10 @@ void replconfCommand(client *c) {
                 checkChildrenDone();
             if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 replicaStartCommandStream(c);
+            /* If state is send_bulk_and_stream, it means this is the main
+             * channel of the slave in rdbchannel replication. Normally, slave
+             * will be put online after rdb fork is completed. There is chance
+             * that 'ack' might be received before we detect bgsave is done. */
             if (c->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM)
                 replicaPutOnline(c);
             /* Note: this command does not reply anything! */
@@ -1754,7 +1758,14 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         /* We can get here via freeClient()->killRDBChild()->checkChildrenDone(). skip disconnected slaves. */
         if (!slave->conn) continue;
 
-        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+        if (slave->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) {
+            /* This is the main channel of the slave that received the RDB.
+             * Put it online if RDB delivery is successful. */
+            if (bgsaveerr == C_OK)
+                replicaPutOnline(slave);
+            else
+                freeClientAsync(slave);
+        } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
