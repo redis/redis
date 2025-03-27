@@ -59,7 +59,7 @@ start_server {tags {"dump"}} {
         assert_equal [r get foo] {bar}
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
-
+    
     test {RESTORE can set LFU} {
         r set foo bar
         set encoded [r dump foo]
