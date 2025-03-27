@@ -56,13 +56,19 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_EXAT (1<<6)            /* Set if timestamp in second is given */
 #define OBJ_PXAT (1<<7)            /* Set if timestamp in ms is given */
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
-#define OBJ_ARGV3 (1 << 9)         /* Set if the value is at argv[3]; otherwise it's at argv[2]. */
-
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
 
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+/* Generic SET command family (SET, SETEX, PSETEX, SETNX)
+ * 
+ * Arguments:
+ *   val: robj value to set. Note that the function might update the `val' pointer
+ *        itself. This is because, if its refcnt is 1, the ownership of the value might 
+ *        transferred to the db in order to save a copy. In that case the `val` pointer
+ *        is updated to point to the new allocation and refcnt is incremented by 1.
+ */
+void setGenericCommand(client *c, int flags, robj *key, robj **val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmless warning */
     int found = 0;
     int setkey_flags = 0;
@@ -91,13 +97,11 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
-    setKeyByLink(c, c->db, key, &val, setkey_flags, &link);
-    if (expire) val = setExpireByLink(c,c->db, key->ptr, milliseconds, link);
+    setKeyByLink(c, c->db, key, val, setkey_flags, &link);
+    if (expire) *val = setExpireByLink(c,c->db, key->ptr, milliseconds, link);
 
-    /* By setting the reallocated value back into argv, we can avoid duplicating
-     * a large string value when adding it to the db. */
-    c->argv[(flags & OBJ_ARGV3) ? 3 : 2] = val;
-    incrRefCount(val);
+    /*  refcnt 1->2. referenced by the key in the db and by the caller. */
+    incrRefCount(*val);
     
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
@@ -107,7 +111,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
          * EX/PX/EXAT flag. */
         if (!(flags & OBJ_PXAT)) {
             robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-            rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
+            rewriteClientCommandVector(c, 5, shared.set, key, *val, shared.pxat, milliseconds_obj);
             decrRefCount(milliseconds_obj);
         }
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
@@ -290,22 +294,22 @@ void setCommand(client *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+    setGenericCommand(c,flags,c->argv[1],&(c->argv[2]),expire,unit,NULL,NULL);
 }
 
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
+    setGenericCommand(c,OBJ_SET_NX,c->argv[1],&(c->argv[2]),NULL,0,shared.cone,shared.czero);
 }
 
 void setexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c, OBJ_EX|OBJ_ARGV3, c->argv[1], c->argv[3], c->argv[2], UNIT_SECONDS, NULL, NULL);
+    setGenericCommand(c, OBJ_EX, c->argv[1], &(c->argv[3]), c->argv[2], UNIT_SECONDS, NULL, NULL);
 }
 
 void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c, OBJ_PX|OBJ_ARGV3, c->argv[1], c->argv[3], c->argv[2], UNIT_MILLISECONDS, NULL, NULL);
+    setGenericCommand(c, OBJ_PX, c->argv[1], &(c->argv[3]), c->argv[2], UNIT_MILLISECONDS, NULL, NULL);
 }
 
 int getGenericCommand(client *c) {
