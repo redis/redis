@@ -64,12 +64,28 @@ start_server {tags {"dump"}} {
         r set foo bar
         set encoded [r dump foo]
         r del foo
+
         r config set maxmemory-policy allkeys-lfu
+        r config set lfu-decay-time 0
         r restore foo 0 $encoded freq 100
+        after 60000
         set freq [r object freq foo]
         assert {$freq == 100}
         r get foo
         assert_equal [r get foo] {bar}
+
+        r set fooa bara
+        set encoded [r dump fooa]
+        r del fooa
+        r config set maxmemory-policy allkeys-lfu
+        r config set lfu-decay-time 1
+        r restore fooa 0 $encoded freq 100
+        after 60000
+        set freq [r object freq fooa]
+        assert {$freq <= 99}
+        r get fooa
+        assert_equal [r get fooa] {bara}
+
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
 
