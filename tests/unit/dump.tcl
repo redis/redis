@@ -71,7 +71,7 @@ start_server {tags {"dump"}} {
         # This will help us verify if the freq remains 100 or decays due to a minute transition
         set start [clock format [clock seconds] -format %M]
         set freq [r object freq foo]
-        set remainder_after [clock format [clock seconds] -format %M]
+        set end [clock format [clock seconds] -format %M]
 
         if { $remainder_before == $remainder_after } {
             # If the minutes haven't changed (i.e., the restore and object happened within the same minute),
