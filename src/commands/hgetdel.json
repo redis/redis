@@ -3,11 +3,11 @@
         "summary": "Deletes and returns the value of a field in a hash.",
         "complexity": "O(1)",
         "group": "hash",
-        "since": "7.4.0",
-        "arity": 3,
+        "since": "8.0.0",
+        "arity": -3,
         "function": "hgetdelCommand",
         "command_flags": [
-            "READONLY",
+            "WRITE",
             "FAST"
         ],
         "acl_categories": [
@@ -16,8 +16,8 @@
         "key_specs": [
             {
                 "flags": [
-                    "RO",
-                    "ACCESS"
+                    "RW",
+                    "DELETE"
                 ],
                 "begin_search": {
                     "index": {
