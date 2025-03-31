@@ -1861,7 +1861,7 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
 
                 if (prevIter == NULL) {
                     /* If this is the first item in the segment, update the segment
-                        * header to point to the new item location. */
+                     * header to point to the new item location. */
                     currentSegHdr->head = iter;
                 } else {
                     /* Update the previous item's next pointer to point to the newly defragmented item */
@@ -1900,6 +1900,7 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
                                                          * pointer to the newly defragged segment. */
         iter = nextSegHdr->head;
         mHead = type->getExpireMeta(iter);
+        currentSegHdr = (CommonSegHdr *)nextSegHdr;
     }
 }
 
@@ -1921,7 +1922,10 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         ri.privdata = defragfns;
         raxSeek(&ri, "^", NULL, 0);
     } else {
-        /* if cursor is non-zero, we seek to the static 'next' */
+        /* if cursor is non-zero, we seek to the static 'next'.
+         * Since node_cb is set after seek operation, any node traversed during seek wouldn't
+         * be defragmented. To prevent this, we advance to next node before exiting previous
+         * run, ensuring it gets defragmented instead of being skipped during current seek. */
         if (!raxSeek(&ri, ">=", next, EB_KEY_SIZE)) {
             *cursor = 0;
             raxStop(&ri);
@@ -1934,6 +1938,7 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
     }
 
     /* Defrag the bucket in the rax node. */
+    assert(raxNext(&ri));
     ebDefragRaxBucket(type, &ri, defragfns, privdata);
 
     /* Move to next node. */
@@ -1944,6 +1949,7 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         return 0;
     }
 
+    (*cursor)++;
     assert(ri.key_len == sizeof(next));
     memcpy(next, ri.key, ri.key_len);
     raxStop(&ri);

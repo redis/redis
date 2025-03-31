@@ -515,7 +515,8 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
-        test "Active Defrag HFE: $type" {
+        foreach {eb_container fields} {eblist 16 ebrax 20} {
+        test "Active Defrag HFE with $eb_container: $type" {
             r flushdb
             r config set hz 100
             r config set activedefrag no
@@ -531,13 +532,12 @@ run_solo {defrag} {
 
             # Populate memory with interleaving hash field of same size
             set n 3000
-            set fields 16 ;# make all the fields in an eblist.
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd hset h$i $dummy_field$j v
-                    $rd hexpire h$i 9999999 FIELDS 1 f$j
+                    $rd hexpire h$i 9999999 FIELDS 1 $dummy_field$j
                     $rd set "k$i$j" $dummy_field
                 }
             }
@@ -549,7 +549,7 @@ run_solo {defrag} {
 
             # Coverage for listpackex.
             r hset h_lpex $dummy_field v
-            r hexpire h_lpex 9999999 FIELDS 1 f0
+            r hexpire h_lpex 9999999 FIELDS 1 $dummy_field
             assert_encoding listpackex h_lpex
 
             after 120 ;# serverCron only updates the info once in 100ms
@@ -604,6 +604,7 @@ run_solo {defrag} {
                 }
             }
         }
+        } ;# end of foreach
 
         test "Active defrag for argv retained by the main thread from IO thread: $type" {
             r flushdb
