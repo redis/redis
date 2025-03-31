@@ -2683,7 +2683,7 @@ int ebucketsTest(int argc, char **argv, int flags) {
             }
             assert((s <= EB_LIST_MAX_ITEMS) ? ebIsList(eb) : !ebIsList(eb));
             /* Defrag all the items. */
-            unsigned long cursor;
+            unsigned long cursor = 0;
             ebDefragFunctions defragfns = {
                 .defragAlloc = defragCallback,
                 .defragItem = defragItemCallback,
