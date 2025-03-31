@@ -514,8 +514,7 @@ long scanLaterList(robj *ob, unsigned long *cursor, monotime endtime) {
     quicklistNode *node;
     long iterations = 0;
     int bookmark_failed = 0;
-    if (ob->type != OBJ_LIST || ob->encoding != OBJ_ENCODING_QUICKLIST)
-        return 0;
+    serverAssert(ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST);
 
     if (*cursor == 0) {
         /* if cursor is 0, we start new iteration */
@@ -564,8 +563,7 @@ void scanLaterZsetCallback(void *privdata, const dictEntry *_de) {
 }
 
 void scanLaterZset(robj *ob, unsigned long *cursor) {
-    if (ob->type != OBJ_ZSET || ob->encoding != OBJ_ENCODING_SKIPLIST)
-        return;
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
     zset *zs = (zset*)ob->ptr;
     dict *d = zs->dict;
     scanLaterZsetData data = {zs};
@@ -581,8 +579,7 @@ void scanCallbackCountScanned(void *privdata, const dictEntry *de) {
 }
 
 void scanLaterSet(robj *ob, unsigned long *cursor) {
-    if (ob->type != OBJ_SET || ob->encoding != OBJ_ENCODING_HT)
-        return;
+    serverAssert(ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT);
     dict *d = ob->ptr;
     dictDefragFunctions defragfns = {
         .defragAlloc = activeDefragAlloc,
@@ -592,8 +589,7 @@ void scanLaterSet(robj *ob, unsigned long *cursor) {
 }
 
 void scanLaterHash(robj *ob, unsigned long *cursor) {
-    if (ob->type != OBJ_HASH || ob->encoding != OBJ_ENCODING_HT)
-        return;
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT);
     dict *d = ob->ptr;
 
     typedef enum {
@@ -720,13 +716,10 @@ int defragRaxNode(raxNode **noderef, void *privdata) {
 
 /* returns 0 if no more work needs to be been done, and 1 if time is up and more work is needed. */
 int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) {
-    static unsigned char last[sizeof(streamID)];
+    static unsigned char next[sizeof(streamID)];
     raxIterator ri;
     long iterations = 0;
-    if (ob->type != OBJ_STREAM || ob->encoding != OBJ_ENCODING_STREAM) {
-        *cursor = 0;
-        return 0;
-    }
+    serverAssert(ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM);
 
     stream *s = ob->ptr;
     raxStart(&ri,s->rax);
@@ -738,8 +731,11 @@ int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) 
         ri.node_cb = defragRaxNode;
         raxSeek(&ri,"^",NULL,0);
     } else {
-        /* if cursor is non-zero, we seek to the static 'last' */
-        if (!raxSeek(&ri,">", last, sizeof(last))) {
+        /* if cursor is non-zero, we seek to the static 'next'.
+         * Since node_cb is set after seek operation, any node traversed during seek wouldn't
+         * be defragmented. To prevent this, we advance to next node before exiting previous
+         * run, ensuring it gets defragmented instead of being skipped during current seek. */
+        if (!raxSeek(&ri,">=", next, sizeof(next))) {
             *cursor = 0;
             raxStop(&ri);
             return 0;
@@ -757,8 +753,15 @@ int scanLaterStreamListpacks(robj *ob, unsigned long *cursor, monotime endtime) 
         server.stat_active_defrag_scanned++;
         if (++iterations > 128) {
             if (getMonotonicUs() > endtime) {
-                serverAssert(ri.key_len==sizeof(last));
-                memcpy(last,ri.key,ri.key_len);
+                /* Move to next node. */
+                if (!raxNext(&ri)) {
+                    /* If we reached the end, we can stop */
+                    *cursor = 0;
+                    raxStop(&ri);
+                    return 0;
+                }
+                serverAssert(ri.key_len==sizeof(next));
+                memcpy(next,ri.key,ri.key_len);
                 raxStop(&ri);
                 return 1;
             }
@@ -1057,22 +1060,22 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de) {
 int defragLaterItem(dictEntry *de, unsigned long *cursor, monotime endtime, int dbid) {
     if (de) {
         robj *ob = dictGetVal(de);
-        if (ob->type == OBJ_LIST) {
+        if (ob->type == OBJ_LIST && ob->encoding == OBJ_ENCODING_QUICKLIST) {
             return scanLaterList(ob, cursor, endtime);
-        } else if (ob->type == OBJ_SET) {
+        } else if (ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterSet(ob, cursor);
-        } else if (ob->type == OBJ_ZSET) {
+        } else if (ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST) {
             scanLaterZset(ob, cursor);
-        } else if (ob->type == OBJ_HASH) {
+        } else if (ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT) {
             scanLaterHash(ob, cursor);
-        } else if (ob->type == OBJ_STREAM) {
+        } else if (ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM) {
             return scanLaterStreamListpacks(ob, cursor, endtime);
         } else if (ob->type == OBJ_MODULE) {
             robj keyobj;
             initStaticStringObject(keyobj, dictGetKey(de));
             return moduleLateDefrag(&keyobj, ob, cursor, endtime, dbid);
         } else {
-            *cursor = 0; /* object type may have changed since we schedule it for later */
+            *cursor = 0; /* object type/encoding may have changed since we schedule it for later */
         }
     } else {
         *cursor = 0; /* object may have been deleted already */

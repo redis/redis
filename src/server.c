@@ -2660,6 +2660,7 @@ void resetServerStats(void) {
     server.aof_delayed_fsync = 0;
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
+    server.stat_cluster_incompatible_ops = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
@@ -4124,6 +4125,21 @@ int processCommand(client *c) {
         }
     }
 
+    /* Check if the command keys are all in the same slot for cluster compatibility */
+    if (server.cluster_compatibility_sample_ratio && !server.cluster_enabled &&
+        !(!(c->cmd->flags&CMD_MOVABLE_KEYS) && c->cmd->key_specs_num == 0 &&
+          c->cmd->proc != execCommand) && SHOULD_CLUSTER_COMPATIBILITY_SAMPLE())
+    {
+        c->cluster_compatibility_check_slot = -1;
+        if (!areCommandKeysInSameSlot(c, &c->cluster_compatibility_check_slot)) {
+            server.stat_cluster_incompatible_ops++;
+            /* If we find cross slot keys, reset slot to -2 to indicate we won't
+             * check this command again. That is useful for script, since we need
+             * this variable to decide if we continue checking accessing keys. */
+            c->cluster_compatibility_check_slot = -2;
+        }
+    }
+
     /* Disconnect some clients if total clients memory is too high. We do this
      * before key eviction, after the last command was executed and consumed
      * some client output buffer memory. */
@@ -4314,6 +4330,46 @@ int processCommand(client *c) {
             handleClientsBlockedOnKeys();
     }
     return C_OK;
+}
+
+/* Checks if all keys in a command (or a MULTI-EXEC) belong to the same hash slot.
+ * If yes, return 1, otherwise 0. If hashslot is not NULL, it will be set to the
+ * slot of the keys. */
+int areCommandKeysInSameSlot(client *c, int *hashslot) {
+    int slot = -1;
+    multiState *ms = NULL;
+
+    if (c->cmd->proc == execCommand) {
+        if (!(c->flags & CLIENT_MULTI)) return 1;
+        else ms = &c->mstate;
+    }
+
+    /* If client is in multi-exec, we need to check the slot of all keys
+     * in the transaction. */
+    for (int i = 0; i < (ms ? ms->count : 1); i++) {
+        struct redisCommand *cmd = ms ? ms->commands[i].cmd : c->cmd;
+        robj **argv = ms ? ms->commands[i].argv : c->argv;
+        int argc = ms ? ms->commands[i].argc : c->argc;
+
+        getKeysResult result = GETKEYS_RESULT_INIT;
+        int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
+        keyReference *keyindex = result.keys;
+
+        /* Check if all keys have the same slots, increment the metric if not */
+        for (int j = 0; j < numkeys; j++) {
+            robj *thiskey = argv[keyindex[j].pos];
+            int thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
+            if (slot == -1) {
+                slot = thisslot;
+            } else if (slot != thisslot) {
+                getKeysFreeResult(&result);
+                return 0;
+            }
+        }
+        getKeysFreeResult(&result);
+    }
+    if (hashslot) *hashslot = slot;
+    return 1;
 }
 
 /* ====================== Error lookup and execution ===================== */
@@ -6083,6 +6139,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "instantaneous_eventloop_cycles_per_sec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_CYCLE),
             "instantaneous_eventloop_duration_usec:%llu\r\n", getInstantaneousMetric(STATS_METRIC_EL_DURATION)));
         info = genRedisInfoStringACLStats(info);
+        if (!server.cluster_enabled && server.cluster_compatibility_sample_ratio) {
+            info = sdscatprintf(info, "cluster_incompatible_ops:%lld\r\n", server.stat_cluster_incompatible_ops);
+        }
     }
 
     /* Replication */

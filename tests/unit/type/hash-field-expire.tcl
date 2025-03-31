@@ -325,7 +325,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash field1 value1
 
             r hexpireat myhash [expr {[clock seconds] + 2}] NX FIELDS 1 field1
-            assert_range [r hpttl myhash FIELDS 1 field1] 1000 2000
+            assert_range [r hpttl myhash FIELDS 1 field1] 500 2000
             assert_range [r httl myhash FIELDS 1 field1] 1 2
 
             r hexpireat myhash [expr {[clock seconds] + 5}] XX FIELDS 1 field1

@@ -1273,6 +1273,10 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
+    /* We will encounter an error as above if cluster is enable */
+    if (flags & CMD_MODULE_NO_CLUSTER)
+        server.stat_cluster_incompatible_ops++;
+
     /* Check if the command name is valid. */
     if (!isCommandNameValid(name))
         return REDISMODULE_ERR;
@@ -1399,6 +1403,10 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
+
+    /* We will encounter an error as above if cluster is enable */
+    if (flags & CMD_MODULE_NO_CLUSTER)
+        server.stat_cluster_incompatible_ops++;
 
     struct redisCommand *parent_cmd = parent->rediscmd;
 

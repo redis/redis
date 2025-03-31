@@ -172,6 +172,7 @@ client *createClient(connection *conn) {
     c->io_flags = CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED;
     c->read_error = 0;
     c->slot = -1;
+    c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
     c->duration = 0;
     clientSetDefaultAuth(c);
@@ -2238,6 +2239,7 @@ static inline void resetClientInternal(client *c, int free_argv) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->slot = -1;
+    c->cluster_compatibility_check_slot = -2;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
 
     /* Make sure the duration has been recorded to some command. */

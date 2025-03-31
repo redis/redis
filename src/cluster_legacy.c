@@ -911,30 +911,24 @@ static void assignShardIdToNode(clusterNode *node, const char *shard_id, int fla
 
 static void updateShardId(clusterNode *node, const char *shard_id) {
     if (shard_id && memcmp(node->shard_id, shard_id, CLUSTER_NAMELEN) != 0) {
-        assignShardIdToNode(node, shard_id, CLUSTER_TODO_SAVE_CONFIG);
-
-        /* If the replica or master does not support shard-id (old version),
-         * we still need to make our best effort to keep their shard-id consistent.
+        /* We always make our best effort to keep the shard-id consistent
+         * between the master and its replicas:
          *
-         * 1. Master supports but the replica does not.
-         *    We might first update the replica's shard-id to the master's randomly
-         *    generated shard-id. Then, when the master's shard-id arrives, we must
-         *    also update all its replicas.
-         * 2. If the master does not support but the replica does.
-         *    We also need to synchronize the master's shard-id with the replica.
-         * 3. If neither of master and replica supports it.
-         *    The master will have a randomly generated shard-id and will update
-         *    the replica to match the master's shard-id. */
+         * 1. When updating the master's shard-id, we simultaneously update the
+         *    shard-id of all its replicas to ensure consistency.
+         * 2. When updating replica's shard-id, if it differs from its master's shard-id,
+         *    we discard this replica's shard-id and continue using master's shard-id.
+         *    This applies even if the master does not support shard-id, in which
+         *    case we rely on the master's randomly generated shard-id. */
         if (node->slaveof == NULL) {
+            assignShardIdToNode(node, shard_id, CLUSTER_TODO_SAVE_CONFIG);
             for (int i = 0; i < clusterNodeNumSlaves(node); i++) {
                 clusterNode *slavenode = clusterNodeGetSlave(node, i);
                 if (memcmp(slavenode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
                     assignShardIdToNode(slavenode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
             }
-        } else {
-            clusterNode *masternode = node->slaveof;
-            if (memcmp(masternode->shard_id, shard_id, CLUSTER_NAMELEN) != 0)
-                assignShardIdToNode(masternode, shard_id, CLUSTER_TODO_SAVE_CONFIG|CLUSTER_TODO_FSYNC_CONFIG);
+        } else if (memcmp(node->slaveof->shard_id, shard_id, CLUSTER_NAMELEN) == 0) {
+            assignShardIdToNode(node, shard_id, CLUSTER_TODO_SAVE_CONFIG);
         }
     }
 }
