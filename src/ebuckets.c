@@ -1842,21 +1842,20 @@ void ebDefragList(ebuckets *eb, EbucketsType *type, ebDefragFunctions *defragfns
 void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
                        ebDefragFunctions *defragfns, void *privdata)
 {
-    FirstSegHdr *firstSegHdr = ri->data;
-    eItem iter = firstSegHdr->head;
+    CommonSegHdr *currentSegHdr = ri->data;
+    eItem iter = ((FirstSegHdr*)currentSegHdr)->head;
     ExpireMeta *mHead = type->getExpireMeta(iter);
-    CommonSegHdr *currentSegHdr = (CommonSegHdr*)firstSegHdr;
     ExpireMeta *prevSegLastItem = NULL; /* The last item of the previous segment */
+
     while (1) {
         unsigned int numItems = mHead->numItems;
         assert(numItems);  /* Avoid compiler warning with old build chain. */
         ExpireMeta *prevIter = NULL;
-        eItem newiter;
-        ExpireMeta *mIter;
-        CommonSegHdr *newSegHdr;
+        ExpireMeta *mIter = NULL;
 
         for (unsigned int i = 0; i < numItems; ++i) {
-            if ((newiter = defragfns->defragItem(iter, privdata))) {
+            eItem newiter = defragfns->defragItem(iter, privdata);
+            if (newiter) {
                 iter = newiter;
 
                 if (prevIter == NULL) {
@@ -1873,20 +1872,21 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
             iter = mIter->next;
         }
 
-        if ((newSegHdr = defragfns->defragAlloc(currentSegHdr))) {
+        /* Try to defragment the current segment. */
+        CommonSegHdr *newSegHdr = defragfns->defragAlloc(currentSegHdr);
+        if (newSegHdr) {
             if (currentSegHdr == ri->data) {
-                /* If the first segment is updated, need to update the rax data. */
+                /* If it's the first segment, update the rax data pointer. */
                 raxSetData(ri->node, ri->data=newSegHdr);
             } else {
-                /* For non-first segments, update the next pointer of previous
-                 * item to point to the newly defragmented segment. */
+                /* For non-first segments, update the previous segment's next
+                 * item to new pointer. */
                 prevSegLastItem->next = newSegHdr;
             }
             currentSegHdr = newSegHdr;
         }
 
-        /* Store last eitem in current segment to update its 'next'
-         * pointer when reallocating next segment. */
+        /* Remember last item in this segment for next iteration */
         prevSegLastItem = mIter;
 
         if (mIter->lastItemBucket) {
@@ -1896,8 +1896,12 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
         }
 
         NextSegHdr *nextSegHdr = mIter->next;
-        if (newSegHdr) nextSegHdr->prevSeg = newSegHdr; /* If not the last segment, update the prevSeg
-                                                         * pointer to the newly defragged segment. */
+        if (newSegHdr) {
+            /* Update next segment's prev to point to the defragmented segment. */
+            nextSegHdr->prevSeg = newSegHdr;
+        }
+
+        /* Update pointers for next segment iteration */
         iter = nextSegHdr->head;
         mHead = type->getExpireMeta(iter);
         currentSegHdr = (CommonSegHdr *)nextSegHdr;
