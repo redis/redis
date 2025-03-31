@@ -2689,7 +2689,10 @@ int ebucketsTest(int argc, char **argv, int flags) {
                 .defragItem = defragItemCallback,
             };
             while (ebScanDefrag(&eb, &myEbucketsType, &cursor, &defragfns, items)) {}
+            /* Verify that the data is not corrupted. */
             ebValidate(eb, &myEbucketsType);
+            for (int i = 0; i < s; i++)
+                assert(items[i]->index == i);
             ebDestroy(&eb, &myEbucketsType, NULL);
         }
     }
