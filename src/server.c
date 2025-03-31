@@ -2195,6 +2195,7 @@ void initServerConfig(void) {
     server.master_initial_offset = -1;
     server.repl_state = REPL_STATE_NONE;
     server.repl_rdb_ch_state = REPL_RDB_CH_STATE_NONE;
+    server.repl_num_master_disconnection = 0;
     server.repl_full_sync_buffer = (struct replDataBuf) {0};
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;

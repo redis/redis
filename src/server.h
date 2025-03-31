@@ -480,7 +480,6 @@ typedef enum {
 /* Replica rdb channel replication state. Used in server.repl_rdb_ch_state for
  * replicas to remember what to do next. */
 typedef enum {
-    REPL_RDB_CH_STATE_CLOSE_ASAP = -1,  /* Async error state */
     REPL_RDB_CH_STATE_NONE = 0,         /* No active rdb channel sync */
     REPL_RDB_CH_SEND_HANDSHAKE,         /* Send handshake sequence to master */
     REPL_RDB_CH_RECEIVE_AUTH_REPLY,     /* Wait for AUTH reply */
@@ -488,6 +487,10 @@ typedef enum {
     REPL_RDB_CH_RECEIVE_FULLRESYNC,     /* Wait for +FULLRESYNC reply */
     REPL_RDB_CH_RDB_LOADING,            /* Loading rdb using rdb channel */
 } repl_rdb_channel_state;
+
+#define REPL_MAIN_CH_NONE          (1 << 0)
+#define REPL_MAIN_CH_STREAMING_BUF (1 << 1)
+#define REPL_MAIN_CH_CLOSE_ASAP    (1 << 2)
 
 /* Replication debug flags for testing. */
 #define REPL_DEBUG_PAUSE_NONE             (1 << 0)
@@ -1232,6 +1235,9 @@ typedef struct replDataBuf {
     size_t size;  /* Total number of bytes available in all blocks. */
     size_t used;  /* Total number of bytes actually used in all blocks. */
     size_t peak;  /* Peak number of bytes stored in all blocks. */
+    size_t peak_num_blocks; /* Used to verify we consume more than we read from
+                             * the master connection while streaming buffer to
+                             * the db. */
 } replDataBuf;
 
 typedef struct {
@@ -2057,6 +2063,8 @@ struct redisServer {
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */
     int repl_rdb_ch_state; /* State of the replica's rdb channel during rdb channel replication */
+    int repl_main_ch_state; /* State of the replica's main channel during rdb channel replication */
+    uint64_t repl_num_master_disconnection; /* Number of master connection was disconnected */
     uint64_t repl_main_ch_client_id; /* Main channel client id received in +RDBCHANNELSYNC reply. */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */

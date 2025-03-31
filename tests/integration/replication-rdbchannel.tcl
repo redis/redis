@@ -240,27 +240,56 @@ start_server {tags {"repl external:skip"}} {
         test "Test master memory does not increase during replication" {
             # Put some delay to rdb generation. If master doesn't forward
             # incoming traffic to replica, master's replication buffer will grow
-            $master config set rdb-key-save-delay 200
+            $master config set repl-diskless-sync-delay 0
+            # 500us delay and 10k keys means at least 5 seconds replication
+            $master config set rdb-key-save-delay 500
             $master config set repl-backlog-size 5mb
-            populate 10000 master 10000
+            populate 10000 master 10000 ;# 10k keys of 10k, means 100mb
+
+            # process events every 1mb of rdb or command stream
+            $replica config set loading-process-events-interval-bytes 1048576
+            $replica config set replica-full-sync-buffer-limit 600mb
 
             # Start write traffic
-            set load_handle [start_write_load $master_host $master_port 100 "key1"]
+            set load_handle [start_write_load $master_host $master_port 100 "key1" 50]
+
             set prev_used [s 0 used_memory]
 
             $replica replicaof $master_host $master_port
             set backlog_size [lindex [$master config get repl-backlog-size] 1]
 
             # Verify used_memory stays low
-            set max_retry 1000
-            set prev_buf_size 0
-            while {$max_retry} {
-                assert_lessthan [expr [s 0 used_memory] - $prev_used] 20000000
-                assert_lessthan_equal [s 0 mem_total_replication_buffers] [expr {$backlog_size + 1000000}]
+            set max_retry 2000
+            set peak_replica_buf_size 0
+            set peak_master_slave_buf_size 0
+            set peak_master_client_buf_size 0
+            set peak_master_used_mem 0
+            set peak_master_rpl_buf 0
 
-                # Check replica state
+            while {$max_retry} {
+                set replica_buf_size [s -1 replica_full_sync_buffer_size]
+                set master_slave_buf_size [s mem_clients_slaves]
+                set master_client_buf_size [s mem_clients_normal]
+                set master_rpl_buf [s mem_total_replication_buffers]
+                set master_used_mem [s used_memory]
+
+                if {$replica_buf_size > $peak_replica_buf_size} {set peak_replica_buf_size $replica_buf_size}
+                if {$master_slave_buf_size > $peak_master_slave_buf_size} {set peak_master_slave_buf_size $master_slave_buf_size}
+                if {$master_rpl_buf > $peak_master_rpl_buf} {set peak_master_rpl_buf $master_rpl_buf}
+
+                # note: client output buffer of load handler client might become
+                # big (a few megabytes), decrementing it from the used memory.
+                set master_used_mem_adjusted [expr $master_used_mem - $master_client_buf_size]
+                if {$master_used_mem_adjusted > $peak_master_used_mem} {set peak_master_used_mem $master_used_mem_adjusted}
+
+                if {$::verbose} {
+                    puts "[clock format [clock seconds] -format %H:%M:%S] master: $master_slave_buf_size replica: $replica_buf_size"
+                }
+
+                # Wait for the replica to finish reading the rdb (also from the master's perspective), and also consume much of the replica buffer
                 if {[string match *slave0*state=online* [$master info]] &&
-                    [s -1 master_link_status] == "up"} {
+                    [s -1 master_link_status] == "up" &&
+                    $replica_buf_size < 100000} {
                     break
                 } else {
                     incr max_retry -1
@@ -268,8 +297,24 @@ start_server {tags {"repl external:skip"}} {
                 }
             }
             if {$max_retry == 0} {
-                error "assertion:Replica not in sync after 10 seconds"
+                error "assertion:Replica not in sync after 20 seconds"
             }
+
+            if {$::verbose} {
+                puts "peak_master_used_mem $peak_master_used_mem"
+                puts "peak_master_rpl_buf $peak_master_rpl_buf"
+                puts "peak_master_slave_buf_size $peak_master_slave_buf_size"
+                puts "peak_master_client_buf_size $peak_master_client_buf_size"
+                puts "peak_replica_buf_size $peak_replica_buf_size"
+            }
+
+            # memory on the master is less than 1mb
+            assert_lessthan [expr $peak_master_used_mem - $prev_used - $backlog_size] 1000000
+            assert_lessthan $peak_master_rpl_buf [expr {$backlog_size + 1000000}]
+            assert_lessthan $peak_master_slave_buf_size 1000000
+
+            # buffers in the replica are more than 3mb
+            assert_morethan $peak_replica_buf_size 3000000
 
             stop_write_load $load_handle
         }
@@ -798,6 +843,84 @@ start_server {tags {"repl external:skip"}} {
             wait_for_ofs_sync $master $replica
             assert_morethan [$master dbsize] 0
             assert_equal [$master debug digest] [$replica debug digest]
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master2 [srv 0 client]
+    set master2_host [srv 0 host]
+    set master2_port [srv 0 port]
+    start_server {tags {"repl external:skip"}} {
+        set replica [srv 0 client]
+        set replica_pid  [srv 0 pid]
+
+        start_server {} {
+            set master [srv 0 client]
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+
+            test "Test replicaof command while streaming repl buffer into the db" {
+                # After replica loads the RDB, it will stream repl buffer into
+                # the db. During streaming, replica receives command
+                # "replicaof newmaster". Replica will abort streaming and then
+                # should be able to connect to the new master.
+                $master config set rdb-key-save-delay 1000
+                $master config set repl-rdb-channel yes
+                $master config set repl-diskless-sync yes
+                $replica config set repl-rdb-channel yes
+                $replica config set loading-process-events-interval-bytes 1024
+
+                # Populate db and start write traffic
+                populate 2000 master 1000
+                set load_handle [start_write_load $master_host $master_port 100 "key1"]
+
+                # Replica will pause in the loop of repl buffer streaming
+                $replica debug repl-pause on-streaming-repl-buf
+                $replica replicaof $master_host $master_port
+
+                # Check if repl stream accumulation is started.
+                wait_for_condition 50 1000 {
+                    [s -1 replica_full_sync_buffer_size] > 0
+                } else {
+                    fail "repl stream accumulation not started"
+                }
+
+                # Wait until replica starts streaming repl buffer
+                wait_for_log_messages -1 {"*Starting to stream replication buffer*"} 0 2000 10
+                stop_write_load $load_handle
+                $master config set rdb-key-save-delay 0
+
+                # Populate the other master
+                populate 100 master2 100 -2
+
+                # Send "replicaof newmaster" command and resume the process
+                $replica deferred 1
+                $replica replicaof $master2_host $master2_port
+                $replica debug repl-pause clear
+                resume_process $replica_pid
+                $replica read
+                $replica read
+                $replica deferred 0
+
+                wait_for_log_messages -1 {"*Master client was freed while streaming*"} 0 500 10
+
+                # Wait until replica recovers and verify db's are identical
+                wait_replica_online $master2 0 1000 10
+                wait_for_ofs_sync $master2 $replica
+                assert_morethan [$master2 dbsize] 0
+                assert_equal [$master2 debug digest] [$replica debug digest]
+
+                # Try replication once more to be sure everything is okay.
+                $replica replicaof no one
+                $master2 set x 100
+
+                $replica replicaof $master2_host $master2_port
+                wait_replica_online $master2 0 1000 10
+                wait_for_ofs_sync $master2 $replica
+                assert_morethan [$master2 dbsize] 0
+                assert_equal [$master2 debug digest] [$replica debug digest]
+            }
         }
     }
 }
