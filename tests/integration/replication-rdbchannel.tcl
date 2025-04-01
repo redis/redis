@@ -241,17 +241,15 @@ start_server {tags {"repl external:skip"}} {
             # Put some delay to rdb generation. If master doesn't forward
             # incoming traffic to replica, master's replication buffer will grow
             $master config set repl-diskless-sync-delay 0
-            # 500us delay and 10k keys means at least 5 seconds replication
-            $master config set rdb-key-save-delay 500
+            $master config set rdb-key-save-delay 500 ;# 200us delay and 10k keys means at least 5 seconds replication
             $master config set repl-backlog-size 5mb
+            $replica config set replica-full-sync-buffer-limit 200mb
             populate 10000 master 10000 ;# 10k keys of 10k, means 100mb
+            $replica config set loading-process-events-interval-bytes 262144 ;# process events every 256kb of rdb or command stream
 
-            # process events every 1mb of rdb or command stream
-            $replica config set loading-process-events-interval-bytes 1048576
-            $replica config set replica-full-sync-buffer-limit 600mb
+            # Start write traffic writing at most 5mbps
 
-            # Start write traffic
-            set load_handle [start_write_load $master_host $master_port 100 "key1" 50]
+            set load_handle [start_write_load $master_host $master_port 100 "key1" 10000 2]
 
             set prev_used [s 0 used_memory]
 
@@ -259,29 +257,20 @@ start_server {tags {"repl external:skip"}} {
             set backlog_size [lindex [$master config get repl-backlog-size] 1]
 
             # Verify used_memory stays low
-            set max_retry 2000
+            set max_retry 1000
             set peak_replica_buf_size 0
             set peak_master_slave_buf_size 0
-            set peak_master_client_buf_size 0
             set peak_master_used_mem 0
             set peak_master_rpl_buf 0
-
             while {$max_retry} {
                 set replica_buf_size [s -1 replica_full_sync_buffer_size]
                 set master_slave_buf_size [s mem_clients_slaves]
-                set master_client_buf_size [s mem_clients_normal]
-                set master_rpl_buf [s mem_total_replication_buffers]
                 set master_used_mem [s used_memory]
-
+                set master_rpl_buf [s mem_total_replication_buffers]
                 if {$replica_buf_size > $peak_replica_buf_size} {set peak_replica_buf_size $replica_buf_size}
                 if {$master_slave_buf_size > $peak_master_slave_buf_size} {set peak_master_slave_buf_size $master_slave_buf_size}
+                if {$master_used_mem > $peak_master_used_mem} {set peak_master_used_mem $master_used_mem}
                 if {$master_rpl_buf > $peak_master_rpl_buf} {set peak_master_rpl_buf $master_rpl_buf}
-
-                # note: client output buffer of load handler client might become
-                # big (a few megabytes), decrementing it from the used memory.
-                set master_used_mem_adjusted [expr $master_used_mem - $master_client_buf_size]
-                if {$master_used_mem_adjusted > $peak_master_used_mem} {set peak_master_used_mem $master_used_mem_adjusted}
-
                 if {$::verbose} {
                     puts "[clock format [clock seconds] -format %H:%M:%S] master: $master_slave_buf_size replica: $replica_buf_size"
                 }
@@ -289,7 +278,7 @@ start_server {tags {"repl external:skip"}} {
                 # Wait for the replica to finish reading the rdb (also from the master's perspective), and also consume much of the replica buffer
                 if {[string match *slave0*state=online* [$master info]] &&
                     [s -1 master_link_status] == "up" &&
-                    $replica_buf_size < 100000} {
+                    $replica_buf_size < 1000000} {
                     break
                 } else {
                     incr max_retry -1
@@ -297,24 +286,21 @@ start_server {tags {"repl external:skip"}} {
                 }
             }
             if {$max_retry == 0} {
-                error "assertion:Replica not in sync after 20 seconds"
+                error "assertion:Replica not in sync after 10 seconds"
             }
 
             if {$::verbose} {
                 puts "peak_master_used_mem $peak_master_used_mem"
                 puts "peak_master_rpl_buf $peak_master_rpl_buf"
                 puts "peak_master_slave_buf_size $peak_master_slave_buf_size"
-                puts "peak_master_client_buf_size $peak_master_client_buf_size"
                 puts "peak_replica_buf_size $peak_replica_buf_size"
             }
-
             # memory on the master is less than 1mb
             assert_lessthan [expr $peak_master_used_mem - $prev_used - $backlog_size] 1000000
             assert_lessthan $peak_master_rpl_buf [expr {$backlog_size + 1000000}]
             assert_lessthan $peak_master_slave_buf_size 1000000
-
-            # buffers in the replica are more than 3mb
-            assert_morethan $peak_replica_buf_size 3000000
+            # buffers in the replica are more than 10mb
+            assert_morethan $peak_replica_buf_size 10000000
 
             stop_write_load $load_handle
         }

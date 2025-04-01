@@ -17,7 +17,7 @@ set ::tlsdir "tests/tls"
 
 # Continuously sends SET commands to the server. If key is omitted, a random key
 # is used for every SET command. The value is always random.
-proc gen_write_load {host port seconds tls {key ""} {size 0}} {
+proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
     $r client setname LOAD_HANDLER
@@ -41,7 +41,10 @@ proc gen_write_load {host port seconds tls {key ""} {size 0}} {
         if {[clock seconds]-$start_time > $seconds} {
             exit 0
         }
+        if {$sleep ne 0} {
+            after $sleep
+        }
     }
 }
 
-gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5]
+gen_write_load [lindex $argv 0] [lindex $argv 1] [lindex $argv 2] [lindex $argv 3] [lindex $argv 4] [lindex $argv 5] [lindex $argv 6]
