@@ -16,6 +16,7 @@
 #include <sys/uio.h>
 
 #include "ae.h"
+#include "config.h"
 
 #define CONN_INFO_LEN   32
 #define CONN_ADDR_STR_LEN 128 /* Similar to INET6_ADDRSTRLEN, hoping to handle other protocols. */
@@ -93,20 +94,48 @@ typedef struct ConnectionType {
     sds (*get_peer_cert)(struct connection *conn);
 } ConnectionType;
 
+/*
+ * The structure is only 72 bytes, which fits well inside a single cacheline
+ * but can cause false sharing between threads if multiple connections are
+ * hitting the same cacheline.
+ *
+ * To prevent this, we explicitly pad the first cacheline to isolate the
+ * frequently updated fields (state, flags, refs, iovcnt) from the rest of
+ * the structure. This avoids cacheline bouncing when multiple threads access
+ * different connections concurrently.
+ *
+ * On Intel and AMD architectures, which typically have 64-byte cachelines,
+ * this padding does not increase the total number of cachelines occupied
+ * by the structure. It only ensures that the most contended fields are
+ * contained and aligned properly, minimizing false sharing.
+ *
+ * The padding is computed using sizeof() to make sure it adapts correctly
+ * to platform-specific type sizes, preserving correctness across
+ * architectures.
+ */
 struct connection {
-    ConnectionType *type;
+    /* ---------- Hot Path Cacheline (aligned to CACHE_LINE_SIZE) ---------- */
     ConnectionState state;
-    int last_errno;
-    int fd;
     short int flags;
     short int refs;
     unsigned short int iovcnt;
+    /* pad up to CACHE_LINE_SIZE bytes */
+    char _pad0[CACHE_LINE_SIZE - (sizeof(ConnectionState) + sizeof(short int) * 2 + sizeof(unsigned short int))];
+
+    /* ---------- Mostly Read-Only Fields ---------- */
+    ConnectionType *type;
+    int last_errno;
+    int fd;
+
     void *private_data;
     struct aeEventLoop *el;
+
+    /* ---------- Function Pointers ---------- */
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
-};
+
+} __attribute__((aligned(CACHE_LINE_SIZE)));
 
 #define CONFIG_BINDADDR_MAX 16
 
