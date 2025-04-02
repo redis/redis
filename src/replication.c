@@ -3583,7 +3583,7 @@ static int rdbChannelHandleFullresyncReply(connection *conn, sds *err) {
     serverLog(LL_NOTICE, "Starting to receive RDB and replication stream in parallel.");
 
     /* Setup connection to accumulate repl data.  */
-    server.repl_main_ch_state = REPL_MAIN_CH_NONE;
+    server.repl_main_ch_state = REPL_MAIN_CH_ACCUMULATE_BUF;
     if (connSetReadHandler(server.repl_transfer_s,
                            rdbChannelBufferReplData) != C_OK)
     {
@@ -3734,7 +3734,7 @@ void rdbChannelBufferReplData(connection *conn) {
          * than we read, we'll read at most one block after two blocks of
          * buffers are consumed. */
         replDataBuf *buf = &server.repl_full_sync_buffer;
-        if (listLength(buf->blocks) + 2 > buf->peak_num_blocks)
+        if (listLength(buf->blocks) + 1 >= buf->peak_num_blocks)
             return;
         buf->peak_num_blocks = listLength(buf->blocks);
     }
@@ -3824,7 +3824,7 @@ static void rdbChannelStreamReplDataToDb(void) {
 
         size_t processed = 0;
         while (processed < o->used) {
-            size_t bytes = min(16384, o->used - processed);
+            size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
             c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
             c->read_reploff += (long long int) bytes;
 

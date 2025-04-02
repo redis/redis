@@ -488,9 +488,10 @@ typedef enum {
     REPL_RDB_CH_RDB_LOADING,            /* Loading rdb using rdb channel */
 } repl_rdb_channel_state;
 
-#define REPL_MAIN_CH_NONE          (1 << 0)
-#define REPL_MAIN_CH_STREAMING_BUF (1 << 1)
-#define REPL_MAIN_CH_CLOSE_ASAP    (1 << 2)
+#define REPL_MAIN_CH_NONE           (1 << 0)
+#define REPL_MAIN_CH_ACCUMULATE_BUF (1 << 1)
+#define REPL_MAIN_CH_STREAMING_BUF  (1 << 2)
+#define REPL_MAIN_CH_CLOSE_ASAP     (1 << 3)
 
 /* Replication debug flags for testing. */
 #define REPL_DEBUG_PAUSE_NONE             (1 << 0)
