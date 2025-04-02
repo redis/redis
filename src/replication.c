@@ -45,7 +45,7 @@ int replicaPutOnline(client *slave);
 void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
 static void rdbChannelFullSyncWithMaster(connection *conn);
-static int rdbChannelAbortRdbTransfer(void);
+static int rdbChannelAbort(void);
 static void rdbChannelBufferReplData(connection *conn);
 static void rdbChannelReplDataBufInit(void);
 static void rdbChannelStreamReplDataToDb(void);
@@ -3194,7 +3194,7 @@ void replicationAbortSyncTransfer(void) {
  *
  * Otherwise zero is returned and no operation is performed at all. */
 int cancelReplicationHandshake(int reconnect) {
-    if (rdbChannelAbortRdbTransfer() != C_OK)
+    if (rdbChannelAbort() != C_OK)
         return 1;
 
     if (server.repl_state == REPL_STATE_TRANSFER) {
@@ -3667,7 +3667,7 @@ error:
         server.repl_transfer_s = NULL;
     }
     server.repl_state = REPL_STATE_CONNECT;
-    rdbChannelAbortRdbTransfer();
+    rdbChannelAbort();
 }
 
 /* Replication: Replica side.
@@ -3908,7 +3908,7 @@ static void rdbChannelCleanup(void) {
  * On rdb channel failure, close rdb-connection and reset state.
  * Return C_OK if cleanup is done. Otherwise, returns C_ERR which means cleanup
  * will be done asynchronously. */
-static int rdbChannelAbortRdbTransfer(void) {
+static int rdbChannelAbort(void) {
     if (server.repl_rdb_ch_state == REPL_RDB_CH_STATE_NONE)
         return C_OK;
 
