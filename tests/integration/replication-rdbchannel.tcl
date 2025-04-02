@@ -241,7 +241,7 @@ start_server {tags {"repl external:skip"}} {
             # Put some delay to rdb generation. If master doesn't forward
             # incoming traffic to replica, master's replication buffer will grow
             $master config set repl-diskless-sync-delay 0
-            $master config set rdb-key-save-delay 500 ;# 200us delay and 10k keys means at least 5 seconds replication
+            $master config set rdb-key-save-delay 500 ;# 500us delay and 10k keys means at least 5 seconds replication
             $master config set repl-backlog-size 5mb
             $replica config set replica-full-sync-buffer-limit 200mb
             populate 10000 master 10000 ;# 10k keys of 10k, means 100mb
