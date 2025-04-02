@@ -1236,7 +1236,7 @@ typedef struct replDataBuf {
     size_t size;  /* Total number of bytes available in all blocks. */
     size_t used;  /* Total number of bytes actually used in all blocks. */
     size_t peak;  /* Peak number of bytes stored in all blocks. */
-    size_t peak_num_blocks; /* Used to verify we consume more than we read from
+    size_t last_num_blocks; /* Used to verify we consume more than we read from
                              * the master connection while streaming buffer to
                              * the db. */
 } replDataBuf;

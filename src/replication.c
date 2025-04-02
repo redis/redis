@@ -3677,7 +3677,7 @@ static void rdbChannelReplDataBufInit(void) {
     serverAssert(server.repl_full_sync_buffer.blocks == NULL);
     server.repl_full_sync_buffer.size = 0;
     server.repl_full_sync_buffer.used = 0;
-    server.repl_full_sync_buffer.peak_num_blocks = 0;
+    server.repl_full_sync_buffer.last_num_blocks = 0;
     server.repl_full_sync_buffer.mem_used = 0;
     server.repl_full_sync_buffer.blocks = listCreate();
     server.repl_full_sync_buffer.blocks->free = zfree;
@@ -3690,7 +3690,7 @@ static void rdbChannelReplDataBufFree(void) {
     server.repl_full_sync_buffer.blocks = NULL;
     server.repl_full_sync_buffer.size = 0;
     server.repl_full_sync_buffer.used = 0;
-    server.repl_full_sync_buffer.peak_num_blocks = 0;
+    server.repl_full_sync_buffer.last_num_blocks = 0;
     server.repl_full_sync_buffer.mem_used = 0;
 }
 
@@ -3734,9 +3734,9 @@ void rdbChannelBufferReplData(connection *conn) {
          * than we read, we'll read at most one block after two blocks of
          * buffers are consumed. */
         replDataBuf *buf = &server.repl_full_sync_buffer;
-        if (listLength(buf->blocks) + 1 >= buf->peak_num_blocks)
+        if (listLength(buf->blocks) + 1 >= buf->last_num_blocks)
             return;
-        buf->peak_num_blocks = listLength(buf->blocks);
+        buf->last_num_blocks = listLength(buf->blocks);
     }
 
     /* Try to append last node. */
@@ -3787,7 +3787,7 @@ void rdbChannelBufferReplData(connection *conn) {
 /* Replication: Replica side.
  * Streams accumulated replication data into the database. */
 static void rdbChannelStreamReplDataToDb(void) {
-    int ret = C_OK, master_disconnected = 0;
+    int ret = C_OK, master_disconnected = 0, close_asap = 0;
     size_t offset = 0;
     listNode *n = NULL;
     replDataBufBlock *o = NULL;
@@ -3797,13 +3797,6 @@ static void rdbChannelStreamReplDataToDb(void) {
      * disconnected when we yield back to processEventsWhileBlocked() */
     uint64_t seq = server.repl_num_master_disconnection;
 
-    /* At this point, RDB is loaded. If main channel state is CLOSE_ASAP,
-     * it means main channel faced a problem while RDB is being loaded. It
-     * stopped replication stream buffering. It's okay though. We'll stream
-     * whatever we have into the db, then replica will try psync from the
-     * index that it has. */
-    int close_asap = (server.repl_main_ch_state & REPL_MAIN_CH_CLOSE_ASAP);
-
     server.repl_main_ch_state |= REPL_MAIN_CH_STREAMING_BUF;
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Starting to stream replication buffer into the db"
                          " (%zu bytes).", server.repl_full_sync_buffer.used);
@@ -3812,7 +3805,7 @@ static void rdbChannelStreamReplDataToDb(void) {
 
     /* Mark the peek buffer block count. We'll use it to verify we consume
      * faster than we read from the master. */
-    server.repl_full_sync_buffer.peak_num_blocks = listLength(server.repl_full_sync_buffer.blocks);
+    server.repl_full_sync_buffer.last_num_blocks = listLength(server.repl_full_sync_buffer.blocks);
     /* Set read handler to continue accumulating during streaming */
     connSetReadHandler(c->conn, rdbChannelBufferReplData);
 
@@ -3875,10 +3868,17 @@ static void rdbChannelStreamReplDataToDb(void) {
     blockingOperationEnds();
 
 out:
+    /* If main channel state is CLOSE_ASAP, it means main channel faced a
+     * problem while RDB is being loaded or while we are applying the
+     * accumulated buffer. It stopped replication stream buffering. It's okay
+     * though. We streamed whatever we have into the db, now we can free master
+     * client and replica can try psync. */
+    close_asap = (server.repl_main_ch_state & REPL_MAIN_CH_CLOSE_ASAP);
+
     if (ret == C_OK) {
         serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Successfully streamed replication buffer into the db (%zu bytes in total)", offset);
         /* Revert the read handler */
-        if (connSetReadHandler(c->conn, readQueryFromClient) != C_OK) {
+        if (!close_asap && connSetReadHandler(c->conn, readQueryFromClient) != C_OK) {
             serverLog(LL_WARNING,
                       "Can't create readable event for master client: %s",
                       strerror(errno));
