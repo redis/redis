@@ -49,7 +49,7 @@ start_server {tags {"repl network external:skip"}} {
             # 'debug sleep' occurring during the rdbchannel handshake.
             wait_for_condition 50 1000 {
                 [string match *state=wait_bgsave* [$master info replication]] &&
-                [llength [split [$master client list type slave] "\n"]] - 1 == 2
+                [llength [split [string trim [$master client list type slave]] "\r\n"]] == 2
             } else {
                 fail "Replica does not enter wait_bgsave state"
             }
