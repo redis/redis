@@ -56,3 +56,10 @@ test "SENTINEL CONFIG SET, wrong number of arguments" {
         fail "Expected to return Missing argument error"
     }
 }
+
+test "Undo SENTINEL CONFIG SET changes" {
+    foreach_sentinel_id id {
+        assert_equal {OK} [S $id SENTINEL CONFIG SET resolve-hostnames no announce-port 0]
+    }
+    assert_match {*no*0*} [S 1 SENTINEL CONFIG GET resolve-hostnames announce-port]
+}
