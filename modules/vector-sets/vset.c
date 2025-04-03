@@ -1902,12 +1902,7 @@ void VectorSetDigest(RedisModuleDigest *md, void *value) {
 
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
-#ifdef MERGED_REDIS_MODULE
-#define ONLOAD VectorSets_OnLoad
-#else
-#define ONLOAD RedisModule_OnLoad
-#endif
-int ONLOAD(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
