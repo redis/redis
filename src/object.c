@@ -359,9 +359,15 @@ void incrRefCount(robj *o) {
 }
 
 void decrRefCount(robj *o) {
-    serverAssert(o->refcount == OBJ_SHARED_REFCOUNT || o->refcount-- > 0);
+    if (o->refcount == OBJ_SHARED_REFCOUNT)
+        return; /* Nothing to do: this refcount is immutable. */
 
-    if (o->refcount == 0) {
+    if (unlikely(o->refcount <= 0)) {
+        serverPanic("illegal decrRefCount for object with: type %u, encoding %u, refcount %d",
+            o->type, o->encoding, o->refcount);
+    }
+
+    if (--(o->refcount) == 0) {
         switch(o->type) {
         case OBJ_STRING: freeStringObject(o); break;
         case OBJ_LIST: freeListObject(o); break;
