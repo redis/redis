@@ -80,8 +80,6 @@ typedef struct dictType {
     /* This flag is required for `no_value` optimization since the optimization
      * reuses LSB bits as metadata */ 
     unsigned int keys_are_odd:1;
-    /* TODO: Add a 'keys_are_even' flag and use a similar optimization if that
-     * flag is set. */
 
     /* Ensures that the entire hash table is rehashed at once if set. */
     unsigned int force_full_rehash:1;

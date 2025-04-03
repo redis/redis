@@ -1385,7 +1385,6 @@ static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragf
         void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
         if (entryIsKey(de)) {
             if (newkey) *bucketref = newkey;
-            assert(entryIsKey(*bucketref));
         } else if (entryIsNoValue(de)) {
             dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
             if ((newentry = defragalloc(entry))) {
