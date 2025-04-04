@@ -1,3 +1,5 @@
+**IMPORTANT:** *Please note that this is a merged module, it's part of the Redis binary now, and you don't need to build it and load it into Redis. Compiling Redis version 8 or greater will result into having the Vector Sets commands available. However, you could compile this module as a shared library in order to load it in older versions of Redis.*
+
 This module implements Vector Sets for Redis, a new Redis data type similar
 to Sorted Sets but having string elements associated to a vector instead of
 a score. The fundamental goal of Vector Sets is to make possible adding items,
