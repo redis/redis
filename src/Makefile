@@ -358,7 +358,10 @@ endif
 ifneq ($(SKIP_VEC_SETS),yes)
 	vpath %.c ../modules/vector-sets
 	REDIS_VEC_SETS_OBJ=hnsw.o cJSON.o vset.o
-	CFLAGS+=-DINCLUDE_VEC_SETS=1
+	# avoid flag duplication as it will be interpreted as changes in .make-settings
+	ifeq (, $(findstring -DINCLUDE_VEC_SETS=1, $(CFLAGS)))
+		CFLAGS+=-DINCLUDE_VEC_SETS=1
+	endif
 endif
 
 REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)
