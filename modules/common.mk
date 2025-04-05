@@ -36,7 +36,7 @@ $(SRC_DIR)/.prepared:
 
 clean:
 	-$(MAKE) -C $(SRC_DIR) clean
-	rm ./*.so
+	-rm -f ./*.so
 
 distclean: clean
 	-$(MAKE) -C $(SRC_DIR) distclean
