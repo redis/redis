@@ -1,6 +1,55 @@
 Redis Community Edition 8.0 release notes
 =========================================
 
+==========================================================
+8.0-RC1 (v7.9.240)    Released Mon 7 Apr 2025 10:00:00 IST
+==========================================================
+
+This is the first Release Candidate of Redis Community Edition 8.0.
+
+Release Candidates are feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+
+### Headlines
+
+8.0-RC1 includes a new beta data structure - vector set.
+
+### Distributions
+
+- Alpine and Debian Docker images - https://hub.docker.com/_/redis
+- Install using snap - see https://github.com/redis/redis-snap
+- Install using brew - see https://github.com/redis/homebrew-redis
+- Install using RPM and Debian APT - will be added on the GA release
+
+### New Features
+
+- #13915 Vector set - a new data structure [beta]:
+  Vector set extends the concept of sorted sets to allow the storage and querying of
+  high-dimensional vector embeddings, enhancing Redis for AI use cases that involve 
+  semantic search and recommendation systems. Vector sets complement the existing
+  vector search capability in the Redis Query Engine. The vector set data type is 
+  available in beta. We may change, or even break, the features and the API in
+  future versions. We are open to your feedback as you try out this new data type.
+- #13846 Allow detecting incompatibility risks before switching to cluster mode
+
+### Bug fixes
+
+- #13895 RDB Channel replication - replica is online after BGSAVE is done
+- #13877 Inconsistency for ShardID in case both master and replica support it 
+- #13883 Defrag scan may return nothing when type/encoding changes during it
+- #13863 `RANDOMKEY` - infinite loop during client pause
+- #13853 `SLAVEOF` - crash when clients are blocked on lazy free
+- #13632 `XREAD` returns nil while stream is not empty
+
+### Metrics
+
+- #13846 `INFO`: `cluster_incompatible_ops` - number of cluster-incompatible commands
+
+### Configuration parameters
+
+- #13846 `cluster-compatibility-sample-ratio` - sampling ratio (0-100) for checking command compatibility with cluster mode
+
+
 ============================================================
 8.0-M04 (v7.9.227)    Committed Sun 16 Mar 2025 11:00:00 IST
 ============================================================
