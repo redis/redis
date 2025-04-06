@@ -1898,24 +1898,26 @@ void zremCommand(client *c) {
     if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
 
+    int64_t oldlen = (int64_t) zsetLength(zobj);
     for (j = 2; j < c->argc; j++) {
         if (zsetDel(zobj,c->argv[j]->ptr)) deleted++;
         if (zsetLength(zobj) == 0) {
-            dbDelete(c->db,key);
+            /* Del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+            dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
             break;
         }
     }
 
     if (deleted) {
+        int64_t newlen = oldlen - deleted;
         notifyKeyspaceEvent(NOTIFY_ZSET,"zrem",key,c->db->id);
-        if (keyremoved) {            
+        if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
-            /* No need updateKeysizesHist(). dbDelete() done it already. */
-        } else {
-            unsigned long len =  zsetLength(zobj);
-            updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, len + deleted, len);
+            newlen = -1; /* means key got deleted */
         }
+        
+        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
         signalModifiedKey(c,c->db,key);
         server.dirty += deleted;
     }
@@ -1997,7 +1999,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             break;
         }
         if (zzlLength(zobj->ptr) == 0) {
-            dbDelete(c->db,key);
+            dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -2017,7 +2019,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         }
         dictResumeAutoResize(zs->dict);
         if (dictSize(zs->dict) == 0) {
-            dbDelete(c->db,key);
+            dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         } else {
             dictShrinkIfNeeded(zs->dict);
@@ -2028,15 +2030,18 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
 
     /* Step 4: Notifications and reply. */
     if (deleted) {
+        int64_t  oldlen, newlen;
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_ZSET,notify_type,key,c->db->id);
         if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
-            /* No need updateKeysizesHist(). dbDelete() done it already. */
+            newlen = -1;
+            oldlen = deleted;
         } else {
-            unsigned long len =  zsetLength(zobj);
-            updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, len + deleted, len);
+            newlen = zsetLength(zobj);
+            oldlen = newlen + deleted;
         }
+        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
     }
     server.dirty += deleted;
     addReplyLongLong(c,deleted);
@@ -4036,17 +4041,19 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         sdsfree(ele);
         ++result_count;
     } while(--rangelen);
+    
+    int64_t oldlen = llen, newlen = llen - result_count;
 
     /* Remove the key, if indeed needed. */
     if (zsetLength(zobj) == 0) {
         if (deleted) *deleted = 1;
 
-        dbDelete(c->db,key);
+        dbDeleteSkipKeysizesUpdate(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-        /* No need updateKeysizesHist(). dbDelete() done it already. */
-    } else {
-        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, llen, llen - result_count);
+
+        newlen = -1; 
     }
+    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
     signalModifiedKey(c,c->db,key);
 
     if (c->cmd->proc == zmpopCommand) {

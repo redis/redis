@@ -66,14 +66,14 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
         wait_for_condition 50 50 {
             $expStripped eq [get_stripped_info $server]
         } else {
-            fail "Unexpected KEYSIZES. Expected: `$expStripped` \
-                but got: `[get_stripped_info $server]`. Failed after command: $cmd"
+            fail "Expected: \n`$expStripped` \
+               \nActual:\n`[get_stripped_info $server]`. \nFailed after command: $cmd"
         }
     } else {
         set infoStripped [get_stripped_info $server]
         if {$expStripped ne $infoStripped} {
-            fail "Unexpected KEYSIZES. Expected: `$expStripped` \
-                but got: `$infoStripped`. Failed after command: $cmd"
+            fail "Expected: \n`$expStripped` \
+               \nActual:\n`[get_stripped_info $server]`. \nFailed after command: $cmd"
         }
     }
 
@@ -82,15 +82,15 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
         wait_for_condition 50 50 {
             $expStripped eq [get_stripped_info $replica]
         } else {
-            fail "Unexpected replica KEYSIZES. Expected: `$expStripped` \
-                but got: `[get_stripped_info $replica]`. Failed after command: $cmd"
+            fail "Expected: \n`$expStripped` \
+                Actual: `[get_stripped_info $replica]`. \nFailed after command: $cmd"
         }
     }
 }
 
-## eval_db_histogram - eval The expected histogram for current db, by
-## reading all the keys from the server, query for their length, and computing
-## the expected output.
+# eval_db_histogram - eval The expected histogram for current db, by
+# reading all the keys from the server, query for their length, and computing
+# the expected output.
 proc eval_db_histogram {server dbid} {
     array set type_counts {}
 
@@ -125,6 +125,7 @@ proc eval_db_histogram {server dbid} {
 
         set power 1
         while { ($power * 2) <= $value } { set power [expr {$power * 2}] }
+        if {$value == 0} { set power 0}
         # Store counts by type and size bucket
         incr type_counts($type,$power)
     }
@@ -146,7 +147,7 @@ proc eval_db_histogram {server dbid} {
         }
     }
 
-    return [join $result " | "]
+    return [join $result " "]
 }
 
 proc test_all_keysizes { {replMode 0} } {
@@ -274,10 +275,15 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server RPUSH l7 1 2 3 4} {db0_LIST:4=1}
         run_cmd_verify_hist {$server LPOP l7} {db0_LIST:2=1}
+        run_cmd_verify_hist {$server LPOP l7} {db0_LIST:2=1}
+        run_cmd_verify_hist {$server LPOP l7} {db0_LIST:1=1}
+        run_cmd_verify_hist {$server LPOP l7} {}
         # LREM
         run_cmd_verify_hist {$server FLUSHALL} {}
-        run_cmd_verify_hist {$server RPUSH l8 1 x 3 x 5 x 7 x 9 10} {db0_LIST:8=1}
+        run_cmd_verify_hist {$server RPUSH l8 y x y x y x y x y y} {db0_LIST:8=1}
         run_cmd_verify_hist {$server LREM l8 3 x} {db0_LIST:4=1}        
+        run_cmd_verify_hist {$server LREM l8 0 y} {db0_LIST:1=1}
+        run_cmd_verify_hist {$server LREM l8 0 x} {}
         # EXPIRE 
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server RPUSH l9 1 2 3 4} {db0_LIST:4=1}
@@ -303,17 +309,21 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server SPOP s3} {db0_SET:1=1,8=1}
         run_cmd_verify_hist {$server SPOP s2} {db0_SET:8=1}
         run_cmd_verify_hist {$server SPOP s1} {db0_SET:4=1}
-        run_cmd_verify_hist {$server del s1} {}
-        
+        run_cmd_verify_hist {$server SPOP s1 7} {}
+        run_cmd_verify_hist {$server SADD s2 1} {db0_SET:1=1}
+        run_cmd_verify_hist {$server SMOVE s2 s4 1} {db0_SET:1=1}
+        run_cmd_verify_hist {$server SREM s4 1} {}
         # SDIFFSTORE
         run_cmd_verify_hist {$server flushall} {}
         run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
         run_cmd_verify_hist {$server SADD s2 6 7 8 9 A B C D} {db0_SET:8=2}
+        run_cmd_verify_hist {$server SADD s3 x} {db0_SET:1=1,8=2}
         run_cmd_verify_hist {$server SDIFFSTORE s3 s1 s2} {db0_SET:4=1,8=2}        
         #SINTERSTORE
         run_cmd_verify_hist {$server flushall} {}
         run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
         run_cmd_verify_hist {$server SADD s2 6 7 8 9 A B C D} {db0_SET:8=2}
+        run_cmd_verify_hist {$server SADD s3 x} {db0_SET:1=1,8=2}
         run_cmd_verify_hist {$server SINTERSTORE s3 s1 s2} {db0_SET:2=1,8=2}        
         #SUNIONSTORE
         run_cmd_verify_hist {$server flushall} {}
@@ -345,12 +355,16 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server ZADD z1 6 f 7 g 8 h 9 i} {db0_ZSET:8=1}
         run_cmd_verify_hist {$server ZADD z2 1 a} {db0_ZSET:1=1,8=1}
         run_cmd_verify_hist {$server ZREM z1 a} {db0_ZSET:1=1,8=1}
-        run_cmd_verify_hist {$server ZREM z1 b} {db0_ZSET:1=1,4=1}        
+        run_cmd_verify_hist {$server ZREM z1 b} {db0_ZSET:1=1,4=1}
+        run_cmd_verify_hist {$server ZREM z1 c d e f g h i} {db0_ZSET:1=1}
+        run_cmd_verify_hist {$server ZREM z2 a} {}
         # ZREMRANGEBYSCORE
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
         run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (2} {db0_ZSET:4=1}
-        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (3} {db0_ZSET:2=1}        
+        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf (3} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZREMRANGEBYSCORE z1 -inf +inf} {}
+                
         # ZREMRANGEBYRANK
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e 6 f} {db0_ZSET:4=1}
@@ -384,7 +398,9 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
         run_cmd_verify_hist {$server ZADD z2 3 c 4 d 5 e 6 f} {db0_ZSET:4=2}
-        run_cmd_verify_hist {$server ZINTERSTORE z3 2 z1 z2} {db0_ZSET:2=1,4=2}
+        run_cmd_verify_hist {$server ZADD z3 1 x} {db0_ZSET:1=1,4=2}
+        run_cmd_verify_hist {$server ZINTERSTORE z4 2 z1 z2} {db0_ZSET:1=1,2=1,4=2}
+        run_cmd_verify_hist {$server ZINTERSTORE z4 2 z1 z3} {db0_ZSET:1=1,4=2}        
         # DEL
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
@@ -399,6 +415,12 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c 4 d 5 e} {db0_ZSET:4=1}
         run_cmd_verify_hist {$server SET z1 1234567} {db0_STR:4=1}
         run_cmd_verify_hist {$server DEL z1} {}
+        # ZMPOP
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server ZADD z1 1 a 2 b 3 c} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZMPOP 1 z1 MIN} {db0_ZSET:2=1}
+        run_cmd_verify_hist {$server ZMPOP 1 z1 MAX COUNT 2} {}
+        
     } {} {cluster:skip}    
     
     test "KEYSIZES - Test STRING $suffixRepl" {        
@@ -424,8 +446,7 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server SET s1 1024} {db0_STR:4=1}
         run_cmd_verify_hist {$server SET s1 842} {db0_STR:2=1}
         run_cmd_verify_hist {$server SET s1 2} {db0_STR:1=1}
-        run_cmd_verify_hist {$server SET s1 1234567} {db0_STR:4=1}        
-
+        run_cmd_verify_hist {$server SET s1 1234567} {db0_STR:4=1}
         # SET (string of length 0)
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server SET s1 ""} {db0_STR:0=1}
@@ -438,7 +459,21 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server DEL h} {db0_STR:0=2}
         run_cmd_verify_hist {$server DEL s2} {db0_STR:0=1}
         run_cmd_verify_hist {$server DEL s1} {}
+        # APPEND
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server APPEND s1 x} {db0_STR:1=1}
+        run_cmd_verify_hist {$server APPEND s2 y} {db0_STR:1=2}
 
+    } {} {cluster:skip}
+    
+    test "KEYSIZES - Test complex dataset $suffixRepl" {
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        createComplexDataset $server 1000
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0}
+        
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        createComplexDataset $server 1000 {useexpire usehexpire}
+        run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
     } {} {cluster:skip}
     
     foreach type {listpackex hashtable} {
@@ -460,6 +495,8 @@ proc test_all_keysizes { {replMode 0} } {
             run_cmd_verify_hist {$server HSET h2 2 2} {db0_HASH:2=1}
             run_cmd_verify_hist {$server HDEL h2 1}   {db0_HASH:1=1}
             run_cmd_verify_hist {$server HDEL h2 2}   {}
+            run_cmd_verify_hist {$server HSET h2 1 1 2 2} {db0_HASH:2=1}
+            run_cmd_verify_hist {$server HDEL h2 1 2}   {}
             # HGETDEL
             run_cmd_verify_hist {$server FLUSHALL} {}
             run_cmd_verify_hist {$server HSETEX h2 FIELDS 1 1 1} {db0_HASH:1=1}

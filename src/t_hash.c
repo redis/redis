@@ -2387,7 +2387,7 @@ void hsetexCommand(client *c) {
     int flags = 0, first_field_pos = 0, field_count = 0, expire_time_pos = -1;
     int updated = 0, deleted = 0, set_expiry;
     long long expire_time = EB_EXPIRE_TIME_INVALID;
-    unsigned long oldlen, newlen;
+    int64_t oldlen, newlen;
     robj *o;
     HashTypeSetEx setex;
 
@@ -2407,7 +2407,7 @@ void hsetexCommand(client *c) {
         o = createHashObject();
         dbAdd(c->db, c->argv[1], o);
     }
-    oldlen = hashTypeLength(o, 0);
+    oldlen = (int64_t) hashTypeLength(o, 0);
 
     if (flags & (HFE_FXX | HFE_FNX)) {
         int found = 0;
@@ -2494,9 +2494,11 @@ void hsetexCommand(client *c) {
 out:
     /* Key may become empty due to lazy expiry in hashTypeExists()
      * or the new expiration time is in the past.*/
-    newlen = hashTypeLength(o, 0);
+    newlen = (int64_t) hashTypeLength(o, 0);
     if (newlen == 0) {
-        dbDelete(c->db, c->argv[1]);
+        newlen = -1;
+        /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
+        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     }
     if (oldlen != newlen)
@@ -2682,7 +2684,7 @@ void hmgetCommand(client *c) {
  */
 void hgetdelCommand(client *c) {
     int res = 0, hfe = 0, deleted = 0, expired = 0;
-    unsigned long oldlen = 0, newlen= 0;
+    int64_t oldlen = -1; /* not exists as long as it is not set */
     long num_fields = 0;
     robj *o;
 
@@ -2753,9 +2755,11 @@ void hgetdelCommand(client *c) {
     }
 
     /* Key may have become empty because of deleting fields or lazy expire. */
-    newlen = hashTypeLength(o, 0);
+    int64_t  newlen = (int64_t) hashTypeLength(o, 0);
     if (newlen == 0) {
-        dbDelete(c->db, c->argv[1]);
+        newlen = -1;
+        /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
+        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     } else if (hfe && (hashTypeIsFieldsWithExpire(o) == 0)) { /*is it last HFE*/
         ebRemove(&c->db->hexpires, &hashExpireBucketsType, o);
@@ -2779,7 +2783,7 @@ void hgetexCommand(client *c) {
     int expired = 0, deleted = 0, updated = 0;
     int num_fields_pos = 3, cond = 0;
     long num_fields;
-    unsigned long oldlen = 0, newlen = 0;
+    int64_t oldlen = 0, newlen = 0;
     long long expire_time = 0;
     robj *o;
     HashTypeSetEx setex;
@@ -2875,7 +2879,9 @@ void hgetexCommand(client *c) {
      * or the new expiration time is in the past.*/
     newlen = hashTypeLength(o, 0);
     if (newlen == 0) {
-        dbDelete(c->db, c->argv[1]);
+        newlen = -1;
+        /* Del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     }
     if (oldlen != newlen)
@@ -2932,7 +2938,7 @@ void hdelCommand(client *c) {
     if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,o,OBJ_HASH)) return;
 
-    unsigned long oldLen = hashTypeLength(o, 0);
+    int64_t oldLen = (int64_t) hashTypeLength(o, 0);
     
     /* Hash field expiration is optimized to avoid frequent update global HFE DS for
      * each field deletion. Eventually active-expiration will run and update or remove
@@ -2946,15 +2952,15 @@ void hdelCommand(client *c) {
         if (hashTypeDelete(o,c->argv[j]->ptr,1)) {
             deleted++;
             if (hashTypeLength(o, 0) == 0) {
-                dbDelete(c->db,c->argv[1]);
+                /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+                dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
             }
         }
     }
     if (deleted) {
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldLen, oldLen - deleted);
-
+        int64_t newLen = -1; /* The value -1 indicates that the key is deleted. */
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
         if (keyremoved) {
@@ -2962,8 +2968,9 @@ void hdelCommand(client *c) {
         } else {
             if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0)) /* is it last HFE */
                 ebRemove(&c->db->hexpires, &hashExpireBucketsType, o);
+            newLen = oldLen - deleted;
         }
-
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldLen, newLen);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -3710,7 +3717,7 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     long numFields = 0, numFieldsAt = 4;
     long long expire; /* unix time in msec */
     int fieldAt, fieldsNotSet = 0, expireSetCond = 0, updated = 0, deleted = 0;
-    unsigned long oldlen, newlen;
+    int64_t oldlen, newlen;
     robj *hashObj, *keyArg = c->argv[1], *expireArg = c->argv[2];
 
     /* Read the hash object */
@@ -3793,9 +3800,11 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
                             keyArg, c->db->id);
     }
 
-    newlen = hashTypeLength(hashObj, 0);
+    newlen = (int64_t) hashTypeLength(hashObj, 0);
     if (newlen == 0) {
-        dbDelete(c->db, keyArg);
+        newlen = -1;
+        /* Del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+        dbDeleteSkipKeysizesUpdate(c->db, keyArg);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyArg, c->db->id);
     }
 

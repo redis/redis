@@ -296,6 +296,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define DB_FLAG_KEY_EXPIRED (1ULL<<1)
 #define DB_FLAG_KEY_EVICTED (1ULL<<2)
 #define DB_FLAG_KEY_OVERWRITE (1ULL<<3)
+#define DB_FLAG_NO_UPDATE_KEYSIZES (1ULL<<4) /* Don't update keysizes histograms */
 
 /* Channel flags share the same flag space as the key flags */
 #define CMD_CHANNEL_PATTERN (1ULL<<11)     /* The argument is a channel pattern */
@@ -736,8 +737,10 @@ typedef enum {
  * assertions that are too computationally expensive or dangerous to run during normal operations.  */
 #ifdef DEBUG_ASSERTIONS
 #define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#define debugServerAssert(...) serverAssert(__VA_ARGS__)
 #else
 #define debugServerAssertWithInfo(...)
+#define debugServerAssert(...)
 #endif
 
 /* latency histogram per command init settings */
@@ -3597,6 +3600,7 @@ robj *dbRandomKey(redisDb *db);
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
+int dbDeleteSkipKeysizesUpdate(redisDb *db, robj *key);
 robj *dbUnshareStringValue(redisDb *db, robj *key, robj *o);
 robj *dbUnshareStringValueWithDictEntry(redisDb *db, robj *key, robj *o, dictEntry *de);
 

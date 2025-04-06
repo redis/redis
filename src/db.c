@@ -79,22 +79,33 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
-        debugServerAssertWithInfo(server.current_client, NULL, old_bin < MAX_KEYSIZES_BINS);        
+        debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
-        if(dictMeta) dictMeta->keysizes_hist[type][old_bin]--;
+        if(dictMeta) {
+            dictMeta->keysizes_hist[type][old_bin]--;
+            debugServerAssert(dictMeta->keysizes_hist[type][old_bin] >= 0);
+        }
         kvstoreMeta->keysizes_hist[type][old_bin]--;
+        debugServerAssert(kvstoreMeta->keysizes_hist[type][old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
-            if (dictMeta) dictMeta->keysizes_hist[type][0]--;
+            /* Only strings can be empty. Yet, a command flow might temporarily 
+               dbAdd() empty collection, and only after add elements. */
+
+            if (dictMeta) {
+                dictMeta->keysizes_hist[type][0]--;
+                debugServerAssert(dictMeta->keysizes_hist[type][0] >= 0);
+            }
             kvstoreMeta->keysizes_hist[type][0]--;
+            debugServerAssert(kvstoreMeta->keysizes_hist[type][0] >= 0);
         }
     }
     
     if (newLen > 0) {
         int new_bin = log2ceil(newLen) + 1;
-        debugServerAssertWithInfo(server.current_client, NULL, new_bin < MAX_KEYSIZES_BINS);
+        debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
         if(dictMeta) dictMeta->keysizes_hist[type][new_bin]++;
@@ -102,6 +113,9 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
+            /* Only strings can be empty. Yet, a command flow might temporarily 
+               dbAdd() empty collection, and only after add elements. */
+            
             if (dictMeta) dictMeta->keysizes_hist[type][0]++;
             kvstoreMeta->keysizes_hist[type][0]++;
         }
@@ -476,7 +490,8 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         robj *val = dictGetVal(de);
 
         /* remove key from histogram */
-        updateKeysizesHist(db, slot, val->type, getObjectLength(val), -1);
+        if(!(flags & DB_FLAG_NO_UPDATE_KEYSIZES))
+            updateKeysizesHist(db, slot, val->type, (int64_t) getObjectLength(val), -1);
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (val->type == OBJ_HASH)
@@ -523,6 +538,18 @@ int dbAsyncDelete(redisDb *db, robj *key) {
  * configuration. Deletes the key synchronously or asynchronously. */
 int dbDelete(redisDb *db, robj *key) {
     return dbGenericDelete(db, key, server.lazyfree_lazy_server_del, DB_FLAG_KEY_DELETED);
+}
+
+/* Similar to dbDelete(), but does not update the keysizes histogram.
+ * This is used when we want to delete a key without affecting the histogram,
+ * typically in cases where a command flow deletes elements from a collection
+ * and then deletes the collection itself. In such cases, using dbDelete()
+ * would incorrectly decrement bin #0. A corresponding test should be added
+ * to `info-keysizes.tcl`.
+ */
+int dbDeleteSkipKeysizesUpdate(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key,server.lazyfree_lazy_server_del,
+                    DB_FLAG_KEY_DELETED | DB_FLAG_NO_UPDATE_KEYSIZES);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively

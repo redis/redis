@@ -1413,7 +1413,6 @@ invalid:
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
 void pfaddCommand(client *c) {
-    uint64_t oldLen;
     robj *o = lookupKeyWrite(c->db,c->argv[1]);
     struct hllhdr *hdr;
     int updated = 0, j;
@@ -1429,7 +1428,10 @@ void pfaddCommand(client *c) {
         if (isHLLObjectOrReply(c,o) != C_OK) return;
         o = dbUnshareStringValue(c->db,c->argv[1],o);
     }
-    oldLen = stringObjectLen(o);
+
+    /* HLL might change from sparse to dense. No way to predict KEYSIZES diff. 
+     * Update as if the key is being removed. After the for-loop update it back */ 
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, stringObjectLen(o), -1);
 
     /* Perform the low level ADD operation for every element. */
     for (j = 2; j < c->argc; j++) {
@@ -1444,13 +1446,14 @@ void pfaddCommand(client *c) {
             return;
         }
     }
+    
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, -1, stringObjectLen(o));
     hdr = o->ptr;
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
         server.dirty += updated;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldLen, stringObjectLen(o));
     }
     addReply(c, updated ? shared.cone : shared.czero);
 }
@@ -1856,10 +1859,17 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
+
+            /* No way to predict the KEYSIZES diff. Update as if the key is being 
+             * removed. After hllSparseToDense() update it back */
+
+            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, stringObjectLen(o), -1);
+            
             if (hllSparseToDense(o) == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
+            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, -1, stringObjectLen(o));
             conv = 1;
             server.dirty++; /* Force propagation on encoding change. */
         }
