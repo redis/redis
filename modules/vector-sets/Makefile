@@ -26,6 +26,7 @@ uname_M := $(shell sh -c 'uname -m 2>/dev/null || echo not')
 
 # Shared library compile flags for linux / osx
 ifeq ($(uname_S),Linux)
+	CFLAGS += -D_POSIX_C_SOURCE=200809L -D_GNU_SOURCE
 	SHOBJ_CFLAGS ?= -W -Wall -fno-common -g -ggdb -std=c11 -O2
 	SHOBJ_LDFLAGS ?= -shared
 ifneq (,$(findstring armv,$(uname_M)))
