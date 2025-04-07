@@ -176,11 +176,19 @@ start_server {tags {"lazyfree"}} {
     }
 
     test "Unblocks client blocked on lazyfree via REPLICAOF command" {
+        r config resetstat
         set rd [redis_deferring_client]
 
         populate 50000 ;# Just to make flushdb async slower
         $rd flushdb
-        wait_for_blocked_client
+
+        # Verify flushall run as lazyfree
+        wait_for_condition 50 100 {
+            [s lazyfree_pending_objects] > 0
+        } else {
+            fail "Unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
+        }
+
         # Test that slaveof command unblocks clients without assertion failure
         r slaveof 127.0.0.1 0
         assert_equal [$rd read] {OK}
