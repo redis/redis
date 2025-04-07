@@ -182,11 +182,11 @@ start_server {tags {"lazyfree"}} {
         populate 50000 ;# Just to make flushdb async slower
         $rd flushdb
 
-        # Verify flushall run as lazyfree
+        # Verify flushdb run as lazyfree
         wait_for_condition 50 100 {
             [s lazyfree_pending_objects] > 0
         } else {
-            fail "Unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
+            fail "FLUSHDB didn't run as lazyfree"
         }
 
         # Test that slaveof command unblocks clients without assertion failure
