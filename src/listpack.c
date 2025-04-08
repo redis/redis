@@ -1380,6 +1380,64 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
     return lp;
 }
 
+/**
+ * Delete ranges of items. The ranges are determined by the callback function `getNextRange`.
+ * This callback receives pointers to the listpack and the current item, indicating that the
+ * search for the next range should begin at the given item.
+ * The callback function's output pointer (`unsigned char **`) points to the start of the range,
+ * and the return value indicates the number of items in that range. If there is no more range to
+ * delete, the output pointer is set to NULL and return 0.
+ * We delete the specified ranges and preserve the bytes between these ranges by moving them 
+ * to the end of the preserved region.
+ */
+unsigned char *lpDeleteRanges(unsigned char *lp, unsigned char *p, uint32_t (*getNextRange)(unsigned char *, unsigned char *, unsigned char **, void *), void *arg) {
+    unsigned char *preserved_end, *range_start, *eofptr;
+    size_t bytes = lpBytes(lp), move_size;
+    uint32_t numele = lpGetNumElements(lp), range_ele;
+    lpAssertValidEntry(lp, bytes, p);
+    preserved_end = range_start = NULL;
+    eofptr = lp + bytes - 1;
+    while (p[0] != LP_EOF) {
+        range_ele = getNextRange(lp, p, &range_start, arg);
+        assert(numele >= range_ele);
+        if (range_start == NULL) {
+            /* No more deleted range. */
+            break;
+        }
+        lpAssertValidEntry(lp, bytes, range_start);
+        assert(range_start >= p);
+        if (preserved_end == NULL) {
+            /* This is the first range to delete, so we preserve all bytes before range_start (exclusive)
+             * by setting preserved_end to range_start. */
+            preserved_end = range_start;
+        } else if (range_start > p) {
+            /* Bytes in the range [p, range_start) should be preserved. */
+            move_size = range_start - p;
+            memmove(preserved_end, p, move_size);
+            preserved_end += move_size;
+        }
+        /* Move p to the first byte after the deleted range and continue searching for the next range
+         * to delete in the next loop. */
+        p = range_start;
+        for (uint32_t i = 0; i < range_ele; i++) {
+            p = lpSkip(p);
+            numele--;
+            if (p[0] == LP_EOF) break;
+            lpAssertValidEntry(lp, bytes, p);
+        }
+    }
+    if (preserved_end != NULL) {
+        /* Preserve the bytes after the last deleted range. */
+        move_size = eofptr + 1 - p;
+        memmove(preserved_end, p, move_size);
+        preserved_end += move_size;
+        lpSetTotalBytes(lp, preserved_end - lp);
+        lpSetNumElements(lp, numele);
+        lp = lpShrinkToFit(lp);
+    }
+    return lp;
+}
+
 /* Delete the elements 'ps' passed as an array of 'count' element pointers and
  * return the resulting listpack. The elements must be given in the same order
  * as they apper in the listpack. */
@@ -2056,6 +2114,83 @@ static unsigned char *createIntList(void) {
     return lp;
 }
 
+/* Callback function for lpDeleteRanges(), it can be used to delete ranges in intlist */
+static uint32_t deleteAllPositiveIntegers(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+    (void)arg;
+    long long val;
+    unsigned char *last = lpLast(lp);
+    while (1) {
+        if (lpGetIntegerValue(p, &val)) {
+            if (val >= 0) {
+                *range_start = p;
+                return 1;
+            }
+        }
+        if (p == last) break;
+        p = lpSkip(p);
+    }
+    *range_start = NULL;
+    return 0;
+}
+
+/* Callback functions for lpDeleteRanges(), they can be used to delete ranges in mixlist */
+static uint32_t delete1stTo3rdRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+    (void)lp;
+    int *deleted = (int *)arg;
+    /* Only one range to delete in this case. We use 'deleted' to ensure the range is returned only once. */
+    if (*deleted == 0) {
+        *range_start = p;
+        *deleted = 1;
+        return 3;
+    }
+    *range_start = NULL;
+    return 0;
+}
+static uint32_t delete1stAnd3rdItems(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+    int *idx = (int *)arg;
+    while (1) {
+        (*idx)++;
+        if (*idx == 1 || *idx == 3) {
+            *range_start = p;
+            return 1;
+        }
+        if (p == lpLast(lp)) break;
+        p = lpNext(lp, p);
+    }
+    *range_start = NULL;
+    return 0;
+}
+
+static uint32_t delete1stAnd2ndAnd4thItems(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+    int *idx = (int *)arg;
+    while (1) {
+        (*idx)++;
+        if (*idx == 1) {
+            *range_start = p;
+            (*idx)++;
+            return 2;
+        }
+        if (*idx == 4) {
+            *range_start = p;
+            return 1;
+        }
+        if (p == lpLast(lp)) break;
+        p = lpNext(lp, p);
+    }
+    *range_start = NULL;
+    return 0;
+}
+
+static uint32_t deleteAll(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+    (void)arg;
+    if (p == lpFirst(lp)) {
+        *range_start = p;
+        return lpLength(lp);
+    }
+    *range_start = NULL;
+    return 0;
+}
+
 static long long usec(void) {
     struct timeval tv;
     gettimeofday(&tv, NULL);
@@ -2411,6 +2546,97 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = lpDeleteRangeWithEntry(lp, &ptr, 5);
         assert(lpLength(lp) == 1);
         verifyEntry(lpFirst(lp), (unsigned char*)mixlist[0], strlen(mixlist[0]));
+        zfree(lp);
+    }
+
+    TEST("Delete ranges: all positive integers") {
+        lp = createIntList();
+        lp = lpDeleteRanges(lp, lpFirst(lp), deleteAllPositiveIntegers, NULL);
+        assert(lpLength(lp) == 3);
+        p = lpFirst(lp);
+        long long val;
+        for (int i = 0; i < 3; i++) {
+            if (lpGetIntegerValue(p, &val)) {
+                assert(val < 0);
+            }
+            p = lpSkip(p);
+        }
+        zfree(lp);
+    }
+
+    TEST("Delete ranges: all positive integers (larger data set)") {
+        lp = lpNew(0);
+        int run = 3;
+        while (run--) {
+            for (int i = -500; i < 0; i += 10) {
+                lp = lpAppendInteger(lp, i);
+            }
+            for (int i = 100; i < 300; i += 10) {
+                lp = lpAppendInteger(lp, i);
+            }
+            for (int i = -987654321; i < 0; i += 10000000) {
+                lp = lpAppendInteger(lp, i);
+            }
+            for (int i = 123456789; i < 999999999; i += 10000000) {
+                lp = lpAppendInteger(lp, i);
+            }
+            lp = lpDeleteRanges(lp, lpFirst(lp), deleteAllPositiveIntegers, NULL);
+            p = lpFirst(lp);
+            long long val;
+            int len = (int)lpLength(lp);
+            for (int i = 0; i < len; i++) {
+                if (lpGetIntegerValue(p, &val)) {
+                    assert(val < 0);
+                }
+                p = lpSkip(p);
+            }
+        }
+        zfree(lp);
+    }
+
+    TEST("Delete ranges: 1st to 3rd range(index range[0, 2])") {
+        lp = createList();
+        int deleted = 0;
+        lp = lpDeleteRanges(lp, lpFirst(lp), delete1stTo3rdRange, (void *)&deleted);
+        assert(lpLength(lp) == 1);
+        verifyEntry(lpFirst(lp), (unsigned char *)mixlist[3], strlen(mixlist[3]));
+        zfree(lp);
+    }
+
+    TEST("Delete ranges: 1st and 3rd items(index 0 and 2)") {
+        lp = createList();
+        int idx = 0;
+        lp = lpDeleteRanges(lp, lpFirst(lp), delete1stAnd3rdItems, (void *)&idx);
+        assert(lpLength(lp) == 2);
+        p = lpFirst(lp);
+        verifyEntry(p, (unsigned char *)mixlist[1], strlen(mixlist[1]));
+        p = lpSkip(p);
+        verifyEntry(p, (unsigned char *)mixlist[3], strlen(mixlist[3]));
+        zfree(lp);
+    }
+
+    TEST("Delete ranges: 1st and 2nd and 4th items(index 0 and 1 and 3)") {
+        lp = createList();
+        int idx = 0;
+        lp = lpDeleteRanges(lp, lpFirst(lp), delete1stAnd2ndAnd4thItems, (void *)&idx);
+        assert(lpLength(lp) == 1);
+        p = lpFirst(lp);
+        verifyEntry(p, (unsigned char *)mixlist[2], strlen(mixlist[2]));
+        zfree(lp);
+    }
+
+    TEST("Delete ranges: delete all items and result in empty list") {
+        lp = createList();
+        assert(lpLength(lp) == 4);
+        lp = lpDeleteRanges(lp, lpFirst(lp), deleteAll, NULL);
+        assert(lpLength(lp) == 0);
+
+        for (int i = 1; i <= 10; i++) {
+            lp = lpAppendInteger(lp, i); /* append positive integers */
+        }
+        assert(lpLength(lp) == 10);
+        lp = lpDeleteRanges(lp, lpFirst(lp), deleteAllPositiveIntegers, NULL);
+        assert(lpLength(lp) == 0);
         zfree(lp);
     }
 

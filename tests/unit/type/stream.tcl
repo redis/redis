@@ -612,6 +612,24 @@ start_server {
         assert {[lindex $result 1 1 1] eq {value2}}
     }
 
+    test {XDEL trigger listpack garbage collection } {
+        r del somestream
+        for {set j 0} {$j < 25} {incr j} {
+            r xadd somestream * foo1 val1_$j foo2 val2_$j
+            r xadd somestream * foo3 val3_$j foo4 val4_$j
+        }
+        assert {[r xlen somestream] == 50}
+        set beforeDelMemory [r memory usage somestream]
+        set result [r xrange somestream - +]
+        for {set j 0} {$j < 20} {incr j} {
+            set id [lindex $result $j 0]
+            r xdel somestream $id
+        }
+        assert {[r xlen somestream] == 30}
+        set afterDelMemory [r memory usage somestream]
+        assert {$beforeDelMemory > $afterDelMemory}
+    }
+
     test {XDEL multiply id test} {
         r del somestream
         r xadd somestream 1-1 a 1
@@ -798,6 +816,20 @@ start_server {
         }
         assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 1] == 0}
         assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 2] == 2}
+    }
+
+    test {XTRIM trigger listpack garbage collection} {
+        r del mystream
+        for {set j 0} {$j < 25} {incr j} {
+            r XADD mystream * foo1 val1_$j foo2 val2_$j
+            r XADD mystream * foo3 val3_$j foo4 val4_$j
+        }
+        assert {[r XLEN mystream] == 50}
+        set beforeDelMemory [r MEMORY USAGE mystream]
+        assert {[r XTRIM mystream MAXLEN 30] == 20}
+        assert {[r XLEN mystream] == 30}
+        set afterDelMemory [r MEMORY USAGE mystream]
+        assert {$beforeDelMemory > $afterDelMemory}
     }
 }
 

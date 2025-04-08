@@ -38,6 +38,7 @@ void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
+static uint32_t listpackGetNextDeletedRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -829,15 +830,30 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         lp = lpReplaceInteger(lp,&p,entries-deleted_from_lp);
         p = lpNext(lp,p); /* Skip deleted field. */
         int64_t marked_deleted = lpGetInteger(p);
-        lp = lpReplaceInteger(lp,&p,marked_deleted+deleted_from_lp);
-        p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
 
         /* Here we should perform garbage collection in case at this point
          * there are too many entries deleted inside the listpack. */
         entries -= deleted_from_lp;
         marked_deleted += deleted_from_lp;
+        
+        int needGarbageCollection = 0;
         if (entries + marked_deleted > 10 && marked_deleted > entries/2) {
-            /* TODO: perform a garbage collection. */
+            needGarbageCollection = 1;
+            lp = lpReplaceInteger(lp, &p, 0);
+        } else {
+            lp = lpReplaceInteger(lp,&p,marked_deleted);
+        }
+        p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
+
+        if (needGarbageCollection) {
+            /* Perform a garbage collection. */
+            int64_t aux = lpGetInteger(p);
+            serverAssert(aux >= 0 && aux <= (int64_t)UINT32_MAX);
+            uint32_t master_fields = (uint32_t)aux;
+            for (uint32_t i = 0; i < 2 + master_fields; i++) {
+                p = lpNext(lp, p);
+            }
+            lp = lpDeleteRanges(lp, p, listpackGetNextDeletedRange, (void *)&master_fields);
         }
 
         /* Update the listpack with the new pointer. */
@@ -1258,7 +1274,7 @@ void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsign
  * with GetID(). */
 void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     unsigned char *lp = si->lp;
-    int64_t aux;
+    int64_t numele, deleted, num_fields;
 
     /* We do not really delete the entry here. Instead we mark it as
      * deleted by flagging it, and also incrementing the count of the
@@ -1271,19 +1287,35 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
 
     /* Change the valid/deleted entries count in the master entry. */
     unsigned char *p = lpFirst(lp);
-    aux = lpGetInteger(p);
+    numele = lpGetInteger(p);
 
-    if (aux == 1) {
+    if (numele == 1) {
         /* If this is the last element in the listpack, we can remove the whole
          * node. */
         lpFree(lp);
         raxRemove(si->stream->rax,si->ri.key,si->ri.key_len,NULL);
     } else {
         /* In the base case we alter the counters of valid/deleted entries. */
-        lp = lpReplaceInteger(lp,&p,aux-1);
+        numele--;
+        lp = lpReplaceInteger(lp,&p,numele);
         p = lpNext(lp,p); /* Seek deleted field. */
-        aux = lpGetInteger(p);
-        lp = lpReplaceInteger(lp,&p,aux+1);
+        deleted = lpGetInteger(p) + 1;
+        if (numele + deleted <= 10 || deleted <= numele / 2) {
+            lp = lpReplaceInteger(lp,&p,deleted);
+        } else {
+            /* Perform garbage collection when total entries > 10 and deleted entries > valid entries / 2 */
+            lp = lpReplaceInteger(lp,&p,0);
+            p = lpNext(lp, p);
+            num_fields = lpGetInteger(p);
+            serverAssert(num_fields >= 0 && num_fields <= (int64_t)UINT32_MAX);
+            uint32_t master_fields = (uint32_t)num_fields;
+            /* Skip num-fields, master fields and ending zero */
+            for (int64_t i = 0; i < num_fields + 2; i++) {
+                p = lpNext(lp, p);
+            }
+            /* Delete all the entries marked as deleted */
+            lp = lpDeleteRanges(lp, p, listpackGetNextDeletedRange, (void *)&master_fields);
+        }
 
         /* Update the listpack with the new pointer. */
         if (si->lp != lp)
@@ -1304,9 +1336,56 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     }
     streamIteratorStop(si);
     streamIteratorStart(si,si->stream,&start,&end,si->rev);
+}
 
-    /* TODO: perform a garbage collection here if the ratio between
-     * deleted and valid goes over a certain limit. */
+/**
+ * Callback function for lpDeleteRanges.
+ *
+ * @param p Pointer to the start of an entry.
+ * @param range_start Output pointer set to the start of the deleted entry (range).
+ * @return The number of items that make up the deleted entry.
+ *
+ * This function searches for the next deleted entry, which is treated as a range of items
+ * to delete from the listpack.
+ */
+static uint32_t listpackGetNextDeletedRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+    int64_t flags, num_fields;
+    uint32_t master_fields = *((uint32_t *)arg);
+    uint32_t fields_values_num; /* Number of listpack items that together represent the fields and values of an entry */
+    unsigned char *last = lpLast(lp);
+    while (1) {
+        flags = lpGetInteger(p);
+        if (flags & STREAM_ITEM_FLAG_DELETED) {
+            *range_start = p;
+            if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
+                /* 3 heading items(flags + entry-id-ms + entry-id-seq) + values + lp-count */
+                return 3 + master_fields + 1;
+            }
+        }
+        p = lpNext(lp, p); /* p points to entry-id ms */
+        p = lpNext(lp, p); /* p points to entry-id seq */
+        if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
+            fields_values_num = master_fields;
+        } else {
+            p = lpNext(lp, p); /* p points to num-fields */
+            num_fields = lpGetInteger(p);
+            serverAssert(num_fields >= 0 && num_fields * 2 <= (int64_t)UINT32_MAX);
+            fields_values_num = (uint32_t)num_fields * 2;
+        }
+        if (flags & STREAM_ITEM_FLAG_DELETED) {
+            /* 3 heading items(flags + entry-id-ms + entry-id-seq) + num-fields + field and value pairs + lp-count */
+            return 3 + 1 + fields_values_num + 1;
+        }
+        p = lpNext(lp, p); /* p points to the first field(value) */
+        while (fields_values_num--) {
+            p = lpNext(lp, p);
+        }
+        if (p == last) break;
+        /* Skip lp-count and continue searching for deleted entries in the next loop */
+        p = lpNext(lp, p);
+    }
+    *range_start = NULL;
+    return 0;
 }
 
 /* Stop the stream iterator. The only cleanup we need is to free the rax
