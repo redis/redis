@@ -496,8 +496,8 @@ void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     }
 }
 
-REDIS_STATIC int _quicklistNodeCountOrSizeExceedsLimit(size_t new_sz, unsigned int new_count,
-                                                       size_t sz_limit, unsigned int count_limit)
+static inline int _quicklistNodeCountOrSizeExceedsLimit(size_t new_sz, unsigned int new_count,
+                                                        size_t sz_limit, unsigned int count_limit)
 {
     if (likely(sz_limit != SIZE_MAX)) {
         return new_sz > sz_limit;
@@ -540,7 +540,7 @@ int quicklistNodeExceedsFillLimit(int fill, size_t new_sz, unsigned int new_coun
 /* Determines whether a given size qualifies as a large element based on the 'limit' and
  * 'limit_type' in the quicklist. If the size is considered large, it will be stored in
  * a plain node. */
-REDIS_STATIC int isLargeElement(const quicklist *ql, size_t sz) {
+static inline int isLargeElement(const quicklist *ql, size_t sz) {
     if (unlikely(packed_threshold != 0)) return sz >= packed_threshold;
     if (ql->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
         return !sizeMeetsSafetyLimit(sz);
