@@ -50,6 +50,7 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
+unsigned char *lpDeleteRanges(unsigned char *lp, unsigned char *p, uint32_t (*getNextRange)(unsigned char *, unsigned char *, unsigned char **, void *), void *arg);
 unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len);
 unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
                              listpackEntry *entries, unsigned int len, unsigned char **newp);
