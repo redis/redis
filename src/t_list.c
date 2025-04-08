@@ -914,8 +914,9 @@ void ltrimCommand(client *c) {
 
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
     if ((llenNew = listTypeLength(o)) == 0) {
-        dbDelete(c->db,c->argv[1]);
+        dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
+        llenNew = -1; /* Indicate key deleted to updateKeysizesHist() */
     } else {
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
     }
