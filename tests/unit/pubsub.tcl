@@ -444,7 +444,6 @@ start_server {tags {"pubsub network"}} {
 
         # hgetex lazy expiry deletes the only field and the key
         # (KSN should be 1-hexpired 2-del)
-        r debug set-active-expire 0
         r hsetex myhash PX 1 FIELDS 2 f5 v5 f6 v6
         assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
