@@ -2871,17 +2871,6 @@ void hgetexCommand(client *c) {
     server.dirty += deleted + updated;
     signalModifiedKey(c, c->db, c->argv[1]);
 
-    /* Key may become empty due to lazy expiry in addHashFieldToReply()
-     * or the new expiration time is in the past.*/
-    newlen = hashTypeLength(o, 0);
-    if (newlen == 0) {
-        dbDelete(c->db, c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
-    }
-    if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
-
     /* This command will never be propagated as it is. It will be propagated as
      * HDELs when fields are lazily expired or deleted, if the new timestamp is
      * in the past. HDEL's will be emitted as part of addHashFieldToReply()
@@ -2923,6 +2912,17 @@ void hgetexCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_HASH, "hdel", c->argv[1], c->db->id);
         preventCommandPropagation(c);
     }
+
+    /* Key may become empty due to lazy expiry in addHashFieldToReply()
+     * or the new expiration time is in the past.*/
+    newlen = hashTypeLength(o, 0);
+    if (newlen == 0) {
+        dbDelete(c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+    }
+    if (oldlen != newlen)
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
+                           oldlen, newlen);
 }
 
 void hdelCommand(client *c) {
