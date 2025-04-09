@@ -431,6 +431,30 @@ start_server {tags {"pubsub network"}} {
         r hgetex myhash PERSIST FIELDS 1 f5
         assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
 
+        # hgetex mixed fields ttl
+        r debug set-active-expire 0
+
+        r hsetex myhash1 FIELDS 3 f1 v1 f2 v2 f3 v3
+        assert_equal "pmessage * __keyspace@${db}__:myhash1 hset" [$rd1 read]
+
+        r hpexpire myhash1 100 FIELDS 1 f1
+        assert_equal "pmessage * __keyspace@${db}__:myhash1 hexpire" [$rd1 read]
+        r hpexpire myhash1 200 FIELDS 1 f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash1 hexpire" [$rd1 read]
+        after 120
+
+        r hgetex myhash1 PX 100 FIELDS 3 f1 f2 f3
+        assert_equal "pmessage * __keyspace@${db}__:myhash1 hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash1 hexpire" [$rd1 read]
+
+        after 120
+        # all fields are expired
+        r hgetex myhash1 PERSIST FIELDS 2 f2 f3
+        assert_equal "pmessage * __keyspace@${db}__:myhash1 del" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash1 hexpired" [$rd1 read]
+
+        r debug set-active-expire 1
+
         # hgetdel deletes a field
         r hgetdel myhash FIELDS 1 f5
         assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
