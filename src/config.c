@@ -2450,12 +2450,6 @@ static int updateHZ(const char **err) {
     return 1;
 }
 
-static int updateClusterAnnouncedPort(const char **err) {
-    UNUSED(err);
-    clusterUpdateMyselfAnnouncedPorts();
-    return 1;
-}
-
 static int updatePort(const char **err) {
     connListener *listener = listenerByType(CONN_TYPE_SOCKET);
 
@@ -2463,7 +2457,7 @@ static int updatePort(const char **err) {
     listener->bindaddr = server.bindaddr;
     listener->bindaddr_count = server.bindaddr_count;
     listener->port = server.port;
-    updateClusterAnnouncedPort(err);
+    clusterUpdateMyselfAnnouncedPorts();
     listener->ct = connectionByType(CONN_TYPE_SOCKET);
     if (changeListener(listener) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
@@ -2639,6 +2633,12 @@ static int applyBind(const char **err) {
 int updateClusterFlags(const char **err) {
     UNUSED(err);
     clusterUpdateMyselfFlags();
+    return 1;
+}
+
+static int updateClusterAnnouncedPort(const char **err) {
+    UNUSED(err);
+    clusterUpdateMyselfAnnouncedPorts();
     return 1;
 }
 
