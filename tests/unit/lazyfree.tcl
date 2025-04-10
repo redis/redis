@@ -184,7 +184,8 @@ start_server {tags {"lazyfree"}} {
 
         # Verify flushdb run as lazyfree
         wait_for_condition 50 100 {
-            [s lazyfree_pending_objects] > 0
+            [s lazyfree_pending_objects] > 0 ||
+            [s lazyfreed_objects] > 0
         } else {
             fail "FLUSHDB didn't run as lazyfree"
         }
