@@ -499,6 +499,31 @@ start_server {tags {"pubsub network"}} {
         r hgetdel myhash FIELDS 1 f2
         assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+
+        # HGETDEL deletes one field and the other field is lazily expired
+        # (KSN should be 1-hexpired 2-hdel)
+        r hsetex myhash FIELDS 2 f1 v1 f2 v2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        r hsetex myhash PX 1 FIELDS 1 f3 v3
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 10
+        r hgetdel myhash FIELDS 2 f1 f3
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+
+        # HGETDEL, deletes one field and the last field lazily expires
+        # (KSN should be 1-hexpired 2-hdel 3-del)
+        r hsetex myhash FIELDS 1 f1 v1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        r hsetex myhash PX 1 FIELDS 1 f2 v2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 10
+        r hgetdel myhash FIELDS 2 f1 f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
         r debug set-active-expire 1
 
         $rd1 close
