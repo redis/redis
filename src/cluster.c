@@ -130,17 +130,17 @@ int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr) {
  * DUMP is actually not used by Redis Cluster but it is the obvious
  * complement of RESTORE and can be useful for different applications. */
 void dumpCommand(client *c) {
-    kvobj *kv;
+    kvobj *o;
     rio payload;
 
     /* Check if the key is here. */
-    if ((kv = lookupKeyRead(c->db, c->argv[1])) == NULL) {
+    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
         addReplyNull(c);
         return;
     }
 
     /* Create the DUMP encoded representation. */
-    createDumpPayload(&payload, kv, c->argv[1], c->db->id);
+    createDumpPayload(&payload,o,c->argv[1],c->db->id);
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);

@@ -313,16 +313,16 @@ void psetexCommand(client *c) {
 }
 
 int getGenericCommand(client *c) {
-    kvobj *kv;
+    kvobj *o;
 
-    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL)
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL)
         return C_OK;
 
-    if (checkType(c, kv, OBJ_STRING)) {
+    if (checkType(c,o,OBJ_STRING)) {
         return C_ERR;
     }
 
-    addReplyBulk(c, kv);
+    addReplyBulk(c,o);
     return C_OK;
 }
 
@@ -359,12 +359,12 @@ void getexCommand(client *c) {
         return;
     }
 
-    kvobj *kv;
+    kvobj *o;
 
-    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL)
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return;
 
-    if (checkType(c, kv, OBJ_STRING)) {
+    if (checkType(c,o,OBJ_STRING)) {
         return;
     }
 
@@ -375,7 +375,7 @@ void getexCommand(client *c) {
     }
 
     /* We need to do this before we expire the key or delete it */
-    addReplyBulk(c, kv);
+    addReplyBulk(c,o);
 
     /* This command is never propagated as is. It is either propagated as PEXPIRE[AT],DEL,UNLINK or PERSIST.
      * This why it doesn't need special handling in feedAppendOnlyFile to convert relative expire time to absolute one. */
@@ -496,7 +496,7 @@ void setrangeCommand(client *c) {
 }
 
 void getrangeCommand(client *c) {
-    kvobj *kv;
+    kvobj *o;
     long long start, end;
     char *str, llbuf[32];
     size_t strlen;
@@ -505,14 +505,14 @@ void getrangeCommand(client *c) {
         return;
     if (getLongLongFromObjectOrReply(c,c->argv[3],&end,NULL) != C_OK)
         return;
-    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.emptybulk)) == NULL ||
-        checkType(c, kv, OBJ_STRING)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptybulk)) == NULL ||
+        checkType(c,o,OBJ_STRING)) return;
 
-    if (kv->encoding == OBJ_ENCODING_INT) {
+    if (o->encoding == OBJ_ENCODING_INT) {
         str = llbuf;
-        strlen = ll2string(llbuf,sizeof(llbuf),(long)kv->ptr);
+        strlen = ll2string(llbuf,sizeof(llbuf),(long)o->ptr);
     } else {
-        str = kv->ptr;
+        str = o->ptr;
         strlen = sdslen(str);
     }
 
@@ -541,14 +541,14 @@ void mgetCommand(client *c) {
 
     addReplyArrayLen(c,c->argc-1);
     for (j = 1; j < c->argc; j++) {
-        kvobj *kv = lookupKeyRead(c->db, c->argv[j]);
-        if (kv == NULL) {
+        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
+        if (o == NULL) {
             addReplyNull(c);
         } else {
-            if (kv->type != OBJ_STRING) {
+            if (o->type != OBJ_STRING) {
                 addReplyNull(c);
             } else {
-                addReplyBulk(c, kv);
+                addReplyBulk(c,o);
             }
         }
     }
@@ -599,9 +599,9 @@ void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *new;
     dictEntLink link; 
-    kvobj *kv = lookupKeyWriteWithLink(c->db, c->argv[1], &link); /* if not found, link points to bucket */
-    if (checkType(c, kv, OBJ_STRING)) return;
-    if (getLongLongFromObjectOrReply(c,kv,&value,NULL) != C_OK) return;
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link); /* if not found, link points to bucket */
+    if (checkType(c,o,OBJ_STRING)) return;
+    if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
     oldvalue = value;
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
@@ -611,14 +611,14 @@ void incrDecrCommand(client *c, long long incr) {
     }
     value += incr;
 
-    if (kv && kv->refcount == 1 && kv->encoding == OBJ_ENCODING_INT &&
+    if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
         value >= LONG_MIN && value <= LONG_MAX)
     {
-        new = kv;
-        kv->ptr = (void*)((long)value);
+        new = o;
+        o->ptr = (void*)((long)value);
     } else {
         new = createStringObjectFromLongLongForValue(value);
-        if (kv) {
+        if (o) {
             dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
         } else {
             /* TODO : Pass bucket */
@@ -662,9 +662,9 @@ void incrbyfloatCommand(client *c) {
     long double incr, value;
 
     dictEntLink link;
-    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
-    if (checkType(c,kv,OBJ_STRING)) return;
-    if (getLongDoubleFromObjectOrReply(c,kv,&value,NULL) != C_OK ||
+    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+    if (checkType(c,o,OBJ_STRING)) return;
+    if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK ||
         getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != C_OK)
         return;
 
@@ -674,7 +674,7 @@ void incrbyfloatCommand(client *c) {
         return;
     }
     robj *new = createStringObjectFromLongDouble(value,1);
-    if (kv)
+    if (o)
         dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
     else
         dbAdd(c->db, c->argv[1], &new);
@@ -694,11 +694,11 @@ void incrbyfloatCommand(client *c) {
 void appendCommand(client *c) {
     size_t totlen, append_len;
     robj *append;
-    kvobj *kv;
+    kvobj *o;
 
     dictEntLink link;
-    kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
-    if (kv == NULL) {
+    o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+    if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
         dbAdd(c->db, c->argv[1], &c->argv[2]);
@@ -706,19 +706,19 @@ void appendCommand(client *c) {
         append_len = totlen = stringObjectLen(c->argv[2]);
     } else {
         /* Key exists, check type */
-        if (checkType(c,kv,OBJ_STRING))
+        if (checkType(c,o,OBJ_STRING))
             return;
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
         append_len = sdslen(append->ptr);
-        if (checkStringLength(c,stringObjectLen(kv),append_len) != C_OK)
+        if (checkStringLength(c,stringObjectLen(o),append_len) != C_OK)
             return;
 
         /* Append the value */
-        kv = dbUnshareStringValueByLink(c->db,c->argv[1],kv,link);
-        kv->ptr = sdscatlen(kv->ptr,append->ptr,append_len);
-        totlen = sdslen(kv->ptr);
+        o = dbUnshareStringValueByLink(c->db,c->argv[1],o,link);
+        o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
+        totlen = sdslen(o->ptr);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
@@ -738,25 +738,26 @@ void strlenCommand(client *c) {
 void lcsCommand(client *c) {
     uint32_t i, j;
     long long minmatchlen = 0;
+    sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
 
-    kvobj *kv1 = lookupKeyRead(c->db, c->argv[1]);
-    kvobj *kv2 = lookupKeyRead(c->db, c->argv[2]);
-    if ((kv1 && kv1->type != OBJ_STRING) ||
-        (kv2 && kv2->type != OBJ_STRING))
+    kvobj *obja = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *objb = lookupKeyRead(c->db, c->argv[2]);
+    if ((obja && obja->type != OBJ_STRING) ||
+        (objb && objb->type != OBJ_STRING))
     {
         addReplyError(c,
             "The specified keys must contain string values");
         /* Don't cleanup the objects, we need to do that
          * only after calling getDecodedObject(). */
-        kv1 = NULL;
-        kv2 = NULL;
+        obja = NULL;
+        objb = NULL;
         goto cleanup;
     }
-    kv1 = kv1 ? getDecodedObject(kv1) : createStringObject("", 0);
-    kv2 = kv2 ? getDecodedObject(kv2) : createStringObject("", 0);
-    sds str1 = kv1->ptr;
-    sds str2 = kv2->ptr;
+    obja = obja ? getDecodedObject(obja) : createStringObject("",0);
+    objb = objb ? getDecodedObject(objb) : createStringObject("",0);
+    a = obja->ptr;
+    b = objb->ptr;
 
     for (j = 3; j < (uint32_t)c->argc; j++) {
         char *opt = c->argv[j]->ptr;
@@ -787,18 +788,18 @@ void lcsCommand(client *c) {
     }
 
     /* Detect string truncation or later overflows. */
-    if (sdslen(str1) >= UINT32_MAX - 1 || sdslen(str2) >= UINT32_MAX - 1) {
+    if (sdslen(a) >= UINT32_MAX-1 || sdslen(b) >= UINT32_MAX-1) {
         addReplyError(c, "String too long for LCS");
         goto cleanup;
     }
 
     /* Compute the LCS using the vanilla dynamic programming technique of
-     * building str1 table of LCS(x,y) substrings. */
-    uint32_t alen = sdslen(str1);
-    uint32_t blen = sdslen(str2);
+     * building a table of LCS(x,y) substrings. */
+    uint32_t alen = sdslen(a);
+    uint32_t blen = sdslen(b);
 
     /* Setup an uint32_t array to store at LCS[i,j] the length of the
-     * LCS A0..i-1, B0..j-1. Note that we have str1 linear array here, so
+     * LCS A0..i-1, B0..j-1. Note that we have a linear array here, so
      * we index it as LCS[j+(blen+1)*i] */
     #define LCS(A,B) lcs[(B)+((A)*(blen+1))]
 
@@ -825,7 +826,7 @@ void lcsCommand(client *c) {
                 /* If one substring has length of zero, the
                  * LCS length is zero. */
                 LCS(i,j) = 0;
-            } else if (str1[i - 1] == str2[j - 1]) {
+            } else if (a[i-1] == b[j-1]) {
                 /* The len LCS (and the LCS itself) of two
                  * sequences with the same final character, is the
                  * LCS of the two sequences without the last char
@@ -856,7 +857,7 @@ void lcsCommand(client *c) {
     int computelcs = getidx || !getlen;
     if (computelcs) result = sdsnewlen(SDS_NOINIT,idx);
 
-    /* Start with str1 deferred array if we have to emit the ranges. */
+    /* Start with a deferred array if we have to emit the ranges. */
     uint32_t arraylen = 0;  /* Number of ranges emitted in the array. */
     if (getidx) {
         addReplyMapLen(c,2);
@@ -867,10 +868,10 @@ void lcsCommand(client *c) {
     i = alen, j = blen;
     while (computelcs && i > 0 && j > 0) {
         int emit_range = 0;
-        if (str1[i - 1] == str2[j - 1]) {
-            /* If there is str1 match, store the character and reduce
-             * the indexes to look for str1 new match. */
-            result[idx-1] = str1[i - 1];
+        if (a[i-1] == b[j-1]) {
+            /* If there is a match, store the character and reduce
+             * the indexes to look for a new match. */
+            result[idx-1] = a[i-1];
 
             /* Track the current range. */
             if (arange_start == alen) {
@@ -943,8 +944,8 @@ void lcsCommand(client *c) {
     zfree(lcs);
 
 cleanup:
-    if (kv1) decrRefCount(kv1);
-    if (kv2) decrRefCount(kv2);
+    if (obja) decrRefCount(obja);
+    if (objb) decrRefCount(objb);
     return;
 }
 

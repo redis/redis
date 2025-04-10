@@ -2374,35 +2374,35 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             size_t aof_bytes_before_key = aof->processed_bytes;
 
             /* Get the value object (of type kvobj) */
-            kvobj *kv = dictGetKV(de);
+            kvobj *o = dictGetKV(de);
             
             /* Get the expire time */
-            expiretime = kvobjGetExpire(kv);
+            expiretime = kvobjGetExpire(o);
             
             /* Set on stack string object for key */
             robj key;
-            initStaticStringObject(key, kvobjGetKey(kv));
+            initStaticStringObject(key, kvobjGetKey(o));
 
             /* Save the key and associated value */
-            if (kv->type == OBJ_STRING) {
+            if (o->type == OBJ_STRING) {
                 /* Emit a SET command */
                 char cmd[]="*3\r\n$3\r\nSET\r\n";
                 if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
                 /* Key and value */
                 if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkObject(aof, kv) == 0) goto werr;
-            } else if (kv->type == OBJ_LIST) {
-                if (rewriteListObject(aof,&key,kv) == 0) goto werr;
-            } else if (kv->type == OBJ_SET) {
-                if (rewriteSetObject(aof,&key,kv) == 0) goto werr;
-            } else if (kv->type == OBJ_ZSET) {
-                if (rewriteSortedSetObject(aof,&key,kv) == 0) goto werr;
-            } else if (kv->type == OBJ_HASH) {
-                if (rewriteHashObject(aof,&key,kv) == 0) goto werr;
-            } else if (kv->type == OBJ_STREAM) {
-                if (rewriteStreamObject(aof,&key,kv) == 0) goto werr;
-            } else if (kv->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof,&key,kv,j) == 0) goto werr;
+                if (rioWriteBulkObject(aof,o) == 0) goto werr;
+            } else if (o->type == OBJ_LIST) {
+                if (rewriteListObject(aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_SET) {
+                if (rewriteSetObject(aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_ZSET) {
+                if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_HASH) {
+                if (rewriteHashObject(aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_STREAM) {
+                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
+            } else if (o->type == OBJ_MODULE) {
+                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
             } else {
                 serverPanic("Unknown object type");
             }
@@ -2411,7 +2411,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
              * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
-            if (server.in_fork_child) dismissObject(kv, dump_size);
+            if (server.in_fork_child) dismissObject(o, dump_size);
 
             /* Save the expire time */
             if (expiretime != -1) {

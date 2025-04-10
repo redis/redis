@@ -577,22 +577,22 @@ void defragQuicklist(defragKeysCtx *ctx, kvobj *kv) {
         activeDefragQuickListNodes(ql);
 }
 
-void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *kv) {
-    zset *zs = (zset*)kv->ptr;
+void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
+    zset *zs = (zset*)ob->ptr;
     zset *newzs;
     zskiplist *newzsl;
     dict *newdict;
     dictEntry *de;
     struct zskiplistNode *newheader;
-    serverAssert(kv->type == OBJ_ZSET && kv->encoding == OBJ_ENCODING_SKIPLIST);
+    serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
     if ((newzs = activeDefragAlloc(zs)))
-        kv->ptr = zs = newzs;
+        ob->ptr = zs = newzs;
     if ((newzsl = activeDefragAlloc(zs->zsl)))
         zs->zsl = newzsl;
     if ((newheader = activeDefragAlloc(zs->zsl->header)))
         zs->zsl->header = newheader;
     if (dictSize(zs->dict) > server.active_defrag_max_scan_fields)
-        defragLater(ctx, kv);
+        defragLater(ctx, ob);
     else {
         dictIterator *di = dictGetIterator(zs->dict);
         while((de = dictNext(di)) != NULL) {
@@ -605,30 +605,30 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *kv) {
         zs->dict = newdict;
 }
 
-void defragHash(defragKeysCtx *ctx, kvobj *kv) {
+void defragHash(defragKeysCtx *ctx, kvobj *ob) {
     dict *d, *newd;
-    serverAssert(kv->type == OBJ_HASH && kv->encoding == OBJ_ENCODING_HT);
-    d = kv->ptr;
+    serverAssert(ob->type == OBJ_HASH && ob->encoding == OBJ_ENCODING_HT);
+    d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
-        defragLater(ctx, kv);
+        defragLater(ctx, ob);
     else
         activeDefragHfieldDict(d);
     /* defrag the dict struct and tables */
-    if ((newd = dictDefragTables(kv->ptr)))
-        kv->ptr = newd;
+    if ((newd = dictDefragTables(ob->ptr)))
+        ob->ptr = newd;
 }
 
-void defragSet(defragKeysCtx *ctx, kvobj *kv) {
+void defragSet(defragKeysCtx *ctx, kvobj *ob) {
     dict *d, *newd;
-    serverAssert(kv->type == OBJ_SET && kv->encoding == OBJ_ENCODING_HT);
-    d = kv->ptr;
+    serverAssert(ob->type == OBJ_SET && ob->encoding == OBJ_ENCODING_HT);
+    d = ob->ptr;
     if (dictSize(d) > server.active_defrag_max_scan_fields)
-        defragLater(ctx, kv);
+        defragLater(ctx, ob);
     else
         activeDefragSdsDict(d, DEFRAG_SDS_DICT_NO_VAL);
     /* defrag the dict struct and tables */
-    if ((newd = dictDefragTables(kv->ptr)))
-        kv->ptr = newd;
+    if ((newd = dictDefragTables(ob->ptr)))
+        ob->ptr = newd;
 }
 
 /* Defrag callback for radix tree iterator, called for each node,
@@ -770,19 +770,19 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     return NULL;
 }
 
-void defragStream(defragKeysCtx *ctx, kvobj *kv) {
-    serverAssert(kv->type == OBJ_STREAM && kv->encoding == OBJ_ENCODING_STREAM);
-    stream *s = kv->ptr, *news;
+void defragStream(defragKeysCtx *ctx, kvobj *ob) {
+    serverAssert(ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM);
+    stream *s = ob->ptr, *news;
 
     /* handle the main struct */
     if ((news = activeDefragAlloc(s)))
-        kv->ptr = s = news;
+        ob->ptr = s = news;
 
     if (raxSize(s->rax) > server.active_defrag_max_scan_fields) {
         rax *newrax = activeDefragAlloc(s->rax);
         if (newrax)
             s->rax = newrax;
-        defragLater(ctx, kv);
+        defragLater(ctx, ob);
     } else
         defragRadixTree(&s->rax, 1, NULL, NULL);
 
@@ -805,87 +805,87 @@ void defragModule(defragKeysCtx *ctx, redisDb *db, kvobj *kv) {
  * all the various pointers it has. */
 void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntLink link) {
     dictEntLink exlink = NULL;
-    kvobj *kvnew, *kv = dictGetKV(de);
+    kvobj *kvnew, *ob = dictGetKV(de);
     redisDb *db = &server.db[ctx->dbid];
     int slot = ctx->kvstate.slot;
     unsigned char *newzl;
     
-    long long expire = kvobjGetExpire(kv);
+    long long expire = kvobjGetExpire(ob);
     /* We can't search in db->expires for that KV after we've released
      * the pointer it holds, since it won't be able to do the string
      * compare. Search it before, if needed. */ 
      if (expire != -1) {
-         exlink = kvstoreDictFindLink(db->expires, slot, kvobjGetKey(kv), NULL);
+         exlink = kvstoreDictFindLink(db->expires, slot, kvobjGetKey(ob), NULL);
          serverAssert(exlink != NULL);
      }
 
     /* Try to defrag robj and / or string value. */
-    if (unlikely(kv->type == OBJ_HASH && hashTypeGetMinExpire(kv, 0) != EB_EXPIRE_TIME_INVALID)) {
+    if (unlikely(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
         /* Update its reference in the ebucket while defragging it. */
-        kvnew = ebDefragItem(&db->hexpires, &hashExpireBucketsType, kv,
+        kvnew = ebDefragItem(&db->hexpires, &hashExpireBucketsType, ob,
                              (ebDefragFunction *)activeDefragStringOb);
     } else {
         /* If the dict doesn't have metadata, we directly defrag it. */
-        kvnew = activeDefragStringOb(kv);
+        kvnew = activeDefragStringOb(ob);
     }
     if (kvnew) {
         kvstoreDictSetAtLink(db->keys, slot, kvnew, &link, 0);
         if (expire != -1)
             kvstoreDictSetAtLink(db->expires, slot, kvnew, &exlink, 0);
-        kv = kvnew;
+        ob = kvnew;
     }
 
-    if (kv->type == OBJ_STRING) {
+    if (ob->type == OBJ_STRING) {
         /* Already handled in activeDefragStringOb. */
-    } else if (kv->type == OBJ_LIST) {
-        if (kv->encoding == OBJ_ENCODING_QUICKLIST) {
-            defragQuicklist(ctx, kv);
-        } else if (kv->encoding == OBJ_ENCODING_LISTPACK) {
-            if ((newzl = activeDefragAlloc(kv->ptr)))
-                kv->ptr = newzl;
+    } else if (ob->type == OBJ_LIST) {
+        if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
+            defragQuicklist(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                ob->ptr = newzl;
         } else {
             serverPanic("Unknown list encoding");
         }
-    } else if (kv->type == OBJ_SET) {
-        if (kv->encoding == OBJ_ENCODING_HT) {
-            defragSet(ctx, kv);
-        } else if (kv->encoding == OBJ_ENCODING_INTSET ||
-                   kv->encoding == OBJ_ENCODING_LISTPACK)
+    } else if (ob->type == OBJ_SET) {
+        if (ob->encoding == OBJ_ENCODING_HT) {
+            defragSet(ctx, ob);
+        } else if (ob->encoding == OBJ_ENCODING_INTSET ||
+                   ob->encoding == OBJ_ENCODING_LISTPACK)
         {
-            void *newptr, *ptr = kv->ptr;
+            void *newptr, *ptr = ob->ptr;
             if ((newptr = activeDefragAlloc(ptr)))
-                kv->ptr = newptr;
+                ob->ptr = newptr;
         } else {
             serverPanic("Unknown set encoding");
         }
-    } else if (kv->type == OBJ_ZSET) {
-        if (kv->encoding == OBJ_ENCODING_LISTPACK) {
-            if ((newzl = activeDefragAlloc(kv->ptr)))
-                kv->ptr = newzl;
-        } else if (kv->encoding == OBJ_ENCODING_SKIPLIST) {
-            defragZsetSkiplist(ctx, kv);
+    } else if (ob->type == OBJ_ZSET) {
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                ob->ptr = newzl;
+        } else if (ob->encoding == OBJ_ENCODING_SKIPLIST) {
+            defragZsetSkiplist(ctx, ob);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
-    } else if (kv->type == OBJ_HASH) {
-        if (kv->encoding == OBJ_ENCODING_LISTPACK) {
-            if ((newzl = activeDefragAlloc(kv->ptr)))
-                kv->ptr = newzl;
-        } else if (kv->encoding == OBJ_ENCODING_LISTPACK_EX) {
-            listpackEx *newlpt, *lpt = (listpackEx*)kv->ptr;
+    } else if (ob->type == OBJ_HASH) {
+        if (ob->encoding == OBJ_ENCODING_LISTPACK) {
+            if ((newzl = activeDefragAlloc(ob->ptr)))
+                ob->ptr = newzl;
+        } else if (ob->encoding == OBJ_ENCODING_LISTPACK_EX) {
+            listpackEx *newlpt, *lpt = (listpackEx*)ob->ptr;
             if ((newlpt = activeDefragAlloc(lpt)))
-                kv->ptr = lpt = newlpt;
+                ob->ptr = lpt = newlpt;
             if ((newzl = activeDefragAlloc(lpt->lp)))
                 lpt->lp = newzl;
-        } else if (kv->encoding == OBJ_ENCODING_HT) {
-            defragHash(ctx, kv);
+        } else if (ob->encoding == OBJ_ENCODING_HT) {
+            defragHash(ctx, ob);
         } else {
             serverPanic("Unknown hash encoding");
         }
-    } else if (kv->type == OBJ_STREAM) {
-        defragStream(ctx, kv);
-    } else if (kv->type == OBJ_MODULE) {
-        defragModule(ctx,db, kv);
+    } else if (ob->type == OBJ_STREAM) {
+        defragStream(ctx, ob);
+    } else if (ob->type == OBJ_MODULE) {
+        defragModule(ctx,db, ob);
     } else {
         serverPanic("Unknown object type");
     }
@@ -974,22 +974,22 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntLink p
 
 /* returns 0 more work may or may not be needed (see non-zero cursor),
  * and 1 if time is up and more work is needed. */
-int defragLaterItem(kvobj *kv, unsigned long *cursor, monotime endtime, int dbid) {
-    if (kv) {
-        if (kv->type == OBJ_LIST) {
-            return scanLaterList(kv, cursor, endtime);
-        } else if (kv->type == OBJ_SET) {
-            scanLaterSet(kv, cursor);
-        } else if (kv->type == OBJ_ZSET) {
-            scanLaterZset(kv, cursor);
-        } else if (kv->type == OBJ_HASH) {
-            scanLaterHash(kv, cursor);
-        } else if (kv->type == OBJ_STREAM) {
-            return scanLaterStreamListpacks(kv, cursor, endtime);
-        } else if (kv->type == OBJ_MODULE) {
+int defragLaterItem(kvobj *ob, unsigned long *cursor, monotime endtime, int dbid) {
+    if (ob) {
+        if (ob->type == OBJ_LIST) {
+            return scanLaterList(ob, cursor, endtime);
+        } else if (ob->type == OBJ_SET) {
+            scanLaterSet(ob, cursor);
+        } else if (ob->type == OBJ_ZSET) {
+            scanLaterZset(ob, cursor);
+        } else if (ob->type == OBJ_HASH) {
+            scanLaterHash(ob, cursor);
+        } else if (ob->type == OBJ_STREAM) {
+            return scanLaterStreamListpacks(ob, cursor, endtime);
+        } else if (ob->type == OBJ_MODULE) {
             robj keyobj;
-            initStaticStringObject(keyobj, kvobjGetKey(kv));
-            return moduleLateDefrag(&keyobj, kv, cursor, endtime, dbid);
+            initStaticStringObject(keyobj, kvobjGetKey(ob));
+            return moduleLateDefrag(&keyobj, ob, cursor, endtime, dbid);
         } else {
             *cursor = 0; /* object type may have changed since we schedule it for later */
         }

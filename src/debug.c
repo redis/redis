@@ -683,34 +683,34 @@ NULL
                 (long long) val_alloc);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"listpack") && c->argc == 3) {
-        kvobj *kv;
+        kvobj *o;
 
-        if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.nokeyerr))
+        if ((o = kvobjCommandLookupOrReply(c, c->argv[2], shared.nokeyerr))
                 == NULL) return;
 
-        if (kv->encoding != OBJ_ENCODING_LISTPACK && kv->encoding != OBJ_ENCODING_LISTPACK_EX) {
+        if (o->encoding != OBJ_ENCODING_LISTPACK && o->encoding != OBJ_ENCODING_LISTPACK_EX) {
             addReplyError(c,"Not a listpack encoded object.");
         } else {
-            if (kv->encoding == OBJ_ENCODING_LISTPACK)
-                lpRepr(kv->ptr);
-            else if (kv->encoding == OBJ_ENCODING_LISTPACK_EX)
-                lpRepr(((listpackEx*)kv->ptr)->lp);
+            if (o->encoding == OBJ_ENCODING_LISTPACK)
+                lpRepr(o->ptr);
+            else if (o->encoding == OBJ_ENCODING_LISTPACK_EX)
+                lpRepr(((listpackEx*)o->ptr)->lp);
 
             addReplyStatus(c,"Listpack structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
-        kvobj *kv;
+        kvobj *o;
 
-        if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.nokeyerr))
+        if ((o = kvobjCommandLookupOrReply(c, c->argv[2], shared.nokeyerr))
             == NULL) return;
 
         int full = 0;
         if (c->argc == 4)
             full = atoi(c->argv[3]->ptr);
-        if (kv->encoding != OBJ_ENCODING_QUICKLIST) {
+        if (o->encoding != OBJ_ENCODING_QUICKLIST) {
             addReplyError(c,"Not a quicklist encoded object.");
         } else {
-            quicklistRepr(kv->ptr, full);
+            quicklistRepr(o->ptr, full);
             addReplyStatus(c,"Quicklist structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"populate") &&
@@ -783,8 +783,8 @@ NULL
 
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
-            kvobj *kv = dbFind(c->db, c->argv[j]->ptr);
-            if (kv) xorObjectDigest(c->db,c->argv[j],digest,kv);
+            kvobj *o = dbFind(c->db, c->argv[j]->ptr);
+            if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
             for (int i = 0; i < 20; i++) d = sdscatprintf(d, "%02x",digest[i]);
@@ -937,26 +937,26 @@ NULL
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc >= 3) {
-        kvobj *kv;
+        kvobj *o;
         dict *ht = NULL;
         int full = 0;
 
         if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
             full = 1;
 
-        if ((kv = kvobjCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+        if ((o = kvobjCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
 
         /* Get the hash table reference from the object, if possible. */
-        switch (kv->encoding) {
+        switch (o->encoding) {
         case OBJ_ENCODING_SKIPLIST:
             {
-                zset *zs = kv->ptr;
+                zset *zs = o->ptr;
                 ht = zs->dict;
             }
             break;
         case OBJ_ENCODING_HT:
-            ht = kv->ptr;
+            ht = o->ptr;
             break;
         }
 

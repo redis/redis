@@ -70,10 +70,10 @@ typedef struct redisObject robj;
  * 
  * Since robj is being overused as general purpose object, `kvobj` distincts only 
  * at the declarative level. This distinction assist to the clarity of the code
- * and can optionally enforce explicit casting, later on. An `robj` is identified 
+ * and can optionally enforce explicit casting later on. An `robj` is identified 
  * to be `kvobj` if `iskvobj` flag is set. 
  * 
- * Example to kvobj layout with key "mykey" and expiry: 
+ * Example to kvobj layout with key "mykey" and expiration time: 
  *    +--------------+--------------+--------------+--------------------+
  *    | serverObject | Expiry Time  | key-hdr-size | sdshdr5 "mykey" \0 |
  *    | 16 bytes     | 8 byte       | 1 byte       | 1      +   5   + 1 |
@@ -85,9 +85,6 @@ typedef struct redisObject robj;
  *    | 16 bytes     | 1 byte       | 1      +   5   + 1 | 3    +      7    + 1 |
  *    +--------------+--------------+--------------------+----------------------+
  * 
- * Functions specific to `kvobj`:
- * - kvobjGetKey(): Returns the key associated with this KV object.
- * - kvobjGetExpire(): Returns the expiration time of the KV object.
  */
 typedef struct redisObject kvobj;
 
@@ -758,8 +755,10 @@ typedef enum {
  * assertions that are too computationally expensive or dangerous to run during normal operations.  */
 #ifdef DEBUG_ASSERTIONS
 #define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#define debugServerAssert(...) serverAssert(__VA_ARGS__)
 #else
 #define debugServerAssertWithInfo(...)
+#define debugServerAssert(...)
 #endif
 
 /* latency histogram per command init settings */

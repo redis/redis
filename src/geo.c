@@ -525,8 +525,8 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     int storedist = 0; /* 0 for STORE, 1 for STOREDIST. */
 
     /* Look up the requested zset */
-    kvobj *kv = lookupKeyRead(c->db, c->argv[srcKeyIndex]);
-    if (checkType(c, kv, OBJ_ZSET)) return;
+    kvobj *zobj = lookupKeyRead(c->db, c->argv[srcKeyIndex]);
+    if (checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Find long/lat to use for radius or box search based on inquiry type */
     int base_args;
@@ -537,7 +537,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         shape.type = CIRCULAR_TYPE;
         if (extractLongLatOrReply(c, c->argv + 2, shape.xy) == C_ERR) return;
         if (extractDistanceOrReply(c, c->argv+base_args-2, &shape.conversion, &shape.t.radius) != C_OK) return;
-    } else if ((flags & RADIUS_MEMBER) && !kv) {
+    } else if ((flags & RADIUS_MEMBER) && !zobj) {
         /* We don't have a source key, but we need to proceed with argument
          * parsing, so we know which reply to use depending on the STORE flag. */
         base_args = 5;
@@ -546,7 +546,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         base_args = 5;
         shape.type = CIRCULAR_TYPE;
         robj *member = c->argv[2];
-        if (longLatFromMember(kv, member, shape.xy) == C_ERR) {
+        if (longLatFromMember(zobj, member, shape.xy) == C_ERR) {
             addReplyError(c, "could not decode requested zset member");
             return;
         }
@@ -620,13 +620,13 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                       !fromloc)
             {
                 /* No source key, proceed with argument parsing and return an error when done. */
-                if (kv == NULL) {
+                if (zobj == NULL) {
                     frommember = 1;
                     i++;
                     continue;
                 }
 
-                if (longLatFromMember(kv, c->argv[base_args + i + 1], shape.xy) == C_ERR) {
+                if (longLatFromMember(zobj, c->argv[base_args + i + 1], shape.xy) == C_ERR) {
                     addReplyError(c, "could not decode requested zset member");
                     return;
                 }
@@ -695,7 +695,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     }
 
     /* Return ASAP when src key does not exist. */
-    if (kv == NULL) {
+    if (zobj == NULL) {
         if (storekey) {
             /* store key is not NULL, try to delete it and return 0. */
             if (dbDelete(c->db, storekey)) {
@@ -722,7 +722,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
     /* Search the zset for all matching points */
     geoArray *ga = geoArrayCreate();
-    membersOfAllNeighbors(kv, &georadius, &shape, ga, any ? count : 0);
+    membersOfAllNeighbors(zobj, &georadius, &shape, ga, any ? count : 0);
 
     /* If no matching results, the user gets an empty reply. */
     if (ga->used == 0 && storekey == NULL) {
@@ -829,7 +829,6 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         if (returned_items) {
             zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
             setKey(c,c->db,storekey,&zobj,0);
-            //decrRefCount(zobj);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
@@ -880,15 +879,15 @@ void geohashCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
-    if (checkType(c, kv, OBJ_ZSET)) return;
+    kvobj *zobj = lookupKeyRead(c->db, c->argv[1]);
+    if (checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Geohash elements one after the other, using a null bulk reply for
      * missing elements. */
     addReplyArrayLen(c,c->argc-2);
     for (j = 2; j < c->argc; j++) {
         double score;
-        if (!kv || zsetScore(kv, c->argv[j]->ptr, &score) == C_ERR) {
+        if (!zobj || zsetScore(zobj, c->argv[j]->ptr, &score) == C_ERR) {
             addReplyNull(c);
         } else {
             /* The internal format we use for geocoding is a bit different
@@ -941,15 +940,15 @@ void geoposCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    robj *kv = lookupKeyRead(c->db, c->argv[1]);
-    if (checkType(c, kv, OBJ_ZSET)) return;
+    robj *zobj = lookupKeyRead(c->db, c->argv[1]);
+    if (checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Report elements one after the other, using a null bulk reply for
      * missing elements. */
     addReplyArrayLen(c,c->argc-2);
     for (j = 2; j < c->argc; j++) {
         double score;
-        if (!kv || zsetScore(kv, c->argv[j]->ptr, &score) == C_ERR) {
+        if (!zobj || zsetScore(zobj, c->argv[j]->ptr, &score) == C_ERR) {
             addReplyNullArray(c);
         } else {
             /* Decode... */
@@ -983,14 +982,14 @@ void geodistCommand(client *c) {
     }
 
     /* Look up the requested zset */
-    kvobj *kv = NULL;
-    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
-        == NULL || checkType(c, kv, OBJ_ZSET)) return;
+    kvobj *zobj = NULL;
+    if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
+        == NULL || checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Get the scores. We need both otherwise NULL is returned. */
     double score1, score2, xyxy[4];
-    if (zsetScore(kv, c->argv[2]->ptr, &score1) == C_ERR ||
-        zsetScore(kv, c->argv[3]->ptr, &score2) == C_ERR)
+    if (zsetScore(zobj, c->argv[2]->ptr, &score1) == C_ERR ||
+        zsetScore(zobj, c->argv[3]->ptr, &score2) == C_ERR)
     {
         addReplyNull(c);
         return;

@@ -299,7 +299,7 @@ static uint64_t dictHashKV(const void *kv) {
     return dictGenHashFunction(sdsKey, sdslen(sdsKey));
 }
 
-int dictCompareKV(dictCmpCache *c, const void *kv1, const void *kv2) 
+int dictCompareKV(dictCmpCache *c, const void *kv1, const void *kv2)
 {
     /* Use caching to avoid compute key&len for each comparison on given lookup */
     if (c->useCache == 0) {

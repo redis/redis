@@ -143,7 +143,7 @@ sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size
         case SDS_TYPE_8: {
             SDS_HDR_VAR(8,s);
             sh->len = initlen;
-            assert(usable <= sdsTypeMaxSize(type));
+            debugAssert(usable <= sdsTypeMaxSize(type));
             sh->alloc = usable;
             *fp = type;
             break;
@@ -151,7 +151,7 @@ sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size
         case SDS_TYPE_16: {
             SDS_HDR_VAR(16,s);
             sh->len = initlen;
-            assert(usable <= sdsTypeMaxSize(type));
+            debugAssert(usable <= sdsTypeMaxSize(type));
             sh->alloc = usable;
             *fp = type;
             break;
@@ -159,7 +159,7 @@ sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size
         case SDS_TYPE_32: {
             SDS_HDR_VAR(32,s);
             sh->len = initlen;
-            assert(usable <= sdsTypeMaxSize(type));
+            debugAssert(usable <= sdsTypeMaxSize(type));
             sh->alloc = usable;
             *fp = type;
             break;
@@ -167,7 +167,7 @@ sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size
         case SDS_TYPE_64: {
             SDS_HDR_VAR(64,s);
             sh->len = initlen;
-            assert(usable <= sdsTypeMaxSize(type));
+            debugAssert(usable <= sdsTypeMaxSize(type));
             sh->alloc = usable;
             *fp = type;
             break;
@@ -406,7 +406,7 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
             }
         }
         newsize = bufsize - oldhdrlen - 1;
-        assert(oldtype == SDS_TYPE_5 || newsize <= sdsTypeMaxSize(oldtype));
+        debugAssert(oldtype == SDS_TYPE_5 || newsize <= sdsTypeMaxSize(oldtype));
     } else {
         newsh = s_malloc_usable(newlen, &bufsize);
         if (newsh == NULL) return NULL;
@@ -416,7 +416,7 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
         s = (char *)newsh + hdrlen;
         s[-1] = type;
         newsize = bufsize - hdrlen - 1;
-        assert(type == SDS_TYPE_5 || newsize <= sdsTypeMaxSize(type));
+        debugAssert(type == SDS_TYPE_5 || newsize <= sdsTypeMaxSize(type));
     }
     s[len] = 0;
     sdssetlen(s, len);
@@ -537,19 +537,6 @@ sds sdscatlen(sds s, const void *t, size_t len) {
     sdssetlen(s, curlen+len);
     s[curlen+len] = '\0';
     return s;
-}
-
-/* This method copies the sds `s` into `buf` which is the target character buffer. */
-size_t sdscopytobuffer(unsigned char *buf, size_t buf_len, const sds s, uint8_t *hdr_size) {
-    /* min amount of bytes required to store the sds header + data + NULL */
-    size_t required_len = sdslen(s) + sdsHdrSize(s[-1]) + 1;
-    if (buf == NULL) {
-        return required_len;
-    }
-    assert(buf_len >= required_len);
-    memcpy(buf, sdsAllocPtr(s), required_len);
-    *hdr_size = sdsHdrSize(s[-1]);
-    return required_len;
 }
 
 /* Append the specified null terminated C string to the sds string 's'.

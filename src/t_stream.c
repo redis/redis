@@ -2255,15 +2255,15 @@ void xreadCommand(client *c) {
          * starting from now. */
         int id_idx = i - streams_arg - streams_count;
         robj *key = c->argv[i-streams_count];
-        kvobj *kv = lookupKeyRead(c->db, key);
-        if (checkType(c, kv, OBJ_STREAM)) goto cleanup;
+        kvobj *o = lookupKeyRead(c->db, key);
+        if (checkType(c,o,OBJ_STREAM)) goto cleanup;
         streamCG *group = NULL;
 
         /* If a group was specified, than we need to be sure that the
          * key and group actually exist. */
         if (groupname) {
-            if (kv == NULL ||
-                (group = streamLookupCG(kv->ptr, groupname->ptr)) == NULL)
+            if (o == NULL ||
+                (group = streamLookupCG(o->ptr,groupname->ptr)) == NULL)
             {
                 addReplyErrorFormat(c, "-NOGROUP No such key '%s' or consumer "
                                        "group '%s' in XREADGROUP with GROUP "
@@ -2283,8 +2283,8 @@ void xreadCommand(client *c) {
                                 "just return an empty result set.");
                 goto cleanup;
             }
-            if (kv) {
-                stream *s = kv->ptr;
+            if (o) {
+                stream *s = o->ptr;
                 ids[id_idx] = s->last_id;
             } else {
                 ids[id_idx].ms = 0;
@@ -2300,8 +2300,8 @@ void xreadCommand(client *c) {
                                 "just return an empty result set.");
                 goto cleanup;
             }
-            if (kv && ((stream *)kv->ptr)->length) {
-                stream *s = kv->ptr;
+            if (o && ((stream *)o->ptr)->length) {
+                stream *s = o->ptr;
                 /* We need to get the last valid ID.
                  * It is impossible to use s->last_id because
                  * entry with s->last_id may have been removed. */
@@ -2334,9 +2334,9 @@ void xreadCommand(client *c) {
     size_t arraylen = 0;
     void *arraylen_ptr = NULL;
     for (int i = 0; i < streams_count; i++) {
-        kvobj *kv = lookupKeyRead(c->db, c->argv[streams_arg + i]);
-        if (kv == NULL) continue;
-        stream *s = kv->ptr;
+        kvobj *o = lookupKeyRead(c->db, c->argv[streams_arg + i]);
+        if (o == NULL) continue;
+        stream *s = o->ptr;
         streamID *gt = ids+i; /* ID must be greater than this. */
         int serve_synchronously = 0;
         int serve_history = 0; /* True for XREADGROUP with ID != ">". */
@@ -3148,21 +3148,21 @@ void xpendingCommand(client *c) {
  * what messages it is now in charge of. */
 void xclaimCommand(client *c) {
     streamCG *group = NULL;
-    kvobj *kv = lookupKeyRead(c->db,c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument. */
     long long retrycount = -1;   /* -1 means RETRYCOUNT option not given. */
     mstime_t deliverytime = -1;  /* -1 means IDLE/TIME options not given. */
     int force = 0;
     int justid = 0;
 
-    if (kv) {
-        if (checkType(c,kv,OBJ_STREAM)) return; /* Type error. */
-        group = streamLookupCG(kv->ptr,c->argv[2]->ptr);
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM)) return; /* Type error. */
+        group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     }
 
     /* No key or group? Send an error given that the group creation
      * is mandatory. */
-    if (kv == NULL || group == NULL) {
+    if (o == NULL || group == NULL) {
         addReplyErrorFormat(c,"-NOGROUP No such key '%s' or "
                               "consumer group '%s'", (char*)c->argv[1]->ptr,
                               (char*)c->argv[2]->ptr);
@@ -3267,7 +3267,7 @@ void xclaimCommand(client *c) {
         streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(kv->ptr,&id)) {
+        if (!streamEntryExists(o->ptr,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
             if (nack != NULL) {
                 /* Propagate this change (we are going to delete the NACK). */
@@ -3329,7 +3329,7 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                serverAssert(streamReplyWithRange(c,kv->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
+                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
             }
             arraylen++;
 
@@ -3369,7 +3369,7 @@ cleanup:
  * what messages it is now in charge of. */
 void xautoclaimCommand(client *c) {
     streamCG *group = NULL;
-    kvobj *kv = lookupKeyRead(c->db,c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument, in milliseconds. */
     long count = 100; /* Maximum entries to claim. */
     const unsigned attempts_factor = 10;
@@ -3408,15 +3408,15 @@ void xautoclaimCommand(client *c) {
         j++;
     }
 
-    if (kv) {
-        if (checkType(c,kv,OBJ_STREAM))
+    if (o) {
+        if (checkType(c,o,OBJ_STREAM))
             return; /* Type error. */
-        group = streamLookupCG(kv->ptr,c->argv[2]->ptr);
+        group = streamLookupCG(o->ptr,c->argv[2]->ptr);
     }
 
     /* No key or group? Send an error given that the group creation
      * is mandatory. */
-    if (kv == NULL || group == NULL) {
+    if (o == NULL || group == NULL) {
         addReplyErrorFormat(c,"-NOGROUP No such key '%s' or consumer group '%s'",
                             (char*)c->argv[1]->ptr,
                             (char*)c->argv[2]->ptr);
@@ -3457,7 +3457,7 @@ void xautoclaimCommand(client *c) {
         streamDecodeID(ri.key, &id);
 
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(kv->ptr,&id)) {
+        if (!streamEntryExists(o->ptr,&id)) {
             /* Propagate this change (we are going to delete the NACK). */
             robj *idstr = createObjectFromStreamID(&id);
             streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
@@ -3504,7 +3504,7 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            serverAssert(streamReplyWithRange(c,kv->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
+            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
         }
         arraylen++;
         count--;

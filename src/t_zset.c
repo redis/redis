@@ -1759,7 +1759,7 @@ void zsetTypeRandomElement(robj *zsetobj, unsigned long zsetsize, listpackEntry 
 void zaddGenericCommand(client *c, int flags) {
     static char *nanerr = "resulting score is not a number (NaN)";
     robj *key = c->argv[1];
-    robj *kv;
+    robj *zobj;
     sds ele;
     double score = 0, *scores = NULL;
     int j, elements, ch = 0;
@@ -1833,24 +1833,24 @@ void zaddGenericCommand(client *c, int flags) {
     }
 
     /* Lookup the key and create the sorted set if does not exist. */
-    kv = lookupKeyWrite(c->db, key);
-    if (checkType(c, kv, OBJ_ZSET)) goto cleanup;
-    if (kv == NULL) {
+    zobj = lookupKeyWrite(c->db,key);
+    if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
+    if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
         robj *o = zsetTypeCreate(elements, sdslen(c->argv[scoreidx + 1]->ptr));
-        kv = dbAdd(c->db,key,&o);
+        zobj = dbAdd(c->db,key,&o);
     } else {
-        zsetTypeMaybeConvert(kv, elements);
+        zsetTypeMaybeConvert(zobj, elements);
     }
 
-    unsigned long llen = zsetLength(kv);
+    unsigned long llen = zsetLength(zobj);
     for (j = 0; j < elements; j++) {
         double newscore;
         score = scores[j];
         int retflags = 0;
 
         ele = c->argv[scoreidx+1+j*2]->ptr;
-        int retval = zsetAdd(kv, score, ele, flags, &retflags, &newscore);
+        int retval = zsetAdd(zobj, score, ele, flags, &retflags, &newscore);
         if (retval == 0) {
             addReplyError(c,nanerr);
             goto cleanup;
@@ -1894,12 +1894,12 @@ void zremCommand(client *c) {
     robj *key = c->argv[1];
     int deleted = 0, keyremoved = 0, j;
 
-    kvobj *kv = lookupKeyWriteOrReply(c, key, shared.czero); 
-    if (kv == NULL || checkType(c, kv, OBJ_ZSET)) return;
+    kvobj *zobj = lookupKeyWriteOrReply(c, key, shared.czero); 
+    if (zobj == NULL || checkType(c,zobj,OBJ_ZSET)) return;
 
     for (j = 2; j < c->argc; j++) {
-        if (zsetDel(kv, c->argv[j]->ptr)) deleted++;
-        if (zsetLength(kv) == 0) {
+        if (zsetDel(zobj, c->argv[j]->ptr)) deleted++;
+        if (zsetLength(zobj) == 0) {
             dbDelete(c->db,key);
             keyremoved = 1;
             break;
@@ -1912,7 +1912,7 @@ void zremCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
             /* No need updateKeysizesHist(). dbDelete() done it already. */
         } else {
-            unsigned long len =  zsetLength(kv);
+            unsigned long len =  zsetLength(zobj);
             updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, len + deleted, len);
         }
         signalModifiedKey(c,c->db,key);
@@ -1961,12 +1961,12 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
     }
 
     /* Step 2: Lookup & range sanity checks if needed. */
-    kvobj *kv = lookupKeyWriteOrReply(c, key, shared.czero);
-    if (kv == NULL || checkType(c, kv, OBJ_ZSET)) goto cleanup;
+    kvobj *zobj = lookupKeyWriteOrReply(c, key, shared.czero);
+    if (zobj == NULL || checkType(c, zobj, OBJ_ZSET)) goto cleanup;
 
     if (rangetype == ZRANGE_RANK) {
         /* Sanitize indexes. */
-        llen = zsetLength(kv);
+        llen = zsetLength(zobj);
         if (start < 0) start = llen+start;
         if (end < 0) end = llen+end;
         if (start < 0) start = 0;
@@ -1981,25 +1981,25 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
     }
 
     /* Step 3: Perform the range deletion operation. */
-    if (kv->encoding == OBJ_ENCODING_LISTPACK) {
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         switch(rangetype) {
         case ZRANGE_AUTO:
         case ZRANGE_RANK:
-            kv->ptr = zzlDeleteRangeByRank(kv->ptr, start + 1, end + 1, &deleted);
+            zobj->ptr = zzlDeleteRangeByRank(zobj->ptr,start+1,end+1,&deleted);
             break;
         case ZRANGE_SCORE:
-            kv->ptr = zzlDeleteRangeByScore(kv->ptr, &range, &deleted);
+            zobj->ptr = zzlDeleteRangeByScore(zobj->ptr,&range,&deleted);
             break;
         case ZRANGE_LEX:
-            kv->ptr = zzlDeleteRangeByLex(kv->ptr, &lexrange, &deleted);
+            zobj->ptr = zzlDeleteRangeByLex(zobj->ptr,&lexrange,&deleted);
             break;
         }
-        if (zzlLength(kv->ptr) == 0) {
+        if (zzlLength(zobj->ptr) == 0) {
             dbDelete(c->db,key);
             keyremoved = 1;
         }
-    } else if (kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = kv->ptr;
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
         dictPauseAutoResize(zs->dict);
         switch(rangetype) {
         case ZRANGE_AUTO:
@@ -2032,7 +2032,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
             /* No need updateKeysizesHist(). dbDelete() done it already. */
         } else {
-            unsigned long len =  zsetLength(kv);
+            unsigned long len =  zsetLength(zobj);
             updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, len + deleted, len);
         }
     }
@@ -2658,17 +2658,17 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
     /* read keys to be used for input */
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
-        kvobj *kv = lookupKeyRead(c->db, c->argv[j]);
-        if (kv != NULL) {
-            if (kv->type != OBJ_ZSET && kv->type != OBJ_SET) {
+        kvobj *obj = lookupKeyRead(c->db, c->argv[j]);
+        if (obj != NULL) {
+            if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
                 addReplyErrorObject(c,shared.wrongtypeerr);
                 return;
             }
 
-            src[i].subject = kv;
-            src[i].type = kv->type;
-            src[i].encoding = kv->encoding;
+            src[i].subject = obj;
+            src[i].type = obj->type;
+            src[i].encoding = obj->encoding;
         } else {
             src[i].subject = NULL;
         }
@@ -2883,7 +2883,6 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             }
             decrRefCount(dstobj);
         }
-        //decrRefCount(dstobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
     } else {
@@ -3366,7 +3365,7 @@ void zrevrangebyscoreCommand(client *c) {
 
 void zcountCommand(client *c) {
     robj *key = c->argv[1];
-    kvobj *kv;
+    kvobj *zobj;
     zrangespec range;
     unsigned long count = 0;
 
@@ -3377,11 +3376,11 @@ void zcountCommand(client *c) {
     }
 
     /* Lookup the sorted set */
-    if ((kv = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
-        checkType(c, kv, OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
+        checkType(c, zobj, OBJ_ZSET)) return;
 
-    if (kv->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = kv->ptr;
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
         double score;
 
@@ -3397,7 +3396,7 @@ void zcountCommand(client *c) {
         /* First element is in range */
         sptr = lpNext(zl,eptr);
         score = zzlGetScore(sptr);
-        serverAssertWithInfo(c, kv, zslValueLteMax(score, &range));
+        serverAssertWithInfo(c,zobj,zslValueLteMax(score,&range));
 
         /* Iterate over elements in range */
         while (eptr) {
@@ -3411,8 +3410,8 @@ void zcountCommand(client *c) {
                 zzlNext(zl,&eptr,&sptr);
             }
         }
-    } else if (kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = kv->ptr;
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *zn;
         unsigned long rank;
@@ -3443,7 +3442,7 @@ void zcountCommand(client *c) {
 
 void zlexcountCommand(client *c) {
     robj *key = c->argv[1];
-    kvobj *kv;
+    kvobj *zobj;
     zlexrangespec range;
     unsigned long count = 0;
 
@@ -3454,15 +3453,15 @@ void zlexcountCommand(client *c) {
     }
 
     /* Lookup the sorted set */
-    if ((kv = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
-        checkType(c, kv, OBJ_ZSET))
+    if ((zobj = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
+        checkType(c, zobj, OBJ_ZSET))
     {
         zslFreeLexRange(&range);
         return;
     }
 
-    if (kv->encoding == OBJ_ENCODING_LISTPACK) {
-        unsigned char *zl = kv->ptr;
+    if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
+        unsigned char *zl = zobj->ptr;
         unsigned char *eptr, *sptr;
 
         /* Use the first element in range as the starting point */
@@ -3477,7 +3476,7 @@ void zlexcountCommand(client *c) {
 
         /* First element is in range */
         sptr = lpNext(zl,eptr);
-        serverAssertWithInfo(c, kv, zzlLexValueLteMax(eptr, &range));
+        serverAssertWithInfo(c,zobj,zzlLexValueLteMax(eptr,&range));
 
         /* Iterate over elements in range */
         while (eptr) {
@@ -3489,8 +3488,8 @@ void zlexcountCommand(client *c) {
                 zzlNext(zl,&eptr,&sptr);
             }
         }
-    } else if (kv->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = kv->ptr;
+    } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = zobj->ptr;
         zskiplist *zsl = zs->zsl;
         zskiplistNode *zn;
         unsigned long rank;
@@ -3751,8 +3750,8 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     /* Step 3: Lookup the key and get the range. */
-    kvobj *kv = lookupKeyRead(c->db, key);
-    if (kv == NULL) {
+    kvobj *zobj = lookupKeyRead(c->db, key);
+    if (zobj == NULL) {
         if (store) {
             handler->beginResultEmission(handler, -1);
             handler->finalizeResultEmission(handler, 0);
@@ -3762,24 +3761,24 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         goto cleanup;
     }
 
-    if (checkType(c, kv, OBJ_ZSET)) goto cleanup;
+    if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
 
     /* Step 4: Pass this to the command-specific handler. */
     switch (rangetype) {
     case ZRANGE_AUTO:
     case ZRANGE_RANK:
-        genericZrangebyrankCommand(handler, kv, opt_start, opt_end,
+        genericZrangebyrankCommand(handler, zobj, opt_start, opt_end,
             opt_withscores || store, direction == ZRANGE_DIRECTION_REVERSE);
         break;
 
     case ZRANGE_SCORE:
-        genericZrangebyscoreCommand(handler, &range, kv, opt_offset,
-                                    opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
+        genericZrangebyscoreCommand(handler, &range, zobj, opt_offset,
+            opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
 
     case ZRANGE_LEX:
-        genericZrangebylexCommand(handler, &lexrange, kv, opt_withscores || store,
-                                  opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
+        genericZrangebylexCommand(handler, &lexrange, zobj, opt_withscores || store,
+            opt_offset, opt_limit, direction == ZRANGE_DIRECTION_REVERSE);
         break;
     }
 
@@ -3794,23 +3793,23 @@ cleanup:
 
 void zcardCommand(client *c) {
     robj *key = c->argv[1];
-    kvobj *kv;
+    kvobj *zobj;
 
-    if ((kv = lookupKeyReadOrReply(c, key, shared.czero)) == NULL ||
-        checkType(c, kv, OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
+        checkType(c,zobj,OBJ_ZSET)) return;
 
-    addReplyLongLong(c,zsetLength(kv));
+    addReplyLongLong(c,zsetLength(zobj));
 }
 
 void zscoreCommand(client *c) {
     robj *key = c->argv[1];
-    kvobj *kv;
+    kvobj *zobj;
     double score;
 
-    if ((kv = lookupKeyReadOrReply(c, key, shared.null[c->resp])) == NULL ||
-        checkType(c, kv, OBJ_ZSET)) return;
+    if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
+        checkType(c,zobj,OBJ_ZSET)) return;
 
-    if (zsetScore(kv, c->argv[2]->ptr, &score) == C_ERR) {
+    if (zsetScore(zobj,c->argv[2]->ptr,&score) == C_ERR) {
         addReplyNull(c);
     } else {
         addReplyDouble(c,score);
@@ -3820,13 +3819,13 @@ void zscoreCommand(client *c) {
 void zmscoreCommand(client *c) {
     robj *key = c->argv[1];
     double score;
-    kvobj *kv = lookupKeyRead(c->db, key);
-    if (checkType(c, kv, OBJ_ZSET)) return;
+    kvobj *zobj = lookupKeyRead(c->db, key);
+    if (checkType(c,zobj,OBJ_ZSET)) return;
 
     addReplyArrayLen(c,c->argc - 2);
     for (int j = 2; j < c->argc; j++) {
         /* Treat a missing set the same way as an empty set */
-        if (kv == NULL || zsetScore(kv, c->argv[j]->ptr, &score) == C_ERR) {
+        if (zobj == NULL || zsetScore(zobj,c->argv[j]->ptr,&score) == C_ERR) {
             addReplyNull(c);
         } else {
             addReplyDouble(c,score);
@@ -3837,7 +3836,7 @@ void zmscoreCommand(client *c) {
 void zrankGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
-    kvobj *kv;
+    kvobj *zobj;
     robj* reply;
     long rank;
     int opt_withscore = 0;
@@ -3856,11 +3855,11 @@ void zrankGenericCommand(client *c, int reverse) {
         }
     }
     reply = opt_withscore ? shared.nullarray[c->resp] : shared.null[c->resp];
-    if ((kv = lookupKeyReadOrReply(c, key, reply)) == NULL || checkType(c, kv, OBJ_ZSET)) {
+    if ((zobj = lookupKeyReadOrReply(c, key, reply)) == NULL || checkType(c, zobj, OBJ_ZSET)) {
         return;
     }
     serverAssertWithInfo(c, ele, sdsEncodedObject(ele));
-    rank = zsetRank(kv, ele->ptr, reverse, opt_withscore ? &score : NULL);
+    rank = zsetRank(zobj, ele->ptr, reverse, opt_withscore ? &score : NULL);
     if (rank >= 0) {
         if (opt_withscore) {
             addReplyArrayLen(c, 2);
@@ -3887,13 +3886,13 @@ void zrevrankCommand(client *c) {
 }
 
 void zscanCommand(client *c) {
-    kvobj *kv;
+    kvobj *o;
     unsigned long long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.emptyscan)) == NULL ||
-        checkType(c, kv, OBJ_ZSET)) return;
-    scanGenericCommand(c, kv, cursor);
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
+        checkType(c,o,OBJ_ZSET)) return;
+    scanGenericCommand(c,o,cursor);
 }
 
 /* This command implements the generic zpop operation, used by:
@@ -4190,11 +4189,11 @@ static void zrandmemberReplyWithListpack(client *c, unsigned int count, listpack
 void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     unsigned long count, size;
     int uniq = 1;
-    kvobj *kv;
+    kvobj *zsetobj;
 
-    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray))
-        == NULL || checkType(c, kv, OBJ_ZSET)) return;
-    size = zsetLength(kv);
+    if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray))
+        == NULL || checkType(c, zsetobj, OBJ_ZSET)) return;
+    size = zsetLength(zsetobj);
 
     if(l >= 0) {
         count = (unsigned long) l;
@@ -4219,8 +4218,8 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             addReplyArrayLen(c, count*2);
         else
             addReplyArrayLen(c, count);
-        if (kv->encoding == OBJ_ENCODING_SKIPLIST) {
-            zset *zs = kv->ptr;
+        if (zsetobj->encoding == OBJ_ENCODING_SKIPLIST) {
+            zset *zs = zsetobj->ptr;
             while (count--) {
                 dictEntry *de = dictGetFairRandomKey(zs->dict);
                 sds key = dictGetKey(de);
@@ -4232,7 +4231,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 if (c->flags & CLIENT_CLOSE_ASAP)
                     break;
             }
-        } else if (kv->encoding == OBJ_ENCODING_LISTPACK) {
+        } else if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
             listpackEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
             limit = count > ZRANDMEMBER_RANDOM_SAMPLE_LIMIT ? ZRANDMEMBER_RANDOM_SAMPLE_LIMIT : count;
@@ -4242,7 +4241,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
             while (count) {
                 sample_count = count > limit ? limit : count;
                 count -= sample_count;
-                lpRandomPairs(kv->ptr, sample_count, keys, vals, 2);
+                lpRandomPairs(zsetobj->ptr, sample_count, keys, vals, 2);
                 zrandmemberReplyWithListpack(c, sample_count, keys, vals);
                 if (c->flags & CLIENT_CLOSE_ASAP)
                     break;
@@ -4255,9 +4254,9 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
 
     zsetopsrc src;
     zsetopval zval;
-    src.subject = kv;
-    src.type = kv->type;
-    src.encoding = kv->encoding;
+    src.subject = zsetobj;
+    src.type = zsetobj->type;
+    src.encoding = zsetobj->encoding;
     zuiInitIterator(&src);
     memset(&zval, 0, sizeof(zval));
 
@@ -4291,12 +4290,12 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
      *
      * And it is inefficient to repeatedly pick one random element from a
      * listpack in CASE 4. So we use this instead. */
-    if (kv->encoding == OBJ_ENCODING_LISTPACK) {
+    if (zsetobj->encoding == OBJ_ENCODING_LISTPACK) {
         listpackEntry *keys, *vals = NULL;
         keys = zmalloc(sizeof(listpackEntry)*count);
         if (withscores)
             vals = zmalloc(sizeof(listpackEntry)*count);
-        serverAssert(lpRandomPairsUnique(kv->ptr, count, keys, vals, 2) == count);
+        serverAssert(lpRandomPairsUnique(zsetobj->ptr, count, keys, vals, 2) == count);
         zrandmemberReplyWithListpack(c, count, keys, vals);
         zfree(keys);
         zfree(vals);
@@ -4366,7 +4365,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         while (added < count) {
             listpackEntry key;
             double score;
-            zsetTypeRandomElement(kv, size, &key, withscores ? &score: NULL);
+            zsetTypeRandomElement(zsetobj, size, &key, withscores ? &score: NULL);
 
             /* Try to add the object to the dictionary. If it already exists
             * free it, otherwise increment the number of objects we have
@@ -4395,7 +4394,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
 void zrandmemberCommand(client *c) {
     long l;
     int withscores = 0;
-    kvobj *kv;
+    kvobj *zset;
     listpackEntry ele;
 
     if (c->argc >= 3) {
@@ -4415,12 +4414,12 @@ void zrandmemberCommand(client *c) {
     }
 
     /* Handle variant without <count> argument. Reply with simple bulk string */
-    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL ||
-        checkType(c, kv, OBJ_ZSET)) {
+    if ((zset = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))== NULL ||
+        checkType(c,zset,OBJ_ZSET)) {
         return;
     }
 
-    zsetTypeRandomElement(kv, zsetLength(kv), &ele, NULL);
+    zsetTypeRandomElement(zset, zsetLength(zset), &ele,NULL);
     zsetReplyFromListpackEntry(c,&ele);
 }
 

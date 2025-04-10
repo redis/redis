@@ -39,10 +39,11 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * The returned object will always have its refcount increased by 1
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
+    kvobj *kv;
     char *p, *f, *k;
     sds spat, ssub;
-    robj *keyobj, *fieldobj = NULL, *val;
-    kvobj *kv;
+    robj *keyobj, *fieldobj = NULL;
+
     int prefixlen, sublen, postfixlen, fieldlen;
 
     /* If the pattern is "#" return the substitution object itself in order
@@ -88,35 +89,27 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* Lookup substituted key */
     kv = lookupKeyRead(db, keyobj);
-    if (kv == NULL) goto noobj;
-
+    decrRefCount(keyobj);
+    
     if (fieldobj) {
-        if (kv->type != OBJ_HASH) goto noobj;
+        robj *val = NULL;
+        if (kv && kv->type == OBJ_HASH) {
+            /* Retrieve value from hash by the field name. The returned object
+             * is a new object with refcount already incremented. */
+            hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, NULL);
+        }
 
-        /* Retrieve value from hash by the field name. The returned object
-         * is a new object with refcount already incremented. */
-        int isHashDeleted;
-        hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
-        kv = val;
-
-        if (isHashDeleted)
-            goto noobj;
-
-    } else {
-        if (kv->type != OBJ_STRING) goto noobj;
-
-        /* Every object that this function returns needs to have its refcount
-         * increased. sortCommand decreases it again. */
-        incrRefCount(kv);
+        decrRefCount(fieldobj);
+        return val;
     }
-    decrRefCount(keyobj);
-    if (fieldobj) decrRefCount(fieldobj);
-    return kv;
 
-noobj:
-    decrRefCount(keyobj);
-    if (fieldlen) decrRefCount(fieldobj);
-    return NULL;
+    if ((kv == NULL) || (kv->type != OBJ_STRING)) return NULL;
+
+    /* Every object that this function returns needs to have its refcount
+     * increased. sortCommand decreases it again. */
+    incrRefCount(kv);
+
+    return kv;
 }
 
 /* sortCompare() is used by qsort in sortCommand(). Given that qsort_r with

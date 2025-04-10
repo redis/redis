@@ -466,25 +466,25 @@ void pushGenericCommand(client *c, int where, int xx) {
     unsigned long llen;
     int j;
 
-    kvobj *kv = lookupKeyWrite(c->db, c->argv[1]);
-    if (checkType(c, kv, OBJ_LIST)) return;
-    if (!kv) {
+    kvobj *lobj = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c,lobj,OBJ_LIST)) return;
+    if (!lobj) {
         if (xx) {
             addReply(c, shared.czero);
             return;
         }
 
-        robj *lobj = createListListpackObject();
-        kv = dbAdd(c->db, c->argv[1], &lobj);
+        lobj = createListListpackObject();
+        dbAdd(c->db, c->argv[1], &lobj);
     }
 
-    listTypeTryConversionAppend(kv, c->argv, 2, c->argc-1, NULL, NULL);
+    listTypeTryConversionAppend(lobj,c->argv,2,c->argc-1,NULL,NULL);
     for (j = 2; j < c->argc; j++) {
-        listTypePush(kv, c->argv[j], where);
+        listTypePush(lobj,c->argv[j],where);
         server.dirty++;
     }
 
-    llen = listTypeLength(kv);
+    llen = listTypeLength(lobj);
     addReplyLongLong(c, llen);
 
     char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
@@ -516,7 +516,7 @@ void rpushxCommand(client *c) {
 /* LINSERT <key> (BEFORE|AFTER) <pivot> <element> */
 void linsertCommand(client *c) {
     int where;
-    kvobj *kv;
+    kvobj *subject;
     listTypeIterator *iter;
     listTypeEntry entry;
     int inserted = 0;
@@ -530,18 +530,18 @@ void linsertCommand(client *c) {
         return;
     }
 
-    if ((kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero)) == NULL ||
-        checkType(c, kv, OBJ_LIST)) return;
+    if ((subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero)) == NULL ||
+        checkType(c,subject,OBJ_LIST)) return;
 
     /* We're not sure if this value can be inserted yet, but we cannot
      * convert the list inside the iterator. We don't want to loop over
      * the list twice (once to see if the value can be inserted and once
      * to do the actual insert), so we assume this value can be inserted
      * and convert the listpack to a regular list if necessary. */
-    listTypeTryConversionAppend(kv, c->argv, 4, 4, NULL, NULL);
+    listTypeTryConversionAppend(subject,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
-    iter = listTypeInitIterator(kv, 0, LIST_TAIL);
+    iter = listTypeInitIterator(subject,0,LIST_TAIL);
     const size_t object_len = sdslen(c->argv[3]->ptr);
     while (listTypeNext(iter,&entry)) {
         if (listTypeEqual(&entry,c->argv[3],object_len)) {
@@ -557,7 +557,7 @@ void linsertCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_LIST,"linsert",
                             c->argv[1],c->db->id);
         server.dirty++;
-        unsigned long ll = listTypeLength(kv);
+        unsigned long ll = listTypeLength(subject);
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll-1, ll);
     } else {
         /* Notify client of a failed insert */
@@ -565,7 +565,7 @@ void linsertCommand(client *c) {
         return;
     }
 
-    addReplyLongLong(c,listTypeLength(kv));
+    addReplyLongLong(c,listTypeLength(subject));
 }
 
 /* LLEN <key> */
@@ -577,14 +577,14 @@ void llenCommand(client *c) {
 
 /* LINDEX <key> <index> */
 void lindexCommand(client *c) {
-    kvobj *kv = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
-    if (kv == NULL || checkType(c,kv,OBJ_LIST)) return;
+    kvobj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
+    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
-    listTypeIterator *iter = listTypeInitIterator(kv,index,LIST_TAIL);
+    listTypeIterator *iter = listTypeInitIterator(o,index,LIST_TAIL);
     listTypeEntry entry;
     unsigned char *vstr;
     size_t vlen;
@@ -606,20 +606,20 @@ void lindexCommand(client *c) {
 
 /* LSET <key> <index> <element> */
 void lsetCommand(client *c) {
-    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.nokeyerr);
-    if (kv == NULL || checkType(c, kv, OBJ_LIST)) return;
+    kvobj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.nokeyerr);
+    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = c->argv[3];
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
-    listTypeTryConversionAppend(kv, c->argv, 3, 3, NULL, NULL);
-    if (listTypeReplaceAtIndex(kv, index, value)) {
+    listTypeTryConversionAppend(o,c->argv,3,3,NULL,NULL);
+    if (listTypeReplaceAtIndex(o,index,value)) {
         /* We might replace a big item with a small one or vice versa, but we've
          * already handled the growing case in listTypeTryConversionAppend()
          * above, so here we just need to try the conversion for shrinking. */
-        listTypeTryConversion(kv, LIST_CONV_SHRINKING, NULL, NULL);
+        listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
         addReply(c,shared.ok);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
@@ -774,8 +774,8 @@ void popGenericCommand(client *c, int where) {
             return;
     }
 
-    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], hascount ? shared.nullarray[c->resp] : shared.null[c->resp]);
-    if (kv == NULL || checkType(c, kv, OBJ_LIST))
+    kvobj *o = lookupKeyWriteOrReply(c, c->argv[1], hascount ? shared.nullarray[c->resp] : shared.null[c->resp]);
+    if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 
     if (hascount && !count) {
@@ -787,23 +787,23 @@ void popGenericCommand(client *c, int where) {
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
          * with a bulk string. */
-        value = listTypePop(kv, where);
+        value = listTypePop(o,where);
         serverAssert(value != NULL);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c, c->argv[1], where, kv, 1, 1, NULL);
+        listElementsRemoved(c,c->argv[1],where,o,1,1,NULL);
     } else {
         /* Pop a range of elements. An addition to the original POP command,
          *  which replies with a multi-bulk. */
-        long llen = listTypeLength(kv);
+        long llen = listTypeLength(o);
         long rangelen = (count > llen) ? llen : count;
         long rangestart = (where == LIST_HEAD) ? 0 : -rangelen;
         long rangeend = (where == LIST_HEAD) ? rangelen - 1 : -1;
         int reverse = (where == LIST_HEAD) ? 0 : 1;
 
-        addListRangeReply(c, kv, rangestart, rangeend, reverse);
-        listTypeDelRange(kv, rangestart, rangelen);
-        listElementsRemoved(c, c->argv[1], where, kv, rangelen, 1, NULL);
+        addListRangeReply(c,o,rangestart,rangeend,reverse);
+        listTypeDelRange(o,rangestart,rangelen);
+        listElementsRemoved(c,c->argv[1],where,o,rangelen,1,NULL);
     }
 }
 
@@ -860,29 +860,29 @@ void rpopCommand(client *c) {
 
 /* LRANGE <key> <start> <stop> */
 void lrangeCommand(client *c) {
-    kvobj *kv;
+    kvobj *o;
     long start, end;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
-    if ((kv = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray)) == NULL
-         || checkType(c,kv,OBJ_LIST)) return;
+    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyarray)) == NULL
+         || checkType(c,o,OBJ_LIST)) return;
 
-    addListRangeReply(c, kv, start, end, 0);
+    addListRangeReply(c,o,start,end,0);
 }
 
 /* LTRIM <key> <start> <stop> */
 void ltrimCommand(client *c) {
-    kvobj *kv;
+    kvobj *o;
     long start, end, llen, ltrim, rtrim, llenNew;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
-    if ((kv = lookupKeyWriteOrReply(c, c->argv[1], shared.ok)) == NULL ||
-        checkType(c, kv, OBJ_LIST)) return;
-    llen = listTypeLength(kv);
+    if ((o = lookupKeyWriteOrReply(c, c->argv[1], shared.ok)) == NULL ||
+        checkType(c,o,OBJ_LIST)) return;
+    llen = listTypeLength(o);
 
     /* convert negative indexes */
     if (start < 0) start = llen+start;
@@ -902,22 +902,22 @@ void ltrimCommand(client *c) {
     }
 
     /* Remove list elements to perform the trim */
-    if (kv->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistDelRange(kv->ptr, 0, ltrim);
-        quicklistDelRange(kv->ptr, -rtrim, rtrim);
-    } else if (kv->encoding == OBJ_ENCODING_LISTPACK) {
-        kv->ptr = lpDeleteRange(kv->ptr, 0, ltrim);
-        kv->ptr = lpDeleteRange(kv->ptr, -rtrim, rtrim);
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        quicklistDelRange(o->ptr, 0, ltrim);
+        quicklistDelRange(o->ptr, -rtrim, rtrim);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        o->ptr = lpDeleteRange(o->ptr,0,ltrim);
+        o->ptr = lpDeleteRange(o->ptr,-rtrim,rtrim);
     } else {
         serverPanic("Unknown list encoding");
     }
 
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
-    if ((llenNew = listTypeLength(kv)) == 0) {
+    if ((llenNew = listTypeLength(o)) == 0) {
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     } else {
-        listTypeTryConversion(kv, LIST_CONV_SHRINKING, NULL, NULL);
+        listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
     }
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
     signalModifiedKey(c,c->db,c->argv[1]);
@@ -987,15 +987,15 @@ void lposCommand(client *c) {
 
     /* We return NULL or an empty array if there is no such key (or
      * if we find no matches, depending on the presence of the COUNT option. */
-    kvobj *kv = lookupKeyRead(c->db,c->argv[1]); 
-    if (kv == NULL) {
+    kvobj *o = lookupKeyRead(c->db,c->argv[1]); 
+    if (o == NULL) {
         if (count != -1)
             addReply(c,shared.emptyarray);
         else
             addReply(c,shared.null[c->resp]);
         return;
     }
-    if (checkType(c, kv, OBJ_LIST)) return;
+    if (checkType(c,o,OBJ_LIST)) return;
 
     /* If we got the COUNT option, prepare to emit an array. */
     void *arraylenptr = NULL;
@@ -1003,9 +1003,9 @@ void lposCommand(client *c) {
 
     /* Seek the element. */
     listTypeIterator *li;
-    li = listTypeInitIterator(kv, direction == LIST_HEAD ? -1 : 0,direction);
+    li = listTypeInitIterator(o,direction == LIST_HEAD ? -1 : 0,direction);
     listTypeEntry entry;
-    long llen = listTypeLength(kv);
+    long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1, arraylen = 0;
     const size_t ele_len = sdslen(ele->ptr);
     while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
@@ -1049,15 +1049,15 @@ void lremCommand(client *c) {
     if (getRangeLongFromObjectOrReply(c, c->argv[2], -LONG_MAX, LONG_MAX, &toremove, NULL) != C_OK)
         return;
 
-    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero);
-    if (kv == NULL || checkType(c, kv, OBJ_LIST)) return;
+    kvobj *subject = lookupKeyWriteOrReply(c, c->argv[1], shared.czero);
+    if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
 
     listTypeIterator *li;
     if (toremove < 0) {
         toremove = -toremove;
-        li = listTypeInitIterator(kv, -1, LIST_HEAD);
+        li = listTypeInitIterator(subject,-1,LIST_HEAD);
     } else {
-        li = listTypeInitIterator(kv, 0, LIST_TAIL);
+        li = listTypeInitIterator(subject,0,LIST_TAIL);
     }
 
     listTypeEntry entry;
@@ -1073,7 +1073,7 @@ void lremCommand(client *c) {
     listTypeReleaseIterator(li);
 
     if (removed) {
-        long ll = listTypeLength(kv);
+        long ll = listTypeLength(subject);
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll + removed, ll);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
         
@@ -1081,7 +1081,7 @@ void lremCommand(client *c) {
             dbDelete(c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         } else {
-            listTypeTryConversion(kv, LIST_CONV_SHRINKING, NULL, NULL);
+            listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,NULL);
         }
         signalModifiedKey(c,c->db,c->argv[1]);
     }

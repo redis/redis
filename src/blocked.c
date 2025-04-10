@@ -567,7 +567,7 @@ static void handleClientsBlockedOnKey(readyList *rl) {
         long count = listLength(clients);
         while ((ln = listNext(&li)) && count--) {
             client *receiver = listNodeValue(ln);
-            kvobj *kv = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
+            kvobj *o = lookupKeyReadWithFlags(rl->db, rl->key, LOOKUP_NOEFFECTS);
             /* 1. In case new key was added/touched we need to verify it satisfy the
              *    blocked type, since we might process the wrong key type.
              * 2. We want to serve clients blocked on module keys
@@ -575,8 +575,8 @@ static void handleClientsBlockedOnKey(readyList *rl) {
              *    module is trying to accomplish right now.
              * 3. In case of XREADGROUP call we will want to unblock on any change in object type
              *    or in case the key was deleted, since the group is no longer valid. */
-            if ((kv != NULL && (receiver->bstate.btype == getBlockedTypeByType(kv->type))) ||
-                (kv != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
+            if ((o != NULL && (receiver->bstate.btype == getBlockedTypeByType(o->type))) ||
+                (o != NULL && (receiver->bstate.btype == BLOCKED_MODULE)) ||
                 (receiver->bstate.unblock_on_nokey))
             {
                 if (receiver->bstate.btype != BLOCKED_MODULE)
