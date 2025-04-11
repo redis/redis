@@ -70,6 +70,7 @@ IGNORED_COMMANDS = {
     "VREM",
     "VSETATTR",
     "VSIM",
+    "VISMEMBER",
 }
 
 class Request(object):
