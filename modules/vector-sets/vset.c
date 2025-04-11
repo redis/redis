@@ -577,7 +577,10 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid vector specification");
 
     /* Missing element string at the end? */
-    if (argc-2-consumed_args < 1) return RedisModule_WrongArity(ctx);
+    if (argc-2-consumed_args < 1) {
+        RedisModule_Free(vec);
+        return RedisModule_WrongArity(ctx);
+    }
 
     /* Parse options after the element string. */
     uint32_t quant_type = HNSW_QUANT_Q8; // Default quantization type.
