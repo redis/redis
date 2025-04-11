@@ -1649,6 +1649,37 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+/* VISMEMBER key element
+ * Check if an element exists in a vector set.
+ * Returns 1 if the element exists, 0 if not. */
+int VISMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+
+    RedisModuleString *key = argv[1];
+    RedisModuleString *element = argv[2];
+
+    /* Open key. */
+    RedisModuleKey *keyptr = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    int type = RedisModule_KeyType(keyptr);
+
+    /* Handle non-existing key or wrong type. */
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+        /* An element of a non existing key does not exist, like
+         * SISMEMBER & similar. */
+        return RedisModule_ReplyWithBool(ctx, 0);
+    }
+    if (RedisModule_ModuleTypeGetType(keyptr) != VectorSetType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    /* Get the object and test membership via the dictionary in constant
+     * time (assuming a member of average size). */
+    struct vsetObject *vset = RedisModule_ModuleTypeGetValue(keyptr);
+    hnswNode *node = RedisModule_DictGet(vset->dict, element, NULL);
+    return RedisModule_ReplyWithBool(ctx, node != NULL);
+}
+
 /* ============================== vset type methods ========================= */
 
 #define SAVE_FLAG_HAS_PROJMATRIX    (1<<0)
@@ -1970,6 +2001,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "VRANDMEMBER",
         VRANDMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "VISMEMBER",
+        VISMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     hnsw_set_allocator(RedisModule_Free, RedisModule_Alloc,
