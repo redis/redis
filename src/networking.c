@@ -3168,7 +3168,6 @@ sds catClientInfoString(sds s, client *client) {
         " tot-cmds=%U", client->commands_processed));
 
     if (paused) resumeIOThread(client->running_tid);
-
     return ret;
 }
 
