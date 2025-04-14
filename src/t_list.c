@@ -464,9 +464,11 @@ void listTypeDelRange(robj *subject, long start, long count) {
  * 'xx': push if key exists. */
 void pushGenericCommand(client *c, int where, int xx) {
     unsigned long llen;
+    dictEntLink link;
     int j;
 
-    kvobj *lobj = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *lobj = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+
     if (checkType(c,lobj,OBJ_LIST)) return;
     if (!lobj) {
         if (xx) {
@@ -475,7 +477,7 @@ void pushGenericCommand(client *c, int where, int xx) {
         }
 
         lobj = createListListpackObject();
-        dbAdd(c->db, c->argv[1], &lobj);
+        dbAddByLink(c->db, c->argv[1], &lobj, &link);
     }
 
     listTypeTryConversionAppend(lobj,c->argv,2,c->argc-1,NULL,NULL);
@@ -880,7 +882,7 @@ void ltrimCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
 
-    if ((o = lookupKeyWriteOrReply(c, c->argv[1], shared.ok)) == NULL ||
+    if ((o = lookupKeyWriteOrReply(c,c->argv[1],shared.ok)) == NULL ||
         checkType(c,o,OBJ_LIST)) return;
     llen = listTypeLength(o);
 
@@ -903,8 +905,8 @@ void ltrimCommand(client *c) {
 
     /* Remove list elements to perform the trim */
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistDelRange(o->ptr, 0, ltrim);
-        quicklistDelRange(o->ptr, -rtrim, rtrim);
+        quicklistDelRange(o->ptr,0,ltrim);
+        quicklistDelRange(o->ptr,-rtrim,rtrim);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
         o->ptr = lpDeleteRange(o->ptr,0,ltrim);
         o->ptr = lpDeleteRange(o->ptr,-rtrim,rtrim);

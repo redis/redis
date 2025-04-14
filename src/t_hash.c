@@ -1517,12 +1517,13 @@ hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi) {
 }
 
 static kvobj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
-    kvobj *kv = lookupKeyWrite(c->db, key);
+    dictEntLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, key, &link);
     if (checkType(c, kv, OBJ_HASH)) return NULL;
 
     if (kv == NULL) {
         robj *o = createHashObject();
-        kv = dbAdd(c->db, key, &o);
+        kv = dbAddByLink(c->db, key, &o, &link);
     }
     return kv;
 }
@@ -2329,12 +2330,13 @@ void hsetexCommand(client *c) {
     long long expire_time = EB_EXPIRE_TIME_INVALID;
     unsigned long oldlen, newlen;
     HashTypeSetEx setex;
+    dictEntLink link;
 
     if (hsetexParseArgs(c, &flags, &expire_time, &expire_time_pos,
                         &first_field_pos, &field_count) != C_OK)
         return;
 
-    kvobj *o = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c, o, OBJ_HASH))
         return;
 
@@ -2344,7 +2346,7 @@ void hsetexCommand(client *c) {
             return;
         }
         o = createHashObject();
-        dbAdd(c->db, c->argv[1], &o);
+        dbAddByLink(c->db, c->argv[1], &o, &link);
     }
     oldlen = hashTypeLength(o, 0);
 

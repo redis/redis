@@ -496,13 +496,14 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
 static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit, 
                                        size_t *strOldSize, size_t *strGrowSize) 
 {
+    dictEntLink link;
     size_t byte = maxbit >> 3;
-    kvobj *o = lookupKeyWrite(c->db,c->argv[1]);
+    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
-        dbAdd(c->db,c->argv[1],&o);
+        dbAddByLink(c->db,c->argv[1],&o,&link);
         *strGrowSize = byte + 1;
         *strOldSize = 0;
     } else {
@@ -1169,9 +1170,8 @@ void bitfieldGeneric(client *c, int flags) {
 
         /* Lookup by making room up to the farthest bit reached by
          * this operation. */
-        o = lookupStringForBitCommand(c, highest_write_offset, &strOldSize,
-                                       &strGrowSize);
-        if (o == NULL) {
+        if ((o = lookupStringForBitCommand(c,
+            highest_write_offset,&strOldSize,&strGrowSize)) == NULL) {
             zfree(ops);
             return;
         }
@@ -1198,7 +1198,7 @@ void bitfieldGeneric(client *c, int flags) {
                 int64_t oldval, newval, wrapped, retval;
                 int overflow;
 
-                oldval = getSignedBitfield(o->ptr, thisop->offset,
+                oldval = getSignedBitfield(o->ptr,thisop->offset,
                         thisop->bits);
 
                 if (thisop->opcode == BITFIELDOP_INCRBY) {

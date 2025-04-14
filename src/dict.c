@@ -884,16 +884,13 @@ void dictSetKeyAtLink(dict *d, void *key, dictEntLink *link, int newItem) {
     void *addedKey = (d->type->keyDup) ? d->type->keyDup(d, key) : key;
     
     if (newItem) {
-        int rehashBefore = (dictIsRehashing(d));
+        signed char snap[2] = {d->ht_size_exp[0], d->ht_size_exp[1] };
+
         /* Make room if needed for the new key */
         dictExpandIfNeeded(d);
-
-        /* Check two conditions to lookup for the link: 
-         * 1) dictExpandIfNeeded(d) modified the dict rehashing state (and number 
-         *    of tables changed) then given link might be no longer valid. 
-         * 2) If given link is set to NULL 
-         */
-        if ((rehashBefore != (dictIsRehashing(d))) || (*link == NULL)) {
+        
+        /* Lookup key's link if tables reallocated or if given link is set to NULL */
+        if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
             dictEntLink bucket;
             /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
             dictUseStoredKeyApi(d, 1);

@@ -1852,7 +1852,8 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
 /* Look the stream at 'key' and return the corresponding stream object.
  * The function creates a key setting it to an empty stream if needed. */
 kvobj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
-    kvobj *kv = lookupKeyWrite(c->db,key);
+    dictEntLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db,key, &link);
     if (checkType(c, kv, OBJ_STREAM)) return NULL;
     if (kv != NULL) return kv;
 
@@ -1861,7 +1862,7 @@ kvobj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
         return NULL;
     }
     robj *o = createStreamObject();
-    dbAdd(c->db, key, &o);
+    dbAddByLink(c->db, key, &o, &link);
     return o;
 }
 

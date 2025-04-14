@@ -589,13 +589,14 @@ robj *setTypeDup(robj *o) {
 void saddCommand(client *c) {
     kvobj *set;
     int j, added = 0;
+    dictEntLink link;
 
-    set = lookupKeyWrite(c->db,c->argv[1]);
+    set = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
     if (checkType(c,set,OBJ_SET)) return;
     
     if (set == NULL) {
         robj *o = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
-        set = dbAdd(c->db, c->argv[1], &o);
+        set = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
         setTypeMaybeConvert(set, c->argc - 2);
     }

@@ -1414,7 +1414,9 @@ invalid:
 /* PFADD var ele ele ele ... ele => :0 or :1 */
 void pfaddCommand(client *c) {
     uint64_t oldLen;
-    kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
+    dictEntLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
+    
     struct hllhdr *hdr;
     int updated = 0, j;
 
@@ -1423,7 +1425,7 @@ void pfaddCommand(client *c) {
          * hold our HLL data structure. sdsnewlen() when NULL is passed
          * is guaranteed to return bytes initialized to zero. */
         robj *o = createHLLObject();
-        kv = dbAdd(c->db, c->argv[1], &o);
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
         updated++;
     } else {
         if (isHLLObjectOrReply(c,kv) != C_OK) return;
@@ -1477,11 +1479,11 @@ void pfcountCommand(client *c) {
             /* Check type and size. */
             kvobj *o = lookupKeyRead(c->db,c->argv[j]);
             if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
-            if (isHLLObjectOrReply(c, o) != C_OK) return;
+            if (isHLLObjectOrReply(c,o) != C_OK) return;
 
             /* Merge with this HLL with our 'max' HLL by setting max[i]
              * to MAX(max[i],hll[i]). */
-            if (hllMerge(registers, o) == C_ERR) {
+            if (hllMerge(registers,o) == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
@@ -1581,13 +1583,14 @@ void pfmergeCommand(client *c) {
     }
 
     /* Create / unshare the destination key's value if needed. */
-    kvobj *kv = lookupKeyWrite(c->db,c->argv[1]);
+    dictEntLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link); 
     if (kv == NULL) {
         /* Create the key with a string value of the exact length to
          * hold our HLL data structure. sdsnewlen() when NULL is passed
          * is guaranteed to return bytes initialized to zero. */
         robj *o = createHLLObject();
-        kv = dbAdd(c->db, c->argv[1], &o);
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
         /* If key exists we are sure it's of the right type/size
          * since we checked when merging the different HLLs, so we

@@ -1,9 +1,9 @@
 /*
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
- * 
+ *
  * Copyright (c) 2024-present, Valkey contributors.
- * All rights reserved. 
+ * All rights reserved.
  *
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
@@ -167,9 +167,6 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntLink *link) {
     }
 
     if (val) {
-        /* Shared objects can't be stored in the database. */
-        serverAssert(val->refcount != OBJ_SHARED_REFCOUNT);
-
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
@@ -271,7 +268,7 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * bucket - Optional bucket link, where the key should be added. 
  *          On return, get updated, by need, to the inserted key.
  */
-static void dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntLink *bucket) {
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntLink *bucket) {
     int slot = getKeySlot(key->ptr);
     robj *val = *valref;
     kvobj *kv = kvobjSet(key->ptr, val, -1);
@@ -281,12 +278,12 @@ static void dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntLink *bu
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
     *valref = kv;
+    return kv;
 }
 
-/* Read dbAddInternal() comment */
+/* Read dbAddByLink() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    dbAddInternal(db, key, valref, NULL);
-    return (kvobj *) *valref;
+    return dbAddByLink(db, key, valref, NULL);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -509,7 +506,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
             removeExpire(db,key);
     } else {
         /* Add the new key to the database */
-        dbAddInternal(db, key, valref, link);
+        dbAddByLink(db, key, valref, link);
     }
 
     if (!(flags & SETKEY_NO_SIGNAL))
@@ -1806,7 +1803,7 @@ void moveCommand(client *c) {
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
-    dbAddInternal(dst, c->argv[1], &kv, &dstBucket);
+    dbAddByLink(dst, c->argv[1], &kv, &dstBucket);
     if (expire != -1)
         setExpireByLink(c, dst, c->argv[1]->ptr, expire, dstBucket);
 

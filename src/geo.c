@@ -626,7 +626,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                     continue;
                 }
 
-                if (longLatFromMember(zobj, c->argv[base_args + i + 1], shape.xy) == C_ERR) {
+                if (longLatFromMember(zobj, c->argv[base_args+i+1], shape.xy) == C_ERR) {
                     addReplyError(c, "could not decode requested zset member");
                     return;
                 }

@@ -83,7 +83,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj **val, robj *expire
 
     dictEntLink link = NULL;
     found = (lookupKeyWriteWithLink(c->db,key,&link) != NULL);
-    
+
     if ((flags & OBJ_SET_NX && found) ||
         (flags & OBJ_SET_XX && !found))
     {
@@ -102,7 +102,6 @@ void setGenericCommand(client *c, int flags, robj *key, robj **val, robj *expire
 
     /*  refcnt 1->2. referenced by the key in the db and by the caller. */
     incrRefCount(*val);
-    
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
@@ -447,7 +446,7 @@ void setrangeCommand(client *c) {
     }
 
     dictEntLink link;
-     kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
+    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
     if (kv == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
         if (value_len == 0) {
@@ -460,7 +459,7 @@ void setrangeCommand(client *c) {
             return;
 
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+value_len));
-        kv = dbAdd(c->db, c->argv[1], &o);
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
         /* Key exists, check type */
         if (checkType(c,kv,OBJ_STRING))
@@ -599,7 +598,7 @@ void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *new;
     dictEntLink link; 
-    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link); /* if not found, link points to bucket */
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
@@ -618,12 +617,10 @@ void incrDecrCommand(client *c, long long incr) {
         o->ptr = (void*)((long)value);
     } else {
         new = createStringObjectFromLongLongForValue(value);
-        if (o) {
+        if (o)
             dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
-        } else {
-            /* TODO : Pass bucket */
-            dbAdd(c->db, c->argv[1], &new);
-        }
+        else
+            dbAddByLink(c->db, c->argv[1], &new, &link);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
@@ -677,11 +674,11 @@ void incrbyfloatCommand(client *c) {
     if (o)
         dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
     else
-        dbAdd(c->db, c->argv[1], &new);
+        dbAddByLink(c->db, c->argv[1], &new, &link);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
-    addReplyBulk(c, new);
+    addReplyBulk(c,new);
 
     /* Always replicate INCRBYFLOAT as a SET command with the final value
      * in order to make sure that differences in float precision or formatting
@@ -701,7 +698,7 @@ void appendCommand(client *c) {
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAdd(c->db, c->argv[1], &c->argv[2]);
+        dbAddByLink(c->db, c->argv[1], &c->argv[2], &link);
         incrRefCount(c->argv[2]);
         append_len = totlen = stringObjectLen(c->argv[2]);
     } else {
