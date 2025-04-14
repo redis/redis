@@ -49,9 +49,8 @@ start_cluster 2 2 {tags {external:skip cluster}} {
     }
 
 test "CONFIG SET port updates cluster-announced port" {
-
         # Get the original port and change to new_port
-        set orig_port  [lindex [R 0 config get port] 1]
+        set orig_port [lindex [R 0 config get port] 1]
         assert {$orig_port != ""}
         set new_port [expr {$orig_port + 100}]
         R 0 config set port $new_port
@@ -62,6 +61,5 @@ test "CONFIG SET port updates cluster-announced port" {
         } else {
             fail "Cluster announced port was not updated in cluster slots"
         }
-
     }
 }
