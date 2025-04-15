@@ -175,7 +175,7 @@ in the range `-range`, `+range`.
 
 **VISMEMBER: test if a given element already exists**
 
-This command will 1 (or true) if the specified element is already in the vector set, otherwise 0 (o false) is returned.
+This command will return 1 (or true) if the specified element is already in the vector set, otherwise 0 (or false) is returned.
 
     VISMEMBER key element
 
