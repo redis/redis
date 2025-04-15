@@ -1641,7 +1641,7 @@ start_server {tags {"repl external:skip"}} {
             $replica replicaof $master_host $master_port
 
             # Wait until replication is completed
-            wait_replica_online $master 0 1000 100
+            wait_for_sync $replica
             wait_for_ofs_sync $master $replica
 
             # Sanity check
