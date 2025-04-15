@@ -8,14 +8,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Check for vector-sets changes
-      id: check_changes
-      uses: dorny/paths-filter@v2
-      with:
-        filters: |
-          merged_modules:
-            - 'modules/vector-sets/**'
-            - '.github/workflows/merged-modules.yml'
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
@@ -32,11 +24,6 @@ jobs:
         make commands.def
         dirty=$(git diff)
         if [[ ! -z  $dirty ]]; then echo $dirty; exit 1; fi
-    - name: Run merged modules tests
-      if: steps.check_changes.outputs.merged_modules == 'true'
-      uses: ./.github/workflows/merged-modules.yml
-      with:
-        test_args: '--verbose'
 
   test-sanitizer-address:
     runs-on: ubuntu-latest
@@ -113,3 +100,9 @@ jobs:
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'
+
+  run-merged-modules-tests:
+    uses: ./.github/workflows/merged-modules.yml
+    with:
+      test_args: '--verbose'
+    needs: test-ubuntu-latest
