@@ -8,6 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Check for vector-sets changes
+      id: check_changes
+      uses: dorny/paths-filter@v2
+      with:
+        filters: |
+          modules:
+            - 'modules/vector-sets/**'
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
@@ -24,6 +31,11 @@ jobs:
         make commands.def
         dirty=$(git diff)
         if [[ ! -z  $dirty ]]; then echo $dirty; exit 1; fi
+    - name: Run modules tests
+      if: steps.check_changes.outputs.modules == 'true'
+      uses: ./.github/workflows/merged-modules.yml
+      with:
+        test_args: '--verbose'
 
   test-sanitizer-address:
     runs-on: ubuntu-latest
