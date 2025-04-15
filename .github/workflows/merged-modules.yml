@@ -10,11 +10,11 @@ on:
   push:
     paths:
       - 'modules/vector-sets/**'
-      - '.github/workflows/vector-sets.yml'
+      - '.github/workflows/merged-modules.yml'
   pull_request:
     paths:
       - 'modules/vector-sets/**'
-      - '.github/workflows/vector-sets.yml'
+      - '.github/workflows/merged-modules.yml'
 
 jobs:
   test-module-vector-sets:

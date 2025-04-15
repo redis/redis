@@ -13,8 +13,9 @@ jobs:
       uses: dorny/paths-filter@v2
       with:
         filters: |
-          modules:
+          merged_modules:
             - 'modules/vector-sets/**'
+            - '.github/workflows/merged-modules.yml'
     - name: make
       # Fail build if there are warnings
       # build with TLS just for compilation coverage
@@ -31,8 +32,8 @@ jobs:
         make commands.def
         dirty=$(git diff)
         if [[ ! -z  $dirty ]]; then echo $dirty; exit 1; fi
-    - name: Run modules tests
-      if: steps.check_changes.outputs.modules == 'true'
+    - name: Run merged modules tests
+      if: steps.check_changes.outputs.merged_modules == 'true'
       uses: ./.github/workflows/merged-modules.yml
       with:
         test_args: '--verbose'
