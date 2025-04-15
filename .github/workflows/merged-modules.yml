@@ -27,6 +27,7 @@ jobs:
     - name: testprep
       run: |
         sudo apt-get install python3 python3-pip
+        sudo pip3 install redis
         cd modules/vector-sets
         make
     - name: vector-sets test
