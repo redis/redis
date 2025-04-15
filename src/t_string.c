@@ -63,12 +63,15 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 /* Generic SET command family (SET, SETEX, PSETEX, SETNX)
  * 
  * Arguments:
- *   val: robj value to set. Note that the function might update the `val' pointer
- *        itself. This is because, if its refcnt is 1, the ownership of the value might 
- *        transferred to the db in order to save a copy. In that case the `val` pointer
- *        is updated to point to the new allocation and refcnt is incremented by 1.
+ *   valref: A pointer to the robj to be set. This argument may be updated by the function.
+ *           The object is expected to have a refcount of 1, allowing its ownership to be 
+ *           transferred directly to the database to avoid making a copy. If needed, the 
+ *           function will replace *valref with a new allocation and increment its refcount 
+ *           so that both the database and the caller maintain valid references.
  */
-void setGenericCommand(client *c, int flags, robj *key, robj **val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *expire, 
+                       int unit, robj *ok_reply, robj *abort_reply) 
+{
     long long milliseconds = 0; /* initialized to avoid any harmless warning */
     int found = 0;
     int setkey_flags = 0;
@@ -97,11 +100,18 @@ void setGenericCommand(client *c, int flags, robj *key, robj **val, robj *expire
     setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
-    setKeyByLink(c, c->db, key, val, setkey_flags, &link);
-    if (expire) *val = setExpireByLink(c,c->db, key->ptr, milliseconds, link);
-
-    /*  refcnt 1->2. referenced by the key in the db and by the caller. */
-    incrRefCount(*val);
+    /* The object referenced by valref (typically c->argv[i]) has refcount=1.
+     * Its ownership is transferred to the DB by setKey*(), avoiding an extra copy. */    
+    debugServerAssert((*valref)->refcount == 1);
+    setKeyByLink(c, c->db, key, valref, setkey_flags, &link);
+    /* If there's an expiration, setExpireByLink may reallocate the object.
+     * We must update valref to reflect the new object if that happens. */
+    if (expire) *valref = setExpireByLink(c, c->db, key->ptr, milliseconds, link);
+    /* The client still holds a reference to the original object via c->argv[i],
+     * and will call decrRefCount() at the end of call(). We increment the refcount 
+     * from 1 to 2 to ensure both DB and client have valid references. */
+    incrRefCount(*valref); /* 1->2 */
+    
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
@@ -110,7 +120,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj **val, robj *expire
          * EX/PX/EXAT flag. */
         if (!(flags & OBJ_PXAT)) {
             robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-            rewriteClientCommandVector(c, 5, shared.set, key, *val, shared.pxat, milliseconds_obj);
+            rewriteClientCommandVector(c, 5, shared.set, key, *valref, shared.pxat, milliseconds_obj);
             decrRefCount(milliseconds_obj);
         }
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
