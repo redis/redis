@@ -52,7 +52,8 @@ test "CONFIG SET port updates cluster-announced port" {
         # Get the original port and change to new_port
         set orig_port [lindex [R 0 config get port] 1]
         assert {$orig_port != ""}
-        set new_port [expr {$orig_port + 100}]
+
+        set new_port [find_available_port $baseport $count]
         R 0 config set port $new_port
 
         # Verify that the new port appears in the output of cluster slots
