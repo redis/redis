@@ -19,6 +19,8 @@ start_server {tags {"modules"} overrides {{save ""}}} {
                 fail "Unable to wait for active defrag to stop"
             }
 
+            r flushdb
+            r frag.resetstats
             r frag.create key1 1 1000 0
 
             r config set activedefrag yes
