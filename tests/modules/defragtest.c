@@ -338,7 +338,7 @@ static int fragCreateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-/* FRAG.create_frag_global */
+/* FRAG.create_frag_global len */
 static int fragCreateGlobalCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
     if (argc != 2)
