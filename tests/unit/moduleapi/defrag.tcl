@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/defragtest.so]
 
 start_server {tags {"modules"} overrides {{save ""}}} {
-    r module load $testmodule 50000
+    r module load $testmodule
     r config set hz 100
     r config set active-defrag-ignore-bytes 1
     r config set active-defrag-threshold-lower 0
@@ -76,7 +76,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
 
             r flushdb
             r frag.resetstats
-            r frag.create_frag_global
+            r frag.create_frag_global 50000
             r config set activedefrag yes
 
             wait_for_condition 200 50 {
