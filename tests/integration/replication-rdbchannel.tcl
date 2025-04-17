@@ -432,8 +432,8 @@ start_server {tags {"repl external:skip"}} {
                 fail "Replica did not start loading"
             }
 
-            # Generate some traffic for backlog ~2mb
-            populate 20 master 1000000 -1
+            # Generate replication traffic of ~2mb to disconnect the slave on obuf limit
+            populate 1 master 2000000 -1
 
             wait_for_log_messages -1 {"*Client * closed * for overcoming of output buffer limits.*"} 0 1000 10
             $replica config set key-load-delay 0
