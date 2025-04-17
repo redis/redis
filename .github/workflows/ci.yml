@@ -100,3 +100,9 @@ jobs:
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'
+
+  run-merged-modules-tests:
+    uses: ./.github/workflows/merged-modules.yml
+    with:
+      test_args: '--verbose'
+    needs: test-ubuntu-latest

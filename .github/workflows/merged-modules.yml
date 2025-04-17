@@ -1,0 +1,38 @@
+name: Merged Modules CI
+
+on:
+  workflow_call: # Allow this workflow to be called from other workflows
+    inputs:
+      test_args:
+        type: string
+        default: ''
+        required: false
+  push:
+    paths:
+      - 'modules/vector-sets/**'
+      - '.github/workflows/merged-modules.yml'
+  pull_request:
+    paths:
+      - 'modules/vector-sets/**'
+      - '.github/workflows/merged-modules.yml'
+
+jobs:
+  test-module-vector-sets:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: make
+      run: |
+        make REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: |
+        sudo apt-get install -y python3 python3-pip
+        sudo pip3 install redis
+        cd modules/vector-sets
+        make
+    - name: vector-sets test
+      run: |
+        ./src/redis-server --save "" --enable-debug-command yes &
+        sleep 1
+        cd modules/vector-sets
+        python3 test.py "${{ inputs.test_args }}"
