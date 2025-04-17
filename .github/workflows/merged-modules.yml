@@ -26,7 +26,7 @@ jobs:
         make REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
-        sudo apt-get install python3 python3-pip
+        sudo apt-get install -y python3 python3-pip
         sudo pip3 install redis
         cd modules/vector-sets
         make
@@ -36,4 +36,3 @@ jobs:
         sleep 1
         cd modules/vector-sets
         python3 test.py "${{ inputs.test_args }}"
-        pkill redis-server || true

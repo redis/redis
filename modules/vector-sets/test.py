@@ -223,8 +223,10 @@ def run_tests():
 
     if passed == total:
         print(colored("\nALL TESTS PASSED!", "green"))
+        sys.exit(0)
     else:
         print(colored(f"\n{total-passed} TESTS FAILED!", "red"))
+        sys.exit(1)
 
 if __name__ == "__main__":
     run_tests()
