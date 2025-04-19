@@ -169,7 +169,6 @@ static exprtoken *jsonParseStringToken(const char **p, const char *end) {
     }
     if (q >= end || *q != '"') return NULL; // Unterminated string
     exprtoken *t = exprNewToken(EXPR_TOKEN_STR);
-    if (!t) return NULL; // Allocation failed
 
     if (!has_esc) {
         // No escapes, we can point directly into the original JSON string.
@@ -177,7 +176,6 @@ static exprtoken *jsonParseStringToken(const char **p, const char *end) {
     } else {
         // Escapes present, need to allocate and copy/process escapes.
         char *dst = RedisModule_Alloc(len + 1);
-        if (!dst) { exprTokenRelease(t); return NULL; } // Allocation failed.
 
         t->str.start = t->str.heapstr = dst; t->str.len = len;
         const char *r = start; esc = 0;
@@ -234,7 +232,6 @@ static exprtoken *jsonParseNumberToken(const char **p, const char *end) {
 
     // If strtod() succeeded, create and return the token..
     exprtoken *t = exprNewToken(EXPR_TOKEN_NUM);
-    if (!t) return NULL; // Allocation failed.
     t->num = v;
     return t;
 }
