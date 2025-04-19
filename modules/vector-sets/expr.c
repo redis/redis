@@ -16,7 +16,6 @@
 #include <ctype.h>
 #include <math.h>
 #include <string.h>
-#include "cJSON.h"
 
 #ifdef TEST_MAIN
 #define RedisModule_Alloc malloc
@@ -733,73 +732,13 @@ int exprTokensEqual(exprtoken *a, exprtoken *b) {
     return exprTokenToNum(a) == exprTokenToNum(b);
 }
 
-/* Convert a json object to an expression token. There is only
- * limited support for JSON arrays: they must be composed of
- * just numbers and strings. Returns NULL if the JSON object
- * cannot be converted. */
-exprtoken *exprJsonToToken(cJSON *js) {
-    if (cJSON_IsNumber(js)) {
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_NUM);
-        obj->num = cJSON_GetNumberValue(js);
-        return obj;
-    } else if (cJSON_IsString(js)) {
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_STR);
-        char *strval = cJSON_GetStringValue(js);
-        obj->str.heapstr = RedisModule_Strdup(strval);
-        obj->str.start = obj->str.heapstr;
-        obj->str.len = strlen(obj->str.heapstr);
-        return obj;
-    } else if (cJSON_IsBool(js)) {
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_NUM);
-        obj->num = cJSON_IsTrue(js);
-        return obj;
-    } else if (cJSON_IsArray(js)) {
-        // First, scan the array to ensure it only
-        // contains strings and numbers. Otherwise the
-        // expression will evaluate to false.
-        int array_size = cJSON_GetArraySize(js);
-
-        for (int j = 0; j < array_size; j++) {
-            cJSON *item = cJSON_GetArrayItem(js, j);
-            if (!cJSON_IsNumber(item) && !cJSON_IsString(item)) return NULL;
-        }
-
-        // Create a tuple token for the array.
-        exprtoken *obj = exprNewToken(EXPR_TOKEN_TUPLE);
-        obj->tuple.len = array_size;
-        obj->tuple.ele = NULL;
-        if (obj->tuple.len == 0) return obj; // No elements, already ok.
-
-        obj->tuple.ele =
-            RedisModule_Alloc(sizeof(exprtoken*) * obj->tuple.len);
-
-        // Convert each array element to a token.
-        for (size_t j = 0; j < obj->tuple.len; j++) {
-            cJSON *item = cJSON_GetArrayItem(js, j);
-            if (cJSON_IsNumber(item)) {
-                exprtoken *eleToken = exprNewToken(EXPR_TOKEN_NUM);
-                eleToken->num = cJSON_GetNumberValue(item);
-                obj->tuple.ele[j] = eleToken;
-            } else if (cJSON_IsString(item)) {
-                exprtoken *eleToken = exprNewToken(EXPR_TOKEN_STR);
-                char *strval = cJSON_GetStringValue(item);
-                eleToken->str.heapstr = RedisModule_Strdup(strval);
-                eleToken->str.start = eleToken->str.heapstr;
-                eleToken->str.len = strlen(eleToken->str.heapstr);
-                obj->tuple.ele[j] = eleToken;
-            }
-        }
-        return obj;
-    }
-    return NULL; // No conversion possible for this type.
-}
+#include "fastjson.c" // JSON parser implementation used by exprRun().
 
 /* Execute the compiled expression program. Returns 1 if the final stack value
  * evaluates to true, 0 otherwise. Also returns 0 if any selector callback
  * fails. */
 int exprRun(exprstate *es, char *json, size_t json_len) {
     exprStackReset(&es->values_stack);
-    cJSON *parsed_json = NULL;
 
     // Execute each instruction in the program.
     for (int i = 0; i < es->program.numitems; i++) {
@@ -807,35 +746,15 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
 
         // Handle selectors by calling the callback.
         if (t->token_type == EXPR_TOKEN_SELECTOR) {
-            if (json != NULL) {
-                cJSON *attrib = NULL;
-                if (parsed_json == NULL) {
-                    parsed_json = cJSON_ParseWithLength(json,json_len);
-                    // Will be left to NULL if the above fails.
-                }
-                if (parsed_json) {
-                    char item_name[128];
-                    if (t->str.len > 0 && t->str.len < sizeof(item_name)) {
-                        memcpy(item_name,t->str.start,t->str.len);
-                        item_name[t->str.len] = 0;
-                        attrib = cJSON_GetObjectItem(parsed_json,item_name);
-                    }
-                    /* Fill the token according to the JSON type stored
-                     * at the attribute. */
-                    if (attrib) {
-                        exprtoken *obj = exprJsonToToken(attrib);
-                        if (obj) {
-                            exprStackPush(&es->values_stack, obj);
-                            continue;
-                        }
-                    }
-                }
-            }
+            exprtoken *obj = NULL;
+            if (t->str.len > 0)
+                obj = jsonExtractField(json,json_len,t->str.start,t->str.len);
 
             // Selector not found or JSON object not convertible to
             // expression tokens. Evaluate the expression to false.
-            if (parsed_json) cJSON_Delete(parsed_json);
-            return 0;
+            if (obj == NULL) return 0;
+            exprStackPush(&es->values_stack, obj);
+            continue;
         }
 
         // Push non-operator values directly onto the stack.
@@ -932,8 +851,6 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
         exprTokenRelease(b);
         exprStackPush(&es->values_stack, result);
     }
-
-    if (parsed_json) cJSON_Delete(parsed_json);
 
     // Get final result from stack.
     exprtoken *final = exprStackPop(&es->values_stack);
