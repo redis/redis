@@ -149,12 +149,7 @@ exprtoken *exprNewToken(int type) {
 void exprTokenRelease(exprtoken *t) {
     if (t == NULL) return;
 
-    if (t->refcount <= 0) {
-        printf("exprTokenRelease() against a token with refcount %d!\n"
-               "Aborting program execution\n",
-            t->refcount);
-        exit(1);
-    }
+    RedisModule_Assert(t->refcount > 0); // Catch double free & more.
     t->refcount--;
     if (t->refcount > 0) return;
 
