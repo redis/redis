@@ -205,7 +205,7 @@ static exprtoken *jsonParseStringToken(const char **p, const char *end) {
 
 static exprtoken *jsonParseNumberToken(const char **p, const char *end) {
     // Use a buffer to extract the number literal for parsing with strtod().
-    char buf[64]; int idx = 0;
+    char buf[256]; int idx = 0;
     const char *start = *p; // For strtod partial failures check.
 
     // Copy potential number characters to buffer.

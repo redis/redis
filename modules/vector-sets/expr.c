@@ -303,7 +303,7 @@ exprtoken *exprParseSelector(exprstate *es) {
 
 exprtoken *exprParseNumber(exprstate *es) {
     exprtoken *t = exprNewToken(EXPR_TOKEN_NUM);
-    char num[64];
+    char num[256];
     int idx = 0;
     while(isdigit(es->p[0]) || es->p[0] == '.' || es->p[0] == 'e' ||
           es->p[0] == 'E' || (idx == 0 && es->p[0] == '-'))
@@ -677,7 +677,7 @@ exprstate *exprCompile(char *expr, int *errpos) {
 /* Convert a token to its numeric value. For strings we attempt to parse them
  * as numbers, returning 0 if conversion fails. */
 double exprTokenToNum(exprtoken *t) {
-    char buf[128];
+    char buf[256];
     if (t->token_type == EXPR_TOKEN_NUM) {
         return t->num;
     } else if (t->token_type == EXPR_TOKEN_STR && t->str.len < sizeof(buf)) {
