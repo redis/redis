@@ -31,6 +31,7 @@
 #define EXPR_TOKEN_TUPLE 3
 #define EXPR_TOKEN_SELECTOR 4
 #define EXPR_TOKEN_OP 5
+#define EXPR_TOKEN_NULL 6
 
 #define EXPR_OP_OPAREN 0  /* ( */
 #define EXPR_OP_CPAREN 1  /* ) */
@@ -240,9 +241,10 @@ void exprConsumeSpaces(exprstate *es) {
     while(es->p[0] && isspace(es->p[0])) es->p++;
 }
 
-/* Parse an operator, trying to match the longer match in the
- * operators table. */
-exprtoken *exprParseOperator(exprstate *es) {
+/* Parse an operator or a literal (just "null" currently).
+ * When parsing operators, the functil will try to match the longest match
+ * in the operators table. */
+exprtoken *exprParseOperatorOrLiteral(exprstate *es) {
     exprtoken *t = exprNewToken(EXPR_TOKEN_OP);
     char *start = es->p;
 
@@ -256,6 +258,12 @@ exprtoken *exprParseOperator(exprstate *es) {
     int matchlen = es->p - start;
     int bestlen = 0;
     int j;
+
+    // Check if it's a literal.
+    if (matchlen == 4 && !memcmp("null",start,4)) {
+        t->token_type = EXPR_TOKEN_NULL;
+        return t;
+    }
 
     // Find the longest matching operator.
     for (j = 0; ExprOptable[j].opname != NULL; j++) {
@@ -467,10 +475,10 @@ int exprTokenize(exprstate *es, int *errpos) {
             current = exprParseString(es);
         } else if (*es->p == '.' && is_selector_char(es->p[1])) {
             current = exprParseSelector(es);
-        } else if (isalpha(*es->p) || strchr(EXPR_OP_SPECIALCHARS, *es->p)) {
-            current = exprParseOperator(es);
         } else if (*es->p == '[') {
             current = exprParseTuple(es);
+        } else if (isalpha(*es->p) || strchr(EXPR_OP_SPECIALCHARS, *es->p)) {
+            current = exprParseOperatorOrLiteral(es);
         }
 
         if (current == NULL) {
@@ -695,6 +703,8 @@ double exprTokenToBool(exprtoken *t) {
         return t->num != 0;
     } else if (t->token_type == EXPR_TOKEN_STR && t->str.len == 0) {
         return 0; // Empty string are false, like in Javascript.
+    } else if (t->token_type == EXPR_TOKEN_NULL) {
+        return 0; // Null is surely more false than true...
     } else {
         return 1; // Every non numerical type is true.
     }
@@ -711,6 +721,12 @@ int exprTokensEqual(exprtoken *a, exprtoken *b) {
     // If both are numbers, do numeric comparison.
     if (a->token_type == EXPR_TOKEN_NUM && b->token_type == EXPR_TOKEN_NUM) {
         return a->num == b->num;
+    }
+
+    /* If one of the two is null, the expression is true only if
+     * both are null. */
+    if (a->token_type == EXPR_TOKEN_NULL || b->token_type == EXPR_TOKEN_NULL) {
+        return a->token_type == b->token_type;
     }
 
     // Mixed types - convert to numbers and compare.
