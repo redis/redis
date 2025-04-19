@@ -58,14 +58,16 @@ static inline void jsonSkipWhiteSpaces(const char **p, const char *end) {
 /* Advance *p past a JSON string. Returns 1 on success, 0 on error. */
 static int jsonSkipString(const char **p, const char *end) {
     if (*p >= end || **p != '"') return 0;
-    int esc = 0;
-    (*p)++; /* skip opening quote */
+    (*p)++; /* Skip opening quote. */
     while (*p < end) {
-        if (esc) {
-            esc = 0; (*p)++; continue;
+        if (**p == '\\') {
+            (*p) += 2;
+            continue;
         }
-        if (**p == '\\') { esc = 1; (*p)++; continue; }
-        if (**p == '"') { (*p)++; return 1; }
+        if (**p == '"') {
+            (*p)++; /* Skip closing quote. */
+            return 1;
+        }
         (*p)++;
     }
     return 0; /* unterminated */
