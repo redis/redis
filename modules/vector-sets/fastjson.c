@@ -37,7 +37,7 @@
 #include <ctype.h>
 #include <string.h>
 
-// Foward declarations.
+// Forward declarations.
 static int jsonSkipValue(const char **p, const char *end);
 static exprtoken *jsonParseValueToken(const char **p, const char *end);
 
@@ -302,7 +302,7 @@ static exprtoken *jsonParseArrayToken(const char **p, const char *end) {
 
         jsonSkipWhiteSpaces(p,end);
         if (*p>=end) {
-            // Unterminated array. Note that this check is crucial beacause
+            // Unterminated array. Note that this check is crucial because
             // previous value parsed may seek 'p' to 'end'.
             exprTokenRelease(t);
             return NULL;
