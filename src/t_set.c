@@ -804,8 +804,7 @@ void spopWithCountCommand(client *c) {
         signalModifiedKey(c,c->db,c->argv[1]);
         return;
     }
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - toRemove);
-
+    
     /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */
@@ -866,6 +865,7 @@ void spopWithCountCommand(client *c) {
         lp = lpBatchDelete(lp, ps, count);
         zfree(ps);
         set->ptr = lp;
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         for (unsigned long i = 0; i < count; i++) {
             propargv[propindex] = setTypePopRandom(set);
@@ -880,6 +880,7 @@ void spopWithCountCommand(client *c) {
                 propindex = 2;
             }
         }
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
      * the size of the set itself. After some time extracting random elements
@@ -944,7 +945,7 @@ void spopWithCountCommand(client *c) {
         }
         setTypeReleaseIterator(si);
 
-        /* Assign the new set as the key value. */
+        /* Assign the new set as the key value (Also update KEYSIZES histogram) */
         dbReplaceValue(c->db,c->argv[1],newset);
     }
 

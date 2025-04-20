@@ -4564,6 +4564,8 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     listTypeTryConversionAppend(key->value, &ele, 0, 0, moduleFreeListIterator, key);
     listTypePush(key->value, ele,
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
+    int64_t l = listTypeLength(key->value);
+    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l-1, l);
     return REDISMODULE_OK;
 }
 
@@ -4595,6 +4597,8 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
         (where == REDISMODULE_LIST_HEAD) ? LIST_HEAD : LIST_TAIL);
     robj *decoded = getDecodedObject(ele);
     decrRefCount(ele);
+    int64_t l = (int64_t) listTypeLength(key->value);
+    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l+1, l);
     if (!moduleDelKeyIfEmpty(key))
         listTypeTryConversion(key->value, LIST_CONV_SHRINKING, moduleFreeListIterator, key);
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
@@ -4726,6 +4730,8 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
 int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
+        int64_t l = (int64_t) listTypeLength(key->value); 
+        updateKeysizesHist(key->db, getKeySlot(key->value->ptr), OBJ_LIST, l+1, l);
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
         listTypeTryConversion(key->value, LIST_CONV_SHRINKING, moduleFreeListIterator, key);
         if (!key->iter) return REDISMODULE_OK; /* Return ASAP if iterator has been freed */
@@ -4822,6 +4828,8 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
         return REDISMODULE_ERR;
     }
     if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
+    int64_t l = (int64_t) zsetLength(key->value);
+    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l-1, l);
     return REDISMODULE_OK;
 }
 
@@ -4850,6 +4858,10 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
         moduleDelKeyIfEmpty(key);
         return REDISMODULE_ERR;
     }
+    if (out_flags & ZADD_OUT_ADDED) {
+        int64_t l = (int64_t) zsetLength(key->value);
+        updateKeysizesHist(key->db, getKeySlot(key->value->ptr), OBJ_ZSET, l-1, l);
+    }
     if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
     return REDISMODULE_OK;
 }
@@ -4877,6 +4889,8 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
     if (key->value && key->value->type != OBJ_ZSET) return REDISMODULE_ERR;
     if (key->value != NULL && zsetDel(key->value,ele->ptr)) {
         if (deleted) *deleted = 1;
+        int64_t l = (int64_t) zsetLength(key->value);
+        updateKeysizesHist(key->db, getKeySlot(key->value->ptr), OBJ_ZSET, l+1, l);
         moduleDelKeyIfEmpty(key);
     } else {
         if (deleted) *deleted = 0;
@@ -5295,6 +5309,8 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         return 0;
     }
     if (key->value == NULL) moduleCreateEmptyKey(key,REDISMODULE_KEYTYPE_HASH);
+    
+    int64_t oldlen = (int64_t) getObjectLength(key->value);
 
     int count = 0;
     va_start(ap, flags);
@@ -5313,7 +5329,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
 
         /* Handle XX and NX */
         if (flags & (REDISMODULE_HASH_XX|REDISMODULE_HASH_NX)) {
-            int hfeFlags = HFE_LAZY_AVOID_HASH_DEL; /* Avoid invalidate the key */
+            int hfeFlags = HFE_LAZY_AVOID_HASH_DEL | HFE_LAZY_NO_UPDATE_KEYSIZES; 
 
             /*
              * The hash might contain expired fields. If we lazily delete expired
@@ -5363,6 +5379,9 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         }
     }
     va_end(ap);
+    updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_HASH, oldlen, 
+                       (int64_t) hashTypeLength(key->value, 0));
+    
     moduleDelKeyIfEmpty(key);
     if (count == 0) errno = ENOENT;
     return count;
@@ -5420,7 +5439,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * RedisModule_FreeString(), or by enabling automatic memory management.
  */
 int RM_HashGet(RedisModuleKey *key, int flags, ...) {
-    int hfeFlags = HFE_LAZY_AVOID_FIELD_DEL | HFE_LAZY_AVOID_HASH_DEL;
+    int hfeFlags = HFE_LAZY_AVOID_FIELD_DEL | HFE_LAZY_AVOID_HASH_DEL | HFE_LAZY_NO_UPDATE_KEYSIZES;
     va_list ap;
     if (key->value && key->value->type != OBJ_HASH) return REDISMODULE_ERR;
 

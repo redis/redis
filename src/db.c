@@ -352,8 +352,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
     serverAssertWithInfo(NULL,key,de != NULL);
     robj *old = dictGetVal(de);
 
-    /* Remove old key from keysizes histogram */
-    updateKeysizesHist(db, slot, old->type, getObjectLength(old), -1); /* remove hist */
+    int64_t oldlen = (int64_t) getObjectLength(old);
 
     val->lru = old->lru;
 
@@ -373,8 +372,15 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
     }
     kvstoreDictSetVal(db->keys, slot, de, val);
 
-    /* Add new key to keysizes histogram */
-    updateKeysizesHist(db, slot, val->type, -1, getObjectLength(val));
+    /* Remove old key and add new key to KEYSIZES histogram */
+    int64_t newlen = (int64_t) getObjectLength(val);
+    /* Save one call if old and new are the same type */
+    if (old->type == val->type) {
+        updateKeysizesHist(db, slot, old->type, oldlen, newlen);
+    } else {        
+        updateKeysizesHist(db, slot, old->type, oldlen, -1); 
+        updateKeysizesHist(db, slot, val->type, -1, newlen);
+    }
 
     /* if hash with HFEs, take care to remove from global HFE DS */
     if (old->type == OBJ_HASH)
@@ -489,9 +495,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     if (de) {
         robj *val = dictGetVal(de);
 
-        /* remove key from histogram */
-        if(!(flags & DB_FLAG_NO_UPDATE_KEYSIZES))
-            updateKeysizesHist(db, slot, val->type, (int64_t) getObjectLength(val), -1);
+        int64_t oldlen = (int64_t) getObjectLength(val);
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (val->type == OBJ_HASH)
@@ -517,6 +521,11 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         kvstoreDictDelete(db->expires, slot, key->ptr);
 
         kvstoreDictTwoPhaseUnlinkFree(db->keys, slot, de, plink, table);
+
+        /* remove key from histogram */
+        if(!(flags & DB_FLAG_NO_UPDATE_KEYSIZES))
+            updateKeysizesHist(db, slot, val->type, oldlen, -1);
+
         return 1;
     } else {
         return 0;
