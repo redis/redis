@@ -496,9 +496,10 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         robj *val = dictGetVal(de);
 
         int64_t oldlen = (int64_t) getObjectLength(val);
+        int type = val->type; 
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
-        if (val->type == OBJ_HASH)
+        if (type == OBJ_HASH)
             hashTypeRemoveFromExpires(&db->hexpires, val);
 
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
@@ -507,7 +508,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id,flags);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
-        signalDeletedKeyAsReady(db,key,val->type);
+        signalDeletedKeyAsReady(db,key,type);
         /* We should call decr before freeObjAsync. If not, the refcount may be
          * greater than 1, so freeObjAsync doesn't work */
         decrRefCount(val);
@@ -524,7 +525,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* remove key from histogram */
         if(!(flags & DB_FLAG_NO_UPDATE_KEYSIZES))
-            updateKeysizesHist(db, slot, val->type, oldlen, -1);
+            updateKeysizesHist(db, slot, type, oldlen, -1);
 
         return 1;
     } else {
