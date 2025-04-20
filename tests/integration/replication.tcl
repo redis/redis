@@ -45,8 +45,11 @@ start_server {tags {"repl network external:skip"}} {
         }
 
         test {Slave enters wait_bgsave} {
+            # Wait until the rdbchannel is connected to prevent the following
+            # 'debug sleep' occurring during the rdbchannel handshake.
             wait_for_condition 50 1000 {
-                [string match *state=wait_bgsave* [$master info replication]]
+                [string match *state=wait_bgsave* [$master info replication]] &&
+                [llength [split [string trim [$master client list type slave]] "\r\n"]] == 2
             } else {
                 fail "Replica does not enter wait_bgsave state"
             }
@@ -1638,7 +1641,7 @@ start_server {tags {"repl external:skip"}} {
             $replica replicaof $master_host $master_port
 
             # Wait until replication is completed
-            wait_replica_online $master 0 1000 100
+            wait_for_sync $replica
             wait_for_ofs_sync $master $replica
 
             # Sanity check

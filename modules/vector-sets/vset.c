@@ -577,7 +577,10 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx,"ERR invalid vector specification");
 
     /* Missing element string at the end? */
-    if (argc-2-consumed_args < 1) return RedisModule_WrongArity(ctx);
+    if (argc-2-consumed_args < 1) {
+        RedisModule_Free(vec);
+        return RedisModule_WrongArity(ctx);
+    }
 
     /* Parse options after the element string. */
     uint32_t quant_type = HNSW_QUANT_Q8; // Default quantization type.
@@ -1646,6 +1649,37 @@ int VRANDMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
+/* VISMEMBER key element
+ * Check if an element exists in a vector set.
+ * Returns 1 if the element exists, 0 if not. */
+int VISMEMBER_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    RedisModule_AutoMemory(ctx);
+    if (argc != 3) return RedisModule_WrongArity(ctx);
+
+    RedisModuleString *key = argv[1];
+    RedisModuleString *element = argv[2];
+
+    /* Open key. */
+    RedisModuleKey *keyptr = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+    int type = RedisModule_KeyType(keyptr);
+
+    /* Handle non-existing key or wrong type. */
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+        /* An element of a non existing key does not exist, like
+         * SISMEMBER & similar. */
+        return RedisModule_ReplyWithBool(ctx, 0);
+    }
+    if (RedisModule_ModuleTypeGetType(keyptr) != VectorSetType) {
+        return RedisModule_ReplyWithError(ctx, REDISMODULE_ERRORMSG_WRONGTYPE);
+    }
+
+    /* Get the object and test membership via the dictionary in constant
+     * time (assuming a member of average size). */
+    struct vsetObject *vset = RedisModule_ModuleTypeGetValue(keyptr);
+    hnswNode *node = RedisModule_DictGet(vset->dict, element, NULL);
+    return RedisModule_ReplyWithBool(ctx, node != NULL);
+}
+
 /* ============================== vset type methods ========================= */
 
 #define SAVE_FLAG_HAS_PROJMATRIX    (1<<0)
@@ -1902,12 +1936,7 @@ void VectorSetDigest(RedisModuleDigest *md, void *value) {
 
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
-#ifdef MERGED_REDIS_MODULE
-#define ONLOAD VectorSets_OnLoad
-#else
-#define ONLOAD RedisModule_OnLoad
-#endif
-int ONLOAD(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
 
@@ -1972,6 +2001,10 @@ int ONLOAD(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (RedisModule_CreateCommand(ctx, "VRANDMEMBER",
         VRANDMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "VISMEMBER",
+        VISMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     hnsw_set_allocator(RedisModule_Free, RedisModule_Alloc,

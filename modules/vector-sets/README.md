@@ -1,3 +1,5 @@
+**IMPORTANT:** *Please note that this is a merged module, it's part of the Redis binary now, and you don't need to build it and load it into Redis. Compiling Redis version 8 or greater will result into having the Vector Sets commands available. However, you could compile this module as a shared library in order to load it in older versions of Redis.*
+
 This module implements Vector Sets for Redis, a new Redis data type similar
 to Sorted Sets but having string elements associated to a vector instead of
 a score. The fundamental goal of Vector Sets is to make possible adding items,
@@ -8,6 +10,8 @@ of an element that is already part of the Vector Set.
 Moreover, Vector sets implement optional filtered search capabilities: it is possible to associate attributes to all or to a subset of elements in the set, and then, using the `FILTER` option of the `VSIM` command, to ask for items similar to a given vector but also passing a filter specified as a simple mathematical expression (Like `".year > 1950"` or similar). This means that **you can have vector similarity and scalar filters at the same time**.
 
 ## Installation
+
+**WARNING:** If you are running **Redis 8.0 RC1 or greater** you don't need to install anything, just compile Redis, and the Vector Sets commands will be part of the default install. Otherwise to test Vector Sets with older Redis versions follow the following instructions.
 
 Build with:
 
@@ -168,6 +172,14 @@ In this case the return value of the command is an array of three or more elemen
 For q8 quantization, an additional elements is also returned: the quantization
 range, so the integers from -127 to 127 represent (normalized) components
 in the range `-range`, `+range`.
+
+**VISMEMBER: test if a given element already exists**
+
+This command will return 1 (or true) if the specified element is already in the vector set, otherwise 0 (or false) is returned.
+
+    VISMEMBER key element
+
+As with other existence check Redis commands, if the key does not exist it is considered as if it was empty, thus the element is reported as non existing.
 
 **VLINKS: introspection command that shows neighbors for a node**
 

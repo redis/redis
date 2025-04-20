@@ -317,6 +317,12 @@ ifeq ($(BUILD_TLS),module)
 	TLS_MODULE_CFLAGS+=-DUSE_OPENSSL=$(BUILD_MODULE) $(OPENSSL_CFLAGS) -DBUILD_TLS_MODULE=$(BUILD_MODULE)
 endif
 
+ifneq ($(SKIP_VEC_SETS),yes)
+	vpath %.c ../modules/vector-sets
+	REDIS_VEC_SETS_OBJ=hnsw.o cJSON.o vset.o
+	FINAL_CFLAGS+=-DINCLUDE_VEC_SETS=1
+endif
+
 ifndef V
     define MAKE_INSTALL
         @printf '    %b %b\n' $(LINKCOLOR)INSTALL$(ENDCOLOR) $(BINCOLOR)$(1)$(ENDCOLOR) 1>&2
@@ -352,13 +358,6 @@ ifneq (, $(findstring LOG_REQ_RES, $(REDIS_CFLAGS)))
 else
 	COMMANDS_DEF_FILENAME=commands
 	GEN_COMMANDS_FLAGS=
-endif
-
-
-ifneq ($(SKIP_VEC_SETS),yes)
-	vpath %.c ../modules/vector-sets
-	REDIS_VEC_SETS_OBJ=hnsw.o cJSON.o vset.o
-	CFLAGS+=-DINCLUDE_VEC_SETS=1
 endif
 
 REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)

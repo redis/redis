@@ -10,9 +10,14 @@
  * Originally authored by: Salvatore Sanfilippo
  */
 
+#define _DEFAULT_SOURCE
+#define _USE_MATH_DEFINES
+#define _POSIX_C_SOURCE 200809L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/time.h>
 #include <time.h>
 #include <stdint.h>
@@ -222,7 +227,10 @@ int w2v_single_thread(int m_param, int quantization, uint64_t numele, int massde
         exit(1);
     }
     unsigned char header[8];
-    fread(header,8,1,fp); // Skip header
+    if (fread(header,8,1,fp) <= 0) { // Skip header
+        perror("Unexpected EOF");
+        exit(1);
+    }
 
     uint64_t id = 0;
     uint64_t start_time = ms_time();
@@ -232,9 +240,15 @@ int w2v_single_thread(int m_param, int quantization, uint64_t numele, int massde
     while(id < numele) {
         if (fread(&wlen,2,1,fp) == 0) break;
         word = malloc(wlen+1);
-        fread(word,wlen,1,fp);
+        if (fread(word,wlen,1,fp) <= 0) {
+            perror("unexpected EOF");
+            exit(1);
+        }
         word[wlen] = 0;
-        fread(v,300*sizeof(float),1,fp);
+        if (fread(v,300*sizeof(float),1,fp) <= 0) {
+            perror("unexpected EOF");
+            exit(1);
+        }
 
         // Plain API that acquires a write lock for the whole time.
         hnswNode *added = hnsw_insert(index, v, NULL, 0, id++, word, 200);
@@ -339,9 +353,16 @@ void *threaded_insert(void *ctxptr) {
         if (fread(&wlen,2,1,ctx->fp) == 0) break;
         pthread_mutex_unlock(&ctx->FileAccessMutex);
         word = malloc(wlen+1);
-        fread(word,wlen,1,ctx->fp);
+        if (fread(word,wlen,1,ctx->fp) <= 0) {
+            perror("Unexpected EOF");
+            exit(1);
+        }
+
         word[wlen] = 0;
-        fread(v,300*sizeof(float),1,ctx->fp);
+        if (fread(v,300*sizeof(float),1,ctx->fp) <= 0) {
+            perror("Unexpected EOF");
+            exit(1);
+        }
 
         // Check-and-set API that performs the costly scan for similar
         // nodes concurrently with other read threads, and finally
@@ -401,7 +422,10 @@ int w2v_multi_thread(int m_param, int numthreads, int quantization, uint64_t num
     }
 
     unsigned char header[8];
-    fread(header,8,1,ctx.fp); // Skip header
+    if (fread(header,8,1,ctx.fp) <= 0) { // Skip header
+        perror("Unexpected EOF");
+        exit(1);
+    }
     pthread_mutex_init(&ctx.FileAccessMutex,NULL);
 
     uint64_t start_time = ms_time();

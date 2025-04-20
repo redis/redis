@@ -431,6 +431,41 @@ start_server {tags {"pubsub network"}} {
         r hgetex myhash PERSIST FIELDS 1 f5
         assert_equal "pmessage * __keyspace@${db}__:myhash hpersist" [$rd1 read]
 
+        # hgetex sets expiry for one field and lazy expiry deletes another field
+        # (KSN should be 1-hexpired 2-hexpire)
+        r debug set-active-expire 0
+        r hsetex myhash PX 1 FIELDS 1 f5 v5
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 10
+        r hgetex myhash EX 100 FIELDS 2 f5 f6
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+
+        # hgetex lazy expiry deletes the only field and the key
+        # (KSN should be 1-hexpired 2-del)
+        r hsetex myhash PX 1 FIELDS 2 f5 v5 f6 v6
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 10
+        r hgetex myhash FIELDS 2 f5 f6
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+        r debug set-active-expire 1
+
+        # hgetex sets an expired ttl for the only field and deletes the key
+        # (KSN should be 1-hdel 2-del)
+        r hsetex myhash EX 100 FIELDS 1 f5 v5
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 10
+        r hgetex myhash PX 0 FIELDS 1 f5
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+
+        r hsetex myhash FIELDS 2 f5 v5 f6 v6
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+
         # hgetdel deletes a field
         r hgetdel myhash FIELDS 1 f5
         assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
@@ -462,6 +497,31 @@ start_server {tags {"pubsub network"}} {
         assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
         # Get and delete the only field
         r hgetdel myhash FIELDS 1 f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
+
+        # HGETDEL deletes one field and the other field is lazily expired
+        # (KSN should be 1-hexpired 2-hdel)
+        r hsetex myhash FIELDS 2 f1 v1 f2 v2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        r hsetex myhash PX 1 FIELDS 1 f3 v3
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 10
+        r hgetdel myhash FIELDS 2 f1 f3
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
+
+        # HGETDEL, deletes one field and the last field lazily expires
+        # (KSN should be 1-hexpired 2-hdel 3-del)
+        r hsetex myhash FIELDS 1 f1 v1
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        r hsetex myhash PX 1 FIELDS 1 f2 v2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hset" [$rd1 read]
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpire" [$rd1 read]
+        after 10
+        r hgetdel myhash FIELDS 2 f1 f2
+        assert_equal "pmessage * __keyspace@${db}__:myhash hexpired" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash hdel" [$rd1 read]
         assert_equal "pmessage * __keyspace@${db}__:myhash del" [$rd1 read]
         r debug set-active-expire 1
