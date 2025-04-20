@@ -1,6 +1,6 @@
-/* json_light.c - ultra‑lightweight top‑level JSON field extractor
+/* Ultra‑lightweight top‑level JSON field extractor.
  * Return the element directly as an expr.c token.
- * This code is directly included inside.
+ * This code is directly included inside expr.c.
  *
  * Copyright (c) 2025-Present, Redis Ltd.
  * All rights reserved.
