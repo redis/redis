@@ -48,7 +48,7 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         assert_match "*@$base_bus_port *" [R 0 CLUSTER NODES]
     }
 
-test "CONFIG SET port updates cluster-announced port" {
+    test "CONFIG SET port updates cluster-announced port" {
         # Get the original port and change to new_port
         set orig_port [lindex [R 0 config get port] 1]
         assert {$orig_port != ""}
