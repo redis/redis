@@ -2459,6 +2459,7 @@ static int updatePort(const char **err) {
     listener->bindaddr = server.bindaddr;
     listener->bindaddr_count = server.bindaddr_count;
     listener->port = server.port;
+    clusterUpdateMyselfAnnouncedPorts();
     listener->ct = connectionByType(CONN_TYPE_SOCKET);
     if (changeListener(listener) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";

@@ -47,4 +47,20 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         R 0 config set cluster-announce-bus-port 0
         assert_match "*@$base_bus_port *" [R 0 CLUSTER NODES]
     }
+
+    test "CONFIG SET port updates cluster-announced port" {
+        # Get the original port and change to new_port
+        set orig_port [lindex [R 0 config get port] 1]
+        assert {$orig_port != ""}
+
+        set new_port [find_available_port $baseport $count]
+        R 0 config set port $new_port
+
+        # Verify that the new port appears in the output of cluster slots
+        wait_for_condition 50 100 {
+            [string match "*$new_port*" [R 0 cluster slots]]
+        } else {
+            fail "Cluster announced port was not updated in cluster slots"
+        }
+    }
 }
