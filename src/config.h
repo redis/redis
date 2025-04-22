@@ -210,6 +210,11 @@ void setproctitle(const char *fmt, ...);
 #define	BIG_ENDIAN	4321	/* most-significant byte first (IBM, net) */
 #define	PDP_ENDIAN	3412	/* LSB first in word, MSW first in long (pdp)*/
 
+/* Map macOS-specific __DARWIN_BYTE_ORDER to standard BYTE_ORDER if needed */
+#if defined(__APPLE__) && !defined(BYTE_ORDER) && defined(__DARWIN_BYTE_ORDER)
+#define BYTE_ORDER __DARWIN_BYTE_ORDER
+#endif
+
 #if defined(__i386__) || defined(__x86_64__) || defined(__amd64__) || \
    defined(vax) || defined(ns32000) || defined(sun386) || \
    defined(MIPSEL) || defined(_MIPSEL) || defined(BIT_ZERO_ON_RIGHT) || \
