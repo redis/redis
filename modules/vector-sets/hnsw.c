@@ -36,6 +36,7 @@
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
+#include "../../src/config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +45,6 @@
 #include <float.h>  /* for INFINITY if not in math.h */
 #include <assert.h>
 #include "hnsw.h"
-#include "../../src/config.h"
 
 
 #if 0
@@ -295,12 +295,12 @@ ATTRIBUTE_TARGET_POPCNT
 float vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
     uint32_t len = (dim+63)/64;
     uint32_t opposite = 0;
-    #if defined(HAVE_POPCNT)
+#if defined(HAVE_POPCNT)
     int use_popcnt = __builtin_cpu_supports("popcnt"); /* Check if CPU supports POPCNT instruction. */
-    #else
+#else
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if
-                        * __builtin_cpu_supports() is not available. */
-    #endif
+                         * __builtin_cpu_supports() is not available. */
+#endif
     if (likely(use_popcnt)) {
         for (uint32_t j = 0; j < len; j++) {
             uint64_t xor = x[j]^y[j];
