@@ -90,6 +90,12 @@ set ::force_resp3 0
 set ::client 0
 set ::numclients 16
 
+if {[info exists env(HAS_TSAN)]} {
+    set ::tsan $env(HAS_TSAN)
+} else {
+    set ::tsan 0
+}
+
 # This function is called by one of the test clients when it receives
 # a "run" command from the server, with a filename as data.
 # It will run the specified test source file and signal it to the

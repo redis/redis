@@ -1762,10 +1762,10 @@ struct redisServer {
     rax *errors;                /* Errors table */
     int errors_enabled;         /* If true, errorstats is enabled, and we will add new errors. */
     unsigned int lruclock; /* Clock for LRU eviction */
-    volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
-    volatile sig_atomic_t crashing;      /* Server is crashing report. */
+    redisAtomic int shutdown_asap; /* Shutdown ordered by signal handler. */
+    redisAtomic int crashing;      /* Server is crashing report. */
     mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
-    int last_sig_received;      /* Indicates the last SIGNAL received, if any (e.g., SIGINT or SIGTERM). */
+    redisAtomic int last_sig_received;      /* Indicates the last SIGNAL received, if any (e.g., SIGINT or SIGTERM). */
     int shutdown_flags;         /* Flags passed to prepareForShutdown(). */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */

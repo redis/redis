@@ -24,8 +24,8 @@ static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
 
 /*================================= Globals ================================= */
 
-static run_on_thread_cb g_callback = NULL;
-static volatile size_t g_tids_len = 0;
+static redisAtomic run_on_thread_cb g_callback = NULL;
+static redisAtomic size_t g_tids_len = 0;
 static redisAtomic size_t g_num_threads_done = 0;
 
 /* This flag is set while ThreadsManager_runOnThreads is running */

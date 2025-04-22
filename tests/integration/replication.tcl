@@ -880,7 +880,7 @@ proc compute_cpu_usage {start end} {
 
 
 # test diskless rdb pipe with multiple replicas, which may drop half way
-start_server {tags {"repl external:skip"} overrides {save ""}} {
+start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     set master [srv 0 client]
     $master config set repl-diskless-sync yes
     $master config set repl-diskless-sync-delay 5
@@ -1152,7 +1152,7 @@ test "diskless replication read pipe cleanup" {
             $master ping
         }
     }
-} {} {external:skip}
+} {} {external:skip tsan:skip}
 
 test {replicaof right after disconnection} {
     # this is a rare race condition that was reproduced sporadically by the psync2 unit.

@@ -231,6 +231,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::tsan && [lsearch $tags "tsan:skip"] >= 0} {
+        set err "Not supported under thread sanitizer"
+        return 0
+    }
+
     if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
         set err "Not supported in tls mode"
         return 0

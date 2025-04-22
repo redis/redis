@@ -2583,6 +2583,9 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 #include <sys/time.h>
 
 void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
+    /* Save and restore errno to avoid spoiling it's value as caught by
+     * WARNING: ThreadSanitizer: signal handler spoils errno */
+    int save_errno = errno;
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
 #else
@@ -2603,6 +2606,7 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
     serverLogRawFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
     serverLogRawFromHandler(LL_WARNING,"--------\n");
+    errno = save_errno;
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
