@@ -36,7 +36,6 @@
 #define _DEFAULT_SOURCE
 #define _POSIX_C_SOURCE 200809L
 
-#include "../../src/config.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +56,24 @@
 #endif
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
+
+
+#if defined(__x86_64__) && ((defined(__GNUC__) && __GNUC__ > 5) || (defined(__clang__)))
+    #if defined(__has_attribute) && __has_attribute(target)
+        #define HAVE_POPCNT
+        #define ATTRIBUTE_TARGET_POPCNT __attribute__((target("popcnt")))
+    #else
+        #define ATTRIBUTE_TARGET_POPCNT
+    #endif
+#else
+    #define ATTRIBUTE_TARGET_POPCNT
+#endif
+
+#if __GNUC__ >= 3
+#define likely(x) __builtin_expect(!!(x), 1)
+#else
+#define likely(x) (x)
+#endif
 
 /* Algorithm parameters. */
 
