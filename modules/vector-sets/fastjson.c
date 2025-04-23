@@ -41,6 +41,12 @@
 static int jsonSkipValue(const char **p, const char *end);
 static exprtoken *jsonParseValueToken(const char **p, const char *end);
 
+/* Similar to ctype.h isdigit() but covers the whole JSON number charset,
+ * including exp form. */
+static int jsonIsNumberChar(int c) {
+    return isdigit(c) || c=='-' || c=='+' || c=='.' || c=='e' || c=='E';
+}
+
 /* ========================== Fast skipping of JSON =========================
  * The helpers here are designed to skip values without performing any
  * allocation. This way, for the use case of this JSON parser, we are able
@@ -141,8 +147,7 @@ static int jsonSkipValue(const char **p, const char *end) {
          * but for skipping, just consuming plausible characters is enough. */
         {
         const char *num_start = *p;
-        while (*p < end && (isdigit((unsigned char)**p) || **p=='-'||**p=='+'||
-                             **p=='.' || **p=='e' || **p=='E')) (*p)++;
+        while (*p < end && jsonIsNumberChar(**p)) (*p)++;
         /* Return success only if we were able to make progresses to avoid
          * potential infinite loop on syntax error (this does not look like
          * a number). */
@@ -209,9 +214,7 @@ static exprtoken *jsonParseNumberToken(const char **p, const char *end) {
     const char *start = *p; // For strtod partial failures check.
 
     // Copy potential number characters to buffer.
-    while (*p < end && idx < (int)sizeof(buf)-1 &&
-           (isdigit((unsigned char)**p) || **p=='-'||**p=='+'||**p=='.'||
-            **p=='e'||**p=='E')) {
+    while (*p < end && idx < (int)sizeof(buf)-1 && jsonIsNumberChar(**p)) {
         buf[idx++] = **p;
         (*p)++;
     }
