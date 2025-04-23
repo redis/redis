@@ -131,6 +131,17 @@ static int jsonSkipLiteral(const char **p, const char *end, const char *lit) {
     return 0;
 }
 
+/* Skip number, don't check that number format is correct, just consume
+ * number-alike characters.
+ *
+ * Note: More robust number skipping might check validity,
+ * but for skipping, just consuming plausible characters is enough. */
+static int jsonSkipNumber(const char **p, const char *end) {
+    const char *num_start = *p;
+    while (*p < end && jsonIsNumberChar(**p)) (*p)++;
+    return *p > num_start; // Any progress made? Otherwise no number found.
+}
+
 /* Skip any JSON value. 1 = success, 0 = error. */
 static int jsonSkipValue(const char **p, const char *end) {
     jsonSkipWhiteSpaces(p, end);
@@ -142,17 +153,7 @@ static int jsonSkipValue(const char **p, const char *end) {
     case 't':  return jsonSkipLiteral(p, end, "true");
     case 'f':  return jsonSkipLiteral(p, end, "false");
     case 'n':  return jsonSkipLiteral(p, end, "null");
-    default:   /* Number */
-        /* Note: More robust number skipping might check validity,
-         * but for skipping, just consuming plausible characters is enough. */
-        {
-        const char *num_start = *p;
-        while (*p < end && jsonIsNumberChar(**p)) (*p)++;
-        /* Return success only if we were able to make progresses to avoid
-         * potential infinite loop on syntax error (this does not look like
-         * a number). */
-        return (*p > num_start);
-        }
+    default: return jsonSkipNumber(p, end);
     }
 }
 
