@@ -76,6 +76,9 @@ $(TARGET): $(OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
+expr-test: expr.c fastjson.c fastjson_test.c
+	$(CC) $(CFLAGS) expr.c -o expr-test -DTEST_MAIN
+
 # Clean rule
 clean:
 	rm -f $(TARGET) $(OBJS) *.xo *.so

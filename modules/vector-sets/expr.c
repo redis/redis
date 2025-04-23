@@ -862,6 +862,8 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
 /* ============================ Simple test main ============================ */
 
 #ifdef TEST_MAIN
+#include "fastjson_test.c"
+
 void exprPrintToken(exprtoken *t) {
     switch(t->token_type) {
         case EXPR_TOKEN_EOF:
@@ -901,6 +903,12 @@ void exprPrintStack(exprstack *stack, const char *name) {
 }
 
 int main(int argc, char **argv) {
+    /* Check for JSON parser test mode. */
+    if (argc >= 2 && strcmp(argv[1], "--test-json-parser") == 0) {
+        run_fastjson_test();
+        return 0;
+    }
+
     char *testexpr = "(5+2)*3 and .year > 1980 and 'foo' == 'foo'";
     char *testjson = "{\"year\": 1984, \"name\": \"The Matrix\"}";
     if (argc >= 2) testexpr = argv[1];
