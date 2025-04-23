@@ -236,7 +236,7 @@ void exprConsumeSpaces(exprstate *es) {
 }
 
 /* Parse an operator or a literal (just "null" currently).
- * When parsing operators, the functil will try to match the longest match
+ * When parsing operators, the function will try to match the longest match
  * in the operators table. */
 exprtoken *exprParseOperatorOrLiteral(exprstate *es) {
     exprtoken *t = exprNewToken(EXPR_TOKEN_OP);
