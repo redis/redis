@@ -18,10 +18,12 @@
 #include <string.h>
 
 #ifdef TEST_MAIN
+#include <assert.h>
 #define RedisModule_Alloc malloc
 #define RedisModule_Realloc realloc
 #define RedisModule_Free free
 #define RedisModule_Strdup strdup
+#define RedisModule_Assert assert
 #endif
 
 #define EXPR_TOKEN_EOF 0
