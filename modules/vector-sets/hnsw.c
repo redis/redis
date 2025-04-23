@@ -46,7 +46,6 @@
 #include <assert.h>
 #include "hnsw.h"
 
-
 #if 0
 #define debugmsg printf
 #else
