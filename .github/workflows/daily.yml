@@ -52,7 +52,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST' OPTIMIZATION=-O2
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -94,7 +94,7 @@ jobs:
     - name: make
       run: |
         apt-get update && apt-get install -y make gcc g++
-        make CC=gcc REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3'
+        make CC=gcc REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3' OPTIMIZATION=-O2
     - name: testprep
       run: sudo apt-get install -y tcl8.6 tclx procps
     - name: test
@@ -134,7 +134,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make MALLOC=libc REDIS_CFLAGS='-Werror'
+      run: make MALLOC=libc REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -171,7 +171,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE REDIS_CFLAGS='-Werror'
+      run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -210,7 +210,7 @@ jobs:
     - name: make
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386 g++ gcc-multilib g++-multilib
-        make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
+        make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST' OPTIMIZATION=-O2
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -253,7 +253,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        make BUILD_TLS=yes REDIS_CFLAGS='-Werror'
+        make BUILD_TLS=yes REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: |
         sudo apt-get install tcl8.6 tclx tcl-tls
@@ -297,7 +297,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        make BUILD_TLS=yes REDIS_CFLAGS='-Werror'
+        make BUILD_TLS=yes REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: |
         sudo apt-get install tcl8.6 tclx tcl-tls
@@ -341,7 +341,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        make REDIS_CFLAGS='-Werror'
+        make REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -373,7 +373,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        make REDIS_CFLAGS='-Werror'
+        make REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: |
         sudo apt-get install vmtouch
@@ -450,7 +450,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST' OPTIMIZATION=-O2
     - name: testprep
       run: |
         sudo apt-get update
@@ -480,7 +480,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST' OPTIMIZATION=-O2
     - name: testprep
       run: |
         sudo apt-get update
@@ -515,7 +515,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
+      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: |
         sudo apt-get update
@@ -545,7 +545,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
+      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: |
         sudo apt-get update
@@ -585,7 +585,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS' OPTIMIZATION=-O2
       - name: testprep
         run: |
           sudo apt-get update
@@ -632,7 +632,7 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' SKIP_VEC_SETS=yes LUA_DEBUG=yes # we (ab)use this flow to also check Lua C API violations
+        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' SKIP_VEC_SETS=yes LUA_DEBUG=yes OPTIMIZATION=-O2 # we (ab)use this flow to also check Lua C API violations
       - name: testprep
         run: |
           sudo apt-get update
@@ -897,7 +897,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST' OPTIMIZATION=-O2
 
   test-freebsd:
     runs-on: macos-13
@@ -927,7 +927,7 @@ jobs:
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclx gcc
-          gmake
+          gmake OPTIMIZATION=-O2
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
   test-alpine-jemalloc:
@@ -953,7 +953,7 @@ jobs:
     - name: make
       run: |
           apk add build-base
-          make REDIS_CFLAGS='-Werror'
+          make REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: apk add tcl procps tclx
     - name: test
@@ -992,7 +992,7 @@ jobs:
     - name: make
       run: |
           apk add build-base
-          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
+          make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE OPTIMIZATION=-O2
     - name: testprep
       run: apk add tcl procps tclx
     - name: test
@@ -1029,7 +1029,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
+      run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES' OPTIMIZATION=-O2
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -1084,7 +1084,7 @@ jobs:
         apt-get install -y make gcc-4.8 g++-4.8
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
-        make CC=gcc REDIS_CFLAGS='-Werror'
+        make CC=gcc REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: apt-get install -y tcl tcltls tclx
     - name: test
@@ -1133,7 +1133,7 @@ jobs:
         apt-get install -y make gcc-4.8 g++-4.8 openssl libssl-dev
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
-        make CC=gcc CXX=g++ BUILD_TLS=module REDIS_CFLAGS='-Werror'
+        make CC=gcc CXX=g++ BUILD_TLS=module REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: |
         apt-get install -y tcl tcltls tclx
@@ -1188,7 +1188,7 @@ jobs:
         apt-get install -y make gcc-4.8 g++-4.8 openssl libssl-dev
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 100
-        make BUILD_TLS=module CC=gcc REDIS_CFLAGS='-Werror'
+        make BUILD_TLS=module CC=gcc REDIS_CFLAGS='-Werror' OPTIMIZATION=-O2
     - name: testprep
       run: |
         apt-get install -y tcl tcltls tclx
