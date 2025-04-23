@@ -3,15 +3,6 @@
 # The command returns a histogram of the sizes of keys in the database.
 ################################################################################
 
-# Query and Strip result of "info keysizes" from header, spaces, and newlines.
-proc get_stripped_info {server} {
-    set infoStripped [string map {
-        "# Keysizes" ""
-        " " "" "\n" "" "\r" ""
-    } [$server info keysizes] ]
-    return $infoStripped
-}
-
 # Verify output of "info keysizes" command is as expected.
 #
 # Arguments:
@@ -34,6 +25,42 @@ proc get_stripped_info {server} {
 #                  as well. Otherwise, just run the command on the leader and verify 
 #                  the output.
 proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
+
+    #################### internal funcs ################
+    proc build_exp_hist {server expOutput} {
+        if {[regexp {^__EVAL_DB_HIST__\s+(\d+)$} $expOutput -> dbid]} {
+            set expOutput [eval_db_histogram $server $dbid]
+        }
+    
+        # Replace all placeholders with the actual values. Remove spaces & newlines.
+        set res [string map {
+            "STR" "distrib_strings_sizes"
+            "LIST" "distrib_lists_items"
+            "SET" "distrib_sets_items"
+            "ZSET" "distrib_zsets_items"
+            "HASH" "distrib_hashes_items"
+            " " "" "\n" "" "\r" ""
+        } $expOutput]
+        return $res
+    }
+    proc verify_histogram { server expOutput cmd {retries 1} } {
+         wait_for_condition 50 $retries {
+            [build_exp_hist $server $expOutput] eq [get_info_hist_stripped $server]
+        } else {
+            fail "Expected: \n`[build_exp_hist $server $expOutput]` \
+                Actual: `[get_info_hist_stripped $server]`. \nFailed after command: $cmd"
+        }
+    }
+    # Query and Strip result of "info keysizes" from header, spaces, and newlines.
+    proc get_info_hist_stripped {server} {
+        set infoStripped [string map {
+            "# Keysizes" ""
+            " " "" "\n" "" "\r" ""
+        } [$server info keysizes] ]
+        return $infoStripped
+    }
+    #################### EOF internal funcs ################
+
     uplevel 1 $cmd
     global replicaMode
 
@@ -45,46 +72,13 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
         set server [srv 0 client]
     }
 
-    # If need eval expected histogram by reading all the keys & lengths from the
-    # server.
-    if {[regexp {^__EVAL_DB_HIST__\s+(\d+)$} $expOutput -> dbid]} {
-        set expOutput [eval_db_histogram $server $dbid]
-    }
-
-    # Replace all placeholders with the actual values. Remove spaces & newlines.
-    set expStripped [string map {
-        "STR" "distrib_strings_sizes"
-        "LIST" "distrib_lists_items"
-        "SET" "distrib_sets_items"
-        "ZSET" "distrib_zsets_items"
-        "HASH" "distrib_hashes_items"
-        " " "" "\n" "" "\r" ""
-    } $expOutput]
-
     # Compare the stripped expected output with the actual output from the server
-    if {$waitCond} {
-        wait_for_condition 50 50 {
-            $expStripped eq [get_stripped_info $server]
-        } else {
-            fail "Expected: \n`$expStripped` \
-               \nActual:\n`[get_stripped_info $server]`. \nFailed after command: $cmd"
-        }
-    } else {
-        set infoStripped [get_stripped_info $server]
-        if {$expStripped ne $infoStripped} {
-            fail "Expected: \n`$expStripped` \
-               \nActual:\n`[get_stripped_info $server]`. \nFailed after command: $cmd"
-        }
-    }
+    set retries [expr { $waitCond ? 20 : 1}]
+    verify_histogram $server $expOutput $cmd $retries
 
     # If we are testing `replicaMode` then need to wait for the replica to catch up
     if {$replicaMode eq 1} {
-        wait_for_condition 50 50 {
-            $expStripped eq [get_stripped_info $replica]
-        } else {
-            fail "Expected: \n`$expStripped` \
-                Actual: `[get_stripped_info $replica]`. \nFailed after command: $cmd"
-        }
+        verify_histogram $replica $expOutput $cmd 20
     }
 }
 
@@ -92,6 +86,7 @@ proc run_cmd_verify_hist {cmd expOutput {waitCond 0}} {
 # reading all the keys from the server, query for their length, and computing
 # the expected output.
 proc eval_db_histogram {server dbid} {
+    $server select $dbid
     array set type_counts {}
 
     set keys [$server keys *]
@@ -177,7 +172,7 @@ proc test_all_keysizes { {replMode 0} } {
         }
     }
 
-    test "KEYSIZES - Histogram of values of Bytes, Kilo and Mega $suffixRepl" {
+    test "KEYSIZES - Histogram values of Bytes, Kilo and Mega $suffixRepl" {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server set x 0123456789ABCDEF} {db0_STR:16=1}
         run_cmd_verify_hist {$server APPEND x [$server get x]} {db0_STR:32=1}
