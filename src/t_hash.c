@@ -2783,7 +2783,7 @@ void hgetexCommand(client *c) {
     int expired = 0, deleted = 0, updated = 0;
     int num_fields_pos = 3, cond = 0;
     long num_fields;
-    int64_t oldlen = 0, newlen = 0;
+    int64_t oldlen = 0, newlen = -1;
     long long expire_time = 0;
     robj *o;
     HashTypeSetEx setex;
@@ -2924,7 +2924,7 @@ void hgetexCommand(client *c) {
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
                            oldlen, newlen);
     if (newlen == 0) {
-        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+        dbDelete(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     }
 }
