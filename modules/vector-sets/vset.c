@@ -1971,8 +1971,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"vectorset",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    /* TODO: REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD added for C.I. test.
-     * Changes needed in order to support this options. */
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS|REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
 
     RedisModuleTypeMethods tm = {
