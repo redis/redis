@@ -604,11 +604,17 @@ void incrDecrCommand(client *c, long long incr) {
     {
         new = o;
         o->ptr = (void*)((long)value);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr),
+                           OBJ_STRING,
+                           (int64_t) sdigits10(oldvalue),
+                           (int64_t) sdigits10(value));
     } else {
         new = createStringObjectFromLongLongForValue(value);
         if (o) {
+            /* replace value in db and also update keysizes hist */
             dbReplaceValueWithDictEntry(c->db,c->argv[1],new,de);
         } else {
+            /* Add new key to db and also update keysizes hist */
             dbAdd(c->db,c->argv[1],new);
         }
     }
