@@ -21,8 +21,9 @@
  * - Strings (escapes: \" \\ \n \r \t).
  * - Numbers (double).
  * - Booleans.
- * - Null (treated as not‑found ⇒ return NULL).
+ * - Null.
  * - Flat arrays of the above primitives.
+ *
  * Any other value (nested object, unicode escape, etc.) returns NULL.
  * Should be very easy to extend it in case in the future we want
  * more for the FILTER option of VSIM.
