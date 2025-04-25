@@ -11,7 +11,6 @@ and [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## Table of contents
 
-- [Table of contents](#table-of-contents)
 - [What is Redis?](#what-is-redis)
   - [What is Redis Community Edition?](#what-is-redis-community-edition)
 - [Why use Redis?](#why-use-redis)
@@ -30,7 +29,7 @@ and [CONTRIBUTING.md](./CONTRIBUTING.md)
     - [Running Redis with TLS](#running-redis-with-tls)
   - [Playing with Redis](#playing-with-redis)
   - [Installing Redis](#installing-redis)
-  - [Code contributions](#code-contributions)
+- [Code contributions](#code-contributions)
 - [Redis Trademarks](#redis-trademarks)
 - [Redis internals](#redis-internals)
 
@@ -189,22 +188,22 @@ from source, use one of the following methods:
 
 ## Drivers
 
-Redis has client drivers for most programming languages:
-https://redis.io/docs/latest/develop/clients/
+Redis has [client drivers for most programming languages.](
+https://redis.io/docs/latest/develop/clients/)
 
 ## Learn Redis
 
-* **Documentation**: https://redis.io/docs/
-* **Developer Hub**: https://redis.io/learn/
-* **Redis University**: https://university.redis.io/
+* [**Official documentation**](https://redis.io/docs/)
+* [**Developer Hub**](https://redis.io/learn/)
+* [**Redis University**](https://university.redis.io/)
 
 ## Cloud managed Redis
 
-https://redis.io/cloud/
+[**Redis Cloud](https://redis.io/cloud/)
 
 ## Community
 
-https://redis.io/community/
+[**Redis Community Resources**](https://redis.io/community/)
 
 ## Building Redis From Source
 
@@ -431,7 +430,7 @@ system reboots.
 You'll be able to stop and start Redis using the script named
 `/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
 
-### Code contributions
+## Code contributions
 
 By contributing code to the Redis project in any form, including sending a pull
 request via GitHub, a code fragment or patch via private email or public
