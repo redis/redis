@@ -42,71 +42,69 @@ in the class of NoSQL databases. It provides
 [data structures](https://redis.io/docs/latest/develop/data-types/)
 such as:
 
-* [strings](https://redis.io/docs/latest/develop/data-types/strings/): text,
+* [**strings**](https://redis.io/docs/latest/develop/data-types/strings/): text,
 serialized objects, or binary arrays used for caching, counters, and bitwise
 operations
-* [JSON](https://redis.io/docs/latest/develop/data-types/json/): nested JSON
+* [**JSON**](https://redis.io/docs/latest/develop/data-types/json/): nested JSON
 documents that are indexed and searchable using JSONPath expressions
-* [hashes](https://redis.io/docs/latest/develop/data-types/hashes/):
+* [**hashes**](https://redis.io/docs/latest/develop/data-types/hashes/):
 field-value maps used to represent basic objects and store groupings of
 key-value pairs
-* [lists](https://redis.io/docs/latest/develop/data-types/lists/): linked lists
+* [**lists**](https://redis.io/docs/latest/develop/data-types/lists/): linked lists
 of string values used as stacks and queues
-* [sets](https://redis.io/docs/latest/develop/data-types/sets/): unordered
+* [**sets**](https://redis.io/docs/latest/develop/data-types/sets/): unordered
 collection of unique strings used for tracking unique items, relations, and
 common set operations
-* [sorted sets](https://redis.io/docs/latest/develop/data-types/sorted-sets/):
+* [**sorted sets**](https://redis.io/docs/latest/develop/data-types/sorted-sets/):
 collection of unique strings ordered by an associated score used for
 leaderboards and rate limiters
-* [vector sets](https://redis.io/docs/latest/develop/data-types/vector-sets/):
+* [**vector sets**](https://redis.io/docs/latest/develop/data-types/vector-sets/):
 collection of vector strings used for semantic search, semantic caching,
 semantic routing, and Retrieval Augmented Generation (RAG)
-* [streams](https://redis.io/docs/latest/develop/data-types/streams/):
+* [**streams**](https://redis.io/docs/latest/develop/data-types/streams/):
 append-only log with random access capabilities used for event sourcing,
 sensor monitoring, and notifications
-* [geospatial indexes](https://redis.io/docs/latest/develop/data-types/geospatial/):
+* [**geospatial indexes**](https://redis.io/docs/latest/develop/data-types/geospatial/):
 coordinates used for finding nearby points within a given radius or bounding box
-* [bitmaps](https://redis.io/docs/latest/develop/data-types/bitmaps/): a set of
+* [**bitmaps**](https://redis.io/docs/latest/develop/data-types/bitmaps/): a set of
 bit-oriented operations defined on the string type used for efficient set
 representations and object permissions
-* [bitfields](https://redis.io/docs/latest/develop/data-types/bitfields/):
+* [**bitfields**](https://redis.io/docs/latest/develop/data-types/bitfields/):
 binary-encoded strings the let you set, increment, and get integer values of
 arbitrary bit length used for counters and similar numeric values
-* [probabilistic structures](https://redis.io/docs/latest/develop/data-types/probabilistic/):
+* [**probabilistic structures**](https://redis.io/docs/latest/develop/data-types/probabilistic/):
 collection of structures that give approximations of statistics such as counts,
 frequencies, and rankings useful for efficient calculations when absolute
 precision is not needed
-* [time series](https://redis.io/docs/latest/develop/data-types/timeseries/):
+* [**time series**](https://redis.io/docs/latest/develop/data-types/timeseries/):
 data points indexed in time order used for monitoring sensor data, asset
 tracking, and predictive analytics
 
 Redis also offers a number of built-in features that are natural to find in a
 database:
 
-* [replication](https://redis.io/topics/replication): high availability and
+* [**replication**](https://redis.io/topics/replication): high availability and
 failover with exact-copy replicas
-* [Lua scripting](https://redis.io/docs/latest/commands/eval/): enables running
+* [**Lua scripting**](https://redis.io/docs/latest/commands/eval/): enables running
 server-side scripts for lowest-latency operations and atomicity
-* [eviction](https://redis.io/docs/latest/develop/reference/eviction/): LRU,
+* [**eviction**](https://redis.io/docs/latest/develop/reference/eviction/): LRU,
 LFU, TTL, and random data eviction policies to manage memory usage and data
 expiration
-* [transactions](https://redis.io/docs/latest/develop/interact/transactions/):
+* [**transactions**](https://redis.io/docs/latest/develop/interact/transactions/):
 group commands in a single step guaranteeing serialization, sequential
 execution, and recoverability
-* [on-disk persistence](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/):
+* [**on-disk persistence**](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/):
 write data to durable storage such as SSDs using a range of persistence options
-* [high
-availability (Redis Sentinel)](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/):
+* [**high availability (Redis Sentinel)**](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/):
 monitoring, notifications, automatic failover, and configuration providing for
 high availability when not using Redis Cluster
-* [partitioning/clustering (Redis Cluster)](https://redis.io/docs/latest/operate/oss_and_stack/management/scaling/):
+* [**partitioning/clustering (Redis Cluster)**](https://redis.io/docs/latest/operate/oss_and_stack/management/scaling/):
 Automatically split your dataset among multiple nodes, continue operations
 when a subset of nodes fail or are unable to communicate with the rest of the
 cluster
 
-Finally, Redis has a wide range of [client libraries for most
-languages](https://redis.io/docs/latest/develop/clients/) so you can use Redis
-in your language of choice.
+Finally, Redis has a wide range of [client libraries for most languages](https://redis.io/docs/latest/develop/clients/) 
+so you can use Redis in your language of choice.
 
 Redis is often referred to as a *data structures* server. What this means is
 that Redis provides access to mutable data structures via a set of commands,
@@ -136,9 +134,9 @@ If you want to know more, this is a list of selected starting points:
 Redis OSS was renamed Redis Community Edition (CE) with the v7.4 release. Other
 Redis variants include:
 
-* [Redis Software](https://redis.io/software/): a self-managed software with
+* [**Redis Software**](https://redis.io/software/): a self-managed software with
 additional compliance, reliability, and resiliency for enterprise scaling
-* [Redis Cloud](https://redis.io/cloud/): a fully
+* [**Redis Cloud**](https://redis.io/cloud/): a fully
 managed service integrated with Google Cloud, Azure, and AWS for
 production-ready apps.
 
@@ -150,31 +148,31 @@ Redis is a popular choice for developers worldwide due to its combination of
 speed, flexibility, and rich feature set. Here's why you might choose Redis for
 either an existing project or your next project:
 
-* Performance: Because Redis keeps data primarily in memory and uses efficient
+* **Performance**: Because Redis keeps data primarily in memory and uses efficient
 data structures, it achieves extremely low latency (often sub-millisecond) for
 both read and write operations. This makes it ideal for applications demanding
 real-time responsiveness.
-* Flexibility: Redis isn't just a key-value store, it provides native support
+* **Flexibility**: Redis isn't just a key-value store, it provides native support
 for a wide range of data structures and capabilities listed in
 [What is Redis?](#what-is-redis)
-* Extensibility: Redis is not limited to the built-in data structures, it has a
+* **Extensibility**: Redis is not limited to the built-in data structures, it has a
 [modules API](https://redis.io/docs/latest/develop/reference/modules/) that
 makes it possible to extend Redis functionality and rapidly implement new
 Redis commands
-* Simplicity: Redis has a simple, text-based protocol and
+* **Simplicity**: Redis has a simple, text-based protocol and
 [well-documented command set](https://redis.io/docs/latest/commands/)
-* Ubiquity: Redis is battle tested in production workloads at a massive scale.
+* **Ubiquity**: Redis is battle tested in production workloads at a massive scale.
 There is a good chance you indirectly interact with Redis several times daily
 * Versatility: Redis is the de facto standard for use cases such as:
-  * Caching: quickly access frequently used data without needing to query your
+  * **Caching**: quickly access frequently used data without needing to query your
   primary database
-  * Session management: read and write user session data without hurting user
+  * **Session management**: read and write user session data without hurting user
   experience or slowing down every API call
-  * Querying, sorting, and analytics: perform deduplication, full text search,
+  * **Querying, sorting, and analytics**: perform deduplication, full text search,
   and secondary indexing on in-memory data as fast as possible
-  * Messaging and interservice communication: job queues, message brokering,
+  * **Messaging and interservice communication**: job queues, message brokering,
   pub/sub, and streams for communicating between services
-  * Vector database: Long-term and short-term LLM memory, RAG content retrieval,
+  * **Vector operations**: Long-term and short-term LLM memory, RAG content retrieval,
   semantic caching, semantic routing, and vector similarity search
 
 In summary, Redis provides a powerful, fast, and flexible toolkit for solving
@@ -196,9 +194,9 @@ https://redis.io/docs/latest/develop/clients/
 
 ## Learn Redis
 
-* Documentation - https://redis.io/docs/
-* Developer Hub - https://redis.io/learn/
-* Redis University - https://university.redis.io/
+* **Documentation**: https://redis.io/docs/
+* **Developer Hub**: https://redis.io/learn/
+* **Redis University**: https://university.redis.io/
 
 ## Cloud managed Redis
 
