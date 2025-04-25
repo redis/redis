@@ -115,9 +115,11 @@
 #endif
 
 #if HAS_BUILTIN_PREFETCH
+#define redis_prefetch(addr)  __builtin_prefetch(addr, 0, 3)  /* Read with high locality */
 #define redis_prefetch_read(addr) __builtin_prefetch(addr, 0, 3)  /* Read with high locality */
 #define redis_prefetch_write(addr) __builtin_prefetch(addr, 1, 3) /* Write with high locality */
 #else
+#define redis_prefetch(addr) ((void)(addr))  /* No-op if unsupported */
 #define redis_prefetch_read(addr) ((void)(addr))  /* No-op if unsupported */
 #define redis_prefetch_write(addr) ((void)(addr)) /* No-op if unsupported */
 #endif

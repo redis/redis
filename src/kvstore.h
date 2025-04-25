@@ -101,6 +101,7 @@ void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val);
 dictEntry *kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, dictEntry ***plink, int *table_index);
 void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntry *he, dictEntry **plink, int table_index);
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
+dict *kvstoreGetDict(kvstore *kvs, int didx);
 kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx);
 kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs);
 

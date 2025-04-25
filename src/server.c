@@ -2174,6 +2174,7 @@ void initServerConfig(void) {
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
     server.dict_resizing = 1;
+    server.prefetch_batch_max_size = 16;
 
     server.latency_tracking_info_percentiles_len = 3;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
@@ -2663,6 +2664,8 @@ void resetServerStats(void) {
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
     server.stat_cluster_incompatible_ops = 0;
+    server.stat_total_prefetch_batches = 0;
+    server.stat_total_prefetch_entries = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();

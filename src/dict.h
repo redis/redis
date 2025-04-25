@@ -185,6 +185,7 @@ typedef struct {
 #define dictPauseAutoResize(d) ((d)->pauseAutoResize++)
 #define dictResumeAutoResize(d) ((d)->pauseAutoResize--)
 #define dictUseStoredKeyApi(d, flag) ((d)->useStoredKeyApi = (flag))
+#define dictBucketHashKey(d, key) ((d)->type->hashFunction(key))
 
 /* If our unsigned long type can store a 64 bit number, use a 64 bit PRNG. */
 #if ULONG_MAX >= 0xffffffffffffffff
@@ -247,6 +248,7 @@ void dictInitIterator(dictIterator *iter, dict *d);
 void dictInitSafeIterator(dictIterator *iter, dict *d);
 void dictResetIterator(dictIterator *iter);
 dictEntry *dictNext(dictIterator *iter);
+dictEntry *dictGetNext(const dictEntry *de);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 dictEntry *dictGetFairRandomKey(dict *d);

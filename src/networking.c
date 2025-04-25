@@ -1544,6 +1544,8 @@ void unlinkClient(client *c) {
             c->client_list_node = NULL;
         }
 
+        removeClientFromPendingCommandsBatch(c);
+
         /* Check if this is a replica waiting for diskless replication (rdb pipe),
          * in which case it needs to be cleaned from that list */
         if (c->flags & CLIENT_SLAVE &&

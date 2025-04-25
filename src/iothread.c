@@ -309,6 +309,26 @@ int sendPendingClientsToIOThreads(void) {
     return processed;
 }
 
+int prefetchIOThreadCommand(IOThread *t) {
+    int len = listLength(mainThreadProcessingClients[t->id]);
+    if (len < 2) return 0;
+
+    int iterate = 0;
+    int prefetch = len < server.prefetch_batch_max_size*2 ? len :
+                         server.prefetch_batch_max_size;
+
+    listIter li;
+    listNode *ln;
+    listRewind(mainThreadProcessingClients[t->id], &li);
+    while((ln = listNext(&li)) && iterate++ < prefetch) {
+        client *c = listNodeValue(ln);
+        addCommandToBatch(c);
+    }
+    prefetchCommands();
+
+    return prefetch;
+}
+
 extern int ProcessingEventsWhileBlocked;
 
 /* The main thread processes the clients from IO threads, these clients may have
@@ -321,9 +341,23 @@ extern int ProcessingEventsWhileBlocked;
  * process new events, if the clients with fired events from the same io thread,
  * it may call this function reentrantly. */
 void processClientsFromIOThread(IOThread *t) {
+    /* Get the list of clients to process. */
+    pthread_mutex_lock(&mainThreadPendingClientsMutexes[t->id]);
+    listJoin(mainThreadProcessingClients[t->id], mainThreadPendingClients[t->id]);
+    pthread_mutex_unlock(&mainThreadPendingClientsMutexes[t->id]);
+    size_t processed = listLength(mainThreadProcessingClients[t->id]);
+    if (processed == 0) return;
+
+    int prefetch = 0;
     listNode *node = NULL;
 
     while (listLength(mainThreadProcessingClients[t->id])) {
+
+        if (server.prefetch_batch_max_size) {
+            if (prefetch <= 0) prefetch = prefetchIOThreadCommand(t);
+            if (--prefetch <= 0) resetCommandsBatch();
+        }
+
         /* Each time we pop up only the first client to process to guarantee
          * reentrancy safety. */
         if (node) zfree(node);
@@ -386,6 +420,7 @@ void processClientsFromIOThread(IOThread *t) {
         node = NULL;
     }
     if (node) zfree(node);
+    resetCommandsBatch();
 
     /* Trigger the io thread to handle these clients ASAP to make them processed
      * in parallel.
@@ -560,6 +595,8 @@ void initThreadedIO(void) {
                              "The maximum number is %d.", IO_THREADS_MAX_NUM);
         exit(1);
     }
+
+    prefetchCommandsBatchInit();
 
     /* Spawn and initialize the I/O threads. */
     for (int i = 1; i < server.io_threads_num; i++) {

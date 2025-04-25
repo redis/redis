@@ -66,7 +66,6 @@ static void _dictShrinkIfNeeded(dict *d);
 static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
-static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntry **dictGetNextRef(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dict *d, const void *key1, const void *key2);
@@ -960,7 +959,7 @@ double *dictGetDoubleValPtr(dictEntry *de) {
 
 /* Returns the 'next' field of the entry or NULL if the entry doesn't have a
  * 'next' field. */
-static dictEntry *dictGetNext(const dictEntry *de) {
+dictEntry *dictGetNext(const dictEntry *de) {
     if (entryIsKey(de)) return NULL; /* there's no next */
     if (entryIsNoValue(de)) return decodeEntryNoValue(de)->next;
     return de->next;
