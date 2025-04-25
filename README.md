@@ -9,6 +9,9 @@ database, cache, message broker, streaming engine, and vector store.
 and [CONTRIBUTING.md](./CONTRIBUTING.md)
 * Looking for detailed documentation? Navigate to [redis.io/docs](https://redis.io/docs/)
 
+## Table of contents
+
+- [Table of contents](#table-of-contents)
 - [What is Redis?](#what-is-redis)
   - [What is Redis Community Edition?](#what-is-redis-community-edition)
 - [Why use Redis?](#why-use-redis)
