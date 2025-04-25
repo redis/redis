@@ -1,39 +1,89 @@
 [![codecov](https://codecov.io/github/redis/redis/graph/badge.svg?token=6bVHb5fRuz)](https://codecov.io/github/redis/redis)
 
-This README is just a fast *quick start* document. You can find more detailed documentation at [redis.io](https://redis.io).
+This README is a fast *quick start* document. You can find more detailed
+documentation at [redis.io](https://redis.io/docs).
 
 What is Redis?
 ---
 
-Redis is often referred to as a *data structures* server. What this means is that Redis provides access to mutable data structures via a set of commands, which are sent using a *server-client* model with TCP sockets and a simple protocol. So different processes can query and modify the same data structures in a shared way.
+Redis is an **in-memory key-value database** in the class of NoSQL databases.
+It provides [data structures](https://redis.io/docs/latest/develop/data-types/)
+such as:
 
-Data structures implemented into Redis have a few special properties:
+* [strings](https://redis.io/docs/latest/develop/data-types/strings/)
+* [JSON](https://redis.io/docs/latest/develop/data-types/json/)
+* [hashes](https://redis.io/docs/latest/develop/data-types/hashes/)
+* [lists](https://redis.io/docs/latest/develop/data-types/lists/)
+* [sets](https://redis.io/docs/latest/develop/data-types/sets/)
+* [sorted sets](https://redis.io/docs/latest/develop/data-types/sorted-sets/)
+* [vector sets](https://redis.io/docs/latest/develop/data-types/vector-sets/)
+* [streams](https://redis.io/docs/latest/develop/data-types/streams/)
+* [geospatial indexes](https://redis.io/docs/latest/develop/data-types/geospatial/)
+* [bitmaps](https://redis.io/docs/latest/develop/data-types/bitmaps/)
+* [bitfields](https://redis.io/docs/latest/develop/data-types/bitfields/)
+* [probabilistic structures](https://redis.io/docs/latest/develop/data-types/probabilistic/)
+* [time series](https://redis.io/docs/latest/develop/data-types/timeseries/)
 
-* Redis cares to store them on disk, even if they are always served and modified into the server memory. This means that Redis is fast, but that it is also non-volatile.
-* The implementation of data structures emphasizes memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modelled using a high-level programming language.
-* Redis offers a number of features that are natural to find in a database, like replication, tunable levels of durability, clustering, and high availability.
+Redis also offers a number of built-in features that are natural to find in a
+database:
 
-Another good example is to think of Redis as a more complex version of memcached, where the operations are not just SETs and GETs, but operations that work with complex data types like Lists, Sets, ordered data structures, and so forth.
+* [replication](https://redis.io/topics/replication)
+* [Lua scripting](https://redis.io/docs/latest/commands/eval/)
+* [eviction](https://redis.io/docs/latest/develop/reference/eviction/)
+* [transactions](https://redis.io/docs/latest/develop/interact/transactions/)
+* [on-disk persistence](https://redis.io/docs/latest/operate/oss_and_stack/management/persistence/)
+* [high
+availability](https://redis.io/docs/latest/operate/oss_and_stack/management/sentinel/)
+* [partitioning/clustering](https://redis.io/docs/latest/operate/oss_and_stack/management/scaling/)
 
+Finally, Redis has a wide range of [client libraries for most
+languages](https://redis.io/docs/latest/develop/clients/) so you can use Redis
+in your language of choice.
+
+Redis is often referred to as a *data structures* server. What this means is
+that Redis provides access to mutable data structures via a set of commands,
+which are sent using a *server-client* model with TCP sockets and a simple
+protocol. So different processes can query and modify the same data structures
+in a shared way.
+
+Data structures implemented into Redis have a couple special properties:
+
+* Redis cares to store them on disk, even if they are always served and
+modified into the server memory. This means that Redis is fast, but that it is
+also non-volatile.
+* The implementation of data structures emphasizes memory efficiency, so data
+structures inside Redis will likely use less memory compared to the same data
+structure modelled using a high-level programming language.
+
+Another good example is to think of Redis as a more complex version of
+memcached, where the operations are not just SETs and GETs, but operations that
+work with complex data types listed above.
 If you want to know more, this is a list of selected starting points:
 
-* Introduction to Redis data types. https://redis.io/docs/latest/develop/data-types/
-
 * The full list of Redis commands. https://redis.io/commands
-* There is much more inside the official Redis documentation. https://redis.io/documentation
+* The official Redis documentation. https://redis.io/docs
 
 What is Redis Community Edition?
 ---
 
 Redis OSS was renamed Redis Community Edition (CE) with the v7.4 release.
 
-Redis Ltd. also offers [Redis Software](https://redis.io/enterprise/), a self-managed software with additional compliance, reliability, and resiliency for enterprise scaling,
-and [Redis Cloud](https://redis.io/cloud/), a fully managed service integrated with Google Cloud, Azure, and AWS for production-ready apps.
+Redis Ltd. also offers [Redis Software](https://redis.io/software/), a
+self-managed software with additional compliance, reliability, and resiliency
+for enterprise scaling, and [Redis Cloud](https://redis.io/cloud/), a fully
+managed service integrated with Google Cloud, Azure, and AWS for
+production-ready apps.
 
-Read more about the differences between Redis Community Edition and Redis [here](https://redis.io/comparisons/oss-vs-enterprise/).
+Read more about the differences between Redis Community Edition and
+Redis [here](https://redis.io/compare/community-edition/).
 
 Building Redis
 ---
+
+This section refers to building Redis from source. If you want to get up and
+running with Redis quickly without needing to build from source you can find
+the [quick start guides](https://redis.io/docs/latest/develop/get-started/) on
+the official Redis docs site.
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
 We support big endian and little endian architectures, and both 32 bit
@@ -52,7 +102,7 @@ libssl-dev on Debian/Ubuntu) and run:
 
     % make BUILD_TLS=yes
 
-To build with systemd support, you'll need systemd development libraries (such 
+To build with systemd support, you'll need systemd development libraries (such
 as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS) and run:
 
     % make USE_SYSTEMD=yes
@@ -132,7 +182,7 @@ Monotonic clock
 
 By default, Redis will build using the POSIX clock_gettime function as the
 monotonic clock source.  On most modern systems, the internal processor clock
-can be used to improve performance.  Cautions can be found here: 
+can be used to improve performance.  Cautions can be found here:
     http://oliveryang.net/2015/09/pitfalls-of-TSC-usage/
 
 To build with support for the processor's internal instruction clock, use:
@@ -229,16 +279,20 @@ You'll be able to stop and start Redis using the script named
 Code contributions
 ---
 
-By contributing code to the Redis project in any form, including sending a pull request via GitHub,
-a code fragment or patch via private email or public discussion groups, you agree to release your
-code under the terms of the [Redis Software Grant and Contributor License Agreement][1]. Redis software
-contains contributions to the original Redis core project, which are owned by their contributors and
-licensed under the 3BSD license. Any copy of that license in this repository applies only to those
-contributions. Redis releases all Redis Community Edition versions from 7.4.x and thereafter under the
-RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis Community Edition source distribution.
+By contributing code to the Redis project in any form, including sending a pull
+request via GitHub, a code fragment or patch via private email or public
+discussion groups, you agree to release your code under the terms of the
+[Redis Software Grant and Contributor License Agreement][1]. Redis software
+contains contributions to the original Redis core project, which are owned by
+their contributors and licensed under the 3BSD license. Any copy of that
+license in this repository applies only to those contributions. Redis releases
+all Redis Community Edition versions from 7.4.x and thereafter under the
+RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in
+the Redis Community Edition source distribution.
 
-Please see the [CONTRIBUTING.md][1] file in this source distribution for more information. For
-security bugs and vulnerabilities, please see [SECURITY.md][3].
+Please see the [CONTRIBUTING.md][1] file in this source distribution for more
+information. For security bugs and vulnerabilities, please see
+[SECURITY.md][3].
 
 [1]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING.md
 [2]: https://github.com/redis/redis/blob/unstable/LICENSE.txt
@@ -247,10 +301,11 @@ security bugs and vulnerabilities, please see [SECURITY.md][3].
 Redis Trademarks
 ---
 
-The purpose of a trademark is to identify the goods and services of a person or company without
-causing confusion. As the registered owner of its name and logo, Redis accepts certain limited uses
-of its trademarks but it has requirements that must be followed as described in its Trademark
-Guidelines available at: https://redis.com/legal/trademark-guidelines/.
+The purpose of a trademark is to identify the goods and services of a person
+or company without causing confusion. As the registered owner of its name and
+logo, Redis accepts certain limited uses of its trademarks but it has
+requirements that must be followed as described in its Trademark Guidelines
+available at: https://redis.com/legal/trademark-guidelines/.
 
 Redis internals
 ===
@@ -280,7 +335,12 @@ Inside the root are the following important directories:
 
 * `src`: contains the Redis implementation, written in C.
 * `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
+* `deps`: contains libraries Redis uses. Everything needed to compile Redis
+is inside this directory; your system just needs to provide `libc`, a POSIX
+compatible interface and a C compiler. Notably `deps` contains a copy of
+`jemalloc`, which is the default allocator of Redis under Linux. Note that
+under `deps` there are also things which started with the Redis project, but
+for which the main repository is not `redis/redis`.
 
 There are a few more directories but they are not very important for our goals
 here. We'll focus mostly on `src`, where the Redis implementation is contained,
@@ -333,9 +393,14 @@ struct client {
 The client structure defines a *connected client*:
 
 * The `fd` field is the client socket file descriptor.
-* `argc` and `argv` are populated with the command the client is executing, so that functions implementing a given Redis command can read the arguments.
-* `querybuf` accumulates the requests from the client, which are parsed by the Redis server according to the Redis protocol and executed by calling the implementations of the commands the client is executing.
-* `reply` and `buf` are dynamic and static buffers that accumulate the replies the server sends to the client. These buffers are incrementally written to the socket as soon as the file descriptor is writable.
+* `argc` and `argv` are populated with the command the client is executing,
+so that functions implementing a given Redis command can read the arguments.
+* `querybuf` accumulates the requests from the client, which are parsed by the
+Redis server according to the Redis protocol and executed by calling the
+implementations of the commands the client is executing.
+* `reply` and `buf` are dynamic and static buffers that accumulate the replies
+the server sends to the client. These buffers are incrementally written to the
+socket as soon as the file descriptor is writable.
 
 As you can see in the client structure above, arguments in a command
 are described as `robj` structures. The following is the full `robj`
@@ -373,26 +438,39 @@ is defined. The following are the most important steps in order to startup
 the Redis server.
 
 * `initServerConfig()` sets up the default values of the `server` structure.
-* `initServer()` allocates the data structures needed to operate, setup the listening socket, and so forth.
+* `initServer()` allocates the data structures needed to operate, setup the
+listening socket, and so forth.
 * `aeMain()` starts the event loop which listens for new connections.
 
 There are two special functions called periodically by the event loop:
 
-1. `serverCron()` is called periodically (according to `server.hz` frequency), and performs tasks that must be performed from time to time, like checking for timed out clients.
-2. `beforeSleep()` is called every time the event loop fired, Redis served a few requests, and is returning back into the event loop.
+1. `serverCron()` is called periodically (according to `server.hz` frequency),
+and performs tasks that must be performed from time to time, like checking for
+timed out clients.
+2. `beforeSleep()` is called every time the event loop fired, Redis served a
+few requests, and is returning back into the event loop.
 
-Inside server.c you can find code that handles other vital things of the Redis server:
+Inside server.c you can find code that handles other vital things of the Redis
+server:
 
-* `call()` is used in order to call a given command in the context of a given client.
-* `activeExpireCycle()` handles eviction of keys with a time to live set via the `EXPIRE` command.
-* `performEvictions()` is called when a new write command should be performed but Redis is out of memory according to the `maxmemory` directive.
-* The global variable `redisCommandTable` defines all the Redis commands, specifying the name of the command, the function implementing the command, the number of arguments required, and other properties of each command.
+* `call()` is used in order to call a given command in the context of a given
+client.
+* `activeExpireCycle()` handles eviction of keys with a time to live set via
+the `EXPIRE` command.
+* `performEvictions()` is called when a new write command should be performed
+but Redis is out of memory according to the `maxmemory` directive.
+* The global variable `redisCommandTable` defines all the Redis commands,
+specifying the name of the command, the function implementing the command, the
+number of arguments required, and other properties of each command.
 
 commands.c
 ---
-This file is auto generated by utils/generate-command-code.py, the content is based on the JSON files in the src/commands folder.
-These are meant to be the single source of truth about the Redis commands, and all the metadata about them.
-These JSON files are not meant to be used by anyone directly, instead that metadata can be obtained via the `COMMAND` command.
+This file is auto generated by utils/generate-command-code.py, the content is
+based on the JSON files in the src/commands folder.
+These are meant to be the single source of truth about the Redis commands, and
+all the metadata about them.
+These JSON files are not meant to be used by anyone directly, instead that
+metadata can be obtained via the `COMMAND` command.
 
 networking.c
 ---
@@ -401,10 +479,17 @@ This file defines all the I/O functions with clients, masters and replicas
 (which in Redis are just special clients):
 
 * `createClient()` allocates and initializes a new client.
-* The `addReply*()` family of functions are used by command implementations in order to append data to the client structure, that will be transmitted to the client as a reply for a given command executed.
-* `writeToClient()` transmits the data pending in the output buffers to the client and is called by the *writable event handler* `sendReplyToClient()`.
-* `readQueryFromClient()` is the *readable event handler* and accumulates data read from the client into the query buffer.
-* `processInputBuffer()` is the entry point in order to parse the client query buffer according to the Redis protocol. Once commands are ready to be processed, it calls `processCommand()` which is defined inside `server.c` in order to actually execute the command.
+* The `addReply*()` family of functions are used by command implementations in
+order to append data to the client structure, that will be transmitted to the
+client as a reply for a given command executed.
+* `writeToClient()` transmits the data pending in the output buffers to the
+client and is called by the *writable event handler* `sendReplyToClient()`.
+* `readQueryFromClient()` is the *readable event handler* and accumulates data
+read from the client into the query buffer.
+* `processInputBuffer()` is the entry point in order to parse the client query
+buffer according to the Redis protocol. Once commands are ready to be processed,
+it calls `processCommand()` which is defined inside `server.c` in order to
+actually execute the command.
 * `freeClient()` deallocates, disconnects and removes a client.
 
 aof.c and rdb.c
@@ -439,8 +524,10 @@ on the Redis dataset without directly accessing the internal data structures.
 The most important functions inside `db.c` which are used in many command
 implementations are the following:
 
-* `lookupKeyRead()` and `lookupKeyWrite()` are used in order to get a pointer to the value associated to a given key, or `NULL` if the key does not exist.
-* `dbAdd()` and its higher level counterpart `setKey()` create a new key in a Redis database.
+* `lookupKeyRead()` and `lookupKeyWrite()` are used in order to get a pointer
+to the value associated to a given key, or `NULL` if the key does not exist.
+* `dbAdd()` and its higher level counterpart `setKey()` create a new key in a
+Redis database.
 * `dbDelete()` removes a key and its associated value.
 * `emptyData()` removes an entire single database or all the databases defined.
 
@@ -454,8 +541,12 @@ The `robj` structure defining Redis objects was already described. Inside
 a basic level, like functions to allocate new objects, handle the reference
 counting and so forth. Notable functions inside this file:
 
-* `incrRefCount()` and `decrRefCount()` are used in order to increment or decrement an object reference count. When it drops to 0 the object is finally freed.
-* `createObject()` allocates a new object. There are also specialized functions to allocate string objects having a specific content, like `createStringObjectFromLongLong()` and similar functions.
+* `incrRefCount()` and `decrRefCount()` are used in order to increment or
+decrement an object reference count. When it drops to 0 the object is finally
+freed.
+* `createObject()` allocates a new object. There are also specialized functions
+to allocate string objects having a specific content, like
+`createStringObjectFromLongLong()` and similar functions.
 
 This file also implements the `OBJECT` command.
 
@@ -467,7 +558,9 @@ approach it only after getting a bit familiar with the rest of the code base.
 In this file there is the implementation of both the master and replica role
 of Redis.
 
-One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing replica instances connected
+One of the most important functions inside this file is
+`replicationFeedSlaves()` that writes commands to the clients representing
+replica instances connected
 to our master, so that the replicas can get the writes performed by the clients:
 this way their data set will remain synchronized with the one in the master.
 
@@ -479,22 +572,36 @@ Script
 ---
 
 The script unit is composed of 3 units:
-* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ...)
-* `script_lua.c` - responsible to execute Lua code, uses `script.c` to interact with Redis from within the Lua code.
-* `function_lua.c` - contains the Lua engine implementation, uses `script_lua.c` to execute the Lua code.
-* `functions.c` - contains Redis Functions implementation (`FUNCTION` command), uses `functions_lua.c` if the function it wants to invoke needs the Lua engine.
-* `eval.c` - contains the `eval` implementation using `script_lua.c` to invoke the Lua code.
+* `script.c` - integration of scripts with Redis (commands execution, set
+replication/resp, ...)
+* `script_lua.c` - responsible to execute Lua code, uses `script.c` to interact
+with Redis from within the Lua code.
+* `function_lua.c` - contains the Lua engine implementation, uses
+`script_lua.c` to execute the Lua code.
+* `functions.c` - contains Redis Functions implementation (`FUNCTION` command),
+uses `functions_lua.c` if the function it wants to invoke needs the Lua engine.
+* `eval.c` - contains the `eval` implementation using `script_lua.c` to invoke
+the Lua code.
 
 
 Other C files
 ---
 
-* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client command implementations for these data types.
-* `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
-* `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
-* `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
-* `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
+* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c`
+contains the implementation of the Redis data types. They implement both an API
+to access a given data type, and the client command implementations for these
+data types.
+* `ae.c` implements the Redis event loop, it's a self contained library which
+is simple to read and understand.
+* `sds.c` is the Redis string library, check https://github.com/antirez/sds for
+more information.
+* `anet.c` is a library to use POSIX networking in a simpler way compared to the
+raw interface exposed by the kernel.
+* `dict.c` is an implementation of a non-blocking hash table which rehashes
+incrementally.
+* `cluster.c` implements the Redis Cluster. Probably a good read only after
+being very familiar with the rest of the Redis code base. If you want to read
+`cluster.c` make sure to read the [Redis Cluster specification][4].
 
 [4]: https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/
 
@@ -510,19 +617,46 @@ void foobarCommand(client *c) {
 }
 ```
 
-The command function is referenced by a JSON file, together with its metadata, see `commands.c` described above for details.
-The command flags are documented in the comment above the `struct redisCommand` in `server.h`.
-For other details, please refer to the `COMMAND` command. https://redis.io/commands/command/
+The command function is referenced by a JSON file, together with its metadata,
+see `commands.c` described above for details. The command flags are documented
+in the comment above the `struct redisCommand` in `server.h`. For other
+details, please refer to the `COMMAND` command.
+https://redis.io/commands/command/
 
 After the command operates in some way, it returns a reply to the client,
 usually using `addReply()` or a similar function defined inside `networking.c`.
 
 There are tons of command implementations inside the Redis source code
-that can serve as examples of actual commands implementations (e.g. pingCommand). Writing
-a few toy commands can be a good exercise to get familiar with the code base.
+that can serve as examples of actual commands implementations
+(e.g. pingCommand). Writing a few toy commands can be a good exercise to get
+familiar with the code base.
 
 There are also many other files not described here, but it is useless to
 cover everything. We just want to help you with the first steps.
 Eventually you'll find your way inside the Redis code base :-)
 
 Enjoy!
+
+Drivers
+===
+
+Redis has client drivers for most programming languages:
+https://redis.io/docs/latest/develop/clients/
+
+Learn Redis
+===
+
+* Documentation - https://redis.io/docs/
+* Developer Hub - https://redis.io/learn/
+* Redis University - https://university.redis.io/
+
+Redis Cloud
+===
+
+https://redis.io/cloud/
+
+Community
+===
+
+https://redis.io/community/
+
