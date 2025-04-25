@@ -102,7 +102,7 @@ Automatically split your dataset among multiple nodes, continue operations
 when a subset of nodes fail or are unable to communicate with the rest of the
 cluster
 
-Finally, Redis has a wide range of [client libraries for most languages](https://redis.io/docs/latest/develop/clients/) 
+Finally, Redis has a wide range of [client libraries for most languages](https://redis.io/docs/latest/develop/clients/)
 so you can use Redis in your language of choice.
 
 Redis is often referred to as a *data structures* server. What this means is
@@ -125,8 +125,8 @@ memcached, where the operations are not just SETs and GETs, but operations that
 work with complex data types listed above.
 If you want to know more, this is a list of selected starting points:
 
-* The full list of Redis commands. https://redis.io/commands
-* The official Redis documentation. https://redis.io/docs
+* [**Full list of Redis commands**](https://redis.io/commands)
+* [**Official Redis documentation**](https://redis.io/docs)
 
 ### What is Redis Community Edition?
 
@@ -182,9 +182,9 @@ a wide variety of data management challenges.
 If you want to get up and running with Redis quickly without needing to build
 from source, use one of the following methods:
 
-* [Redis Cloud](https://cloud.redis.io/)
-* [Official Redis docker images](https://hub.docker.com/_/redis)
-* [Redis quick start guides](https://redis.io/docs/latest/develop/get-started/)
+* [**Redis Cloud**](https://cloud.redis.io/)
+* [**Official Redis docker images**](https://hub.docker.com/_/redis)
+* [**Redis quick start guides**](https://redis.io/docs/latest/develop/get-started/)
 
 ## Drivers
 
@@ -199,7 +199,7 @@ https://redis.io/docs/latest/develop/clients/)
 
 ## Cloud managed Redis
 
-[**Redis Cloud](https://redis.io/cloud/)
+[**Redis Cloud**](https://redis.io/cloud/)
 
 ## Community
 
