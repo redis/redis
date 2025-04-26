@@ -262,12 +262,14 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
     d->ht_table[1] = new_ht_table;
     d->rehashidx = 0;
     if (d->type->rehashingStarted) d->type->rehashingStarted(d);
+    if (d->type->sizeChanged) d->type->sizeChanged(d, DICTHT_SIZE(d->ht_size_exp[1]));
 
     /* Is this the first initialization or is the first hash table empty? If so
      * it's not really a rehashing, we can just set the first hash table so that
      * it can accept keys. */
     if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
         if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+        if (d->type->sizeChanged) d->type->sizeChanged(d, -DICTHT_SIZE(d->ht_size_exp[0]));
         if (d->ht_table[0]) zfree(d->ht_table[0]);
         d->ht_size_exp[0] = new_ht_size_exp;
         d->ht_used[0] = new_ht_used;
@@ -370,6 +372,7 @@ static int dictCheckRehashingCompleted(dict *d) {
     if (d->ht_used[0] != 0) return 0;
     
     if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
+    if (d->type->sizeChanged) d->type->sizeChanged(d, -DICTHT_SIZE(d->ht_size_exp[0]));
     zfree(d->ht_table[0]);
     /* Copy the new ht onto the old one */
     d->ht_table[0] = d->ht_table[1];
@@ -755,8 +758,15 @@ void dictRelease(dict *d)
 {
     /* Someone may be monitoring a dict that started rehashing, before
      * destroying the dict fake completion. */
-    if (dictIsRehashing(d) && d->type->rehashingCompleted)
-        d->type->rehashingCompleted(d);
+    if (dictIsRehashing(d)) {
+        if (d->type->rehashingCompleted)
+            d->type->rehashingCompleted(d);
+        if (d->type->sizeChanged)
+            d->type->sizeChanged(d, -(DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1])));
+    } else {
+        if (d->type->sizeChanged)
+            d->type->sizeChanged(d, -DICTHT_SIZE(d->ht_size_exp[0]));
+    }
 
     if (d->type->onDictRelease)
         d->type->onDictRelease(d);
@@ -1673,8 +1683,15 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
 void dictEmpty(dict *d, void(callback)(dict*)) {
     /* Someone may be monitoring a dict that started rehashing, before
      * destroying the dict fake completion. */
-    if (dictIsRehashing(d) && d->type->rehashingCompleted)
-        d->type->rehashingCompleted(d);
+    if (dictIsRehashing(d)) {
+        if (d->type->rehashingCompleted)
+            d->type->rehashingCompleted(d);
+        if (d->type->sizeChanged)
+            d->type->sizeChanged(d, -(DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1])));
+    } else {
+        if (d->type->sizeChanged)
+            d->type->sizeChanged(d, -DICTHT_SIZE(d->ht_size_exp[0]));
+    }
     _dictClear(d,0,callback);
     _dictClear(d,1,callback);
     d->rehashidx = -1;

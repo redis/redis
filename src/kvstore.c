@@ -205,7 +205,6 @@ static void kvstoreDictRehashingStarted(dict *d) {
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
     kvs->bucket_count += to; /* Started rehashing (Add the new ht size) */
-    kvs->overhead_hashtable_lut += to;
     kvs->overhead_hashtable_rehashing += from;
 }
 
@@ -224,9 +223,18 @@ static void kvstoreDictRehashingCompleted(dict *d) {
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
     kvs->bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
-    kvs->overhead_hashtable_lut -= from;
     kvs->overhead_hashtable_rehashing -= from;
 }
+
+/* Updates the lut count for the given dictionary in a DB. It adds the new ht size
+ * of the dictionary or removes the old ht size of the dictionary from the total
+ * sum of buckets for a DB. */
+static void kvstoreDictSizeChanged(dict *d, long long delta) {
+    kvstore *kvs = d->type->userdata;
+    assert(delta > 0 || kvs->overhead_hashtable_lut >= (size_t)(-delta));
+    kvs->overhead_hashtable_lut += delta;
+}
+
 
 /* Returns the size of the DB dict base metadata in bytes. */
 static size_t kvstoreDictMetaBaseSize(dict *d) {
@@ -274,6 +282,7 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
         kvs->dtype.dictMetadataBytes = kvstoreDictMetaBaseSize;
     kvs->dtype.rehashingStarted = kvstoreDictRehashingStarted;
     kvs->dtype.rehashingCompleted = kvstoreDictRehashingCompleted;
+    kvs->dtype.sizeChanged = kvstoreDictSizeChanged;
 
     kvs->num_dicts_bits = num_dicts_bits;
     kvs->num_dicts = 1 << kvs->num_dicts_bits;
@@ -335,6 +344,7 @@ void kvstoreRelease(kvstore *kvs) {
             metadata->rehashing_node = NULL;
         dictRelease(d);
     }
+    assert(kvs->overhead_hashtable_lut == 0);
     zfree(kvs->dicts);
 
     listRelease(kvs->rehashing);
