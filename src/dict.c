@@ -758,14 +758,16 @@ void dictRelease(dict *d)
 {
     /* Someone may be monitoring a dict that started rehashing, before
      * destroying the dict fake completion. */
-    if (dictIsRehashing(d)) {
-        if (d->type->rehashingCompleted)
-            d->type->rehashingCompleted(d);
-        if (d->type->sizeChanged)
-            d->type->sizeChanged(d, -(DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1])));
-    } else {
-        if (d->type->sizeChanged)
-            d->type->sizeChanged(d, -DICTHT_SIZE(d->ht_size_exp[0]));
+    if (dictIsRehashing(d) && d->type->rehashingCompleted)
+        d->type->rehashingCompleted(d);
+
+    /* - If rehashing is in progress, the sizes of both dict[0] and dict[1]
+     *   are subtracted from the total.
+     * - If rehashing is not in progress, only the size of dict[0] is subtracted. */
+    if (d->type->sizeChanged) {
+        d->type->sizeChanged(d, dictIsRehashing(d) ?
+            -(DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1])) :
+            -DICTHT_SIZE(d->ht_size_exp[0]));
     }
 
     if (d->type->onDictRelease)
@@ -1686,10 +1688,10 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
     if (dictIsRehashing(d) && d->type->rehashingCompleted)
         d->type->rehashingCompleted(d);
 
+    /* - If rehashing is in progress, the sizes of both dict[0] and dict[1]
+     *   are subtracted from the total.
+     * - If rehashing is not in progress, only the size of dict[0] is subtracted. */
     if (d->type->sizeChanged) {
-        /* - If rehashing is in progress, the sizes of both dict[0] and dict[1]
-         *   are subtracted from the total.
-         * - If rehashing is not in progress, only the size of dict[0] is subtracted. */
         d->type->sizeChanged(d, dictIsRehashing(d) ?
             -(DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1])) :
             -DICTHT_SIZE(d->ht_size_exp[0]));
