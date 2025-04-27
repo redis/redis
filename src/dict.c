@@ -269,7 +269,7 @@ int _dictResize(dict *d, unsigned long size, int* malloc_failed)
      * it can accept keys. */
     if (d->ht_table[0] == NULL || d->ht_used[0] == 0) {
         if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
-        if (d->type->sizeChanged) d->type->sizeChanged(d, -DICTHT_SIZE(d->ht_size_exp[0]));
+        if (d->type->sizeChanged) d->type->sizeChanged(d, -(long long)DICTHT_SIZE(d->ht_size_exp[0]));
         if (d->ht_table[0]) zfree(d->ht_table[0]);
         d->ht_size_exp[0] = new_ht_size_exp;
         d->ht_used[0] = new_ht_used;
@@ -372,7 +372,7 @@ static int dictCheckRehashingCompleted(dict *d) {
     if (d->ht_used[0] != 0) return 0;
     
     if (d->type->rehashingCompleted) d->type->rehashingCompleted(d);
-    if (d->type->sizeChanged) d->type->sizeChanged(d, -DICTHT_SIZE(d->ht_size_exp[0]));
+    if (d->type->sizeChanged) d->type->sizeChanged(d, -(long long)DICTHT_SIZE(d->ht_size_exp[0]));
     zfree(d->ht_table[0]);
     /* Copy the new ht onto the old one */
     d->ht_table[0] = d->ht_table[1];
@@ -765,9 +765,10 @@ void dictRelease(dict *d)
      *   are subtracted from the total.
      * - If rehashing is not in progress, only the size of dict[0] is subtracted. */
     if (d->type->sizeChanged) {
-        d->type->sizeChanged(d, dictIsRehashing(d) ?
-            -(DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1])) :
-            -DICTHT_SIZE(d->ht_size_exp[0]));
+        unsigned long bucket_count = dictIsRehashing(d) ?
+            DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1]) :
+            DICTHT_SIZE(d->ht_size_exp[0]);
+        d->type->sizeChanged(d, -(long long)bucket_count);
     }
 
     if (d->type->onDictRelease)
@@ -1692,9 +1693,10 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
      *   are subtracted from the total.
      * - If rehashing is not in progress, only the size of dict[0] is subtracted. */
     if (d->type->sizeChanged) {
-        d->type->sizeChanged(d, dictIsRehashing(d) ?
-            -(DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1])) :
-            -DICTHT_SIZE(d->ht_size_exp[0]));
+        unsigned long bucket_count = dictIsRehashing(d) ?
+            DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1]) :
+            DICTHT_SIZE(d->ht_size_exp[0]);
+        d->type->sizeChanged(d, -(long long)bucket_count);
     }
 
     _dictClear(d,0,callback);

@@ -228,7 +228,7 @@ static void kvstoreDictRehashingCompleted(dict *d) {
  * sum of buckets for a DB. */
 static void kvstoreDictSizeChanged(dict *d, long long delta) {
     kvstore *kvs = d->type->userdata;
-    assert(delta > 0 || kvs->bucket_count >= (size_t)(-delta));
+    assert(delta > 0 || kvs->bucket_count >= (unsigned long long)(-delta));
     kvs->bucket_count += delta;
 }
 
