@@ -537,7 +537,7 @@ start_server {tags {"info" "external:skip"}} {
 }
 
 start_cluster 1 0 {tags {external:skip cluster}} {
-    test "Verify that multiple primaries mark replica as failed" {
+    test "Verify that LUT overhead is properly updated when dicts are emptied or reused (issue #13973)" {
         R 0 set k v ;# Make dbs overhead displayed
         set info_mem [r memory stats]
         set overhead_main [dict get $info_mem db.0 overhead.hashtable.main]
