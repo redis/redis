@@ -382,7 +382,7 @@ size_t kvstoreMemUsage(kvstore *kvs) {
     mem += listLength(kvs->rehashing) * sizeof(listNode);
 
     if (kvs->dict_size_index)
-        mem += sizeof(unsigned long long) * (kvs->allocated_dicts + 1);
+        mem += sizeof(unsigned long long) * (kvs->num_dicts + 1);
 
     return mem;
 }
