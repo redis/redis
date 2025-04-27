@@ -232,7 +232,6 @@ static void kvstoreDictSizeChanged(dict *d, long long delta) {
     kvs->bucket_count += delta;
 }
 
-
 /* Returns the size of the DB dict base metadata in bytes. */
 static size_t kvstoreDictMetaBaseSize(dict *d) {
     UNUSED(d);
