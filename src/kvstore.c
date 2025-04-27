@@ -223,7 +223,7 @@ static void kvstoreDictRehashingCompleted(dict *d) {
     kvs->overhead_hashtable_rehashing -= from;
 }
 
-/* Updates the lut count for the given dictionary in a DB. It adds the new ht size
+/* Updates the bucket count for the given dictionary in a DB. It adds the new ht size
  * of the dictionary or removes the old ht size of the dictionary from the total
  * sum of buckets for a DB. */
 static void kvstoreDictSizeChanged(dict *d, long long delta) {
