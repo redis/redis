@@ -46,9 +46,6 @@ typedef struct dictType {
      * and are cleaned up after this callback.  */
     void (*rehashingCompleted)(dict *d);
     /* Invoked when the size of the dictionary changes.
-     * - Adds dict[1]'s size at the start of rehashing.
-     * - Subtracts dict[0]'s size at the end of rehashing.
-     * - Subtracts both dict[0] and dict[1] sizes when the dictionary is emptied or released.
      * The `delta` parameter can be positive (size increase) or negative (size decrease). */
     void (*sizeChanged)(dict *d, long long delta);
     /* Allow a dict to carry extra caller-defined metadata. The
