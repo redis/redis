@@ -381,9 +381,6 @@ size_t kvstoreMemUsage(kvstore *kvs) {
     /* Values are dict* shared with kvs->dicts */
     mem += listLength(kvs->rehashing) * sizeof(listNode);
 
-    if (kvs->dict_size_index)
-        mem += sizeof(unsigned long long) * (kvs->num_dicts + 1);
-
     return mem;
 }
 
