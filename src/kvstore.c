@@ -204,7 +204,6 @@ static void kvstoreDictRehashingStarted(dict *d) {
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    kvs->bucket_count += to; /* Started rehashing (Add the new ht size) */
     kvs->overhead_hashtable_rehashing += from;
 }
 
@@ -222,7 +221,6 @@ static void kvstoreDictRehashingCompleted(dict *d) {
 
     unsigned long long from, to;
     dictRehashingInfo(d, &from, &to);
-    kvs->bucket_count -= from; /* Finished rehashing (Remove the old ht size) */
     kvs->overhead_hashtable_rehashing -= from;
 }
 
@@ -233,6 +231,7 @@ static void kvstoreDictSizeChanged(dict *d, long long delta) {
     kvstore *kvs = d->type->userdata;
     assert(delta > 0 || kvs->overhead_hashtable_lut >= (size_t)(-delta));
     kvs->overhead_hashtable_lut += delta;
+    kvs->bucket_count += delta;
 }
 
 
@@ -388,7 +387,7 @@ size_t kvstoreMemUsage(kvstore *kvs) {
     mem += listLength(kvs->rehashing) * sizeof(listNode);
 
     if (kvs->dict_size_index)
-        mem += sizeof(unsigned long long) * (kvs->num_dicts + 1);
+        mem += sizeof(unsigned long long) * (kvs->allocated_dicts + 1);
 
     return mem;
 }
