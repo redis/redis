@@ -2602,7 +2602,7 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
     totlen += getShardIdPingExtSize();
     extensions++;
 
-    /* Populate insternal secret */
+    /* Populate internal secret */
     if (cursor != NULL) {
         clusterMsgPingExtInternalSecret *ext = preparePingExt(cursor, CLUSTERMSG_EXT_TYPE_INTERNALSECRET, getInternalSecretPingExtSize());
         memcpy(ext->internal_secret, server.cluster->internal_secret, CLUSTER_INTERNALSECRETLEN);
