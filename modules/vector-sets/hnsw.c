@@ -58,11 +58,6 @@
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
-#if __GNUC__ >= 3
-#define likely(x) __builtin_expect(!!(x), 1)
-#else
-#define likely(x) (x)
-#endif
 
 /* Algorithm parameters. */
 
@@ -2153,7 +2148,7 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
          * It could happen in select_neighbors() that we over-allocate the
          * node under very unlikely to happen conditions. */
         if (max_links > node->layers[i].max_links) {
-            hnswNode **new_links = hrealloc(node->layers[i].links,
+            hnswNode **new_links = hrealloc(node->layers[i].links, 
                                          sizeof(hnswNode*) * max_links);
             if (!new_links) {
                 hnsw_node_free(node);
