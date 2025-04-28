@@ -5083,3 +5083,24 @@ void updateFailoverStatus(void) {
             server.target_replica_port);
     }
 }
+
+int replicationForceFullSyncMaster(void) {
+    if (server.masterhost || !listLength(server.slaves))
+        return 0; /* Not a master or master without slaves. */
+
+    disconnectSlaves();
+    freeReplicationBacklog();
+    return 1;
+}
+
+int replicationForceFullSyncReplica(void) {
+    if (!server.masterhost || !server.master)
+        return 0; /* Not a replica or master is not connected. */
+
+    /* We use freeClientAsync in case this function is called from
+     * within a command received from master (we don't want to free the
+     * master client mid-command since it frees argv) */
+    server.master->flags |= CLIENT_NO_CACHE_MASTER;
+    freeClientAsync(server.master);
+    return 1;
+}

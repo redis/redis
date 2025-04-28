@@ -809,15 +809,8 @@ test {diskless loading short read} {
                 set loglines [lindex $res 1]
                 if {![string match "*Internal error in RDB*" $log_text]} {
                     # force the replica to try another full sync
-                    $master multi
-                    $master client kill type replica
-                    $master set asdf asdf
-                    # fill replication backlog with new content
-                    $master config set repl-backlog-size 16384
-                    for {set keyid 0} {$keyid < 10} {incr keyid} {
-                        $master set "$keyid string_$keyid" [string repeat A 16384]
-                    }
-                    $master exec
+                    wait_for_sync $replica
+                    $master debug force-full-sync
                 }
 
                 # wait for loading to stop (fail)
@@ -1649,5 +1642,39 @@ start_server {tags {"repl external:skip"}} {
             assert_morethan [$replica dbsize] 0
             assert_equal [$master debug digest] [$replica debug digest]
         }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    # Replica
+    set replica [srv 0 client]
+    
+    start_server {} {
+        # Master
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+        
+        test "Test force full-sync" {
+            assert_equal 0 [s 0 sync_full]
+
+            # Expect error when master has no slaves
+            catch {$master debug force full-sync}
+
+            $replica replicaof $master_host $master_port
+            wait_for_sync $replica
+
+            # Test master
+            set prev [s 0 sync_full]
+            $master debug force-full-sync
+            wait_for_sync $replica
+            assert_equal [s 0 sync_full] [expr $prev+1]
+
+            # Test replica
+            set prev [s 0 sync_full]
+            $replica debug force-full-sync
+            wait_for_sync $replica
+            assert_equal [s 0 sync_full] [expr $prev+1]
+        } {} {needs:debug}
     }
 }
