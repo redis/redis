@@ -11,20 +11,24 @@
  * Originally authored by: Salvatore Sanfilippo.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <ctype.h>
-#include <math.h>
-#include <string.h>
-
 #ifdef TEST_MAIN
-#include <assert.h>
 #define RedisModule_Alloc malloc
 #define RedisModule_Realloc realloc
 #define RedisModule_Free free
 #define RedisModule_Strdup strdup
 #define RedisModule_Assert assert
+#define _DEFAULT_SOURCE
+#define _USE_MATH_DEFINES
+#define _POSIX_C_SOURCE 200809L
+#include <assert.h>
+#include <math.h>
 #endif
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <math.h>
+#include <string.h>
 
 #define EXPR_TOKEN_EOF 0
 #define EXPR_TOKEN_NUM 1
