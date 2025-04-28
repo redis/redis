@@ -761,13 +761,9 @@ void dictRelease(dict *d)
     if (dictIsRehashing(d) && d->type->rehashingCompleted)
         d->type->rehashingCompleted(d);
 
-    /* - If rehashing is in progress, the sizes of both dict[0] and dict[1]
-     *   are subtracted from the total.
-     * - If rehashing is not in progress, only the size of dict[0] is subtracted. */
     if (d->type->sizeChanged) {
-        unsigned long bucket_count = dictIsRehashing(d) ?
-            DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1]) :
-            DICTHT_SIZE(d->ht_size_exp[0]);
+        /* Subtract the size of all buckets. */
+        unsigned long bucket_count = DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1]);
         d->type->sizeChanged(d, -(long long)bucket_count);
     }
 
@@ -1689,13 +1685,9 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
     if (dictIsRehashing(d) && d->type->rehashingCompleted)
         d->type->rehashingCompleted(d);
 
-    /* - If rehashing is in progress, the sizes of both dict[0] and dict[1]
-     *   are subtracted from the total.
-     * - If rehashing is not in progress, only the size of dict[0] is subtracted. */
     if (d->type->sizeChanged) {
-        unsigned long bucket_count = dictIsRehashing(d) ?
-            DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1]) :
-            DICTHT_SIZE(d->ht_size_exp[0]);
+        /* Subtract the size of all buckets. */
+        unsigned long bucket_count = DICTHT_SIZE(d->ht_size_exp[0]) + DICTHT_SIZE(d->ht_size_exp[1]);
         d->type->sizeChanged(d, -(long long)bucket_count);
     }
 
