@@ -38,7 +38,8 @@ void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
-static uint32_t listpackGetNextDeletedRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg);
+static uint32_t listpackGetNextDeletedRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg);
+static uint32_t listpackGetNextDeletedRangeInXTrim(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -676,6 +677,19 @@ typedef struct {
 #define TRIM_STRATEGY_MAXLEN 1
 #define TRIM_STRATEGY_MINID 2
 
+/* Used in callback for lpDeleteRanges() */
+struct trimContext {
+    int perform_garbage_collection;
+    int processed_all_trimmed_entries;
+    uint32_t master_fields;
+    stream *s;
+    streamID *id;
+    streamID *master_id;
+    size_t maxlen;
+    int trim_strategy;
+    uint32_t num_entries, num_deleted, num_deleted_by_trim;
+};
+
 /* Trim the stream 's' according to args->trim_strategy, and return the
  * number of elements removed from the stream. The 'approx' option, if non-zero,
  * specifies that the trimming must be performed in a approximated way in
@@ -755,14 +769,17 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
          * stop here. */
         if (approx) break;
 
-        /* Now we have to trim entries from within 'lp' */
-        int64_t deleted_from_lp = 0;
-
+        /* Now we have to trim entries from within 'lp'. */
         p = lpNext(lp, p); /* Skip deleted field. */
+        
+        /* 'lp' might has entries marked as deleted, we need to count them. */
+        int64_t num_deleted = lpGetInteger(p);
+
         p = lpNext(lp, p); /* Skip num-of-fields in the master entry. */
 
         /* Skip all the master fields. */
         int64_t master_fields_count = lpGetInteger(p);
+        serverAssert(master_fields_count >= 0 && master_fields_count < (int64_t)UINT32_MAX);
         p = lpNext(lp,p); /* Skip the first field. */
         for (int64_t j = 0; j < master_fields_count; j++)
             p = lpNext(lp,p); /* Skip all master fields. */
@@ -770,93 +787,35 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
         /* 'p' is now pointing to the first entry inside the listpack.
          * We have to run entry after entry, marking entries as deleted
-         * if they are already not deleted. */
-        while (p) {
-            /* We keep a copy of p (which point to flags part) in order to
-             * update it after (and if) we actually remove the entry */
-            unsigned char *pcopy = p;
-
-            int64_t flags = lpGetInteger(p);
-            p = lpNext(lp, p); /* Skip flags. */
-            int64_t to_skip;
-
-            int64_t ms_delta = lpGetInteger(p);
-            p = lpNext(lp, p); /* Skip ID ms delta */
-            int64_t seq_delta = lpGetInteger(p);
-            p = lpNext(lp, p); /* Skip ID seq delta */
-
-            streamID currid = {0}; /* For MINID */
-            if (trim_strategy == TRIM_STRATEGY_MINID) {
-                currid.ms = master_id.ms + ms_delta;
-                currid.seq = master_id.seq + seq_delta;
-            }
-
-            int stop;
-            if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
-                stop = s->length <= maxlen;
-            } else {
-                /* Following IDs will definitely be greater because the rax
-                 * tree is sorted, no point of continuing. */
-                stop = streamCompareID(&currid, id) >= 0;
-            }
-            if (stop)
-                break;
-
-            if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
-                to_skip = master_fields_count;
-            } else {
-                to_skip = lpGetInteger(p); /* Get num-fields. */
-                p = lpNext(lp,p); /* Skip num-fields. */
-                to_skip *= 2; /* Fields and values. */
-            }
-
-            while(to_skip--) p = lpNext(lp,p); /* Skip the whole entry. */
-            p = lpNext(lp,p); /* Skip the final lp-count field. */
-
-            /* Mark the entry as deleted. */
-            if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
-                intptr_t delta = p - lp;
-                flags |= STREAM_ITEM_FLAG_DELETED;
-                lp = lpReplaceInteger(lp, &pcopy, flags);
-                deleted_from_lp++;
-                s->length--;
-                p = lp + delta;
-            }
-        }
-        deleted += deleted_from_lp;
-
+         * if they are already not deleted and perform a garbage collection
+         * if necessary. */
+        struct trimContext context = {
+            .perform_garbage_collection = 0,
+            .processed_all_trimmed_entries = 0,
+            .master_fields = (uint32_t)master_fields_count,
+            .s = s,
+            .id = id,
+            .master_id = &master_id,
+            .maxlen = maxlen,
+            .trim_strategy = trim_strategy,
+            .num_entries = entries,
+            .num_deleted = num_deleted,
+            .num_deleted_by_trim = 0
+        };
+        lp = lpDeleteRanges(lp, p, listpackGetNextDeletedRangeInXTrim, (void *)&context);
+        deleted += context.num_deleted_by_trim;
+        
         /* Now we update the entries/deleted counters. */
         p = lpFirst(lp);
-        lp = lpReplaceInteger(lp,&p,entries-deleted_from_lp);
+        lp = lpReplaceInteger(lp, &p, context.num_entries);
         p = lpNext(lp,p); /* Skip deleted field. */
-        int64_t marked_deleted = lpGetInteger(p);
-
-        /* Here we should perform garbage collection in case at this point
-         * there are too many entries deleted inside the listpack. */
-        entries -= deleted_from_lp;
-        marked_deleted += deleted_from_lp;
         
-        int needGarbageCollection = 0;
-        if (entries + marked_deleted > 10 && marked_deleted > entries/2) {
-            needGarbageCollection = 1;
+        if (context.perform_garbage_collection) {
             lp = lpReplaceInteger(lp, &p, 0);
         } else {
-            lp = lpReplaceInteger(lp,&p,marked_deleted);
-        }
-        p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
-
-        if (needGarbageCollection) {
-            /* Perform a garbage collection. */
-            int64_t aux = lpGetInteger(p);
-            serverAssert(aux >= 0 && aux <= (int64_t)UINT32_MAX);
-            uint32_t master_fields = (uint32_t)aux;
-            for (uint32_t i = 0; i < 2 + master_fields; i++) {
-                p = lpNext(lp, p);
-            }
-            lp = lpDeleteRanges(lp, p, listpackGetNextDeletedRange, (void *)&master_fields);
+            lp = lpReplaceInteger(lp, &p, context.num_deleted);
         }
 
-        /* Update the listpack with the new pointer. */
         raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
 
         break; /* If we are here, there was enough to delete in the current
@@ -1348,7 +1307,8 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
  * This function searches for the next deleted entry, which is treated as a range of items
  * to delete from the listpack.
  */
-static uint32_t listpackGetNextDeletedRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+static uint32_t listpackGetNextDeletedRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+    (void)cancel;
     int64_t flags, num_fields;
     uint32_t master_fields = *((uint32_t *)arg);
     uint32_t fields_values_num; /* Number of listpack items that together represent the fields and values of an entry */
@@ -1386,6 +1346,89 @@ static uint32_t listpackGetNextDeletedRange(unsigned char *lp, unsigned char *p,
     }
     *range_start = NULL;
     return 0;
+}
+
+/*
+ * This callback is used in xtrim to handle deletion of listpack items that correspond
+ * to entries needing trimming, or that were previously marked as STREAM_ITEM_FLAG_DELETED
+ * if garbage collection is required. If garbage collection is not needed, the deletion is
+ * canceled, but all trimmed entries are still marked as STREAM_ITEM_FLAG_DELETED.
+
+ * Marking entries with STREAM_ITEM_FLAG_DELETED does not change the encoding of the flag
+ * integer, ensuring the listpack is not reallocated and remains safe. However, if the
+ * encoding were to change in the future (e.g., due to modifications in the flag format),
+ * the flag is left unchanged and garbage collection is performed instead as a fallback.
+ */
+static uint32_t listpackGetNextDeletedRangeInXTrim(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+    struct trimContext *context = (struct trimContext *)arg;
+    if (context->processed_all_trimmed_entries) {
+        return listpackGetNextDeletedRange(lp, p, range_start, cancel, &(context->master_fields));
+    }
+    unsigned char *pcopy = p;
+
+    int64_t flags = lpGetInteger(p);
+    p = lpNext(lp, p); /* Skip flags. */
+    uint32_t fields_values_num; /* Number of listpack items that together represent the fields and values of an entry */
+
+    int64_t ms_delta = lpGetInteger(p);
+    p = lpNext(lp, p); /* Skip ID ms delta */
+    int64_t seq_delta = lpGetInteger(p);
+    p = lpNext(lp, p); /* Skip ID seq delta */
+
+    streamID currid = {0}; /* For MINID */
+    if (context->trim_strategy == TRIM_STRATEGY_MINID) {
+        currid.ms = context->master_id->ms + ms_delta;
+        currid.seq = context->master_id->seq + seq_delta;
+    }
+
+    int stop;
+    if (context->trim_strategy == TRIM_STRATEGY_MAXLEN) {
+        stop = context->s->length <= context->maxlen;
+    } else {
+        /* Following IDs will definitely be greater because the rax
+         * tree is sorted, no point of continuing. */
+        stop = streamCompareID(&currid, context->id) >= 0;
+    }
+    if (!stop) {
+        /* The current entry needs to be trimmed; therefore, the range
+         * of listpack items constituting this entry is returned.*/
+        if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
+            flags |= STREAM_ITEM_FLAG_DELETED;
+            /* We update the flag since it's still unclear whether garbage collection is needed. */
+            if (unlikely(!lpReplaceIntegerSameLen(lp, pcopy, flags))) {
+                /* We do not want lp change to another pointer, perform a garbage collection. */
+                context->perform_garbage_collection = 1;
+            }
+            context->num_deleted_by_trim++;
+            context->s->length--;
+        }
+        *range_start = pcopy;
+        if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
+           /* 3 heading items(flags + entry-id-ms + entry-id-seq) + values + lp-count */ 
+            return 3 + context->master_fields + 1;
+        } else {
+            int64_t num_fields = lpGetInteger(p); /* Get num-fields. */
+            serverAssert(num_fields >= 0 && num_fields * 2 <= (int64_t)UINT32_MAX);
+            fields_values_num = (uint32_t)num_fields * 2;
+            /* 3 heading items(flags + entry-id-ms + entry-id-seq) + num-fields + field and value pairs + lp-count */
+            return 3 + 1 + fields_values_num + 1;
+        }
+    }
+    /* We have reached the first untrimmed entry.
+     * If GC is needed, the following ranges can be searched via listpackGetNextDeletedRange;
+     * otherwise, return -1 to cancel deletion.
+     * (Safe to do: trimmed entries are contiguous at the beginning, and no bytes have been moved.) */
+    context->num_deleted += context->num_deleted_by_trim;
+    context->num_entries -= context->num_deleted_by_trim;
+    if (context->perform_garbage_collection
+            || (context->num_entries + context->num_deleted > 10 && context->num_deleted > context->num_entries/2)) {
+        context->perform_garbage_collection = 1;
+        context->processed_all_trimmed_entries = 1;
+        return listpackGetNextDeletedRange(lp, pcopy, range_start, cancel, &(context->master_fields));
+    } else {
+        *cancel = 1;
+        return 0;
+    }
 }
 
 /* Stop the stream iterator. The only cleanup we need is to free the rax

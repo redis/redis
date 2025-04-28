@@ -926,6 +926,10 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * The element is inserted before, after, or replaces the element pointed
  * by 'p' depending on the 'where' argument, that can be LP_BEFORE, LP_AFTER
  * or LP_REPLACE.
+ *
+ * LP_REPLACE_SAME_LEN functions like LP_REPLACE, but with a stricter constraint:
+ * it only replaces the item if the new item has exactly the same length as the original.
+ * If the lengths differ, the listpack remains unchanged and NULL is returned.
  * 
  * If both 'elestr' and `eleint` are NULL, the function removes the element
  * pointed by 'p' instead of inserting one.
@@ -959,6 +963,12 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
      * zero-length element. So whatever we get passed as 'where', set
      * it to LP_REPLACE. */
     if (delete) where = LP_REPLACE;
+
+    int replace_same_len = 0;
+    if (where == LP_REPLACE_SAME_LEN) {
+        where = LP_REPLACE;
+        replace_same_len = 1;
+    }
 
     /* If we need to insert after the current element, we just jump to the
      * next element (that could be the EOF one) and handle the case of
@@ -1004,6 +1014,9 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
         replaced_len = lpCurrentEncodedSizeUnsafe(p);
         replaced_len += lpEncodeBacklenBytes(replaced_len);
         ASSERT_INTEGRITY_LEN(lp, p, replaced_len);
+        if (replace_same_len && enclen + backlen_size != replaced_len) {
+            return NULL;
+        }
     }
 
     uint64_t new_listpack_bytes = old_listpack_bytes + enclen + backlen_size
@@ -1305,6 +1318,15 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
     return lpInsertInteger(lp, lval, *p, LP_REPLACE, p);
 }
 
+int lpReplaceIntegerSameLen(unsigned char *lp, unsigned char *p, long long lval) {
+    unsigned char *replaced = lpInsertInteger(lp, lval, p, LP_REPLACE_SAME_LEN, NULL);
+    if (replaced == NULL) {
+        return 0;
+    }
+    assert(replaced == lp);
+    return 1;
+}
+
 /* Remove the element pointed by 'p', and return the resulting listpack.
  * If 'newp' is not NULL, the next element pointer (to the right of the
  * deleted one) is returned by reference. If the deleted element was the
@@ -1389,17 +1411,26 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
  * delete, the output pointer is set to NULL and return 0.
  * We delete the specified ranges and preserve the bytes between these ranges by moving them 
  * to the end of the preserved region.
+ * The deletion process can be aborted by setting cancel to 1 in the callback, but this is only
+ * valid if no bytes have been moved — i.e., all previously deleted ranges are contiguous and 
+ * form a single large range.
  */
-unsigned char *lpDeleteRanges(unsigned char *lp, unsigned char *p, uint32_t (*getNextRange)(unsigned char *, unsigned char *, unsigned char **, void *), void *arg) {
+unsigned char *lpDeleteRanges(unsigned char *lp, unsigned char *p, uint32_t (*getNextRange)(unsigned char *, unsigned char *, unsigned char **, int *, void *), void *arg) {
     unsigned char *preserved_end, *range_start, *eofptr;
     size_t bytes = lpBytes(lp), move_size;
     uint32_t numele = lpGetNumElements(lp), range_ele;
+    int cancel = 0, has_moved = 0;
     lpAssertValidEntry(lp, bytes, p);
     preserved_end = range_start = NULL;
     eofptr = lp + bytes - 1;
     while (p[0] != LP_EOF) {
-        range_ele = getNextRange(lp, p, &range_start, arg);
+        range_ele = getNextRange(lp, p, &range_start, &cancel, arg);
         assert(numele >= range_ele);
+        if (cancel == 1) {
+            assert(!has_moved);
+            /* Cancel the deletion. */
+            return lp;
+        }
         if (range_start == NULL) {
             /* No more deleted range. */
             break;
@@ -1415,6 +1446,7 @@ unsigned char *lpDeleteRanges(unsigned char *lp, unsigned char *p, uint32_t (*ge
             move_size = range_start - p;
             memmove(preserved_end, p, move_size);
             preserved_end += move_size;
+            has_moved = 1;
         }
         /* Move p to the first byte after the deleted range and continue searching for the next range
          * to delete in the next loop. */
@@ -2115,7 +2147,8 @@ static unsigned char *createIntList(void) {
 }
 
 /* Callback function for lpDeleteRanges(), it can be used to delete ranges in intlist */
-static uint32_t deleteAllPositiveIntegers(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+static uint32_t deleteAllPositiveIntegers(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+    (void)cancel;
     (void)arg;
     long long val;
     unsigned char *last = lpLast(lp);
@@ -2134,7 +2167,8 @@ static uint32_t deleteAllPositiveIntegers(unsigned char *lp, unsigned char *p, u
 }
 
 /* Callback functions for lpDeleteRanges(), they can be used to delete ranges in mixlist */
-static uint32_t delete1stTo3rdRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+static uint32_t delete1stTo3rdRange(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+    (void)cancel;
     (void)lp;
     int *deleted = (int *)arg;
     /* Only one range to delete in this case. We use 'deleted' to ensure the range is returned only once. */
@@ -2146,7 +2180,8 @@ static uint32_t delete1stTo3rdRange(unsigned char *lp, unsigned char *p, unsigne
     *range_start = NULL;
     return 0;
 }
-static uint32_t delete1stAnd3rdItems(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+static uint32_t delete1stAnd3rdItems(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+    (void)cancel;
     int *idx = (int *)arg;
     while (1) {
         (*idx)++;
@@ -2161,7 +2196,8 @@ static uint32_t delete1stAnd3rdItems(unsigned char *lp, unsigned char *p, unsign
     return 0;
 }
 
-static uint32_t delete1stAnd2ndAnd4thItems(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+static uint32_t delete1stAnd2ndAnd4thItems(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+    (void)cancel;
     int *idx = (int *)arg;
     while (1) {
         (*idx)++;
@@ -2181,7 +2217,8 @@ static uint32_t delete1stAnd2ndAnd4thItems(unsigned char *lp, unsigned char *p, 
     return 0;
 }
 
-static uint32_t deleteAll(unsigned char *lp, unsigned char *p, unsigned char **range_start, void *arg) {
+static uint32_t deleteAll(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+    (void)cancel;
     (void)arg;
     if (p == lpFirst(lp)) {
         *range_start = p;
@@ -2189,6 +2226,21 @@ static uint32_t deleteAll(unsigned char *lp, unsigned char *p, unsigned char **r
     }
     *range_start = NULL;
     return 0;
+}
+
+static uint32_t cancelDeletion(unsigned char *lp, unsigned char *p, unsigned char **range_start, int *cancel, void *arg) {
+     (void)lp;
+    int *idx = (int *)arg;
+    if (*idx < 3) {
+        *range_start = p;
+        (*idx)++;
+        return 1;
+    }
+    /* Cancel the deletion of previous ranges*/
+    *cancel = 1;
+    *range_start = NULL;
+    return 0;
+
 }
 
 static long long usec(void) {
@@ -2640,6 +2692,14 @@ int listpackTest(int argc, char *argv[], int flags) {
         zfree(lp);
     }
 
+    TEST("Delete ranges: cancel deletion") {
+        lp = createList();
+        assert(lpLength(lp) == 4);
+        int idx = 0;
+        assert(lp == lpDeleteRanges(lp, lpFirst(lp), cancelDeletion, (void *)&idx));
+        assert(lpLength(lp) == 4);
+    }
+
     TEST("Batch append") {
         listpackEntry ent[6] = {
                 {.sval = (unsigned char*)mixlist[0], .slen = strlen(mixlist[0])},
@@ -2802,6 +2862,19 @@ int listpackTest(int argc, char *argv[], int flags) {
                         "\xc4\x00\x02" "\xff",
                         27));
         lpFree(lp);
+    }
+
+    TEST("Replace by lpReplaceIntegerSameLen") {
+        lp = createIntList(); /* 4294967296, -100, ... */
+        p = lpFirst(lp);
+        long long x = 4294967295, lval;
+        assert(lpReplaceIntegerSameLen(lp, p, x)); /* successfully replace */
+        lpGetIntegerValue(p, &lval);
+        assert(lval == x);
+        p = lpNext(lp, p);
+        assert(!lpReplaceIntegerSameLen(lp, p, x)); /* fail to replace */
+        lpGetIntegerValue(p, &lval);
+        assert(lval == -100);
     }
 
     TEST("Regression test for >255 byte strings") {
