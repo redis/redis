@@ -555,14 +555,8 @@ int processClientsFromMainThread(IOThread *t) {
             connSetReadHandler(c->conn, readQueryFromClient);
         }
 
-        /* The main thread only handles the first parsed command, so IO threads
-         * need to process the remaining queries if needed. */
-        if (c->querybuf && sdslen(c->querybuf) > 0) {
-            processInputBuffer(c);
-        }
-
         /* If the client has pending replies, write replies to client. */
-        if ((c->io_flags & CLIENT_IO_WRITE_ENABLED) && clientHasPendingReplies(c)) {
+        if (clientHasPendingReplies(c)) {
             writeToClient(c, 0);
             if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP) && clientHasPendingReplies(c)) {
                 connSetWriteHandler(c->conn, sendReplyToClient);

@@ -1830,18 +1830,20 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
             dont_sleep = 1;
     }
 
-    /* Corresponding to IOThreadBeforeSleep, process the clients from IO threads
-     * without notification. */
-    if (processClientsOfAllIOThreads() > 0) {
-        /* If there are clients that are processed, it means IO thread is busy to
-         * trafer clients to main thread, so the main thread does not sleep. */
-        dont_sleep = 1;
-    }
-    if (!dont_sleep) {
-        atomicSetWithSync(server.running, 0); /* Not running if going to sleep. */
-        /* Try to process the clients from IO threads again, since before setting running
-         * to 0, some clients may be transferred without notification. */
-        processClientsOfAllIOThreads();
+    if (server.io_threads_num > 1) {
+        /* Corresponding to IOThreadBeforeSleep, process the clients from IO threads
+         * without notification. */
+        if (processClientsOfAllIOThreads() > 0) {
+            /* If there are clients that are processed, it means IO thread is busy to
+             * trafer clients to main thread, so the main thread does not sleep. */
+            dont_sleep = 1;
+        }
+        if (!dont_sleep) {
+            atomicSetWithSync(server.running, 0); /* Not running if going to sleep. */
+            /* Try to process the clients from IO threads again, since before setting running
+             * to 0, some clients may be transferred without notification. */
+            processClientsOfAllIOThreads();
+        }
     }
 
     /* Handle writes with pending output buffers. */
