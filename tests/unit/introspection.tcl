@@ -448,7 +448,6 @@ start_server {tags {"introspection"}} {
         set skip_configs {
             rdbchecksum
             daemonize
-            io-threads-do-reads
             tcp-backlog
             always-show-logo
             syslog-enabled
