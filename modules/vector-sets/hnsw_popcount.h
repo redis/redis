@@ -11,7 +11,6 @@
  * Originally authored by: Salvatore Sanfilippo.
  */
 
-#include <pthread.h>
 #include <stdint.h>
 
 /* Define likely macro if not already defined */
@@ -59,23 +58,27 @@ static inline int hnsw_popcount64(uint64_t x) {
     return x;
 }
 
+/* Optimized popcount function that uses hardware POPCNT instruction when available,
+ * falling back to a software implementation when necessary. The CPU feature detection
+ * result is cached per thread for better performance. */
+ATTRIBUTE_TARGET_POPCNT
+static inline int hnsw_popcount(uint64_t x) {
+    if (likely(hnsw_cpu_supports_popcnt())) {
+        return __builtin_popcountll(x);
+    } else {
+        return hnsw_popcount64(x);
+    }
+}
+
 /* Binary vectors distance function that uses POPCNT when available */
 ATTRIBUTE_TARGET_POPCNT
 static inline float hnsw_vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
-    const uint32_t len = (dim+63)/64;
+    uint32_t len = (dim+63)/64;
     uint32_t opposite = 0;
-    const int use_popcnt = hnsw_cpu_supports_popcnt();
 
-    if (likely(use_popcnt)) {
-        for (uint32_t j = 0; j < len; j++) {
-            uint64_t xor = x[j]^y[j];
-            opposite += __builtin_popcountll(xor);
-        }
-    } else {
-        for (uint32_t j = 0; j < len; j++) {
-            uint64_t xor = x[j]^y[j];
-            opposite += hnsw_popcount64(xor);
-        }
+    for (uint32_t j = 0; j < len; j++) {
+        uint64_t xor = x[j]^y[j];
+        opposite += hnsw_popcount(xor);
     }
     return (float)opposite*2/dim;
 }
