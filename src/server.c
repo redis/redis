@@ -2269,6 +2269,7 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
+    server.repl_up_since = 0;
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
@@ -2893,6 +2894,7 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_allocated = 0;
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
+    server.repl_current_attempts = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
@@ -6232,6 +6234,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (server.masterhost) {
             long long slave_repl_offset = 1;
             long long slave_read_repl_offset = 1;
+            time_t current_disconnect_time = server.repl_down_since ?
+                server.unixtime - server.repl_down_since : 0 ;
 
             if (server.master) {
                 slave_repl_offset = server.master->reploff;
@@ -6250,7 +6254,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "slave_read_repl_offset:%lld\r\n", slave_read_repl_offset,
                 "slave_repl_offset:%lld\r\n", slave_repl_offset,
                 "replica_full_sync_buffer_size:%zu\r\n", server.repl_full_sync_buffer.size,
-                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak));
+                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak,
+                "master_sync_attempts:%lld\r\n", server.repl_current_attempts));
 
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
@@ -6270,7 +6275,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     "master_link_down_since_seconds:%jd\r\n",
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
+            }else{
+                info = sdscatprintf(info,
+                    "master_link_up_since_seconds:%jd\r\n",
+                    server.repl_up_since ? /* defensive code, should never be 0 when connected */
+                    (intmax_t)(server.unixtime-server.repl_up_since) : -1);
             }
+            info = sdscatprintf(info, "total_disconnect_time_sec:%jd\r\n", server.repl_total_disconnect_time+(current_disconnect_time));
+
             info = sdscatprintf(info, FMTARGS(
                 "slave_priority:%d\r\n", server.slave_priority,
                 "slave_read_only:%d\r\n", server.repl_slave_ro,
