@@ -3369,8 +3369,8 @@ void replicationHandleMasterDisconnection(void) {
                               NULL);
 
     server.master = NULL;
-    // if (server.repl_state == REPL_STATE_CONNECTED)
-    //     server.repl_current_attempts = 0;
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        server.repl_current_attempts = 0;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;
     server.repl_up_since = 0;

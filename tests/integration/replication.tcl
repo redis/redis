@@ -1769,7 +1769,7 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 1 [status $slave master_sync_attempts]
         }
 
-        test "Test master_sync_attempts increse after the reconnect" {
+        test "Test master_sync_attempts is reset after the reconnect" {
             $slave client kill type master
 
             wait_for_condition 50 100 {
@@ -1779,7 +1779,7 @@ start_server {tags {"repl external:skip"}} {
                 fail "Can't turn the instance into a replica"
             }
 
-            assert_equal 2 [status $slave master_sync_attempts]
+            assert_equal 1 [status $slave master_sync_attempts]
         }
 
         test "Test master_sync_attempts is reset after master changed" {
