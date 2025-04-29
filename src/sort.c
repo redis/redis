@@ -42,7 +42,7 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     kvobj *kv;
     char *p, *f, *k;
     sds spat, ssub;
-    robj *keyobj, *fieldobj = NULL;
+    robj *keyobj, *fieldobj = NULL, *val;
 
     int prefixlen, sublen, postfixlen, fieldlen;
 
@@ -89,27 +89,35 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
 
     /* Lookup substituted key */
     kv = lookupKeyRead(db, keyobj);
-    decrRefCount(keyobj);
-    
+    if (kv == NULL) goto noobj;
+
     if (fieldobj) {
-        robj *val = NULL;
-        if (kv && kv->type == OBJ_HASH) {
-            /* Retrieve value from hash by the field name. The returned object
-             * is a new object with refcount already incremented. */
-            hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, NULL);
-        }
+        if (kv->type != OBJ_HASH) goto noobj;
 
-        decrRefCount(fieldobj);
-        return val;
+        /* Retrieve value from hash by the field name. The returned object
+         * is a new object with refcount already incremented. */
+        int isHashDeleted;
+        hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
+        kv = val;
+
+        if (isHashDeleted)
+            goto noobj;
+
+    } else {
+        if (kv->type != OBJ_STRING) goto noobj;
+
+        /* Every object that this function returns needs to have its refcount
+         * increased. sortCommand decreases it again. */
+        incrRefCount(kv);
     }
-
-    if ((kv == NULL) || (kv->type != OBJ_STRING)) return NULL;
-
-    /* Every object that this function returns needs to have its refcount
-     * increased. sortCommand decreases it again. */
-    incrRefCount(kv);
-
+    decrRefCount(keyobj);
+    if (fieldobj) decrRefCount(fieldobj);
     return kv;
+
+noobj:
+    decrRefCount(keyobj);
+    if (fieldlen) decrRefCount(fieldobj);
+    return NULL;
 }
 
 /* sortCompare() is used by qsort in sortCommand(). Given that qsort_r with

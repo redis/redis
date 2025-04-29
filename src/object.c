@@ -35,7 +35,7 @@
  *    | robj (16) | expiry (8) | key-hdr-size (1) | sdshdr5 "mykey" \0 (7) | 
  *    +-----------+------------+------------------+------------------------+
  */
-kvobj *kvobjCreate(int type, const sds key, void *valptr, long long expire) {
+kvobj *kvobjCreate(int type, const sds key, void *ptr, long long expire) {
     /* Determine embedded key and expiration flags */
     serverAssert(key != NULL);
     int has_expire = ((expire != -1) || (sdslen(key) >= KEY_SIZE_TO_INCLUDE_EXPIRE_THRESHOLD));
@@ -55,7 +55,7 @@ kvobj *kvobjCreate(int type, const sds key, void *valptr, long long expire) {
     robj *o = zmalloc_usable(min_size, &bufsize);
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
-    o->ptr = valptr;
+    o->ptr = ptr;
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 1;
@@ -305,7 +305,6 @@ kvobj *kvobjSet(sds key, robj *val, long long expire) {
         /* Dup the string. */
         valptr = sdsdup(val->ptr);
     } else {
-        serverAssert(val->type != OBJ_STRING);
         /* There are multiple references to this non-string object. Most types
          * can be duplicated, but for a module type is not always possible. */
         serverPanic("Not implemented");
@@ -375,10 +374,18 @@ robj *createStringObjectFromLongLong(long long value) {
     return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
 }
 
-/* The function doesn't return a shared integer when the object is used as a
- * value in the key space (for instance when the INCR command is used). */
+/* The function avoids returning a shared integer when LFU/LRU info
+ * are needed, that is, when the object is used as a value in the key
+ * space(for instance when the INCR command is used), and Redis is
+ * configured to evict based on LFU/LRU, so we want LFU/LRU values
+ * specific for each key. */
 robj *createStringObjectFromLongLongForValue(long long value) {
-    return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_SHARED);
+    if (server.maxmemory == 0 || !(server.maxmemory_policy & MAXMEMORY_FLAG_NO_SHARED_INTEGERS)) {
+        /* If the maxmemory policy permits, we can still return shared integers */
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_AUTO);
+    } else {
+        return createStringObjectFromLongLongWithOptions(value, LL2STROBJ_NO_SHARED);
+    }
 }
 
 /* Create a string object that contains an sds inside it. That means it can't be
@@ -589,7 +596,6 @@ void decrRefCount(robj *o) {
             default: serverPanic("Unknown object type"); break;
             }
         }
-        o->refcount = 0; /* Try to catch use after free */
         zfree(o);
     } else {
         if (o->refcount <= 0) serverPanic("decrRefCount against refcount <= 0");
@@ -843,7 +849,7 @@ robj *tryObjectEncodingEx(robj *o, int try_trim) {
      * representable as a 32 nor 64 bit integer. */
     len = sdslen(s);
     if (len <= 20 && string2l(s,len,&value)) {
-        /* This object is encodable as a long. */        
+        /* This object is encodable as a long. */
         if (o->encoding == OBJ_ENCODING_RAW) {
             sdsfree(o->ptr);
             o->encoding = OBJ_ENCODING_INT;
@@ -1758,7 +1764,7 @@ NULL
             addReplyNull(c);
             return;
         }
-        size_t usage = objectComputeSize(c->argv[2], (robj *)kv,samples,c->db->id);
+        size_t usage = objectComputeSize(c->argv[2], (robj *)kv, samples, c->db->id);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();

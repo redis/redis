@@ -3018,7 +3018,7 @@ unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
-kvobj *kvobjCreate(int type, const sds key, void *valptr, long long expire);
+kvobj *kvobjCreate(int type, const sds key, void *ptr, long long expire);
 kvobj *kvobjSet(sds key, robj *val, long long expire);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
 sds kvobjGetKey(const kvobj *kv); 
@@ -3776,9 +3776,9 @@ uint64_t dictSdsHash(const void *key);
 uint64_t dictPtrHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
 size_t dictSdsKeyLen(dict *d, const void *key);
-int dictSdsKeyCompare(dictCmpCache *c, const void *key1, const void *key2);
-int dictSdsMstrKeyCompare(dictCmpCache *c, const void *sdsLookup, const void *mstrStored);
-int dictSdsKeyCaseCompare(dictCmpCache *c, const void *key1, const void *key2);
+int dictSdsKeyCompare(dictCmpCache *cache, const void *key1, const void *key2);
+int dictSdsMstrKeyCompare(dictCmpCache *cache, const void *sdsLookup, const void *mstrStored);
+int dictSdsKeyCaseCompare(dictCmpCache *cache, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
 void dictListDestructor(dict *d, void *val);
 void *dictSdsDup(dict *d, const void *key);

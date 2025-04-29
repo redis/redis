@@ -55,7 +55,7 @@ static void hfieldPersist(robj *hashObj, hfield field);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
 
 /* hash dictType funcs */
-static int dictHfieldKeyCompare(dictCmpCache *c, const void *key1, const void *key2);
+static int dictHfieldKeyCompare(dictCmpCache *cache, const void *key1, const void *key2);
 static uint64_t dictMstrHash(const void *key);
 static void dictHfieldDestructor(dict *d, void *field);
 static size_t hashDictWithExpireMetadataBytes(dict *d);
@@ -231,10 +231,10 @@ void hashTypeSetExDone(HashTypeSetEx *e);
  * Accessor functions for dictType of hash
  *----------------------------------------------------------------------------*/
 
-static int dictHfieldKeyCompare(dictCmpCache *c, const void *key1, const void *key2)
+static int dictHfieldKeyCompare(dictCmpCache *cache, const void *key1, const void *key2)
 {
     int l1,l2;
-    UNUSED(c);
+    UNUSED(cache);
 
     l1 = hfieldlen((hfield)key1);
     l2 = hfieldlen((hfield)key2);
@@ -3116,7 +3116,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
                     break;
             }
         } else if (hash->encoding == OBJ_ENCODING_LISTPACK ||
-                hash->encoding == OBJ_ENCODING_LISTPACK_EX)
+                   hash->encoding == OBJ_ENCODING_LISTPACK_EX)
         {
             listpackEntry *keys, *vals = NULL;
             unsigned long limit, sample_count;
@@ -3173,7 +3173,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
      * And it is inefficient to repeatedly pick one random element from a
      * listpack in CASE 4. So we use this instead. */
     if (hash->encoding == OBJ_ENCODING_LISTPACK ||
-            hash->encoding == OBJ_ENCODING_LISTPACK_EX)
+        hash->encoding == OBJ_ENCODING_LISTPACK_EX)
     {
         unsigned char *lp = hashTypeListpackGetLp(hash);
         int tuple_len = hash->encoding == OBJ_ENCODING_LISTPACK ? 2 : 3;
@@ -3812,7 +3812,6 @@ void hpexpiretimeCommand(client *c) {
 
 /* HPERSIST key FIELDS numfields <field [field ...]> */
 void hpersistCommand(client *c) {
-    
     long numFields = 0, numFieldsAt = 3;
     int changed = 0; /* Used to determine whether to send a notification. */
 

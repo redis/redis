@@ -1022,7 +1022,7 @@ void delGenericCommand(client *c, int lazy) {
         if (expireIfNeeded(c->db, c->argv[j], NULL, 0) == KEY_DELETED)
             continue;
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
-                       dbSyncDelete(c->db,c->argv[j]);
+                              dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
             signalModifiedKey(c,c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -2296,7 +2296,7 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
 int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
-    mstime_t when = getExpire(db,key, kv);
+    mstime_t when = getExpire(db, key, kv);
     if (when < 0) return 0; /* No expire for this key */
     const mstime_t now = commandTimeSnapshot();
     /* The key expired if the current (virtual or real) time is greater

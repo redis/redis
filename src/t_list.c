@@ -468,7 +468,6 @@ void pushGenericCommand(client *c, int where, int xx) {
     int j;
 
     kvobj *lobj = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
-
     if (checkType(c,lobj,OBJ_LIST)) return;
     if (!lobj) {
         if (xx) {
@@ -1096,7 +1095,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
     /* Create the list if the key does not exist */
     if (!dstobj) {
         dstobj = createListListpackObject();
-        dbAdd(c->db,dstkey, &dstobj);
+        dbAdd(c->db, dstkey, &dstobj);
     }
     listTypeTryConversionAppend(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);

@@ -54,7 +54,7 @@ typedef struct dictType {
     uint64_t (*hashFunction)(const void *key);
     void *(*keyDup)(dict *d, const void *key);
     void *(*valDup)(dict *d, const void *obj);
-    int (*keyCompare)(dictCmpCache *c, const void *key1, const void *key2);
+    int (*keyCompare)(dictCmpCache *cache, const void *key1, const void *key2);
     void (*keyDestructor)(dict *d, void *key);
     void (*valDestructor)(dict *d, void *obj);
     int (*resizeAllowed)(size_t moreMem, double usedRatio);
@@ -106,7 +106,7 @@ typedef struct dictType {
      *
      * Set to NULL both functions, if you don't want to support this feature. */
     uint64_t (*storedHashFunction)(const void *key);
-    int (*storedKeyCompare)(dictCmpCache *c, const void *key1, const void *key2);
+    int (*storedKeyCompare)(dictCmpCache *cache, const void *key1, const void *key2);
 
     /* Optional callback called when the dict is destroyed. */
     void (*onDictRelease)(dict *d);
@@ -274,8 +274,6 @@ void *dictFetchValue(dict *d, const void *key);
 void dictSetUnsignedIntegerVal(dictEntry *de, uint64_t val);
 uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val);
 uint64_t dictGetUnsignedIntegerVal(const dictEntry *de);
-
-
 
 #define dictForEach(d, ty, m, ...) do { \
     dictIterator *di = dictGetIterator(d); \

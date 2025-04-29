@@ -100,9 +100,6 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
-    /* The object referenced by valref (typically c->argv[i]) has refcount=1.
-     * Its ownership is transferred to the DB by setKey*(), avoiding an extra copy. */    
-    debugServerAssert((*valref)->refcount == 1);
     setKeyByLink(c, c->db, key, valref, setkey_flags, &link);
     /* If there's an expiration, setExpireByLink may reallocate the object.
      * We must update valref to reflect the new object if that happens. */

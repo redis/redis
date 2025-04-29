@@ -68,7 +68,7 @@ static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
-static int dictDefaultCompare(dictCmpCache *c, const void *key1, const void *key2);
+static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
 static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *bucket);
 dictEntLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
 static dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntLink link);
@@ -82,9 +82,9 @@ int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
 
 /* -------------------------- misc inline functions -------------------------------- */
 
-typedef int (*keyCmpFunc)(dictCmpCache *c, const void *key1, const void *key2);
-static inline keyCmpFunc dictGetCmpFuncAndResetCache(dict *d, dictCmpCache *cmpCache) {
-    memset(cmpCache, 0, sizeof(dictCmpCache));
+typedef int (*keyCmpFunc)(dictCmpCache *cache, const void *key1, const void *key2);
+static inline keyCmpFunc dictGetCmpFuncAndResetCache(dict *d, dictCmpCache *cache) {
+    memset(cache, 0, sizeof(dictCmpCache));
     if (d->useStoredKeyApi && d->type->storedKeyCompare)
         return d->type->storedKeyCompare;
     if (d->type->keyCompare)
@@ -523,39 +523,6 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
     return dictInsertKeyAtLink(d, key, position);
 }
 
-/* Low-level add function for non-existing keys:
- * This function adds a new entry to the dictionary, assuming the key does not
- * already exist.
- * Parameters:
- * - `dict *d`: Pointer to the dictionary structure.
- * - `void *key`: Pointer to the key being added.
- * - `const uint64_t hash`: hash of the key being added.
- * Guarantees:
- * - The key is assumed to be non-existing.
- * Note:
- * Ensure that the key's uniqueness is managed externally before calling this function. */
-dictEntry *dictAddNonExistsByHash(dict *d, void *key, const uint64_t hash) {
-    /* Get the position for the new key, it should never be NULL. */
-    unsigned long idx, table;
-    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-
-    /* Rehash the hash table if needed */
-    _dictRehashStepIfNeeded(d,idx);
-
-    /* Expand the hash table if needed */
-    _dictExpandIfNeeded(d);
-
-    table = dictIsRehashing(d) ? 1 : 0;
-    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-    dictEntLink link = &d->ht_table[table][idx];
-    assert(link!=NULL);
-
-    /* Dup the key if necessary. */
-    if (d->type->keyDup) key = d->type->keyDup(d, key);
-
-    return dictInsertKeyAtLink(d, key, link);
-}
-
 /* Adds a key in the dict's hashtable at the link returned by a preceding
  * call to dictFindLinkForInsert(). This is a low level function which allows
  * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
@@ -786,8 +753,6 @@ static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *b
     uint64_t idx;
     int table;
     
-    const uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
-    
     if (bucket) {
         *bucket = NULL;
     } else {
@@ -795,6 +760,7 @@ static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *b
         if (dictSize(d) == 0) return NULL; 
     }
 
+    const uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     keyCmpFunc cmpFunc = dictGetCmpFuncAndResetCache(d, &cmpCache);
 
@@ -1544,17 +1510,17 @@ void dictScanDefragBucket(dictScanFunction *fn,
     plink = bucketref;
     while (de) {
         next = dictGetNext(de);
-        fn(privdata, de, plink);        
-                
+        fn(privdata, de, plink);
+
         if (!next) break; /* if last element, break */
-        
+
         /* if `*plink` still pointing to 'de', then it means that the 
          * visited item wasn't deleted by fn() */
         if (*plink == de)            
             plink = (entryIsNoValue(de)) ? &(decodeEntryNoValue(de)->next) : &(de->next);
-            
+
         de = next;
-    }    
+    }
 }
 
 /* Like dictScan, but additionally reallocates the memory used by the dict
@@ -1914,8 +1880,8 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     orig_buf[orig_bufsize-1] = '\0';
 }
 
-static int dictDefaultCompare(dictCmpCache *c, const void *key1, const void *key2) {
-    (void)(c); /*unused*/
+static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    (void)(cache); /*unused*/
     return key1 == key2;
 }
 
@@ -1931,9 +1897,9 @@ uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-int compareCallback(dictCmpCache *c, const void *key1, const void *key2) {
+int compareCallback(dictCmpCache *cache, const void *key1, const void *key2) {
     int l1,l2;
-    UNUSED(c);
+    UNUSED(cache);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
@@ -2288,6 +2254,53 @@ int dictTest(int argc, char **argv, int flags) {
 
         dictRelease(d);
         zfree(lookupKeys);
+    }
+
+    TEST("Test dictFindLink() functionality") {
+        dictType dt = BenchmarkDictType;
+        dict *d = dictCreate(&dt);
+        
+        /* find in empty dict */
+        dictEntLink link = dictFindLink(d, "key", NULL);
+        assert(link == NULL);
+
+        /* Add keys to dict and test */
+        for (j = 0; j < 10; j++) {
+            /* Add another key to dict */
+            char *key = stringFromLongLong(j);
+            retval = dictAdd(d, key, (void*)j);
+            assert(retval == DICT_OK);
+            /* find existing keys with dictFindLink() */
+            dictEntLink link = dictFindLink(d, key, NULL);
+            assert(link != NULL);
+            assert(*link != NULL);
+            assert(dictGetKey(*link) != NULL);
+            
+            /* Test that the key found is the correct one */
+            void *foundKey = dictGetKey(*link);
+            assert(compareCallback( NULL, foundKey, key));
+
+            /* Test finding a non-existing key */
+            char *nonExistingKey = stringFromLongLong(j + 10);
+            link = dictFindLink(d, nonExistingKey, NULL);
+            assert(link == NULL);
+
+            /* Test with bucket parameter */
+            dictEntLink bucket = NULL;
+            link = dictFindLink(d, key, &bucket);
+            assert(link != NULL);
+            assert(bucket != NULL);
+
+            /* Test bucket parameter with non-existing key */
+            link = dictFindLink(d, nonExistingKey, &bucket);
+            assert(link == NULL);
+            assert(bucket != NULL); /* Bucket should still be set even for non-existing keys */
+
+            /* Clean up */
+            zfree(nonExistingKey);
+        }
+
+        dictRelease(d);
     }
 
     return 0;

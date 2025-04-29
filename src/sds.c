@@ -1535,6 +1535,36 @@ int sdsTest(int argc, char **argv, int flags) {
         test_cond("sdsresize() crop strlen", strlen(x) == 4);
         test_cond("sdsresize() crop alloc", sdsalloc(x) == 4);
         sdsfree(x);
+        
+        { /* Test adjustTypeIfNeeded() */
+            /* Test case: Type should be adjusted when buffer size exceeds max size for current type */
+            char type = SDS_TYPE_8;
+            int hdrlen = sdsHdrSize(type);
+            size_t bufsize = (1<<8) + hdrlen + 1; /* Exceeds SDS_TYPE_8 max size */
+
+            int result = adjustTypeIfNeeded(&type, &hdrlen, bufsize);
+            test_cond("adjustTypeIfNeeded() returns 1 when type needs adjustment", result == 1);
+            test_cond("adjustTypeIfNeeded() adjusts type correctly", type == SDS_TYPE_16);
+            test_cond("adjustTypeIfNeeded() adjusts header length correctly", hdrlen == sdsHdrSize(SDS_TYPE_16));
+
+            /* Test case: Type should not be adjusted when buffer size is within max size for current type */
+            type = SDS_TYPE_8;
+            hdrlen = sdsHdrSize(type);
+            bufsize = (1<<8) - 10 + hdrlen + 1; /* Within SDS_TYPE_8 max size */
+            result = adjustTypeIfNeeded(&type, &hdrlen, bufsize);
+            test_cond("adjustTypeIfNeeded() returns 0 when type doesn't need adjustment", result == 0);
+            test_cond("adjustTypeIfNeeded() doesn't change type when not needed", type == SDS_TYPE_8);
+            test_cond("adjustTypeIfNeeded() doesn't change header length when not needed", hdrlen == sdsHdrSize(SDS_TYPE_8));
+
+            /* Test case 3: Type 5 should never be adjusted */
+            type = SDS_TYPE_5;
+            hdrlen = sdsHdrSize(type);
+            bufsize = 1000; /* Large buffer size */
+            result = adjustTypeIfNeeded(&type, &hdrlen, bufsize);
+            test_cond("adjustTypeIfNeeded() returns 0 for SDS_TYPE_5", result == 0);
+            test_cond("adjustTypeIfNeeded() doesn't change SDS_TYPE_5", type == SDS_TYPE_5);
+            test_cond("adjustTypeIfNeeded() doesn't change header length for SDS_TYPE_5", hdrlen == sdsHdrSize(SDS_TYPE_5));
+        }
     }
     return 0;
 }
