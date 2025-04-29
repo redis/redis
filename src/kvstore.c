@@ -226,7 +226,7 @@ static void kvstoreDictRehashingCompleted(dict *d) {
 /* Updates the bucket count for the given dictionary in a DB. It adds the new ht size
  * of the dictionary or removes the old ht size of the dictionary from the total
  * sum of buckets for a DB. */
-static void kvstoreDictSizeChanged(dict *d, long long delta) {
+static void kvstoreDictBucketChanged(dict *d, long long delta) {
     kvstore *kvs = d->type->userdata;
     assert(delta > 0 || kvs->bucket_count >= (unsigned long long)(-delta));
     kvs->bucket_count += delta;
@@ -278,7 +278,7 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
         kvs->dtype.dictMetadataBytes = kvstoreDictMetaBaseSize;
     kvs->dtype.rehashingStarted = kvstoreDictRehashingStarted;
     kvs->dtype.rehashingCompleted = kvstoreDictRehashingCompleted;
-    kvs->dtype.sizeChanged = kvstoreDictSizeChanged;
+    kvs->dtype.bucketChanged = kvstoreDictBucketChanged;
 
     kvs->num_dicts_bits = num_dicts_bits;
     kvs->num_dicts = 1 << kvs->num_dicts_bits;

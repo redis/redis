@@ -47,7 +47,7 @@ typedef struct dictType {
     void (*rehashingCompleted)(dict *d);
     /* Invoked when the size of the dictionary changes.
      * The `delta` parameter can be positive (size increase) or negative (size decrease). */
-    void (*sizeChanged)(dict *d, long long delta);
+    void (*bucketChanged)(dict *d, long long delta);
     /* Allow a dict to carry extra caller-defined metadata. The
      * extra memory is initialized to 0 when a dict is allocated. */
     size_t (*dictMetadataBytes)(dict *d);
