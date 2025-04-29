@@ -764,10 +764,9 @@ void dictRelease(dict *d)
     if (dictIsRehashing(d) && d->type->rehashingCompleted)
         d->type->rehashingCompleted(d);
 
-    if (d->type->bucketChanged) {
-        /* Subtract the size of all buckets. */
+    /* Subtract the size of all buckets. */
+    if (d->type->bucketChanged)
         d->type->bucketChanged(d, -(long long)dictBuckets(d));
-    }
 
     if (d->type->onDictRelease)
         d->type->onDictRelease(d);
@@ -1687,10 +1686,9 @@ void dictEmpty(dict *d, void(callback)(dict*)) {
     if (dictIsRehashing(d) && d->type->rehashingCompleted)
         d->type->rehashingCompleted(d);
 
-    if (d->type->bucketChanged) {
-        /* Subtract the size of all buckets. */
+    /* Subtract the size of all buckets. */
+    if (d->type->bucketChanged)
         d->type->bucketChanged(d, -(long long)dictBuckets(d));
-    }
 
     _dictClear(d,0,callback);
     _dictClear(d,1,callback);
