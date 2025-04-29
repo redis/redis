@@ -128,91 +128,6 @@ int lpSafeToAdd(unsigned char* lp, size_t add) {
     return 1;
 }
 
-/* Convert a string into a signed 64 bit integer.
- * The function returns 1 if the string could be parsed into a (non-overflowing)
- * signed 64 bit int, 0 otherwise. The 'value' will be set to the parsed value
- * when the function returns success.
- *
- * Note that this function demands that the string strictly represents
- * a int64 value: no spaces or other characters before or after the string
- * representing the number are accepted, nor zeroes at the start if not
- * for the string "0" representing the zero number.
- *
- * Because of its strictness, it is safe to use this function to check if
- * you can convert a string into a long long, and obtain back the string
- * from the number without any loss in the string representation. *
- *
- * -----------------------------------------------------------------------------
- *
- * Credits: this function was adapted from the Redis source code, file
- * "utils.c", function string2ll(), and is copyright:
- *
- * Copyright(C) 2011, Pieter Noordhuis
- * Copyright(C) 2011-current, Redis Ltd.
- *
- * The function is released under the BSD 3-clause license.
- */
-int lpStringToInt64(const char *s, unsigned long slen, int64_t *value) {
-    const char *p = s;
-    unsigned long plen = 0;
-    int negative = 0;
-    uint64_t v;
-
-    /* Abort if length indicates this cannot possibly be an int */
-    if (slen == 0 || slen >= LONG_STR_SIZE)
-        return 0;
-
-    /* Special case: first and only digit is 0. */
-    if (slen == 1 && p[0] == '0') {
-        if (value != NULL) *value = 0;
-        return 1;
-    }
-
-    if (p[0] == '-') {
-        negative = 1;
-        p++; plen++;
-
-        /* Abort on only a negative sign. */
-        if (plen == slen)
-            return 0;
-    }
-
-    /* First digit should be 1-9, otherwise the string should just be 0. */
-    if (p[0] >= '1' && p[0] <= '9') {
-        v = p[0]-'0';
-        p++; plen++;
-    } else {
-        return 0;
-    }
-
-    while (plen < slen && p[0] >= '0' && p[0] <= '9') {
-        if (v > (UINT64_MAX / 10)) /* Overflow. */
-            return 0;
-        v *= 10;
-
-        if (v > (UINT64_MAX - (p[0]-'0'))) /* Overflow. */
-            return 0;
-        v += p[0]-'0';
-
-        p++; plen++;
-    }
-
-    /* Return if not all bytes were used. */
-    if (plen < slen)
-        return 0;
-
-    if (negative) {
-        if (v > ((uint64_t)(-(INT64_MIN+1))+1)) /* Overflow. */
-            return 0;
-        if (value != NULL) *value = -v;
-    } else {
-        if (v > INT64_MAX) /* Overflow. */
-            return 0;
-        if (value != NULL) *value = v;
-    }
-    return 1;
-}
-
 /* Create a new, empty listpack.
  * On success the new listpack is returned, otherwise an error is returned.
  * Pre-allocate at least `capacity` bytes of memory,
@@ -322,7 +237,7 @@ static inline void lpEncodeIntegerGetType(int64_t v, unsigned char *intenc, uint
  * in order to be represented. */
 static inline int lpEncodeGetType(unsigned char *ele, uint32_t size, unsigned char *intenc, uint64_t *enclen) {
     int64_t v;
-    if (lpStringToInt64((const char*)ele, size, &v)) {
+    if (string2ll((const char*)ele, size, (long long *)&v)) {
         lpEncodeIntegerGetType(v, intenc, enclen);
         return LP_ENCODING_INT;
     } else {
@@ -889,7 +804,7 @@ static inline int lpFindCmp(const unsigned char *lp, unsigned char *p,
             /* If the entry can be encoded as integer we set it to
              * 1, else set it to UCHAR_MAX, so that we don't retry
              * again the next time. */
-            if (arg->slen >= 32 || arg->slen == 0 || !lpStringToInt64((const char*)arg->s, arg->slen, &arg->vll)) {
+            if (arg->slen >= 32 || arg->slen == 0 || !string2ll((const char*)arg->s, arg->slen, (long long*)&arg->vll)) {
                 arg->vencoding = UCHAR_MAX;
             } else {
                 arg->vencoding = 1;
@@ -1727,12 +1642,11 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
     if (value) {
         return (slen == sz) && memcmp(value,s,slen) == 0;
     } else {
-        /* We use lpStringToInt64() to get an integer representation of the
+        /* We use string2ll() to get an integer representation of the
          * string 's' and compare it to 'sval', it's much faster than convert
          * integer to string and comparing. */
         int64_t sval;
-        if (lpStringToInt64((const char*)s, slen, &sval))
-            return sz == sval;
+        if (string2ll((const char*)s, slen, (long long*)&sval)) return sz == sval;
     }
 
     return 0;
@@ -2161,7 +2075,7 @@ static int lpFindCbCmp(const unsigned char *lp, unsigned char *p, void *user, un
 
     if (!s) {
         int64_t sval;
-        if (lpStringToInt64((const char*)n, strlen(n), &sval))
+        if (string2ll((const char*)n, strlen(n), (long long*)&sval))
             return slen == sval ? 0 : 1;
     } else {
         if (strlen(n) == (size_t) slen && memcmp(n, s, slen) == 0)

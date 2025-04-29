@@ -11,14 +11,14 @@
 #include "server.h"
 #include "ctype.h"
 
-#ifdef HAVE_AVX2
+#ifdef HAVE_X86_SIMD
 /* Define __MM_MALLOC_H to prevent importing the memory aligned
  * allocation functions, which we don't use. */
 #define __MM_MALLOC_H
 #include <immintrin.h>
 #endif
 
-#ifdef HAVE_AVX2
+#ifdef HAVE_X86_SIMD
 #define BITOP_USE_AVX2 (__builtin_cpu_supports("avx2"))
 #else
 #define BITOP_USE_AVX2 0
@@ -650,7 +650,7 @@ void getbitCommand(client *c) {
     addReply(c, bitval ? shared.cone : shared.czero);
 }
 
-#ifdef HAVE_AVX2
+#ifdef HAVE_X86_SIMD
 /* Compute the given bitop operation using AVX2 intrinsics.
  * Return how many bytes were successfully processed, as AVX2 operates on
  * 256-bit registers so if `minlen` is not a multiple of 32 some of the bytes
@@ -806,7 +806,7 @@ unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res,
 
     return processed;
 }
-#endif /* HAVE_AVX2 */
+#endif /* HAVE_X86_SIMD */
 
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
@@ -901,7 +901,7 @@ void bitopCommand(client *c) {
         /* Number of bytes processed from each source key */
         j = 0;
 
-#if defined(HAVE_AVX2)
+#if defined(HAVE_X86_SIMD)
         if (BITOP_USE_AVX2) {
             j = bitopCommandAVX(src, res, op, numkeys, minlen);
 
