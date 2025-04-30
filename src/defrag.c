@@ -1590,7 +1590,7 @@ void activeDefragCycle(void) {
 }
 
 void activeDefragCycleLogStats(void) {
-    if (!server.active_defrag_running)
+    if (!server.active_defrag_running || !defragStats.num_cycles)
         return;
     allocatorFragInfo info;
     getAllocatorFragmentation(&info);
