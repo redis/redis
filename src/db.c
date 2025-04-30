@@ -474,29 +474,22 @@ void setKey(client *c, redisDb *db, robj *key, robj **valref, int flags) {
 /* Like setKey(), but accepts an optional link
  * 
  * - If flags is set with SETKEY_ALREADY_EXIST, then `link` must be provided
- * - If flags is set with SETKEY_DOESNT_EXIST, then if `link` is provided, it
- *   will point to the bucket where the key should be added. Can also set to NULL. 
- *   
+ * - If flags is set with SETKEY_DOESNT_EXIST, then `link` must be provided (it
+ *   will point to the bucket where the key should be added)
+ * - If flag is not set (0) then add or update key, and `link` must be NULL
  * On return, link get updated, by need, to the inserted kvobj.
  */
 void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntLink *plink) {
     dictEntLink dummy = NULL, *link = plink ? plink : &dummy;
     int exists;
 
-    /* Check if flags is either: SETKEY_DOESNT_EXIST, SETKEY_ADD_OR_UPDATE (Or not identified yet) */
-    if (!(flags & SETKEY_ALREADY_EXIST)) {
-        if ( (*link) != NULL) {
-            /* provided link expected to be bucket where key should be added */
-            serverAssert(flags & SETKEY_DOESNT_EXIST);
-            exists = 0;
-        } else {
-            /* if not exists, link will get updated to the bucket */
-            exists = (lookupKeyWriteWithLink(db, key, link)) != NULL;
-        }
+    if (flags & (SETKEY_ALREADY_EXIST | SETKEY_DOESNT_EXIST)) {
+        /* link must be provided */
+        debugServerAssert((*link) != NULL);
+        exists = (flags & SETKEY_ALREADY_EXIST) ? 1 : 0;
     } else {
-        /* If already exists, link must be provided */
-        serverAssert((*link) != NULL);
-        exists = 1;
+        /* Add or update key */ 
+        exists = (lookupKeyWriteWithLink(db, key, link)) != NULL;
     }
 
     if (exists) {

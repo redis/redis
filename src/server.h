@@ -3596,7 +3596,7 @@ void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntLink link
 #define SETKEY_NO_SIGNAL 2
 #define SETKEY_ALREADY_EXIST 4
 #define SETKEY_DOESNT_EXIST 8
-#define SETKEY_ADD_OR_UPDATE 16 /* Key most likely doesn't exists */
+
 void setKey(client *c, redisDb *db, robj *key, robj **ioval, int flags);
 void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntLink *link);
 robj *dbRandomKey(redisDb *db);
