@@ -309,24 +309,30 @@ int sendPendingClientsToIOThreads(void) {
     return processed;
 }
 
-int prefetchIOThreadCommand(IOThread *t) {
+/* Prefetch the commands from the IO thread. The return value is the number
+ * of clients that have been prefetched. */
+int prefetchIOThreadCommands(IOThread *t) {
+    /* Since small batch prefetching is not much effective, so if the remaining
+     * is small (less than twice the max batch size), prefetch all of it. */
     int len = listLength(mainThreadProcessingClients[t->id]);
-    if (len < 2) return 0;
+    int config_size = getConfigPrefetchBatchSize();
+    int to_prefetch = len < config_size*2 ? len : config_size;
+    if (to_prefetch == 0) return 0;
 
-    int iterate = 0;
-    int prefetch = len < server.prefetch_batch_max_size*2 ? len :
-                         server.prefetch_batch_max_size;
-
+    int clients = 0;
     listIter li;
     listNode *ln;
     listRewind(mainThreadProcessingClients[t->id], &li);
-    while((ln = listNext(&li)) && iterate++ < prefetch) {
+    while((ln = listNext(&li)) && clients++ < to_prefetch) {
         client *c = listNodeValue(ln);
-        addCommandToBatch(c);
+        /* One command may have several keys, the batch may be full,
+         * so we stop prefetching if failed. */
+        if (addCommandToBatch(c) == C_ERR) break;
     }
-    prefetchCommands();
 
-    return prefetch;
+    /* Prefetch the commands in the batch. */
+    prefetchCommands();
+    return clients;
 }
 
 extern int ProcessingEventsWhileBlocked;
@@ -341,22 +347,19 @@ extern int ProcessingEventsWhileBlocked;
  * process new events, if the clients with fired events from the same io thread,
  * it may call this function reentrantly. */
 void processClientsFromIOThread(IOThread *t) {
-    /* Get the list of clients to process. */
-    pthread_mutex_lock(&mainThreadPendingClientsMutexes[t->id]);
-    listJoin(mainThreadProcessingClients[t->id], mainThreadPendingClients[t->id]);
-    pthread_mutex_unlock(&mainThreadPendingClientsMutexes[t->id]);
-    size_t processed = listLength(mainThreadProcessingClients[t->id]);
-    if (processed == 0) return;
+    int prefetch_clients = 0;
+    /* We may call processClientsFromIOThread reentrantly, so we need to
+     * reset the prefetching batch, besides, users may change the config
+     * of prefetch batch size, so we need to reset the prefetching batch*/
+    resetCommandsBatch();
 
-    int prefetch = 0;
     listNode *node = NULL;
 
     while (listLength(mainThreadProcessingClients[t->id])) {
-
-        if (server.prefetch_batch_max_size) {
-            if (prefetch <= 0) prefetch = prefetchIOThreadCommand(t);
-            if (--prefetch <= 0) resetCommandsBatch();
-        }
+        /* Prefetch the commands if no clients in the batch. */
+        if (prefetch_clients <= 0) prefetch_clients = prefetchIOThreadCommands(t);
+        /* Reset the prefetching batch if we have processed all clients. */
+        if (--prefetch_clients <= 0) resetCommandsBatch();
 
         /* Each time we pop up only the first client to process to guarantee
          * reentrancy safety. */
@@ -420,7 +423,6 @@ void processClientsFromIOThread(IOThread *t) {
         node = NULL;
     }
     if (node) zfree(node);
-    resetCommandsBatch();
 
     /* Trigger the io thread to handle these clients ASAP to make them processed
      * in parallel.

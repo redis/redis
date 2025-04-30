@@ -2174,7 +2174,6 @@ void initServerConfig(void) {
     server.page_size = sysconf(_SC_PAGESIZE);
     server.pause_cron = 0;
     server.dict_resizing = 1;
-    server.prefetch_batch_max_size = 16;
 
     server.latency_tracking_info_percentiles_len = 3;
     server.latency_tracking_info_percentiles = zmalloc(sizeof(double)*(server.latency_tracking_info_percentiles_len));
@@ -6134,6 +6133,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n", stat_total_writes_processed,
             "io_threaded_reads_processed:%lld\r\n", stat_io_reads_processed,
             "io_threaded_writes_processed:%lld\r\n", stat_io_writes_processed,
+            "io_threaded_total_prefetch_batches:%lld\r\n", server.stat_total_prefetch_batches,
+            "io_threaded_total_prefetch_entries:%lld\r\n", server.stat_total_prefetch_entries,
             "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
             "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
             "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,
