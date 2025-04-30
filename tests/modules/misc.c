@@ -540,6 +540,14 @@ int test_keyslot(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongLong(ctx, slot);
 }
 
+int only_reply_ok(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -606,6 +614,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "test.malloc_api", test_malloc_api,"", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "test.keyslot", test_keyslot, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.incompatible_cluster_cmd", only_reply_ok, "", 1, -1, 2) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx, "test.no_cluster_cmd", NULL, "no-cluster", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    RedisModuleCommand *parent = RedisModule_GetCommand(ctx, "test.no_cluster_cmd");
+    if (RedisModule_CreateSubcommand(parent, "set", only_reply_ok, "no-cluster", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

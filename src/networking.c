@@ -172,6 +172,7 @@ client *createClient(connection *conn) {
     c->io_flags = CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED;
     c->read_error = 0;
     c->slot = -1;
+    c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
     c->duration = 0;
     clientSetDefaultAuth(c);
@@ -2238,6 +2239,7 @@ static inline void resetClientInternal(client *c, int free_argv) {
     c->multibulklen = 0;
     c->bulklen = -1;
     c->slot = -1;
+    c->cluster_compatibility_check_slot = -2;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
 
     /* Make sure the duration has been recorded to some command. */
@@ -4214,6 +4216,11 @@ char *getClientTypeName(int class) {
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+
+    /* For unauthenticated clients the output buffer is limited to prevent
+     * them from abusing it by not reading the replies */
+    if (used_mem > 1024 && authRequired(c))
+        return 1;
 
     class = getClientType(c);
     /* For the purpose of output buffer limiting, masters are handled

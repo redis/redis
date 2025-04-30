@@ -56,6 +56,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 #include "zmalloc.h"
 #include "endianconv.h"
 
@@ -250,6 +251,7 @@ unsigned char *zipmapSet(unsigned char *zm, unsigned char *key, unsigned int kle
     /* Just write the key + value and we are done. */
     /* Key: */
     p += zipmapEncodeLength(p,klen);
+    assert(klen < freelen);
     memcpy(p,key,klen);
     p += klen;
     /* Value: */

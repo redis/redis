@@ -28,6 +28,7 @@ unsigned long int defrag_ended = 0;
 unsigned long int global_strings_attempts = 0;
 unsigned long int global_strings_defragged = 0;
 unsigned long int global_dicts_resumes = 0;  /* Number of dict defragmentation resumed from a previous break */
+unsigned long int global_subdicts_resumes = 0;  /* Number of subdict defragmentation resumed from a previous break */
 unsigned long int global_dicts_attempts = 0; /* Number of attempts to defragment dictionary */
 unsigned long int global_dicts_defragged = 0; /* Number of dictionaries successfully defragmented */
 unsigned long int global_dicts_items_defragged = 0; /* Number of dictionaries items successfully defragmented */
@@ -85,32 +86,55 @@ static void createGlobalDicts(RedisModuleCtx *ctx, unsigned long count) {
     global_dicts_len = count;
     global_dicts = RedisModule_Alloc(sizeof(RedisModuleDict *) * count);
 
+    /* Create some nested dictionaries:
+     * - Each main dict contains some subdicts.
+     * - Each sub-dict contains some strings. */
     for (unsigned long i = 0; i < count; i++) {
         RedisModuleDict *dict = RedisModule_CreateDict(ctx);
-        for (unsigned long j = 0; j < 10; j ++) {
-            RedisModuleString *str = RedisModule_CreateStringFromULongLong(ctx, j);
-            RedisModule_DictSet(dict, str, str);
+        for (unsigned long j = 0; j < 10; j++) {
+            /* Create sub dict. */
+            RedisModuleDict *subdict = RedisModule_CreateDict(ctx);
+            for (unsigned long k = 0; k < 10; k++) {
+                RedisModuleString *str = RedisModule_CreateStringFromULongLong(ctx, k);
+                RedisModule_DictSet(subdict, str, str);
+            }
+
+            RedisModuleString *key = RedisModule_CreateStringFromULongLong(ctx, j);
+            RedisModule_DictSet(dict, key, subdict);
+            RedisModule_FreeString(ctx, key);
         }
         global_dicts[i] = dict;
     }
 }
 
+static void freeFragGlobalSubDict(RedisModuleCtx *ctx, RedisModuleDict *subdict) {
+    char *key;
+    size_t keylen;
+    RedisModuleString *str;
+    RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(subdict, "^", NULL, 0);
+    while ((key = RedisModule_DictNextC(iter, &keylen, (void**)&str))) {
+        RedisModule_FreeString(ctx, str);
+    }
+    RedisModule_FreeDict(ctx, subdict);
+    RedisModule_DictIteratorStop(iter);
+}
+
 static void createFragGlobalDicts(RedisModuleCtx *ctx) {
     char *key;
     size_t keylen;
-    RedisModuleString *val;
+    RedisModuleDict *subdict;
 
     for (unsigned long i = 0; i < global_dicts_len; i++) {
         RedisModuleDict *dict = global_dicts[i];
         if (!dict) continue;
 
         /* Handle dictionaries differently based on their index in global_dicts array:
-        * 1. For odd indices (i % 2 == 1): Remove the entire dictionary.
+         * 1. For odd indices (i % 2 == 1): Remove the entire dictionary.
          * 2. For even indices: Keep the dictionary but remove half of its items. */
         if (i % 2 == 1) {
             RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-            while ((key = RedisModule_DictNextC(iter, &keylen, (void**)&val))) {
-                RedisModule_FreeString(ctx, val);
+            while ((key = RedisModule_DictNextC(iter, &keylen, (void**)&subdict))) {
+                freeFragGlobalSubDict(ctx, subdict);
             }
             RedisModule_FreeDict(ctx, dict);
             global_dicts[i] = NULL;
@@ -118,9 +142,9 @@ static void createFragGlobalDicts(RedisModuleCtx *ctx) {
         } else {
             int key_index = 0;
             RedisModuleDictIter *iter = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
-            while ((key = RedisModule_DictNextC(iter, &keylen, (void**)&val))) {
+            while ((key = RedisModule_DictNextC(iter, &keylen, (void**)&subdict))) {
                 if (key_index++ % 2 == 1) {
-                    RedisModule_FreeString(ctx, val);
+                    freeFragGlobalSubDict(ctx, subdict);
                     RedisModule_DictReplaceC(dict, key, keylen, NULL);
                 }
             }
@@ -129,13 +153,26 @@ static void createFragGlobalDicts(RedisModuleCtx *ctx) {
     }
 }
 
-static void *defragGlobalDictValueCB(RedisModuleDefragCtx *ctx, void *data, unsigned char *key, size_t keylen) {
+static int defragGlobalSubDictValueCB(RedisModuleDefragCtx *ctx, void *data, unsigned char *key, size_t keylen, void **newptr) {
     REDISMODULE_NOT_USED(key);
     REDISMODULE_NOT_USED(keylen);
-    if (!data) return NULL;
-    void *new = RedisModule_DefragAlloc(ctx, data);
-    if (new) global_dicts_items_defragged++;
-    return new;
+    if (!data) return 0;
+    *newptr = RedisModule_DefragAlloc(ctx, data);
+    return 0;
+}
+
+static int defragGlobalDictValueCB(RedisModuleDefragCtx *ctx, void *data, unsigned char *key, size_t keylen, void **newptr) {
+    REDISMODULE_NOT_USED(key);
+    REDISMODULE_NOT_USED(keylen);
+    static RedisModuleString *seekTo = NULL;
+    RedisModuleDict *subdict = data;
+    if (!subdict) return 0;
+    if (seekTo != NULL) global_subdicts_resumes++;
+
+    *newptr = RedisModule_DefragRedisModuleDict(ctx, subdict, defragGlobalSubDictValueCB, &seekTo);
+    if (*newptr) global_dicts_items_defragged++;
+    /* Return 1 if seekTo is not NULL, indicating this node needs more defrag work. */
+    return seekTo != NULL;
 }
 
 static int defragGlobalDicts(RedisModuleDefragCtx *ctx) {
@@ -218,6 +255,7 @@ static void FragInfo(RedisModuleInfoCtx *ctx, int for_crash_report) {
     RedisModule_InfoAddFieldLongLong(ctx, "global_strings_attempts", global_strings_attempts);
     RedisModule_InfoAddFieldLongLong(ctx, "global_strings_defragged", global_strings_defragged);
     RedisModule_InfoAddFieldLongLong(ctx, "global_dicts_resumes", global_dicts_resumes);
+    RedisModule_InfoAddFieldLongLong(ctx, "global_subdicts_resumes", global_subdicts_resumes);
     RedisModule_InfoAddFieldLongLong(ctx, "global_dicts_attempts", global_dicts_attempts);
     RedisModule_InfoAddFieldLongLong(ctx, "global_dicts_defragged", global_dicts_defragged);
     RedisModule_InfoAddFieldLongLong(ctx, "global_dicts_items_defragged", global_dicts_items_defragged);
@@ -251,6 +289,7 @@ static int fragResetStatsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, 
     global_strings_attempts = 0;
     global_strings_defragged = 0;
     global_dicts_resumes = 0;
+    global_subdicts_resumes = 0;
     global_dicts_attempts = 0;
     global_dicts_defragged = 0;
     global_dicts_items_defragged = 0;

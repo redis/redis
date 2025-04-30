@@ -59,15 +59,31 @@ start_server {tags {"dump"}} {
         assert_equal [r get foo] {bar}
         r config set maxmemory-policy noeviction
     } {OK} {needs:config-maxmemory}
-    
+
     test {RESTORE can set LFU} {
         r set foo bar
         set encoded [r dump foo]
         r del foo
         r config set maxmemory-policy allkeys-lfu
         r restore foo 0 $encoded freq 100
+
+        # We need to determine whether the `object` operation happens within the same minute or crosses into a new one
+        # This will help us verify if the freq remains 100 or decays due to a minute transition
+        set start [clock format [clock seconds] -format %M]
         set freq [r object freq foo]
-        assert {$freq == 100}
+        set end [clock format [clock seconds] -format %M]
+
+        if { $start == $end } {
+            # If the minutes haven't changed (i.e., the restore and object happened within the same minute),
+            # the freq should remain 100 as no decay has occurred yet.
+            assert {$freq == 100}
+        } else {
+            # If the object operation crosses into a new minute, freq may have already decayed by 1 (99),
+            # or it may still be 100 if the minute update hasn't been applied yet when the operation is performed.
+            # The decay might only take effect after the operation completes and the minute is updated.
+            assert {($freq == 100) || ($freq == 99)}
+        }
+
         r get foo
         assert_equal [r get foo] {bar}
         r config set maxmemory-policy noeviction

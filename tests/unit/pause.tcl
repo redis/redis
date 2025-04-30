@@ -359,6 +359,26 @@ start_server {tags {"pause network"}} {
         } {bar2}
     }
 
+    test "Test the randomkey command will not cause the server to get into an infinite loop during the client pause write" {
+        r flushall
+
+        r multi
+        r set key value px 3
+        r client pause 10000 write
+        r exec
+        
+        after 5
+
+        wait_for_condition 50 100 {
+            [r randomkey] == "key"
+        } else {
+            fail "execute randomkey failed, caused by the infinite loop"
+        }
+
+        r client unpause
+        assert_equal [r randomkey] {}
+    }
+
     # Make sure we unpause at the end
     r client unpause
 }

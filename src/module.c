@@ -1273,6 +1273,10 @@ int RM_CreateCommand(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc c
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
 
+    /* We will encounter an error as above if cluster is enable */
+    if (flags & CMD_MODULE_NO_CLUSTER)
+        server.stat_cluster_incompatible_ops++;
+
     /* Check if the command name is valid. */
     if (!isCommandNameValid(name))
         return REDISMODULE_ERR;
@@ -1399,6 +1403,10 @@ int RM_CreateSubcommand(RedisModuleCommand *parent, const char *name, RedisModul
     if (flags == -1) return REDISMODULE_ERR;
     if ((flags & CMD_MODULE_NO_CLUSTER) && server.cluster_enabled)
         return REDISMODULE_ERR;
+
+    /* We will encounter an error as above if cluster is enable */
+    if (flags & CMD_MODULE_NO_CLUSTER)
+        server.stat_cluster_incompatible_ops++;
 
     struct redisCommand *parent_cmd = parent->rediscmd;
 
@@ -4435,7 +4443,6 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newlen));
         setKey(key->ctx->client, key->db, key->key, &o, SETKEY_NO_SIGNAL);
         key->kv = o;
-        //decrRefCount(o);
     } else {
         /* Unshare and resize. */
         key->kv = dbUnshareStringValue(key->db, key->key, key->kv);
@@ -12244,6 +12251,15 @@ void moduleRemoveCateogires(RedisModule *module) {
     }
 }
 
+int VectorSets_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+/* Load internal data types that bundled as modules */
+void moduleLoadInternalModules(void) {
+#ifdef INCLUDE_VEC_SETS
+    int retval = moduleOnLoad((int (*)(void *, void **, int)) VectorSets_OnLoad, NULL, NULL, NULL, 0, 0);
+    serverAssert(retval == C_OK);
+#endif
+}
+
 /* Load all the modules in the server.loadmodule_queue list, which is
  * populated by `loadmodule` directives in the configuration file.
  * We can't load modules directly when processing the configuration file
@@ -12443,7 +12459,7 @@ void moduleUnregisterCleanup(RedisModule *module) {
     moduleUnregisterAuthCBs(module);
 }
 
-/* Load a module and initialize it. On success C_OK is returned, otherwise
+/* Load a module by path and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
 int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex) {
     int (*onload)(void *, void **, int);
@@ -12471,6 +12487,13 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             "symbol. Module not loaded.",path);
         return C_ERR;
     }
+
+    return moduleOnLoad(onload, path, handle, module_argv, module_argc, is_loadex);
+}
+
+/* Load a module by its 'onload' callback and initialize it. On success C_OK is returned, otherwise
+ * C_ERR is returned. */
+int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex) {
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
@@ -12482,7 +12505,7 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
             moduleFreeModuleStructure(ctx.module);
         }
         moduleFreeContext(&ctx);
-        dlclose(handle);
+        if (handle) dlclose(handle);
         return C_ERR;
     }
 
@@ -12499,12 +12522,12 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         incrRefCount(ctx.module->loadmod->argv[i]);
     }
 
-    /* If module commands have ACL categories, recompute command bits 
+    /* If module commands have ACL categories, recompute command bits
      * for all existing users once the modules has been registered. */
     if (ctx.module->num_commands_with_acl_categories) {
         ACLRecomputeCommandBitsFromCommandRulesAllUsers();
     }
-    serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
+    if (path) serverLog(LL_NOTICE,"Module '%s' loaded from %s",ctx.module->name,path);
     ctx.module->onload = 0;
 
     int post_load_err = 0;
@@ -12544,6 +12567,9 @@ int moduleUnload(sds name, const char **errmsg, int forced_unload) {
 
     if (module == NULL) {
         *errmsg = "no such module with that name";
+        return C_ERR;
+    } else if (sdslen(module->loadmod->path) == 0) {
+        *errmsg = "the module can't be unloaded";
         return C_ERR;
     } else if (listLength(module->types) && !forced_unload) {
         *errmsg = "the module exports one or more module-side data "
@@ -13962,8 +13988,9 @@ int moduleDefragRaxNode(raxNode **noderef) {
 /* Defragment a Redis Module Dictionary by scanning its contents and calling a value
  * callback for each value.
  *
- * The callback gets the current value in the dict, and should return non-NULL with a new pointer,
+ * The callback gets the current value in the dict, and should update newptr to the new pointer,
  * if the value was re-allocated to a different address. The callback also gets the key name just as a reference.
+ * The callback returns 0 when defrag is complete for this node, 1 when node needs more work.
  *
  * The API can work incrementally by accepting a seek position to continue from, and
  * returning the next position to seek to on the next call (or return NULL when the iteration is completed).
@@ -13986,13 +14013,15 @@ RedisModuleDict *RM_DefragRedisModuleDict(RedisModuleDefragCtx *ctx, RedisModule
 
     raxStart(&ri,dict->rax);
     if (*seekTo == NULL) {
+        /* if last seek is NULL, we start new iteration */
+        moduleDefragRaxNode(&dict->rax->head);
         /* assign the iterator node callback before the seek, so that the
          * initial nodes that are processed till the first item are covered */
         ri.node_cb = moduleDefragRaxNode;
         raxSeek(&ri,"^",NULL,0);
     } else {
-        /* if cursor is non-zero, we seek to the static 'last' */
-        if (!raxSeek(&ri,">", (*seekTo)->ptr, sdslen((*seekTo)->ptr))) {
+        /* Seek to the static 'seekTo'. */
+        if (!raxSeek(&ri,">=", (*seekTo)->ptr, sdslen((*seekTo)->ptr))) {
             goto cleanup;
         }
         /* assign the iterator node callback after the seek, so that the
@@ -14001,12 +14030,20 @@ RedisModuleDict *RM_DefragRedisModuleDict(RedisModuleDefragCtx *ctx, RedisModule
     }
 
     while (raxNext(&ri)) {
+        int ret = 0;
+        void *newdata = NULL;
+
         if (valueCB) {
-            void *newdata = valueCB(ctx, ri.data, ri.key, ri.key_len);
+            ret = valueCB(ctx, ri.data, ri.key, ri.key_len, &newdata);
             if (newdata)
                 raxSetData(ri.node, ri.data=newdata);
         }
-        if (RM_DefragShouldStop(ctx)) {
+
+        /* Check if we need to interrupt defragmentation.
+         * - For explicit interruption, use current position
+         * - For timeout interruption, try to advance to next node if possible */
+        if (ret == 1 || RM_DefragShouldStop(ctx)) {
+            if (ret == 0 && !raxNext(&ri)) goto cleanup; /* Last node and no more work needed. */
             if (*seekTo) RM_FreeString(NULL, *seekTo);
             *seekTo = RM_CreateString(NULL, (const char *)ri.key, ri.key_len);
             raxStop(&ri);

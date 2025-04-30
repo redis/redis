@@ -231,7 +231,7 @@ typedef struct {
     uint16_t ver;       /* Protocol version, currently set to 1. */
     uint16_t port;      /* Primary port number (TCP or TLS). */
     uint16_t type;      /* Message type */
-    uint16_t count;     /* Only used for some kind of messages. */
+    uint16_t count;     /* Only used for some kinds of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
     uint64_t configEpoch;   /* The config epoch if it's a master, or the last
                                epoch advertised by its master if it is a
@@ -258,8 +258,8 @@ typedef struct {
  * especially during cluster rolling upgrades.
  *
  * Therefore, fields in this struct should remain at the same offset from
- * release to release. The static asserts below ensures that incompatible
- * changes in clusterMsg be caught at compile time.
+ * release to release. The static asserts below ensure that incompatible
+ * changes in clusterMsg are caught at compile time.
  */
 
 static_assert(offsetof(clusterMsg, sig) == 0, "unexpected field offset");

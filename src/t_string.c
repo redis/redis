@@ -626,10 +626,10 @@ void incrDecrCommand(client *c, long long incr) {
         else
             dbAddByLink(c->db, c->argv[1], &new, &link);
     }
+    addReplyLongLongFromStr(c,new);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
     server.dirty++;
-    addReplyLongLongFromStr(c,new);
 }
 
 void incrCommand(client *c) {

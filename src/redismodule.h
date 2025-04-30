@@ -842,7 +842,7 @@ typedef void (*RedisModuleInfoFunc)(RedisModuleInfoCtx *ctx, int for_crash_repor
 typedef void (*RedisModuleDefragFunc)(RedisModuleDefragCtx *ctx);
 typedef int (*RedisModuleDefragFunc2)(RedisModuleDefragCtx *ctx);
 typedef void (*RedisModuleUserChangedFunc) (uint64_t client_id, void *privdata);
-typedef void *(*RedisModuleDefragDictValueCallback)(RedisModuleDefragCtx *ctx, void *data, unsigned char *key, size_t keylen);
+typedef int (*RedisModuleDefragDictValueCallback)(RedisModuleDefragCtx *ctx, void *data, unsigned char *key, size_t keylen, void **newptr);
 
 /* ------------------------- End of common defines ------------------------ */
 

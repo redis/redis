@@ -6050,6 +6050,7 @@ static clusterManagerNode *clusterManagerNodeMasterRandom(void) {
     }
     /* Can not be reached */
     assert(0);
+    return NULL;
 }
 
 static int clusterManagerFixSlotsCoverage(char *all_slots) {

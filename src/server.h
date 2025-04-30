@@ -503,7 +503,6 @@ typedef enum {
 /* Replica rdb channel replication state. Used in server.repl_rdb_ch_state for
  * replicas to remember what to do next. */
 typedef enum {
-    REPL_RDB_CH_STATE_CLOSE_ASAP = -1,  /* Async error state */
     REPL_RDB_CH_STATE_NONE = 0,         /* No active rdb channel sync */
     REPL_RDB_CH_SEND_HANDSHAKE,         /* Send handshake sequence to master */
     REPL_RDB_CH_RECEIVE_AUTH_REPLY,     /* Wait for AUTH reply */
@@ -511,6 +510,11 @@ typedef enum {
     REPL_RDB_CH_RECEIVE_FULLRESYNC,     /* Wait for +FULLRESYNC reply */
     REPL_RDB_CH_RDB_LOADING,            /* Loading rdb using rdb channel */
 } repl_rdb_channel_state;
+
+#define REPL_MAIN_CH_NONE           (1 << 0)
+#define REPL_MAIN_CH_ACCUMULATE_BUF (1 << 1)
+#define REPL_MAIN_CH_STREAMING_BUF  (1 << 2)
+#define REPL_MAIN_CH_CLOSE_ASAP     (1 << 3)
 
 /* Replication debug flags for testing. */
 #define REPL_DEBUG_PAUSE_NONE             (1 << 0)
@@ -1264,12 +1268,19 @@ typedef struct replDataBuf {
     size_t size;  /* Total number of bytes available in all blocks. */
     size_t used;  /* Total number of bytes actually used in all blocks. */
     size_t peak;  /* Peak number of bytes stored in all blocks. */
+    size_t last_num_blocks; /* Used to verify we consume more than we read from
+                             * the master connection while streaming buffer to
+                             * the db. */
 } replDataBuf;
 
 typedef struct {
     list *clients;
     size_t mem_usage_sum;
 } clientMemUsageBucket;
+
+#define SHOULD_CLUSTER_COMPATIBILITY_SAMPLE() \
+            (server.cluster_compatibility_sample_ratio == 100 || \
+             (double)rand()/RAND_MAX * 100 < server.cluster_compatibility_sample_ratio)
 
 #ifdef LOG_REQ_RES
 /* Structure used to log client's requests and their
@@ -1337,6 +1348,11 @@ typedef struct client {
     time_t ctime;           /* Client creation time. */
     long duration;          /* Current command duration. Used for measuring latency of blocking/non-blocking cmds */
     int slot;               /* The slot the client is executing against. Set to -1 if no slot is being used */
+    int cluster_compatibility_check_slot; /* The slot the client is executing against for cluster compatibility check.
+                                           * -2 means we don't need to check slot violation, or we already found
+                                           * a violation, reported it and don't need to continue checking.
+                                           * -1 means we're looking for the slot number and didn't find it yet.
+                                           * any positive number means we found a slot and no violation yet. */
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
@@ -1880,6 +1896,7 @@ struct redisServer {
     redisAtomic long long stat_io_writes_processed[IO_THREADS_MAX_NUM]; /* Number of write events processed by IO / Main threads */
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
+    long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -1935,6 +1952,8 @@ struct redisServer {
     int latency_tracking_info_percentiles_len;
     unsigned int max_new_tls_conns_per_cycle; /* The maximum number of tls connections that will be accepted during each invocation of the event loop. */
     unsigned int max_new_conns_per_cycle; /* The maximum number of tcp connections that will be accepted during each invocation of the event loop. */
+    int cluster_compatibility_sample_ratio; /* Sampling ratio for cluster mode incompatible commands. */
+
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */
@@ -2077,6 +2096,8 @@ struct redisServer {
     int repl_syncio_timeout; /* Timeout for synchronous I/O calls */
     int repl_state;          /* Replication status if the instance is a slave */
     int repl_rdb_ch_state; /* State of the replica's rdb channel during rdb channel replication */
+    int repl_main_ch_state; /* State of the replica's main channel during rdb channel replication */
+    uint64_t repl_num_master_disconnection; /* Number of master connection was disconnected */
     uint64_t repl_main_ch_client_id; /* Main channel client id received in +RDBCHANNELSYNC reply. */
     off_t repl_transfer_size; /* Size of RDB to read from master during sync. */
     off_t repl_transfer_read; /* Amount of RDB read from master during sync. */
@@ -2682,8 +2703,10 @@ void populateCommandLegacyRangeSpec(struct redisCommand *c);
 void moduleInitModulesSystem(void);
 void moduleInitModulesSystemLast(void);
 void modulesCron(void);
+int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex);
 int moduleLoad(const char *path, void **argv, int argc, int is_loadex);
 int moduleUnload(sds name, const char **errmsg, int forced_unload);
+void moduleLoadInternalModules(void);
 void moduleLoadFromQueue(void);
 int moduleGetCommandKeysViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int moduleGetCommandChannelsViaAPI(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -3268,6 +3291,7 @@ int processCommand(client *c);
 void commandProcessed(client *c);
 int processPendingCommandAndInputBuffer(client *c);
 int processCommandAndResetClient(client *c);
+int areCommandKeysInSameSlot(client *c, int *hashslot);
 void setupSignalHandlers(void);
 int createSocketAcceptHandler(connListener *sfd, aeFileProc *accept_handler);
 connListener *listenerByType(const char *typename);

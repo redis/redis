@@ -54,6 +54,7 @@ struct scriptRunCtx {
     int repl_flags;
     monotime start_time;
     int slot;
+    int cluster_compatibility_check_slot;
 };
 
 /* Scripts flags */

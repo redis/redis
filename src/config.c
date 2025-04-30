@@ -1578,6 +1578,9 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
     dictEntry *de;
     while ((de = dictNext(di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
+        /* Internal modules doesn't have path and are not part of the configuration file */
+        if (sdslen(module->loadmod->path) == 0) continue;
+
         line = sdsnew("loadmodule ");
         line = sdscatsds(line, module->loadmod->path);
         for (int i = 0; i < module->loadmod->argc; i++) {
@@ -2457,6 +2460,7 @@ static int updatePort(const char **err) {
     listener->bindaddr = server.bindaddr;
     listener->bindaddr_count = server.bindaddr_count;
     listener->port = server.port;
+    clusterUpdateMyselfAnnouncedPorts();
     listener->ct = connectionByType(CONN_TYPE_SOCKET);
     if (changeListener(listener) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
@@ -2684,6 +2688,7 @@ static int applyTLSPort(const char **err) {
     listener->bindaddr_count = server.bindaddr_count;
     listener->port = server.tls_port;
     listener->ct = connectionByType(CONN_TYPE_TLS);
+    clusterUpdateMyselfAnnouncedPorts();
     if (changeListener(listener) == C_ERR) {
         *err = "Unable to listen on this port. Check server logs.";
         return 0;
@@ -3063,7 +3068,6 @@ standardConfig static_configs[] = {
     /* Bool configs */
     createBoolConfig("rdbchecksum", NULL, IMMUTABLE_CONFIG, server.rdb_checksum, 1, NULL, NULL),
     createBoolConfig("daemonize", NULL, IMMUTABLE_CONFIG, server.daemonize, 0, NULL, NULL),
-    createBoolConfig("io-threads-do-reads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, server.io_threads_do_reads, 0,NULL, NULL), /* Read + parse from threads? */
     createBoolConfig("always-show-logo", NULL, IMMUTABLE_CONFIG, server.always_show_logo, 0, NULL, NULL),
     createBoolConfig("protected-mode", NULL, MODIFIABLE_CONFIG, server.protected_mode, 1, NULL, NULL),
     createBoolConfig("rdbcompression", NULL, MODIFIABLE_CONFIG, server.rdb_compression, 1, NULL, NULL),
@@ -3197,6 +3201,7 @@ standardConfig static_configs[] = {
     createIntConfig("watchdog-period", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 0, INT_MAX, server.watchdog_period, 0, INTEGER_CONFIG, NULL, updateWatchdogPeriod),
     createIntConfig("shutdown-timeout", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.shutdown_timeout, 10, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("repl-diskless-sync-max-replicas", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.repl_diskless_sync_max_replicas, 0, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("cluster-compatibility-sample-ratio", NULL, MODIFIABLE_CONFIG, 0, 100, server.cluster_compatibility_sample_ratio, 0, INTEGER_CONFIG, NULL, NULL),
 
     /* Unsigned int configs */
     createUIntConfig("maxclients", NULL, MODIFIABLE_CONFIG, 1, UINT_MAX, server.maxclients, 10000, INTEGER_CONFIG, NULL, updateMaxclients),
@@ -3246,7 +3251,7 @@ standardConfig static_configs[] = {
     /* Other configs */
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
-    createOffTConfig("loading-process-events-interval-bytes", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1024, INT_MAX, server.loading_process_events_interval_bytes, 1024*1024*2, INTEGER_CONFIG, NULL, NULL),
+    createOffTConfig("loading-process-events-interval-bytes", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1024, INT_MAX, server.loading_process_events_interval_bytes, 1024*512, INTEGER_CONFIG, NULL, NULL),
 
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, applyTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, applyTlsCfg),
