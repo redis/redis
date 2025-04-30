@@ -2731,6 +2731,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         if (!client_id) {
             serverLog(LL_WARNING,
                       "Master replied with wrong +RDBCHANNELSYNC syntax: %s", reply);
+            sdsfree(reply);
             return PSYNC_NOT_SUPPORTED;
         }
         server.repl_main_ch_client_id = strtoll(client_id, NULL, 10);;
