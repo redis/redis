@@ -1450,12 +1450,6 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
     monotime endtime = starttime + dutyCycleUs;
     int haveMoreWork = 1;
 
-    /* Increment server.cronloops so that run_with_period works. */
-    long hz_ms = 1000 / server.hz;
-    int cronloops = (server.mstime - server.blocked_last_cron + (hz_ms - 1)) / hz_ms; /* rounding up */
-    server.blocked_last_cron += cronloops * hz_ms;
-    server.cronloops += cronloops;
-
     mstime_t latency;
     latencyStartMonitor(latency);
 
@@ -1596,10 +1590,10 @@ void activeDefragCycleLogStats(void) {
     getAllocatorFragmentation(&info);
     serverLog(LL_VERBOSE, 
         "Active defrag: "
-        "cycles_started=%lu, "
-        "total_time=%lums, "
-        "total_reallocated=%lu, "
-        "avg_cpu_pct=%lu%%, "
+        "cycles_started=%d, "
+        "total_time=%dms, "
+        "total_reallocated=%d, "
+        "avg_cpu_pct=%d%%, "
         "allocated=%zu, "
         "active=%zu, "
         "resident=%zu, "
@@ -1607,10 +1601,10 @@ void activeDefragCycleLogStats(void) {
         "frag_bytes=%zu, "
         "frag_rss_pct=%.2f%%, "
         "frag_rss_bytes=%zu",
-        defragStats.num_cycles,
-        defragStats.total_time,
-        defragStats.total_reallocated,
-        defragStats.sum_cpu_pct / defragStats.num_cycles,
+        (int)defragStats.num_cycles,
+        (int)defragStats.total_time,
+        (int)defragStats.total_reallocated,
+        defragStats.sum_cpu_pct / (int)defragStats.num_cycles,
         info.allocated,
         info.active,
         info.resident,
@@ -1648,6 +1642,9 @@ robj *activeDefragStringOb(robj *ob) {
 }
 
 void defragWhileBlocked(void) {
+}
+
+void activeDefragCycleLogStats(void) {
 }
 
 #endif
