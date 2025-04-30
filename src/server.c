@@ -1158,6 +1158,9 @@ void databasesCron(void) {
 
     /* Defrag keys gradually. */
     activeDefragCycle();
+    run_with_period(1000) {
+        activeDefragCycleLogStats();
+    }
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
