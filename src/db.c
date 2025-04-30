@@ -330,9 +330,8 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
     if (link != NULL)
         return NULL;
 
-    robj *val = *valref;
     /* prepare kvobj for insertion. Pass expire to reserve space for it */
-    kvobj *kv = kvobjSet(key, val, -1);
+    kvobj *kv = kvobjSet(key, *valref, -1);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
@@ -341,7 +340,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
         kv = setExpireByLink(NULL, db, key, expire, bucket);
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
-    return kv;
+    return *valref = kv;
 }
 
 /**
