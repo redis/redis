@@ -1812,10 +1812,18 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
             RedisModule_Free(vector);
             goto ioerr;
         }
+
         uint64_t *params = RedisModule_Alloc(params_count*sizeof(uint64_t));
         for (uint32_t j = 0; j < params_count; j++) {
             // Ignore loading errors here: handled at the end of the loop.
             params[j] = RedisModule_LoadUnsigned(rdb);
+        }
+        if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            RedisModule_Free(params);
+            goto ioerr;
         }
 
         struct vsetNodeVal *nv = RedisModule_Alloc(sizeof(*nv));
@@ -1831,11 +1839,6 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         RedisModule_DictSet(vset->dict,ele,node);
         RedisModule_Free(vector);
         RedisModule_Free(params);
-
-        /* We do a last check here, as we didn't care to check each call
-         * when loading the numerical parameters. In case this is the last
-         * node loaded we want to abort in case of previous errors. */
-        if (RedisModule_IsIOError(rdb)) goto ioerr;
     }
     hnsw_deserialize_index(vset->hnsw);
     return vset;
