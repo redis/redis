@@ -474,8 +474,8 @@ void setKey(client *c, redisDb *db, robj *key, robj **valref, int flags) {
 /* Like setKey(), but accepts an optional link
  * 
  * - If flags is set with SETKEY_ALREADY_EXIST, then `link` must be provided
- * - If flags is set with SETKEY_DOESNT_EXIST, then `link` must be provided (it
- *   will point to the bucket where the key should be added)
+ * - If flags is set with SETKEY_DOESNT_EXIST, then `link` is optional. If  
+ *   provided, it will point to the bucket where the key should be added.
  * - If flag is not set (0) then add or update key, and `link` must be NULL
  * On return, link get updated, by need, to the inserted kvobj.
  */
@@ -483,10 +483,12 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
     dictEntLink dummy = NULL, *link = plink ? plink : &dummy;
     int exists;
 
-    if (flags & (SETKEY_ALREADY_EXIST | SETKEY_DOESNT_EXIST)) {
-        /* link must be provided */
+    if (flags & SETKEY_ALREADY_EXIST) {
+        exists = 1;
         debugServerAssert((*link) != NULL);
-        exists = (flags & SETKEY_ALREADY_EXIST) ? 1 : 0;
+    } else if (flags & SETKEY_DOESNT_EXIST) {
+        /* link is optional */
+        exists = 0;
     } else {
         /* Add or update key */ 
         exists = (lookupKeyWriteWithLink(db, key, link)) != NULL;
