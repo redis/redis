@@ -1,14 +1,20 @@
 {
     "LMOVE": {
         "summary": "Returns an element after popping it from one list and pushing it to another. Deletes the list if the last element was moved.",
-        "complexity": "O(1)",
+        "complexity": "O(N) where N is the number of elements returned",
         "group": "list",
         "since": "6.2.0",
-        "arity": 5,
+        "arity": -5,
         "function": "lmoveCommand",
         "command_flags": [
             "WRITE",
             "DENYOOM"
+        ],
+        "history": [
+            [
+                "7.3.0",
+                "Added the `count` argument."
+            ]
         ],
         "acl_categories": [
             "LIST"
@@ -53,8 +59,19 @@
             }
         ],
         "reply_schema": {
-            "description": "The element being popped and pushed.",
-            "type": "string"
+            "oneOf": [
+                {
+                    "description": "In case `count` argument was not given, the element being popped and pushed.",
+                    "type": "string"
+                },
+                {
+                    "description": "In case `count` argument was given, a list of elements being popped and pushed.",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            ]
         },
         "arguments": [
             {
@@ -98,6 +115,12 @@
                         "token": "RIGHT"
                     }
                 ]
+            },
+            {
+                "name": "count",
+                "type": "integer",
+                "optional": true,
+                "since": "7.3.0"
             }
         ]
     }
