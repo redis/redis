@@ -294,7 +294,8 @@ proc spawn_server {config_file stdout stderr args} {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 {*}$cmd >> $stdout 2>> $stderr &]
+        # MALLOC_CHECK_ tells glibc to warn and abort on heap corruptions (e.g. use after free)
+        set pid [exec /usr/bin/env MALLOC_CHECK_=3 ASAN_OPTIONS=allocator_may_return_null=1 {*}$cmd >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
