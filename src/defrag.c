@@ -1109,7 +1109,7 @@ void computeDefragCycles(void) {
         server.active_defrag_configuration_changed = 0;
         server.active_defrag_running = cpu_pct;
 
-        if (defragIsRunning()) {
+        if (!defragIsRunning()) {
             defragStats.sum_cpu_pct += cpu_pct;
             defragStats.num_cycles++;
         }
