@@ -930,7 +930,7 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
         o->ptr = zl;
 
         /* Check if the listpack needs to be converted to a hash table.
-         * We do not subtract expired field here, if there is no new field inserted (i.e., no new key),
+         * We do not subtract expired field here, if there is no new field inserted,
          * we also skip recomputing the listpack element count, avoiding unnecessary overhead. */
         if (!update && hashTypeLength(o, 0) > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
@@ -1010,7 +1010,7 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
         serverPanic("Unknown hash encoding");
     }
 
-    /* Free SDS strings we did not referenced elsewhere if the flags
+    /* Free SDS strings we did not reference elsewhere if the flags
      * want this function to be responsible. */
     if (flags & HASH_SET_TAKE_FIELD && field) sdsfree(field);
     if (flags & HASH_SET_TAKE_VALUE && value) sdsfree(value);
