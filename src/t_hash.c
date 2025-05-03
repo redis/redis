@@ -929,8 +929,10 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
         }
         o->ptr = zl;
 
-        /* Check if the listpack needs to be converted to a hash table */
-        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+        /* Check if the listpack needs to be converted to a hash table.
+         * We do not subtract expired field here, if there is no new field inserted (i.e., no new key),
+         * we also skip recomputing the listpack element count, avoiding unnecessary overhead. */
+        if (!update && hashTypeLength(o, 0) > server.hash_max_listpack_entries)
             hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         unsigned char *fptr = NULL, *vptr = NULL, *tptr = NULL;
@@ -964,14 +966,15 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
             }
         }
 
-        if (!update)
+        if (!update) {
             listpackExAddNew(o, field, sdslen(field), value, sdslen(value),
                              HASH_LP_NO_TTL);
-
-        /* Check if the listpack needs to be converted to a hash table */
-        if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
-
+            /* Check if the listpack needs to be converted to a hash table.
+             * We do not subtract expired field here, if there is no new field inserted,
+             * we also skip recomputing the listpack element count, avoiding unnecessary overhead. */
+            if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
+                hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+        }
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dict *ht = o->ptr;
         dictEntry *de, *existing;
