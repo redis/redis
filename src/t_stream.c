@@ -2,8 +2,9 @@
  * Copyright (c) 2017-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "server.h"
@@ -1695,7 +1696,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     while(streamIteratorGetID(&si,&id,&numfields)) {
         /* Update the group last_id if needed. */
         if (group && streamCompareID(&id,&group->last_id) > 0) {
-            if (group->entries_read != SCG_INVALID_ENTRIES_READ && !streamRangeHasTombstones(s,&group->last_id,NULL)) {
+            if (group->entries_read != SCG_INVALID_ENTRIES_READ &&
+                streamCompareID(&group->last_id, &s->first_id) >= 0 &&
+                !streamRangeHasTombstones(s,&group->last_id,NULL))
+            {
                 /* A valid counter and no tombstones between the group's last-delivered-id
                  * and the stream's last-generated-id mean we can increment the read counter
                  * to keep tracking the group's progress. */

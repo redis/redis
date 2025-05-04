@@ -1,8 +1,9 @@
 /*
  * Copyright Redis Ltd. 2024 - present
  *
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2)
- * or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  *
  * WHAT IS EBUCKETS?
