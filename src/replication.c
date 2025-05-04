@@ -3166,7 +3166,8 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
-    server.repl_current_attempts++;
+    server.repl_current_sync_attempts++;
+    server.repl_total_sync_attempts++;
     server.repl_transfer_s = connCreate(server.el, connTypeOfReplication());
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
@@ -3292,7 +3293,8 @@ void replicationSetMaster(char *ip, int port) {
                               NULL);
 
     server.repl_state = REPL_STATE_CONNECT;
-    server.repl_current_attempts = 0;
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
     connectWithMaster();
@@ -3327,7 +3329,8 @@ void replicationUnsetMaster(void) {
     disconnectSlaves();
     server.repl_state = REPL_STATE_NONE;
     /* Reset the attempts number. */
-    server.repl_current_attempts = 0;
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     /* We need to make sure the new master will start the replication stream
      * with a SELECT statement. This is forced after a full resync, but
      * with PSYNC version 2, there is no need for full resync after a
@@ -3370,7 +3373,7 @@ void replicationHandleMasterDisconnection(void) {
 
     server.master = NULL;
     if (server.repl_state == REPL_STATE_CONNECTED)
-        server.repl_current_attempts = 0;
+        server.repl_current_sync_attempts = 0;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;
     server.repl_up_since = 0;

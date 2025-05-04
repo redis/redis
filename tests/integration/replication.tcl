@@ -1752,10 +1752,11 @@ start_server {tags {"repl external:skip"}} {
                 fail "Can't turn the instance into a replica"
             }
 
-            assert_equal 1 [status $slave master_sync_attempts]
+            assert_equal 1 [status $slave master_current_sync_attempts]
+            assert_equal 1 [status $slave master_total_sync_attempts]
         }
 
-        test "Test master_sync_attempts reset after slaveof no one" {
+        test "Test sync attempts reset after slaveof no one" {
             $slave slaveof no one
             $slave slaveof $master_host $master_port
 
@@ -1766,10 +1767,12 @@ start_server {tags {"repl external:skip"}} {
                 fail "Can't turn the instance into a replica"
             }
 
-            assert_equal 1 [status $slave master_sync_attempts]
+            assert_equal 1 [status $slave master_current_sync_attempts]
+            assert_equal 1 [status $slave master_total_sync_attempts]
+
         }
 
-        test "Test master_sync_attempts is reset after the reconnect" {
+        test "Test sync attempts reset on master reconnect" {
             $slave client kill type master
 
             wait_for_condition 50 100 {
@@ -1779,10 +1782,11 @@ start_server {tags {"repl external:skip"}} {
                 fail "Can't turn the instance into a replica"
             }
 
-            assert_equal 1 [status $slave master_sync_attempts]
+            assert_equal 1 [status $slave master_current_sync_attempts]
+            assert_equal 2 [status $slave master_total_sync_attempts]
         }
 
-        test "Test master_sync_attempts is reset after master changed" {
+        test "Test sync attempts reset on master switch {
             start_server {} {
                 set new_master_host [srv 0 host]
                 set new_master_port [srv 0 port]
@@ -1795,7 +1799,9 @@ start_server {tags {"repl external:skip"}} {
                     fail "Can't turn the instance into a replica"
                 }
 
-                assert_equal 1 [status $slave master_sync_attempts]
+                assert_equal 1 [status $slave master_current_sync_attempts]
+                assert_equal 1 [status $slave master_total_sync_attempts]
+                
             }
         }
 
@@ -1811,13 +1817,13 @@ start_server {tags {"repl external:skip"}} {
                 fail "slave did not connect to master."
             }
             # Assume master_sync_attempts is now 1 after connecting to a valid master
-            assert_equal 1 [status $slave master_sync_attempts]
+            assert_equal 1 [status $slave master_current_sync_attempts]
 
             # connect to an invalid master  
             $slave slaveof $master_host $unknown_port
             after 1000
             # Assume 1 sec (1 trying) of connecting to an invalid master => master_sync_attempts incer by 1
-            assert {[status $slave master_sync_attempts] >= 2}
+            assert {[status $slave master_current_sync_attempts] >= 2}
         }
     }
 }

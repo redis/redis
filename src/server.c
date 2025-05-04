@@ -2273,6 +2273,7 @@ void initServerConfig(void) {
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
+    server.repl_total_sync_attempts = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2894,7 +2895,7 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_allocated = 0;
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
-    server.repl_current_attempts = 0;
+    server.repl_current_sync_attempts = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
@@ -6255,8 +6256,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "slave_repl_offset:%lld\r\n", slave_repl_offset,
                 "replica_full_sync_buffer_size:%zu\r\n", server.repl_full_sync_buffer.size,
                 "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak,
-                "master_sync_attempts:%lld\r\n", server.repl_current_attempts));
-
+                "master_current_sync_attempts:%lld\r\n", server.repl_current_sync_attempts,
+                "master_total_sync_attempts:%lld\r\n", server.repl_total_sync_attempts));
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
                 if (server.repl_transfer_size) {
