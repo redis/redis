@@ -2,527 +2,819 @@
 
 This README is just a fast *quick start* document. You can find more detailed documentation at [redis.io](https://redis.io).
 
-What is Redis?
----
+### What is Redis?
 
-Redis is often referred to as a *data structures* server. What this means is that Redis provides access to mutable data structures via a set of commands, which are sent using a *server-client* model with TCP sockets and a simple protocol. So different processes can query and modify the same data structures in a shared way.
+For developers, who are building real-time data-driven applications, Redis is the preferred, fastest, and most feature-rich cache, data structure server, and document and vector query engine.
 
-Data structures implemented into Redis have a few special properties:
+Redis covers a wide range of use cases across a wide range of industries and projects, serving as
+- **A cache**, supporting multiple key eviction policies, key expiration, and hash-field expiration
+- **A distributed session store**, supporting multiple session data modeling options (string, JSON, hash).
+- **A data structure server**: low-level data structures (string, JSON, list, hash, set, sorted set, bitmap, bitfield, and more - see full list below) with high-level semantics (counter, stack, queue, priority queue, rate limiter, leaderboard, ...), and with transactions and scripting support.
+- **A NoSQL data store**: key-value, document, and time series.
+- **A secondary index and a search and query engine**: with Redis Query Engine users can define indexes for hash and JSON documents, and use a rich query language for vector search, full-text search, geospatial queries, ranking, and aggregations.
+- **A distributed event store, stream-processing platform, and message broker**: queue (list), priority queue (sorted set), event deduplication (set), streams, and pub/sub, with probabilistic stream processing capabilities.
+- **A vector store**, integrated with GenAI applications and ecosystems (e.g., LangGraph, mem0), providing short-term memory (checkpointers), long-term memory (store), LLM response caching (LLM semantic cache), and context retrieval (RAG applications).
+- **Real time analytics**, including personalization, recommendations, fraud and anomaly detection, and risk assessment.
 
-* Redis cares to store them on disk, even if they are always served and modified into the server memory. This means that Redis is fast, but that it is also non-volatile.
-* The implementation of data structures emphasizes memory efficiency, so data structures inside Redis will likely use less memory compared to the same data structure modelled using a high-level programming language.
-* Redis offers a number of features that are natural to find in a database, like replication, tunable levels of durability, clustering, and high availability.
 
-Another good example is to think of Redis as a more complex version of memcached, where the operations are not just SETs and GETs, but operations that work with complex data types like Lists, Sets, ordered data structures, and so forth.
+Redis can be relied upon (it is robust and has a well-defined behavior), it comes with a long-term commitment (we keep maintaining Redis, avoid introducing breaking changes, and keep it innovative and competitive). Redis is fast and has a low memory footprint (with the right tradeoffs), easy to understand, learn, and use, and easy to adopt across a wide range of development environments and languages.
 
-If you want to know more, this is a list of selected starting points:
+If you want to know more, here is a list of starting points:
 
-* Introduction to Redis data types. https://redis.io/docs/latest/develop/data-types/
+- Introduction to Redis data types - https://redis.io/docs/latest/develop/data-types/
+- The full list of Redis commands - https://redis.io/commands
+- Redis for AI - https://redis.io/docs/latest/develop/ai/
+- and much more - https://redis.io/documentation
 
-* The full list of Redis commands. https://redis.io/commands
-* There is much more inside the official Redis documentation. https://redis.io/documentation
+### What is Redis Open Source?
 
-What is Redis Community Edition?
----
-
-Redis OSS was renamed Redis Community Edition (CE) with the v7.4 release.
+Redis Community Edition (Redis CE) was renamed Redis Open Source with the v8.0 release.
 
 Redis Ltd. also offers [Redis Software](https://redis.io/enterprise/), a self-managed software with additional compliance, reliability, and resiliency for enterprise scaling,
 and [Redis Cloud](https://redis.io/cloud/), a fully managed service integrated with Google Cloud, Azure, and AWS for production-ready apps.
 
-Read more about the differences between Redis Community Edition and Redis [here](https://redis.io/comparisons/oss-vs-enterprise/).
+Read more about the differences between Redis Open Source and Redis [here](https://redis.io/technology/advantages/).
 
-Building Redis
----
+### Redis Open Source - binary distributions
+
+The fastest way to deploy Redis is using one the binary distributions:
+
+- Alpine and Debian Docker images - https://hub.docker.com/_/redis
+- Install using snap - see https://github.com/redis/redis-snap
+- Install using brew - see https://github.com/redis/homebrew-redis
+- Install using RPM - see https://github.com/redis/redis-rpm
+- Install using Debian APT - see https://github.com/redis/redis-debian
+
+If you prefer to build Redis from source - see instructions below.
+
+### Using Redis with redis-cli
+
+`redis-cli` is Redis' command line interface. It is available as part of all the binary distributions and when you build Redis from source.
+
+See https://redis.io/docs/latest/develop/tools/cli/
+
+You can start a redis-server instance, and then, in another terminal try the following:
+
+```
+% cd src
+% ./redis-cli
+redis> ping
+PONG
+redis> set foo bar
+OK
+redis> get foo
+"bar"
+redis> incr mycounter
+(integer) 1
+redis> incr mycounter
+(integer) 2
+redis>
+```
+
+### Using Redis with Redis Insight
+For a more visual and user-friendly experience, use Redis Insight - a tool that lets you explore data, design, develop, and optimize your applications while also serving as a platform for Redis education and onboarding. Redis Insight integrates Redis Copilot, a natural language AI assistant that improves the experience when working with data and commands.
+See https://redis.io/docs/latest/develop/tools/insight/ and https://github.com/RedisInsight/RedisInsight.
+
+
+### Using Redis with client libraries
+
+To connect your application to Redis, you will need a client library. The list of client libraries is available in https://redis.io/docs/latest/develop/clients/.
+
+### Redis Data types, processing engines, and capabilities
+
+Redis provides a variety of data types, processing engines, and capabilities to support a wide range of use cases:
+
+1. **String**
+    - Strings store sequences of bytes, including text, serialized objects, and binary arrays. As such, strings are the simplest type of value you can associate with a Redis key.
+    - [Documentation: Strings](https://redis.io/docs/latest/develop/data-types/strings)
+
+1. **JSON** (*)
+    - The JSON data type provides JavaScript Object Notation (JSON) support for Redis. It lets you store, retrieve, and update JSON documents. A JSON document can be queried and manipulated using JSONPath expressions. JSON also works seamlessly with the Redis Query Engine to let you index and query JSON documents.
+    - [Documentation: JSON quick start](https://redis.io/docs/latest/develop/data-types/json/#use-redisjson)
+
+1. **Hash**
+    - A hash is a collection of fields, each field is a name-value string pair. You can use hashes to represent flat objects and to store groupings of counters, among other things. Expiration time or a time-to-live can be set for each hash field.
+    - [Documentation: Hashes](https://redis.io/docs/latest/develop/data-types/hashes)
+
+1. **Redis Query Engine**  (*)
+    - The Redis Query Engine allows you to use Redis as a document database, a vector database, a secondary index, and a search engine. With Redis Query Engine, users can define indexes for hash and JSON documents, and use a rich query language for vector search, full-text search, geospatial queries, and aggregations.
+    - [Documentation: Redis Query Engine](https://redis.io/docs/latest/develop/interact/search-and-query/)
+
+1. **List**
+    - A list is a list of strings, sorted by insertion order. They are great for stacks, queues, and for queue management and worker systems.
+    - [Documentation: Lists](https://redis.io/docs/latest/develop/data-types/lists)
+
+1. **Set**
+    - A set is an unordered collection of unique strings (members). Sets can be used to track unique items (e.g., track all unique IP addresses accessing a given blog post), represent relations (e.g., the set of all users with a given role). Redis also supports common set operations such as intersection, unions, and differences.
+    - [Documentation: Sets](https://redis.io/docs/latest/develop/data-types/sets)
+
+1. **Sorted Set**
+    - A sorted set is similar to a set, but each member is associated with a score. When more than one member has the same score, the members are ordered lexicographically. Some use cases for sorted sets include leaderboards and sliding-window rate limiters.
+    - [Documentation: Sorted Sets](https://redis.io/docs/latest/develop/data-types/sorted-sets)
+
+1. **Vector Set** (beta)
+    - Vector set is a data type similar to a sorted set, but instead of a score, each member is associated with a vector embedding. You can add items to a vector set, and then retrieve the members that are the most similar to a specified vector embedding, or to the vector embedding of an existing member.
+    -  [Documentation: Vector sets](https://redis.io/docs/latest/develop/data-types/vector-sets)
+
+1. **Geospatial Index**
+    - Geospatial indexes let you store coordinates and search for them. This data structure is useful for finding nearby points within a given radius or bounding box.
+    - [Documentation: Geo](https://redis.io/docs/latest/develop/data-types/geospatial/)
+
+1. **Bitmap**
+    - Bitmaps provide bit-oriented operations on a bit vector. You can get bits, set bits, and perform bitwise operations between bitmaps. Bitmaps are often used for efficient management of memberships or permissions, where each bit represents a particular member.
+    - [Documentation: Bitmap](https://redis.io/docs/latest/develop/data-types/bitmaps/)
+
+1. **Bitfield**
+    - Bitfields let you set, increment, and get integer values of arbitrary bit length - from unsigned 1-bit integers to signed 63-bit integers. Bitfields are often used for efficient management of arrays of limited-range counters or numerical values.
+    - [Documentation: Bitfield](https://redis.io/docs/latest/develop/data-types/bitfields/)
+
+1. **HyperLogLog**
+    - HyperLogLog is a probabilistic data structure used for approximating the cardinality of a stream (i.e., the number of unique elements).
+    - [Documentation: HyperLogLog](https://redis.io/docs/latest/develop/data-types/hyperloglogs)
+
+1. **Bloom filter**  (*)
+    - Bloom filter is a probabilistic data structure used for checking if a given value is present in a stream.
+    - [Documentation: Bloom filter](https://redis.io/docs/latest/develop/data-types/probabilistic/bloom-filter/)
+
+1. **Cuckoo filter**  (*)
+    - Cuckoo filter, just like Bloom filter, is a probabilistic data structure for checking if a given value is present in a stream, while also allowing limited counting and deletions.
+    - [Documentation: Cuckoo filter](https://redis.io/docs/latest/develop/data-types/probabilistic/cuckoo-filter/)
+
+1. **Top-k**  (*)
+    - Top-k is a probabilistic data structure used for tracking the most frequent values in a data stream.
+    - [Documentation: Top-k](https://redis.io/docs/latest/develop/data-types/probabilistic/top-k/)
+
+1. **Count-min sketch**  (*)
+    - Count-Min Sketch is a probabilistic data structure used for estimating how many times a given value appears in the data stream.
+    - [Documentation: Count-min sketch](https://redis.io/docs/latest/develop/data-types/probabilistic/count-min-sketch/)
+
+1. **t-digest**  (*)
+    - t-digest is a probabilistic data structure used for estimating which fraction / how many values in a data stream are smaller than a given value, which value is smaller than p percent of the values in a data stream, or what are the smallest/largest values in the data stream.
+    - [Documentation: t-digeset](https://redis.io/docs/latest/develop/data-types/probabilistic/t-digest/)
+
+1. **Time series**  (*)
+    - a time series allows storing and querying timetagged data points (samples).
+    - [Documentation: Time series quick start](https://redis.io/docs/latest/develop/data-types/timeseries/quickstart/)
+
+1. **Pub/Sub**
+    - Pub/Sub (short for publish/subscribe) is a lightweight messaging capability. Publishers send messages to a channel, and subscribers receive messages from that channel.
+    - [Documentation: Redis streams](https://redis.io/docs/latest/develop/interact/pubsub/)
+
+1. **Stream**
+    - A stream is a data structure that acts like an append-only log. Each stream entry consists of name-value string pairs, similar to a hash. Streams support multiple consumption strategies, where consumers can pop entries, consume entries by range, or listen to entries. Consumer groups allow multiple workers to retrieve different stream entries in order to scale message processing.
+    - [Documentation: Redis streams](https://redis.io/docs/latest/develop/data-types/streams/)
+
+1. **Transactions**
+    - A transaction allows the execution of a group of commands in a single step. A request sent by another client will never be served in the middle of the execution of a transaction. This guarantees that the commands are executed as a single isolated operation.
+    - [Documentation: Transactions](https://redis.io/docs/latest/develop/interact/transactions/)
+
+1. **Programmability**
+    - Users can upload and execute Lua scripts on the server. Scripts can employ programmatic control structures and use most of the commands while executing to access the database. Because scripts are executed on the server, reading and writing data from scripts is very efficient. Functions provide the same core functionality as scripts but are first-class software artifacts of the database. Redis manages functions as an integral part of the database and ensures their availability via data persistence and replication.
+    - [Documentation: Scripting with Lua](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/)
+    - [Documentation: Functions](https://redis.io/docs/latest/develop/interact/programmability/functions-intro/)
+
+Items marked with (*) require building with `BUILD_WITH_MODULES=yes`.
+
+### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
+
+Tested with the following Docker images:
+- ubuntu:20.04
+
+1. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries:
+
+   ```
+   apt-get update
+   apt-get install -y sudo
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf gcc-10 g++-10 libtool
+   ```
+
+2. Use GCC 10 as the default compiler
+
+   Update the system's default compiler to GCC 10:
+
+   ```
+   sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-10 100 --slave /usr/bin/g++ g++ /usr/bin/g++-10
+   ```
+
+3. Install CMake
+
+   Install CMake using `pip3` and link it for system-wide access:
+
+   ```
+   pip3 install cmake==3.31.6
+   sudo ln -sf /usr/local/bin/cmake /usr/bin/cmake
+   cmake --version
+   ```
+
+   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
+
+4. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+5. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+6. Build Redis
+
+   Set the necessary environment variables and compile Redis:
+
+   ```
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   make -j "$(nproc)" all
+   ```
+
+7. Run Redis
+
+   ```
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+    ```
+
+### Build and run Redis with all data structures - Ubuntu 22.04 (Jammy) / 24.04 (Noble)
+
+Tested with the following Docker image:
+- ubuntu:22.04
+- ubuntu:24.04
+
+1. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries:
+
+   ```
+   apt-get update
+   apt-get install -y sudo
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
+   ```
+
+2. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+3. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+4. Build Redis
+
+   Set the necessary environment variables and build Redis:
+
+   ```
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   make -j "$(nproc)" all
+   ```
+
+5. Run Redis
+
+   ```
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - Debian 11 (Bullseye) / 12 (Bookworm)
+
+
+Tested with the following Docker images:
+- debian:bullseye
+- debian:bullseye-slim
+- debian:bookworm
+- debian:bookworm-slim
+
+1. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries:
+
+   ```
+   apt-get update
+   apt-get install -y sudo
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
+   ```
+
+2. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+3. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+4. Build Redis
+
+   Set the necessary environment variables and build Redis:
+
+   ```
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   make -j "$(nproc)" all
+   ```
+
+5. Run Redis
+
+
+   ```
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - AlmaLinux 8.10 / Rocky Linux 8.10
+
+Tested with the following Docker images:
+- almalinux:8.10
+- almalinux:8.10-minimal
+- rockylinux/rockylinux:8.10
+- rockylinux/rockylinux:8.10-minimal
+
+1. Prepare the system
+
+   For 8.10-minimal, install `sudo` and `dnf` as follows:
+
+   ```
+   microdnf install dnf sudo -y
+   ```
+
+   For 8.10 (regular), install sudo as follows:
+
+   ```
+   dnf install sudo -y
+   ```
+
+   Clean the package metadata, enable required repositories, and install development tools:
+
+   ```
+   sudo dnf clean all
+   sudo tee /etc/yum.repos.d/goreleaser.repo > /dev/null <<EOF
+   [goreleaser]
+   name=GoReleaser
+   baseurl=https://repo.goreleaser.com/yum/
+   enabled=1
+   gpgcheck=0
+   EOF
+   sudo dnf update -y
+   sudo dnf groupinstall "Development Tools" -y
+   sudo dnf config-manager --set-enabled powertools
+   sudo dnf install -y epel-release
+   ```
+
+2. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries:
+
+   ```
+   sudo dnf install -y --nobest --skip-broken pkg-config wget gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3.11 python3.11-pip python3.11-devel unzip rsync clang curl libtool automake autoconf jq systemd-devel
+   ```
+
+   Create a Python virtual environment:
+
+   ```
+   python3.11 -m venv /opt/venv
+   ```
+
+   Enable the GCC toolset:
+
+   ```
+   sudo cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+   echo "source /etc/profile.d/gcc-toolset-13.sh" | sudo tee -a /etc/bashrc
+   ```
+
+3. Install CMake
+
+   Install CMake 3.25.1 manually:
+
+   ```
+   CMAKE_VERSION=3.25.1
+   ARCH=$(uname -m)
+   if [ "$ARCH" = "x86_64" ]; then
+     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-x86_64.sh
+   else
+     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-aarch64.sh
+   fi
+   wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/${CMAKE_FILE}
+   chmod +x ${CMAKE_FILE}
+   ./${CMAKE_FILE} --skip-license --prefix=/usr/local --exclude-subdir
+   rm ${CMAKE_FILE}
+   cmake --version
+   ```
+
+4. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+5. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+6. Build Redis
+
+   Enable the GCC toolset, set the necessary environment variables, and build Redis:
+
+   ```
+   source /etc/profile.d/gcc-toolset-13.sh
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   make -j "$(nproc)" all
+   ```
+
+7. Run Redis
+
+   ```
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - AlmaLinux 9.5 / Rocky Linux 9.5
+
+Tested with the following Docker images:
+- almalinux:9.5
+- almalinux:9.5-minimal
+- rockylinux/rockylinux:9.5
+- rockylinux/rockylinux:9.5-minimal
+
+1. Prepare the system
+
+   For 9.5-minimal, install `sudo` and `dnf` as follows:
+
+   ```
+   microdnf install dnf sudo -y
+   ```
+
+   For 9.5 (regular), install sudo as follows:
+
+   ```
+   dnf install sudo -y
+   ```
+
+   Clean the package metadata, enable required repositories, and install development tools:
+
+   ```
+   sudo tee /etc/yum.repos.d/goreleaser.repo > /dev/null <<EOF
+   [goreleaser]
+   name=GoReleaser
+   baseurl=https://repo.goreleaser.com/yum/
+   enabled=1
+   gpgcheck=0
+   EOF
+   sudo dnf clean all
+   sudo dnf makecache
+   sudo dnf update -y
+   ```
+
+2. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries:
+
+   ```
+   sudo dnf install -y --nobest --skip-broken pkg-config xz wget which gcc-toolset-13-gcc gcc-toolset-13-gcc-c++ git make openssl openssl-devel python3 python3-pip python3-devel unzip rsync clang curl libtool automake autoconf jq systemd-devel
+   ```
+
+   Create a Python virtual environment:
+
+   ```
+   python3 -m venv /opt/venv
+   ```
+
+   Enable the GCC toolset:
+
+   ```
+   sudo cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+   echo "source /etc/profile.d/gcc-toolset-13.sh" | sudo tee -a /etc/bashrc
+   ```
+
+3. Install CMake
+
+   Install CMake 3.25.1 manually:
+
+   ```
+   CMAKE_VERSION=3.25.1
+   ARCH=$(uname -m)
+   if [ "$ARCH" = "x86_64" ]; then
+     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-x86_64.sh
+   else
+     CMAKE_FILE=cmake-${CMAKE_VERSION}-linux-aarch64.sh
+   fi
+   wget https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/${CMAKE_FILE}
+   chmod +x ${CMAKE_FILE}
+   ./${CMAKE_FILE} --skip-license --prefix=/usr/local --exclude-subdir
+   rm ${CMAKE_FILE}
+   cmake --version
+   ```
+
+4. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+5. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+6. Build Redis
+
+   Enable the GCC toolset, set the necessary environment variables, and build Redis:
+
+   ```
+   source /etc/profile.d/gcc-toolset-13.sh
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   make -j "$(nproc)" all
+   ```
+
+7. Run Redis
+
+   ```
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - macOS 13 (Ventura) and macOS 14 (Sonoma)
+
+1. Install Homebrew
+
+   If Homebrew is not already installed, follow the installation instructions on the [Homebrew home page](https://brew.sh/).
+
+2. Install required packages
+
+   ```
+   export HOMEBREW_NO_AUTO_UPDATE=1
+   brew update
+   brew install coreutils
+   brew install make
+   brew install openssl
+   brew install llvm@18
+   brew install cmake
+   brew install gnu-sed
+   brew install automake
+   brew install libtool
+   brew install wget
+    ```
+
+3. Install Rust
+
+   Rust is required to build the JSON package.
+
+   ```
+   RUST_INSTALLER=rust-1.80.1-$(if [ "$(uname -m)" = "arm64" ]; then echo "aarch64"; else echo "x86_64"; fi)-apple-darwin
+   wget --quiet -O ${RUST_INSTALLER}.tar.xz https://static.rust-lang.org/dist/${RUST_INSTALLER}.tar.xz
+   tar -xf ${RUST_INSTALLER}.tar.xz
+   (cd ${RUST_INSTALLER} && sudo ./install.sh)
+   ```
+
+4. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```
+   cd ~/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+5. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```
+   cd ~/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+6. Build Redis
+
+   ```
+   cd ~/src/redis-<version>
+   export HOMEBREW_PREFIX="$(brew --prefix)"
+   export BUILD_WITH_MODULES=yes
+   export BUILD_TLS=yes
+   export DISABLE_WERRORS=yes
+   PATH="$HOMEBREW_PREFIX/opt/libtool/libexec/gnubin:$HOMEBREW_PREFIX/opt/llvm@18/bin:$HOMEBREW_PREFIX/opt/make/libexec/gnubin:$HOMEBREW_PREFIX/opt/gnu-sed/libexec/gnubin:$HOMEBREW_PREFIX/opt/coreutils/libexec/gnubin:$PATH"
+   export LDFLAGS="-L$HOMEBREW_PREFIX/opt/llvm@18/lib"
+   export CPPFLAGS="-I$HOMEBREW_PREFIX/opt/llvm@18/include"
+   mkdir -p build_dir/etc
+   make -C redis-8.0 -j "$(nproc)" all OS=macos
+   make -C redis-8.0 install PREFIX=$(pwd)/build_dir OS=macos
+   ```
+
+7. Run Redis
+
+   ```
+   export LC_ALL=en_US.UTF-8
+   export LANG=en_US.UTF-8
+   build_dir/bin/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - macOS 15 (Sequoia)
+
+Support and instructions will be provided at a later date.
+
+### Building Redis - flags and general notes
 
 Redis can be compiled and used on Linux, OSX, OpenBSD, NetBSD, FreeBSD.
-We support big endian and little endian architectures, and both 32 bit
-and 64 bit systems.
+We support big endian and little endian architectures, and both 32 bit and 64 bit systems.
 
-It may compile on Solaris derived systems (for instance SmartOS) but our
-support for this platform is *best effort* and Redis is not guaranteed to
-work as well as in Linux, OSX, and \*BSD.
+It may compile on Solaris derived systems (for instance SmartOS) but our support for this platform is *best effort* and Redis is not guaranteed to work as well as in Linux, OSX, and \*BSD.
 
-It is as simple as:
+To build Redis with all the data structures (including JSON, time series, Bloom filter, cuckoo filter, count-min sketch, top-k, and t-digest) and with Redis Query Engine, make sure first that all the prerequisites are installed (see build instructions above, per operating system). You need to use the following flag in the make command:
 
-    % make
 
-To build with TLS support, you'll need OpenSSL development libraries (e.g.
-libssl-dev on Debian/Ubuntu) and run:
+```
+make BUILD_WITH_MODULES=yes
+```
 
-    % make BUILD_TLS=yes
 
-To build with systemd support, you'll need systemd development libraries (such 
-as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS) and run:
+To build Redis with just the core data structures, use:
 
-    % make USE_SYSTEMD=yes
+```
+make
+```
 
-To append a suffix to Redis program names, use:
 
-    % make PROG_SUFFIX="-alt"
+To build with TLS support, you need OpenSSL development libraries (e.g. libssl-dev on Debian/Ubuntu) and the following flag in the make command:
+
+```
+make BUILD_TLS=yes
+```
+
+
+To build with systemd support, you need systemd development libraries (such as libsystemd-dev on Debian/Ubuntu or systemd-devel on CentOS), and the following flag:
+
+```
+make USE_SYSTEMD=yes
+```
+
+
+To append a suffix to Redis program names, add the following flag:
+
+```
+make PROG_SUFFIX="-alt"
+```
+
 
 You can build a 32 bit Redis binary using:
 
-    % make 32bit
+```
+make 32bit
+```
+
 
 After building Redis, it is a good idea to test it using:
 
-    % make test
+```
+make test
+```
 
-If TLS is built, running the tests with TLS enabled (you will need `tcl-tls`
-installed):
+If TLS is built, running the tests with TLS enabled (you will need `tcl-tls` installed):
 
-    % ./utils/gen-test-certs.sh
-    % ./runtest --tls
+```
+./utils/gen-test-certs.sh
+./runtest --tls
+```
 
+### Fixing build problems with dependencies or cached build options
 
-Fixing build problems with dependencies or cached build options
----
+Redis has some dependencies which are included in the `deps` directory. `make` does not automatically rebuild dependencies even if something in the source code of dependencies changes.
 
-Redis has some dependencies which are included in the `deps` directory.
-`make` does not automatically rebuild dependencies even if something in
-the source code of dependencies changes.
+When you update the source code with `git pull` or when code inside the dependencies tree is modified in any other way, make sure to use the following command in order to really clean everything and rebuild from scratch:
 
-When you update the source code with `git pull` or when code inside the
-dependencies tree is modified in any other way, make sure to use the following
-command in order to really clean everything and rebuild from scratch:
+```
+make distclean
+```
 
-    % make distclean
 
 This will clean: jemalloc, lua, hiredis, linenoise and other dependencies.
 
-Also if you force certain build options like 32bit target, no C compiler
-optimizations (for debugging purposes), and other similar build time options,
-those options are cached indefinitely until you issue a `make distclean`
+Also if you force certain build options like 32bit target, no C compiler optimizations (for debugging purposes), and other similar build time options, those options are cached indefinitely until you issue a `make distclean`
 command.
 
-Fixing problems building 32 bit binaries
----
+### Fixing problems building 32 bit binaries
 
 If after building Redis with a 32 bit target you need to rebuild it
-with a 64 bit target, or the other way around, you need to perform a
-`make distclean` in the root directory of the Redis distribution.
+with a 64 bit target, or the other way around, you need to perform a `make distclean` in the root directory of the Redis distribution.
 
-In case of build errors when trying to build a 32 bit binary of Redis, try
-the following steps:
+In case of build errors when trying to build a 32 bit binary of Redis, try the following steps:
 
 * Install the package libc6-dev-i386 (also try g++-multilib).
 * Try using the following command line instead of `make 32bit`:
   `make CFLAGS="-m32 -march=native" LDFLAGS="-m32"`
 
-Allocator
----
+### Allocator
 
-Selecting a non-default memory allocator when building Redis is done by setting
-the `MALLOC` environment variable. Redis is compiled and linked against libc
-malloc by default, with the exception of jemalloc being the default on Linux
-systems. This default was picked because jemalloc has proven to have fewer
-fragmentation problems than libc malloc.
+Selecting a non-default memory allocator when building Redis is done by setting the `MALLOC` environment variable. Redis is compiled and linked against libc malloc by default, with the exception of jemalloc being the default on Linux systems. This default was picked because jemalloc has proven to have fewer fragmentation problems than libc malloc.
 
 To force compiling against libc malloc, use:
 
-    % make MALLOC=libc
+```
+make MALLOC=libc
+```
 
 To compile against jemalloc on Mac OS X systems, use:
 
-    % make MALLOC=jemalloc
+```
+make MALLOC=jemalloc
+```
 
-Monotonic clock
----
+### Monotonic clock
 
-By default, Redis will build using the POSIX clock_gettime function as the
-monotonic clock source.  On most modern systems, the internal processor clock
-can be used to improve performance.  Cautions can be found here: 
-    http://oliveryang.net/2015/09/pitfalls-of-TSC-usage/
+By default, Redis will build using the POSIX clock_gettime function as the monotonic clock source.  On most modern systems, the internal processor clock can be used to improve performance.  Cautions can be found here: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage/
 
 To build with support for the processor's internal instruction clock, use:
 
-    % make CFLAGS="-DUSE_PROCESSOR_CLOCK"
+```
+make CFLAGS="-DUSE_PROCESSOR_CLOCK"
+```
 
-Verbose build
----
+### Verbose build
 
 Redis will build with a user-friendly colorized output by default.
 If you want to see a more verbose output, use the following:
 
-    % make V=1
-
-Running Redis
----
-
-To run Redis with the default configuration, just type:
-
-    % cd src
-    % ./redis-server
-
-If you want to provide your redis.conf, you have to run it using an additional
-parameter (the path of the configuration file):
-
-    % cd src
-    % ./redis-server /path/to/redis.conf
-
-It is possible to alter the Redis configuration by passing parameters directly
-as options using the command line. Examples:
-
-    % ./redis-server --port 9999 --replicaof 127.0.0.1 6379
-    % ./redis-server /etc/redis/6379.conf --loglevel debug
-
-All the options in redis.conf are also supported as options using the command
-line, with exactly the same name.
-
-Running Redis with TLS
----
-
-Please consult the [TLS.md](TLS.md) file for more information on
-how to use Redis with TLS.
-
-Playing with Redis
----
-
-You can use redis-cli to play with Redis. Start a redis-server instance,
-then in another terminal try the following:
-
-    % cd src
-    % ./redis-cli
-    redis> ping
-    PONG
-    redis> set foo bar
-    OK
-    redis> get foo
-    "bar"
-    redis> incr mycounter
-    (integer) 1
-    redis> incr mycounter
-    (integer) 2
-    redis>
-
-You can find the list of all the available commands at https://redis.io/commands.
-
-Installing Redis
----
-
-In order to install Redis binaries into /usr/local/bin, just use:
-
-    % make install
-
-You can use `make PREFIX=/some/other/directory install` if you wish to use a
-different destination.
-
-`make install` will just install binaries in your system, but will not configure
-init scripts and configuration files in the appropriate place. This is not
-needed if you just want to play a bit with Redis, but if you are installing
-it the proper way for a production system, we have a script that does this
-for Ubuntu and Debian systems:
-
-    % cd utils
-    % ./install_server.sh
-
-_Note_: `install_server.sh` will not work on Mac OSX; it is built for Linux only.
-
-The script will ask you a few questions and will setup everything you need
-to run Redis properly as a background daemon that will start again on
-system reboots.
-
-You'll be able to stop and start Redis using the script named
-`/etc/init.d/redis_<portnumber>`, for instance `/etc/init.d/redis_6379`.
-
-Code contributions
----
-
-By contributing code to the Redis project in any form, including sending a pull request via GitHub,
-a code fragment or patch via private email or public discussion groups, you agree to release your
-code under the terms of the [Redis Software Grant and Contributor License Agreement][1]. Redis software
-contains contributions to the original Redis core project, which are owned by their contributors and
-licensed under the 3BSD license. Any copy of that license in this repository applies only to those
-contributions. Redis releases all Redis Community Edition versions from 7.4.x and thereafter under the
-RSALv2/SSPL dual-license as described in the [LICENSE.txt][2] file included in the Redis Community Edition source distribution.
-
-Please see the [CONTRIBUTING.md][1] file in this source distribution for more information. For
-security bugs and vulnerabilities, please see [SECURITY.md][3].
-
-[1]: https://github.com/redis/redis/blob/unstable/CONTRIBUTING.md
-[2]: https://github.com/redis/redis/blob/unstable/LICENSE.txt
-[3]: https://github.com/redis/redis/blob/unstable/SECURITY.md
-
-Redis Trademarks
----
-
-The purpose of a trademark is to identify the goods and services of a person or company without
-causing confusion. As the registered owner of its name and logo, Redis accepts certain limited uses
-of its trademarks but it has requirements that must be followed as described in its Trademark
-Guidelines available at: https://redis.com/legal/trademark-guidelines/.
-
-Redis internals
-===
-
-If you are reading this README you are likely in front of a GitHub page
-or you just untarred the Redis distribution tar ball. In both the cases
-you are basically one step away from the source code, so here we explain
-the Redis source code layout, what is in each file as a general idea, the
-most important functions and structures inside the Redis server and so forth.
-We keep all the discussion at a high level without digging into the details
-since this document would be huge otherwise and our code base changes
-continuously, but a general idea should be a good starting point to
-understand more. Moreover most of the code is heavily commented and easy
-to follow.
-
-Source code layout
----
-
-The Redis root directory just contains this README, the Makefile which
-calls the real Makefile inside the `src` directory and an example
-configuration for Redis and Redis Sentinel. You can find a few shell
-scripts that are used in order to execute the Redis, Redis Cluster and
-Redis Sentinel unit tests, which are implemented inside the `tests`
-directory.
-
-Inside the root are the following important directories:
-
-* `src`: contains the Redis implementation, written in C.
-* `tests`: contains the unit tests, implemented in Tcl.
-* `deps`: contains libraries Redis uses. Everything needed to compile Redis is inside this directory; your system just needs to provide `libc`, a POSIX compatible interface and a C compiler. Notably `deps` contains a copy of `jemalloc`, which is the default allocator of Redis under Linux. Note that under `deps` there are also things which started with the Redis project, but for which the main repository is not `redis/redis`.
-
-There are a few more directories but they are not very important for our goals
-here. We'll focus mostly on `src`, where the Redis implementation is contained,
-exploring what there is inside each file. The order in which files are
-exposed is the logical one to follow in order to disclose different layers
-of complexity incrementally.
-
-Note: lately Redis was refactored quite a bit. Function names and file
-names have been changed, so you may find that this documentation reflects the
-`unstable` branch more closely. For instance, in Redis 3.0 the `server.c`
-and `server.h` files were named `redis.c` and `redis.h`. However the overall
-structure is the same. Keep in mind that all the new developments and pull
-requests should be performed against the `unstable` branch.
-
-server.h
----
-
-The simplest way to understand how a program works is to understand the
-data structures it uses. So we'll start from the main header file of
-Redis, which is `server.h`.
-
-All the server configuration and in general all the shared state is
-defined in a global structure called `server`, of type `struct redisServer`.
-A few important fields in this structure are:
-
-* `server.db` is an array of Redis databases, where data is stored.
-* `server.commands` is the command table.
-* `server.clients` is a linked list of clients connected to the server.
-* `server.master` is a special client, the master, if the instance is a replica.
-
-There are tons of other fields. Most fields are commented directly inside
-the structure definition.
-
-Another important Redis data structure is the one defining a client.
-In the past it was called `redisClient`, now just `client`. The structure
-has many fields, here we'll just show the main ones:
-```c
-struct client {
-    int fd;
-    sds querybuf;
-    int argc;
-    robj **argv;
-    redisDb *db;
-    int flags;
-    list *reply;
-    // ... many other fields ...
-    char buf[PROTO_REPLY_CHUNK_BYTES];
-}
 ```
-The client structure defines a *connected client*:
-
-* The `fd` field is the client socket file descriptor.
-* `argc` and `argv` are populated with the command the client is executing, so that functions implementing a given Redis command can read the arguments.
-* `querybuf` accumulates the requests from the client, which are parsed by the Redis server according to the Redis protocol and executed by calling the implementations of the commands the client is executing.
-* `reply` and `buf` are dynamic and static buffers that accumulate the replies the server sends to the client. These buffers are incrementally written to the socket as soon as the file descriptor is writable.
-
-As you can see in the client structure above, arguments in a command
-are described as `robj` structures. The following is the full `robj`
-structure, which defines a *Redis object*:
-
-```c
-struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
-                            * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
-};
+make V=1
 ```
 
-Basically this structure can represent all the basic Redis data types like
-strings, lists, sets, sorted sets and so forth. The interesting thing is that
-it has a `type` field, so that it is possible to know what type a given
-object has, and a `refcount`, so that the same object can be referenced
-in multiple places without allocating it multiple times. Finally the `ptr`
-field points to the actual representation of the object, which might vary
-even for the same type, depending on the `encoding` used.
+### Running Redis with TLS
 
-Redis objects are used extensively in the Redis internals, however in order
-to avoid the overhead of indirect accesses, recently in many places
-we just use plain dynamic strings not wrapped inside a Redis object.
+Please consult the [TLS.md](TLS.md) file for more information on how to use Redis with TLS.
 
-server.c
----
+### Code contributions
 
-This is the entry point of the Redis server, where the `main()` function
-is defined. The following are the most important steps in order to startup
-the Redis server.
+By contributing code to the Redis project in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md. Open Source Redis releases are subject to the following licenses:
 
-* `initServerConfig()` sets up the default values of the `server` structure.
-* `initServer()` allocates the data structures needed to operate, setup the listening socket, and so forth.
-* `aeMain()` starts the event loop which listens for new connections.
+1. Version 7.2.x and prior releases are subject to BSDv3. These contributions to the original Redis core project are owned by their contributors and licensed under the 3BSDv3 license as referenced in the REDISCONTRIBUTIONS.txt file. Any copy of that license in this repository applies only to those contributions;
 
-There are two special functions called periodically by the event loop:
+2. Versions 7.4.x to 7.8.x are subject to your choice of RSALv2 or SSPLv1; and
 
-1. `serverCron()` is called periodically (according to `server.hz` frequency), and performs tasks that must be performed from time to time, like checking for timed out clients.
-2. `beforeSleep()` is called every time the event loop fired, Redis served a few requests, and is returning back into the event loop.
+3. Version 8.0.x and subsequent releases are subject to the tri-license RSALv2/SSPLv1/AGPLv3 at your option as referenced in the LICENSE.txt file.
 
-Inside server.c you can find code that handles other vital things of the Redis server:
+### Redis Trademarks
 
-* `call()` is used in order to call a given command in the context of a given client.
-* `activeExpireCycle()` handles eviction of keys with a time to live set via the `EXPIRE` command.
-* `performEvictions()` is called when a new write command should be performed but Redis is out of memory according to the `maxmemory` directive.
-* The global variable `redisCommandTable` defines all the Redis commands, specifying the name of the command, the function implementing the command, the number of arguments required, and other properties of each command.
-
-commands.c
----
-This file is auto generated by utils/generate-command-code.py, the content is based on the JSON files in the src/commands folder.
-These are meant to be the single source of truth about the Redis commands, and all the metadata about them.
-These JSON files are not meant to be used by anyone directly, instead that metadata can be obtained via the `COMMAND` command.
-
-networking.c
----
-
-This file defines all the I/O functions with clients, masters and replicas
-(which in Redis are just special clients):
-
-* `createClient()` allocates and initializes a new client.
-* The `addReply*()` family of functions are used by command implementations in order to append data to the client structure, that will be transmitted to the client as a reply for a given command executed.
-* `writeToClient()` transmits the data pending in the output buffers to the client and is called by the *writable event handler* `sendReplyToClient()`.
-* `readQueryFromClient()` is the *readable event handler* and accumulates data read from the client into the query buffer.
-* `processInputBuffer()` is the entry point in order to parse the client query buffer according to the Redis protocol. Once commands are ready to be processed, it calls `processCommand()` which is defined inside `server.c` in order to actually execute the command.
-* `freeClient()` deallocates, disconnects and removes a client.
-
-aof.c and rdb.c
----
-
-As you can guess from the names, these files implement the RDB and AOF
-persistence for Redis. Redis uses a persistence model based on the `fork()`
-system call in order to create a process with the same (shared) memory
-content of the main Redis process. This secondary process dumps the content
-of the memory on disk. This is used by `rdb.c` to create the snapshots
-on disk and by `aof.c` in order to perform the AOF rewrite when the
-append only file gets too big.
-
-The implementation inside `aof.c` has additional functions in order to
-implement an API that allows commands to append new commands into the AOF
-file as clients execute them.
-
-The `call()` function defined inside `server.c` is responsible for calling
-the functions that in turn will write the commands into the AOF.
-
-db.c
----
-
-Certain Redis commands operate on specific data types; others are general.
-Examples of generic commands are `DEL` and `EXPIRE`. They operate on keys
-and not on their values specifically. All those generic commands are
-defined inside `db.c`.
-
-Moreover `db.c` implements an API in order to perform certain operations
-on the Redis dataset without directly accessing the internal data structures.
-
-The most important functions inside `db.c` which are used in many command
-implementations are the following:
-
-* `lookupKeyRead()` and `lookupKeyWrite()` are used in order to get a pointer to the value associated to a given key, or `NULL` if the key does not exist.
-* `dbAdd()` and its higher level counterpart `setKey()` create a new key in a Redis database.
-* `dbDelete()` removes a key and its associated value.
-* `emptyData()` removes an entire single database or all the databases defined.
-
-The rest of the file implements the generic commands exposed to the client.
-
-object.c
----
-
-The `robj` structure defining Redis objects was already described. Inside
-`object.c` there are all the functions that operate with Redis objects at
-a basic level, like functions to allocate new objects, handle the reference
-counting and so forth. Notable functions inside this file:
-
-* `incrRefCount()` and `decrRefCount()` are used in order to increment or decrement an object reference count. When it drops to 0 the object is finally freed.
-* `createObject()` allocates a new object. There are also specialized functions to allocate string objects having a specific content, like `createStringObjectFromLongLong()` and similar functions.
-
-This file also implements the `OBJECT` command.
-
-replication.c
----
-
-This is one of the most complex files inside Redis, it is recommended to
-approach it only after getting a bit familiar with the rest of the code base.
-In this file there is the implementation of both the master and replica role
-of Redis.
-
-One of the most important functions inside this file is `replicationFeedSlaves()` that writes commands to the clients representing replica instances connected
-to our master, so that the replicas can get the writes performed by the clients:
-this way their data set will remain synchronized with the one in the master.
-
-This file also implements both the `SYNC` and `PSYNC` commands that are
-used in order to perform the first synchronization between masters and
-replicas, or to continue the replication after a disconnection.
-
-Script
----
-
-The script unit is composed of 3 units:
-* `script.c` - integration of scripts with Redis (commands execution, set replication/resp, ...)
-* `script_lua.c` - responsible to execute Lua code, uses `script.c` to interact with Redis from within the Lua code.
-* `function_lua.c` - contains the Lua engine implementation, uses `script_lua.c` to execute the Lua code.
-* `functions.c` - contains Redis Functions implementation (`FUNCTION` command), uses `functions_lua.c` if the function it wants to invoke needs the Lua engine.
-* `eval.c` - contains the `eval` implementation using `script_lua.c` to invoke the Lua code.
-
-
-Other C files
----
-
-* `t_hash.c`, `t_list.c`, `t_set.c`, `t_string.c`, `t_zset.c` and `t_stream.c` contains the implementation of the Redis data types. They implement both an API to access a given data type, and the client command implementations for these data types.
-* `ae.c` implements the Redis event loop, it's a self contained library which is simple to read and understand.
-* `sds.c` is the Redis string library, check https://github.com/antirez/sds for more information.
-* `anet.c` is a library to use POSIX networking in a simpler way compared to the raw interface exposed by the kernel.
-* `dict.c` is an implementation of a non-blocking hash table which rehashes incrementally.
-* `cluster.c` implements the Redis Cluster. Probably a good read only after being very familiar with the rest of the Redis code base. If you want to read `cluster.c` make sure to read the [Redis Cluster specification][4].
-
-[4]: https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/
-
-Anatomy of a Redis command
----
-
-All the Redis commands are defined in the following way:
-
-```c
-void foobarCommand(client *c) {
-    printf("%s",c->argv[1]->ptr); /* Do something with the argument. */
-    addReply(c,shared.ok); /* Reply something to the client. */
-}
-```
-
-The command function is referenced by a JSON file, together with its metadata, see `commands.c` described above for details.
-The command flags are documented in the comment above the `struct redisCommand` in `server.h`.
-For other details, please refer to the `COMMAND` command. https://redis.io/commands/command/
-
-After the command operates in some way, it returns a reply to the client,
-usually using `addReply()` or a similar function defined inside `networking.c`.
-
-There are tons of command implementations inside the Redis source code
-that can serve as examples of actual commands implementations (e.g. pingCommand). Writing
-a few toy commands can be a good exercise to get familiar with the code base.
-
-There are also many other files not described here, but it is useless to
-cover everything. We just want to help you with the first steps.
-Eventually you'll find your way inside the Redis code base :-)
-
-Enjoy!
+The purpose of a trademark is to identify the goods and services of a person or company without causing confusion. As the registered owner of its name and logo, Redis accepts certain limited uses of its trademarks but it has requirements that must be followed as described in its Trademark Guidelines available at: https://redis.io/legal/trademark-policy/.
