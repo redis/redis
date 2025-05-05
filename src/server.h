@@ -3612,7 +3612,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntLink *bucket);
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntLink *link);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntLink link);

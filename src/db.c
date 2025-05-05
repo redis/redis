@@ -266,15 +266,15 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * so the caller should not free the value using decrRefcount after calling this
  * function.
  * 
- * bucket - Optional bucket link, where the key should be added. 
+ * link - Optional link to bucket where the key should be added. 
  *          On return, get updated, by need, to the inserted key.
  */
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntLink *bucket) {
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntLink *link) {
     int slot = getKeySlot(key->ptr);
     robj *val = *valref;
     kvobj *kv = kvobjSet(key->ptr, val, -1);
     initObjectLRUOrLFU(kv);
-    kvstoreDictSetAtLink(db->keys, slot, kv, bucket, 1);
+    kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
