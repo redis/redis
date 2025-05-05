@@ -25,6 +25,7 @@ proc generate_collections {suffix elements} {
         $rd zadd zset$suffix $j $val
         $rd sadd set$suffix $val
         $rd xadd stream$suffix * item 1 value $val
+        $rd vadd vset$suffix VALUES 3 1 1 1 $j
     }
     for {set j 0} {$j < $elements * 7} {incr j} {
         $rd read ; # Discard replies
