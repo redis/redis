@@ -1794,7 +1794,7 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         void *vector = RedisModule_LoadStringBuffer(rdb, &vector_len);
         if (RedisModule_IsIOError(rdb)) {
             RedisModule_FreeString(NULL,ele);
-            RedisModule_FreeString(NULL,attrib);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
             goto ioerr;
         }
         uint32_t vector_bytes = hnsw_quants_bytes(vset->hnsw);
@@ -1808,7 +1808,7 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         uint32_t params_count = RedisModule_LoadUnsigned(rdb);
         if (RedisModule_IsIOError(rdb)) {
             RedisModule_FreeString(NULL,ele);
-            RedisModule_FreeString(NULL,attrib);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
             RedisModule_Free(vector);
             goto ioerr;
         }
@@ -1820,7 +1820,7 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         }
         if (RedisModule_IsIOError(rdb)) {
             RedisModule_FreeString(NULL,ele);
-            RedisModule_FreeString(NULL,attrib);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
             RedisModule_Free(vector);
             RedisModule_Free(params);
             goto ioerr;
