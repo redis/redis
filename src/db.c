@@ -369,53 +369,52 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
         link = kvstoreDictFindLink(db->keys, slot, key->ptr, NULL);
         serverAssertWithInfo(NULL, key, link != NULL); /* expected to exist */
     }
-    kvobj *kvOld = dictGetKV(*link);
+    kvobj *old = dictGetKV(*link);
     kvobj *kvNew;
 
 
     /* Remove kvOld key from keysizes histogram */
-    updateKeysizesHist(db, slot, kvOld->type, getObjectLength(kvOld), -1); /* remove hist */
+    updateKeysizesHist(db, slot, old->type, getObjectLength(old), -1); /* remove hist */
 
     /* if hash with HFEs, take care to remove from global HFE DS before attempting 
      * to manipulate and maybe free kvOld object */
-    if (kvOld->type == OBJ_HASH)
-        hashTypeRemoveFromExpires(&db->hexpires, kvOld);
+    if (old->type == OBJ_HASH)
+        hashTypeRemoveFromExpires(&db->hexpires, old);
 
     if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
-         * need to incr to retain kvOld */
-        incrRefCount(kvOld);
+         * need to incr to retain old */
+        incrRefCount(old);
         /* Although the key is not really deleted from the database, we regard
          * overwrite as two steps of unlink+add, so we still need to call the unlink
          * callback of the module. */
-        moduleNotifyKeyUnlink(key, kvOld, db->id, DB_FLAG_KEY_OVERWRITE);
+        moduleNotifyKeyUnlink(key,old,db->id,DB_FLAG_KEY_OVERWRITE);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
-        signalDeletedKeyAsReady(db, key, kvOld->type);
-        decrRefCount(kvOld);
-
-        /* Because of RM_StringDMA, kvOld may be changed, so we need get kvOld again */
-        kvOld = dictGetKV(*link);
+        signalDeletedKeyAsReady(db,key,old->type);
+        decrRefCount(old);
+        /* Because of RM_StringDMA, old may be changed, so we need get old again */
+        old = dictGetKV(*link);
     }
 
-    if ((kvOld->refcount == 1 && kvOld->encoding != OBJ_ENCODING_EMBSTR) &&
+    if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
         (val->refcount == 1 && val->encoding != OBJ_ENCODING_EMBSTR)) {
         /* Keep old object in the database. Just swap it's ptr, type and
          * encoding with the content of val. */
-        robj tmp = *kvOld;
-        kvOld->type = val->type;
-        kvOld->encoding = val->encoding;
-        kvOld->ptr = val->ptr;
+        robj tmp = *old;
+        old->type = val->type;
+        old->encoding = val->encoding;
+        old->ptr = val->ptr;
         val->type = tmp.type;
         val->encoding = tmp.encoding;
         val->ptr = tmp.ptr;
         /* Set new to old to keep the old object. Set old to val to be freed below. */
-        kvNew = kvOld;
-        kvOld = val;
+        kvNew = old;
+        old = val;
     } else {
         /* Replace the old value at its location in the key space. */
-        val->lru = kvOld->lru;
+        val->lru = old->lru;
         /* Update expire reference if needed */
-        long long expire = getExpire(db, key->ptr, kvOld);
+        long long expire = getExpire(db, key->ptr, old);
         kvNew = kvobjSet(key->ptr, val, expire);
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
@@ -431,9 +430,9 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
     updateKeysizesHist(db, slot, kvNew->type, -1, getObjectLength(kvNew));
 
     if (server.lazyfree_lazy_server_del) {
-        freeObjAsync(key, kvOld, db->id);
+        freeObjAsync(key, old, db->id);
     } else {
-        decrRefCount(kvOld);
+        decrRefCount(old);
     }
     *valref = kvNew;
 }
