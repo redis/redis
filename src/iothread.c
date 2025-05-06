@@ -373,7 +373,7 @@ static inline void sendPendingClientsToIOThreadIfNeeded(IOThread *t, int size_ch
  * when processing script command, it may call processEventsWhileBlocked to
  * process new events, if the clients with fired events from the same io thread,
  * it may call this function reentrantly. */
-int processClientsFromIOThread(IOThread *t) {    
+int processClientsFromIOThread(IOThread *t) {
     /* Get the list of clients to process. */
     pthread_mutex_lock(&mainThreadPendingClientsMutexes[t->id]);
     listJoin(mainThreadProcessingClients[t->id], mainThreadPendingClients[t->id]);

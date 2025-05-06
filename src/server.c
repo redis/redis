@@ -1928,7 +1928,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* Set running after waking up */
-    atomicSetWithSync(server.running, 1);
+    if (server.io_threads_num > 1) atomicSetWithSync(server.running, 1);
 
     /* Update the time cache. */
     updateCachedTime(1);
