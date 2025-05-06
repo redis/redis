@@ -85,7 +85,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    dictEntLink link = NULL;
+    dictEntryLink link = NULL;
     found = (lookupKeyWriteWithLink(c->db,key,&link) != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
@@ -453,7 +453,7 @@ void setrangeCommand(client *c) {
         return;
     }
 
-    dictEntLink link;
+    dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
     if (kv == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
@@ -602,7 +602,7 @@ void msetnxCommand(client *c) {
 void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *new;
-    dictEntLink link; 
+    dictEntryLink link; 
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
@@ -663,7 +663,7 @@ void decrbyCommand(client *c) {
 void incrbyfloatCommand(client *c) {
     long double incr, value;
 
-    dictEntLink link;
+    dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK ||
@@ -698,7 +698,7 @@ void appendCommand(client *c) {
     robj *append;
     kvobj *o;
 
-    dictEntLink link;
+    dictEntryLink link;
     o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (o == NULL) {
         /* Create the key */

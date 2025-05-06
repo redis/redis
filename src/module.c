@@ -11112,7 +11112,7 @@ typedef struct RedisModuleScanCursor{
     int done;
 }RedisModuleScanCursor;
 
-static void moduleScanCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+static void moduleScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     ScanCBData *data = privdata;
     kvobj *keyvalObj = dictGetKey(de);
@@ -11227,7 +11227,7 @@ typedef struct {
     RedisModuleScanKeyCB fn;
 } ScanKeyCBData;
 
-static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     ScanKeyCBData *data = privdata;
     sds key = dictGetKey(de);

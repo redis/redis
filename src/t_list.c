@@ -465,7 +465,7 @@ void listTypeDelRange(robj *subject, long start, long count) {
  * 'xx': push if key exists. */
 void pushGenericCommand(client *c, int where, int xx) {
     unsigned long llen;
-    dictEntLink link;
+    dictEntryLink link;
     int j;
 
     kvobj *lobj = lookupKeyWriteWithLink(c->db, c->argv[1], &link);

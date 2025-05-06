@@ -3376,7 +3376,7 @@ int calculateKeySlot(sds key);
 int dbExpand(redisDb *db, uint64_t db_size, int try_expand);
 int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand);
 kvobj *dbFind(redisDb *db, sds key);
-kvobj *dbFindByLink(redisDb *db, sds key, dictEntLink *link);
+kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *link);
 kvobj *dbFindExpires(redisDb *db, sds key);
 unsigned long long dbSize(redisDb *db);
 unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata);
@@ -3587,12 +3587,12 @@ void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, sds key, kvobj *kv);
 long long getExpire(redisDb *db, sds key, kvobj *kv);
 kvobj *setExpire(client *c, redisDb *db, robj *key, long long when);
-kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntLink link);
+kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntryLink link);
 int checkAlreadyExpired(long long when);
 int parseExtendedExpireArgumentsOrReply(client *c, int *flags);
 kvobj *lookupKeyRead(redisDb *db, robj *key);
 kvobj *lookupKeyWrite(redisDb *db, robj *key);
-kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntLink *link);
+kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link);
 kvobj *lookupKeyReadOrReply(client *c, robj *key, robj *reply);
 kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply);
 kvobj *lookupKeyReadWithFlags(redisDb *db, robj *key, int flags);
@@ -3612,10 +3612,10 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntLink *link);
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal);
-void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntLink link);
+void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
 #define SETKEY_KEEPTTL 1
 #define SETKEY_NO_SIGNAL 2
@@ -3623,13 +3623,13 @@ void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntLink link
 #define SETKEY_DOESNT_EXIST 8
 
 void setKey(client *c, redisDb *db, robj *key, robj **ioval, int flags);
-void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntLink *link);
+void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntryLink *link);
 robj *dbRandomKey(redisDb *db);
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
 kvobj *dbUnshareStringValue(redisDb *db, robj *key, kvobj *o);
-kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntLink link);
+kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLink link);
 
 #define FLUSH_TYPE_ALL   0
 #define FLUSH_TYPE_DB    1

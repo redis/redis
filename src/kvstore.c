@@ -871,7 +871,7 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
  *      else
  *          kvstoreDictSetAtLink(kvs, didx, kv, &bucket, 1); // Insert new entry
  */
-dictEntLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntLink *bucket) {
+dictEntryLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntryLink *bucket) {
     if (bucket) *bucket = NULL;    
     dict *d = kvstoreGetDict(kvs, didx);
     if (!d) return NULL;
@@ -891,7 +891,7 @@ dictEntLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntLink *
  * newItem: - If set, add a new key with a new dictEntry.
  *          - If not set, update the key of an existing dictEntry.
  */
-void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntLink *link, int newItem) {
+void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link, int newItem) {
     dict *d;
     if (newItem) {
         d = createDictIfNeeded(kvs, didx);
@@ -924,14 +924,14 @@ void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val) {
     dictSetVal(d, de, val);
 }
 
-dictEntLink kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, int *table_index) {
+dictEntryLink kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, int *table_index) {
     dict *d = kvstoreGetDict(kvs, didx);
     if (!d)
         return NULL;
     return dictTwoPhaseUnlinkFind(kvstoreGetDict(kvs, didx), key, table_index);
 }
 
-void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntLink link, int table_index) {
+void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntryLink link, int table_index) {
     dict *d = kvstoreGetDict(kvs, didx);
     dictTwoPhaseUnlinkFree(d, link, table_index);
     cumulativeKeyCountAdd(kvs, didx, -1);

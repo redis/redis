@@ -497,7 +497,7 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
 static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit, 
                                        size_t *strOldSize, size_t *strGrowSize) 
 {
-    dictEntLink link;
+    dictEntryLink link;
     size_t byte = maxbit >> 3;
     kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return NULL;

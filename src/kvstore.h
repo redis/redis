@@ -94,14 +94,14 @@ unsigned long kvstoreDictLUTDefrag(kvstore *kvs, unsigned long cursor, kvstoreDi
 void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key);
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing);
-dictEntLink kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, int *table_index);
-void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntLink plink, int table_index);
+dictEntryLink kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, int *table_index);
+void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntryLink plink, int table_index);
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
 kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx);
 kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs);
 
-dictEntLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntLink *bucket);
-void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntLink *link, int newItem);
+dictEntryLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntryLink *bucket);
+void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link, int newItem);
 
 /* dict with distinct key & value (no_value=1) currently is used only by pubsub. */
 void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key);

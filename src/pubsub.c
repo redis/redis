@@ -243,8 +243,8 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     unsigned int slot = 0;
 
     /* Add the channel to the client -> channels hash table */
-    dictEntLink bucket;
-    dictEntLink link = dictFindLink(type.clientPubSubChannels(c),channel,&bucket);
+    dictEntryLink bucket;
+    dictEntryLink link = dictFindLink(type.clientPubSubChannels(c),channel,&bucket);
     if (link == NULL) { /* Not yet subscribed to this channel */
         retval = 1;
         /* Add the client to the channel -> list of clients hash table */

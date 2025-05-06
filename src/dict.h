@@ -29,7 +29,7 @@
 
 typedef struct dictEntry dictEntry; /* opaque */
 typedef struct dict dict;
-typedef dictEntry **dictEntLink; /* See description of dictFindLink() */
+typedef dictEntry **dictEntryLink; /* See description of dictFindLink() */
 
 /* Searching for a key in a dict may involve few comparisons.
  * If extracting the looked-up key is expensive (e.g., sdslen(), kvobjGetKey()),  
@@ -224,8 +224,8 @@ int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);
 dictEntry *dictUnlink(dict *d, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
-dictEntLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index);
-void dictTwoPhaseUnlinkFree(dict *d, dictEntLink llink, int table_index);
+dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index);
+void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink llink, int table_index);
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
 int dictShrinkIfNeeded(dict *d);
@@ -261,8 +261,8 @@ dictStats* dictGetStatsHt(dict *d, int htidx, int full);
 void dictCombineStats(dictStats *from, dictStats *into);
 void dictFreeStats(dictStats *stats);
 
-dictEntLink dictFindLink(dict *d, const void *key, dictEntLink *bucket);
-void dictSetKeyAtLink(dict *d, void *key, dictEntLink *link, int newItem);
+dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket);
+void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem);
 
 /* API relevant only when dict is used as a hash-map (no_value=0) */ 
 void dictSetKey(dict *d, dictEntry* de, void *key);

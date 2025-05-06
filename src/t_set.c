@@ -127,7 +127,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
         /* Avoid duping the string if it is an sds string. */
         sds sdsval = str_is_sds ? (sds)str : sdsnewlen(str, len);
         dict *ht = set->ptr;
-        dictEntLink bucket, link = dictFindLink(ht, sdsval, &bucket);
+        dictEntryLink bucket, link = dictFindLink(ht, sdsval, &bucket);
         if (link == NULL) {
             /* Key doesn't already exist in the set. Add it but dup the key. */
             if (sdsval == str) sdsval = sdsdup(sdsval);
@@ -590,7 +590,7 @@ robj *setTypeDup(robj *o) {
 void saddCommand(client *c) {
     kvobj *set;
     int j, added = 0;
-    dictEntLink link;
+    dictEntryLink link;
 
     set = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
     if (checkType(c,set,OBJ_SET)) return;

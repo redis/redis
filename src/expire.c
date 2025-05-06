@@ -109,7 +109,7 @@ typedef struct {
     int ttl_samples; /* num keys with ttl not yet expired */
 } expireScanData;
 
-void expireScanCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+void expireScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     kvobj *kv = dictGetKV(de);
     expireScanData *data = privdata;

@@ -40,7 +40,7 @@ typedef enum {
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
-static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dictEntLink link);
+static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dictEntryLink link);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -139,7 +139,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
  * Even if the key expiry is master-driven, we can correctly report a key is
  * expired on replicas even if the master is lagging expiring our key via DELs
  * in the replication link. */
-kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntLink *link) {
+kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
 
     kvobj *val = dbFindByLink(db, key->ptr, link);
 
@@ -236,7 +236,7 @@ kvobj *lookupKeyWrite(redisDb *db, robj *key) {
  *        If key not found, updated to the bucket where the key should be added. 
  *        If key not found and dict is empty, it is set to NULL
  */
-kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntLink *link) {
+kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link) {
     return lookupKey(db, key, LOOKUP_NONE | LOOKUP_WRITE, link);
 }
 
@@ -269,7 +269,7 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * link - Optional link to bucket where the key should be added. 
  *          On return, get updated, by need, to the inserted key.
  */
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntLink *link) {
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
     int slot = getKeySlot(key->ptr);
     robj *val = *valref;
     kvobj *kv = kvobjSet(key->ptr, val, -1);
@@ -324,7 +324,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
     /* Add new kvobj to the db. */
     int slot = getKeySlot(key);
 
-    dictEntLink link, bucket;
+    dictEntryLink link, bucket;
     link = kvstoreDictFindLink(db->keys, slot, key, &bucket);
 
     /* If already exists, return NULL */
@@ -362,7 +362,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
  *   update of a value of an existing key (when false).
  * - The `link` is optional, can save lookup, if provided.
  */
-static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dictEntLink link) {
+static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dictEntryLink link) {
     robj *val = *valref;
     int slot = getKeySlot(key->ptr);
     if (!link) {
@@ -421,7 +421,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
 
         /* Replace the old value at its location in the expire space. */
         if (expire >= 0) {
-            dictEntLink exLink = kvstoreDictFindLink(db->expires, slot, key->ptr, NULL);
+            dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot, key->ptr, NULL);
             serverAssertWithInfo(NULL,key,exLink != NULL);
             kvstoreDictSetAtLink(db->expires, slot, kvNew, &exLink, 0);
         }
@@ -448,7 +448,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj **valref) {
  * 
  * parameter 'link' is optional. If provided, saves lookup.
  */
-void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntLink link) {
+void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link) {
     dbSetValue(db, key, val, 0, link);
 }
 
@@ -479,8 +479,8 @@ void setKey(client *c, redisDb *db, robj *key, robj **valref, int flags) {
  * - If flag is not set (0) then add or update key, and `link` must be NULL
  * On return, link get updated, by need, to the inserted kvobj.
  */
-void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntLink *plink) {
-    dictEntLink dummy = NULL, *link = plink ? plink : &dummy;
+void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntryLink *plink) {
+    dictEntryLink dummy = NULL, *link = plink ? plink : &dummy;
     int exists;
 
     if (flags & SETKEY_ALREADY_EXIST) {
@@ -548,7 +548,7 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Helper for sync and async delete. */
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
-    dictEntLink link;
+    dictEntryLink link;
     int table;
     int slot = getKeySlot(key->ptr);
     link = kvstoreDictTwoPhaseUnlinkFind(db->keys, slot, key->ptr, &table);
@@ -640,7 +640,7 @@ kvobj *dbUnshareStringValue(redisDb *db, robj *key, kvobj *kv) {
 
 /* Like dbUnshareStringValue(), but accepts a optional link,
  * which can be used if we already have one, thus saving the dbFind call. */
-kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *o, dictEntLink link) {
+kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *o, dictEntryLink link) {
     serverAssert(o->type == OBJ_STRING);
     if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
         robj *decoded = getDecodedObject(o);
@@ -1163,7 +1163,7 @@ int objectTypeCompare(robj *o, long long target) {
 }
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
-void scanCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     scanData *data = (scanData *)privdata;
     list *keys = data->keys;
@@ -1800,7 +1800,7 @@ void moveCommand(client *c) {
     expire = kvobjGetExpire(kv);
 
     /* Return zero if the key already exists in the target DB */
-    dictEntLink dstBucket;
+    dictEntryLink dstBucket;
     if (lookupKey(dst, c->argv[1], LOOKUP_WRITE, &dstBucket) != NULL)  {
         addReply(c,shared.czero);
         return;
@@ -2139,7 +2139,7 @@ void swapdbCommand(client *c) {
 int removeExpire(redisDb *db, robj *key) {
     int table;
     int slot = getKeySlot(key->ptr);
-    dictEntLink link = kvstoreDictTwoPhaseUnlinkFind(db->expires, slot, key->ptr, &table);
+    dictEntryLink link = kvstoreDictTwoPhaseUnlinkFind(db->expires, slot, key->ptr, &table);
 
     if (link == NULL) return 0;
     dictEntry *de = *link;
@@ -2160,7 +2160,7 @@ kvobj *setExpire(client *c, redisDb *db, robj *key, long long when) {
 }
 
 /* Like setExpire(), but accepts an optional `keyLink` to save lookup */
-kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntLink keyLink) {
+kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntryLink keyLink) {
     /* Reuse the sds from the main dict in the expire dict */
     int slot = getKeySlot(key);
     if (!keyLink) {
@@ -2453,9 +2453,9 @@ kvobj *dbFind(redisDb *db, sds key) {
  *         If not found, set to the bucket where the key should be added.
  *         If set to NULL, then HT of dict not allocated yet.
  */
-kvobj *dbFindByLink(redisDb *db, sds key, dictEntLink *plink) {
+kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *plink) {
     int slot = getKeySlot(key);
-    dictEntLink link, bucket;
+    dictEntryLink link, bucket;
 
     link = kvstoreDictFindLink(db->keys, slot, key, &bucket);
     if (link == NULL) {

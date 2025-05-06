@@ -1415,7 +1415,7 @@ invalid:
 /* PFADD var ele ele ele ... ele => :0 or :1 */
 void pfaddCommand(client *c) {
     uint64_t oldLen;
-    dictEntLink link;
+    dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
     
     struct hllhdr *hdr;
@@ -1584,7 +1584,7 @@ void pfmergeCommand(client *c) {
     }
 
     /* Create / unshare the destination key's value if needed. */
-    dictEntLink link;
+    dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link); 
     if (kv == NULL) {
         /* Create the key with a string value of the exact length to

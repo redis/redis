@@ -375,13 +375,13 @@ void activeDefragZsetEntry(zset *zs, dictEntry *de) {
 #define DEFRAG_SDS_DICT_VAL_VOID_PTR 3
 #define DEFRAG_SDS_DICT_VAL_LUA_SCRIPT 4
 
-void activeDefragSdsDictCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+void activeDefragSdsDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     UNUSED(privdata);
     UNUSED(de);
 }
 
-void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     dict *d = privdata;
     hfield newhf, hf = dictGetKey(de);
@@ -517,7 +517,7 @@ typedef struct {
     zset *zs;
 } scanLaterZsetData;
 
-void scanLaterZsetCallback(void *privdata, const dictEntry *_de, dictEntLink plink) {
+void scanLaterZsetCallback(void *privdata, const dictEntry *_de, dictEntryLink plink) {
     UNUSED(plink);
     dictEntry *de = (dictEntry*)_de;
     scanLaterZsetData *data = privdata;
@@ -535,7 +535,7 @@ void scanLaterZset(robj *ob, unsigned long *cursor) {
 }
 
 /* Used as scan callback when all the work is done in the dictDefragFunctions. */
-void scanCallbackCountScanned(void *privdata, const dictEntry *de, dictEntLink plink) {
+void scanCallbackCountScanned(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     UNUSED(privdata);
     UNUSED(de);
@@ -807,8 +807,8 @@ void defragModule(defragKeysCtx *ctx, redisDb *db, kvobj *kv) {
 
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. */
-void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntLink link) {
-    dictEntLink exlink = NULL;
+void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
+    dictEntryLink exlink = NULL;
     kvobj *kvnew, *ob = dictGetKV(de);
     redisDb *db = &server.db[ctx->dbid];
     int slot = ctx->kvstate.slot;
@@ -896,7 +896,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntLink link) {
 }
 
 /* Defrag scan callback for the main db dictionary. */
-static void dbKeysScanCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+static void dbKeysScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     long long hits_before = server.stat_active_defrag_hits;
     defragKey((defragKeysCtx *)privdata, (dictEntry *)de, plink);
     if (server.stat_active_defrag_hits != hits_before)
@@ -941,7 +941,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
 }
 
 /* Defrag scan callback for the pubsub dictionary. */
-void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntLink plink) {
+void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     defragPubSubCtx *ctx = privdata;
     kvstore *pubsub_channels = ctx->kvstate.kvs;

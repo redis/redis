@@ -67,12 +67,12 @@ static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
-static dictEntLink dictGetNextLink(dictEntry *de);
+static dictEntryLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
-static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *bucket);
-dictEntLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
-static dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntLink link);
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
+dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
+static dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link);
 
 /* -------------------------- unused  --------------------------- */
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);
@@ -528,8 +528,8 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
  * call to dictFindLinkForInsert(). This is a low level function which allows
  * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
  * used instead. It assumes that dictExpandIfNeeded() was called before. */
-dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntLink link) {
-    dictEntLink bucket = link; /* It's a bucket, but the API hides that. */
+dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link) {
+    dictEntryLink bucket = link; /* It's a bucket, but the API hides that. */
     dictEntry *entry;
     /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
      * Assert that the provided bucket is the right table. */
@@ -744,13 +744,13 @@ void dictRelease(dict *d)
 
 /* Finds a given key. Like dictFindLink(), yet search bucket even if dict is empty. 
  * 
- * Returns dictEntLink reference if found. Otherwise, return NULL.
+ * Returns dictEntryLink reference if found. Otherwise, return NULL.
  * 
  * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
  */
-static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *bucket) {
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
     dictCmpCache cmpCache;
-    dictEntLink link;
+    dictEntryLink link;
     uint64_t idx;
     int table;
     
@@ -795,21 +795,21 @@ static dictEntLink dictFindLinkInternal(dict *d, const void *key, dictEntLink *b
 
 dictEntry *dictFind(dict *d, const void *key)
 {
-    dictEntLink link = dictFindLink(d, key, NULL);
+    dictEntryLink link = dictFindLink(d, key, NULL);
     return (link) ? *link : NULL;
 }
 
-/* Find a key and return its dictEntLink reference. Otherwise, return NULL
+/* Find a key and return its dictEntryLink reference. Otherwise, return NULL
  * 
- * A dictEntLink pointer being used to find preceding dictEntry of searched item. 
+ * A dictEntryLink pointer being used to find preceding dictEntry of searched item. 
  * It is Useful for deletion, addition, unlinking and updating, especially for 
  * dict configured with 'no_value'. In such cases returning only `dictEntry` from 
  * a lookup may be insufficient since it might be opt-out to be the object itself. 
- * By locating preceding dictEntry (dictEntLink) these ops can be properly handled. 
+ * By locating preceding dictEntry (dictEntryLink) these ops can be properly handled. 
  * 
  * After calling link = dictFindLink(...), any necessary updates based on returned 
  * link or bucket must be performed immediately after by calling dictSetKeyAtLink() 
- * without any intervening operations on given dict. Otherwise, `dictEntLink` may 
+ * without any intervening operations on given dict. Otherwise, `dictEntryLink` may 
  * become invalid. Example with kvobj of replacing key with new key:
  * 
  *      link = dictFindLink(d, key, &bucket, 0);
@@ -827,7 +827,7 @@ dictEntry *dictFind(dict *d, const void *key)
  *  
  *  bucket - return link to bucket that the key was mapped. unless dict is empty.
  */
-dictEntLink dictFindLink(dict *d, const void *key, dictEntLink *bucket) {
+dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
     if (bucket) *bucket = NULL;
     if (unlikely(dictSize(d) == 0))
         return NULL;
@@ -845,8 +845,8 @@ dictEntLink dictFindLink(dict *d, const void *key, dictEntLink *bucket) {
  * newItem: 1 = Add a key with a new dictEntry.
  *          0 = Set a key to an existing dictEntry. 
  */
-void dictSetKeyAtLink(dict *d, void *key, dictEntLink *link, int newItem) {
-    dictEntLink dummy = NULL;
+void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
+    dictEntryLink dummy = NULL;
     if (link == NULL) link = &dummy;
     void *addedKey = (d->type->keyDup) ? d->type->keyDup(d, key) : key;
     
@@ -858,7 +858,7 @@ void dictSetKeyAtLink(dict *d, void *key, dictEntLink *link, int newItem) {
         
         /* Lookup key's link if tables reallocated or if given link is set to NULL */
         if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
-            dictEntLink bucket;
+            dictEntryLink bucket;
             /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
             dictUseStoredKeyApi(d, 1);
             *link = dictFindLinkInternal(d, key, &bucket);
@@ -906,7 +906,7 @@ void *dictFetchValue(dict *d, const void *key) {
  *
  * We can use like this:
  *
- * dictEntLink link = dictTwoPhaseUnlinkFind(db->dict,key->ptr, &table);
+ * dictEntryLink link = dictTwoPhaseUnlinkFind(db->dict,key->ptr, &table);
  * // Do something, but we can't modify the dict
  * dictTwoPhaseUnlinkFree(db->dict, link, table); // We don't need to lookup again
  *
@@ -914,7 +914,7 @@ void *dictFetchValue(dict *d, const void *key) {
  * dictFind followed by dictDelete. i.e. the first API is a find, and it gives some info
  * to the second one to avoid repeating the lookup
  */
-dictEntLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index) {
+dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index) {
     dictCmpCache cmpCache;
     uint64_t h, idx, table;
 
@@ -942,7 +942,7 @@ dictEntLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index) {
     return NULL;
 }
 
-void dictTwoPhaseUnlinkFree(dict *d, dictEntLink plink, int table_index) {
+void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink plink, int table_index) {
     if (plink == NULL || *plink == NULL) return;
     dictEntry *de = *plink;
     d->ht_used[table_index]--;
@@ -1043,7 +1043,7 @@ static dictEntry *dictGetNext(const dictEntry *de) {
 
 /* Returns a pointer to the 'next' field in the entry or NULL if the entry
  * doesn't have a next field. */
-static dictEntLink dictGetNextLink(dictEntry *de) {
+static dictEntryLink dictGetNextLink(dictEntry *de) {
     if (entryIsKey(de)) return NULL;
     if (entryIsNoValue(de)) return &decodeEntryNoValue(de)->next;
     return &de->next;
@@ -1705,7 +1705,7 @@ static signed char _dictNextExp(unsigned long size)
  * be inserted using dictInsertKeyAtLink() if the key does not already exist in
  * the dict. If the key exists in the dict, NULL is returned and the optional
  * 'existing' entry pointer is populated, if provided. */
-dictEntLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing) {
+dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing) {
     unsigned long idx, table;
     dictCmpCache cmpCache;
     dictEntry *he;
@@ -2262,7 +2262,7 @@ int dictTest(int argc, char **argv, int flags) {
         dict *d = dictCreate(&dt);
         
         /* find in empty dict */
-        dictEntLink link = dictFindLink(d, "key", NULL);
+        dictEntryLink link = dictFindLink(d, "key", NULL);
         assert(link == NULL);
 
         /* Add keys to dict and test */
@@ -2272,7 +2272,7 @@ int dictTest(int argc, char **argv, int flags) {
             retval = dictAdd(d, key, (void*)j);
             assert(retval == DICT_OK);
             /* find existing keys with dictFindLink() */
-            dictEntLink link = dictFindLink(d, key, NULL);
+            dictEntryLink link = dictFindLink(d, key, NULL);
             assert(link != NULL);
             assert(*link != NULL);
             assert(dictGetKey(*link) != NULL);
@@ -2287,7 +2287,7 @@ int dictTest(int argc, char **argv, int flags) {
             assert(link == NULL);
 
             /* Test with bucket parameter */
-            dictEntLink bucket = NULL;
+            dictEntryLink bucket = NULL;
             link = dictFindLink(d, key, &bucket);
             assert(link != NULL);
             assert(bucket != NULL);

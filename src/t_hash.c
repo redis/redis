@@ -974,7 +974,7 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
         dict *ht = o->ptr;
         dictEntry *de;
         /* check if field already exists */
-        dictEntLink bucket, link = dictFindLink(ht, field, &bucket);
+        dictEntryLink bucket, link = dictFindLink(ht, field, &bucket);
         /* check if field already exists */
         if (link == NULL) {
             hfield newField = hfieldNew(field, sdslen(field), 0);
@@ -1518,7 +1518,7 @@ hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi) {
 }
 
 static kvobj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
-    dictEntLink link;
+    dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db, key, &link);
     if (checkType(c, kv, OBJ_HASH)) return NULL;
 
@@ -2331,7 +2331,7 @@ void hsetexCommand(client *c) {
     long long expire_time = EB_EXPIRE_TIME_INVALID;
     unsigned long oldlen, newlen;
     HashTypeSetEx setex;
-    dictEntLink link;
+    dictEntryLink link;
 
     if (hsetexParseArgs(c, &flags, &expire_time, &expire_time_pos,
                         &first_field_pos, &field_count) != C_OK)
