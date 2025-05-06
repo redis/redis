@@ -93,7 +93,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily 
-               dbAdd() empty collection, and only after add elements. */
+             * dbAdd() empty collection, and only after add elements. */
 
             if (dictMeta) {
                 dictMeta->keysizes_hist[type][0]--;
@@ -115,7 +115,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily 
-               dbAdd() empty collection, and only after add elements. */
+             * dbAdd() empty collection, and only after add elements. */
             
             if (dictMeta) dictMeta->keysizes_hist[type][0]++;
             kvstoreMeta->keysizes_hist[type][0]++;
@@ -556,10 +556,9 @@ int dbDelete(redisDb *db, robj *key) {
  * typically in cases where a command flow deletes elements from a collection
  * and then deletes the collection itself. In such cases, using dbDelete()
  * would incorrectly decrement bin #0. A corresponding test should be added
- * to `info-keysizes.tcl`.
- */
+ * to `info-keysizes.tcl`. */
 int dbDeleteSkipKeysizesUpdate(redisDb *db, robj *key) {
-    return dbGenericDelete(db, key,server.lazyfree_lazy_server_del,
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del,
                     DB_FLAG_KEY_DELETED | DB_FLAG_NO_UPDATE_KEYSIZES);
 }
 
