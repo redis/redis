@@ -179,6 +179,19 @@ sds getTempAofManifestFileName(void) {
                 server.aof_filename, MANIFEST_NAME_SUFFIX);
 }
 
+sds appendAofInfoFromList(sds buf, list *aofList) {
+    listNode *ln;
+    listIter li;
+
+    listRewind(aofList, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo*)ln->value;
+        buf = aofInfoFormat(buf, ai);
+    }
+
+    return buf;
+}
+
 /* Returns the string representation of aofManifest pointed to by am.
  *
  * The string is multiple lines separated by '\n', and each line represents
@@ -208,18 +221,10 @@ sds getAofManifestAsString(aofManifest *am) {
     }
 
     /* 2. Add HISTORY type AOF information. */
-    listRewind(am->history_aof_list, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        aofInfo *ai = (aofInfo*)ln->value;
-        buf = aofInfoFormat(buf, ai);
-    }
+    buf = appendAofInfoFromList(buf, am->history_aof_list);
 
     /* 3. Add INCR type AOF information. */
-    listRewind(am->incr_aof_list, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        aofInfo *ai = (aofInfo*)ln->value;
-        buf = aofInfoFormat(buf, ai);
-    }
+    buf = appendAofInfoFromList(buf, am->incr_aof_list);
 
     return buf;
 }
