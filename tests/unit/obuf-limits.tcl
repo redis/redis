@@ -37,7 +37,9 @@ start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
 
         set omem 0
         while 1 {
-            r publish foo bar
+            # The larger content size ensures that client.buf gets filled more quickly,
+            # allowing us to correctly observe the gradual increase of `omem`
+            r publish foo [string repeat bar 50]
             set clients [split [r client list] "\r\n"]
             set c [split [lindex $clients 1] " "]
             if {![regexp {omem=([0-9]+)} $c - omem]} break

@@ -55,7 +55,7 @@ all: vset.so
 
 vset.xo: ../../src/redismodule.h expr.c
 
-vset.so: vset.xo hnsw.xo cJSON.xo
+vset.so: vset.xo hnsw.xo
 	$(CC) -o $@ $^ $(SHOBJ_LDFLAGS) $(LIBS) $(SAN) -lc
 
 # Example sources / objects
@@ -75,6 +75,9 @@ $(TARGET): $(OBJS)
 # Compilation rule for object files
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
+
+expr-test: expr.c fastjson.c fastjson_test.c
+	$(CC) $(CFLAGS) expr.c -o expr-test -DTEST_MAIN -lm
 
 # Clean rule
 clean:

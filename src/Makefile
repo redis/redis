@@ -320,7 +320,7 @@ endif
 
 ifneq ($(SKIP_VEC_SETS),yes)
 	vpath %.c ../modules/vector-sets
-	REDIS_VEC_SETS_OBJ=hnsw.o cJSON.o vset.o
+	REDIS_VEC_SETS_OBJ=hnsw.o vset.o
 	FINAL_CFLAGS+=-DINCLUDE_VEC_SETS=1
 endif
 
