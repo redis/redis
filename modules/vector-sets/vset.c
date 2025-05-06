@@ -1840,7 +1840,8 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         RedisModule_Free(vector);
         RedisModule_Free(params);
     }
-    hnsw_deserialize_index(vset->hnsw);
+    if (!hnsw_deserialize_index(vset->hnsw)) goto ioerr;
+
     return vset;
 
 ioerr:
