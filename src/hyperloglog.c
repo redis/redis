@@ -1432,7 +1432,7 @@ void pfaddCommand(client *c) {
 
     /* HLL might change from sparse to dense. No way to predict KEYSIZES diff. 
      * Update as if the key is being removed. After the for-loop update it back */ 
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, stringObjectLen(o), -1);
+    int64_t oldlen = stringObjectLen(o);
 
     /* Perform the low level ADD operation for every element. */
     for (j = 2; j < c->argc; j++) {
@@ -1447,8 +1447,8 @@ void pfaddCommand(client *c) {
             return;
         }
     }
-    
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, -1, stringObjectLen(o));
+
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
     hdr = o->ptr;
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
