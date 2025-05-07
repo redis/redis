@@ -714,7 +714,7 @@ void appendCommand(client *c) {
         o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
         totlen = sdslen(o->ptr);
         int64_t oldlen = totlen - append_len;
-        updateKeysizesHist(c->db,getKeySlot(c->argv[1]->ptr),OBJ_STRING, oldlen, totlen);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, totlen);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
