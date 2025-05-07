@@ -1156,6 +1156,20 @@ proc memory_usage {key} {
     return $usage
 }
 
+# Test if the server supports the specified command.
+proc server_has_command {cmd} {
+    if { [catch {
+        r $cmd
+    } err] } {
+        set has_it [expr {![string match "ERR unknown command*" $err]}]
+    } else {
+        # Maybe it was not an error at all, since the command has no
+        # arguments.
+        set has_it 1
+    }
+    return $has_it
+}
+
 # forward compatibility, lmap missing in TCL 8.5
 proc lmap args {
     set body [lindex $args end]
