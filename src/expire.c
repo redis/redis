@@ -36,7 +36,6 @@ static double avg_ttl_factor[16] = {0.98, 0.9604, 0.941192, 0.922368, 0.903921, 
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
 int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
-
     if (now < kvobjGetExpire(kv))
         return 0;
 

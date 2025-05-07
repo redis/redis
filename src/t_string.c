@@ -454,7 +454,7 @@ void setrangeCommand(client *c) {
     }
 
     dictEntryLink link;
-    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
+    kvobj *kv = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (kv == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
         if (value_len == 0) {
