@@ -20,6 +20,7 @@
 #include "server.h"
 #include "cluster.h"
 #include "cluster_legacy.h"
+#include "cluster_slot_stats.h"
 #include "endianconv.h"
 #include "connection.h"
 
@@ -1025,6 +1026,7 @@ void clusterInit(void) {
     clusterUpdateMyselfIp();
     clusterUpdateMyselfHostname();
     clusterUpdateMyselfHumanNodename();
+    resetClusterStats();
 
     getRandomHexChars(server.cluster->internal_secret, CLUSTER_INTERNALSECRETLEN);
 }
@@ -4989,6 +4991,9 @@ int clusterAddSlot(clusterNode *n, int slot) {
     if (server.cluster->slots[slot]) return C_ERR;
     clusterNodeSetSlotBit(n,slot);
     server.cluster->slots[slot] = n;
+    /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
+    bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
+    clusterSlotStatReset(slot);
     return C_OK;
 }
 
@@ -5007,6 +5012,7 @@ int clusterDelSlot(int slot) {
     server.cluster->slots[slot] = NULL;
     /* Make owner_not_claiming_slot flag consistent with slot ownership information. */
     bitmapClearBit(server.cluster->owner_not_claiming_slot, slot);
+    clusterSlotStatReset(slot);
     return C_OK;
 }
 
