@@ -11,7 +11,7 @@ Redis is an open-source, in-memory data structure store. People use Redis as a d
 ## Table of contents
 
 - [What is Redis?](#what-is-redis)
-- [Key use cases](#key-use-cases)
+  - [Key use cases](#key-use-cases)
 - [Why choose Redis?](#why-choose-redis)
 - [What is Redis Open Source?](#what-is-redis-open-source)
 - [Getting started](#getting-started)
@@ -43,7 +43,7 @@ Redis is an open-source, in-memory data structure store. People use Redis as a d
 
 For developers, who are building real-time data-driven applications, Redis is the preferred, fastest, and most feature-rich cache, data structure server, and document and vector query engine.
 
-## Key use cases
+### Key use cases
 
 Redis excels in various applications, including:
 
