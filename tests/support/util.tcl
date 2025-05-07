@@ -738,7 +738,8 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
     set list_commands {LINDEX LINSERT LLEN LPOP LPOS LPUSH LPUSHX LRANGE LREM LSET LTRIM RPOP RPOPLPUSH RPUSH RPUSHX}
     set set_commands {SADD SCARD SDIFF SDIFFSTORE SINTER SINTERSTORE SISMEMBER SMEMBERS SMOVE SPOP SRANDMEMBER SREM SSCAN SUNION SUNIONSTORE}
     set stream_commands {XACK XADD XCLAIM XDEL XGROUP XINFO XLEN XPENDING XRANGE XREAD XREADGROUP XREVRANGE XTRIM}
-    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands]
+    set vset_commands {VADD VREM}
+    set commands [dict create string $string_commands hash $hash_commands zset $zset_commands list $list_commands set $set_commands stream $stream_commands vectorset $vset_commands]
 
     set cmds [dict get $commands $type]
     set start_time [clock seconds]
@@ -788,6 +789,18 @@ proc generate_fuzzy_traffic_on_key {key type duration} {
             lappend cmd [randomValue]
             incr i 4
         }
+        if {$cmd == "VADD"} {
+            lappend cmd $key
+            lappend cmd VALUES 3 1 1 1
+            lappend cmd [randomValue]
+            incr i 7
+        }
+        if {$cmd == "VREM"} {
+            lappend cmd $key
+            lappend cmd [randomValue]
+            incr i 2
+        }
+
         for {} {$i < $arity} {incr i} {
             if {$i == $firstkey || $i == $lastkey} {
                 lappend cmd $key
@@ -1142,6 +1155,15 @@ proc memory_usage {key} {
         set usage 1
     }
     return $usage
+}
+
+# Test if the server supports the specified command.
+proc server_has_command {cmd_wanted} {
+    set lowercase_commands {}
+    foreach cmd [r command list] {
+        lappend lowercase_commands [string tolower $cmd]
+    }
+    expr {[lsearch $lowercase_commands [string tolower $cmd_wanted]] != -1}
 }
 
 # forward compatibility, lmap missing in TCL 8.5

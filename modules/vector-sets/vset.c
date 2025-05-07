@@ -1734,15 +1734,15 @@ void VectorSetRdbSave(RedisModuleIO *rdb, void *value) {
     }
 }
 
-/* Load object from RDB. Please note that we don't do any cleanup
- * on errors, and just return NULL, as Redis will abort completely
- * not just the module but the server itself in this case. */
+/* Load object from RDB. Recover from recoverable errors (read errors)
+ * by performing cleanup. */
 void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     if (encver != 0) return NULL;  // Invalid version
 
     uint32_t dim = RedisModule_LoadUnsigned(rdb);
     uint64_t elements = RedisModule_LoadUnsigned(rdb);
     uint32_t hnsw_config = RedisModule_LoadUnsigned(rdb);
+    if (RedisModule_IsIOError(rdb)) return NULL;
     uint32_t quant_type = hnsw_config & 0xff;
     uint32_t hnsw_m = (hnsw_config >> 8) & 0xffff;
 
@@ -1754,22 +1754,21 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
 
     /* Load projection matrix if present */
     uint32_t save_flags = RedisModule_LoadUnsigned(rdb);
+    if (RedisModule_IsIOError(rdb)) goto ioerr;
     int has_projection = save_flags & SAVE_FLAG_HAS_PROJMATRIX;
     int has_attribs = save_flags & SAVE_FLAG_HAS_ATTRIBS;
     if (has_projection) {
         uint32_t input_dim = RedisModule_LoadUnsigned(rdb);
+        if (RedisModule_IsIOError(rdb)) goto ioerr;
         uint32_t output_dim = dim;
         size_t matrix_size = sizeof(float) * input_dim * output_dim;
 
         vset->proj_matrix = RedisModule_Alloc(matrix_size);
-        if (!vset->proj_matrix) {
-            vectorSetReleaseObject(vset);
-            return NULL;
-        }
         vset->proj_input_size = input_dim;
 
         // Load projection matrix as a binary blob
         char *matrix_blob = RedisModule_LoadStringBuffer(rdb, NULL);
+        if (RedisModule_IsIOError(rdb)) goto ioerr;
         memcpy(vset->proj_matrix, matrix_blob, matrix_size);
         RedisModule_Free(matrix_blob);
     }
@@ -1777,9 +1776,14 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     while(elements--) {
         // Load associated string element.
         RedisModuleString *ele = RedisModule_LoadString(rdb);
+        if (RedisModule_IsIOError(rdb)) goto ioerr;
         RedisModuleString *attrib = NULL;
         if (has_attribs) {
             attrib = RedisModule_LoadString(rdb);
+            if (RedisModule_IsIOError(rdb)) {
+                RedisModule_FreeString(NULL,ele);
+                goto ioerr;
+            }
             size_t attrlen;
             RedisModule_StringPtrLen(attrib,&attrlen);
             if (attrlen == 0) {
@@ -1789,6 +1793,11 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         }
         size_t vector_len;
         void *vector = RedisModule_LoadStringBuffer(rdb, &vector_len);
+        if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            goto ioerr;
+        }
         uint32_t vector_bytes = hnsw_quants_bytes(vset->hnsw);
         if (vector_len != vector_bytes) {
             RedisModule_LogIOError(rdb,"warning",
@@ -1798,9 +1807,25 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
 
         // Load node parameters back.
         uint32_t params_count = RedisModule_LoadUnsigned(rdb);
+        if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            goto ioerr;
+        }
+
         uint64_t *params = RedisModule_Alloc(params_count*sizeof(uint64_t));
-        for (uint32_t j = 0; j < params_count; j++)
+        for (uint32_t j = 0; j < params_count; j++) {
+            // Ignore loading errors here: handled at the end of the loop.
             params[j] = RedisModule_LoadUnsigned(rdb);
+        }
+        if (RedisModule_IsIOError(rdb)) {
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            RedisModule_Free(params);
+            goto ioerr;
+        }
 
         struct vsetNodeVal *nv = RedisModule_Alloc(sizeof(*nv));
         nv->item = ele;
@@ -1809,15 +1834,22 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         if (node == NULL) {
             RedisModule_LogIOError(rdb,"warning",
                                        "Vector set node index loading error");
-            return NULL; // Loading error.
+            return NULL; // Loading error: likely a corruption.
         }
         if (nv->attrib) vset->numattribs++;
         RedisModule_DictSet(vset->dict,ele,node);
         RedisModule_Free(vector);
         RedisModule_Free(params);
     }
-    hnsw_deserialize_index(vset->hnsw);
+    if (!hnsw_deserialize_index(vset->hnsw)) goto ioerr;
+
     return vset;
+
+ioerr:
+    /* We want to recover from I/O errors and free the partially allocated
+     * data structure to support diskless replication. */
+    vectorSetReleaseObject(vset);
+    return NULL;
 }
 
 /* Calculate memory usage */
@@ -1944,7 +1976,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_Init(ctx,"vectorset",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
 
-    /* TODO: Added to pass CI, need to make changes in order to support these options */
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS|REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
 
     RedisModuleTypeMethods tm = {
