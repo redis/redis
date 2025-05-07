@@ -1,10 +1,18 @@
 /*
- * Copyright Valkey Contributors.
- * All rights reserved.
- * SPDX-License-Identifier: BSD 3-Clause
- *
  * This file utilizes prefetching keys and data for multiple commands in a batch,
  * to improve performance by amortizing memory access costs across multiple operations.
+ *
+ * Copyright (c) 2025-Present, Redis Ltd. and contributors.
+ * All rights reserved.
+ *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "memory_prefetch.h"
