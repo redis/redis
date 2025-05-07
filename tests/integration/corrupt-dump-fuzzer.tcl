@@ -17,6 +17,7 @@ proc generate_collections {suffix elements} {
     set rd [redis_deferring_client]
     set numcmd 7
     set has_vsets [server_has_command vadd]
+    set has_padd [server_has_command padd]
     if {$has_vsets} {incr numcmd}
 
     for {set j 0} {$j < $elements} {incr j} {

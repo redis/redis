@@ -1157,17 +1157,12 @@ proc memory_usage {key} {
 }
 
 # Test if the server supports the specified command.
-proc server_has_command {cmd} {
-    if { [catch {
-        r $cmd
-    } err] } {
-        set has_it [expr {![string match "ERR unknown command*" $err]}]
-    } else {
-        # Maybe it was not an error at all, since the command has no
-        # arguments.
-        set has_it 1
+proc server_has_command {cmd_wanted} {
+    set lowercase_commands {}
+    foreach cmd [r command list] {
+        lappend lowercase_commands [string tolower $cmd]
     }
-    return $has_it
+    expr {[lsearch $lowercase_commands [string tolower $cmd_wanted]] != -1}
 }
 
 # forward compatibility, lmap missing in TCL 8.5
