@@ -319,7 +319,7 @@ int dictCompareKV(dictCmpCache *cache, const void *kv1, const void *kv2) {
 int dictSdsCompareKV(dictCmpCache *cache, const void *sdsLookup, const void *kv)
 {
     /* is first cmp call of a new lookup */
-    if (unlikely(cache->useCache == 0)) {
+    if (cache->useCache == 0) {
         cache->useCache = 1;
         cache->data[0].sz = sdslen((sds) sdsLookup);
     }
