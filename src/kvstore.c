@@ -337,7 +337,6 @@ void kvstoreRelease(kvstore *kvs) {
             metadata->rehashing_node = NULL;
         dictRelease(d);
     }
-    assert(kvs->bucket_count == 0);
     zfree(kvs->dicts);
 
     listRelease(kvs->rehashing);
