@@ -535,3 +535,27 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
     }
 }
+
+start_cluster 1 0 {tags {external:skip cluster}} {
+    test "Verify that LUT overhead is properly updated when dicts are emptied or reused (issue #13973)" {
+        R 0 set k v ;# Make dbs overhead displayed
+        set info_mem [r memory stats]
+        set overhead_main [dict get $info_mem db.0 overhead.hashtable.main]
+        set overhead_expires [dict get $info_mem db.0 overhead.hashtable.expires]
+        assert_range $overhead_main 1 5000
+        assert_range $overhead_expires 1 1000
+
+        # In cluster mode, we use KVSTORE_FREE_EMPTY_DICTS to ensure that dicts
+        # are freed when they are emptied. This test verifies that after a dict
+        # is cleared, the lut overhead is properly updated, preventing it from 
+        # growing indefinitely.
+        for {set j 1} {$j <= 500} {incr j} {
+            R 0 set k v
+            R 0 del k
+        }
+        R 0 set k v ;# Make dbs overhead displayed
+        set info_mem [r memory stats]
+        assert_equal [dict get $info_mem db.0 overhead.hashtable.main] $overhead_main
+        assert_equal [dict get $info_mem db.0 overhead.hashtable.expires] $overhead_expires
+    }
+}
