@@ -19,7 +19,7 @@ Redis is an open-source, in-memory data structure store. People use Redis as a d
   - [Using Redis with client libraries](#using-redis-with-client-libraries)
   - [Using Redis with redis-cli](#using-redis-with-redis-cli)
   - [Using Redis with Redis Insight](#using-redis-with-redis-insight)
-- [Redis Data types, processing engines, and capabilities](#redis-data-types-processing-engines-and-capabilities)
+- [Redis data types, processing engines, and capabilities](#redis-data-types-processing-engines-and-capabilities)
 - [Community](#community)
 - [Build Redis from source](#build-redis-from-source)
   - [Build and run Redis with all data structures - Ubuntu 20.04 (Focal)](#build-and-run-redis-with-all-data-structures---ubuntu-2004-focal)
@@ -160,7 +160,7 @@ redis>
 
 For a more visual and user-friendly experience, use [Redis Insight](https://redis.io/docs/latest/develop/tools/insight/) - a tool that lets you explore data, design, develop, and optimize your applications while also serving as a platform for Redis education and onboarding. Redis Insight integrates [Redis Copilot](https://redis.io/chat), a natural language AI assistant that improves the experience when working with data and commands.
 
-## Redis Data types, processing engines, and capabilities
+## Redis data types, processing engines, and capabilities
 
 Redis provides a variety of data types, processing engines, and capabilities to support a wide range of use cases:
 
