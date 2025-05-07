@@ -378,7 +378,7 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
     /* Save one call if old and new are the same type */
     if (old->type == val->type) {
         updateKeysizesHist(db, slot, old->type, oldlen, newlen);
-    } else {        
+    } else {
         updateKeysizesHist(db, slot, old->type, oldlen, -1); 
         updateKeysizesHist(db, slot, val->type, -1, newlen);
     }

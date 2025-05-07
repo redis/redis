@@ -638,7 +638,7 @@ void sremCommand(client *c) {
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
         if (keyremoved) {
-            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1],
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);
             newSize = -1; /* removed */
         }
@@ -805,7 +805,7 @@ void spopWithCountCommand(client *c) {
         signalModifiedKey(c,c->db,c->argv[1]);
         return;
     }
-    
+
     /* Case 2 and 3 require to replicate SPOP as a set of SREM commands.
      * Prepare our replication argument vector. Also send the array length
      * which is common to both the code paths. */

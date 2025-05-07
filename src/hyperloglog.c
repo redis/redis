@@ -1860,17 +1860,12 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
-
-            /* No way to predict the KEYSIZES diff. Update as if the key is being 
-             * removed. After hllSparseToDense() update it back */
-
-            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, stringObjectLen(o), -1);
-            
+            int64_t oldlen = (int64_t) stringObjectLen(o);
             if (hllSparseToDense(o) == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
-            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, -1, stringObjectLen(o));
+            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
             conv = 1;
             server.dirty++; /* Force propagation on encoding change. */
         }

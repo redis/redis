@@ -2756,7 +2756,7 @@ void hgetdelCommand(client *c) {
     }
 
     /* Key may have become empty because of deleting fields or lazy expire. */
-    int64_t  newlen = (int64_t) hashTypeLength(o, 0);
+    int64_t newlen = (int64_t) hashTypeLength(o, 0);
     if (newlen == 0) {
         newlen = -1;
         /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
@@ -2922,8 +2922,7 @@ void hgetexCommand(client *c) {
      * or the new expiration time is in the past.*/
     newlen = hashTypeLength(o, 0);
     
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
-                           oldlen, newlen);
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldlen, newlen);
     if (newlen == 0) {
         dbDelete(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
