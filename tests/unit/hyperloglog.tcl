@@ -137,6 +137,57 @@ start_server {tags {"hll"}} {
         set e
     } {*WRONGTYPE*}
 
+    test {Corrupted sparse HyperLogLogs doesn't cause overflow and out-of-bounds with XZERO opcode} {
+        r del hll
+        
+        # Create a sparse-encoded HyperLogLog header
+        set pl [string cat "HYLL" [binary format c12 {1 0 0 0 0 0 0 0 0 0 0 0}]]
+
+        # Create an XZERO opcode with the maximum run length of 16384(2^14)
+        set runlen [expr 16384 - 1]
+        set chunk [binary format cc [expr {0b01000000 | ($runlen >> 8)}] [expr {$runlen & 0xff}]]
+        # Fill the HLL with more than 131072(2^17) XZERO opcodes to make the total
+        # run length exceed 4GB, will cause an integer overflow.
+        set repeat [expr 131072 + 1000]
+        for {set i 0} {$i < $repeat} {incr i} {
+            append pl $chunk
+        }
+
+        # Create a VAL opcode with a value that will cause out-of-bounds.
+        append pl [binary format c 0b11111111]
+        r set hll $pl
+
+        # This should not overflow and out-of-bounds.
+        assert_error {*INVALIDOBJ*} {r pfcount hll hll}
+        assert_error {*INVALIDOBJ*} {r pfdebug getreg hll}
+        r ping
+    }
+
+    test {Corrupted sparse HyperLogLogs doesn't cause overflow and out-of-bounds with ZERO opcode} {
+        r del hll
+        
+        # Create a sparse-encoded HyperLogLog header
+        set pl [string cat "HYLL" [binary format c12 {1 0 0 0 0 0 0 0 0 0 0 0}]]
+
+        # # Create an ZERO opcode with the maximum run length of 64(2^6)
+        set chunk [binary format c [expr {0b00000000 | 0x3f}]]
+        # Fill the HLL with more than 33554432(2^17) ZERO opcodes to make the total
+        # run length exceed 4GB, will cause an integer overflow.
+        set repeat [expr 33554432 + 1000]
+        for {set i 0} {$i < $repeat} {incr i} {
+            append pl $chunk
+        }
+
+        # Create a VAL opcode with a value that will cause out-of-bounds.
+        append pl [binary format c 0b11111111]
+        r set hll $pl
+
+        # This should not overflow and out-of-bounds.
+        assert_error {*INVALIDOBJ*} {r pfcount hll hll}
+        assert_error {*INVALIDOBJ*} {r pfdebug getreg hll}
+        r ping
+    }
+
     test {Corrupted dense HyperLogLogs are detected: Wrong length} {
         r del hll
         r pfadd hll a b c
