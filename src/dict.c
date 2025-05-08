@@ -498,6 +498,12 @@ int dictAdd(dict *d, void *key, void *val)
     return DICT_OK;
 }
 
+int dictCompareKeys(dict *d, const void *key1, const void *key2) {
+    dictCmpCache cache = {0};
+    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
+    return cmpFunc(&cache, key1, key2);
+}
+
 /* Low level add or find:
  * This function adds the entry but instead of setting a value returns the
  * dictEntry structure to the user, that will make sure to fill the value
@@ -1004,6 +1010,10 @@ uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val) {
 double dictIncrDoubleVal(dictEntry *de, double val) {
     assert(entryHasValue(de));
     return de->v.d += val;
+}
+
+int dictEntryIsKey(const dictEntry *de) {
+    return entryIsKey(de);
 }
 
 void *dictGetKey(const dictEntry *de) {

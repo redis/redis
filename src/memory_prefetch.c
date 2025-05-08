@@ -24,8 +24,8 @@ typedef enum { HT_IDX_FIRST = 0, HT_IDX_SECOND = 1, HT_IDX_INVALID = -1 } HashTa
 typedef enum {
     PREFETCH_BUCKET,     /* Initial state, determines which hash table to use and prefetch the table's bucket */
     PREFETCH_ENTRY,      /* prefetch entries associated with the given key's hash */
-    PREFETCH_VALUE,      /* prefetch the value object of the entry found in the previous step */
-    PREFETCH_VALUE_DATA, /* prefetch the value object's data (if applicable) */
+    PREFETCH_KVOBJ,      /* prefetch the key object of the entry found in the previous step */
+    PREFETCH_VALDATA,    /* prefetch the value object of the entry found in the previous step */
     PREFETCH_DONE        /* Indicates that prefetching for this key is complete */
 } PrefetchState;
 
@@ -44,13 +44,13 @@ typedef enum {
                                     ┌────────────►└────────┬────────┘              │
                                     |                 Entry│found                  │
                                     │                      |                       │
-       value not found - goto next entry           ┌───────▼────────┐              |
-                                    └───────◄──────┤ PREFETCH_VALUE |              ▼
-                                                   └───────┬────────┘              │
-                                                      Value│found                  │
-                                                           |                       |
-                                               ┌───────────▼──────────────┐        │
-                                               │    PREFETCH_VALUE_DATA   │        ▼
+                                    |              ┌───────▼────────┐              │
+                                    │              | PREFETCH_KVOBJ |              ▼
+                                    │              └───────┬────────┘              │
+                                    │                      │                       │
+        kvobj not found - goto next entry                  |                       |
+                                    │          ┌───────────▼──────────────┐        │
+                                    └──────◄───│    PREFETCH_VALDATA      │        ▼
                                                └───────────┬──────────────┘        │
                                                            |                       │
                                                  ┌───────-─▼─────────────┐         │
@@ -66,6 +66,7 @@ typedef struct KeyPrefetchInfo {
     uint64_t bucket_idx;      /* Index of the bucket in the current hash table */
     uint64_t key_hash;        /* Hash value of the key being prefetched */
     dictEntry *current_entry; /* Pointer to the current entry being processed */
+    void *current_kv;         /* Pointer to the kv object being prefetched */
 } KeyPrefetchInfo;
 
 /* PrefetchCommandsBatch structure holds the state of the current batch of client commands being processed. */
@@ -83,6 +84,7 @@ typedef struct PrefetchCommandsBatch {
     dict **expire_dicts;            /* Expire dict for each key */
     dict **current_dicts;           /* Points to either keys_dicts or expire_dicts */
     KeyPrefetchInfo *prefetch_info; /* Prefetch info for each key */
+    GetValueDataFunc  get_value_data_func; /* Function to get the value data */
 } PrefetchCommandsBatch;
 
 static PrefetchCommandsBatch *batch = NULL;
@@ -158,8 +160,9 @@ static KeyPrefetchInfo *getNextPrefetchInfo(void) {
     return NULL;
 }
 
-static void initBatchInfo(dict **dicts) {
+static void initBatchInfo(dict **dicts, GetValueDataFunc func) {
     batch->current_dicts = dicts;
+    batch->get_value_data_func = func;
 
     /* Initialize the prefetch info */
     for (size_t i = 0; i < batch->key_count; i++) {
@@ -169,10 +172,12 @@ static void initBatchInfo(dict **dicts) {
             batch->keys_done++;
             continue;
         }
+        serverAssert(batch->current_dicts[i]->type->no_value == 1);
         info->ht_idx = HT_IDX_INVALID;
         info->current_entry = NULL;
+        info->current_kv = NULL;
         info->state = PREFETCH_BUCKET;
-        info->key_hash = dictBucketHashKey(batch->current_dicts[i], batch->keys[i]);
+        info->key_hash = dictGetHash(batch->current_dicts[i], batch->keys[i]);
     }
 }
 
@@ -214,45 +219,44 @@ static void prefetchEntry(KeyPrefetchInfo *info) {
 
     if (info->current_entry) {
         prefetchAndMoveToNextKey(info->current_entry);
-        info->state = PREFETCH_VALUE;
+        info->current_kv = NULL;
+        info->state = PREFETCH_KVOBJ;
     } else {
         /* No entry found in the bucket - try the bucket in the next table */
         info->state = PREFETCH_BUCKET;
     }
 }
 
-/* Prefetch the entry's value. If the value is found, move to the PREFETCH_VALUE_DATA state.
- * If the value is not found, move to the PREFETCH_ENTRY state to look at the next entry in the bucket. */
-static void prefetchValue(KeyPrefetchInfo *info) {
-    size_t i = batch->cur_idx;
-    void *value = dictGetVal(info->current_entry);
+static void prefetchKVOject(KeyPrefetchInfo *info) {
+    kvobj *kv = dictGetKey(info->current_entry);
+    int is_kv = dictEntryIsKey(info->current_entry);
 
-    if (dictGetNext(info->current_entry) == NULL && !dictIsRehashing(batch->current_dicts[i])) {
-        /* If this is the last element, we assume a hit and don't compare the keys */
-        prefetchAndMoveToNextKey(value);
-        info->state = PREFETCH_VALUE_DATA;
-        return;
-    }
+    info->current_kv = kv;
+    info->state = PREFETCH_VALDATA;
 
-    void *current_entry_key = dictGetKey(info->current_entry);
-    if (batch->keys[i] == current_entry_key ||
-        dictCompareKeys(batch->current_dicts[i], batch->keys[i], current_entry_key)) {
-        /* If the key is found, prefetch the value */
-        prefetchAndMoveToNextKey(value);
-        info->state = PREFETCH_VALUE_DATA;
-    } else {
-        /* Move to the next entry */
-        info->state = PREFETCH_ENTRY;
-    }
+    /* If entry just is kvobj, we don't need to prefetch it */
+    if (!is_kv) prefetchAndMoveToNextKey(kv);
 }
 
-/* Prefetch the value data if available. */
-static void prefetchValueData(KeyPrefetchInfo *info, GetValueDataFunc get_val_data_func) {
-    if (get_val_data_func) {
-        void *value_data = get_val_data_func(dictGetVal(info->current_entry));
-        if (value_data) prefetchAndMoveToNextKey(value_data);
+static void prefetchValueData(KeyPrefetchInfo *info) {
+    size_t i = batch->cur_idx;
+    kvobj *kv = info->current_kv;
+    serverAssert(kv != NULL);
+
+    /* 1. If this is the last element, we assume a hit and don't compare the keys
+     * 2. This kvobject is the target of the lookup. */
+    if ((!dictGetNext(info->current_entry) && !dictIsRehashing(batch->current_dicts[i])) ||
+        dictCompareKeys(batch->current_dicts[i], batch->keys[i], kv))
+    {
+        if (batch->get_value_data_func) {
+            void *value_data = batch->get_value_data_func(kv);
+            if (value_data) prefetchAndMoveToNextKey(value_data);
+        }
+        markKeyAsdone(info);
+    } else {
+        /* Not found in the current entry, move to the next entry */
+        info->state = PREFETCH_ENTRY;
     }
-    markKeyAsdone(info);
 }
 
 /* Prefetch dictionary data for an array of keys.
@@ -277,23 +281,23 @@ static void prefetchValueData(KeyPrefetchInfo *info, GetValueDataFunc get_val_da
  * to bring the key's value data closer to the L1 cache as well.
  */
 static void dictPrefetch(dict **dicts, GetValueDataFunc get_val_data_func) {
-    initBatchInfo(dicts);
+    initBatchInfo(dicts, get_val_data_func);
     KeyPrefetchInfo *info;
     while ((info = getNextPrefetchInfo())) {
         switch (info->state) {
         case PREFETCH_BUCKET: prefetchBucket(info); break;
         case PREFETCH_ENTRY: prefetchEntry(info); break;
-        case PREFETCH_VALUE: prefetchValue(info); break;
-        case PREFETCH_VALUE_DATA: prefetchValueData(info, get_val_data_func); break;
+        case PREFETCH_KVOBJ: prefetchKVOject(info); break;
+        case PREFETCH_VALDATA: prefetchValueData(info); break;
         default: serverPanic("Unknown prefetch state %d", info->state);
         }
     }
 }
 
 /* Helper function to get the value pointer of an object. */
-static void *getObjectValuePtr(const void *val) {
-    robj *o = (robj *)val;
-    return (o->type == OBJ_STRING && o->encoding == OBJ_ENCODING_RAW) ? o->ptr : NULL;
+static void *getObjectValuePtr(const void *value) {
+    kvobj *kv = (kvobj *)value;
+    return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
 }
 
 void resetCommandsBatch(void) {

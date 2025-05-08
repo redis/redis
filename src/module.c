@@ -12056,6 +12056,8 @@ void processModuleLoadingProgressEvent(int is_aof) {
 /* When a key is deleted (in dbAsyncDelete/dbSyncDelete/setKey), it
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, kvobj *kv, int dbid, int flags) {
+    if (dictSize(modules) == 0) return;
+
     server.allow_access_expired++;
     int subevent = REDISMODULE_SUBEVENT_KEY_DELETED;
     if (flags & DB_FLAG_KEY_EXPIRED) {

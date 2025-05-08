@@ -181,11 +181,6 @@ typedef struct {
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d), dictGetKey(entry))
 
-#define dictCompareKeys(d, key1, key2) \
-    (((d)->type->keyCompare) ? \
-        (d)->type->keyCompare((d), key1, key2) : \
-        (key1) == (key2))
-
 #define dictMetadata(d) (&(d)->metadata)
 #define dictMetadataSize(d) ((d)->type->dictMetadataBytes \
                              ? (d)->type->dictMetadataBytes(d) : 0)
@@ -200,7 +195,6 @@ typedef struct {
 #define dictPauseAutoResize(d) ((d)->pauseAutoResize++)
 #define dictResumeAutoResize(d) ((d)->pauseAutoResize--)
 #define dictUseStoredKeyApi(d, flag) ((d)->useStoredKeyApi = (flag))
-#define dictBucketHashKey(d, key) ((d)->type->hashFunction(key))
 
 /* If our unsigned long type can store a 64 bit number, use a 64 bit PRNG. */
 #if ULONG_MAX >= 0xffffffffffffffff
@@ -235,6 +229,8 @@ dictEntry * dictFind(dict *d, const void *key);
 int dictShrinkIfNeeded(dict *d);
 int dictExpandIfNeeded(dict *d);
 void *dictGetKey(const dictEntry *de);
+int dictEntryIsKey(const dictEntry *de);
+int dictCompareKeys(dict *d, const void *key1, const void *key2);
 size_t dictMemUsage(const dict *d);
 size_t dictEntryMemUsage(int noValueDict);
 dictIterator *dictGetIterator(dict *d);
