@@ -1414,10 +1414,10 @@ invalid:
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
 void pfaddCommand(client *c) {
-    uint64_t oldLen;
+    uint64_t oldlen;
     dictEntryLink link;
     kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
-    
+
     struct hllhdr *hdr;
     int updated = 0, j;
 
@@ -1432,7 +1432,7 @@ void pfaddCommand(client *c) {
         if (isHLLObjectOrReply(c,kv) != C_OK) return;
         kv = dbUnshareStringValue(c->db,c->argv[1],kv);
     }
-    oldLen = stringObjectLen(kv);
+    oldlen = stringObjectLen(kv);
 
     /* Perform the low level ADD operation for every element. */
     for (j = 2; j < c->argc; j++) {
@@ -1447,13 +1447,14 @@ void pfaddCommand(client *c) {
             return;
         }
     }
+
     hdr = kv->ptr;
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(kv));
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
         server.dirty += updated;
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldLen, stringObjectLen(kv));
     }
     addReply(c, updated ? shared.cone : shared.czero);
 }
@@ -1585,7 +1586,7 @@ void pfmergeCommand(client *c) {
 
     /* Create / unshare the destination key's value if needed. */
     dictEntryLink link;
-    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link); 
+    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (kv == NULL) {
         /* Create the key with a string value of the exact length to
          * hold our HLL data structure. sdsnewlen() when NULL is passed
@@ -1859,10 +1860,12 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
+            int64_t oldlen = (int64_t) stringObjectLen(o);
             if (hllSparseToDense(o) == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
+            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
             conv = 1;
             server.dirty++; /* Force propagation on encoding change. */
         }

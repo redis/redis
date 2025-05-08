@@ -138,6 +138,38 @@ start_server {tags {"modules"}} {
         assert_equal [r hash.hget_min_expire H2] -1
     }
 
+    test {Module hash - KEYSIZES is updated as expected} {
+        proc run_cmd_verify_hist {cmd expOutput {retries 1}} {
+            proc K {} {return [string map { "db0_distrib_hashes_items" "db0_HASH" "# Keysizes" "" " " "" "\n" "" "\r" "" } [r info keysizes] ]}
+            uplevel 1 $cmd    
+            wait_for_condition 50 $retries {
+                $expOutput eq [K]
+            } else { fail "Expected: \n`$expOutput`\n Actual:\n`[K]`.\nFailed after command: $cmd" }
+        }
+        
+        r select 0
+        r flushall
+        # Check RM_HashSet 
+        run_cmd_verify_hist {r hash.set H1 "n" f1 v1} {db0_HASH:1=1}
+        run_cmd_verify_hist {r hash.set H2 "n" f1 v1} {db0_HASH:1=2}
+        run_cmd_verify_hist {r hash.set H2 "n" f1 v1} {db0_HASH:1=2}
+        run_cmd_verify_hist {r hash.set H2 "x" f1 v1} {db0_HASH:1=2}
+        run_cmd_verify_hist {r hash.set H3 "x" f1 v1} {db0_HASH:1=2}
+        run_cmd_verify_hist {r hash.set H1 "n" f2 v2} {db0_HASH:1=1,2=1}
+        run_cmd_verify_hist {r hash.set H1 "a" f3 v3 f4 v4} {db0_HASH:1=1,4=1}
+        run_cmd_verify_hist {r del H1} {db0_HASH:1=1}
+        run_cmd_verify_hist {r del H2} {}        
+        
+        # Check lazy expire
+        r debug set-active-expire 0
+        run_cmd_verify_hist {r hash.set H1 "n" f1 v1} {db0_HASH:1=1}
+        run_cmd_verify_hist {r hpexpire H1 1 FIELDS 1 f1} {db0_HASH:1=1}
+        run_cmd_verify_hist {after 5} {db0_HASH:1=1}
+        run_cmd_verify_hist {r hash.hget_expired H1 f1} {db0_HASH:1=1}
+        r debug set-active-expire 1
+        run_cmd_verify_hist {after 5} {} 50
+    }
+
     test "Unload the module - hash" {
         assert_equal {OK} [r module unload hash]
     }

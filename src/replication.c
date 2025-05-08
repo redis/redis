@@ -782,7 +782,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
-        if (slave->slave_req & SLAVE_REQ_RDB_CHANNEL) {
+        if (slave->flags & CLIENT_REPL_RDB_CHANNEL) {
             /* This slave is rdbchannel. Find its associated main channel and
              * change its state so we can deliver replication stream from now
              * on, in parallel to rdb. */
@@ -1125,9 +1125,7 @@ void syncCommand(client *c) {
                           "Full sync will continue with dedicated rdb channel.",
                           replicationGetSlaveName(c));
 
-                /* Send +RDBCHANNELSYNC with client id. Rdbchannel of replica
-                 * will call 'replconf set-main-ch-id <client-id>' so we can
-                 * associate replica connections on master.*/
+                /* Send +RDBCHANNELSYNC with client id so we can associate replica connections on master.*/
                 len = snprintf(buf, sizeof(buf), "+RDBCHANNELSYNC %llu\r\n",
                                (unsigned long long) c->id);
                 if (connWrite(c->conn, buf, strlen(buf)) != len)
@@ -1358,8 +1356,16 @@ void replconfCommand(client *c) {
             if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
                     0,1,&rdb_only,NULL) != C_OK)
                 return;
-            if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
-            else c->flags &= ~CLIENT_REPL_RDBONLY;
+            if (rdb_only == 1) {
+                c->flags |= CLIENT_REPL_RDBONLY;
+                /* If replicas ask for RDB only, We can apply the background
+                 * RDB transfer optimization based on the configurations. */
+                if (server.repl_rdb_channel && server.repl_diskless_sync)
+                    c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
+            } else {
+                c->flags &= ~CLIENT_REPL_RDBONLY;
+                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
+            }
         } else if (!strcasecmp(c->argv[j]->ptr,"rdb-filter-only")) {
             /* REPLCONFG RDB-FILTER-ONLY is used to define "include" filters
              * for the RDB snapshot. Currently we only support a single
@@ -1393,10 +1399,8 @@ void replconfCommand(client *c) {
                 return;
             if (rdb_channel == 1) {
                 c->flags |= CLIENT_REPL_RDB_CHANNEL;
-                c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
             } else {
                 c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
-                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr, "main-ch-client-id")) {
             /* REPLCONF main-ch-client-id <client-id> is used to identify
@@ -2732,6 +2736,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         if (!client_id) {
             serverLog(LL_WARNING,
                       "Master replied with wrong +RDBCHANNELSYNC syntax: %s", reply);
+            sdsfree(reply);
             return PSYNC_NOT_SUPPORTED;
         }
         server.repl_main_ch_client_id = strtoll(client_id, NULL, 10);;
@@ -3025,7 +3030,7 @@ void syncWithMaster(connection *conn) {
     /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY. */
     if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
-                             "state should be RECEIVE_PSYNC but is %d",
+                             "state should be RECEIVE_PSYNC_REPLY but is %d",
                              server.repl_state);
         goto error;
     }

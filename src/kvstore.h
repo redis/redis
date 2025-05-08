@@ -25,12 +25,12 @@
 /* When creating kvstore with flag `KVSTORE_ALLOC_META_KEYS_HIST`, then kvstore 
  * alloc and memset struct kvstoreMetadata on init, yet, managed outside kvstore */
 typedef struct {
-    uint64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
 typedef struct {
-    uint64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 } kvstoreDictMetadata;
 
 typedef struct _kvstore kvstore;

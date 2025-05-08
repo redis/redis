@@ -62,16 +62,16 @@ static int checkStringLength(client *c, long long size, long long append) {
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
 
 /* Generic SET command family (SET, SETEX, PSETEX, SETNX)
- * 
+ *
  * Arguments:
  *   valref: A pointer to the robj to be set. This argument may be updated by the function.
- *           The object is expected to have a refcount of 1, allowing its ownership to be 
- *           transferred directly to the database to avoid making a copy. If needed, the 
- *           function will replace *valref with a new allocation and increment its refcount 
+ *           The object is expected to have a refcount of 1, allowing its ownership to be
+ *           transferred directly to the database to avoid making a copy. If needed, the
+ *           function will replace *valref with a new allocation and increment its refcount
  *           so that both the database and the caller maintain valid references.
  */
-void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *expire, 
-                       int unit, robj *ok_reply, robj *abort_reply) 
+void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *expire,
+                       int unit, robj *ok_reply, robj *abort_reply)
 {
     long long milliseconds = 0; /* initialized to avoid any harmless warning */
     int found = 0;
@@ -106,10 +106,10 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
      * We must update valref to reflect the new object if that happens. */
     if (expire) *valref = setExpireByLink(c, c->db, key->ptr, milliseconds, link);
     /* The client still holds a reference to the original object via c->argv[i],
-     * and will call decrRefCount() at the end of call(). We increment the refcount 
+     * and will call decrRefCount() at the end of call(). We increment the refcount
      * from 1 to 2 to ensure both DB and client have valid references. */
     incrRefCount(*valref); /* 1->2 */
-    
+
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
@@ -431,7 +431,7 @@ void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setKey(c, c->db, c->argv[1], &c->argv[2], 0);
-    incrRefCount(c->argv[2]); 
+    incrRefCount(c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -440,7 +440,7 @@ void getsetCommand(client *c) {
 }
 
 void setrangeCommand(client *c) {
-    size_t oldLen = 0, newLen;
+    int64_t oldLen = -1, newLen;
     long offset;
     sds value = c->argv[3]->ptr;
     const size_t value_len = sdslen(value);
@@ -602,7 +602,7 @@ void msetnxCommand(client *c) {
 void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
     robj *new;
-    dictEntryLink link; 
+    dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
@@ -620,12 +620,19 @@ void incrDecrCommand(client *c, long long incr) {
     {
         new = o;
         o->ptr = (void*)((long)value);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr),
+                           OBJ_STRING,
+                           (int64_t) sdigits10(oldvalue),
+                           (int64_t) sdigits10(value));
     } else {
         new = createStringObjectFromLongLongForValue(value);
-        if (o)
+        if (o) {
+            /* replace value in db and also update keysizes hist */
             dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
-        else
+        } else {
+            /* Add new key to db and also update keysizes hist */
             dbAddByLink(c->db, c->argv[1], &new, &link);
+        }
     }
     addReplyLongLongFromStr(c,new);
     signalModifiedKey(c,c->db,c->argv[1]);
@@ -694,7 +701,7 @@ void incrbyfloatCommand(client *c) {
 }
 
 void appendCommand(client *c) {
-    size_t totlen, append_len;
+    size_t totlen;
     robj *append;
     kvobj *o;
 
@@ -705,7 +712,7 @@ void appendCommand(client *c) {
         c->argv[2] = tryObjectEncoding(c->argv[2]);
         dbAddByLink(c->db, c->argv[1], &c->argv[2], &link);
         incrRefCount(c->argv[2]);
-        append_len = totlen = stringObjectLen(c->argv[2]);
+        totlen = stringObjectLen(c->argv[2]);
     } else {
         /* Key exists, check type */
         if (checkType(c,o,OBJ_STRING))
@@ -713,7 +720,7 @@ void appendCommand(client *c) {
 
         /* "append" is an argument, so always an sds */
         append = c->argv[2];
-        append_len = sdslen(append->ptr);
+        size_t append_len = sdslen(append->ptr);
         if (checkStringLength(c,stringObjectLen(o),append_len) != C_OK)
             return;
 
@@ -721,11 +728,13 @@ void appendCommand(client *c) {
         o = dbUnshareStringValueByLink(c->db,c->argv[1],o,link);
         o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
         totlen = sdslen(o->ptr);
+        int64_t oldlen = totlen - append_len;
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, totlen);
     }
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
     server.dirty++;
-    updateKeysizesHist(c->db,getKeySlot(c->argv[1]->ptr),OBJ_STRING, totlen - append_len, totlen);
+
     addReplyLongLong(c,totlen);
 }
 

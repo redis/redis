@@ -6431,7 +6431,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 continue;
             
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                uint64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
+                int64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
                 char buf[10000];
                 int cnt = 0, buflen = 0;
 

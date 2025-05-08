@@ -79,22 +79,33 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
-        debugServerAssertWithInfo(server.current_client, NULL, old_bin < MAX_KEYSIZES_BINS);        
+        debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
-        if(dictMeta) dictMeta->keysizes_hist[type][old_bin]--;
+        if(dictMeta) {
+            dictMeta->keysizes_hist[type][old_bin]--;
+            debugServerAssert(dictMeta->keysizes_hist[type][old_bin] >= 0);
+        }
         kvstoreMeta->keysizes_hist[type][old_bin]--;
+        debugServerAssert(kvstoreMeta->keysizes_hist[type][old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
-            if (dictMeta) dictMeta->keysizes_hist[type][0]--;
+            /* Only strings can be empty. Yet, a command flow might temporarily
+             * dbAdd() empty collection, and only after add elements. */
+
+            if (dictMeta) {
+                dictMeta->keysizes_hist[type][0]--;
+                debugServerAssert(dictMeta->keysizes_hist[type][0] >= 0);
+            }
             kvstoreMeta->keysizes_hist[type][0]--;
+            debugServerAssert(kvstoreMeta->keysizes_hist[type][0] >= 0);
         }
     }
     
     if (newLen > 0) {
         int new_bin = log2ceil(newLen) + 1;
-        debugServerAssertWithInfo(server.current_client, NULL, new_bin < MAX_KEYSIZES_BINS);
+        debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
         if(dictMeta) dictMeta->keysizes_hist[type][new_bin]++;
@@ -102,6 +113,9 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
+            /* Only strings can be empty. Yet, a command flow might temporarily
+             * dbAdd() empty collection, and only after add elements. */
+
             if (dictMeta) dictMeta->keysizes_hist[type][0]++;
             kvstoreMeta->keysizes_hist[type][0]++;
         }
@@ -111,7 +125,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 /* Lookup a kvobj for read or write operations, or return NULL if the it is not
  * found in the specified DB. This function implements the functionality of
  * lookupKeyRead(), lookupKeyWrite() and their ...WithFlags() variants.
- * 
+ *
  * link - If key found, return the link of the key.
  *        If key not found, return the bucket link, where the key should be added.
  *        Or NULL if dict wasn't allocated yet.
@@ -231,9 +245,9 @@ kvobj *lookupKeyWrite(redisDb *db, robj *key) {
 }
 
 /* Like lookupKeyWrite(), but accepts ref to optional `link`
- * 
- * link - If key found, updated to link the key. 
- *        If key not found, updated to the bucket where the key should be added. 
+ *
+ * link - If key found, updated to link the key.
+ *        If key not found, updated to the bucket where the key should be added.
  *        If key not found and dict is empty, it is set to NULL
  */
 kvobj *lookupKeyWriteWithLink(redisDb *db, robj *key, dictEntryLink *link) {
@@ -265,8 +279,8 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * The reference counter of the value pointed to by valref is not incremented,
  * so the caller should not free the value using decrRefcount after calling this
  * function.
- * 
- * link - Optional link to bucket where the key should be added. 
+ *
+ * link - Optional link to bucket where the key should be added.
  *          On return, get updated, by need, to the inserted key.
  */
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
@@ -318,7 +332,7 @@ int getKeySlot(sds key) {
  * give more control to the caller, nor will signal the key as ready
  * since it is not useful in this context.
  *
- * If added to db, returns pointer to the object, Otherwise NULL is returned. 
+ * If added to db, returns pointer to the object, Otherwise NULL is returned.
  */
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
     /* Add new kvobj to the db. */
@@ -346,14 +360,14 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
 
 /**
  * Overwrite an existing key's value in db with a new value.
- * 
- * - If the reference count of 'valref' is 1 the ownership of the value is 
- *   transferred to this function. The value may be reallocated, potentially 
- *   invalidating any external references to it. The (potentially reallocated) 
- *   value is stored in the database, and the 'valref' pointer is updated to 
- *   reflect the new allocation, if one occurs. 
- * - The reference counter of the value referenced by 'valref' is not incremented 
- *   so the caller must refrain from releasing it using decrRefCount after this 
+ *
+ * - If the reference count of 'valref' is 1 the ownership of the value is
+ *   transferred to this function. The value may be reallocated, potentially
+ *   invalidating any external references to it. The (potentially reallocated)
+ *   value is stored in the database, and the 'valref' pointer is updated to
+ *   reflect the new allocation, if one occurs.
+ * - The reference counter of the value referenced by 'valref' is not incremented
+ *   so the caller must refrain from releasing it using decrRefCount after this
  *   function is called.
  * - This function does not modify the expire time of the existing key.
  * - The 'overwrite' flag is an indication whether this is done as part of a
@@ -372,11 +386,10 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
     kvobj *old = dictGetKV(*link);
     kvobj *kvNew;
 
+    int64_t oldlen = (int64_t) getObjectLength(old);
+    int oldtype = old->type;
 
-    /* Remove kvOld key from keysizes histogram */
-    updateKeysizesHist(db, slot, old->type, getObjectLength(old), -1); /* remove hist */
-
-    /* if hash with HFEs, take care to remove from global HFE DS before attempting 
+    /* if hash with HFEs, take care to remove from global HFE DS before attempting
      * to manipulate and maybe free kvOld object */
     if (old->type == OBJ_HASH)
         hashTypeRemoveFromExpires(&db->hexpires, old);
@@ -426,8 +439,15 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
         }
     }
 
-    /* Add new key to keysizes histogram */
-    updateKeysizesHist(db, slot, kvNew->type, -1, getObjectLength(kvNew));
+    /* Remove old key and add new key to KEYSIZES histogram */
+    int64_t newlen = (int64_t) getObjectLength(kvNew);
+    /* Save one call if old and new are the same type */
+    if (oldtype == kvNew->type) {
+        updateKeysizesHist(db, slot, oldtype, oldlen, newlen);
+    } else {
+        updateKeysizesHist(db, slot, oldtype, oldlen, -1);
+        updateKeysizesHist(db, slot, kvNew->type, -1, newlen);
+    }
 
     if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key, old, db->id);
@@ -444,7 +464,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj **valref) {
 }
 
 /* Replace an existing key with a new value (don't emit any events)
- * 
+ *
  * parameter 'link' is optional. If provided, saves lookup.
  */
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link) {
@@ -471,9 +491,9 @@ void setKey(client *c, redisDb *db, robj *key, robj **valref, int flags) {
 }
 
 /* Like setKey(), but accepts an optional link
- * 
+ *
  * - If flags is set with SETKEY_ALREADY_EXIST, then `link` must be provided
- * - If flags is set with SETKEY_DOESNT_EXIST, then `link` is optional. If  
+ * - If flags is set with SETKEY_DOESNT_EXIST, then `link` is optional. If
  *   provided, it will point to the bucket where the key should be added.
  * - If flag is not set (0) then add or update key, and `link` must be NULL
  * On return, link get updated, by need, to the inserted kvobj.
@@ -489,7 +509,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         /* link is optional */
         exists = 0;
     } else {
-        /* Add or update key */ 
+        /* Add or update key */
         exists = (lookupKeyWriteWithLink(db, key, link)) != NULL;
     }
 
@@ -555,11 +575,11 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     if (link) {
         kvobj *val = dictGetKV(*link);
 
-        /* remove key from histogram */
-        updateKeysizesHist(db, slot, val->type, getObjectLength(val), -1);
+        int64_t oldlen = (int64_t) getObjectLength(val);
+        int type = val->type;
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
-        if (val->type == OBJ_HASH)
+        if (type == OBJ_HASH)
             hashTypeRemoveFromExpires(&db->hexpires, val);
 
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
@@ -568,14 +588,14 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
         /* Tells the module that the key has been unlinked from the database. */
         moduleNotifyKeyUnlink(key,val,db->id,flags);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
-        signalDeletedKeyAsReady(db,key,val->type);
+        signalDeletedKeyAsReady(db,key,type);
         /* We should call decr before freeObjAsync. If not, the refcount may be
          * greater than 1, so freeObjAsync doesn't work */
         decrRefCount(val);
 
         /* Delete an entry from the expires dict is not decrRefCount of kvobj */
         kvstoreDictDelete(db->expires, slot, key->ptr);
-        
+
         if (async) {
             /* Because of dbUnshareStringValue, the val in db may change. */
             freeObjAsync(key, dictGetKV(*link), db->id);
@@ -583,6 +603,10 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
         }
         kvstoreDictTwoPhaseUnlinkFree(db->keys, slot, link, table);
+
+        /* remove key from histogram */
+        if(!(flags & DB_FLAG_NO_UPDATE_KEYSIZES))
+            updateKeysizesHist(db, slot, type, oldlen, -1);
         return 1;
     } else {
         return 0;
@@ -604,6 +628,17 @@ int dbAsyncDelete(redisDb *db, robj *key) {
  * configuration. Deletes the key synchronously or asynchronously. */
 int dbDelete(redisDb *db, robj *key) {
     return dbGenericDelete(db, key, server.lazyfree_lazy_server_del, DB_FLAG_KEY_DELETED);
+}
+
+/* Similar to dbDelete(), but does not update the keysizes histogram.
+ * This is used when we want to delete a key without affecting the histogram,
+ * typically in cases where a command flow deletes elements from a collection
+ * and then deletes the collection itself. In such cases, using dbDelete()
+ * would incorrectly decrement bin #0. A corresponding test should be added
+ * to `info-keysizes.tcl`. */
+int dbDeleteSkipKeysizesUpdate(redisDb *db, robj *key) {
+    return dbGenericDelete(db, key, server.lazyfree_lazy_server_del,
+                    DB_FLAG_KEY_DELETED | DB_FLAG_NO_UPDATE_KEYSIZES);
 }
 
 /* Prepare the string object stored at 'key' to be modified destructively
@@ -1806,7 +1841,7 @@ void moveCommand(client *c) {
     }
 
     /* If hash with expiration on fields, remove it from global HFE DS and keep
-     * aside registered expiration time. Must be before addition/deletion of the 
+     * aside registered expiration time. Must be before addition/deletion of the
      * object. hexpires (ebuckets) embed in stored items its structure. */
     if (kv->type == OBJ_HASH)
         hashExpireTime = hashTypeRemoveFromExpires(&src->hexpires, kv);
@@ -2132,9 +2167,9 @@ void swapdbCommand(client *c) {
  *----------------------------------------------------------------------------*/
 
 /* Remove expiry from key
- * 
+ *
  *  Remove the object from db->expires and set to -1 attached TTL to KV
- */  
+ */
 int removeExpire(redisDb *db, robj *key) {
     int table;
     int slot = getKeySlot(key->ptr);
@@ -2189,7 +2224,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
     return kv;
 }
 
-/* Retrieve the expiration time for the specified key. 
+/* Retrieve the expiration time for the specified key.
  * Returns -1 if the key has no expiration set or doesn't exists
  *
  * To avoid lookup, pass key-value object (`kv`) instead of `key`.
@@ -2351,8 +2386,8 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
  * The return value of the function is KEY_VALID if the key is still valid.
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
  * or returns KEY_DELETED if the key is expired and deleted.
- * 
- * You can optionally pass `kv` to save a lookup. 
+ *
+ * You can optionally pass `kv` to save a lookup.
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     serverAssert(key != NULL);
@@ -2447,7 +2482,7 @@ kvobj *dbFind(redisDb *db, sds key) {
 }
 
 /* Find a KV in the main db. Return also link to it.
- * 
+ *
  * plink - If found, set to the link of the key in the dict.
  *         If not found, set to the bucket where the key should be added.
  *         If set to NULL, then HT of dict not allocated yet.

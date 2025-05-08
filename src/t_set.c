@@ -617,9 +617,9 @@ void saddCommand(client *c) {
 
 void sremCommand(client *c) {
     int j, deleted = 0, keyremoved = 0;
-    
+
     kvobj *set = lookupKeyWriteOrReply(c, c->argv[1], shared.czero);
-    if (set == NULL || checkType(c, set, OBJ_SET)) 
+    if (set == NULL || checkType(c, set, OBJ_SET))
         return;
 
     unsigned long oldSize = setTypeSize(set);
@@ -628,20 +628,23 @@ void sremCommand(client *c) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
             deleted++;
             if (setTypeSize(set) == 0) {
-                dbDelete(c->db,c->argv[1]);
+                dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
             }
         }
     }
     if (deleted) {
-        
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldSize, oldSize - deleted);
+        int64_t newSize = oldSize - deleted;
+
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
-        if (keyremoved)
+        if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
                                 c->db->id);
+            newSize = -1; /* removed */
+        }
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldSize, newSize);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -679,14 +682,15 @@ void smoveCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
 
     /* Update keysizes histogram */
-    unsigned long srcLen = setTypeSize(srcset); 
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, srcLen + 1, srcLen);
+    int64_t srcNewLen = setTypeSize(srcset), srcOldLen = srcNewLen + 1;
 
     /* Remove the src set from the database when empty */
-    if (srcLen == 0) {
-        dbDelete(c->db,c->argv[1]);
+    if (srcNewLen == 0) {
+        dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
+        srcNewLen = -1; /* removed */
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, srcOldLen, srcNewLen);
 
     /* Create the destination set when it doesn't exist */
     if (!dstset) {
@@ -779,7 +783,6 @@ void spopWithCountCommand(client *c) {
     /* Generate an SPOP keyspace notification */
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
     server.dirty += toRemove;
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - toRemove);
 
     /* CASE 1:
      * The number of requested elements is greater than or equal to
@@ -861,6 +864,7 @@ void spopWithCountCommand(client *c) {
         lp = lpBatchDelete(lp, ps, count);
         zfree(ps);
         set->ptr = lp;
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         for (unsigned long i = 0; i < count; i++) {
             propargv[propindex] = setTypePopRandom(set);
@@ -875,6 +879,7 @@ void spopWithCountCommand(client *c) {
                 propindex = 2;
             }
         }
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
      * the size of the set itself. After some time extracting random elements
@@ -939,7 +944,7 @@ void spopWithCountCommand(client *c) {
         }
         setTypeReleaseIterator(si);
 
-        /* Assign the new set as the key value. */
+        /* Assign the new set as the key value (Also update KEYSIZES histogram) */
         dbReplaceValue(c->db, c->argv[1], &newset);
     }
 
@@ -975,7 +980,7 @@ void spopCommand(client *c) {
 
     /* Make sure a key with the name inputted exists, and that it's type is
      * indeed a kv */
-    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]); 
+    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.null[c->resp]);
     if (kv == NULL || checkType(c, kv, OBJ_SET)) return;
 
     size = setTypeSize(kv);
@@ -1696,7 +1701,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
             }
             decrRefCount(dstset);
-        }           
+        }
     }
     zfree(sets);
 }

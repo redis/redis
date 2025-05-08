@@ -67,14 +67,14 @@ typedef long long ustime_t; /* microsecond time type. */
 #define REDISMODULE_CORE 1
 typedef struct redisObject robj;
 
-/* kvobj - A specific type of robj that holds also embedded key 
- * 
- * Since robj is being overused as general purpose object, `kvobj` distincts only 
+/* kvobj - A specific type of robj that holds also embedded key
+ *
+ * Since robj is being overused as general purpose object, `kvobj` distincts only
  * at the declarative level. This distinction assist to the clarity of the code
- * and can optionally enforce explicit casting later on. An `robj` is identified 
- * to be `kvobj` if `iskvobj` flag is set. 
- * 
- * Example to kvobj layout with key "mykey" and expiration time: 
+ * and can optionally enforce explicit casting later on. An `robj` is identified
+ * to be `kvobj` if `iskvobj` flag is set.
+ *
+ * Example to kvobj layout with key "mykey" and expiration time:
  *    +--------------+--------------+--------------+--------------------+
  *    | serverObject | Expiry Time  | key-hdr-size | sdshdr5 "mykey" \0 |
  *    | 16 bytes     | 8 byte       | 1 byte       | 1      +   5   + 1 |
@@ -85,7 +85,7 @@ typedef struct redisObject robj;
  *    | serverObject | key-hdr-size | sdshdr5 "mykey" \0 | sdshdr8 "myvalue" \0 |
  *    | 16 bytes     | 1 byte       | 1      +   5   + 1 | 3    +      7    + 1 |
  *    +--------------+--------------+--------------------+----------------------+
- * 
+ *
  */
 typedef struct redisObject kvobj;
 
@@ -320,6 +320,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define DB_FLAG_KEY_EXPIRED (1ULL<<1)
 #define DB_FLAG_KEY_EVICTED (1ULL<<2)
 #define DB_FLAG_KEY_OVERWRITE (1ULL<<3)
+#define DB_FLAG_NO_UPDATE_KEYSIZES (1ULL<<4) /* Don't update keysizes histograms */
 
 /* Channel flags share the same flag space as the key flags */
 #define CMD_CHANNEL_PATTERN (1ULL<<11)     /* The argument is a channel pattern */
@@ -556,7 +557,7 @@ typedef enum {
 #define SLAVE_REQ_NONE                  0
 #define SLAVE_REQ_RDB_EXCLUDE_DATA      (1 << 0) /* Exclude data from RDB */
 #define SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS (1 << 1) /* Exclude functions from RDB */
-#define SLAVE_REQ_RDB_CHANNEL           (1 << 2) /* Use rdb channel replication */
+#define SLAVE_REQ_RDB_CHANNEL           (1 << 2) /* Use rdb channel replication, transfer RDB background */
 /* Mask of all bits in the slave requirements bitfield that represent non-standard (filtered) RDB requirements */
 #define SLAVE_REQ_RDB_MASK (SLAVE_REQ_RDB_EXCLUDE_DATA | SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS)
 
@@ -1033,7 +1034,7 @@ struct redisObject {
                             * and most significant 16 bits access time). */
     unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
     unsigned expirable : 1; /* 1 if this key has expiration time attached.
-                             * If set, then this object is of type kvobj */    
+                             * If set, then this object is of type kvobj */
     unsigned refcount : OBJ_REFCOUNT_BITS;
     void *ptr;
 };
@@ -3045,7 +3046,7 @@ void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 kvobj *kvobjCreate(int type, const sds key, void *ptr, long long expire);
 kvobj *kvobjSet(sds key, robj *val, long long expire);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
-sds kvobjGetKey(const kvobj *kv); 
+sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
 
 /* Synchronous I/O with timeout */
@@ -3628,6 +3629,7 @@ robj *dbRandomKey(redisDb *db);
 int dbGenericDelete(redisDb *db, robj *key, int async, int flags);
 int dbSyncDelete(redisDb *db, robj *key);
 int dbDelete(redisDb *db, robj *key);
+int dbDeleteSkipKeysizesUpdate(redisDb *db, robj *key);
 kvobj *dbUnshareStringValue(redisDb *db, robj *key, kvobj *o);
 kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLink link);
 
