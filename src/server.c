@@ -302,7 +302,7 @@ static uint64_t dictHashKV(const void *kv) {
 
 int dictCompareKV(dictCmpCache *cache, const void *kv1, const void *kv2) {
     /* Use caching to avoid compute key&len for each comparison on given lookup */
-    if (unlikely(cache->useCache == 0)) {
+    if (cache->useCache == 0) {
         cache->useCache = 1;
         cache->data[0].p = kvobjGetKey((kvobj *) kv1);
         cache->data[1].sz = sdslen((sds) cache->data[0].p); 
