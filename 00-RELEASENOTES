@@ -1,6 +1,46 @@
 Redis Open Source 8.0 release notes
 ===================================
 
+--------------------------------------------------------------------------------
+Upgrade urgency levels:
+
+LOW:      No need to upgrade unless there are new features you want to use.
+MODERATE: Program an upgrade of the server, but it's not urgent.
+HIGH:     There is a critical bug that may affect a subset of users. Upgrade!
+CRITICAL: There is a critical bug affecting MOST USERS. Upgrade ASAP.
+SECURITY: There are security fixes in the release.
+--------------------------------------------------------------------------------
+
+Starting with v8.0.1, the release notes contain PRs from multiple repositories:
+
+#n - Redis (https://github.com/redis/redis)
+#QEn = Query Engine (https://github.com/RediSearch/RediSearch)
+#JSn = JSON (https://github.com/RedisJSON/RedisJSON)
+#TSn = Time Series (https://github.com/RedisTimeSeries/RedisTimeSeries)
+#PRn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
+
+
+================================================================================
+Redis 8.0.1     Released Wed XX May 2025 12:00:00 IST
+================================================================================
+
+Update urgency: `MODERATE`: No need to upgrade unless there are new features you want to use.
+
+### Performance and resource utilization improvements
+
+- #13959 Vector set - faster `VSIM` `FILTER` parsing
+
+### Bug fixes
+
+- #QE6083 Query Engine - revert default policy `search-on-timeout` to `RETURN`
+- #QE6050 Query Engine - `@__key` on `FT.AGGREGATE` used as reserved field name preventing access to Redis keyspace
+- #QE6077 Query Engine - crash when calling `FT.CURSOR DEL` while retrieving from the CURSOR
+
+### Notes
+
+- Fixed wrong text in the license files
+
+
 =======================================================
 8.0 GA (v8.0.0)    Released Fri 2 May 2025 12:00:00 IST
 =======================================================
