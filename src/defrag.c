@@ -1588,7 +1588,7 @@ void activeDefragCycleLogStats(void) {
         return;
     allocatorFragInfo info;
     getAllocatorFragmentation(&info);
-    serverLog(LL_VERBOSE, 
+    serverLog(LL_DEBUG, 
         "Active defrag: "
         "cycles_started=%d, "
         "total_time=%dms, "
