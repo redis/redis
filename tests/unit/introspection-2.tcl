@@ -78,6 +78,17 @@ start_server {tags {"introspection"}} {
         r touch key0{t} key1{t} key2{t} key3{t}
     } 2
 
+    test {MEMORY USAGE with SAMPLES syntax} {
+        r lpush foo e1 e2 e3
+        assert_error {ERR syntax*} {r memory usage foo samplestypo 1}
+        assert_error {ERR syntax*} {r memory usage foo samples -1}
+        assert_error {ERR unknown subcommand or wrong number*} {r memory usage foo samples 1 samples 1}
+        assert_morethan [r memory usage foo samples 0] 0
+        assert_morethan [r memory usage foo samples 1] 0
+        assert_morethan [r memory usage foo samples 10] 0
+        r del foo
+    }
+
     test {command stats for GEOADD} {
         r config resetstat
         r GEOADD foo 0 0 bar
