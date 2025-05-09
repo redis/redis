@@ -1725,7 +1725,10 @@ cleanup:
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;
+    int fd = dup(fileno(fp));
     fclose(fp);
+    /* Reclaim page cache memory used by the AOF file in background. */
+    if (fd >= 0) bioCreateCloseJob(fd, 0, 1);
     sdsfree(aof_filepath);
     return ret;
 }
