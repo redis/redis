@@ -39,7 +39,7 @@ typedef enum {
 static inline keyStatus expireIfNeededWithSlot(redisDb *db, robj *key, int flags, const int keySlot);
 keyStatus expireIfNeeded(redisDb *db, robj *key, int flags);
 int keyIsExpired(redisDb *db, robj *key);
-static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de);
+static void dbSetValue(redisDb *db, robj *key, robj *val, dictEntry *de, int overwrite, int updateKeySizes);
 static inline dictEntry *dbFindWithKeySlot(redisDb *db, void *key, int keySlot);
 static inline dictEntry *dbFindExpiresWithKeySlot(redisDb *db, void *key, int keySlot);
 
@@ -122,6 +122,45 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
         }
     }
 }
+
+/* Assert keysizes histogram (For debugging only)
+ *
+ * To catch commands that corrupt the histogram, you can call it
+ * right after the call to "c->cmd->proc(c);" at server.c */
+void dbgAssertKeysizesHist(redisDb *db) {
+    /* Scan DB and build expected histogram by scanning all keys */
+    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {0};
+    dictEntry *de;
+    kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
+    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        robj *o = dictGetVal(de);
+        if (o->type < OBJ_TYPE_BASIC_MAX) {
+            int64_t len = getObjectLength(o);
+            scanHist[o->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
+        }
+    }
+    kvstoreIteratorRelease(kvs_it);
+    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+        volatile int64_t *keysizesHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
+        for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
+            if (scanHist[type][i] != keysizesHist[i]) {
+                /* print scanStr vs. expected histograms for debugging */
+                char scanStr[500], keysizesStr[500];
+                int scanLen = 0, keysizesLen = 0;
+                for (int j = 0; j < MAX_KEYSIZES_BINS; j++) {
+                    if (scanHist[type][j])
+                        scanLen += snprintf(scanStr + scanLen, sizeof(scanStr) - scanLen,
+                                            "[%d]=%ld ", j, scanHist[type][j]);
+                    if (keysizesHist[j])
+                        keysizesLen += snprintf(keysizesStr + keysizesLen, sizeof(keysizesStr) - keysizesLen,
+                                                "[%d]=%ld ", j, keysizesHist[j]);
+                }
+                serverPanic("dbgAssertKeysizesHist: type=%d\nscanStr=%s\nkeysizes=%s\n", type, scanStr, keysizesStr);
+            }
+        }
+    }
+}
+
 
 /* Lookup a key for read or write operations, or return NULL if the key is not
  * found in the specified DB. This function implements the functionality of
@@ -274,7 +313,7 @@ static dictEntry *dbAddInternal(redisDb *db, robj *key, robj *val, int update_if
     int slot = getKeySlot(key->ptr);
     dictEntry *de = kvstoreDictAddRaw(db->keys, slot, key->ptr, &existing);
     if (update_if_existing && existing) {
-        dbSetValue(db, key, val, 1, existing);
+        dbSetValue(db, key, val, existing, 1, 1);
         return existing;
     }
     serverAssertWithInfo(NULL, key, de != NULL);
@@ -347,7 +386,7 @@ int dbAddRDBLoad(redisDb *db, sds key, robj *val) {
  * The dictEntry input is optional, can be used if we already have one.
  *
  * The program is aborted if the key was not already present. */
-static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEntry *de) {
+static void dbSetValue(redisDb *db, robj *key, robj *val, dictEntry *de, int overwrite, int updateKeySizes) {
     int slot = getKeySlot(key->ptr);
     if (!de) de = kvstoreDictFind(db->keys, slot, key->ptr);
     serverAssertWithInfo(NULL,key,de != NULL);
@@ -375,12 +414,14 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
 
     /* Remove old key and add new key to KEYSIZES histogram */
     int64_t newlen = (int64_t) getObjectLength(val);
-    /* Save one call if old and new are the same type */
-    if (old->type == val->type) {
-        updateKeysizesHist(db, slot, old->type, oldlen, newlen);
-    } else {
-        updateKeysizesHist(db, slot, old->type, oldlen, -1); 
-        updateKeysizesHist(db, slot, val->type, -1, newlen);
+    if (updateKeySizes) {
+        /* Save one call if old and new are the same type */
+        if (old->type == val->type) {
+            updateKeysizesHist(db, slot, old->type, oldlen, newlen);
+        } else {
+            updateKeysizesHist(db, slot, old->type, oldlen, -1);
+            updateKeysizesHist(db, slot, val->type, -1, newlen);
+        }
     }
 
     /* if hash with HFEs, take care to remove from global HFE DS */
@@ -396,8 +437,8 @@ static void dbSetValue(redisDb *db, robj *key, robj *val, int overwrite, dictEnt
 
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
-void dbReplaceValue(redisDb *db, robj *key, robj *val) {
-    dbSetValue(db, key, val, 0, NULL);
+void dbReplaceValue(redisDb *db, robj *key, robj *val, int updateKeySizes) {
+    dbSetValue(db, key, val, NULL, 0, updateKeySizes);
 }
 
 /* Replace an existing key with a new value, we just replace value and don't
@@ -405,7 +446,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj *val) {
  * The dictEntry input is optional, can be used if we already have one.
  */
 void dbReplaceValueWithDictEntry(redisDb *db, robj *key, robj *val, dictEntry *de) {
-    dbSetValue(db, key, val, 0, de);
+    dbSetValue(db, key, val, de, 0, 1);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -442,7 +483,7 @@ void setKeyWithDictEntry(client *c, redisDb *db, robj *key, robj *val, int flags
     } else if (keyfound<0) {
         dbAddInternal(db,key,val,1);
     } else {
-        dbSetValue(db,key,val,1,de);
+        dbSetValue(db, key, val, de, 1, 1);
     }
     incrRefCount(val);
     if (!(flags & SETKEY_KEEPTTL)) removeExpire(db,key);

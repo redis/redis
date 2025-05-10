@@ -448,8 +448,9 @@ void setrangeCommand(client *c) {
         if (checkStringLength(c,offset,value_len) != C_OK)
             return;
 
-        o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+value_len));
-        dbAdd(c->db,c->argv[1],o);
+        newLen = offset+value_len;
+        o = createObject(OBJ_STRING,sdsnewlen(NULL, newLen));
+        dbAdd(c->db,c->argv[1],o); /* It also updates keysizes hist */
     } else {
         /* Key exists, check type */
         if (checkType(c,o,OBJ_STRING))
@@ -468,6 +469,9 @@ void setrangeCommand(client *c) {
 
         /* Create a copy when the object is shared or encoded. */
         o = dbUnshareStringValueWithDictEntry(c->db,c->argv[1],o,de);
+
+        newLen = max(oldLen, (int64_t) (offset + value_len));
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldLen, newLen);
     }
 
     if (value_len > 0) {
@@ -479,8 +483,6 @@ void setrangeCommand(client *c) {
         server.dirty++;
     }
 
-    newLen = sdslen(o->ptr);
-    updateKeysizesHist(c->db,getKeySlot(c->argv[1]->ptr),OBJ_STRING,oldLen,newLen);
     addReplyLongLong(c,newLen);
 }
 

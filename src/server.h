@@ -3555,6 +3555,7 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
 
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
+void dbgAssertKeysizesHist(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
@@ -3587,7 +3588,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 dictEntry *dbAdd(redisDb *db, robj *key, robj *val);
 int dbAddRDBLoad(redisDb *db, sds key, robj *val);
-void dbReplaceValue(redisDb *db, robj *key, robj *val);
+void dbReplaceValue(redisDb *db, robj *key, robj *val, int updateKeySizes);
 void dbReplaceValueWithDictEntry(redisDb *db, robj *key, robj *val, dictEntry *de);
 
 #define SETKEY_KEEPTTL 1

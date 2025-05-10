@@ -308,6 +308,8 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server SADD s2 1} {db0_SET:1=1}
         run_cmd_verify_hist {$server SMOVE s2 s4 1} {db0_SET:1=1}
         run_cmd_verify_hist {$server SREM s4 1} {}
+        run_cmd_verify_hist {$server SADD s2 1 2 3 4 5 6 7 8} {db0_SET:8=1}
+        run_cmd_verify_hist {$server SPOP s2 7} {db0_SET:1=1}
         # SDIFFSTORE
         run_cmd_verify_hist {$server flushall} {}
         run_cmd_verify_hist {$server SADD s1 1 2 3 4 5 6 7 8} {db0_SET:8=1}
@@ -423,6 +425,8 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server SET s2 1234567890} {db0_STR:8=1}
         run_cmd_verify_hist {$server SETRANGE s2 10 123456} {db0_STR:16=1}
+        run_cmd_verify_hist {$server FLUSHALL} {}
+        run_cmd_verify_hist {$server SETRANGE k 200000 v} {db0_STR:128K=1}
         # MSET, MSETNX
         run_cmd_verify_hist {$server FLUSHALL} {}
         run_cmd_verify_hist {$server MSET s3 1 s4 2 s5 3} {db0_STR:1=3}

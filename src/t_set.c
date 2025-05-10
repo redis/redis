@@ -947,7 +947,8 @@ void spopWithCountCommand(client *c) {
         setTypeReleaseIterator(si);
 
         /* Assign the new set as the key value (Also update KEYSIZES histogram) */
-        dbReplaceValue(c->db,c->argv[1],newset);
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-count);
+        dbReplaceValue(c->db,c->argv[1],newset, 0);
     }
 
     /* Replicate/AOF the remaining elements as an SREM operation */
