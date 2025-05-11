@@ -168,6 +168,12 @@
 #define REDIS_NO_SANITIZE(sanitizer)
 #endif
 
+#if defined(__clang__)
+#define REDIS_NO_SANITIZE_MSAN(sanitizer) REDIS_NO_SANITIZE(sanitizer)
+#else
+#define REDIS_NO_SANITIZE_MSAN(sanitizer)
+#endif
+
 /* Define rdb_fsync_range to sync_file_range() on Linux, otherwise we use
  * the plain fsync() call. */
 #if (defined(__linux__) && defined(SYNC_FILE_RANGE_WAIT_BEFORE))

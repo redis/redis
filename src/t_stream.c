@@ -257,7 +257,7 @@ static inline int64_t lpGetIntegerIfValid(unsigned char *ele, int *valid) {
     /* The following code path should never be used for how listpacks work:
      * they should always be able to store an int64_t value in integer
      * encoded form. However the implementation may change. */
-    long long ll;
+    long long ll = 0;
     int ret = string2ll((char*)e,v,&ll);
     if (valid)
         *valid = ret;

@@ -1443,6 +1443,9 @@ typedef struct client {
 #ifdef LOG_REQ_RES
     clientReqResInfo reqres;
 #endif
+    unsigned long long net_input_bytes;    /* Total network input bytes read from this client. */
+    unsigned long long net_output_bytes;   /* Total network output bytes sent to this client. */
+    unsigned long long commands_processed; /* Total count of commands this client executed. */
 } client;
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
@@ -3484,7 +3487,6 @@ uint64_t hfieldGetExpireTime(hfield field);
 static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }
 static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
 static inline size_t hfieldlen(hfield field) { return mstrlen(field);}
-uint64_t hfieldGetExpireTime(hfield field);
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);

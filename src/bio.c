@@ -10,7 +10,7 @@
  *
  * In the future we'll either continue implementing new things we need or
  * we'll switch to libeio. However there are probably long term uses for this
- * file as we may want to put here Redis specific background tasks.
+ * file as we may want to put Redis specific background tasks here.
  *
  * DESIGN
  * ------
