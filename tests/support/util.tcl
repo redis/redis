@@ -70,8 +70,12 @@ proc sanitizer_errors_from_file {filename} {
     set lines [split [exec cat $filename] "\n"]
 
     foreach line $lines {
-        # Ignore huge allocation warnings
+        # Ignore huge allocation warnings for both ASan and MSan
         if ([string match {*WARNING: AddressSanitizer failed to allocate*} $line]) {
+            continue
+        }
+
+        if ([string match {*WARNING: MemorySanitizer failed to allocate*} $line]) {
             continue
         }
 

@@ -438,6 +438,7 @@ static void clientDone(client c) {
     }
 }
 
+REDIS_NO_SANITIZE_MSAN("memory")
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;

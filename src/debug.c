@@ -1378,6 +1378,7 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 #undef NOT_SUPPORTED
 }
 
+REDIS_NO_SANITIZE_MSAN("memory")
 REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     if (server.hide_user_data_from_log) {
@@ -2729,7 +2730,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     pid_t calling_tid = syscall(SYS_gettid);
     int current_thread_index = -1;
     long nread;
-    char buff[PATH_MAX];
+    char buff[PATH_MAX] = {0};
 
     /* readdir() is not async-signal-safe (AS-safe).
     Hence, we read the file using SYS_getdents64, which is considered AS-sync*/

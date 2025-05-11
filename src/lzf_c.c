@@ -96,6 +96,12 @@
 # define NO_SANITIZE(sanitizer)
 #endif
 
+#if defined(__clang__)
+#define NO_SANITIZE_MSAN(sanitizer) NO_SANITIZE(sanitizer)
+#else
+#define NO_SANITIZE_MSAN(sanitizer)
+#endif
+
 /*
  * compressed format
  *
@@ -105,6 +111,7 @@
  *
  */
 NO_SANITIZE("alignment")
+NO_SANITIZE_MSAN("memory")
 size_t
 lzf_compress (const void *const in_data, size_t in_len,
 	      void *out_data, size_t out_len

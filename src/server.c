@@ -3819,8 +3819,14 @@ void call(client *c, int flags) {
         }
     }
 
-    if (!(c->flags & CLIENT_BLOCKED))
+    if (!(c->flags & CLIENT_BLOCKED)) {
+        /* Modules may call commands in cron, in which case server.current_client
+         * is not set. */
+        if (server.current_client) {
+            server.current_client->commands_processed++;
+        }
         server.stat_numcommands++;
+    }
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */

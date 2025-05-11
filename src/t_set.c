@@ -74,8 +74,8 @@ static void maybeConvertToIntset(robj *set) {
     if (setTypeSize(set) > intsetMaxEntries()) return; /* can't use intset */
     intset *is = intsetNew();
     char *str;
-    size_t len;
-    int64_t llval;
+    size_t len = 0;
+    int64_t llval = 0;
     setTypeIterator *si = setTypeInitIterator(set);
     while (setTypeNext(si, &str, &len, &llval) != -1) {
         if (str) {
@@ -371,7 +371,7 @@ int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
         }
         if (lpi == NULL) return -1;
         si->lpi = lpi;
-        unsigned int l;
+        unsigned int l = 0;
         *str = (char *)lpGetValue(lpi, &l, (long long *)llele);
         *len = (size_t)l;
     } else {
@@ -388,9 +388,9 @@ int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
  * This function is the way to go for write operations where COW is not
  * an issue. */
 sds setTypeNextObject(setTypeIterator *si) {
-    int64_t intele;
+    int64_t intele = 0;
     char *str;
-    size_t len;
+    size_t len = 0;
 
     if (setTypeNext(si, &str, &len, &intele) == -1) return NULL;
     if (str != NULL) return sdsnewlen(str, len);
@@ -522,8 +522,8 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         }
         unsigned char *lp = lpNew(estcap);
         char *str;
-        size_t len;
-        int64_t llele;
+        size_t len = 0;
+        int64_t llele = 0;
         si = setTypeInitIterator(setobj);
         while (setTypeNext(si, &str, &len, &llele) != -1) {
             if (str != NULL)
@@ -574,8 +574,8 @@ robj *setTypeDup(robj *o) {
         dictExpand(set->ptr, dictSize(d));
         si = setTypeInitIterator(o);
         char *str;
-        size_t len;
-        int64_t intobj;
+        size_t len = 0;
+        int64_t intobj = 0;
         while (setTypeNext(si, &str, &len, &intobj) != -1) {
             setTypeAdd(set, (sds)str);
         }
@@ -818,8 +818,8 @@ void spopWithCountCommand(client *c) {
 
     /* Common iteration vars. */
     char *str;
-    size_t len;
-    int64_t llele;
+    size_t len = 0;
+    int64_t llele = 0;
     unsigned long remaining = size-count; /* Elements left after SPOP. */
 
     /* If we are here, the number of requested elements is less than the
@@ -839,7 +839,7 @@ void spopWithCountCommand(client *c) {
         unsigned char **ps = zmalloc(sizeof(char *) * count);
         for (unsigned long i = 0; i < count; i++) {
             p = lpNextRandom(lp, p, &index, count - i, 1);
-            unsigned int len;
+            unsigned int len = 0;
             str = (char *)lpGetValue(p, &len, (long long *)&llele);
 
             if (str) {
@@ -903,7 +903,7 @@ void spopWithCountCommand(client *c) {
             unsigned char **ps = zmalloc(sizeof(char *) * remaining);
             for (unsigned long i = 0; i < remaining; i++) {
                 p = lpNextRandom(lp, p, &index, remaining - i, 1);
-                unsigned int len;
+                unsigned int len = 0;
                 str = (char *)lpGetValue(p, &len, (long long *)&llele);
                 setTypeAddAux(newset, str, len, llele, 0);
                 ps[i] = p;
@@ -1031,8 +1031,8 @@ void srandmemberWithCountCommand(client *c) {
     int uniq = 1;
     robj *set;
     char *str;
-    size_t len;
-    int64_t llele;
+    size_t len = 0;
+    int64_t llele = 0;
 
     dict *d;
 
@@ -1233,8 +1233,8 @@ void srandmemberWithCountCommand(client *c) {
 void srandmemberCommand(client *c) {
     robj *set;
     char *str;
-    size_t len;
-    int64_t llele;
+    size_t len = 0;
+    int64_t llele = 0;
 
     if (c->argc == 3) {
         srandmemberWithCountCommand(c);
@@ -1289,8 +1289,8 @@ void sinterGenericCommand(client *c, robj **setkeys,
     setTypeIterator *si;
     robj *dstset = NULL;
     char *str;
-    size_t len;
-    int64_t intobj;
+    size_t len = 0;
+    int64_t intobj = 0;
     void *replylen = NULL;
     unsigned long j, cardinality = 0;
     int encoding, empty = 0;
@@ -1454,8 +1454,8 @@ void sinterCommand(client *c) {
 void smembersCommand(client *c) {
     setTypeIterator *si;
     char *str;
-    size_t len;
-    int64_t intobj;
+    size_t len = 0;
+    int64_t intobj = 0;
     robj *setobj = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c,setobj,OBJ_SET)) return;
     if (!setobj) {
@@ -1524,8 +1524,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     robj *dstset = NULL;
     int dstset_encoding = OBJ_ENCODING_INTSET;
     char *str;
-    size_t len;
-    int64_t llval;
+    size_t len = 0;
+    int64_t llval = 0;
     int encoding;
     int j, cardinality = 0;
     int diff_algo = 1;
