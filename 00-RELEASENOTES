@@ -1,16 +1,372 @@
-Hello! This file is just a placeholder, since this is the "unstable" branch
-of Redis, the place where all the development happens.
+Redis Open Source 8.0 release notes
+===================================
 
-There is no release notes for this branch, it gets forked into another branch
-every time there is a partial feature freeze in order to eventually create
-a new stable release.
+=======================================================
+8.0 GA (v8.0.0)    Released Fri 2 May 2025 12:00:00 IST
+=======================================================
 
-Usually "unstable" is stable enough for you to use it in development environments
-however you should never use it in production environments. It is possible
-to download the latest stable release here:
+This is the General Availability release of Redis Open Source 8.0.
 
-    https://download.redis.io/redis-stable.tar.gz
+Redis 8.0 deprecates previous Redis and Redis Stack versions.
 
-More information is available at https://redis.io
+Stand alone RediSearch, RedisJSON, RedisTimeSeries, and RedisBloom are no longer needed as they are now part of Redis.
 
-Happy hacking!
+
+### Major changes compared to 7.4.2
+
+- Name change: Redis Community Edition is now Redis Open Source
+- License change: licensed under your choice of
+  - (a) the Redis Source Available License 2.0 (RSALv2); or
+  - (b) the Server Side Public License v1 (SSPLv1); or
+  - (c) the GNU Affero General Public License (AGPLv3)
+- Redis Query engine and 8 new data structures are now an integral part of Redis 8
+  - (1) Redis Query Engine, which now supports both horizontal and vertical scaling for search, query and vector workloads
+  - (2) JSON - a queryable JSON document
+  - (3) Time series
+  - (4-8) Five probabilistic data structures: Bloom filter, Cuckoo filter, Count-min sketch, Top-k, and t-digest
+  - (9) Vector set [beta] - a data structure designed for Vector Similarity Search, inspired by Sorted set
+  - These nine components are included in all binary distributions
+
+  - See instructions in the README.md file on how to build from source with all these components
+  - New configuration file: redis-full.conf - loads Redis with all these components,
+    and contains new configuration parameters for Redis Query engine and the new data structures
+  - New ACL categories: @search, @json, @timeseries, @bloom, @cuckoo, @cms, @topk, @tdigest
+  - Commands are also included in the existing ACL categories (@read, @write, etc.)
+
+- More than 30 performance and resource utilization improvements
+- A new I/O threading implementation which enables throughput increase on multi-core environments
+  (set with `io-threads` configuration parameter)
+- An improved replication mechanism which is more performant and robust
+- New hash commands - `HGETDEL`, `HGETEX`, `HSETEX`
+
+For more details, see the release notes of 8.0-M01, 8.0-M02, 8.0-M03,8.0-M04, and 8.0-RC1
+
+### Binary distributions
+
+- Alpine and Debian Docker images - https://hub.docker.com/_/redis
+- Install using snap - see https://github.com/redis/redis-snap
+- Install using brew - see https://github.com/redis/homebrew-redis
+- Install using RPM - see https://github.com/redis/redis-rpm
+- Install using Debian APT - see https://github.com/redis/redis-debian
+
+### Operating systems we test Redis 8.0 on
+
+- Ubuntu 20.04 (Focal Fossa), 22.04 (Jammy Jellyfish), 24.04 (Noble Numbat)
+- Rocky Linux 8.10, 9.5
+- AlmaLinux 8.10, 9.5
+- Debian 11 (Bullseye), 12 (Bookworm)
+- macOS 13 (Ventura), 14 (Sonoma), 15 (Sequoia)
+
+### Supported upgrade paths (by replication or persistence)
+
+- From previous Redis versions, without modules
+- From previous Redis versions with modules (RediSearch, RedisJSON, RedisTimeSeries, RedisBloom)
+- From Redis Stack 7.2 or 7.4
+
+### Security fixes (compared to 8.0-RC1)
+
+
+* (CVE-2025-21605) An unauthenticated client can cause an unlimited growth of output buffers
+
+### Bug fixes (compared to 8.0-RC1)
+
+- #13966, #13932 `CLUSTER SLOTS` - TLS port update not reflected in CLUSTER SLOTS
+- #13958 `XTRIM`, `XADD` - incorrect lag due to trimming stream
+- #13931 `HGETEX` - wrong order of keyspace notifications
+
+
+==========================================================
+8.0-RC1 (v7.9.240)    Released Mon 7 Apr 2025 10:00:00 IST
+==========================================================
+
+This is the first Release Candidate of Redis Community Edition 8.0.
+
+Release Candidates are feature-complete pre-releases. Pre-releases are not suitable for production use.
+
+
+### Headlines
+
+8.0-RC1 includes a new beta data structure - vector set.
+
+### Distributions
+
+- Alpine and Debian Docker images - https://hub.docker.com/_/redis
+- Install using snap - see https://github.com/redis/redis-snap
+- Install using brew - see https://github.com/redis/homebrew-redis
+- Install using RPM and Debian APT - will be added on the GA release
+
+### New Features
+
+- #13915 Vector set - a new data structure [beta]:
+  Vector set extends the concept of sorted sets to allow the storage and querying of
+  high-dimensional vector embeddings, enhancing Redis for AI use cases that involve 
+  semantic search and recommendation systems. Vector sets complement the existing
+  vector search capability in the Redis Query Engine. The vector set data type is 
+  available in beta. We may change, or even break, the features and the API in
+  future versions. We are open to your feedback as you try out this new data type.
+- #13846 Allow detecting incompatibility risks before switching to cluster mode
+
+### Bug fixes
+
+- #13895 RDB Channel replication - replica is online after BGSAVE is done
+- #13877 Inconsistency for ShardID in case both master and replica support it 
+- #13883 Defrag scan may return nothing when type/encoding changes during it
+- #13863 `RANDOMKEY` - infinite loop during client pause
+- #13853 `SLAVEOF` - crash when clients are blocked on lazy free
+- #13632 `XREAD` returns nil while stream is not empty
+
+### Metrics
+
+- #13846 `INFO`: `cluster_incompatible_ops` - number of cluster-incompatible commands
+
+### Configuration parameters
+
+- #13846 `cluster-compatibility-sample-ratio` - sampling ratio (0-100) for checking command compatibility with cluster mode
+
+
+============================================================
+8.0-M04 (v7.9.227)    Committed Sun 16 Mar 2025 11:00:00 IST
+============================================================
+
+This is the fourth Milestone of Redis Community Edition 8.0.
+
+Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
+Once we reach feature-completeness we will release RC1.
+
+### Headlines
+
+8.0-M04 includes 3 new hash commands, performance improvements, and memory defragmentation improvements.
+
+### Distributions
+
+- Alpine and Debian Docker images - https://hub.docker.com/_/redis
+- Install using snap - see https://github.com/redis/redis-snap
+- Install using brew - see https://github.com/redis/homebrew-redis
+- Install using RPM and Debian APT - will be added on the GA release
+
+### New Features
+
+- #13798 Hash - new commands:
+  - `HGETDEL` Get and delete the value of one or more fields of a given hash key
+  - `HGETEX` Get the value of one or more fields of a given hash key, and optionally set their expiration
+  - `HSETEX` Set the value of one or more fields of a given hash key, and optionally set their expiration
+- #13773 Add replication offset to AOF, allowing more robust way to determine which AOF has a more up-to-date data during recovery
+- #13740, #13763 shared secret - new mechanism to allow sending internal commands between nodes
+
+### Bug fixes
+
+- #13804 Overflow on 32-bit systems when calculating idle time for eviction
+- #13793 `WAITAOF` returns prematurely
+- #13800 Remove `DENYOOM` from `HEXPIRE`, `HEXPIREAT`, `HPEXPIRE`, and `HPEXPIREAT`
+- #13632 Streams - wrong behavior of `XREAD +` after last entry
+
+### Modules API
+
+- #13788 `RedisModule_LoadDefaultConfigs` - load module configuration values from redis.conf
+- #13815 `RM_RegisterDefragFunc2` - support for incremental defragmentation of global module data
+- #13816 `RM_DefragRedisModuleDict` - allow modules to defrag `RedisModuleDict`
+- #13774 `RM_GetContextFlags` - add a `REDISMODULE_CTX_FLAGS_DEBUG_ENABLED` flag to execute debug commands
+
+
+### Performance and resource utilization improvements
+
+- #13752 Reduce defrag CPU usage when defragmentation is ineffective
+- #13764 Reduce latency when a command is called consecutively
+- #13787 Optimize parsing data from clients, specifically multi-bulk (array) data
+- #13792 Optimize dictionary lookup by avoiding duplicate key length calculation during comparisons
+- #13796 Optimize expiration checks
+
+
+============================================================
+8.0-M03 (v7.9.226)    Committed Mon 20 Jan 2025 15:00:00 IST
+============================================================
+
+This is the third Milestone of Redis Community Edition 8.0.
+
+Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
+Once we reach feature-completeness we will release RC1.
+
+### Headlines:
+
+8.0-M03 introduces an improved replication mechanism which is more performant and robust, a new I/O threading implementation which enables throughput increase on multi-core environments, and many additional performance improvements. Both Alpine and Debian Docker images are now available on [Docker Hub](https://hub.docker.com/_/redis). A snap and Homebrew distributions are available as well.
+
+
+### Security fixes
+
+- (CVE-2024-46981) Lua script may lead to remote code execution
+- (CVE-2024-51741) Denial-of-service due to malformed ACL selectors
+
+### New Features
+
+- #13695 New I/O threading implementation 
+- #13732 New replication mechanism
+
+
+### Bug fixes
+
+- #13653 `MODULE LOADEX` - crash on nonexistent parameter name
+- #13661 `FUNCTION FLUSH` - memory leak when using jemalloc
+- #13626 Memory leak on failed RDB loading
+
+### Other general improvements
+
+- #13639 When `hide-user-data-from-log` is enabled - also print command tokens on crash
+- #13660 Add the Lua VM memory to memory overhead
+
+### New metrics
+
+- #13592 `INFO` - new `KEYSIZES` section includes key size distributions for basic data types
+- #13695 `INFO` - new `Threads` section includes I/O threading metrics
+
+### Modules API
+
+- #13666 `RedisModule_ACLCheckKeyPrefixPermissions` - check access permissions to any key matching a given prefix
+- #13676 `RedisModule_HashFieldMinExpire` - query the minimum expiration time over all the hash’s fields
+- #13676 `RedisModule_HashGet` - new `REDISMODULE_HASH_EXPIRE_TIME` flag - query the field expiration time
+- #13656 `RedisModule_RegisterXXXConfig` - allow registering unprefixed configuration parameters
+
+### Configuration parameters
+
+
+- `replica-full-sync-buffer-limit` - maximum size of accumulated replication stream data on the replica side
+- `io-threads-do-reads` is no longer effective. The new I/O threading implementation always use threads for both reads and writes
+
+### Performance and resource utilization improvements
+
+- #13638 Optimize CRC64 performance
+- #13521 Optimize commands with large argument count - reuse c->argv after command execution
+- #13558 Optimize `PFCOUNT` and `PFMERGE` - SIMD acceleration
+- #13644 Optimize `GET` on high pipeline use-cases
+- #13646 Optimize `EXISTS` - prefetching and branch prediction hints
+- #13652 Optimize `LRANGE` - improve listpack handling and decoding efficiency
+- #13655 Optimize `HSET` - avoid unnecessary hash field creation or deletion
+- #13721 Optimize `LRANGE` and `HGETALL` - refactor client write preparation and handling
+
+
+============================================================
+8.0-M02 (v7.9.225)    Committed Mon 28 Oct 2024 14:00:00 IST
+============================================================
+
+This is the second Milestone of Redis Community Edition 8.0.
+
+Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
+Once we reach feature-completeness we will release RC1.
+
+### Headlines:
+
+8.0-M02 introduces significant performance improvements. Both Alpine and Debian Docker images are now available on [Docker Hub](https://hub.docker.com/_/redis). Additional distributions will be introduced in upcoming pre-releases.
+
+### Supported upgrade paths (by replication or persistence) to 8.0-M02
+
+- From previous Redis versions, without modules
+
+The following upgrade paths (by replication or persistence) to 8.0-M02 are not yet tested and will be introduced in upcoming pre-releases:
+- From previous Redis versions with modules (RediSearch, RedisJSON, RedisTimeSeries, RedisBloom)
+- From Redis Stack 7.2 or 7.4
+
+### Security fixes
+
+- (CVE-2024-31449) Lua library commands may lead to stack overflow and potential RCE.
+- (CVE-2024-31227) Potential Denial-of-service due to malformed ACL selectors.
+- (CVE-2024-31228) Potential Denial-of-service due to unbounded pattern matching.
+
+### Bug fixes
+
+- #13539 Hash: Fix key ref for a hash that no longer has fields with expiration on `RENAME`/`MOVE`/`SWAPDB`/`RESTORE`
+- #13512 Fix `TOUCH` command from a script in no-touch mode
+- #13468 Cluster: Fix cluster node config corruption caused by mixing shard-id and non-shard-id versions
+- #13608 Cluster: Fix `GET #` option in `SORT` command
+
+### Modules API
+
+- #13526 Extend `RedisModule_OpenKey` to read also expired keys and subkeys
+
+### Performance and resource utilization improvements
+
+- #11884 Optimize `ZADD` and `ZRANGE*` commands
+- #13530 Optimize `SSCAN` command in case of listpack or intset encoding
+- #13531 Optimize `HSCAN`/`ZSCAN` command in case of listpack encoding
+- #13520 Optimize commands that heavily rely on bulk/mbulk replies (example of `LRANGE`)
+- #13566 Optimize `ZUNION[STORE]` by avoiding redundant temporary dict usage
+- #13567 Optimize `SUNION`/`SDIFF` commands by avoiding redundant temporary dict usage
+- #11533 Avoid redundant `lpGet` to boost `quicklistCompare`
+- #13412 Reduce redundant call of `prepareClientToWrite` when call `addReply*` continuously
+
+
+===========================================================
+8.0-M01 (v7.9.224)    Released Thu 12 Sep 2024 10:00:00 IST
+===========================================================
+
+This is the first Milestone of Redis Community Edition 8.0.
+
+Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
+Once we reach feature-completeness we will release RC1.
+
+### Headlines:
+
+Redis 8.0 introduces new data structures: JSON, time series, and 5 probabilistic data structures (previously available as separate Redis modules) and incorporates the enhanced Redis Query Enginer (with vector search).
+
+8.0-M01 is available as a Docker image and can be downloaded from [Docker Hub](https://hub.docker.com/_/redis). Additional distributions will be introduced in upcoming pre-releases.
+
+### Supported upgrade paths (by replication or persistence) to 8.0-M01
+
+
+- From previous Redis versions, without modules
+
+The following upgrade paths (by replication or persistence) to 8.0-M01 are not yet tested and will be introduced in upcoming pre-releases:
+- From previous Redis versions with modules (RediSearch, RedisJSON, RedisTimeSeries, RedisBloom)
+- From Redis Stack 7.2 or 7.4
+
+### New Features in binary distributions
+
+- 7 new data structures: JSON, Time series, Bloom filter, Cuckoo filter, Count-min sketch, Top-k, t-digest
+- The enhanced Redis Query Engine (with vector search)
+
+### Potentially breaking changes
+
+- #12272 `GETRANGE` returns an empty bulk when the negative end index is out of range
+- #12395 Optimize `SCAN` command when matching data type
+
+### Bug fixes
+
+- #13510 Fix `RM_RdbLoad` to enable AOF after RDB loading is completed
+- #13489 `ACL CAT` - return module commands
+- #13476 Fix a race condition in the `cache_memory` of `functionsLibCtx`
+- #13473 Fix incorrect lag due to trimming stream via `XTRIM` command
+- #13338 Fix incorrect lag field in `XINFO` when tombstone is after the `last_id` of the consume group
+- #13470 On `HDEL` of last field - update the global hash field expiration data structure
+- #13465 Cluster: Pass extensions to node if extension processing is handled by it
+- #13443 Cluster: Ensure validity of myself when loading cluster config
+- #13422 Cluster: Fix `CLUSTER SHARDS` command returns empty array
+
+### Modules API
+
+- #13509 New API calls: `RM_DefragAllocRaw`, `RM_DefragFreeRaw`, and `RM_RegisterDefragCallbacks` - defrag API to allocate and free raw memory
+
+### Performance and resource utilization improvements
+
+- #13503 Avoid overhead of comparison function pointer calls in listpack `lpFind`
+- #13505 Optimize `STRING` datatype write commands
+- #13499 Optimize `SMEMBERS` command
+- #13494 Optimize `GEO*` commands reply
+- #13490 Optimize `HELLO` command
+- #13488 Optimize client query buffer
+- #12395 Optimize `SCAN` command when matching data type
+- #13529 Optimize `LREM`, `LPOS`, `LINSERT`, and `LINDEX` commands
+- #13516 Optimize `LRANGE` and other commands that perform several writes to client buffers per call
+- #13431 Avoid `used_memory` contention when updating from multiple threads
+
+### Other general improvements
+
+- #13495 Reply `-LOADING` on replica while flushing the db
+
+### CLI tools
+
+- #13411 redis-cli: Fix wrong `dbnum` showed after the client reconnected
+
+### Notes
+
+- No backward compatibility for replication or persistence.
+- Additional distributions, upgrade paths, features, and improvements will be introduced in upcoming pre-releases.
+- With the GA release of 8.0 we will deprecate Redis Stack.
+
