@@ -2203,11 +2203,19 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
     }
     kvobj *kv = dictGetKV(*keyLink);
     long long old_when = kvobjGetExpire(kv);
-    kvobj *kvnew = kvobjSetExpire(kv, when); /* release kv if reallocated */
+
     if (old_when != -1) { /* old expire */
+        kvobj *kvnew = kvobjSetExpire(kv, when); /* release kv if reallocated */
         /* Val already had an expire field, so it was not reallocated. */
         serverAssert(kv == kvnew);
     } else { /* No old expire */
+        uint64_t hexpire = EB_EXPIRE_TIME_INVALID;
+        /* If hash with HFEs, take care to remove from global HFE DS before attempting
+         * to manipulate and maybe free kv object */
+        if (kv->type == OBJ_HASH)
+            hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
+
+        kvobj *kvnew = kvobjSetExpire(kv, when); /* release kv if reallocated */
         /* if kvobj was reallocated, update dict */
         if (kv != kvnew) {
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
@@ -2216,6 +2224,9 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* Now add to expires */
         dictEntry *de = kvstoreDictAddRaw(db->expires, slot, kv, NULL);
         serverAssert(de != NULL);
+
+        if (hexpire != EB_EXPIRE_TIME_INVALID)
+            hashTypeAddToExpires(db, kv, hexpire);
     }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
