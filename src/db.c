@@ -129,7 +129,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
  * right after the call to "c->cmd->proc(c);" at server.c */
 void dbgAssertKeysizesHist(redisDb *db) {
     /* Scan DB and build expected histogram by scanning all keys */
-    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {0};
+    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
     dictEntry *de;
     kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
     while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
@@ -143,24 +143,25 @@ void dbgAssertKeysizesHist(redisDb *db) {
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
         volatile int64_t *keysizesHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-            if (scanHist[type][i] != keysizesHist[i]) {
-                /* print scanStr vs. expected histograms for debugging */
-                char scanStr[500], keysizesStr[500];
-                int scanLen = 0, keysizesLen = 0;
-                for (int j = 0; j < MAX_KEYSIZES_BINS; j++) {
-                    if (scanHist[type][j])
-                        scanLen += snprintf(scanStr + scanLen, sizeof(scanStr) - scanLen,
-                                            "[%d]=%ld ", j, scanHist[type][j]);
-                    if (keysizesHist[j])
-                        keysizesLen += snprintf(keysizesStr + keysizesLen, sizeof(keysizesStr) - keysizesLen,
-                                                "[%d]=%ld ", j, keysizesHist[j]);
-                }
-                serverPanic("dbgAssertKeysizesHist: type=%d\nscanStr=%s\nkeysizes=%s\n", type, scanStr, keysizesStr);
+            if (scanHist[type][i] == keysizesHist[i])
+                continue;
+
+            /* print scanStr vs. expected histograms for debugging */
+            char scanStr[500], keysizesStr[500];
+            int l1 = 0, l2 = 0;
+            for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
+                if (scanHist[type][j])
+                    l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1,
+                                        "[%d]=%"PRId64" ", j, scanHist[type][j]);
+                if (keysizesHist[j])
+                    l2 += snprintf(keysizesStr + l2, sizeof(keysizesStr) - l2,
+                                            "[%d]=%"PRId64" ", j, keysizesHist[j]);
             }
+            serverPanic("dbgAssertKeysizesHist: type=%d\nscanStr=%s\nkeysizes=%s\n",
+                        type, scanStr, keysizesStr);
         }
     }
 }
-
 
 /* Lookup a key for read or write operations, or return NULL if the key is not
  * found in the specified DB. This function implements the functionality of
