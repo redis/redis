@@ -1263,9 +1263,9 @@ static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
 void *activeDefragHExpiresOB(void *ptr, void *privdata) {
     redisDb *db = privdata;
     dictEntryLink link, exlink = NULL;
-    int slot;
     kvobj *kvobj = ptr;
     sds keystr = kvobjGetKey(kvobj);
+    unsigned int slot = calculateKeySlot(keystr);
     serverAssert(kvobj->type == OBJ_HASH);
 
     long long expire = kvobjGetExpire(kvobj);
@@ -1279,7 +1279,6 @@ void *activeDefragHExpiresOB(void *ptr, void *privdata) {
 
     if ((kvobj = activeDefragAlloc(kvobj))) {
         /* Update its reference in the DB keys. */
-        unsigned int slot = calculateKeySlot(keystr);
         link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
         serverAssert(link != NULL);
         kvstoreDictSetAtLink(db->keys, slot, kvobj, &link, 0);
