@@ -886,7 +886,7 @@ void defragModule(defragKeysCtx *ctx, redisDb *db, kvobj *kv) {
 void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     UNUSED(link);
     dictEntryLink exlink = NULL;
-    kvobj *kvnew, *ob = dictGetKV(de);
+    kvobj *kvnew = NULL, *ob = dictGetKV(de);
     redisDb *db = &server.db[ctx->dbid];
     int slot = ctx->kvstate.slot;
     unsigned char *newzl;
@@ -905,12 +905,12 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
         /* If the dict doesn't have metadata, we directly defrag it. */
         kvnew = activeDefragStringOb(ob);
-        if (kvnew) {
-            kvstoreDictSetAtLink(db->keys, slot, kvnew, &link, 0);
-            if (expire != -1)
-                kvstoreDictSetAtLink(db->expires, slot, kvnew, &exlink, 0);
-            ob = kvnew;
-        }
+    }
+    if (kvnew) {
+        kvstoreDictSetAtLink(db->keys, slot, kvnew, &link, 0);
+        if (expire != -1)
+            kvstoreDictSetAtLink(db->expires, slot, kvnew, &exlink, 0);
+        ob = kvnew;
     }
 
     if (ob->type == OBJ_STRING) {
