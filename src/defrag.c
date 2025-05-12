@@ -424,8 +424,6 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEnt
         /* Skip fields with TTL here, they will be defragmented later during 
          * the hash expiry ebuckets defragmentation phase. */
     }
-
-    if (newhf) dictSetKey(d, (dictEntry *) de, newhf);
 }
 
 /* Defrag a dict with sds key and optional value (either ptr, sds or robj string) */
