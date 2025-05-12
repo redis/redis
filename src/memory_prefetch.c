@@ -80,8 +80,7 @@ typedef struct PrefetchCommandsBatch {
     void **keys;                    /* Array of keys to prefetch in the current batch */
     client **clients;               /* Array of clients in the current batch */
     dict **keys_dicts;              /* Main dict for each key */
-    dict **expire_dicts;            /* Expire dict for each key */
-    dict **current_dicts;           /* Points to either keys_dicts or expire_dicts */
+    dict **current_dicts;           /* Points to dict to prefetch from */
     KeyPrefetchInfo *prefetch_info; /* Prefetch info for each key */
     GetValueDataFunc  get_value_data_func; /* Function to get the value data */
 } PrefetchCommandsBatch;
@@ -96,7 +95,6 @@ void freePrefetchCommandsBatch(void) {
     zfree(batch->clients);
     zfree(batch->keys);
     zfree(batch->keys_dicts);
-    zfree(batch->expire_dicts);
     zfree(batch->slots);
     zfree(batch->prefetch_info);
     zfree(batch);
@@ -120,7 +118,6 @@ void prefetchCommandsBatchInit(void) {
     batch->clients = zcalloc(max_prefetch_size * sizeof(client *));
     batch->keys = zcalloc(max_prefetch_size * sizeof(void *));
     batch->keys_dicts = zcalloc(max_prefetch_size * sizeof(dict *));
-    batch->expire_dicts = zcalloc(max_prefetch_size * sizeof(dict *));
     batch->slots = zcalloc(max_prefetch_size * sizeof(int));
     batch->prefetch_info = zcalloc(max_prefetch_size * sizeof(KeyPrefetchInfo));
 }
@@ -329,7 +326,7 @@ int getConfigPrefetchBatchSize(void) {
  * 1. Prefetch the command arguments allocated by the I/O thread to bring them
  *    closer to the L1 cache.
  * 2. Prefetch the keys and values for all commands in the current batch from
- *    the main and expires dictionaries. */
+ *    the main dictionaries. */
 void prefetchCommands(void) {
     if (!batch) return;
 
@@ -366,8 +363,6 @@ void prefetchCommands(void) {
         server.stat_total_prefetch_batches++;
         /* Prefetch keys from the main dict */
         dictPrefetch(batch->keys_dicts, getObjectValuePtr);
-        /* Prefetch keys from the expires dict - no value data to prefetch */
-        dictPrefetch(batch->expire_dicts, NULL);
     }
 }
 
@@ -397,8 +392,6 @@ int addCommandToBatch(client *c) {
             batch->slots[batch->key_count] = c->slot > 0 ? c->slot : 0;
             batch->keys_dicts[batch->key_count] =
                 kvstoreGetDict(c->db->keys, batch->slots[batch->key_count]);
-            batch->expire_dicts[batch->key_count] =
-                kvstoreGetDict(c->db->expires, batch->slots[batch->key_count]);
             batch->key_count++;
         }
         getKeysFreeResult(&result);
