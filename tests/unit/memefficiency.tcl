@@ -516,7 +516,7 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
-        foreach {eb_container fields} {eblist 16 ebrax 20} {
+        foreach {eb_container fields n} {eblist 16 3000 ebrax 300 160} {
         test "Active Defrag HFE with $eb_container: $type" {
             r flushdb
             r config set hz 100
@@ -532,7 +532,6 @@ run_solo {defrag} {
             r config set hash-max-listpack-entries 10
 
             # Populate memory with interleaving hash field of same size
-            set n 3000
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
