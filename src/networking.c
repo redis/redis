@@ -5,8 +5,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -221,6 +222,9 @@ client *createClient(connection *conn) {
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
     initClientMultiState(c);
+    c->net_input_bytes = 0;
+    c->net_output_bytes = 0;
+    c->commands_processed = 0;
     return c;
 }
 
@@ -2140,6 +2144,7 @@ int writeToClient(client *c, int handler_installed) {
         }
         atomicIncr(server.stat_net_output_bytes, totwritten);
     }
+    c->net_output_bytes += totwritten;
 
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
@@ -2982,6 +2987,7 @@ void readQueryFromClient(connection *conn) {
     } else {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
+    c->net_input_bytes += nread;
 
     if (!(c->flags & CLIENT_MASTER) &&
         /* The commands cached in the MULTI/EXEC queue have not been executed yet,
@@ -3157,7 +3163,10 @@ sds catClientInfoString(sds s, client *client) {
         " resp=%i", client->resp,
         " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "",
         " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "",
-        " io-thread=%i", client->tid));
+        " io-thread=%i", client->tid,
+        " tot-net-in=%U", client->net_input_bytes,
+        " tot-net-out=%U", client->net_output_bytes,
+        " tot-cmds=%U", client->commands_processed));
 
     if (paused) resumeIOThread(client->running_tid);
     return ret;
@@ -4216,6 +4225,11 @@ char *getClientTypeName(int class) {
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+
+    /* For unauthenticated clients the output buffer is limited to prevent
+     * them from abusing it by not reading the replies */
+    if (used_mem > 1024 && authRequired(c))
+        return 1;
 
     class = getClientType(c);
     /* For the purpose of output buffer limiting, masters are handled

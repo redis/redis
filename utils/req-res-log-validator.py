@@ -58,6 +58,19 @@ IGNORED_COMMANDS = {
     # Commands to which we decided not write a reply schema
     "pfdebug",
     "lolwut",
+    # TODO: for vector-sets module
+    "VADD",
+    "VCARD",
+    "VDIM",
+    "VEMB",
+    "VGETATTR",
+    "VINFO",
+    "VLINKS",
+    "VRANDMEMBER",
+    "VREM",
+    "VSETATTR",
+    "VSIM",
+    "VISMEMBER",
 }
 
 class Request(object):

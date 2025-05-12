@@ -3,8 +3,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #include "fmacros.h"
@@ -182,7 +183,7 @@ int showThroughput(struct aeEventLoop *eventLoop, long long id,
 
 /* Dict callbacks */
 static uint64_t dictSdsHash(const void *key);
-static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2);
+static int dictSdsKeyCompare(dictCmpCache *cache, const void *key1, const void *key2);
 
 /* Implementation */
 static long long ustime(void) {
@@ -203,10 +204,10 @@ static uint64_t dictSdsHash(const void *key) {
     return dictGenHashFunction((unsigned char*)key, sdslen((char*)key));
 }
 
-static int dictSdsKeyCompare(dict *d, const void *key1, const void *key2)
+static int dictSdsKeyCompare(dictCmpCache *cache, const void *key1, const void *key2)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -437,6 +438,7 @@ static void clientDone(client c) {
     }
 }
 
+REDIS_NO_SANITIZE_MSAN("memory")
 static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     client c = privdata;
     void *reply = NULL;

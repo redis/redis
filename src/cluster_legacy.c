@@ -5,8 +5,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -2602,7 +2603,7 @@ uint32_t writePingExt(clusterMsg *hdr, int gossipcount)  {
     totlen += getShardIdPingExtSize();
     extensions++;
 
-    /* Populate insternal secret */
+    /* Populate internal secret */
     if (cursor != NULL) {
         clusterMsgPingExtInternalSecret *ext = preparePingExt(cursor, CLUSTERMSG_EXT_TYPE_INTERNALSECRET, getInternalSecretPingExtSize());
         memcpy(ext->internal_secret, server.cluster->internal_secret, CLUSTER_INTERNALSECRETLEN);
@@ -5792,7 +5793,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
     kvs_di = kvstoreGetDictSafeIterator(server.db->keys, hashslot);
     while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
         enterExecutionUnit(1, 0);
-        sds sdskey = dictGetKey(de);
+        sds sdskey = kvobjGetKey(dictGetKV(de));
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);

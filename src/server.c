@@ -5,8 +5,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -294,19 +295,53 @@ size_t dictSdsKeyLen(dict *d, const void *key) {
     return sdslen((sds)key);
 }
 
-int dictSdsKeyCompareWithLen(dict *d, const void *key1, const size_t l1,
-                                      const void *key2, const size_t l2)
-{
-    UNUSED(d);
+static uint64_t dictHashKV(const void *kv) {
+    sds sdsKey = kvobjGetKey((kvobj *) kv);
+    return dictGenHashFunction(sdsKey, sdslen(sdsKey));
+}
+
+int dictCompareKV(dictCmpCache *cache, const void *kv1, const void *kv2) {
+    /* Use caching to avoid compute key&len for each comparison on given lookup */
+    if (cache->useCache == 0) {
+        cache->useCache = 1;
+        cache->data[0].p = kvobjGetKey((kvobj *) kv1);
+        cache->data[1].sz = sdslen((sds) cache->data[0].p); 
+    }
+        
+    sds key1 = cache->data[0].p;
+    sds key2 = kvobjGetKey((kvobj *) kv2);
+    int l1 = (int) cache->data[1].sz; 
+    int l2 = sdslen((sds)key2);
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
 
-int dictSdsKeyCompare(dict *d, const void *key1,
+int dictSdsCompareKV(dictCmpCache *cache, const void *sdsLookup, const void *kv)
+{
+    /* is first cmp call of a new lookup */
+    if (cache->useCache == 0) {
+        cache->useCache = 1;
+        cache->data[0].sz = sdslen((sds) sdsLookup);
+    }
+
+    sds key2 = kvobjGetKey((kvobj *)kv);
+    size_t l1 = cache->data[0].sz;
+    size_t l2 = sdslen((sds)key2);
+    if (l1 != l2) return 0;
+    return memcmp(sdsLookup, key2, l1) == 0;
+}
+
+static void dictDestructorKV(dict *d, void *kv) {
+    UNUSED(d);
+    if (kv == NULL) return;
+    decrRefCount(kv);
+}
+
+int dictSdsKeyCompare(dictCmpCache *cache, const void *key1,
         const void *key2)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -314,10 +349,10 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored)
+int dictSdsMstrKeyCompare(dictCmpCache *cache, const void *sdsLookup, const void *mstrStored)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = sdslen((sds)sdsLookup);
     l2 = hfieldlen((hfield)mstrStored);
@@ -328,10 +363,10 @@ int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
-int dictSdsKeyCaseCompare(dict *d, const void *key1,
+int dictSdsKeyCaseCompare(dictCmpCache *cache, const void *key1,
         const void *key2)
 {
-    UNUSED(d);
+    UNUSED(cache);
     return strcasecmp(key1, key2) == 0;
 }
 
@@ -353,11 +388,11 @@ void *dictSdsDup(dict *d, const void *key) {
     return sdsdup((const sds) key);
 }
 
-int dictObjKeyCompare(dict *d, const void *key1,
+int dictObjKeyCompare(dictCmpCache *cache, const void *key1,
         const void *key2)
 {
     const robj *o1 = key1, *o2 = key2;
-    return dictSdsKeyCompare(d, o1->ptr,o2->ptr);
+    return dictSdsKeyCompare(cache, o1->ptr,o2->ptr);
 }
 
 uint64_t dictObjHash(const void *key) {
@@ -393,15 +428,15 @@ uint64_t dictClientHash(const void *key) {
 }
 
 /* Dict compare function for client */
-int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
+int dictClientKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    UNUSED(cache);
     return ((client *)key1)->id == ((client *)key2)->id;
 }
 
 /* Dict compare function for null terminated string */
-int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
+int dictCStrKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
@@ -410,12 +445,12 @@ int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
 }
 
 /* Dict case insensitive compare function for null terminated string */
-int dictCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
+int dictCStrKeyCaseCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    UNUSED(cache);
     return strcasecmp(key1, key2) == 0;
 }
 
-int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
+int dictEncObjKeyCompare(dictCmpCache *cache, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
     int cmp;
@@ -430,7 +465,7 @@ int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
      * objects as well. */
     if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(d,o1->ptr,o2->ptr);
+    cmp = dictSdsKeyCompare(cache,o1->ptr,o2->ptr);
     if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;
@@ -517,17 +552,19 @@ dictType zsetDictType = {
     NULL,                      /* allow to expand */
 };
 
-/* Db->dict, keys are sds strings, vals are Redis objects. */
+/* Db->dict, keys are of type kvobj, unification of key and value */
 dictType dbDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    dictResizeAllowed,          /* allow to resize */
-    .keyLen = dictSdsKeyLen,    /* key length */
-    .keyCompareWithLen = dictSdsKeyCompareWithLen /* key compare with length */
+    dictSdsHash,            /* hash function */
+    NULL,                   /* key dup */
+    NULL,                   /* val dup */
+    dictSdsCompareKV,       /* lookup key compare */
+    dictDestructorKV,       /* key destructor */
+    NULL,                   /* val destructor */
+    dictResizeAllowed,      /* allow to resize */
+    .no_value = 1,          /* keys and values are unified (kvobj) */
+    .keys_are_odd = 0,      /* simple kvobj (robj) struct */
+    .storedHashFunction = dictHashKV,  /* stored hash function */
+    .storedKeyCompare = dictCompareKV, /* stored key compare */
 };
 
 /* Db->expires */
@@ -535,10 +572,14 @@ dictType dbExpiresDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
+    dictSdsCompareKV,           /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     dictResizeAllowed,          /* allow to resize */
+    .no_value = 1,              /* keys and values are unified (kvobj) */
+    .keys_are_odd = 0,          /* simple kvobj (robj) struct */
+    .storedHashFunction = dictHashKV,  /* stored hash function */
+    .storedKeyCompare = dictCompareKV, /* stored key compare */
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -2195,6 +2236,7 @@ void initServerConfig(void) {
     server.master_initial_offset = -1;
     server.repl_state = REPL_STATE_NONE;
     server.repl_rdb_ch_state = REPL_RDB_CH_STATE_NONE;
+    server.repl_num_master_disconnection = 0;
     server.repl_full_sync_buffer = (struct replDataBuf) {0};
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
@@ -3817,8 +3859,14 @@ void call(client *c, int flags) {
         }
     }
 
-    if (!(c->flags & CLIENT_BLOCKED))
+    if (!(c->flags & CLIENT_BLOCKED)) {
+        /* Modules may call commands in cron, in which case server.current_client
+         * is not set. */
+        if (server.current_client) {
+            server.current_client->commands_processed++;
+        }
         server.stat_numcommands++;
+    }
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
@@ -5920,7 +5968,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_fragmentation_bytes:%zd\r\n", mh->total_frag_bytes,
             "mem_not_counted_for_evict:%zu\r\n", freeMemoryGetNotCountedMemory(),
             "mem_replication_backlog:%zu\r\n", mh->repl_backlog,
-            "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem,
+            "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem + server.repl_full_sync_buffer.mem_used,
             "mem_replica_full_sync_buffer:%zu\r\n", server.repl_full_sync_buffer.mem_used,
             "mem_clients_slaves:%zu\r\n", mh->clients_slaves,
             "mem_clients_normal:%zu\r\n", mh->clients_normal,
@@ -6389,7 +6437,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 continue;
             
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                uint64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
+                int64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
                 char buf[10000];
                 int cnt = 0, buflen = 0;
 
@@ -7490,6 +7538,7 @@ int main(int argc, char **argv) {
     }
     if (!server.sentinel_mode) {
         moduleInitModulesSystemLast();
+        moduleLoadInternalModules();
         moduleLoadFromQueue();
     }
     ACLLoadUsersAtStartup();

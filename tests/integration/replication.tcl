@@ -5,8 +5,9 @@
 # Copyright (c) 2024-present, Valkey contributors.
 # All rights reserved.
 #
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
@@ -45,8 +46,11 @@ start_server {tags {"repl network external:skip"}} {
         }
 
         test {Slave enters wait_bgsave} {
+            # Wait until the rdbchannel is connected to prevent the following
+            # 'debug sleep' occurring during the rdbchannel handshake.
             wait_for_condition 50 1000 {
-                [string match *state=wait_bgsave* [$master info replication]]
+                [string match *state=wait_bgsave* [$master info replication]] &&
+                [llength [split [string trim [$master client list type slave]] "\r\n"]] == 2
             } else {
                 fail "Replica does not enter wait_bgsave state"
             }
@@ -752,6 +756,8 @@ test {diskless loading short read} {
                 redis.register_function('test', function() return 'hello1' end)
             }
 
+            set has_vector_sets [server_has_command vadd]
+
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
                     r set "$k int_$i" [expr {int(rand()*10000)}]
@@ -765,6 +771,11 @@ test {diskless loading short read} {
                     r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
                     r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
                     r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+
+                    if {$has_vector_sets} {
+                        r vadd "$k vector_set" VALUES 3 [expr {rand()}] [expr {rand()}] [expr {rand()}] [string repeat A [expr {int(rand()*1000)}]]
+                    }
+
                     for {set j 0} {$j < 10} {incr j} {
                         r xadd "$k stream" * foo "asdf" bar "1234"
                     }
@@ -1638,7 +1649,7 @@ start_server {tags {"repl external:skip"}} {
             $replica replicaof $master_host $master_port
 
             # Wait until replication is completed
-            wait_replica_online $master 0 1000 100
+            wait_for_sync $replica
             wait_for_ofs_sync $master $replica
 
             # Sanity check
