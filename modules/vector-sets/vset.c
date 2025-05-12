@@ -1746,6 +1746,12 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     uint32_t quant_type = hnsw_config & 0xff;
     uint32_t hnsw_m = (hnsw_config >> 8) & 0xffff;
 
+    /* Check that the quantization type is correct. Otherwise
+     * return ASAP signaling the error. */
+    if (quant_type != HNSW_QUANT_NONE &&
+        quant_type != HNSW_QUANT_Q8 &&
+        quant_type != HNSW_QUANT_BIN) return NULL;
+
     if (hnsw_m == 0) hnsw_m = 16; // Default, useful for RDB files predating
                                   // this configuration parameter: it was fixed
                                   // to 16.
@@ -1768,7 +1774,7 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
 
         // Load projection matrix as a binary blob
         char *matrix_blob = RedisModule_LoadStringBuffer(rdb, NULL);
-        if (RedisModule_IsIOError(rdb)) goto ioerr;
+        if (matrix_blob == NULL) goto ioerr;
         memcpy(vset->proj_matrix, matrix_blob, matrix_size);
         RedisModule_Free(matrix_blob);
     }
@@ -1802,7 +1808,10 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         if (vector_len != vector_bytes) {
             RedisModule_LogIOError(rdb,"warning",
                                        "Mismatching vector dimension");
-            return NULL; // Loading error.
+            RedisModule_FreeString(NULL,ele);
+            if (attrib) RedisModule_FreeString(NULL,attrib);
+            RedisModule_Free(vector);
+            goto ioerr;
         }
 
         // Load node parameters back.
@@ -1834,7 +1843,10 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         if (node == NULL) {
             RedisModule_LogIOError(rdb,"warning",
                                        "Vector set node index loading error");
-            return NULL; // Loading error: likely a corruption.
+            vectorSetReleaseNodeValue(nv);
+            RedisModule_Free(vector);
+            RedisModule_Free(params);
+            goto ioerr;
         }
         if (nv->attrib) vset->numattribs++;
         RedisModule_DictSet(vset->dict,ele,node);
