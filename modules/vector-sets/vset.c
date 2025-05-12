@@ -1746,6 +1746,12 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     uint32_t quant_type = hnsw_config & 0xff;
     uint32_t hnsw_m = (hnsw_config >> 8) & 0xffff;
 
+    /* Check that the quantization type is correct. Otherwise
+     * return ASAP signaling the error. */
+    if (quant_type != HNSW_QUANT_NONE &&
+        quant_type != HNSW_QUANT_Q8 &&
+        quant_type != HNSW_QUANT_BIN) return NULL;
+
     if (hnsw_m == 0) hnsw_m = 16; // Default, useful for RDB files predating
                                   // this configuration parameter: it was fixed
                                   // to 16.
