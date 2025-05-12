@@ -449,7 +449,11 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
         updateKeysizesHist(db, slot, kvNew->type, -1, newlen);
     }
 
-    if (server.lazyfree_lazy_server_del) {
+    /* In multi-threaded mode, the OBJ_ENCODING_RAW string object usually is
+     * allocated in the IO thread, so we defer the free to the IO thread. */
+    if (server.io_threads_num > 1 && old->encoding == OBJ_ENCODING_RAW) {
+        tryDeferFreeClientObject(server.current_client, old);
+    } else if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key, old, db->id);
     } else {
         decrRefCount(old);
