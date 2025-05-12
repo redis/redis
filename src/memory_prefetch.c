@@ -24,8 +24,8 @@ typedef enum { HT_IDX_FIRST = 0, HT_IDX_SECOND = 1, HT_IDX_INVALID = -1 } HashTa
 typedef enum {
     PREFETCH_BUCKET,     /* Initial state, determines which hash table to use and prefetch the table's bucket */
     PREFETCH_ENTRY,      /* prefetch entries associated with the given key's hash */
-    PREFETCH_KVOBJ,      /* prefetch the key object of the entry found in the previous step */
-    PREFETCH_VALDATA,    /* prefetch the value object of the entry found in the previous step */
+    PREFETCH_KVOBJ,      /* prefetch the kv object of the entry found in the previous step */
+    PREFETCH_VALDATA,    /* prefetch the value data of the kv object found in the previous step */
     PREFETCH_DONE        /* Indicates that prefetching for this key is complete */
 } PrefetchState;
 
@@ -47,11 +47,10 @@ typedef enum {
                                     |              ┌───────▼────────┐              │
                                     │              | PREFETCH_KVOBJ |              ▼
                                     │              └───────┬────────┘              │
-                                    │                      │                       │
         kvobj not found - goto next entry                  |                       |
-                                    │          ┌───────────▼──────────────┐        │
-                                    └──────◄───│    PREFETCH_VALDATA      │        ▼
-                                               └───────────┬──────────────┘        │
+                                    │          ┌───────────▼────────────┐          │
+                                    └──────◄───│    PREFETCH_VALDATA    │          ▼
+                                               └───────────┬────────────┘          │
                                                            |                       │
                                                  ┌───────-─▼─────────────┐         │
                                                  │     PREFETCH_DONE     │◄────────┘
@@ -66,7 +65,7 @@ typedef struct KeyPrefetchInfo {
     uint64_t bucket_idx;      /* Index of the bucket in the current hash table */
     uint64_t key_hash;        /* Hash value of the key being prefetched */
     dictEntry *current_entry; /* Pointer to the current entry being processed */
-    void *current_kv;         /* Pointer to the kv object being prefetched */
+    kvobj *current_kv;        /* Pointer to the kv object being prefetched */
 } KeyPrefetchInfo;
 
 /* PrefetchCommandsBatch structure holds the state of the current batch of client commands being processed. */
@@ -137,13 +136,13 @@ void onMaxBatchSizeChange(void) {
 }
 
 /* Prefetch the given pointer and move to the next key in the batch. */
-static void prefetchAndMoveToNextKey(void *addr) {
+static inline void prefetchAndMoveToNextKey(void *addr) {
     redis_prefetch(addr);
     /* While the prefetch is in progress, we can continue to the next key */
     batch->cur_idx = (batch->cur_idx + 1) % batch->key_count;
 }
 
-static void markKeyAsdone(KeyPrefetchInfo *info) {
+static inline void markKeyAsdone(KeyPrefetchInfo *info) {
     info->state = PREFETCH_DONE;
     server.stat_total_prefetch_entries++;
     batch->keys_done++;
@@ -172,7 +171,6 @@ static void initBatchInfo(dict **dicts, GetValueDataFunc func) {
             batch->keys_done++;
             continue;
         }
-        serverAssert(batch->current_dicts[i]->type->no_value == 1);
         info->ht_idx = HT_IDX_INVALID;
         info->current_entry = NULL;
         info->current_kv = NULL;
@@ -204,7 +202,7 @@ static void prefetchBucket(KeyPrefetchInfo *info) {
     info->state = PREFETCH_ENTRY;
 }
 
-/* Prefetch the next entry in the bucket and move to the PREFETCH_VALUE state.
+/* Prefetch the entry in the bucket and move to the PREFETCH_KVOBJ state.
  * If no more entries in the bucket, move to the PREFETCH_BUCKET state to look at the next table. */
 static void prefetchEntry(KeyPrefetchInfo *info) {
     size_t i = batch->cur_idx;
@@ -227,24 +225,24 @@ static void prefetchEntry(KeyPrefetchInfo *info) {
     }
 }
 
-static void prefetchKVOject(KeyPrefetchInfo *info) {
+/* Prefetch the kv object in the dict entry, and to the PREFETCH_VALDATA state. */
+static inline void prefetchKVOject(KeyPrefetchInfo *info) {
     kvobj *kv = dictGetKey(info->current_entry);
     int is_kv = dictEntryIsKey(info->current_entry);
 
     info->current_kv = kv;
     info->state = PREFETCH_VALDATA;
-
-    /* If entry just is kvobj, we don't need to prefetch it */
+    /* If the entry is a pointer of kv object, we don't need to prefetch it */
     if (!is_kv) prefetchAndMoveToNextKey(kv);
 }
 
+/* Prefetch the value data of the kv object found in dict entry. */
 static void prefetchValueData(KeyPrefetchInfo *info) {
     size_t i = batch->cur_idx;
     kvobj *kv = info->current_kv;
-    serverAssert(kv != NULL);
 
     /* 1. If this is the last element, we assume a hit and don't compare the keys
-     * 2. This kvobject is the target of the lookup. */
+     * 2. This kv object is the target of the lookup. */
     if ((!dictGetNext(info->current_entry) && !dictIsRehashing(batch->current_dicts[i])) ||
         dictCompareKeys(batch->current_dicts[i], batch->keys[i], kv))
     {
@@ -294,17 +292,16 @@ static void dictPrefetch(dict **dicts, GetValueDataFunc get_val_data_func) {
     }
 }
 
-/* Helper function to get the value pointer of an object. */
+/* Helper function to get the value pointer of a kv object. */
 static void *getObjectValuePtr(const void *value) {
     kvobj *kv = (kvobj *)value;
     return (kv->type == OBJ_STRING && kv->encoding == OBJ_ENCODING_RAW) ? kv->ptr : NULL;
 }
 
 void resetCommandsBatch(void) {
-    if (!batch) {
+    if (batch == NULL) {
         /* Handle the case where prefetching becomes enabled from disabled. */
-        if (server.prefetch_batch_max_size > 0)
-            prefetchCommandsBatchInit();
+        if (server.prefetch_batch_max_size) prefetchCommandsBatchInit();
         return;
     }
 
@@ -320,6 +317,8 @@ void resetCommandsBatch(void) {
     }
 }
 
+/* The config of max prefetch size may be changed during running, the function
+ * can get the size when initializing the batch. */
 int getConfigPrefetchBatchSize(void) {
     if (!batch) return 0;
     /* We double the size when initializing the batch, so divide it by 2. */
@@ -327,8 +326,10 @@ int getConfigPrefetchBatchSize(void) {
 }
 
 /* Prefetch command-related data:
- * 1. Prefetch the command arguments allocated by the I/O thread to bring them closer to the L1 cache.
- * 2. Prefetch the keys and values for all commands in the current batch from the main and expires dictionaries. */
+ * 1. Prefetch the command arguments allocated by the I/O thread to bring them
+ *    closer to the L1 cache.
+ * 2. Prefetch the keys and values for all commands in the current batch from
+ *    the main and expires dictionaries. */
 void prefetchCommands(void) {
     if (!batch) return;
 
@@ -336,7 +337,8 @@ void prefetchCommands(void) {
     for (size_t i = 0; i < batch->client_count; i++) {
         client *c = batch->clients[i];
         if (!c || c->argc <= 1) continue;
-        /* Skip prefetching first argv (cmd name) it was already looked up by the I/O thread. */
+        /* Skip prefetching first argv (cmd name) it was already looked up by
+         * the I/O thread. */
         for (int j = 1; j < c->argc; j++) {
             redis_prefetch(c->argv[j]);
         }
@@ -358,7 +360,8 @@ void prefetchCommands(void) {
         batch->keys[i] = ((robj *)batch->keys[i])->ptr;
     }
 
-    /* Prefetch dict keys for all commands. Prefetching is beneficial only if there are more than one key. */
+    /* Prefetch dict keys for all commands.
+     * Prefetching is beneficial only if there are more than one key. */
     if (batch->key_count > 1) {
         server.stat_total_prefetch_batches++;
         /* Prefetch keys from the main dict */
@@ -372,26 +375,30 @@ void prefetchCommands(void) {
  *
  * Returns C_OK if the command was added successfully, C_ERR otherwise. */
 int addCommandToBatch(client *c) {
-    if (!batch) return C_ERR;
+    if (unlikely(!batch)) return C_ERR;
 
     /* If the batch is full, process it.
      * We also check the client count to handle cases where
      * no keys exist for the clients' commands. */
-    if (batch->client_count == batch->max_prefetch_size || batch->key_count == batch->max_prefetch_size) {
+    if (batch->client_count == batch->max_prefetch_size ||
+        batch->key_count == batch->max_prefetch_size)
+    {
         return C_ERR;
     }
 
     batch->clients[batch->client_count++] = c;
 
-    /* Get command's keys positions */
-    if (c->iolookedcmd) {
+    if (likely(c->iolookedcmd)) {
+        /* Get command's keys positions */
         getKeysResult result = GETKEYS_RESULT_INIT;
         int num_keys = getKeysFromCommand(c->iolookedcmd, c->argv, c->argc, &result);
         for (int i = 0; i < num_keys && batch->key_count < batch->max_prefetch_size; i++) {
             batch->keys[batch->key_count] = c->argv[result.keys[i].pos];
             batch->slots[batch->key_count] = c->slot > 0 ? c->slot : 0;
-            batch->keys_dicts[batch->key_count] = kvstoreGetDict(c->db->keys, batch->slots[batch->key_count]);
-            batch->expire_dicts[batch->key_count] = kvstoreGetDict(c->db->expires, batch->slots[batch->key_count]);
+            batch->keys_dicts[batch->key_count] =
+                kvstoreGetDict(c->db->keys, batch->slots[batch->key_count]);
+            batch->expire_dicts[batch->key_count] =
+                kvstoreGetDict(c->db->expires, batch->slots[batch->key_count]);
             batch->key_count++;
         }
         getKeysFreeResult(&result);
