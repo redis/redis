@@ -50,7 +50,10 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
     if (unbind) connUnbindEventLoop(c->conn);
     /* Just skip if it already is transferred. */
     if (c->io_thread_client_list_node) {
-        /* If there are several clients to process, let the main thread handle them ASAP. */
+        /* If there are several clients to process, let the main thread handle them ASAP.
+         * Since the client being added to the queue may still need to be processed by
+         * the IO thread, we must call this before adding it to the queue to avoid
+         * races with the main thread. */
         sendPendingClientsToMainThreadIfNeeded(&IOThreads[c->tid], 1);
         /* Remove the client from clients list of IO thread. */
         listDelNode(IOThreads[c->tid].clients, c->io_thread_client_list_node);
