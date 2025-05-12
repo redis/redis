@@ -1414,29 +1414,29 @@ invalid:
 
 /* PFADD var ele ele ele ... ele => :0 or :1 */
 void pfaddCommand(client *c) {
-    robj *o = lookupKeyWrite(c->db,c->argv[1]);
+    uint64_t oldlen;
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1], &link);
+
     struct hllhdr *hdr;
     int updated = 0, j;
 
-    if (o == NULL) {
+    if (kv == NULL) {
         /* Create the key with a string value of the exact length to
          * hold our HLL data structure. sdsnewlen() when NULL is passed
          * is guaranteed to return bytes initialized to zero. */
-        o = createHLLObject();
-        dbAdd(c->db,c->argv[1],o);
+        robj *o = createHLLObject();
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
         updated++;
     } else {
-        if (isHLLObjectOrReply(c,o) != C_OK) return;
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
+        if (isHLLObjectOrReply(c,kv) != C_OK) return;
+        kv = dbUnshareStringValue(c->db,c->argv[1],kv);
     }
-
-    /* HLL might change from sparse to dense. No way to predict KEYSIZES diff. 
-     * Update as if the key is being removed. After the for-loop update it back */ 
-    int64_t oldlen = stringObjectLen(o);
+    oldlen = stringObjectLen(kv);
 
     /* Perform the low level ADD operation for every element. */
     for (j = 2; j < c->argc; j++) {
-        int retval = hllAdd(o, (unsigned char*)c->argv[j]->ptr,
+        int retval = hllAdd(kv, (unsigned char*)c->argv[j]->ptr,
                                sdslen(c->argv[j]->ptr));
         switch(retval) {
         case 1:
@@ -1448,8 +1448,8 @@ void pfaddCommand(client *c) {
         }
     }
 
-    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
-    hdr = o->ptr;
+    hdr = kv->ptr;
+    updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(kv));
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -1461,7 +1461,6 @@ void pfaddCommand(client *c) {
 
 /* PFCOUNT var -> approximated cardinality of set. */
 void pfcountCommand(client *c) {
-    robj *o;
     struct hllhdr *hdr;
     uint64_t card;
 
@@ -1480,7 +1479,7 @@ void pfcountCommand(client *c) {
         registers = max + HLL_HDR_SIZE;
         for (j = 1; j < c->argc; j++) {
             /* Check type and size. */
-            robj *o = lookupKeyRead(c->db,c->argv[j]);
+            kvobj *o = lookupKeyRead(c->db,c->argv[j]);
             if (o == NULL) continue; /* Assume empty HLL for non existing var.*/
             if (isHLLObjectOrReply(c,o) != C_OK) return;
 
@@ -1508,7 +1507,7 @@ void pfcountCommand(client *c) {
      * logically expired key on a replica is deleted, while with lookupKeyRead
      * it isn't, but the lookup returns NULL either way if the key is logically
      * expired, which is what matters here. */
-    o = lookupKeyRead(c->db,c->argv[1]);
+    kvobj *o = lookupKeyRead(c->db, c->argv[1]);
     if (o == NULL) {
         /* No key? Cardinality is zero since no element was added, otherwise
          * we would have a key as HLLADD creates it as a side effect. */
@@ -1568,9 +1567,9 @@ void pfmergeCommand(client *c) {
     memset(max,0,sizeof(max));
     for (j = 1; j < c->argc; j++) {
         /* Check type and size. */
-        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
         if (o == NULL) continue; /* Assume empty HLL for non existing var. */
-        if (isHLLObjectOrReply(c,o) != C_OK) return;
+        if (isHLLObjectOrReply(c, o) != C_OK) return;
 
         /* If at least one involved HLL is dense, use the dense representation
          * as target ASAP to save time and avoid the conversion step. */
@@ -1586,25 +1585,26 @@ void pfmergeCommand(client *c) {
     }
 
     /* Create / unshare the destination key's value if needed. */
-    robj *o = lookupKeyWrite(c->db,c->argv[1]);
-    if (o == NULL) {
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
+    if (kv == NULL) {
         /* Create the key with a string value of the exact length to
          * hold our HLL data structure. sdsnewlen() when NULL is passed
          * is guaranteed to return bytes initialized to zero. */
-        o = createHLLObject();
-        dbAdd(c->db,c->argv[1],o);
+        robj *o = createHLLObject();
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
         /* If key exists we are sure it's of the right type/size
          * since we checked when merging the different HLLs, so we
          * don't check again. */
-        o = dbUnshareStringValue(c->db,c->argv[1],o);
+        kv = dbUnshareStringValue(c->db,c->argv[1],kv);
     }
 
-    uint64_t oldLen = stringObjectLen(o);
+    uint64_t oldLen = stringObjectLen(kv);
 
     /* Convert the destination object to dense representation if at least
      * one of the inputs was dense. */
-    if (use_dense && hllSparseToDense(o) == C_ERR) {
+    if (use_dense && hllSparseToDense(kv) == C_ERR) {
         addReplyError(c,invalid_hll_err);
         return;
     }
@@ -1612,19 +1612,19 @@ void pfmergeCommand(client *c) {
     /* Write the resulting HLL to the destination HLL registers and
      * invalidate the cached value. */
     if (use_dense) {
-        hdr = o->ptr;
+        hdr = kv->ptr;
         hllDenseCompress(hdr->registers, max);
     } else {
         for (j = 0; j < HLL_REGISTERS; j++) {
             if (max[j] == 0) continue;
-            hdr = o->ptr;
+            hdr = kv->ptr;
             switch (hdr->encoding) {
                 case HLL_DENSE: hllDenseSet(hdr->registers,j,max[j]); break;
-                case HLL_SPARSE: hllSparseSet(o,j,max[j]); break;
+                case HLL_SPARSE: hllSparseSet(kv,j,max[j]); break;
             }
         }
     }
-    hdr = o->ptr; /* o->ptr may be different now, as a side effect of
+    hdr = kv->ptr; /* o->ptr may be different now, as a side effect of
                      last hllSparseSet() call. */
     HLL_INVALIDATE_CACHE(hdr);
 
@@ -1634,7 +1634,7 @@ void pfmergeCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
 
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr),
-                       OBJ_STRING, oldLen, stringObjectLen(o));
+                       OBJ_STRING, oldLen, stringObjectLen(kv));
     server.dirty++;
     addReply(c,shared.ok);
 }
@@ -1758,7 +1758,7 @@ cleanup:
 void pfdebugCommand(client *c) {
     char *cmd = c->argv[1]->ptr;
     struct hllhdr *hdr;
-    robj *o;
+    kvobj *o;
     int j;
 
     if (!strcasecmp(cmd, "simd")) {

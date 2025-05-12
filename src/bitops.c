@@ -494,16 +494,17 @@ int getBitfieldTypeFromArgument(client *c, robj *o, int *sign, int *bits) {
  * 
  * (Must provide all the arguments to the function)
  */
-static robj *lookupStringForBitCommand(client *c, uint64_t maxbit, 
+static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit, 
                                        size_t *strOldSize, size_t *strGrowSize) 
 {
+    dictEntryLink link;
     size_t byte = maxbit >> 3;
-    robj *o = lookupKeyWrite(c->db,c->argv[1]);
+    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return NULL;
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
-        dbAdd(c->db,c->argv[1],o);
+        dbAddByLink(c->db,c->argv[1],&o,&link);
         *strGrowSize = byte + 1;
         *strOldSize = 0;
     } else {
@@ -548,7 +549,6 @@ unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf) {
 
 /* SETBIT key offset bitvalue */
 void setbitCommand(client *c) {
-    robj *o;
     char *err = "bit is not an integer or out of range";
     uint64_t bitoffset;
     ssize_t byte, bit;
@@ -568,8 +568,8 @@ void setbitCommand(client *c) {
     }
 
     size_t strOldSize, strGrowSize;
-    if ((o = lookupStringForBitCommand(c,bitoffset,&strOldSize,&strGrowSize)) == NULL) 
-        return;
+    kvobj *o = lookupStringForBitCommand(c, bitoffset, &strOldSize, &strGrowSize);
+    if (o == NULL) return;
 
     /* Get current values */
     byte = bitoffset >> 3;
@@ -603,7 +603,6 @@ void setbitCommand(client *c) {
 
 /* GETBIT key offset */
 void getbitCommand(client *c) {
-    robj *o;
     char llbuf[32];
     uint64_t bitoffset;
     size_t byte, bit;
@@ -612,16 +611,16 @@ void getbitCommand(client *c) {
     if (getBitOffsetFromArgument(c,c->argv[2],&bitoffset,0,0) != C_OK)
         return;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_STRING)) return;
+    kvobj *kv = lookupKeyReadOrReply(c, c->argv[1], shared.czero);
+    if (kv == NULL || checkType(c,kv,OBJ_STRING)) return;
 
     byte = bitoffset >> 3;
     bit = 7 - (bitoffset & 0x7);
-    if (sdsEncodedObject(o)) {
-        if (byte < sdslen(o->ptr))
-            bitval = ((uint8_t*)o->ptr)[byte] & (1 << bit);
+    if (sdsEncodedObject(kv)) {
+        if (byte < sdslen(kv->ptr))
+            bitval = ((uint8_t*)kv->ptr)[byte] & (1 << bit);
     } else {
-        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)o->ptr))
+        if (byte < (size_t)ll2string(llbuf,sizeof(llbuf),(long)kv->ptr))
             bitval = llbuf[byte] & (1 << bit);
     }
 
@@ -632,7 +631,7 @@ void getbitCommand(client *c) {
 REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
     char *opname = c->argv[1]->ptr;
-    robj *o, *targetkey = c->argv[2];
+    robj *targetkey = c->argv[2];
     unsigned long op, j, numkeys;
     robj **objects;      /* Array of source objects. */
     unsigned char **src; /* Array of source strings pointers. */
@@ -667,9 +666,9 @@ void bitopCommand(client *c) {
     len = zmalloc(sizeof(long) * numkeys);
     objects = zmalloc(sizeof(robj*) * numkeys);
     for (j = 0; j < numkeys; j++) {
-        o = lookupKeyRead(c->db,c->argv[j+3]);
+        kvobj *kv = lookupKeyRead(c->db, c->argv[j + 3]);
         /* Handle non-existing keys as empty strings. */
-        if (o == NULL) {
+        if (kv == NULL) {
             objects[j] = NULL;
             src[j] = NULL;
             len[j] = 0;
@@ -677,7 +676,7 @@ void bitopCommand(client *c) {
             continue;
         }
         /* Return an error if one of the keys is not a string. */
-        if (checkType(c,o,OBJ_STRING)) {
+        if (checkType(c, kv, OBJ_STRING)) {
             unsigned long i;
             for (i = 0; i < j; i++) {
                 if (objects[i])
@@ -688,7 +687,7 @@ void bitopCommand(client *c) {
             zfree(objects);
             return;
         }
-        objects[j] = getDecodedObject(o);
+        objects[j] = getDecodedObject(kv);
         src[j] = objects[j]->ptr;
         len[j] = sdslen(objects[j]->ptr);
         if (len[j] > maxlen) maxlen = len[j];
@@ -805,10 +804,9 @@ void bitopCommand(client *c) {
 
     /* Store the computed value into the target key */
     if (maxlen) {
-        o = createObject(OBJ_STRING,res);
-        setKey(c,c->db,targetkey,o,0);
+        robj *o = createObject(OBJ_STRING, res);
+        setKey(c, c->db, targetkey, &o, 0);
         notifyKeyspaceEvent(NOTIFY_STRING,"set",targetkey,c->db->id);
-        decrRefCount(o);
         server.dirty++;
     } else if (dbDelete(c->db,targetkey)) {
         signalModifiedKey(c,c->db,targetkey);
@@ -820,7 +818,7 @@ void bitopCommand(client *c) {
 
 /* BITCOUNT key [start end [BIT|BYTE]] */
 void bitcountCommand(client *c) {
-    robj *o;
+    kvobj *o;
     long long start, end;
     long strlen;
     unsigned char *p;
@@ -912,7 +910,7 @@ void bitcountCommand(client *c) {
 
 /* BITPOS key bit [start [end [BIT|BYTE]]] */
 void bitposCommand(client *c) {
-    robj *o;
+    kvobj *o;
     long long start, end;
     long bit, strlen;
     unsigned char *p;
@@ -1077,7 +1075,7 @@ struct bitfieldOp {
  * when flags is set to BITFIELD_FLAG_READONLY: in this case only the
  * GET subcommand is allowed, other subcommands will return an error. */
 void bitfieldGeneric(client *c, int flags) {
-    robj *o;
+    kvobj *o;
     uint64_t bitoffset;
     int j, numops = 0, changes = 0;
     size_t strOldSize, strGrowSize = 0;

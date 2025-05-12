@@ -132,7 +132,9 @@ static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *curs
 
 /* Updates binary index tree (also known as Fenwick tree), increasing key count for a given dict.
  * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
- * Time complexity is O(log(kvs->num_dicts)). */
+ * Time complexity is O(log(kvs->num_dicts)). Take care to call it only after 
+ * adding or removing keys from the kvstore.
+ */
 static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     kvs->key_count += delta;
 
@@ -373,7 +375,7 @@ size_t kvstoreMemUsage(kvstore *kvs) {
         metaSize = sizeof(kvstoreDictMetaEx);
     
     unsigned long long keys_count = kvstoreSize(kvs);
-    mem += keys_count * dictEntryMemUsage() +
+    mem += keys_count * dictEntryMemUsage(kvs->dtype.no_value) +
            kvstoreBuckets(kvs) * sizeof(dictEntry*) +
            kvs->allocated_dicts * (sizeof(dict) + metaSize);
 
@@ -775,14 +777,6 @@ dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx)
     return dictGetFairRandomKey(d);
 }
 
-dictEntry *kvstoreDictFindByHashAndPtr(kvstore *kvs, int didx, const void *oldptr, uint64_t hash)
-{
-    dict *d = kvstoreGetDict(kvs, didx);
-    if (!d)
-        return NULL;
-    return dictFindByHashAndPtr(d, oldptr, hash);
-}
-
 unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, unsigned int count)
 {
     dict *d = kvstoreGetDict(kvs, didx);
@@ -836,16 +830,12 @@ unsigned long kvstoreDictLUTDefrag(kvstore *kvs, unsigned long cursor, kvstoreDi
     return 0;
 }
 
-uint64_t kvstoreGetHash(kvstore *kvs, const void *key)
-{
-    return kvs->dtype.hashFunction(key);
-}
-
 void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key)
 {
     dict *d = kvstoreGetDict(kvs, didx);
     if (!d)
         return NULL;
+    assert(d->type->no_value == 0); 
     return dictFetchValue(d, key);
 }
 
@@ -856,9 +846,67 @@ dictEntry *kvstoreDictFind(kvstore *kvs, int didx, void *key) {
     return dictFind(d, key);
 }
 
+/* Find a link to a key in the specified kvstore. If not found return NULL.
+ *
+ * This function is a wrapper around dictFindLink(), used to locate a key in a dict
+ * from a kvstore. 
+ *
+ * The caller may provide a bucket pointer to receive the reference to the bucket 
+ * where the key is stored or need to be added.
+ *
+ * Returns:
+ *   A reference to the dictEntry if found, otherwise NULL.
+ *   
+ * Important: 
+ * After calling kvstoreDictFindLink(), any necessary updates based on returned 
+ * link or bucket must be made immediately after, commonly by kvstoreDictSetAtLink() 
+ * without any operations in between that might modify the dict. Otherwise, 
+ * the link or bucket may become invalid. Example usage:
+ *
+ *      link = kvstoreDictFindLink(kvs, didx, key, &bucket);
+ *      ... Do something, but don't modify kvs->dicts[didx] ...
+ *      if (link)
+ *          kvstoreDictSetAtLink(kvs, didx, kv, &link, 0);   // Update existing entry
+ *      else
+ *          kvstoreDictSetAtLink(kvs, didx, kv, &bucket, 1); // Insert new entry
+ */
+dictEntryLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntryLink *bucket) {
+    if (bucket) *bucket = NULL;    
+    dict *d = kvstoreGetDict(kvs, didx);
+    if (!d) return NULL;
+    return dictFindLink(d, key, bucket);
+}
+
+/* Set a key (or key-value) in the specified kvstore. 
+ *
+ * This function inserts a new key or updates an existing one, depending on 
+ * the `newItem` flag.
+ *
+ * Parameters:
+ * link:      - When `newItem` is set, `link` points to the bucket of the key.
+ *            - When `newItem` is not set, `link` points to the link of the key.
+ *            - If link is NULL, dictFindLink() will be called to locate the link.
+ *          
+ * newItem: - If set, add a new key with a new dictEntry.
+ *          - If not set, update the key of an existing dictEntry.
+ */
+void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link, int newItem) {
+    dict *d;
+    if (newItem) {
+        d = createDictIfNeeded(kvs, didx);
+        dictSetKeyAtLink(d, kv, link, newItem);
+        cumulativeKeyCountAdd(kvs, didx, 1); /* must be called only after updating dict */
+    } else {
+        d = kvstoreGetDict(kvs, didx);
+        dictSetKeyAtLink(d, kv, link, newItem);
+    }
+}
+
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
     dict *d = createDictIfNeeded(kvs, didx);
+    dictUseStoredKeyApi(d, 1);
     dictEntry *ret = dictAddRaw(d, key, existing);
+    dictUseStoredKeyApi(d, 0);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);
     return ret;
@@ -871,19 +919,20 @@ void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key) {
 
 void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val) {
     dict *d = kvstoreGetDict(kvs, didx);
+    assert(d->type->no_value == 0); 
     dictSetVal(d, de, val);
 }
 
-dictEntry *kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, dictEntry ***plink, int *table_index) {
+dictEntryLink kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *key, int *table_index) {
     dict *d = kvstoreGetDict(kvs, didx);
     if (!d)
         return NULL;
-    return dictTwoPhaseUnlinkFind(kvstoreGetDict(kvs, didx), key, plink, table_index);
+    return dictTwoPhaseUnlinkFind(kvstoreGetDict(kvs, didx), key, table_index);
 }
 
-void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntry *he, dictEntry **plink, int table_index) {
+void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntryLink link, int table_index) {
     dict *d = kvstoreGetDict(kvs, didx);
-    dictTwoPhaseUnlinkFree(d, he, plink, table_index);
+    dictTwoPhaseUnlinkFree(d, link, table_index);
     cumulativeKeyCountAdd(kvs, didx, -1);
     freeDictIfNeeded(kvs, didx);
 }
@@ -981,10 +1030,14 @@ int kvstoreTest(int argc, char **argv, int flags) {
     kvstoreIterator *kvs_it;
     kvstoreDictIterator *kvs_di;
 
+    /* Test also dictType with no_value=1 */
+    dictType KvstoreDictNovalTestType = KvstoreDictTestType;
+    KvstoreDictNovalTestType.no_value = 1;
+
     int didx = 0;
     int curr_slot = 0;
     kvstore *kvs1 = kvstoreCreate(&KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-    kvstore *kvs2 = kvstoreCreate(&KvstoreDictTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+    kvstore *kvs2 = kvstoreCreate(&KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
 
     TEST("Add 16 keys") {
         for (i = 0; i < 16; i++) {

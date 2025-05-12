@@ -131,7 +131,7 @@ int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr) {
  * DUMP is actually not used by Redis Cluster but it is the obvious
  * complement of RESTORE and can be useful for different applications. */
 void dumpCommand(client *c) {
-    robj *o;
+    kvobj *o;
     rio payload;
 
     /* Check if the key is here. */
@@ -239,14 +239,14 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    dictEntry *de = dbAdd(c->db,key,obj);
+    kvobj *kv = dbAdd(c->db, key, &obj);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
-    if (obj->type == OBJ_HASH) {
-        uint64_t minExpiredField = hashTypeGetMinExpire(obj, 1);
+    if (kv->type == OBJ_HASH) {
+        uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
         if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-            hashTypeAddToExpires(c->db, dictGetKey(de), obj, minExpiredField);
+            hashTypeAddToExpires(c->db, kv, minExpiredField);
     }
 
     if (ttl) {
@@ -259,7 +259,7 @@ void restoreCommand(client *c) {
             rewriteClientCommandArgument(c,c->argc,shared.absttl);
         }
     }
-    objectSetLRUOrLFU(obj,lfu_freq,lru_idle,lru_clock,1000);
+    objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
     signalModifiedKey(c,c->db,key);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
     addReply(c,shared.ok);
@@ -388,8 +388,8 @@ void migrateCommand(client *c) {
     char *password = NULL;
     long timeout;
     long dbid;
-    robj **ov = NULL; /* Objects to migrate. */
-    robj **kv = NULL; /* Key names. */
+    robj **kvArray = NULL; /* Objects to migrate. */
+    robj **keyArray = NULL; /* Key names. */
     robj **newargv = NULL; /* Used to rewrite the command as DEL ... keys ... */
     rio cmd, payload;
     int may_retry = 1;
@@ -453,19 +453,19 @@ void migrateCommand(client *c) {
      * the caller there was nothing to migrate. We don't return an error in
      * this case, since often this is due to a normal condition like the key
      * expiring in the meantime. */
-    ov = zrealloc(ov,sizeof(robj*)*num_keys);
-    kv = zrealloc(kv,sizeof(robj*)*num_keys);
-    int oi = 0;
+    kvArray = zrealloc(kvArray,sizeof(kvobj*)*num_keys);
+    keyArray = zrealloc(keyArray,sizeof(robj*)*num_keys);
+    int num_exists = 0;
 
     for (j = 0; j < num_keys; j++) {
-        if ((ov[oi] = lookupKeyRead(c->db,c->argv[first_key+j])) != NULL) {
-            kv[oi] = c->argv[first_key+j];
-            oi++;
+        if ((kvArray[num_exists] = lookupKeyRead(c->db,c->argv[first_key+j])) != NULL) {
+            keyArray[num_exists] = c->argv[first_key+j];
+            num_exists++;
         }
     }
-    num_keys = oi;
+    num_keys = num_exists;
     if (num_keys == 0) {
-        zfree(ov); zfree(kv);
+        zfree(kvArray); zfree(keyArray);
         addReplySds(c,sdsnew("+NOKEY\r\n"));
         return;
     }
@@ -476,7 +476,7 @@ void migrateCommand(client *c) {
     /* Connect */
     cs = migrateGetSocket(c,c->argv[1],c->argv[2],timeout);
     if (cs == NULL) {
-        zfree(ov); zfree(kv);
+        zfree(kvArray); zfree(keyArray);
         return; /* error sent to the client by migrateGetSocket() */
     }
 
@@ -511,7 +511,7 @@ void migrateCommand(client *c) {
     /* Create RESTORE payload and generate the protocol to call the command. */
     for (j = 0; j < num_keys; j++) {
         long long ttl = 0;
-        long long expireat = getExpire(c->db,kv[j]);
+        long long expireat = kvobjGetExpire(kvArray[j]);
 
         if (expireat != -1) {
             ttl = expireat-commandTimeSnapshot();
@@ -524,8 +524,8 @@ void migrateCommand(client *c) {
         /* Relocate valid (non expired) keys and values into the array in successive
          * positions to remove holes created by the keys that were present
          * in the first lookup but are now expired after the second lookup. */
-        ov[non_expired] = ov[j];
-        kv[non_expired++] = kv[j];
+        kvArray[non_expired] = kvArray[j];
+        keyArray[non_expired++] = keyArray[j];
 
         serverAssertWithInfo(c,NULL,
                              rioWriteBulkCount(&cmd,'*',replace ? 5 : 4));
@@ -535,14 +535,14 @@ void migrateCommand(client *c) {
                                  rioWriteBulkString(&cmd,"RESTORE-ASKING",14));
         else
             serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,"RESTORE",7));
-        serverAssertWithInfo(c,NULL,sdsEncodedObject(kv[j]));
-        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,kv[j]->ptr,
-                                                       sdslen(kv[j]->ptr)));
+        serverAssertWithInfo(c,NULL,sdsEncodedObject(keyArray[j]));
+        serverAssertWithInfo(c,NULL,rioWriteBulkString(&cmd,keyArray[j]->ptr,
+                                                       sdslen(keyArray[j]->ptr)));
         serverAssertWithInfo(c,NULL,rioWriteBulkLongLong(&cmd,ttl));
 
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
-        createDumpPayload(&payload,ov[j],kv[j],dbid);
+        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid);
         serverAssertWithInfo(c,NULL,
                              rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                                 sdslen(payload.io.buffer.ptr)));
@@ -622,14 +622,14 @@ void migrateCommand(client *c) {
         } else {
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
-                dbDelete(c->db,kv[j]);
-                signalModifiedKey(c,c->db,kv[j]);
-                notifyKeyspaceEvent(NOTIFY_GENERIC,"del",kv[j],c->db->id);
+                dbDelete(c->db,keyArray[j]);
+                signalModifiedKey(c,c->db,keyArray[j]);
+                notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArray[j],c->db->id);
                 server.dirty++;
 
                 /* Populate the argument vector to replace the old one. */
-                newargv[del_idx++] = kv[j];
-                incrRefCount(kv[j]);
+                newargv[del_idx++] = keyArray[j];
+                incrRefCount(keyArray[j]);
             }
         }
     }
@@ -687,7 +687,7 @@ void migrateCommand(client *c) {
     }
 
     sdsfree(cmd.io.buffer.ptr);
-    zfree(ov); zfree(kv); zfree(newargv);
+    zfree(kvArray); zfree(keyArray); zfree(newargv);
     return;
 
 /* On socket errors we try to close the cached socket and try again.
@@ -714,7 +714,7 @@ void migrateCommand(client *c) {
     }
 
     /* Cleanup we want to do if no retry is attempted. */
-    zfree(ov); zfree(kv);
+    zfree(kvArray); zfree(keyArray);
     addReplyErrorSds(c, sdscatprintf(sdsempty(),
                                      "-IOERR error or timeout %s to target instance",
                                      write_error ? "writing" : "reading"));
@@ -1011,7 +1011,7 @@ void clusterCommand(client *c) {
         for (unsigned int i = 0; i < numkeys; i++) {
             de = kvstoreDictIteratorNext(kvs_di);
             serverAssert(de != NULL);
-            sds sdskey = dictGetKey(de);
+            sds sdskey = kvobjGetKey(dictGetKV(de));
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
         }
         kvstoreReleaseDictIterator(kvs_di);

@@ -465,9 +465,10 @@ void listTypeDelRange(robj *subject, long start, long count) {
  * 'xx': push if key exists. */
 void pushGenericCommand(client *c, int where, int xx) {
     unsigned long llen;
+    dictEntryLink link;
     int j;
 
-    robj *lobj = lookupKeyWrite(c->db, c->argv[1]);
+    kvobj *lobj = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,lobj,OBJ_LIST)) return;
     if (!lobj) {
         if (xx) {
@@ -476,7 +477,7 @@ void pushGenericCommand(client *c, int where, int xx) {
         }
 
         lobj = createListListpackObject();
-        dbAdd(c->db,c->argv[1],lobj);
+        dbAddByLink(c->db, c->argv[1], &lobj, &link);
     }
 
     listTypeTryConversionAppend(lobj,c->argv,2,c->argc-1,NULL,NULL);
@@ -517,7 +518,7 @@ void rpushxCommand(client *c) {
 /* LINSERT <key> (BEFORE|AFTER) <pivot> <element> */
 void linsertCommand(client *c) {
     int where;
-    robj *subject;
+    kvobj *subject;
     listTypeIterator *iter;
     listTypeEntry entry;
     int inserted = 0;
@@ -571,14 +572,14 @@ void linsertCommand(client *c) {
 
 /* LLEN <key> */
 void llenCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
-    if (o == NULL || checkType(c,o,OBJ_LIST)) return;
-    addReplyLongLong(c,listTypeLength(o));
+    kvobj *kv = lookupKeyReadOrReply(c,c->argv[1],shared.czero);
+    if (kv == NULL || checkType(c,kv,OBJ_LIST)) return;
+    addReplyLongLong(c,listTypeLength(kv));
 }
 
 /* LINDEX <key> <index> */
 void lindexCommand(client *c) {
-    robj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
+    kvobj *o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
 
@@ -607,7 +608,7 @@ void lindexCommand(client *c) {
 
 /* LSET <key> <index> <element> */
 void lsetCommand(client *c) {
-    robj *o = lookupKeyWriteOrReply(c,c->argv[1],shared.nokeyerr);
+    kvobj *o = lookupKeyWriteOrReply(c, c->argv[1], shared.nokeyerr);
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = c->argv[3];
@@ -775,7 +776,7 @@ void popGenericCommand(client *c, int where) {
             return;
     }
 
-    robj *o = lookupKeyWriteOrReply(c, c->argv[1], hascount ? shared.nullarray[c->resp]: shared.null[c->resp]);
+    kvobj *o = lookupKeyWriteOrReply(c, c->argv[1], hascount ? shared.nullarray[c->resp] : shared.null[c->resp]);
     if (o == NULL || checkType(c, o, OBJ_LIST))
         return;
 
@@ -861,7 +862,7 @@ void rpopCommand(client *c) {
 
 /* LRANGE <key> <start> <stop> */
 void lrangeCommand(client *c) {
-    robj *o;
+    kvobj *o;
     long start, end;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
@@ -875,7 +876,7 @@ void lrangeCommand(client *c) {
 
 /* LTRIM <key> <start> <stop> */
 void ltrimCommand(client *c) {
-    robj *o;
+    kvobj *o;
     long start, end, llen, ltrim, rtrim, llenNew;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
@@ -945,7 +946,7 @@ void ltrimCommand(client *c) {
  * The returned elements indexes are always referring to what LINDEX
  * would return. So first element from head is 0, and so forth. */
 void lposCommand(client *c) {
-    robj *o, *ele;
+    robj *ele;
     ele = c->argv[2];
     int direction = LIST_TAIL;
     long rank = 1, count = -1, maxlen = 0; /* Count -1: option not given. */
@@ -989,7 +990,8 @@ void lposCommand(client *c) {
 
     /* We return NULL or an empty array if there is no such key (or
      * if we find no matches, depending on the presence of the COUNT option. */
-    if ((o = lookupKeyRead(c->db,c->argv[1])) == NULL) {
+    kvobj *o = lookupKeyRead(c->db,c->argv[1]);
+    if (o == NULL) {
         if (count != -1)
             addReply(c,shared.emptyarray);
         else
@@ -1042,7 +1044,7 @@ void lposCommand(client *c) {
 
 /* LREM <key> <count> <element> */
 void lremCommand(client *c) {
-    robj *subject, *obj;
+    robj *obj;
     obj = c->argv[3];
     long toremove;
     long removed = 0;
@@ -1050,7 +1052,7 @@ void lremCommand(client *c) {
     if (getRangeLongFromObjectOrReply(c, c->argv[2], -LONG_MAX, LONG_MAX, &toremove, NULL) != C_OK)
         return;
 
-    subject = lookupKeyWriteOrReply(c,c->argv[1],shared.czero);
+    kvobj *subject = lookupKeyWriteOrReply(c, c->argv[1], shared.czero);
     if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
 
     listTypeIterator *li;
@@ -1095,7 +1097,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
     /* Create the list if the key does not exist */
     if (!dstobj) {
         dstobj = createListListpackObject();
-        dbAdd(c->db,dstkey,dstobj);
+        dbAdd(c->db, dstkey, &dstobj);
     }
     listTypeTryConversionAppend(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
@@ -1131,32 +1133,31 @@ robj *getStringObjectFromListPosition(int position) {
 }
 
 void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
-    robj *sobj, *value;
-    if ((sobj = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]))
-        == NULL || checkType(c,sobj,OBJ_LIST)) return;
+    kvobj *kvsrc = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]);
+    if (kvsrc == NULL || checkType(c,kvsrc,OBJ_LIST)) return;
 
-    if (listTypeLength(sobj) == 0) {
+    if (listTypeLength(kvsrc) == 0) {
         /* This may only happen after loading very old RDB files. Recent
          * versions of Redis delete keys of empty lists. */
         addReplyNull(c);
     } else {
-        robj *dobj, *skey = c->argv[1];
+        robj *kvdst, *skey = c->argv[1];
         int64_t oldlen = 0, newlen = 1; /* init lengths assuming new dst object */
-        
-        if ((dobj = lookupKeyWrite(c->db,c->argv[2])) != NULL) {
-            if (checkType(c,dobj,OBJ_LIST)) return;
+
+        if ((kvdst = lookupKeyWrite(c->db,c->argv[2])) != NULL) {
+            if (checkType(c,kvdst,OBJ_LIST)) return;
             /* dst object exists */
-            oldlen = (int64_t) listTypeLength(dobj);
+            oldlen = (int64_t) listTypeLength(kvdst);
             newlen = oldlen + 1;
         }
-        
-        value = listTypePop(sobj,wherefrom);
+
+        robj *value = listTypePop(kvsrc, wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
-        lmoveHandlePush(c,c->argv[2],dobj,value,whereto);
+        lmoveHandlePush(c, c->argv[2], kvdst, value, whereto);
         /* Update dst obj cardinality in KEYSIZES */
         updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_LIST, oldlen, newlen);
         /* Update src obj cardinality in KEYSIZES by listElementsRemoved() */
-        listElementsRemoved(c,skey,wherefrom,sobj,1,1,NULL);
+        listElementsRemoved(c, skey, wherefrom, kvsrc, 1, 1, NULL);
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
 

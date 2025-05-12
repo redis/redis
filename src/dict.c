@@ -61,20 +61,30 @@ typedef struct {
 
 /* -------------------------- private prototypes ---------------------------- */
 
-static void _dictExpandIfNeeded(dict *d);
+static int _dictExpandIfNeeded(dict *d);
 static void _dictShrinkIfNeeded(dict *d);
 static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
 static dictEntry *dictGetNext(const dictEntry *de);
-static dictEntry **dictGetNextRef(dictEntry *de);
+static dictEntryLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
-static int dictDefaultCompare(dict *d, const void *key1, const void *key2);
+static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
+dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
+static dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link);
+
+/* -------------------------- unused  --------------------------- */
+void dictSetSignedIntegerVal(dictEntry *de, int64_t val);
+int64_t dictGetSignedIntegerVal(const dictEntry *de);
+double dictIncrDoubleVal(dictEntry *de, double val);
+void *dictEntryMetadata(dictEntry *de);
+int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
 
 /* -------------------------- misc inline functions -------------------------------- */
 
-typedef int (*keyCmpFunc)(dict *d, const void *key1, const void *key2);
-static inline keyCmpFunc dictGetKeyCmpFunc(dict *d) {
+typedef int (*keyCmpFunc)(dictCmpCache *cache, const void *key1, const void *key2);
+static inline keyCmpFunc dictGetCmpFunc(dict *d) {
     if (d->useStoredKeyApi && d->type->storedKeyCompare)
         return d->type->storedKeyCompare;
     if (d->type->keyCompare)
@@ -95,10 +105,6 @@ static uint8_t dict_hash_function_seed[16];
 
 void dictSetHashFunctionSeed(uint8_t *seed) {
     memcpy(dict_hash_function_seed,seed,sizeof(dict_hash_function_seed));
-}
-
-uint8_t *dictGetHashFunctionSeed(void) {
-    return dict_hash_function_seed;
 }
 
 /* The default hashing function uses SipHash implementation
@@ -514,54 +520,21 @@ int dictAdd(dict *d, void *key, void *val)
 dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
 {
     /* Get the position for the new key or NULL if the key already exists. */
-    void *position = dictFindPositionForInsert(d, key, existing);
+    void *position = dictFindLinkForInsert(d, key, existing);
     if (!position) return NULL;
 
     /* Dup the key if necessary. */
     if (d->type->keyDup) key = d->type->keyDup(d, key);
 
-    return dictInsertAtPosition(d, key, position);
+    return dictInsertKeyAtLink(d, key, position);
 }
 
-/* Low-level add function for non-existing keys:
- * This function adds a new entry to the dictionary, assuming the key does not
- * already exist.
- * Parameters:
- * - `dict *d`: Pointer to the dictionary structure.
- * - `void *key`: Pointer to the key being added.
- * - `const uint64_t hash`: hash of the key being added.
- * Guarantees:
- * - The key is assumed to be non-existing.
- * Note:
- * Ensure that the key's uniqueness is managed externally before calling this function. */
-dictEntry *dictAddNonExistsByHash(dict *d, void *key, const uint64_t hash) {
-    /* Get the position for the new key, it should never be NULL. */
-    unsigned long idx, table;
-    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-
-    /* Rehash the hash table if needed */
-    _dictRehashStepIfNeeded(d,idx);
-
-    /* Expand the hash table if needed */
-    _dictExpandIfNeeded(d);
-
-    table = dictIsRehashing(d) ? 1 : 0;
-    idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-    void *position = &d->ht_table[table][idx];
-    assert(position!=NULL);
-
-    /* Dup the key if necessary. */
-    if (d->type->keyDup) key = d->type->keyDup(d, key);
-
-    return dictInsertAtPosition(d, key, position);
-}
-
-/* Adds a key in the dict's hashtable at the position returned by a preceding
- * call to dictFindPositionForInsert. This is a low level function which allows
+/* Adds a key in the dict's hashtable at the link returned by a preceding
+ * call to dictFindLinkForInsert(). This is a low level function which allows
  * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
- * used instead. */
-dictEntry *dictInsertAtPosition(dict *d, void *key, void *position) {
-    dictEntry **bucket = position; /* It's a bucket, but the API hides that. */
+ * used instead. It assumes that dictExpandIfNeeded() was called before. */
+dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link) {
+    dictEntryLink bucket = link; /* It's a bucket, but the API hides that. */
     dictEntry *entry;
     /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
      * Assert that the provided bucket is the right table. */
@@ -646,6 +619,7 @@ dictEntry *dictAddOrFind(dict *d, void *key) {
  * dictDelete() and dictUnlink(), please check the top comment
  * of those functions. */
 static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
+    dictCmpCache cmpCache = {0};
     uint64_t h, idx;
     dictEntry *he, *prevHe;
     int table;
@@ -659,7 +633,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d,idx);
 
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
     for (table = 0; table <= 1; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue;
@@ -668,7 +642,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         prevHe = NULL;
         while(he) {
             void *he_key = dictGetKey(he);
-            if (key == he_key || cmpFunc(d, key, he_key)) {
+            if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     dictSetNext(prevHe, dictGetNext(he));
@@ -777,55 +751,153 @@ void dictRelease(dict *d)
     zfree(d);
 }
 
-dictEntry *dictFindByHash(dict *d, const void *key, const uint64_t hash) {
-    dictEntry *he;
-    uint64_t idx, table;
+/* Finds a given key. Like dictFindLink(), yet search bucket even if dict is empty. 
+ * 
+ * Returns dictEntryLink reference if found. Otherwise, return NULL.
+ * 
+ * bucket - return pointer to bucket that the key was mapped. unless dict is empty.
+ */
+static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket) {
+    dictCmpCache cmpCache = {0};
+    dictEntryLink link;
+    uint64_t idx;
+    int table;
+    
+    if (bucket) {
+        *bucket = NULL;
+    } else {
+        /* If dict is empty and no need to find bucket, return NULL */
+        if (dictSize(d) == 0) return NULL; 
+    }
 
-    if (dictSize(d) == 0) return NULL; /* dict is empty */
-
+    const uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
     /* Rehash the hash table if needed */
     _dictRehashStepIfNeeded(d,idx);
 
-    /* Check if we can use the compare function with length to avoid recomputing length of key always */
-    keyCmpFuncWithLen cmpFuncWithLen = d->type->keyCompareWithLen;
-    keyLenFunc keyLenFunc = d->type->keyLen;
-    const int has_len_fn = (keyLenFunc != NULL && cmpFuncWithLen != NULL);
-    const size_t key_len = has_len_fn ? keyLenFunc(d,key) : 0;
-    for (table = 0; table <= 1; table++) {
+    int tables = (dictIsRehashing(d)) ? 2 : 1;
+    for (table = 0; table < tables; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue;
         idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
 
         /* Prefetch the bucket at the calculated index */
         redis_prefetch_read(&d->ht_table[table][idx]);
 
-        he = d->ht_table[table][idx];
-        while(he) {
-            void *he_key = dictGetKey(he);
+        link = &(d->ht_table[table][idx]);
+        if (bucket) *bucket = link;
+        while(link && *link) {
+            void *visitedKey = dictGetKey(*link);
 
             /* Prefetch the next entry to improve cache efficiency */
-            redis_prefetch_read(dictGetNext(he));
-            if (key == he_key || (has_len_fn ?
-                cmpFuncWithLen(d, key, key_len, he_key, keyLenFunc(d,he_key)) :
-                cmpFunc(d, key, he_key)))
-            {
-                return he;
-            }
-            he = dictGetNext(he);
+            redis_prefetch_read(dictGetNext(*link));
+
+            if (key == visitedKey || cmpFunc( &cmpCache, key, visitedKey))                
+                return link;
+
+            link = dictGetNextLink(*link);
         }
-        /* Use unlikely to optimize branch prediction for the common case */
-        if (unlikely(!dictIsRehashing(d))) return NULL;
     }
     return NULL;
 }
 
 dictEntry *dictFind(dict *d, const void *key)
 {
-    if (dictSize(d) == 0) return NULL; /* dict is empty */
-    const uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
-    return dictFindByHash(d,key,hash);
+    dictEntryLink link = dictFindLink(d, key, NULL);
+    return (link) ? *link : NULL;
+}
+
+/* Find a key and return its dictEntryLink reference. Otherwise, return NULL
+ * 
+ * A dictEntryLink pointer being used to find preceding dictEntry of searched item. 
+ * It is Useful for deletion, addition, unlinking and updating, especially for 
+ * dict configured with 'no_value'. In such cases returning only `dictEntry` from 
+ * a lookup may be insufficient since it might be opt-out to be the object itself. 
+ * By locating preceding dictEntry (dictEntryLink) these ops can be properly handled. 
+ * 
+ * After calling link = dictFindLink(...), any necessary updates based on returned 
+ * link or bucket must be performed immediately after by calling dictSetKeyAtLink() 
+ * without any intervening operations on given dict. Otherwise, `dictEntryLink` may 
+ * become invalid. Example with kvobj of replacing key with new key:
+ * 
+ *      link = dictFindLink(d, key, &bucket, 0);
+ *      ... Do something, but don't modify the dict ...
+ *      // assert(link != NULL);
+ *      dictSetKeyAtLink(d, kv, &link, 0);
+ *      
+ * To add new value (If no space for the new key, dict will be expanded by
+ * dictSetKeyAtLink() and bucket will be looked up again.):
+ *   
+ *      link = dictFindLink(d, key, &bucket);
+ *      ... Do something, but don't modify the dict ...
+ *      // assert(link == NULL);
+ *      dictSetKeyAtLink(d, kv, &bucket, 1);
+ *  
+ *  bucket - return link to bucket that the key was mapped. unless dict is empty.
+ */
+dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
+    if (bucket) *bucket = NULL;
+    if (unlikely(dictSize(d) == 0))
+        return NULL;
+    
+    return dictFindLinkInternal(d, key, bucket);
+}
+
+/* Set the key with link 
+ *
+ * link:    - When `newItem` is set, `link` points to the bucket of the key.
+ *          - When `newItem` is not set, `link` points to the link of the key.
+ *          - If *link is NULL, dictFindLink() will be called to locate the key.
+ *          - On return, get updated, by need, to the inserted key. 
+ *
+ * newItem: 1 = Add a key with a new dictEntry.
+ *          0 = Set a key to an existing dictEntry. 
+ */
+void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
+    dictEntryLink dummy = NULL;
+    if (link == NULL) link = &dummy;
+    void *addedKey = (d->type->keyDup) ? d->type->keyDup(d, key) : key;
+    
+    if (newItem) {
+        signed char snap[2] = {d->ht_size_exp[0], d->ht_size_exp[1] };
+
+        /* Make room if needed for the new key */
+        dictExpandIfNeeded(d);
+        
+        /* Lookup key's link if tables reallocated or if given link is set to NULL */
+        if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
+            dictEntryLink bucket;
+            /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
+            dictUseStoredKeyApi(d, 1);
+            *link = dictFindLinkInternal(d, key, &bucket);
+            dictUseStoredKeyApi(d, 0);
+            assert(bucket != NULL);
+            assert(*link == NULL);
+            *link = bucket; /* On newItem the link should be the bucket */
+        }
+        dictInsertKeyAtLink(d, addedKey, *link);
+        return;
+    } 
+    
+    /* Setting key of existing dictEntry (newItem == 0)*/
+    
+    if (*link == NULL) {
+        *link = dictFindLink(d, key, NULL);
+        assert(*link != NULL);
+    }
+    
+    dictEntry **de = *link;
+    /* is it regular dict entry of key and next */
+    if (entryIsNoValue(*de)) {
+        decodeEntryNoValue(*de)->key = addedKey;
+    } else if (entryIsKey(*de)) {
+        /* `de` opt-out to be actually a key. Replace key but keep the lsb flags */
+        int mask = ((uintptr_t) *de) & ENTRY_PTR_MASK;
+        *de = encodeMaskedPtr(addedKey, mask);
+    } else {
+        (*de)->key = addedKey; /* `de` is a normal key-value dict entry */
+    }
 }
 
 void *dictFetchValue(dict *d, const void *key) {
@@ -835,30 +907,31 @@ void *dictFetchValue(dict *d, const void *key) {
     return he ? dictGetVal(he) : NULL;
 }
 
-/* Find an element from the table, also get the plink of the entry. The entry
- * is returned if the element is found, and the user should later call
- * `dictTwoPhaseUnlinkFree` with it in order to unlink and release it. Otherwise if
- * the key is not found, NULL is returned. These two functions should be used in pair.
+/* Find an element from the table. A link is returned if the element is found, and
+ * the user should later call `dictTwoPhaseUnlinkFree` with it in order to unlink
+ * and release it. Otherwise if the key is not found, NULL is returned. These two
+ * functions should be used in pair.
  * `dictTwoPhaseUnlinkFind` pauses rehash and `dictTwoPhaseUnlinkFree` resumes rehash.
  *
  * We can use like this:
  *
- * dictEntry *de = dictTwoPhaseUnlinkFind(db->dict,key->ptr,&plink, &table);
+ * dictEntryLink link = dictTwoPhaseUnlinkFind(db->dict,key->ptr, &table);
  * // Do something, but we can't modify the dict
- * dictTwoPhaseUnlinkFree(db->dict,de,plink,table); // We don't need to lookup again
+ * dictTwoPhaseUnlinkFree(db->dict, link, table); // We don't need to lookup again
  *
  * If we want to find an entry before delete this entry, this an optimization to avoid
  * dictFind followed by dictDelete. i.e. the first API is a find, and it gives some info
  * to the second one to avoid repeating the lookup
  */
-dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, int *table_index) {
+dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index) {
+    dictCmpCache cmpCache = {0};
     uint64_t h, idx, table;
 
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
-    h = dictHashKey(d, key, d->useStoredKeyApi);
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    h = dictHashKey(d, key, d->useStoredKeyApi);    
+    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
     for (table = 0; table <= 1; table++) {
         idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
@@ -866,26 +939,27 @@ dictEntry *dictTwoPhaseUnlinkFind(dict *d, const void *key, dictEntry ***plink, 
         dictEntry **ref = &d->ht_table[table][idx];
         while (ref && *ref) {
             void *de_key = dictGetKey(*ref);
-            if (key == de_key || cmpFunc(d, key, de_key)) {
+            if (key == de_key || cmpFunc(&cmpCache, key, de_key)) {
                 *table_index = table;
-                *plink = ref;
                 dictPauseRehashing(d);
-                return *ref;
+                return ref;
             }
-            ref = dictGetNextRef(*ref);
+            ref = dictGetNextLink(*ref);
         }
         if (!dictIsRehashing(d)) return NULL;
     }
     return NULL;
 }
 
-void dictTwoPhaseUnlinkFree(dict *d, dictEntry *he, dictEntry **plink, int table_index) {
-    if (he == NULL) return;
+void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink plink, int table_index) {
+    if (plink == NULL || *plink == NULL) return;
+    dictEntry *de = *plink;
     d->ht_used[table_index]--;
-    *plink = dictGetNext(he);
-    dictFreeKey(d, he);
-    dictFreeVal(d, he);
-    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+
+    *plink = dictGetNext(de);
+    dictFreeKey(d, de);
+    dictFreeVal(d, de);
+    if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
     _dictShrinkIfNeeded(d);
     dictResumeRehashing(d);
 }
@@ -978,7 +1052,7 @@ static dictEntry *dictGetNext(const dictEntry *de) {
 
 /* Returns a pointer to the 'next' field in the entry or NULL if the entry
  * doesn't have a next field. */
-static dictEntry **dictGetNextRef(dictEntry *de) {
+static dictEntryLink dictGetNextLink(dictEntry *de) {
     if (entryIsKey(de)) return NULL;
     if (entryIsNoValue(de)) return &decodeEntryNoValue(de)->next;
     return &de->next;
@@ -1001,8 +1075,8 @@ size_t dictMemUsage(const dict *d) {
         dictBuckets(d) * sizeof(dictEntry*);
 }
 
-size_t dictEntryMemUsage(void) {
-    return sizeof(dictEntry);
+size_t dictEntryMemUsage(int noValueDict) {
+    return (noValueDict) ? sizeof(dictEntryNoValue) :sizeof(dictEntry);
 }
 
 /* A fingerprint is a 64 bit number that represents the state of the dictionary
@@ -1284,7 +1358,6 @@ static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragf
         void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
         if (entryIsKey(de)) {
             if (newkey) *bucketref = newkey;
-            assert(entryIsKey(*bucketref));
         } else if (entryIsNoValue(de)) {
             dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
             if ((newentry = defragalloc(entry))) {
@@ -1302,7 +1375,7 @@ static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragf
         if (newde) {
             *bucketref = newde;
         }
-        bucketref = dictGetNextRef(*bucketref);
+        bucketref = dictGetNextLink(*bucketref);
     }
 }
 
@@ -1434,6 +1507,32 @@ unsigned long dictScan(dict *d,
     return dictScanDefrag(d, v, fn, NULL, privdata);
 }
 
+void dictScanDefragBucket(dictScanFunction *fn,
+                          dictDefragFunctions *defragfns,
+                          void *privdata,
+                          dictEntry **bucketref) {
+    dictEntry **plink, *de, *next;
+
+    /* Emit entries at bucket */
+    if (defragfns) dictDefragBucket(bucketref, defragfns);
+
+    de = *bucketref;
+    plink = bucketref;
+    while (de) {
+        next = dictGetNext(de);
+        fn(privdata, de, plink);
+
+        if (!next) break; /* if last element, break */
+
+        /* if `*plink` still pointing to 'de', then it means that the 
+         * visited item wasn't deleted by fn() */
+        if (*plink == de)            
+            plink = (entryIsNoValue(de)) ? &(decodeEntryNoValue(de)->next) : &(de->next);
+
+        de = next;
+    }
+}
+
 /* Like dictScan, but additionally reallocates the memory used by the dict
  * entries using the provided allocation function. This feature was added for
  * the active defrag feature.
@@ -1449,7 +1548,6 @@ unsigned long dictScanDefrag(dict *d,
                              void *privdata)
 {
     int htidx0, htidx1;
-    const dictEntry *de, *next;
     unsigned long m0, m1;
 
     if (dictSize(d) == 0) return 0;
@@ -1460,17 +1558,7 @@ unsigned long dictScanDefrag(dict *d,
     if (!dictIsRehashing(d)) {
         htidx0 = 0;
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
-
-        /* Emit entries at cursor */
-        if (defragfns) {
-            dictDefragBucket(&d->ht_table[htidx0][v & m0], defragfns);
-        }
-        de = d->ht_table[htidx0][v & m0];
-        while (de) {
-            next = dictGetNext(de);
-            fn(privdata, de);
-            de = next;
-        }
+        dictScanDefragBucket(fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
 
         /* Set unmasked bits so incrementing the reversed cursor
          * operates on the masked bits */
@@ -1494,30 +1582,12 @@ unsigned long dictScanDefrag(dict *d,
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
         m1 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx1]);
 
-        /* Emit entries at cursor */
-        if (defragfns) {
-            dictDefragBucket(&d->ht_table[htidx0][v & m0], defragfns);
-        }
-        de = d->ht_table[htidx0][v & m0];
-        while (de) {
-            next = dictGetNext(de);
-            fn(privdata, de);
-            de = next;
-        }
+        dictScanDefragBucket(fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
 
         /* Iterate over indices in larger table that are the expansion
          * of the index pointed to by the cursor in the smaller table */
         do {
-            /* Emit entries at cursor */
-            if (defragfns) {
-                dictDefragBucket(&d->ht_table[htidx1][v & m1], defragfns);
-            }
-            de = d->ht_table[htidx1][v & m1];
-            while (de) {
-                next = dictGetNext(de);
-                fn(privdata, de);
-                de = next;
-            }
+            dictScanDefragBucket(fn, defragfns, privdata, &d->ht_table[htidx1][v & m1]);            
 
             /* Increment the reverse cursor not covered by the smaller mask.*/
             v |= ~m1;
@@ -1575,12 +1645,12 @@ int dictExpandIfNeeded(dict *d) {
     return DICT_ERR;
 }
 
-/* Expand the hash table if needed */
-static void _dictExpandIfNeeded(dict *d) {
+/* Expand the hash table if needed (OK=Expanded, ERR=Not expanded) */
+static int _dictExpandIfNeeded(dict *d) {
     /* Automatic resizing is disallowed. Return */
-    if (d->pauseAutoResize > 0) return;
-
-    dictExpandIfNeeded(d);
+    if (d->pauseAutoResize > 0) return DICT_ERR;
+    
+    return dictExpandIfNeeded(d);
 }
 
 /* Returning DICT_OK indicates a successful shrinking or the dictionary is undergoing rehashing, 
@@ -1640,12 +1710,13 @@ static signed char _dictNextExp(unsigned long size)
     return 8*sizeof(long) - __builtin_clzl(size-1);
 }
 
-/* Finds and returns the position within the dict where the provided key should
- * be inserted using dictInsertAtPosition if the key does not already exist in
+/* Finds and returns the link within the dict where the provided key should
+ * be inserted using dictInsertKeyAtLink() if the key does not already exist in
  * the dict. If the key exists in the dict, NULL is returned and the optional
  * 'existing' entry pointer is populated, if provided. */
-void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) {
+dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing) {
     unsigned long idx, table;
+    dictCmpCache cmpCache = {0};
     dictEntry *he;
     uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
     if (existing) *existing = NULL;
@@ -1656,7 +1727,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
 
     /* Expand the hash table if needed */
     _dictExpandIfNeeded(d);
-    keyCmpFunc cmpFunc = dictGetKeyCmpFunc(d);
+    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
     for (table = 0; table <= 1; table++) {
         if (table == 0 && (long)idx < d->rehashidx) continue; 
@@ -1665,7 +1736,7 @@ void *dictFindPositionForInsert(dict *d, const void *key, dictEntry **existing) 
         he = d->ht_table[table][idx];
         while(he) {
             void *he_key = dictGetKey(he);
-            if (key == he_key || cmpFunc(d, key, he_key)) {
+            if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 if (existing) *existing = he;
                 return NULL;
             }
@@ -1704,30 +1775,6 @@ void dictSetResizeEnabled(dictResizeEnable enable) {
 
 uint64_t dictGetHash(dict *d, const void *key) {
     return dictHashKey(d, key, d->useStoredKeyApi);
-}
-
-/* Finds the dictEntry using pointer and pre-calculated hash.
- * oldkey is a dead pointer and should not be accessed.
- * the hash value should be provided using dictGetHash.
- * no string / key comparison is performed.
- * return value is a pointer to the dictEntry if found, or NULL if not found. */
-dictEntry *dictFindByHashAndPtr(dict *d, const void *oldptr, const uint64_t hash) {
-    dictEntry *he;
-    unsigned long idx, table;
-
-    if (dictSize(d) == 0) return NULL; /* dict is empty */
-    for (table = 0; table <= 1; table++) {
-        idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[table]);
-        if (table == 0 && (long)idx < d->rehashidx) continue;
-        he = d->ht_table[table][idx];
-        while(he) {
-            if (oldptr == dictGetKey(he))
-                return he;
-            he = dictGetNext(he);
-        }
-        if (!dictIsRehashing(d)) return NULL;
-    }
-    return NULL;
 }
 
 /* Provides the old and new ht size for a given dictionary during rehashing. This method
@@ -1848,8 +1895,8 @@ void dictGetStats(char *buf, size_t bufsize, dict *d, int full) {
     orig_buf[orig_bufsize-1] = '\0';
 }
 
-static int dictDefaultCompare(dict *d, const void *key1, const void *key2) {
-    (void)(d); /*unused*/
+static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    (void)(cache); /*unused*/
     return key1 == key2;
 }
 
@@ -1865,9 +1912,9 @@ uint64_t hashCallback(const void *key) {
     return dictGenHashFunction((unsigned char*)key, strlen((char*)key));
 }
 
-int compareCallback(dict *d, const void *key1, const void *key2) {
+int compareCallback(dictCmpCache *cache, const void *key1, const void *key2) {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
@@ -2126,57 +2173,6 @@ int dictTest(int argc, char **argv, int flags) {
     end_benchmark("Inserting via dictAddRaw() existing (no insertion)");
     assert((long)dictSize(d) == count);
 
-    dictEmpty(d, NULL);
-
-    start_benchmark();
-    for (j = 0; j < count; j++) {
-        void *key = stringFromLongLong(j);
-        const uint64_t hash = dictGetHash(d, key);
-        de = dictAddNonExistsByHash(d,key,hash);
-        assert(de != NULL);
-    }
-    end_benchmark("Inserting via dictAddNonExistsByHash() non existing");
-    assert((long)dictSize(d) == count);
-
-    /* Wait for rehashing. */
-    while (dictIsRehashing(d)) {
-        dictRehashMicroseconds(d,100*1000);
-    }
-
-    dictEmpty(d, NULL);
-
-    start_benchmark();
-    for (j = 0; j < count; j++) {
-        /* Create a key */
-        void *key = stringFromLongLong(j);
-
-        /* Check if the key exists */
-        dictEntry *entry = dictFind(d, key);
-        assert(entry == NULL);
-
-        /* Add the key */
-        dictEntry *de = dictAddRaw(d, key, NULL);
-        assert(de != NULL);
-    }
-    end_benchmark("Find() and inserting via dictFind()+dictAddRaw() non existing");
-
-    dictEmpty(d, NULL);
-
-    start_benchmark();
-    for (j = 0; j < count; j++) {
-        /* Create a key */
-        void *key = stringFromLongLong(j);
-        uint64_t hash = dictGetHash(d, key);
-
-        /* Check if the key exists */
-        dictEntry *entry = dictFindByHash(d, key, hash);
-        assert(entry == NULL);
-        de = dictAddNonExistsByHash(d, key, hash);
-        assert(de != NULL);
-    }
-    end_benchmark("Find() and inserting via dictGetHash()+dictFindByHash()+dictAddNonExistsByHash() non existing");
-    assert((long)dictSize(d) == count);
-
     /* Wait for rehashing. */
     while (dictIsRehashing(d)) {
         dictRehashMicroseconds(d,100*1000);
@@ -2273,6 +2269,53 @@ int dictTest(int argc, char **argv, int flags) {
 
         dictRelease(d);
         zfree(lookupKeys);
+    }
+
+    TEST("Test dictFindLink() functionality") {
+        dictType dt = BenchmarkDictType;
+        dict *d = dictCreate(&dt);
+        
+        /* find in empty dict */
+        dictEntryLink link = dictFindLink(d, "key", NULL);
+        assert(link == NULL);
+
+        /* Add keys to dict and test */
+        for (j = 0; j < 10; j++) {
+            /* Add another key to dict */
+            char *key = stringFromLongLong(j);
+            retval = dictAdd(d, key, (void*)j);
+            assert(retval == DICT_OK);
+            /* find existing keys with dictFindLink() */
+            dictEntryLink link = dictFindLink(d, key, NULL);
+            assert(link != NULL);
+            assert(*link != NULL);
+            assert(dictGetKey(*link) != NULL);
+            
+            /* Test that the key found is the correct one */
+            void *foundKey = dictGetKey(*link);
+            assert(compareCallback( NULL, foundKey, key));
+
+            /* Test finding a non-existing key */
+            char *nonExistingKey = stringFromLongLong(j + 10);
+            link = dictFindLink(d, nonExistingKey, NULL);
+            assert(link == NULL);
+
+            /* Test with bucket parameter */
+            dictEntryLink bucket = NULL;
+            link = dictFindLink(d, key, &bucket);
+            assert(link != NULL);
+            assert(bucket != NULL);
+
+            /* Test bucket parameter with non-existing key */
+            link = dictFindLink(d, nonExistingKey, &bucket);
+            assert(link == NULL);
+            assert(bucket != NULL); /* Bucket should still be set even for non-existing keys */
+
+            /* Clean up */
+            zfree(nonExistingKey);
+        }
+
+        dictRelease(d);
     }
 
     return 0;

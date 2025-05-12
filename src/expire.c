@@ -25,8 +25,8 @@
 static double avg_ttl_factor[16] = {0.98, 0.9604, 0.941192, 0.922368, 0.903921, 0.885842, 0.868126, 0.850763, 0.833748, 0.817073, 0.800731, 0.784717, 0.769022, 0.753642, 0.738569, 0.723798};
 
 /* Helper function for the activeExpireCycle() function.
- * This function will try to expire the key that is stored in the hash table
- * entry 'de' of the 'expires' hash table of a Redis database.
+ * This function will try to expire the key-value entry that is stored in the 
+ * hash table entry 'de' of the 'expires' hash table of a Redis database.
  *
  * If the key is found to be expired, it is removed from the database and
  * 1 is returned. Otherwise no operation is performed and 0 is returned.
@@ -35,13 +35,12 @@ static double avg_ttl_factor[16] = {0.98, 0.9604, 0.941192, 0.922368, 0.903921, 
  *
  * The parameter 'now' is the current time in milliseconds as is passed
  * to the function to avoid too many gettimeofday() syscalls. */
-int activeExpireCycleTryExpire(redisDb *db, dictEntry *de, long long now) {
-    long long t = dictGetSignedIntegerVal(de);
-    if (now < t)
+int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
+    if (now < kvobjGetExpire(kv))
         return 0;
 
     enterExecutionUnit(1, 0);
-    sds key = dictGetKey(de);
+    sds key = kvobjGetKey(kv);
     robj *keyobj = createStringObject(key,sdslen(key));
     deleteExpiredKeyAndPropagate(db,keyobj);
     decrRefCount(keyobj);
@@ -109,11 +108,12 @@ typedef struct {
     int ttl_samples; /* num keys with ttl not yet expired */
 } expireScanData;
 
-void expireScanCallback(void *privdata, const dictEntry *const_de) {
-    dictEntry *de = (dictEntry *)const_de;
+void expireScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    kvobj *kv = dictGetKV(de);
     expireScanData *data = privdata;
-    long long ttl  = dictGetSignedIntegerVal(de) - data->now;
-    if (activeExpireCycleTryExpire(data->db, de, data->now)) {
+    long long ttl  = kvobjGetExpire(kv) - data->now;
+    if (activeExpireCycleTryExpire(data->db, kv, data->now)) {
         data->expired++;
     }
     if (ttl > 0) {
@@ -464,14 +464,14 @@ void expireSlaveKeys(void) {
         while(dbids && dbid < server.dbnum) {
             if ((dbids & 1) != 0) {
                 redisDb *db = server.db+dbid;
-                dictEntry *expire = dbFindExpires(db, keyname);
-                int expired = expire && activeExpireCycleTryExpire(server.db+dbid,expire,start);
+                kvobj *kv = dbFindExpires(db, keyname);
+                int expired = kv && activeExpireCycleTryExpire(server.db+dbid, kv, start);
 
                 /* If the key was not expired in this DB, we need to set the
                  * corresponding bit in the new bitmap we set as value.
                  * At the end of the loop if the bitmap is zero, it means we
                  * no longer need to keep track of this key. */
-                if (expire && !expired) {
+                if (kv && !expired) {
                     noexpire++;
                     new_dbids |= (uint64_t)1 << dbid;
                 }
@@ -499,7 +499,7 @@ void expireSlaveKeys(void) {
 
 /* Track keys that received an EXPIRE or similar command in the context
  * of a writable slave. */
-void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
+void rememberSlaveKeyWithExpire(redisDb *db, sds key) {
     if (slaveKeysWithExpire == NULL) {
         static dictType dt = {
             dictSdsHash,                /* hash function */
@@ -514,13 +514,13 @@ void rememberSlaveKeyWithExpire(redisDb *db, robj *key) {
     }
     if (db->id > 63) return;
 
-    dictEntry *de = dictAddOrFind(slaveKeysWithExpire,key->ptr);
+    dictEntry *de = dictAddOrFind(slaveKeysWithExpire, key);
     /* If the entry was just created, set it to a copy of the SDS string
      * representing the key: we don't want to need to take those keys
      * in sync with the main DB. The keys will be removed by expireSlaveKeys()
      * as it scans to find keys to remove. */
-    if (dictGetKey(de) == key->ptr) {
-        dictSetKey(slaveKeysWithExpire, de, sdsdup(key->ptr));
+    if (dictGetKey(de) == key) {
+        dictSetKey(slaveKeysWithExpire, de, sdsdup(key));
         dictSetUnsignedIntegerVal(de,0);
     }
 
@@ -654,13 +654,14 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     when += basetime;
 
     /* No key, return zero. */
-    if (lookupKeyWrite(c->db,key) == NULL) {
+    kvobj *kv = lookupKeyWrite(c->db,key); 
+    if (kv == NULL) {
         addReply(c,shared.czero);
         return;
     }
 
     if (flag) {
-        current_expire = getExpire(c->db, key);
+        current_expire = kvobjGetExpire(kv);
 
         /* NX option is set, check current expiry */
         if (flag & EXPIRE_NX) {
@@ -765,14 +766,15 @@ void ttlGenericCommand(client *c, int output_ms, int output_abs) {
     long long expire, ttl = -1;
 
     /* If the key does not exist at all, return -2 */
-    if (lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH) == NULL) {
+    kvobj *kv = lookupKeyReadWithFlags(c->db,c->argv[1],LOOKUP_NOTOUCH);
+    if (kv == NULL) {
         addReplyLongLong(c,-2);
         return;
     }
 
     /* The key exists. Return -1 if it has no expire, or the actual
      * TTL value otherwise. */
-    expire = getExpire(c->db,c->argv[1]);
+    expire = kvobjGetExpire(kv);
     if (expire != -1) {
         ttl = output_abs ? expire : expire-commandTimeSnapshot();
         if (ttl < 0) ttl = 0;

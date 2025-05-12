@@ -61,7 +61,18 @@ static int checkStringLength(client *c, long long size, long long append) {
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
 
-void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
+/* Generic SET command family (SET, SETEX, PSETEX, SETNX)
+ *
+ * Arguments:
+ *   valref: A pointer to the robj to be set. This argument may be updated by the function.
+ *           The object is expected to have a refcount of 1, allowing its ownership to be
+ *           transferred directly to the database to avoid making a copy. If needed, the
+ *           function will replace *valref with a new allocation and increment its refcount
+ *           so that both the database and the caller maintain valid references.
+ */
+void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *expire,
+                       int unit, robj *ok_reply, robj *abort_reply)
+{
     long long milliseconds = 0; /* initialized to avoid any harmless warning */
     int found = 0;
     int setkey_flags = 0;
@@ -74,8 +85,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
         if (getGenericCommand(c) == C_ERR) return;
     }
 
-    dictEntry *de = NULL;
-    found = (lookupKeyWriteWithDictEntry(c->db,key,&de) != NULL);
+    dictEntryLink link = NULL;
+    found = (lookupKeyWriteWithLink(c->db,key,&link) != NULL);
 
     if ((flags & OBJ_SET_NX && found) ||
         (flags & OBJ_SET_XX && !found))
@@ -90,17 +101,24 @@ void setGenericCommand(client *c, int flags, robj *key, robj *val, robj *expire,
     setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
-    setKeyWithDictEntry(c,c->db,key,val,setkey_flags,de);
+    setKeyByLink(c, c->db, key, valref, setkey_flags, &link);
+    /* If there's an expiration, setExpireByLink may reallocate the object.
+     * We must update valref to reflect the new object if that happens. */
+    if (expire) *valref = setExpireByLink(c, c->db, key->ptr, milliseconds, link);
+    /* The client still holds a reference to the original object via c->argv[i],
+     * and will call decrRefCount() at the end of call(). We increment the refcount
+     * from 1 to 2 to ensure both DB and client have valid references. */
+    incrRefCount(*valref); /* 1->2 */
+
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STRING,"set",key,c->db->id);
 
     if (expire) {
-        setExpireWithDictEntry(c,c->db,key,milliseconds,de);
         /* Propagate as SET Key Value PXAT millisecond-timestamp if there is
          * EX/PX/EXAT flag. */
         if (!(flags & OBJ_PXAT)) {
             robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-            rewriteClientCommandVector(c, 5, shared.set, key, val, shared.pxat, milliseconds_obj);
+            rewriteClientCommandVector(c, 5, shared.set, key, *valref, shared.pxat, milliseconds_obj);
             decrRefCount(milliseconds_obj);
         }
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
@@ -283,28 +301,28 @@ void setCommand(client *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
+    setGenericCommand(c,flags,c->argv[1],&(c->argv[2]),expire,unit,NULL,NULL);
 }
 
 void setnxCommand(client *c) {
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,OBJ_SET_NX,c->argv[1],c->argv[2],NULL,0,shared.cone,shared.czero);
+    setGenericCommand(c, OBJ_SET_NX, c->argv[1], &(c->argv[2]), NULL, 0, shared.cone, shared.czero);
 }
 
 void setexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_EX,c->argv[1],c->argv[3],c->argv[2],UNIT_SECONDS,NULL,NULL);
+    setGenericCommand(c, OBJ_EX, c->argv[1], &(c->argv[3]), c->argv[2], UNIT_SECONDS, NULL, NULL);
 }
 
 void psetexCommand(client *c) {
     c->argv[3] = tryObjectEncoding(c->argv[3]);
-    setGenericCommand(c,OBJ_PX,c->argv[1],c->argv[3],c->argv[2],UNIT_MILLISECONDS,NULL,NULL);
+    setGenericCommand(c, OBJ_PX, c->argv[1], &(c->argv[3]), c->argv[2], UNIT_MILLISECONDS, NULL, NULL);
 }
 
 int getGenericCommand(client *c) {
-    robj *o;
+    kvobj *o;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL)
         return C_OK;
 
     if (checkType(c,o,OBJ_STRING)) {
@@ -348,7 +366,7 @@ void getexCommand(client *c) {
         return;
     }
 
-    robj *o;
+    kvobj *o;
 
     if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return;
@@ -412,7 +430,8 @@ void getdelCommand(client *c) {
 void getsetCommand(client *c) {
     if (getGenericCommand(c) == C_ERR) return;
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setKey(c,c->db,c->argv[1],c->argv[2],0);
+    setKey(c, c->db, c->argv[1], &c->argv[2], 0);
+    incrRefCount(c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -422,7 +441,6 @@ void getsetCommand(client *c) {
 
 void setrangeCommand(client *c) {
     int64_t oldLen = -1, newLen;
-    robj *o;
     long offset;
     sds value = c->argv[3]->ptr;
     const size_t value_len = sdslen(value);
@@ -435,9 +453,9 @@ void setrangeCommand(client *c) {
         return;
     }
 
-    dictEntry *de;
-    o = lookupKeyWriteWithDictEntry(c->db,c->argv[1],&de);
-    if (o == NULL) {
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
+    if (kv == NULL) {
         /* Return 0 when setting nothing on a non-existing string */
         if (value_len == 0) {
             addReply(c,shared.czero);
@@ -449,15 +467,15 @@ void setrangeCommand(client *c) {
             return;
 
         newLen = offset+value_len;
-        o = createObject(OBJ_STRING,sdsnewlen(NULL, newLen));
-        dbAdd(c->db,c->argv[1],o); /* It also updates keysizes hist */
+        robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newLen));
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
         /* Key exists, check type */
-        if (checkType(c,o,OBJ_STRING))
+        if (checkType(c,kv,OBJ_STRING))
             return;
 
         /* Return existing string length when setting nothing */
-        oldLen = stringObjectLen(o);
+        oldLen = stringObjectLen(kv);
         if (value_len == 0) {
             addReplyLongLong(c, oldLen);
             return;
@@ -468,15 +486,15 @@ void setrangeCommand(client *c) {
             return;
 
         /* Create a copy when the object is shared or encoded. */
-        o = dbUnshareStringValueWithDictEntry(c->db,c->argv[1],o,de);
+        kv = dbUnshareStringValueByLink(c->db, c->argv[1], kv, link);
 
         newLen = max(oldLen, (int64_t) (offset + value_len));
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldLen, newLen);
     }
 
     if (value_len > 0) {
-        o->ptr = sdsgrowzero(o->ptr,offset+value_len);
-        memcpy((char*)o->ptr+offset,value,value_len);
+        kv->ptr = sdsgrowzero(kv->ptr,offset+value_len);
+        memcpy((char*)kv->ptr+offset,value,value_len);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
             "setrange",c->argv[1],c->db->id);
@@ -487,7 +505,7 @@ void setrangeCommand(client *c) {
 }
 
 void getrangeCommand(client *c) {
-    robj *o;
+    kvobj *o;
     long long start, end;
     char *str, llbuf[32];
     size_t strlen;
@@ -532,7 +550,7 @@ void mgetCommand(client *c) {
 
     addReplyArrayLen(c,c->argc-1);
     for (j = 1; j < c->argc; j++) {
-        robj *o = lookupKeyRead(c->db,c->argv[j]);
+        kvobj *o = lookupKeyRead(c->db, c->argv[j]);
         if (o == NULL) {
             addReplyNull(c);
         } else {
@@ -564,14 +582,12 @@ void msetGenericCommand(client *c, int nx) {
         }
     }
 
-    int setkey_flags = nx ? SETKEY_DOESNT_EXIST : 0;
     for (j = 1; j < c->argc; j += 2) {
         c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        setKey(c, c->db, c->argv[j], c->argv[j + 1], setkey_flags);
+        /* if 'NX', no need set flags SETKEY_DOESNT_EXIST. Already verified earlier! */
+        setKey(c, c->db, c->argv[j], &(c->argv[j+1]) , 0 /*flags*/);
+        incrRefCount(c->argv[j+1]);  /* refcnt not incr by setKey() */
         notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
-        /* In MSETNX, It could be that we're overriding the same key, we can't be sure it doesn't exist. */
-        if (nx)
-            setkey_flags = SETKEY_ADD_OR_UPDATE;
     }
     server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);
@@ -587,9 +603,9 @@ void msetnxCommand(client *c) {
 
 void incrDecrCommand(client *c, long long incr) {
     long long value, oldvalue;
-    robj *o, *new;
-    dictEntry *de;
-    o = lookupKeyWriteWithDictEntry(c->db,c->argv[1],&de);
+    robj *new;
+    dictEntryLink link;
+    kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
 
@@ -602,7 +618,6 @@ void incrDecrCommand(client *c, long long incr) {
     value += incr;
 
     if (o && o->refcount == 1 && o->encoding == OBJ_ENCODING_INT &&
-        (value < 0 || value >= OBJ_SHARED_INTEGERS) &&
         value >= LONG_MIN && value <= LONG_MAX)
     {
         new = o;
@@ -615,10 +630,10 @@ void incrDecrCommand(client *c, long long incr) {
         new = createStringObjectFromLongLongForValue(value);
         if (o) {
             /* replace value in db and also update keysizes hist */
-            dbReplaceValueWithDictEntry(c->db,c->argv[1],new,de);
+            dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
         } else {
             /* Add new key to db and also update keysizes hist */
-            dbAdd(c->db,c->argv[1],new);
+            dbAddByLink(c->db, c->argv[1], &new, &link);
         }
     }
     addReplyLongLongFromStr(c,new);
@@ -656,10 +671,9 @@ void decrbyCommand(client *c) {
 
 void incrbyfloatCommand(client *c) {
     long double incr, value;
-    robj *o, *new;
 
-    dictEntry *de;
-    o = lookupKeyWriteWithDictEntry(c->db,c->argv[1],&de);
+    dictEntryLink link;
+    kvobj *o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongDoubleFromObjectOrReply(c,o,&value,NULL) != C_OK ||
         getLongDoubleFromObjectOrReply(c,c->argv[2],&incr,NULL) != C_OK)
@@ -670,11 +684,11 @@ void incrbyfloatCommand(client *c) {
         addReplyError(c,"increment would produce NaN or Infinity");
         return;
     }
-    new = createStringObjectFromLongDouble(value,1);
+    robj *new = createStringObjectFromLongDouble(value,1);
     if (o)
-        dbReplaceValueWithDictEntry(c->db,c->argv[1],new,de);
+        dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
     else
-        dbAdd(c->db,c->argv[1],new);
+        dbAddByLink(c->db, c->argv[1], &new, &link);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
@@ -690,14 +704,15 @@ void incrbyfloatCommand(client *c) {
 
 void appendCommand(client *c) {
     size_t totlen;
-    robj *o, *append;
+    robj *append;
+    kvobj *o;
 
-    dictEntry *de;
-    o = lookupKeyWriteWithDictEntry(c->db,c->argv[1],&de);
+    dictEntryLink link;
+    o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAdd(c->db,c->argv[1],c->argv[2]);
+        dbAddByLink(c->db, c->argv[1], &c->argv[2], &link);
         incrRefCount(c->argv[2]);
         totlen = stringObjectLen(c->argv[2]);
     } else {
@@ -712,7 +727,7 @@ void appendCommand(client *c) {
             return;
 
         /* Append the value */
-        o = dbUnshareStringValueWithDictEntry(c->db,c->argv[1],o,de);
+        o = dbUnshareStringValueByLink(c->db,c->argv[1],o,link);
         o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
         totlen = sdslen(o->ptr);
         int64_t oldlen = totlen - append_len;
@@ -721,15 +736,15 @@ void appendCommand(client *c) {
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"append",c->argv[1],c->db->id);
     server.dirty++;
-    
+
     addReplyLongLong(c,totlen);
 }
 
 void strlenCommand(client *c) {
-    robj *o;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
-        checkType(c,o,OBJ_STRING)) return;
-    addReplyLongLong(c,stringObjectLen(o));
+    kvobj *kv;
+    if ((kv = lookupKeyReadOrReply(c, c->argv[1], shared.czero)) == NULL ||
+        checkType(c, kv, OBJ_STRING)) return;
+    addReplyLongLong(c,stringObjectLen(kv));
 }
 
 /* LCS key1 key2 [LEN] [IDX] [MINMATCHLEN <len>] [WITHMATCHLEN] */
@@ -738,10 +753,9 @@ void lcsCommand(client *c) {
     long long minmatchlen = 0;
     sds a = NULL, b = NULL;
     int getlen = 0, getidx = 0, withmatchlen = 0;
-    robj *obja = NULL, *objb = NULL;
 
-    obja = lookupKeyRead(c->db,c->argv[1]);
-    objb = lookupKeyRead(c->db,c->argv[2]);
+    kvobj *obja = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *objb = lookupKeyRead(c->db, c->argv[2]);
     if ((obja && obja->type != OBJ_STRING) ||
         (objb && objb->type != OBJ_STRING))
     {

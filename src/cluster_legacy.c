@@ -5793,7 +5793,7 @@ unsigned int delKeysInSlot(unsigned int hashslot) {
     kvs_di = kvstoreGetDictSafeIterator(server.db->keys, hashslot);
     while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
         enterExecutionUnit(1, 0);
-        sds sdskey = dictGetKey(de);
+        sds sdskey = kvobjGetKey(dictGetKV(de));
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
         propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
