@@ -415,13 +415,12 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEnt
     dict *d = privdata;
     hfield newhf = NULL, hf = dictGetKey(de);
 
+    /* If the hfield does not have TTL, we directly defrag it.
+     * Fields with TTL are skipped here and will be defragmented later
+     * during the hash expiry ebuckets defragmentation phase. */
     if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID) {
-        /* If the hfield does not have TTL, we directly defrag it. */
         if ((newhf = activeDefragHfield(hf)))
             dictSetKey(d, (dictEntry *)de, newhf);
-    } else {
-        /* Skip fields with TTL here, they will be defragmented later during 
-         * the hash expiry ebuckets defragmentation phase. */
     }
 }
 
