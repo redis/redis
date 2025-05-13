@@ -28,13 +28,6 @@ set test_dirs {
     integration
 }
 
-# If the environment variable 'only_module' is set to "1" run only module-related tests.
-# This is typically used when running ./runtest-moduleapi to focus on module API behavior
-# and avoid running unrelated general tests.
-if {[info exists env(ONLY_MODULEAPI)] && $env(ONLY_MODULEAPI) eq "1"} {
-    set test_dirs {unit/moduleapi}
-}
-
 foreach test_dir $test_dirs {
     set files [glob -nocomplain $dir/tests/$test_dir/*.tcl]
 

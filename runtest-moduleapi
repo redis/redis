@@ -14,4 +14,47 @@ then
 fi
 
 $MAKE -C tests/modules && \
-ONLY_MODULEAPI=1 $TCLSH tests/test_helper.tcl "${@}"
+$TCLSH tests/test_helper.tcl \
+--single unit/moduleapi/commandfilter \
+--single unit/moduleapi/basics \
+--single unit/moduleapi/fork \
+--single unit/moduleapi/testrdb \
+--single unit/moduleapi/infotest \
+--single unit/moduleapi/moduleconfigs \
+--single unit/moduleapi/infra \
+--single unit/moduleapi/propagate \
+--single unit/moduleapi/hooks \
+--single unit/moduleapi/misc \
+--single unit/moduleapi/blockonkeys \
+--single unit/moduleapi/blockonbackground \
+--single unit/moduleapi/scan \
+--single unit/moduleapi/datatype \
+--single unit/moduleapi/auth \
+--single unit/moduleapi/keyspace_events \
+--single unit/moduleapi/blockedclient \
+--single unit/moduleapi/getkeys \
+--single unit/moduleapi/test_lazyfree \
+--single unit/moduleapi/defrag \
+--single unit/moduleapi/keyspecs \
+--single unit/moduleapi/hash \
+--single unit/moduleapi/zset \
+--single unit/moduleapi/list \
+--single unit/moduleapi/stream \
+--single unit/moduleapi/mallocsize \
+--single unit/moduleapi/datatype2 \
+--single unit/moduleapi/cluster \
+--single unit/moduleapi/aclcheck \
+--single unit/moduleapi/subcommands \
+--single unit/moduleapi/reply \
+--single unit/moduleapi/cmdintrospection \
+--single unit/moduleapi/eventloop \
+--single unit/moduleapi/timer \
+--single unit/moduleapi/publish \
+--single unit/moduleapi/usercall \
+--single unit/moduleapi/postnotifications \
+--single unit/moduleapi/async_rm_call \
+--single unit/moduleapi/moduleauth \
+--single unit/moduleapi/rdbloadsave \
+--single unit/moduleapi/crash \
+--single unit/moduleapi/internalsecret \
+"${@}"
