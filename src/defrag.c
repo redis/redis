@@ -214,19 +214,18 @@ hfield activeDefragHfield(hfield hf) {
  * and should NOT be accessed. */
 void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
     dict *d = privdata;
-    hfield newhf = activeDefragHfield(ptr);
-    if (newhf) {
-        /* We can't search in dict for that key after we've released
-         * the pointer it holds, since it won't be able to do the string
-         * compare, but we can find the entry using key hash and pointer. */
-        dictEntryLink link;
-        dictUseStoredKeyApi(d, 1);
-        link = dictFindLink(d, newhf, NULL);
-        dictUseStoredKeyApi(d, 0);
-        serverAssert(link);
-        dictSetKeyAtLink(d, newhf, &link, 0);
-    }
+    dictEntryLink link;
 
+    /* Before the key is released, obtain the link to
+     * ensure we can safely access and update the key. */
+    dictUseStoredKeyApi(d, 1);
+    link = dictFindLink(d, ptr, NULL);
+    serverAssert(link);
+    dictUseStoredKeyApi(d, 0);
+
+    hfield newhf = activeDefragHfield(ptr);
+    if (newhf)
+        dictSetKeyAtLink(d, newhf, &link, 0);
     return newhf;
 }
 
