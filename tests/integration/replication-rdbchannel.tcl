@@ -410,7 +410,6 @@ start_server {tags {"repl external:skip"}} {
     set master_host [srv 0 host]
     set master_port [srv 0 port]
     set master_pid  [srv 0 pid]
-    set loglines [count_log_lines 0]
 
     $master config set repl-diskless-sync yes
     $master config set repl-rdb-channel yes
@@ -437,15 +436,17 @@ start_server {tags {"repl external:skip"}} {
                 fail "Replica did not start loading"
             }
 
-            # Generate some traffic for backlog ~2mb
-            populate 20 master 1000000 -1
+            # Generate replication traffic of ~2mb to disconnect the slave on obuf limit
+            populate 1 master 2000000 -1
 
-            set res [wait_for_log_messages -1 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10]
-            set loglines [lindex $res 1]
+            wait_for_log_messages -1 {"*Client * closed * for overcoming of output buffer limits.*"} 0 1000 10
             $replica config set key-load-delay 0
+            $master config set repl-diskless-sync-delay 0
 
-            # Wait until replica loads RDB
-            wait_for_log_messages 0 {"*Done loading RDB*"} 0 1000 10
+            # Wait until replica detects the error and drops
+            set res [wait_for_log_messages 0 {"*Aborting rdb channel sync while loading the RDB.*"} 0 1000 10]
+            set logline [lindex $res 1]
+            wait_for_log_messages 0 {"*Connection with master lost*"} $logline 1000 10
         }
 
         test "Test replication recovers after output buffer failures" {
@@ -453,7 +454,7 @@ start_server {tags {"repl external:skip"}} {
             $master set x 1
 
             # Wait until replica catches up
-            wait_replica_online $master 0 1000 100
+            wait_for_sync $replica
             wait_for_ofs_sync $master $replica
 
             # Verify db's are identical
