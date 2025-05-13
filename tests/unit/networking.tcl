@@ -174,6 +174,8 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
 start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-debug-command {yes}}} {
     set server_pid [s process_id]
     # Skip if non io-threads mode - as it is relevant only for io-threads mode
+    # Since each thread may perform memory prefetch independently, this test is only run
+    # when the number of IO threads is 2 to ensure deterministic results.
     if {[r config get io-threads] eq "io-threads 2"} {
         test {prefetch works as expected when killing a client from the middle of prefetch commands batch} {
             # Create 16 (prefetch batch size) +1 clients
