@@ -96,6 +96,7 @@ void keepClientInMainThread(client *c) {
     c->tid = IOTHREAD_MAIN_THREAD_ID;
     /* Main thread starts to manage it. */
     server.io_threads_clients_num[c->tid]++;
+    trimClientQueryBuffer(c); /* Avoid missing trim in IO threads. */
 }
 
 /* If the client is managed by IO thread, we should fetch it from IO thread
@@ -131,6 +132,7 @@ void fetchClientFromIOThread(client *c) {
     /* Now main thread can process it. */
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     resumeIOThread(c->tid);
+    trimClientQueryBuffer(c); /* Avoid missing trim in IO threads. */
 }
 
 /* For some clients, we must handle them in the main thread, since there is
@@ -418,8 +420,7 @@ int processClientsFromIOThread(IOThread *t) {
 
         /* Process the pending command and input buffer. */
         if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
-            c->flags |= CLIENT_PENDING_COMMAND;
-            if (processPendingCommandAndInputBuffer(c) == C_ERR) {
+            if (processCommandAndResetClient(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
                 continue;
             }
@@ -559,6 +560,19 @@ int processClientsFromMainThread(IOThread *t) {
             connRebindEventLoop(c->conn, t->el);
             serverAssert(!connHasReadHandler(c->conn));
             connSetReadHandler(c->conn, readQueryFromClient);
+        }
+
+        /* The main thread only handles the first parsed command, so IO threads
+         * need to process the remaining queries if needed. */
+        if (c->querybuf && sdslen(c->querybuf) > 0) {
+            if (processInputBuffer(c) == C_ERR) continue;
+            /* If a command is parsed, we transfer the client to the main thread to
+             * process, don't write pending replies to avoid many short write(2). */
+            if (c->io_flags & CLIENT_IO_PENDING_COMMAND)
+                continue;
+
+            /* Trim the query buffer ASAP when all commands in it have been processed. */
+            trimClientQueryBuffer(c);
         }
 
         /* If the client has pending replies, write replies to client. */

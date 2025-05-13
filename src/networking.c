@@ -2870,8 +2870,12 @@ int processInputBuffer(client *c) {
             c->qb_pos -= c->repl_applied;
             c->repl_applied = 0;
         }
-    } else if (c->qb_pos) {
-        /* Trim to pos */
+    } else if (c->qb_pos && (c->qb_pos == sdslen(c->querybuf) ||
+                             !(c->io_flags & CLIENT_IO_PENDING_COMMAND)))
+    {
+        /* For io threads, we don't trim the query buffer if there still is remaining data
+         * in the buffer, since we just parse the first command, to avoid many sdsrange
+         * (memmove), we trim it when we fully parse the command. */
         sdsrange(c->querybuf,c->qb_pos,-1);
         c->qb_pos = 0;
     }
@@ -3016,10 +3020,16 @@ done:
     }
 
     if (c && (c->io_flags & CLIENT_IO_REUSABLE_QUERYBUFFER)) {
-        serverAssert(c->qb_pos == 0); /* Ensure the client's query buffer is trimmed in processInputBuffer */
         resetReusableQueryBuf(c);
     }
     beforeNextClient(c);
+}
+
+void trimClientQueryBuffer(client *c) {
+    if (c->querybuf && c->qb_pos) {
+        sdsrange(c->querybuf,c->qb_pos,-1);
+        c->qb_pos = 0;
+    }
 }
 
 /* A Redis "Address String" is a colon separated ip:port pair.
