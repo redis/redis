@@ -1725,7 +1725,10 @@ cleanup:
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;
+    int fd = dup(fileno(fp));
     fclose(fp);
+    /* Reclaim page cache memory used by the AOF file in background. */
+    if (fd >= 0) bioCreateCloseJob(fd, 0, 1);
     sdsfree(aof_filepath);
     return ret;
 }
@@ -2371,16 +2374,18 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         kvs_it = kvstoreIteratorInit(db->keys);
         /* Iterate this DB writing every entry */
         while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-            sds keystr;
-            robj key, *o;
             long long expiretime;
             size_t aof_bytes_before_key = aof->processed_bytes;
 
-            keystr = dictGetKey(de);
-            o = dictGetVal(de);
-            initStaticStringObject(key,keystr);
-
-            expiretime = getExpire(db,&key);
+            /* Get the value object (of type kvobj) */
+            kvobj *o = dictGetKV(de);
+            
+            /* Get the expire time */
+            expiretime = kvobjGetExpire(o);
+            
+            /* Set on stack string object for key */
+            robj key;
+            initStaticStringObject(key, kvobjGetKey(o));
 
             /* Save the key and associated value */
             if (o->type == OBJ_STRING) {

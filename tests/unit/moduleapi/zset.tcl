@@ -34,6 +34,39 @@ start_server {tags {"modules"}} {
         assert_equal {hello 100} [r zrange k 0 -1 withscores]
     }
 
+    test {Module zset - KEYSIZES is updated as expected (like test at hash.tcl)} {
+        proc run_cmd_verify_hist {cmd expOutput {retries 1}} {
+            proc K {} {return [string map { "db0_distrib_zsets_items" "db0_ZSET" "# Keysizes" "" " " "" "\n" "" "\r" "" } [r info keysizes] ]}
+            uplevel 1 $cmd    
+            wait_for_condition 50 $retries {
+                $expOutput eq [K]
+            } else { fail "Expected: \n`$expOutput`\n Actual:\n`[K]`.\nFailed after command: $cmd" }
+        }
+        
+        r select 0
+        
+        #RedisModule_ZsetAdd, RedisModule_ZsetRem
+        run_cmd_verify_hist {r FLUSHALL} {}
+        run_cmd_verify_hist {r zset.add k 100 hello} {db0_ZSET:1=1}
+        run_cmd_verify_hist {r zset.add k 101 bye} {db0_ZSET:2=1}
+        run_cmd_verify_hist {r zset.rem k hello} {db0_ZSET:1=1}
+        run_cmd_verify_hist {r zset.rem k bye} {}
+        
+        #RM_ZsetIncrby
+        run_cmd_verify_hist {r FLUSHALL} {}
+        run_cmd_verify_hist {r zset.incrby k hello 100} {db0_ZSET:1=1}
+        run_cmd_verify_hist {r zset.incrby k hello 100} {db0_ZSET:1=1}
+        run_cmd_verify_hist {r zset.rem k hello} {}
+
+        # Check lazy expire
+        r debug set-active-expire 0
+        run_cmd_verify_hist {r zset.add k 100 hello} {db0_ZSET:1=1}
+        run_cmd_verify_hist {r pexpire k 2} {db0_ZSET:1=1}
+        run_cmd_verify_hist {after 5} {db0_ZSET:1=1}
+        r debug set-active-expire 1
+        run_cmd_verify_hist {after 5} {} 50
+    }
+    
     test "Unload the module - zset" {
         assert_equal {OK} [r module unload zset]
     }

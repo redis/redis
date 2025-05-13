@@ -12,6 +12,23 @@ BINCOLOR="\033[37;1m"
 MAKECOLOR="\033[32;1m"
 ENDCOLOR="\033[0m"
 
+DEPS_CFLAGS := $(CFLAGS)
+DEPS_LDFLAGS := $(LDFLAGS)
+CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
+
+# MSan looks for errors related to uninitialized memory.
+# Make sure to build the dependencies with MSan as it needs all the code to be instrumented.
+# A library could be used to initialize memory but if it's not build with --fsanitize=memory then
+# MSan doesn't know about it and will spit false positive error when that memory is then used.
+ifeq ($(SANITIZER),memory)
+ifeq (clang, $(CLANG))
+	DEPS_CFLAGS+=-fsanitize=memory -fsanitize-memory-track-origins=2 -fno-sanitize-recover=all -fno-omit-frame-pointer
+	DEPS_LDFLAGS+=-fsanitize=memory
+else
+    $(error "MemorySanitizer needs to be compiled and linked with clang. Please use CC=clang")
+endif
+endif
+
 default:
 	@echo "Explicit target required"
 
@@ -53,31 +70,31 @@ endif
 
 hiredis: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd hiredis && $(MAKE) static $(HIREDIS_MAKE_FLAGS)
+	cd hiredis && $(MAKE) static $(HIREDIS_MAKE_FLAGS) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 
 .PHONY: hiredis
 
 linenoise: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd linenoise && $(MAKE)
+	cd linenoise && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 
 .PHONY: linenoise
 
 hdr_histogram: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd hdr_histogram && $(MAKE)
+	cd hdr_histogram && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 
 .PHONY: hdr_histogram
 
 fpconv: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd fpconv && $(MAKE)
+	cd fpconv && $(MAKE) CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 
 .PHONY: fpconv
 
 fast_float: .make-prerequisites
 	@printf '%b %b\n' $(MAKECOLOR)MAKE$(ENDCOLOR) $(BINCOLOR)$@$(ENDCOLOR)
-	cd fast_float && $(MAKE) libfast_float
+	cd fast_float && $(MAKE) libfast_float CFLAGS="$(DEPS_CFLAGS)" LDFLAGS="$(DEPS_LDFLAGS)"
 
 .PHONY: fast_float
 
@@ -86,8 +103,8 @@ ifeq ($(uname_S),SunOS)
 	LUA_CFLAGS= -D__C99FEATURES__=1
 endif
 
-LUA_CFLAGS+= -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' -DLUA_USE_MKSTEMP $(CFLAGS)
-LUA_LDFLAGS+= $(LDFLAGS)
+LUA_CFLAGS+= -Wall -DLUA_ANSI -DENABLE_CJSON_GLOBAL -DREDIS_STATIC='' -DLUA_USE_MKSTEMP $(DEPS_CFLAGS)
+LUA_LDFLAGS+= $(DEPS_LDFLAGS)
 ifeq ($(LUA_DEBUG),yes)
 	LUA_CFLAGS+= -O0 -g -DLUA_USE_APICHECK
 else

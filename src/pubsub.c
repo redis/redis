@@ -243,8 +243,9 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
     unsigned int slot = 0;
 
     /* Add the channel to the client -> channels hash table */
-    void *position = dictFindPositionForInsert(type.clientPubSubChannels(c),channel,NULL);
-    if (position) { /* Not yet subscribed to this channel */
+    dictEntryLink bucket;
+    dictEntryLink link = dictFindLink(type.clientPubSubChannels(c),channel,&bucket);
+    if (link == NULL) { /* Not yet subscribed to this channel */
         retval = 1;
         /* Add the client to the channel -> list of clients hash table */
         if (server.cluster_enabled && type.shard) {
@@ -263,7 +264,7 @@ int pubsubSubscribeChannel(client *c, robj *channel, pubsubtype type) {
         }
 
         serverAssert(dictAdd(clients, c, NULL) != DICT_ERR);
-        serverAssert(dictInsertAtPosition(type.clientPubSubChannels(c), channel, position));
+        dictSetKeyAtLink(type.clientPubSubChannels(c), channel, &bucket, 1);
         incrRefCount(channel);
     }
     /* Notify the client */

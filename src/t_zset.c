@@ -1838,8 +1838,8 @@ void zaddGenericCommand(client *c, int flags) {
     if (checkType(c,zobj,OBJ_ZSET)) goto cleanup;
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
-        zobj = zsetTypeCreate(elements, sdslen(c->argv[scoreidx+1]->ptr));
-        dbAdd(c->db,key,zobj);
+        robj *o = zsetTypeCreate(elements, sdslen(c->argv[scoreidx + 1]->ptr));
+        zobj = dbAdd(c->db,key,&o);
     } else {
         zsetTypeMaybeConvert(zobj, elements);
     }
@@ -1893,30 +1893,31 @@ void zincrbyCommand(client *c) {
 
 void zremCommand(client *c) {
     robj *key = c->argv[1];
-    robj *zobj;
     int deleted = 0, keyremoved = 0, j;
 
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) return;
+    kvobj *zobj = lookupKeyWriteOrReply(c, key, shared.czero); 
+    if (zobj == NULL || checkType(c,zobj,OBJ_ZSET)) return;
 
+    int64_t oldlen = (int64_t) zsetLength(zobj);
     for (j = 2; j < c->argc; j++) {
-        if (zsetDel(zobj,c->argv[j]->ptr)) deleted++;
+        if (zsetDel(zobj, c->argv[j]->ptr)) deleted++;
         if (zsetLength(zobj) == 0) {
-            dbDelete(c->db,key);
+            /* Del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
+            dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
             break;
         }
     }
 
     if (deleted) {
+        int64_t newlen = oldlen - deleted;
         notifyKeyspaceEvent(NOTIFY_ZSET,"zrem",key,c->db->id);
-        if (keyremoved) {            
+        if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
-            /* No need updateKeysizesHist(). dbDelete() done it already. */
-        } else {
-            unsigned long len =  zsetLength(zobj);
-            updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, len + deleted, len);
+            newlen = -1; /* means key got deleted */
         }
+        
+        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
         signalModifiedKey(c,c->db,key);
         server.dirty += deleted;
     }
@@ -1933,7 +1934,6 @@ typedef enum {
 /* Implements ZREMRANGEBYRANK, ZREMRANGEBYSCORE, ZREMRANGEBYLEX commands. */
 void zremrangeGenericCommand(client *c, zrange_type rangetype) {
     robj *key = c->argv[1];
-    robj *zobj;
     int keyremoved = 0;
     unsigned long deleted = 0;
     zrangespec range;
@@ -1964,8 +1964,8 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
     }
 
     /* Step 2: Lookup & range sanity checks if needed. */
-    if ((zobj = lookupKeyWriteOrReply(c,key,shared.czero)) == NULL ||
-        checkType(c,zobj,OBJ_ZSET)) goto cleanup;
+    kvobj *zobj = lookupKeyWriteOrReply(c, key, shared.czero);
+    if (zobj == NULL || checkType(c, zobj, OBJ_ZSET)) goto cleanup;
 
     if (rangetype == ZRANGE_RANK) {
         /* Sanitize indexes. */
@@ -1998,7 +1998,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
             break;
         }
         if (zzlLength(zobj->ptr) == 0) {
-            dbDelete(c->db,key);
+            dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         }
     } else if (zobj->encoding == OBJ_ENCODING_SKIPLIST) {
@@ -2018,7 +2018,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         }
         dictResumeAutoResize(zs->dict);
         if (dictSize(zs->dict) == 0) {
-            dbDelete(c->db,key);
+            dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         } else {
             dictShrinkIfNeeded(zs->dict);
@@ -2029,15 +2029,18 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
 
     /* Step 4: Notifications and reply. */
     if (deleted) {
+        int64_t  oldlen, newlen;
         signalModifiedKey(c,c->db,key);
         notifyKeyspaceEvent(NOTIFY_ZSET,notify_type,key,c->db->id);
         if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
-            /* No need updateKeysizesHist(). dbDelete() done it already. */
+            newlen = -1;
+            oldlen = deleted;
         } else {
-            unsigned long len =  zsetLength(zobj);
-            updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, len + deleted, len);
+            newlen = zsetLength(zobj);
+            oldlen = newlen + deleted;
         }
+        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
     }
     server.dirty += deleted;
     addReplyLongLong(c,deleted);
@@ -2661,7 +2664,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
 
     /* read keys to be used for input */
     for (i = 0, j = numkeysIndex+1; i < setnum; i++, j++) {
-        robj *obj = lookupKeyRead(c->db, c->argv[j]);
+        kvobj *obj = lookupKeyRead(c->db, c->argv[j]);
         if (obj != NULL) {
             if (obj->type != OBJ_ZSET && obj->type != OBJ_SET) {
                 zfree(src);
@@ -2870,7 +2873,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
     if (dstkey) {
         if (dstzset->zsl->length) {
             zsetConvertToListpackIfNeeded(dstobj, maxelelen, totelelen);
-            setKey(c, c->db, dstkey, dstobj, 0);
+            setKey(c, c->db, dstkey, &dstobj, 0);
             addReplyLongLong(c, zsetLength(dstobj));
             notifyKeyspaceEvent(NOTIFY_ZSET,
                                 (op == SET_OP_UNION) ? "zunionstore" :
@@ -2884,8 +2887,8 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 notifyKeyspaceEvent(NOTIFY_GENERIC, "del", dstkey, c->db->id);
                 server.dirty++;
             }
+            decrRefCount(dstobj);
         }
-        decrRefCount(dstobj);
     } else if (cardinality_only) {
         addReplyLongLong(c, cardinality);
     } else {
@@ -3082,7 +3085,7 @@ static void zrangeResultEmitLongLongForStore(zrange_result_handler *handler,
 static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t result_count)
 {
     if (result_count) {
-        setKey(handler->client, handler->client->db, handler->dstkey, handler->dstobj, 0);
+        setKey(handler->client, handler->client->db, handler->dstkey, &handler->dstobj, 0);
         addReplyLongLong(handler->client, result_count);
         notifyKeyspaceEvent(NOTIFY_ZSET, "zrangestore", handler->dstkey, handler->client->db->id);
         server.dirty++;
@@ -3093,8 +3096,8 @@ static void zrangeResultFinalizeStore(zrange_result_handler *handler, size_t res
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", handler->dstkey, handler->client->db->id);
             server.dirty++;
         }
+        decrRefCount(handler->dstobj);
     }
-    decrRefCount(handler->dstobj);
 }
 
 /* Initialize the consumer interface type with the requested type. */
@@ -3368,7 +3371,7 @@ void zrevrangebyscoreCommand(client *c) {
 
 void zcountCommand(client *c) {
     robj *key = c->argv[1];
-    robj *zobj;
+    kvobj *zobj;
     zrangespec range;
     unsigned long count = 0;
 
@@ -3445,7 +3448,7 @@ void zcountCommand(client *c) {
 
 void zlexcountCommand(client *c) {
     robj *key = c->argv[1];
-    robj *zobj;
+    kvobj *zobj;
     zlexrangespec range;
     unsigned long count = 0;
 
@@ -3652,7 +3655,6 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
 {
     client *c = handler->client;
     robj *key = c->argv[argc_start];
-    robj *zobj;
     zrangespec range;
     zlexrangespec lexrange;
     int minidx = argc_start + 1;
@@ -3754,7 +3756,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
     }
 
     /* Step 3: Lookup the key and get the range. */
-    zobj = lookupKeyRead(c->db, key);
+    kvobj *zobj = lookupKeyRead(c->db, key);
     if (zobj == NULL) {
         if (store) {
             handler->beginResultEmission(handler, -1);
@@ -3797,7 +3799,7 @@ cleanup:
 
 void zcardCommand(client *c) {
     robj *key = c->argv[1];
-    robj *zobj;
+    kvobj *zobj;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.czero)) == NULL ||
         checkType(c,zobj,OBJ_ZSET)) return;
@@ -3807,7 +3809,7 @@ void zcardCommand(client *c) {
 
 void zscoreCommand(client *c) {
     robj *key = c->argv[1];
-    robj *zobj;
+    kvobj *zobj;
     double score;
 
     if ((zobj = lookupKeyReadOrReply(c,key,shared.null[c->resp])) == NULL ||
@@ -3822,9 +3824,8 @@ void zscoreCommand(client *c) {
 
 void zmscoreCommand(client *c) {
     robj *key = c->argv[1];
-    robj *zobj;
     double score;
-    zobj = lookupKeyRead(c->db,key);
+    kvobj *zobj = lookupKeyRead(c->db, key);
     if (checkType(c,zobj,OBJ_ZSET)) return;
 
     addReplyArrayLen(c,c->argc - 2);
@@ -3841,7 +3842,7 @@ void zmscoreCommand(client *c) {
 void zrankGenericCommand(client *c, int reverse) {
     robj *key = c->argv[1];
     robj *ele = c->argv[2];
-    robj *zobj;
+    kvobj *zobj;
     robj* reply;
     long rank;
     int opt_withscore = 0;
@@ -3891,7 +3892,7 @@ void zrevrankCommand(client *c) {
 }
 
 void zscanCommand(client *c) {
-    robj *o;
+    kvobj *o;
     unsigned long long cursor;
 
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
@@ -4037,17 +4038,19 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         sdsfree(ele);
         ++result_count;
     } while(--rangelen);
+    
+    int64_t oldlen = llen, newlen = llen - result_count;
 
     /* Remove the key, if indeed needed. */
     if (zsetLength(zobj) == 0) {
         if (deleted) *deleted = 1;
 
-        dbDelete(c->db,key);
+        dbDeleteSkipKeysizesUpdate(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
-        /* No need updateKeysizesHist(). dbDelete() done it already. */
-    } else {
-        updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, llen, llen - result_count);
+
+        newlen = -1; 
     }
+    updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
     signalModifiedKey(c,c->db,key);
 
     if (c->cmd->proc == zmpopCommand) {
@@ -4194,7 +4197,7 @@ static void zrandmemberReplyWithListpack(client *c, unsigned int count, listpack
 void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     unsigned long count, size;
     int uniq = 1;
-    robj *zsetobj;
+    kvobj *zsetobj;
 
     if ((zsetobj = lookupKeyReadOrReply(c, c->argv[1], shared.emptyarray))
         == NULL || checkType(c, zsetobj, OBJ_ZSET)) return;
@@ -4399,7 +4402,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
 void zrandmemberCommand(client *c) {
     long l;
     int withscores = 0;
-    robj *zset;
+    kvobj *zset;
     listpackEntry ele;
 
     if (c->argc >= 3) {

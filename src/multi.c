@@ -304,7 +304,7 @@ void watchForKey(client *c, robj *key) {
     wk->key = key;
     wk->client = c;
     wk->db = c->db;
-    wk->expired = keyIsExpired(c->db, key);
+    wk->expired = keyIsExpired(c->db, key->ptr, NULL);
     incrRefCount(key);
     listAddNodeTail(c->watched_keys, wk);
     watchedKeyLinkToClients(clients, wk);
@@ -349,7 +349,7 @@ int isWatchedKeyExpired(client *c) {
     while ((ln = listNext(&li))) {
         wk = listNodeValue(ln);
         if (wk->expired) continue; /* was expired when WATCH was called */
-        if (keyIsExpired(wk->db, wk->key)) return 1;
+        if (keyIsExpired(wk->db, wk->key->ptr, NULL)) return 1;
     }
 
     return 0;
@@ -436,11 +436,11 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
                          * flag. Deleted keys are not flagged as expired. */
                         wk->expired = 0;
                         continue;
-                    } else if (keyIsExpired(replaced_with, key)) {
+                    } else if (keyIsExpired(replaced_with, key->ptr, NULL)) {
                         /* Expired key remains expired. */
                         continue;
                     }
-                } else if (!exists_in_emptied && keyIsExpired(replaced_with, key)) {
+                } else if (!exists_in_emptied && keyIsExpired(replaced_with, key->ptr, NULL)) {
                     /* Non-existing key is replaced with an expired key. */
                     wk->expired = 1;
                     continue;

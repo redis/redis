@@ -17,8 +17,8 @@
 #include "hdr_histogram.h"
 
 /* Dictionary type for latency events. */
-int dictStringKeyCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
+int dictStringKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    UNUSED(cache);
     return strcmp(key1,key2) == 0;
 }
 

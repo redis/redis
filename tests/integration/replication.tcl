@@ -756,6 +756,8 @@ test {diskless loading short read} {
                 redis.register_function('test', function() return 'hello1' end)
             }
 
+            set has_vector_sets [server_has_command vadd]
+
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
                     r set "$k int_$i" [expr {int(rand()*10000)}]
@@ -769,6 +771,11 @@ test {diskless loading short read} {
                     r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
                     r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
                     r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+
+                    if {$has_vector_sets} {
+                        r vadd "$k vector_set" VALUES 3 [expr {rand()}] [expr {rand()}] [expr {rand()}] [string repeat A [expr {int(rand()*1000)}]]
+                    }
+
                     for {set j 0} {$j < 10} {incr j} {
                         r xadd "$k stream" * foo "asdf" bar "1234"
                     }

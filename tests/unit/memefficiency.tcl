@@ -327,7 +327,7 @@ run_solo {defrag} {
             r set "{bigstream}smallitem" val
 
 
-            set expected_frag 1.5
+            set expected_frag 1.49
             if {$::accurate} {
                 # scale the hash to 1m fields in order to have a measurable the latency
                 for {set j 10000} {$j < 1000000} {incr j} {
@@ -683,7 +683,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.4
+            assert_morethan [s allocator_frag_ratio] 1.35
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {

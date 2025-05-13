@@ -1446,6 +1446,36 @@ start_server {tags {"external:skip needs:debug"}} {
 
         r config set hash-max-listpack-value 64
     }
+
+    test {Test HEXPIRE coexists with EXPIRE} {
+        # Verify HEXPIRE & EXPIRE coexists. When setting EXPIRE a new kvobj might be
+        # created whereas the old one can be ref by hash field expiration DS.
+        # Take care to set hexpire before expire. Verify all combinations of
+        # which expired first.
+        # Another point to verify is that whether hexpire deletes the last field
+        # and in turn the key (See f2).
+        foreach etime {10 1000} htime {10 1000} f2 {0 1} {
+            r del myhash
+            r hset myhash f1 v1
+            if {$f2} { r hset myhash f2 v2 }
+            r hpexpire myhash $etime FIELDS 1 f1
+            r pexpire myhash $htime
+            after 20
+            # If EXPIRE is shorter, it should delete the key.
+            if {$etime == 10} {
+                assert_equal [r httl myhash FIELDS 1 f1] $T_NO_FIELD
+                assert_equal [r exists myhash] 0
+            } else {
+                if {$htime == 10} {
+                    assert_equal [r httl myhash FIELDS 1 f1] $T_NO_FIELD
+                    assert_range [r pttl myhash] 500 1000
+                } else {
+                    assert_range [r httl myhash FIELDS 1 f1] 1 1000
+                    assert_range [r pttl myhash] 500 1000
+                }
+            }
+        }
+    }
 }
 
 start_server {tags {"external:skip needs:debug"}} {

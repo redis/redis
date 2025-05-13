@@ -504,35 +504,69 @@ start_server {tags {"info" "external:skip"}} {
 start_server {tags {"info" "external:skip"}} {
     test {memory: database and pubsub overhead and rehashing dict count} {
         r flushall
+
+        # Better not set ht0_size to 4 since there is a probability that all
+        # keys will end up in the same bucket and rehashing will ended instantly.
+        set ht0_size [expr 1 << 3]
+        # ht1 size is twice the size of ht0
+        set ht1_size [expr $ht0_size << 1]
+
+        populate [expr $ht0_size - 1]
+
+        # Verify rehashing is not ongoing
+        wait_for_condition 100 10 {
+            [dict get [r memory stats] db.dict.rehashing.count] == 0
+        } else {
+            fail "Rehashing did not finish in time"
+        }
+
+        # Verify the info reflects steady state
         set info_mem [r info memory]
         set mem_stats [r memory stats]
         assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
-        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] {0}
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr $ht0_size * 8]
         assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
-        # Initial dict expand is not rehashing
-        r set a b
-        set info_mem [r info memory]
-        set mem_stats [r memory stats]
-        assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
-        assert_range [dict get $mem_stats overhead.db.hashtable.lut] 1 64
-        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
-        assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
-        # set 4 more keys to trigger rehashing
+
+        # Set 2 more keys to trigger rehashing
         # get the info within a transaction to make sure the rehashing is not completed
         r multi 
-        r set b c
-        r set c d
-        r set d e
-        r set e f
+        r set this_will_reach_max_load_factor 1
+        r set this_must_be_rehashed 1
         r info memory
         r memory stats
         set res [r exec]
-        set info_mem [lindex $res 4]
-        set mem_stats [lindex $res 5]
-        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 64
-        assert_range [dict get $mem_stats overhead.db.hashtable.lut] 1 192
-        assert_range [dict get $mem_stats overhead.db.hashtable.rehashing] 1 64
+        set info_mem [lindex $res 2]
+        set mem_stats [lindex $res 3]
+
+        # Verify the info reflects rehashing state
+        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 [expr $ht0_size * 8]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr ($ht0_size + $ht1_size) * 8 ]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_size * 8]
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
+    }
+}
+
+start_cluster 1 0 {tags {external:skip cluster}} {
+    test "Verify that LUT overhead is properly updated when dicts are emptied or reused (issue #13973)" {
+        R 0 set k v ;# Make dbs overhead displayed
+        set info_mem [r memory stats]
+        set overhead_main [dict get $info_mem db.0 overhead.hashtable.main]
+        set overhead_expires [dict get $info_mem db.0 overhead.hashtable.expires]
+        assert_range $overhead_main 1 5000
+        assert_range $overhead_expires 1 1000
+
+        # In cluster mode, we use KVSTORE_FREE_EMPTY_DICTS to ensure that dicts
+        # are freed when they are emptied. This test verifies that after a dict
+        # is cleared, the lut overhead is properly updated, preventing it from 
+        # growing indefinitely.
+        for {set j 1} {$j <= 500} {incr j} {
+            R 0 set k v
+            R 0 del k
+        }
+        R 0 set k v ;# Make dbs overhead displayed
+        set info_mem [r memory stats]
+        assert_equal [dict get $info_mem db.0 overhead.hashtable.main] $overhead_main
+        assert_equal [dict get $info_mem db.0 overhead.hashtable.expires] $overhead_expires
     }
 }

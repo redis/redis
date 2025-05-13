@@ -40,9 +40,11 @@ redisSortOperation *createSortOperation(int type, robj *pattern) {
  * The returned object will always have its refcount increased by 1
  * when it is non-NULL. */
 robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
+    kvobj *kv;
     char *p, *f, *k;
     sds spat, ssub;
-    robj *keyobj, *fieldobj = NULL, *o, *val;
+    robj *keyobj, *fieldobj = NULL, *val;
+
     int prefixlen, sublen, postfixlen, fieldlen;
 
     /* If the pattern is "#" return the substitution object itself in order
@@ -87,31 +89,31 @@ robj *lookupKeyByPattern(redisDb *db, robj *pattern, robj *subst) {
     decrRefCount(subst); /* Incremented by decodeObject() */
 
     /* Lookup substituted key */
-    o = lookupKeyRead(db, keyobj);
-    if (o == NULL) goto noobj;
+    kv = lookupKeyRead(db, keyobj);
+    if (kv == NULL) goto noobj;
 
     if (fieldobj) {
-        if (o->type != OBJ_HASH) goto noobj;
+        if (kv->type != OBJ_HASH) goto noobj;
 
         /* Retrieve value from hash by the field name. The returned object
          * is a new object with refcount already incremented. */
         int isHashDeleted;
-        hashTypeGetValueObject(db, o, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
-        o = val;
+        hashTypeGetValueObject(db, kv, fieldobj->ptr, HFE_LAZY_EXPIRE, &val, NULL, &isHashDeleted);
+        kv = val;
 
         if (isHashDeleted)
             goto noobj;
 
     } else {
-        if (o->type != OBJ_STRING) goto noobj;
+        if (kv->type != OBJ_STRING) goto noobj;
 
         /* Every object that this function returns needs to have its refcount
          * increased. sortCommand decreases it again. */
-        incrRefCount(o);
+        incrRefCount(kv);
     }
     decrRefCount(keyobj);
     if (fieldobj) decrRefCount(fieldobj);
-    return o;
+    return kv;
 
 noobj:
     decrRefCount(keyobj);
@@ -600,18 +602,26 @@ void sortCommandGeneric(client *c, int readonly) {
                 }
             }
         }
+        
         if (outputlen) {
             listTypeTryConversion(sobj,LIST_CONV_AUTO,NULL,NULL);
-            setKey(c,c->db,storekey,sobj,0);
+            setKey(c, c->db, storekey, &sobj, 0);
+            /* Ownership of sobj transferred to the db. Set to NULL to prevent
+             * freeing it below. */
+            sobj = NULL;
             notifyKeyspaceEvent(NOTIFY_LIST,"sortstore",storekey,
                                 c->db->id);
             server.dirty += outputlen;
-        } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c,c->db,storekey);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
-            server.dirty++;
+            /* Ownership of sobj transferred to the db. No need to free it. */
+        } else {
+            if (dbDelete(c->db, storekey)) {
+                signalModifiedKey(c, c->db, storekey);
+                notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
+                server.dirty++;
+            }
+            decrRefCount(sobj);
         }
-        decrRefCount(sobj);
+
         addReplyLongLong(c,outputlen);
     }
 

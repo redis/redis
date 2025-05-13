@@ -4446,7 +4446,7 @@ void sentinelSetCommand(client *c) {
 
             /* If the target name is the same as the source name there
              * is no need to add an entry mapping to itself. */
-            if (!dictSdsKeyCaseCompare(ri->renamed_commands,oldname,newname)) {
+            if (strcasecmp(oldname, newname) != 0) {
                 oldname = sdsdup(oldname);
                 newname = sdsdup(newname);
                 dictAdd(ri->renamed_commands,oldname,newname);
