@@ -787,3 +787,27 @@ int anetIsFifo(char *filepath) {
     if (stat(filepath, &sb) == -1) return 0;
     return S_ISFIFO(sb.st_mode);
 }
+
+/* This function must be called after accept4() fails. It returns 1 if 'err'
+ * indicates accepted connection faced an error, and it's okay to continue
+ * accepting next connection by calling accept4() again. Other errors either
+ * indicate programming errors, e.g. calling accept() on a closed fd or indicate
+ * a resource limit has been reached, e.g. -EMFILE, open fd limit has been
+ * reached. In the latter case, caller might wait until resources are available.
+ * See accept4() documentation for details. */
+int anetAcceptFailureNeedsRetry(int err) {
+    if (err == ECONNABORTED)
+        return 1;
+
+#if defined(__linux__)
+    /* For details, see 'Error Handling' section on
+     * https://man7.org/linux/man-pages/man2/accept.2.html */
+    if (err == ENETDOWN || err == EPROTO || err == ENOPROTOOPT ||
+        err == EHOSTDOWN || err == ENONET || err == EHOSTUNREACH ||
+        err == EOPNOTSUPP || err == ENETUNREACH)
+    {
+        return 1;
+    }
+#endif
+    return 0;
+}
