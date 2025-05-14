@@ -1914,9 +1914,17 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
 int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
                 ebDefragFunctions *defragfns, void *privdata)
 {
-    rax *rax = ebGetRaxPtr(*eb);
+    rax *newrax, *rax = ebGetRaxPtr(*eb);
     raxIterator ri;
     static unsigned char next[EB_KEY_SIZE];
+
+    /* defrag the rax struct */
+    if (!*cursor) {
+        if ((newrax = defragfns->defragAlloc(rax))) {
+            *eb = newrax;
+            rax = newrax;
+        }
+    }
 
     raxStart(&ri,rax);
     if (!*cursor) {
