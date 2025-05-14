@@ -54,7 +54,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: make
-      run: make REDIS_CFLAGS='-Werror'
+      # Fail build if there are warnings
+      # build with TLS just for compilation coverage
+      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
 
   build-32bit:
     runs-on: ubuntu-latest
