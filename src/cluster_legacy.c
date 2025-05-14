@@ -1253,6 +1253,8 @@ void clusterAcceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
+            if (anetAcceptFailureNeedsRetry(errno))
+                continue;
             if (errno != EWOULDBLOCK)
                 serverLog(LL_VERBOSE,
                     "Error accepting cluster node: %s", server.neterr);
