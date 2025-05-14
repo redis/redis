@@ -1969,7 +1969,7 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
     return 1;
 }
 
-/* Reallocates the memory used by ebucket components (segments and items) 
+/* Reallocates the memory used by ebucket components (segments and items)
  * using the provided allocation functions. This feature was added for
  * the active defrag feature.
  *
