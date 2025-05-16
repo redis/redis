@@ -542,7 +542,7 @@ run_solo {defrag} {
                 }
                 $rd expire h$i 9999999 ;# Ensure expire is updated after kvobj reallocation
             }
-            puts [s used_memory]
+            
             for {set i 0} {$i < $n} {incr i} {
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd read ; # Discard hset replies
