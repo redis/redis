@@ -211,8 +211,6 @@ sds getAofManifestAsString(aofManifest *am) {
     serverAssert(am != NULL);
 
     sds buf = sdsempty();
-    listNode *ln;
-    listIter li;
 
     /* 1. Add BASE File information, it is always at the beginning
      * of the manifest file. */
