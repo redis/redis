@@ -1268,10 +1268,10 @@ void *activeDefragHExpiresOB(void *ptr, void *privdata) {
     /* We can't search in db->expires for that KV after we've released
      * the pointer it holds, since it won't be able to do the string
      * compare. Search it before, if needed. */
-     if (expire != -1) {
-         exlink = kvstoreDictFindLink(db->expires, slot, kvobjGetKey(kvobj), NULL);
-         serverAssert(exlink != NULL);
-     }
+    if (expire != -1) {
+        exlink = kvstoreDictFindLink(db->expires, slot, kvobjGetKey(kvobj), NULL);
+        serverAssert(exlink != NULL);
+    }
 
     if ((kvobj = activeDefragAlloc(kvobj))) {
         /* Update its reference in the DB keys. */
