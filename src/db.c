@@ -375,7 +375,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
  *   update of a value of an existing key (when false).
  * - The `link` is optional, can save lookup, if provided.
  */
-static void dbSetValue(redisDb *db, robj *key, robj **valref, int notifyOverwrite, 
+static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, 
                        int keepTTL, dictEntryLink link)
 {
     robj *val = *valref;
@@ -395,7 +395,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int notifyOverwrit
     if (old->type == OBJ_HASH)
         hashTypeRemoveFromExpires(&db->hexpires, old);
 
-    if (notifyOverwrite) {
+    if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain old */
         incrRefCount(old);
@@ -428,14 +428,13 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int notifyOverwrit
         /* Replace the old value at its location in the key space. */
         val->lru = old->lru;
         /* Update expire reference if needed */
-        long long oldExpire = getExpire(db, key->ptr, old);
-        long long newExpire = keepTTL ? oldExpire : -1;
-        kvNew = kvobjSet(key->ptr, val, newExpire);
+        long long expire = getExpire(db, key->ptr, old);
+        kvNew = kvobjSet(key->ptr, val, keepTTL ? expire : -1);
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* Replace the old value at its location in the expire space. */
-        if (oldExpire != -1) {
-            if (newExpire != -1) {
+        if (expire >= 0) {
+            if (keepTTL) {
                 dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot,
                                                            key->ptr, NULL);
                 serverAssertWithInfo(NULL, key, exLink != NULL);
