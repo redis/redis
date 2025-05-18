@@ -490,9 +490,11 @@ void setrangeCommand(client *c) {
 
         /* If string needs to grow then update sds and keysizes histogram as well */
         if (oldLen < (int64_t) (offset + value_len)) {
-            int64_t newLen = offset + value_len;
+            newLen = offset + value_len;
             kv->ptr = sdsgrowzero(kv->ptr, newLen);
             updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldLen, newLen);            
+        } else {
+            newLen = oldLen;
         }
     }
 
