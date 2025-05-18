@@ -2277,6 +2277,7 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
+    int dbgAssertKeysize;       /* Assert keysizes histogram after each command */
 };
 
 /* we use 6 so that all getKeyResult fits a cacheline */

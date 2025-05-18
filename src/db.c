@@ -132,10 +132,10 @@ void dbgAssertKeysizesHist(redisDb *db) {
     dictEntry *de;
     kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
     while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-        robj *o = dictGetVal(de);
-        if (o->type < OBJ_TYPE_BASIC_MAX) {
-            int64_t len = getObjectLength(o);
-            scanHist[o->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
+        kvobj *kv = dictGetKV(de);
+        if (kv->type < OBJ_TYPE_BASIC_MAX) {
+            int64_t len = getObjectLength(kv);
+            scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
     kvstoreIteratorRelease(kvs_it);

@@ -723,11 +723,13 @@ proc test_all_keysizes { {replMode 0} } {
 }
 
 start_server {} {
+    r debug KEYSIZES-HIST-ASSERT 1
     # Test KEYSIZES on a single server
     r select 0
     test_all_keysizes 0
     # Start another server to test replication of KEYSIZES
     start_server {tags {needs:repl external:skip}} {
+        r debug KEYSIZES-HIST-ASSERT 1
         # Set the outer layer server as primary
         set primary [srv -1 client]
         set primary_host [srv -1 host]
