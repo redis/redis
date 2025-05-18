@@ -533,7 +533,7 @@ NULL
         long long flag;
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
-        server.dbgAssertKeysize = (flag != 0);
+        server.dbg_assert_keysizes = (flag != 0);
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);

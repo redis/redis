@@ -2172,7 +2172,7 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
-    server.dbgAssertKeysize = 0; /* Disabled by default */
+    server.dbg_assert_keysizes = 0; /* Disabled by default */
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
@@ -3949,7 +3949,7 @@ void afterCommand(client *c) {
         listJoin(c->reply, server.pending_push_messages);
 
     /* Assert keysizes histogram if enabled */
-    if (unlikely(server.dbgAssertKeysize))
+    if (unlikely(server.dbg_assert_keysizes))
         dbgAssertKeysizesHist(c->db);
 }
 

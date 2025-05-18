@@ -475,6 +475,16 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
     } {} {cluster:skip}
     
+    test "KEYSIZES - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+        # Test based on debug command rather than __EVAL_DB_HIST__
+        start_server {} {
+            r DEBUG KEYSIZES-HIST-ASSERT 1
+            r FLUSHALL
+            createComplexDataset r 100
+            createComplexDataset r 100 {useexpire usehexpire}            
+        }
+    } {} {cluster:skip needs:debug}
+    
     foreach type {listpackex hashtable} {
         # Test different implementations of hash tables and listpacks
         if {$type eq "hashtable"} {
@@ -723,13 +733,10 @@ proc test_all_keysizes { {replMode 0} } {
 }
 
 start_server {} {
-    r debug KEYSIZES-HIST-ASSERT 1
-    # Test KEYSIZES on a single server
     r select 0
     test_all_keysizes 0
     # Start another server to test replication of KEYSIZES
     start_server {tags {needs:repl external:skip}} {
-        r debug KEYSIZES-HIST-ASSERT 1
         # Set the outer layer server as primary
         set primary [srv -1 client]
         set primary_host [srv -1 host]
