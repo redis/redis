@@ -475,15 +475,15 @@ proc test_all_keysizes { {replMode 0} } {
         run_cmd_verify_hist {} {__EVAL_DB_HIST__ 0} 1
     } {} {cluster:skip}
     
-    test "KEYSIZES - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+    start_server {tags {"cluster:skip" "external:skip" "needs:debug"}} {
+        test "KEYSIZES - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         # Test based on debug command rather than __EVAL_DB_HIST__
-        start_server {} {
             r DEBUG KEYSIZES-HIST-ASSERT 1
             r FLUSHALL
             createComplexDataset r 100
             createComplexDataset r 100 {useexpire usehexpire}            
         }
-    } {} {cluster:skip needs:debug}
+    }
     
     foreach type {listpackex hashtable} {
         # Test different implementations of hash tables and listpacks
