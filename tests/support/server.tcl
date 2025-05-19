@@ -730,11 +730,6 @@ proc start_server {options {code undefined}} {
         # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
         set srv [lindex $::servers end]
 
-        # Don't do the leak check when no tests were run
-        if {$num_tests == $::num_tests} {
-            dict set srv "skipleaks" 1
-        }
-
         # pop the server object
         set ::servers [lrange $::servers 0 end-1]
 
