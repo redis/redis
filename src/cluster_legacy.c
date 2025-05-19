@@ -2891,7 +2891,7 @@ int clusterProcessPacket(clusterLink *link) {
                  * valid IP, the node becomes unusable in the cluster. This failure might be
                  * due to the connection being closed. */
                 serverLog(LL_NOTICE, "Closing link even though we received a MEET packet on it, "
-                                      "because the connection has an error");
+                                     "because the connection has an error");
                 freeClusterLink(link);
                 return 0;
             }
