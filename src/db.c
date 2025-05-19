@@ -124,8 +124,8 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 
 /* Assert keysizes histogram (For debugging only)
  *
- * To catch commands that corrupt the histogram, you can call it
- * right after the call to "c->cmd->proc(c);" at server.c */
+ * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
+ */
 void dbgAssertKeysizesHist(redisDb *db) {
     /* Scan DB and build expected histogram by scanning all keys */
     int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};

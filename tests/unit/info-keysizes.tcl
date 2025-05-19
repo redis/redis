@@ -481,7 +481,7 @@ proc test_all_keysizes { {replMode 0} } {
             r DEBUG KEYSIZES-HIST-ASSERT 1
             r FLUSHALL
             createComplexDataset r 100
-            createComplexDataset r 100 {useexpire usehexpire}            
+            createComplexDataset r 100 {useexpire usehexpire}
         }
     }
     
