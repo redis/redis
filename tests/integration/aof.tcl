@@ -701,4 +701,69 @@ tags {"aof external:skip"} {
             assert_equal {1} [r get t]
         }
     }
+
+
+    # Check AOF load broken behavior
+    start_server_aof [list dir $server_path aof-load-broken yes] {
+        test "Unfinished MULTI: Server should start if aof-load-broken is yes" {
+            assert_equal 1 [is_alive [srv pid]]
+        }
+    }
+
+    # Should also start with broken AOF.
+    create_aof $aof_dirpath $aof_file {
+        append_to_aof [formatCommand set foo 1]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof [formatCommand incr foo]
+        append_to_aof "corruption"
+    }
+
+    start_server_aof [list dir $server_path aof-load-broken yes] {
+        test "Short read: Server should start if aof-load-broken is yes" {
+            assert_equal 1 [is_alive [srv pid]]
+        }
+
+        # The AOF file is expected to be correct because default value for aof-load-broken-max-size is 4096,
+        #so the AOF will reload without the corruption
+        test "Broken AOF loaded: we expect foo to be equal to 5" {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            wait_done_loading $client
+            assert {[$client get foo] eq "5"}
+        }
+
+        test "Append a new command after loading an incomplete AOF" {
+            $client incr foo
+        }
+    }
+
+    start_server_aof [list dir $server_path aof-load-broken yes] {
+        test "Short read + command: Server should start" {
+            assert_equal 1 [is_alive [srv pid]]
+        }
+
+        test "Broken AOF loaded: we expect foo to be equal to 6 now" {
+            set client [redis [srv host] [srv port] 0 $::tls]
+            wait_done_loading $client
+            assert {[$client get foo] eq "6"}
+        }
+    }
+
+    # Test that the server exits when the AOF contains a format error
+    create_aof $aof_dirpath $aof_file {
+        append_to_aof [formatCommand set foo hello]
+        append_to_aof [string range [formatCommand incr foo] 0 end-3]
+        append_to_aof "corruption"
+    }
+
+    # We set the maximum allowed corrupted size to 2 bytes, but the actual corrupted portion is larger,
+    # so the AOF file will not be reloaded.
+    start_server_aof_ex [list dir $server_path aof-load-broken yes aof-load-broken-max-size 2] [list wait_ready false] {
+        test "Bad format: Server should have logged an error" {
+ 
+            wait_for_log_messages 0 {"*AOF did not loaded because the size*"} 0 10 1000
+        }
+    }
 }
+
