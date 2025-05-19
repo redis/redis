@@ -162,18 +162,6 @@ struct vsetNodeVal {
     RedisModuleString *attrib;
 };
 
-/* Count the number of set bits in an integer (population count/Hamming weight).
- * This is a portable implementation that doesn't rely on compiler
- * extensions. */
-static inline uint32_t bit_count(uint32_t n) {
-    uint32_t count = 0;
-    while (n) {
-        count += n & 1;
-        n >>= 1;
-    }
-    return count;
-}
-
 /* Create a Hadamard-based projection matrix for dimensionality reduction.
  * Uses {-1, +1} entries with a pattern based on bit operations.
  * The pattern is matrix[i][j] = (i & j) % 2 == 0 ? 1 : -1
@@ -203,7 +191,7 @@ float *createProjectionMatrix(uint32_t input_dim, uint32_t output_dim) {
             /* Hadamard pattern: use bit operations to determine sign
              * If the count of 1-bits in the bitwise AND of i and j is even,
              * the value is 1, otherwise -1. */
-            int value = (bit_count(i & j) % 2 == 0) ? 1 : -1;
+            int value = (__builtin_popcount(i & j) % 2 == 0) ? 1 : -1;
 
             /* Store the scaled value. */
             matrix[pos] = value * scale;
