@@ -418,7 +418,7 @@ int processClientsFromIOThread(IOThread *t) {
         /* Update the client in the mem usage */
         updateClientMemUsageAndBucket(c);
 
-        /* Process the pending command and input buffer. */
+        /* Only process the pending command. */
         if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             if (processCommandAndResetClient(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
