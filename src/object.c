@@ -930,11 +930,14 @@ robj *getDecodedObject(robj *o) {
  * use ll2string() to get a string representation of the numbers on the stack
  * and compare the strings, it's much faster than calling getDecodedObject().
  *
- * Important note: when REDIS_COMPARE_BINARY is used a binary-safe comparison
- * is used. */
+ * Important note:
+ * - When REDIS_COMPARE_BINARY is used a binary-safe comparison is used.
+ * - When REDIS_COMPARE_EQUAL is used, the strings are compared for exact equality.
+ *   If they are equal, return 1; if not equal, return 0.*/
 
 #define REDIS_COMPARE_BINARY (1<<0)
 #define REDIS_COMPARE_COLL (1<<1)
+#define REDIS_COMPARE_EQUAL (1<<2)
 
 int compareStringObjectsWithFlags(const robj *a, const robj *b, int flags) {
     serverAssertWithInfo(NULL,a,a->type == OBJ_STRING && b->type == OBJ_STRING);
@@ -958,6 +961,11 @@ int compareStringObjectsWithFlags(const robj *a, const robj *b, int flags) {
     }
     if (flags & REDIS_COMPARE_COLL) {
         return strcoll(astr,bstr);
+    } else if (flags & REDIS_COMPARE_EQUAL) {
+        if (alen != blen) {
+            return 0;
+        }
+        return memcmp(astr, bstr, alen) == 0;
     } else {
         int cmp;
 
@@ -989,7 +997,7 @@ int equalStringObjects(robj *a, robj *b) {
          * long is the same. */
         return a->ptr == b->ptr;
     } else {
-        return compareStringObjects(a,b) == 0;
+        return compareStringObjectsWithFlags(a, b, REDIS_COMPARE_EQUAL);
     }
 }
 
