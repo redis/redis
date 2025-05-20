@@ -40,7 +40,6 @@ typedef enum {
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
-static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link, int overwrite, int updateKeySizes);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -416,7 +415,8 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
  *   update of a value of an existing key (when false).
  * - The `link` is optional, can save lookup, if provided.
  */
-static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link, int overwrite, int updateKeySizes) {
+static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link, 
+                       int overwrite, int updateKeySizes, int keepTTL) {
     robj *val = *valref;
     int slot = getKeySlot(key->ptr);
     if (!link) {
@@ -468,14 +468,19 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         val->lru = old->lru;
         /* Update expire reference if needed */
         long long expire = getExpire(db, key->ptr, old);
-        kvNew = kvobjSet(key->ptr, val, expire);
+        kvNew = kvobjSet(key->ptr, val, keepTTL ? expire : -1);
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* Replace the old value at its location in the expire space. */
         if (expire >= 0) {
-            dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot, key->ptr, NULL);
-            serverAssertWithInfo(NULL,key,exLink != NULL);
-            kvstoreDictSetAtLink(db->expires, slot, kvNew, &exLink, 0);
+            if (keepTTL) {
+                dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot,
+                                                           key->ptr, NULL);
+                serverAssertWithInfo(NULL, key, exLink != NULL);
+                kvstoreDictSetAtLink(db->expires, slot, kvNew, &exLink, 0);
+            } else {
+                kvstoreDictDelete(db->expires, slot, key->ptr);
+            }
         }
     }
 
@@ -502,7 +507,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
 void dbReplaceValue(redisDb *db, robj *key, robj **valref, int updateKeySizes) {
-    dbSetValue(db, key, valref, NULL, 0, updateKeySizes);
+    dbSetValue(db, key, valref, NULL, 0, updateKeySizes, 1);
 }
 
 /* Replace an existing key with a new value (don't emit any events)
@@ -510,7 +515,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj **valref, int updateKeySizes) {
  * parameter 'link' is optional. If provided, saves lookup.
  */
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link) {
-    dbSetValue(db, key, val, link, 0, 1);
+    dbSetValue(db, key, val, link, 0, 1, 1);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -557,9 +562,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
 
     if (exists) {
         /* Update the value of an existing key */
-        dbSetValue(db, key, valref, *link, 1, 1);
-        if ((-1 != kvobjGetExpire(*valref)) && (!(flags & SETKEY_KEEPTTL)))
-            removeExpire(db,key);
+        dbSetValue(db, key, valref, *link, 1, 1, flags & SETKEY_KEEPTTL);
     } else {
         /* Add the new key to the database */
         dbAddByLink(db, key, valref, link);
