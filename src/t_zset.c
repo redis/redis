@@ -1075,29 +1075,29 @@ unsigned char *zzlDelete(unsigned char *zl, unsigned char *eptr) {
 }
 
 unsigned char *zzlInsertAt(unsigned char *zl, unsigned char *eptr, sds ele, double score) {
-    unsigned char *sptr;
     char scorebuf[MAX_D2STRING_CHARS];
     int scorelen = 0;
     long long lscore;
     int score_is_long = double2ll(score, &lscore);
     if (!score_is_long)
         scorelen = d2string(scorebuf,sizeof(scorebuf),score);
-    if (eptr == NULL) {
-        zl = lpAppend(zl,(unsigned char*)ele,sdslen(ele));
-        if (score_is_long)
-            zl = lpAppendInteger(zl,lscore);
-        else
-            zl = lpAppend(zl,(unsigned char*)scorebuf,scorelen);
-    } else {
-        /* Insert member before the element 'eptr'. */
-        zl = lpInsertString(zl,(unsigned char*)ele,sdslen(ele),eptr,LP_BEFORE,&sptr);
 
-        /* Insert score after the member. */
-        if (score_is_long)
-            zl = lpInsertInteger(zl,lscore,sptr,LP_AFTER,NULL);
-        else
-            zl = lpInsertString(zl,(unsigned char*)scorebuf,scorelen,sptr,LP_AFTER,NULL);
+    listpackEntry entries[2];
+    entries[0].sval = (unsigned char*)ele;
+    entries[0].slen = sdslen(ele);
+    if (score_is_long) {
+        entries[1].sval = NULL;
+        entries[1].lval = lscore;
+    } else {
+        entries[1].sval = (unsigned char*)scorebuf;
+        entries[1].slen = scorelen;
     }
+
+    if (eptr == NULL)
+        zl = lpBatchAppend(zl, entries, 2);
+    else
+        zl = lpBatchInsert(zl, eptr, LP_BEFORE, entries, 2, NULL);
+
     return zl;
 }
 

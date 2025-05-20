@@ -2191,6 +2191,7 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
+    server.dbg_assert_keysizes = 0; /* Disabled by default */
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
@@ -3955,7 +3956,6 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
-    UNUSED(c);
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperations();
@@ -3967,6 +3967,10 @@ void afterCommand(client *c) {
      * So the messages are not interleaved with transaction response. */
     if (!server.execution_nesting)
         listJoin(c->reply, server.pending_push_messages);
+
+    /* Assert keysizes histogram if enabled */
+    if (unlikely(server.dbg_assert_keysizes))
+        dbgAssertKeysizesHist(c->db);
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.

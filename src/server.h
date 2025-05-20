@@ -2283,6 +2283,7 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
+    int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
 };
 
 /* we use 6 so that all getKeyResult fits a cacheline */
@@ -3590,6 +3591,7 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
 
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
+void dbgAssertKeysizesHist(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
@@ -3624,7 +3626,7 @@ static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
-void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal);
+void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
 #define SETKEY_KEEPTTL 1

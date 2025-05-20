@@ -9,6 +9,20 @@
  */
 
 #include "server.h"
+#include "ctype.h"
+
+#ifdef HAVE_AVX2
+/* Define __MM_MALLOC_H to prevent importing the memory aligned
+ * allocation functions, which we don't use. */
+#define __MM_MALLOC_H
+#include <immintrin.h>
+#endif
+
+#ifdef HAVE_AVX2
+#define BITOP_USE_AVX2 (__builtin_cpu_supports("avx2"))
+#else
+#define BITOP_USE_AVX2 0
+#endif
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -412,6 +426,15 @@ void printBits(unsigned char *p, unsigned long count) {
 #define BITOP_OR    1
 #define BITOP_XOR   2
 #define BITOP_NOT   3
+#define BITOP_DIFF  4 /* DIFF(X, A1, A2, ..., An) = X & !(A1 | A2 | ... | An) */
+#define BITOP_DIFF1 5 /* DIFF1(X, A1, A2, ..., An) = !X & (A1 | A2 | ... | An) */
+#define BITOP_ANDOR 6 /* ANDOR(X, A1, A2, ..., An) = X & (A1 | A2 | ... | An) */
+
+/* ONE(A1, A2, ..., An) = X.
+ * If X[i] is the i-th bit of X then:
+ * X[i] == 1 if and only if there is m such that:
+ * Am[i] == 1 and Al[i] == 0 for all l != m. */
+#define BITOP_ONE   7
 
 #define BITFIELDOP_GET 0
 #define BITFIELDOP_SET 1
@@ -627,6 +650,164 @@ void getbitCommand(client *c) {
     addReply(c, bitval ? shared.cone : shared.czero);
 }
 
+#ifdef HAVE_AVX2
+/* Compute the given bitop operation using AVX2 intrinsics.
+ * Return how many bytes were successfully processed, as AVX2 operates on
+ * 256-bit registers so if `minlen` is not a multiple of 32 some of the bytes
+ * will be skipped. They will be taken care for in the unoptimized loop in the
+ * main bitopCommand function. */
+ATTRIBUTE_TARGET_AVX2
+unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res, 
+                              unsigned long op, unsigned long numkeys,
+                              unsigned long minlen)
+{
+    const unsigned long step = sizeof(__m256i);
+
+    unsigned long i;
+    unsigned long processed = 0;
+    unsigned char *res_start = res;
+    unsigned char *fst_key = keys[0];
+
+    if (minlen < step) {
+        return 0;
+    }
+
+    /* Unlike other operations that do the same with all source keys
+     * DIFF, DIFF1 and ANDOR all compute the disjunction of all the source keys
+     * but the first one. We first store that disjunction in `lres` and later 
+     * compute the final operation using the first source key. */
+    if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR) {
+        memcpy(res, keys[0], minlen);
+    }
+
+    const __m256i max256 = _mm256_set1_epi64x(-1);
+    const __m256i zero256 = _mm256_set1_epi64x(0);
+
+    switch (op) {
+    case BITOP_AND:
+        while (minlen >= step) {
+            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+
+            for (i = 1; i < numkeys; i++) {
+                __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
+                lres = _mm256_and_si256(lres, lkey);
+            }
+            _mm256_storeu_si256((__m256i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_DIFF:
+    case BITOP_DIFF1:
+    case BITOP_ANDOR:
+    case BITOP_OR:
+        while (minlen >= step) {
+            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+
+            for (i = 1; i < numkeys; i++) {
+                __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
+                lres = _mm256_or_si256(lres, lkey);
+            }
+            _mm256_storeu_si256((__m256i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_XOR:
+        while (minlen >= step) {
+            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+
+            for (i = 1; i < numkeys; i++) {
+                __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
+                lres = _mm256_xor_si256(lres, lkey);
+            }
+            _mm256_storeu_si256((__m256i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_NOT:
+        while (minlen >= step) {
+             __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            lres = _mm256_xor_si256(lres, max256);
+            _mm256_storeu_si256((__m256i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    case BITOP_ONE:
+        while (minlen >= step) {
+            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i common_bits = zero256;
+
+            for (i = 1; i < numkeys; i++) {
+                __m256i lkey = _mm256_lddqu_si256((__m256i*)(keys[i]+processed));
+                __m256i common = _mm256_and_si256(lres, lkey);
+                common_bits = _mm256_or_si256(common_bits, common);
+
+                lres = _mm256_xor_si256(lres, lkey);
+            }
+            lres = _mm256_andnot_si256(common_bits, lres);
+            _mm256_storeu_si256((__m256i*)res, lres);
+            res += step;
+            processed += step;
+            minlen -= step;
+        }
+        break;
+    default:
+        break;
+    }
+
+    res = res_start;
+    switch (op) {
+    case BITOP_DIFF:
+        for (i = 0; i < processed; i += step) {
+            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i fkey = _mm256_lddqu_si256((__m256i*)fst_key);
+
+            lres = _mm256_andnot_si256(lres, fkey);
+            _mm256_storeu_si256((__m256i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    case BITOP_DIFF1:
+        for (i = 0; i < processed; i += step) {
+            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i fkey = _mm256_lddqu_si256((__m256i*)fst_key);
+
+            lres = _mm256_andnot_si256(fkey, lres);
+            _mm256_storeu_si256((__m256i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    case BITOP_ANDOR:
+        for (i = 0; i < processed; i += step) {
+            __m256i lres = _mm256_lddqu_si256((__m256i*)res);
+            __m256i fkey = _mm256_lddqu_si256((__m256i*)fst_key);
+
+            lres = _mm256_and_si256(fkey, lres);
+            _mm256_storeu_si256((__m256i*)res, lres);
+
+            res += step;
+            fst_key += step;
+        }
+        break;
+    default:
+        break;
+    }
+
+    return processed;
+}
+#endif /* HAVE_AVX2 */
+
 /* BITOP op_name target_key src_key1 src_key2 src_key3 ... src_keyN */
 REDIS_NO_SANITIZE("alignment")
 void bitopCommand(client *c) {
@@ -649,6 +830,14 @@ void bitopCommand(client *c) {
         op = BITOP_XOR;
     else if((opname[0] == 'n' || opname[0] == 'N') && !strcasecmp(opname,"not"))
         op = BITOP_NOT;
+    else if ((opname[0] == 'd' || opname[0] == 'D') && !strcasecmp(opname,"diff"))
+        op = BITOP_DIFF;
+    else if ((opname[0] == 'd' || opname[0] == 'D') && !strcasecmp(opname,"diff1"))
+        op = BITOP_DIFF1;
+    else if ((opname[0] == 'a' || opname[0] == 'A') && !strcasecmp(opname,"andor"))
+        op = BITOP_ANDOR;
+    else if ((opname[0] == 'o' || opname[0] == 'O') && !strcasecmp(opname,"one"))
+        op = BITOP_ONE;
     else {
         addReplyErrorObject(c,shared.syntaxerr);
         return;
@@ -657,6 +846,14 @@ void bitopCommand(client *c) {
     /* Sanity check: NOT accepts only a single key argument. */
     if (op == BITOP_NOT && c->argc != 4) {
         addReplyError(c,"BITOP NOT must be called with a single source key.");
+        return;
+    }
+
+    if ((op == BITOP_DIFF || op == BITOP_DIFF1 || op == BITOP_ANDOR) && c->argc < 5) {
+        sds opname_upper = sdsnew(opname);
+        sdstoupper(opname_upper);
+        addReplyErrorFormat(c,"BITOP %s must be called with at least two source keys.", opname_upper);
+        sdsfree(opname_upper);
         return;
     }
 
@@ -697,33 +894,63 @@ void bitopCommand(client *c) {
     /* Compute the bit operation, if at least one string is not empty. */
     if (maxlen) {
         res = (unsigned char*) sdsnewlen(NULL,maxlen);
-        unsigned char output, byte;
+        unsigned char output, byte, disjunction, common_bits;
         unsigned long i;
+        int useAVX2 = 0;
 
-        /* Fast path: as far as we have data for all the input bitmaps we
+        /* Number of bytes processed from each source key */
+        j = 0;
+
+#if defined(HAVE_AVX2)
+        if (BITOP_USE_AVX2) {
+            j = bitopCommandAVX(src, res, op, numkeys, minlen);
+
+            serverAssert(minlen >= j);
+            minlen -= j;
+
+            useAVX2 = 1;
+        }
+#endif
+
+#if !defined(USE_ALIGNED_ACCESS)
+        /* We don't have AVX2 but we still have fast path:
+         * as far as we have data for all the input bitmaps we
          * can take a fast path that performs much better than the
          * vanilla algorithm. On ARM we skip the fast path since it will
          * result in GCC compiling the code using multiple-words load/store
          * operations that are not supported even in ARM >= v6. */
-        j = 0;
-        #ifndef USE_ALIGNED_ACCESS
-        if (minlen >= sizeof(unsigned long)*4 && numkeys <= 16) {
-            unsigned long *lp[16];
+        if (minlen >= sizeof(unsigned long)*4) {
+            /* We can't have entered the AVX2 path since minlen >= sizeof(unsigned long)*4
+             * AVX2 path operates on steps of sizeof(__m256i) which for 64-bit
+             * machines (the only ones supporting AVX2) is equal to
+             * sizeof(unsigned long)*4. That means after the AVX2
+             * path minlen will necessarily be < sizeof(unsigned long)*4. */
+            serverAssert(!useAVX2);
+
+            unsigned long **lp = (unsigned long**)src;
             unsigned long *lres = (unsigned long*) res;
 
-            memcpy(lp,src,sizeof(unsigned long*)*numkeys);
-            memcpy(res,src[0],minlen);
+            /* Index over the unsigned long version of the source keys */
+            size_t k = 0;
+
+            /* Unlike other operations that do the same with all source keys
+             * DIFF, DIFF1 and ANDOR all compute the disjunction of all the
+             * source keys but the first one. We first store that disjunction
+             * in `lres` and later compute the final operation using the first
+             * source key. */
+            if (op != BITOP_DIFF && op != BITOP_DIFF1 && op != BITOP_ANDOR)
+                memcpy(lres,src[0],minlen);
 
             /* Different branches per different operations for speed (sorry). */
             if (op == BITOP_AND) {
                 while(minlen >= sizeof(unsigned long)*4) {
                     for (i = 1; i < numkeys; i++) {
-                        lres[0] &= lp[i][0];
-                        lres[1] &= lp[i][1];
-                        lres[2] &= lp[i][2];
-                        lres[3] &= lp[i][3];
-                        lp[i]+=4;
+                        lres[0] &= lp[i][k+0];
+                        lres[1] &= lp[i][k+1];
+                        lres[2] &= lp[i][k+2];
+                        lres[3] &= lp[i][k+3];
                     }
+                    k+=4;
                     lres+=4;
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
@@ -731,12 +958,12 @@ void bitopCommand(client *c) {
             } else if (op == BITOP_OR) {
                 while(minlen >= sizeof(unsigned long)*4) {
                     for (i = 1; i < numkeys; i++) {
-                        lres[0] |= lp[i][0];
-                        lres[1] |= lp[i][1];
-                        lres[2] |= lp[i][2];
-                        lres[3] |= lp[i][3];
-                        lp[i]+=4;
+                        lres[0] |= lp[i][k+0];
+                        lres[1] |= lp[i][k+1];
+                        lres[2] |= lp[i][k+2];
+                        lres[3] |= lp[i][k+3];
                     }
+                    k+=4;
                     lres+=4;
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
@@ -744,12 +971,12 @@ void bitopCommand(client *c) {
             } else if (op == BITOP_XOR) {
                 while(minlen >= sizeof(unsigned long)*4) {
                     for (i = 1; i < numkeys; i++) {
-                        lres[0] ^= lp[i][0];
-                        lres[1] ^= lp[i][1];
-                        lres[2] ^= lp[i][2];
-                        lres[3] ^= lp[i][3];
-                        lp[i]+=4;
+                        lres[0] ^= lp[i][k+0];
+                        lres[1] ^= lp[i][k+1];
+                        lres[2] ^= lp[i][k+2];
+                        lres[3] ^= lp[i][k+3];
                     }
+                    k+=4;
                     lres+=4;
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
@@ -764,14 +991,95 @@ void bitopCommand(client *c) {
                     j += sizeof(unsigned long)*4;
                     minlen -= sizeof(unsigned long)*4;
                 }
+            } else if (op == BITOP_DIFF || op == BITOP_DIFF1 || op == BITOP_ANDOR) {
+                size_t processed = 0;
+                while(minlen >= sizeof(unsigned long)*4) {
+                    for (i = 1; i < numkeys; i++) {
+                        lres[0] |= lp[i][k+0];
+                        lres[1] |= lp[i][k+1];
+                        lres[2] |= lp[i][k+2];
+                        lres[3] |= lp[i][k+3];
+                    }
+                    k+=4;
+                    lres+=4;
+                    j += sizeof(unsigned long)*4;
+                    minlen -= sizeof(unsigned long)*4;
+                    processed += sizeof(unsigned long)*4;
+                }
+
+                lres = (unsigned long*) res;
+                unsigned long *first_key = (unsigned long*)src[0];
+                switch (op) {
+                case BITOP_DIFF:
+                    for (i = 0; i < processed; i += sizeof(unsigned long)*4) {
+                        lres[0] = (first_key[0] & ~lres[0]);
+                        lres[1] = (first_key[1] & ~lres[1]);
+                        lres[2] = (first_key[2] & ~lres[2]);
+                        lres[3] = (first_key[3] & ~lres[3]);
+                        lres+=4;
+                        first_key += 4;
+                    }
+                    break;
+                case BITOP_DIFF1:
+                    for (i = 0; i < processed; i += sizeof(unsigned long)*4) {
+                        lres[0] = (~first_key[0] & lres[0]);
+                        lres[1] = (~first_key[1] & lres[1]);
+                        lres[2] = (~first_key[2] & lres[2]);
+                        lres[3] = (~first_key[3] & lres[3]);
+                        lres+=4;
+                        first_key += 4;
+                    }
+                    break;
+                case BITOP_ANDOR:
+                    for (i = 0; i < processed; i += sizeof(unsigned long)*4) {
+                        lres[0] = (first_key[0] & lres[0]);
+                        lres[1] = (first_key[1] & lres[1]);
+                        lres[2] = (first_key[2] & lres[2]);
+                        lres[3] = (first_key[3] & lres[3]);
+                        lres+=4;
+                        first_key += 4;
+                    }
+                    break;
+                }
+            } else if (op == BITOP_ONE) {
+                unsigned long lcommon_bits[4];
+
+                while(minlen >= sizeof(unsigned long)*4) {
+                    memset(lcommon_bits, 0, sizeof(lcommon_bits));
+
+                    for (i = 1; i < numkeys; i++) {
+                        lcommon_bits[0] |= (lres[0] & lp[i][k+0]);
+                        lcommon_bits[1] |= (lres[1] & lp[i][k+1]);
+                        lcommon_bits[2] |= (lres[2] & lp[i][k+2]);
+                        lcommon_bits[3] |= (lres[3] & lp[i][k+3]);
+
+                        lres[0] ^= lp[i][k+0];
+                        lres[1] ^= lp[i][k+1];
+                        lres[2] ^= lp[i][k+2];
+                        lres[3] ^= lp[i][k+3];
+                    }
+
+                    lres[0] &= ~lcommon_bits[0];
+                    lres[1] &= ~lcommon_bits[1];
+                    lres[2] &= ~lcommon_bits[2];
+                    lres[3] &= ~lcommon_bits[3];
+
+                    k+=4;
+                    lres+=4;
+                    j += sizeof(unsigned long)*4;
+                    minlen -= sizeof(unsigned long)*4;
+                }
             }
         }
-        #endif
+#endif /* !defined(USE_ALIGNED_ACCESS) */
 
         /* j is set to the next byte to process by the previous loop. */
         for (; j < maxlen; j++) {
             output = (len[0] <= j) ? 0 : src[0][j];
             if (op == BITOP_NOT) output = ~output;
+            disjunction = 0;
+            common_bits = 0;
+
             for (i = 1; i < numkeys; i++) {
                 int skip = 0;
                 byte = (len[i] <= j) ? 0 : src[i][j];
@@ -785,13 +1093,76 @@ void bitopCommand(client *c) {
                     skip = (output == 0xff);
                     break;
                 case BITOP_XOR: output ^= byte; break;
+
+                /* For DIFF, DIFF1 and ANDOR we compute the disjunction of all
+                 * key arguments except the first one. After that we do their
+                 * respective bit op on said first arg and that disjunction.
+                 * */
+                case BITOP_DIFF:
+                case BITOP_DIFF1:
+                case BITOP_ANDOR:
+                    disjunction |= byte;
+                    skip = (disjunction == 0xff);
+                    break;
+
+                /* BITOP ONE dest key_1 [key_2...]
+                 * If dest[i] is the i-th bit of dest then:
+                 * dest[i] == 1 if and only if there is j such that key_j[i] == 1
+                 * and key_n[i] == 0 for all n != j.
+                 *
+                 * In order to compute that on each step we track which bits
+                 * were seen in more than one key and store that in a helper
+                 * variable. Then the operation is just XOR but on each step we
+                 * nullify the bits that are set in the helper.
+                 * Logically, this operation is the same as nullifying the
+                 * helper bits only once at the end, but performance-wise it had
+                 * no significant benefit and makes the code only more unclear.
+                 *
+                 * e.g:
+                 * 0001 0111 # key1
+                 * 0010 0110 # key2
+                 *
+                 * 0011 0001 # intermediate1
+                 * 0000 0110 # helper
+                 * 0011 0001 # intermediate1 & ~helper
+                 *
+                 * 0100 1101 # key3
+                 *
+                 * 0111 1100 # intermediate2
+                 * 0000 0111 # helper
+                 * 0111 1000 # intermediate2 & ~helper
+                 * ---------
+                 * 0111 1000 # result
+                 * */
+                case BITOP_ONE:
+                    common_bits |= (output & byte);
+                    output ^= byte;
+                    output &= ~common_bits;
+                    skip = (common_bits == 0xff);
+                    break;
+                default:
+                    break;
                 }
 
                 if (skip) {
                     break;
                 }
             }
-            res[j] = output;
+
+            switch(op) {
+            case BITOP_DIFF:
+                res[j] = (output & ~disjunction);
+                break;
+            case BITOP_DIFF1:
+                res[j] = (~output & disjunction);
+                break;
+            case BITOP_ANDOR:
+                res[j] = (output & disjunction);
+                break;
+            default:
+                res[j] = output;
+                break;
+            }
         }
     }
     for (j = 0; j < numkeys; j++) {
