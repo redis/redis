@@ -933,7 +933,7 @@ robj *getDecodedObject(robj *o) {
  * Important note:
  * - When REDIS_COMPARE_BINARY is used a binary-safe comparison is used.
  * - When REDIS_COMPARE_EQUAL is used, the strings are compared for exact equality.
- *   If they are equal, return 1; if not equal, return 0.*/
+ *   If they are equal, return 1; if not equal, return 0. */
 
 #define REDIS_COMPARE_BINARY (1<<0)
 #define REDIS_COMPARE_COLL (1<<1)
