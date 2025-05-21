@@ -8856,9 +8856,36 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
     sub->event_mask = types;
     sub->notify_callback = callback;
     sub->active = 0;
-
+    serverLog(LL_WARNING,"STAV - RM_SubscribeToKeyspaceEvents. event is: %d",types );
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
     return REDISMODULE_OK;
+}
+// int RM_RemoveSubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, RedisModuleKeyspaceSubscriber cb) {
+
+// int RM_RemoveSubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, RedisModuleNotificationFunc callback) {
+int RM_RemoveSubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types) {
+    serverLog(LL_WARNING,"STAV - RM_RemoveSubscribeFromKeyspaceEvents. START. event is: %d",types);
+    if (!ctx ) return REDISMODULE_ERR;
+    // if (!ctx || !callback) return REDISMODULE_ERR;
+
+    listIter li;
+    listNode *ln;
+    listRewind(moduleKeyspaceSubscribers,&li);
+    // listRewind(server.keyspace_events_subscribers, &li);
+    while ((ln = listNext(&li))) {
+        RedisModuleKeyspaceSubscriber* sub = ln->value;
+        serverLog(LL_WARNING,"STAV - RM_RemoveSubscribeFromKeyspaceEvents. iter. sub event : %d", sub->event_mask );
+        if (sub->event_mask == types)
+        {
+            // if (sub->notify_callback == callback) {
+            serverLog(LL_WARNING,"STAV - RM_RemoveSubscribeFromKeyspaceEvents. found event");
+            listDelNode(moduleKeyspaceSubscribers, ln);
+            // listDelNode(server.keyspace_events_subscribers, ln);
+        }
+    }
+    serverLog(LL_WARNING,"STAV - RM_RemoveSubscribeFromKeyspaceEvents. did not find");
+    return REDISMODULE_OK;
+    // return REDISMODULE_ERR;
 }
 
 void firePostExecutionUnitJobs(void) {
@@ -8938,7 +8965,7 @@ int RM_NotifyKeyspaceEvent(RedisModuleCtx *ctx, int type, const char *event, Red
 void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
     /* Don't do anything if there aren't any subscribers */
     if (listLength(moduleKeyspaceSubscribers) == 0) return;
-
+    serverLog(LL_WARNING,"STAV - moduleNotifyKeyspaceEvent. start. list len: %lu", listLength(moduleKeyspaceSubscribers) );
     /* Ugly hack to handle modules which use write commands from within
      * notify_callback, which they should NOT do!
      * Modules should use RedisModules_AddPostNotificationJob instead.
@@ -8967,10 +8994,12 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
 
     while((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber *sub = ln->value;
+        serverLog(LL_WARNING,"STAV - moduleNotifyKeyspaceEvent. in while. event is: %d event to find %d", sub->event_mask, type);
         /* Only notify subscribers on events matching the registration,
          * and avoid subscribers triggering themselves */
         if ((sub->event_mask & type) &&
             (sub->active == 0 || (sub->module->options & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS))) {
+            serverLog(LL_WARNING,"STAV - moduleNotifyKeyspaceEvent. in if. event is: %d ", type);
             RedisModuleCtx ctx;
             moduleCreateContext(&ctx, sub->module, REDISMODULE_CTX_TEMP_CLIENT);
             selectDb(ctx.client, dbid);
@@ -14717,6 +14746,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
+    REGISTER_API(RemoveSubscribeFromKeyspaceEvents);
     REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);

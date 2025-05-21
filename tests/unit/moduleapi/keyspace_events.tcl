@@ -105,6 +105,46 @@ tags "modules" {
         test "Verify RM_StringDMA with expiration are not causing invalid memory access" {
             assert_equal {OK} [r set x 1 EX 1]
         }
+        test "Keyspace notifications: unsubscribe removes handler" {
+            # puts "Setting config to emit generic keyspace events..."
+            # # Enable keyspace notifications for generic operations (g = set/del, K = Keyspace events)
+            # r config set notify-keyspace-events Kg
+            # # Ensure we start clean
+            # r del x
+
+            # # Subscribe a client to pubsub keyspace events
+            # set client [redis_deferring_client]
+            # assert_equal {1} [psubscribe $client *]
+            # puts "1"
+            # # Trigger a set event — we expect the module to notify
+            # # r set x 123
+            # r keyspace.notify x
+            # puts "2"
+            # # assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
+            # assert_equal {pmessage * __keyspace@9__:x set} [$client read]
+            # puts "3"
+
+
+
+            r config set notify-keyspace-events Kd
+            r del x
+            set rd1 [redis_deferring_client]
+            assert_equal {1} [psubscribe $rd1 *]
+            r keyspace.notify x
+            assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
+            
+            # Now unsubscribe via your module command
+            r keyspace.unsubscribe 4 ;# 4 = REDISMODULE_NOTIFY_GENERIC
+
+            # # Trigger the same event again
+            # r set x 456
+            r keyspace.notify y
+            # # Try to read again, should timeout or return nothing
+            after 100
+            set res [$rd1 read_nonblock]
+            assert_equal {} $res
+            $rd1 close
+        }
     }
 
     start_server {} {

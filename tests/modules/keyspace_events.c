@@ -46,6 +46,7 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
 }
 
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
+    RedisModule_ReplyWithSimpleString(ctx, "STAV - KeySpace_NotificationGeneric event");
     REDISMODULE_NOT_USED(type);
     const char *key_str = RedisModule_StringPtrLen(key, NULL);
     if (strncmp(key_str, "count_dels_", 11) == 0 && strcmp(event, "del") == 0) {
@@ -85,7 +86,7 @@ static int KeySpace_NotificationExpired(RedisModuleCtx *ctx, int type, const cha
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
     REDISMODULE_NOT_USED(key);
-
+    RedisModule_ReplyWithSimpleString(ctx, "STAV - Received EXPIRED event");
     RedisModuleCallReply* rep = RedisModule_Call(ctx, "INCR", "c!", "testkeyspace:expired");
     RedisModule_FreeCallReply(rep);
 
@@ -116,7 +117,7 @@ static int KeySpace_NotificationModuleString(RedisModuleCtx *ctx, int type, cons
     REDISMODULE_NOT_USED(type);
     REDISMODULE_NOT_USED(event);
     RedisModuleKey *redis_key = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
-
+    RedisModule_ReplyWithSimpleString(ctx, "STAV - Received STRING event");
     size_t len = 0;
     /* RedisModule_StringDMA could change the data format and cause the old robj to be freed.
      * This code verifies that such format change will not cause any crashes.*/
@@ -296,9 +297,42 @@ static int cmdGetDels(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithLongLong(ctx, dels);
 }
 
+// extern int KeySpace_NotificationModuleString(RedisModuleCtx *, int, const char *, RedisModuleString *);
+// extern int KeySpace_NotificationModuleStringPostNotificationJob(RedisModuleCtx *, int, const char *, RedisModuleString *);
+
+static int CmdUnsub(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
+    if (argc != 2) {
+        return RedisModule_WrongArity(ctx);
+    }
+
+    long long event_mask;
+    if (RedisModule_StringToLongLong(argv[1], &event_mask) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid event mask");
+    }
+
+    // Your unsubscribe logic here - e.g. call your unsubscribe helper:
+    if (RedisModule_RemoveSubscribeFromKeyspaceEvents(ctx, (int)event_mask) != REDISMODULE_OK) {
+        return RedisModule_ReplyWithError(ctx, "ERR unsubscribe failed");
+    }
+
+    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+
+    // int count = 0;
+    //
+    // if (RedisModule_RemoveSubscribeFromKeyspaceEvents(ctx, KeySpace_NotificationModuleString) == REDISMODULE_OK)
+    //     count++;
+    //
+    // if (RedisModule_RemoveSubscribeFromKeyspaceEvents(ctx, KeySpace_NotificationModuleStringPostNotificationJob) == REDISMODULE_OK)
+    //     count++;
+    //
+    // return RedisModule_ReplyWithSimpleString(ctx,
+    //     count > 0 ? "Unsubscribed" : "No subscriptions were active");
+}
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
-int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
+{
     if (RedisModule_Init(ctx,"testkeyspace",1,REDISMODULE_APIVER_1) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
@@ -356,33 +390,37 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "keyspace.del_key_copy", cmdDelKeyCopy,
                                   "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
-    }
-    
+                                  }
+
     if (RedisModule_CreateCommand(ctx, "keyspace.incr_case1", cmdIncrCase1,
                                   "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
-    }
-    
+                                  }
+
     if (RedisModule_CreateCommand(ctx, "keyspace.incr_case2", cmdIncrCase2,
                                   "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
-    }
-    
+                                  }
+
     if (RedisModule_CreateCommand(ctx, "keyspace.incr_case3", cmdIncrCase3,
                                   "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
-    }
+                                  }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.incr_dels", cmdIncrDels,
                                   "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
-    }
+                                  }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.get_dels", cmdGetDels,
                                   "readonly", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
-    }
+                                  }
 
+    if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe", CmdUnsub, "write", 0, 0, 0) == REDISMODULE_ERR){
+
+    return REDISMODULE_ERR;
+                                    }
     if (argc == 1) {
         const char *ptr = RedisModule_StringPtrLen(argv[0], NULL);
         if (!strcasecmp(ptr, "noload")) {
