@@ -1489,6 +1489,7 @@ int loadSingleAppendOnlyFile(char *filename) {
     off_t valid_before_multi = 0; /* Offset before MULTI command loaded. */
     off_t last_progress_report_size = 0;
     int ret = AOF_OK;
+
     sds aof_filepath = makePath(server.aof_dirname, filename);
     FILE *fp = fopen(aof_filepath, "r");
     if (fp == NULL) {
@@ -1684,28 +1685,27 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
         ret = AOF_FAILED;
         goto cleanup;
     }
-
 uxeof: /* Unexpected AOF end of file. */
     if (server.aof_load_truncated) {
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu !!!",
-        filename, (unsigned long long) valid_up_to);
+            filename, (unsigned long long) valid_up_to);
         if (valid_up_to == -1 || truncate(aof_filepath,valid_up_to) == -1) {
             if (valid_up_to == -1) {
                 serverLog(LL_WARNING,"Last valid command offset is invalid");
             } else {
                 serverLog(LL_WARNING,"Error truncating the AOF file %s: %s",
-                filename, strerror(errno));
+                    filename, strerror(errno));
             }
         } else {
             /* Make sure the AOF file descriptor points to the end of the
-            * file after the truncate call. */
+             * file after the truncate call. */
             if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
                 serverLog(LL_WARNING,"Can't seek the end of the AOF file %s: %s",
-                filename, strerror(errno));
+                    filename, strerror(errno));
             } else {
                 serverLog(LL_WARNING,
-                "AOF %s loaded anyway because aof-load-truncated is enabled", filename);
+                    "AOF %s loaded anyway because aof-load-truncated is enabled", filename);
                 ret = AOF_TRUNCATED;
                 goto loaded_ok;
             }
@@ -1733,7 +1733,6 @@ fmterr: /* Format error. */
                 if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
                     serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
                         strerror(errno));
-
                 } else {
                     serverLog(LL_WARNING,
                         "AOF loaded anyway because aof-load-broken is enabled and broken size '%ld' is less than aof-load-broken-max-size '%ld'",
@@ -1742,12 +1741,12 @@ fmterr: /* Format error. */
                     goto loaded_ok;
                 }
             }
-        }else { // The size of the corrupted portion exceeds the configured limit
+        } else { /* The size of the corrupted portion exceeds the configured limit. */
             serverLog(LL_WARNING,
                  "AOF did not loaded because the size of the corrupted portion exceeds the configured limit. aof-load-broken is enabled and broken size '%ld' is bigger than aof-load-broken-max-size '%ld'",
                  sb.st_size - valid_up_to, server.aof_load_broken_max_size);
         }
-    }else {
+    } else {
         serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
             "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
     }
@@ -1825,7 +1824,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
         last_file = ++aof_num == total_num;
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
-        if  (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)){
+        if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
         }

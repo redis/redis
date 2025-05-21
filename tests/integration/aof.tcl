@@ -726,7 +726,7 @@ tags {"aof external:skip"} {
         }
 
         # The AOF file is expected to be correct because default value for aof-load-broken-max-size is 4096,
-        #so the AOF will reload without the corruption
+        # so the AOF will reload without the corruption
         test "Broken AOF loaded: we expect foo to be equal to 5" {
             set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
