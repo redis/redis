@@ -2885,9 +2885,19 @@ int clusterProcessPacket(clusterLink *link) {
          * resolved when we'll receive PONGs from the node. */
         if (!sender && type == CLUSTERMSG_TYPE_MEET) {
             clusterNode *node;
+            char ip[NET_IP_STR_LEN] = {0};
+            if (nodeIp2String(ip, link, hdr->myip) != C_OK) {
+                /* Unable to retrieve the node's IP address from the connection. Without a
+                 * valid IP, the node becomes unusable in the cluster. This failure might be
+                 * due to the connection being closed. */
+                serverLog(LL_NOTICE, "Closing link even though we received a MEET packet on it, "
+                                     "because the connection has an error");
+                freeClusterLink(link);
+                return 0;
+            }
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
-            serverAssert(nodeIp2String(node->ip,link,hdr->myip) == C_OK);
+            memcpy(node->ip, ip, sizeof(ip));
             getClientPortFromClusterMsg(hdr, &node->tls_port, &node->tcp_port);
             node->cport = ntohs(hdr->cport);
             clusterAddNode(node);

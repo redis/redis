@@ -1920,3 +1920,117 @@ NULL
         addReplySubcommandSyntaxError(c);
     }
 }
+
+#ifdef  REDIS_TEST
+#include "sds.h"
+#include "testhelp.h"
+#include "redisassert.h"
+#include <assert.h>
+
+#define TEST(name) printf("[TEST] >>> %s\n", name);
+
+int objectTest(int argc, char *argv[], int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    TEST("object - compareStringObjectsWithFlags-REDIS_COMPARE_COLL") {
+        robj *a = createStringObject("bcde", 4);
+        robj *b = createStringObject("bcde", 4);
+        robj *c = createStringObject("cejeshs", 7);
+        robj *d = createStringObject("ahsn", 4);
+        assert(compareStringObjectsWithFlags(a, b, REDIS_COMPARE_COLL) == 0);
+        assert(compareStringObjectsWithFlags(a, c, REDIS_COMPARE_COLL) < 0);
+        assert(compareStringObjectsWithFlags(a, d, REDIS_COMPARE_COLL) > 0);
+        decrRefCount(a);
+        decrRefCount(b);
+        decrRefCount(c);
+        decrRefCount(d);
+    }
+
+    TEST("object - compareStringObjectsWithFlags-an invalid flag") {
+        robj *a = createStringObject("bcde", 4);
+        robj *b = createStringObject("bcde", 4);
+        robj *c = createStringObject("cejeshs", 7);
+        robj *d = createStringObject("ahsn", 4);
+        assert(compareStringObjectsWithFlags(a, b, 7) == 0);
+        assert(compareStringObjectsWithFlags(a, c, 7) < 0);
+        assert(compareStringObjectsWithFlags(a, d, 7) > 0);
+        decrRefCount(a);
+        decrRefCount(b);
+        decrRefCount(c);
+        decrRefCount(d);
+    }
+
+    TEST("object - compareStringObjectsWithFlags-REDIS_COMPARE_BINARY") {
+        robj *a = createStringObject("bcde", 4);
+        robj *b = createStringObject("bcde", 4);
+        robj *c = createStringObject("cejeshs", 7);
+        robj *d = createStringObject("ahsn", 4);
+        assert(compareStringObjectsWithFlags(a, b, 7) == 0);
+        assert(compareStringObjectsWithFlags(a, c, 7) < 0);
+        assert(compareStringObjectsWithFlags(a, d, 7) > 0);
+        decrRefCount(a);
+        decrRefCount(b);
+        decrRefCount(c);
+        decrRefCount(d);
+    }
+
+    TEST("object - equalStringObjects") {
+        robj *a = createStringObject("bcde", 4);
+        robj *b = createStringObject("bcde", 4);
+        robj *c = createStringObject("cejeshs", 7);
+        robj *d = createStringObject("ahsn", 4);
+        robj *e = createStringObjectFromLongLong(37757);
+        robj *f = createStringObjectFromLongLong(65758);
+        assert(equalStringObjects(a, b) == 1);
+        assert(equalStringObjects(a, c) == 0);
+        assert(equalStringObjects(a, d) == 0);
+        assert(equalStringObjects(a, e) == 0);
+        assert(equalStringObjects(e, f) == 0);
+        decrRefCount(a);
+        decrRefCount(b);
+        decrRefCount(c);
+        decrRefCount(d);
+        decrRefCount(e);
+        decrRefCount(f);
+    }
+
+    TEST("object - compareStringObjects") {
+        robj *a = createStringObject("bcde", 4);
+        robj *b = createStringObject("bcde", 4);
+        robj *c = createStringObject("cejeshs", 7);
+        robj *d = createStringObject("ahsn", 4);
+        robj *e = createStringObjectFromLongLong(37757);
+        robj *f = createStringObjectFromLongLong(65758);
+        assert(compareStringObjects(a, b) == 0);
+        assert(compareStringObjects(a, c) < 0);
+        assert(compareStringObjects(a, d) > 0);
+        assert(compareStringObjects(a, e) > 0);
+        assert(compareStringObjects(e, f) < 0);
+        decrRefCount(a);
+        decrRefCount(b);
+        decrRefCount(c);
+        decrRefCount(d);
+        decrRefCount(e);
+        decrRefCount(f);
+    }
+
+    TEST("object - collateStringObjects") {
+        robj *a = createStringObject("bcde", 4);
+        robj *b = createStringObject("bcde", 4);
+        robj *c = createStringObject("cejeshs", 7);
+        robj *d = createStringObject("ahsn", 4);
+        assert(collateStringObjects(a, b) == 0);
+        assert(collateStringObjects(a, c) < 0);
+        assert(collateStringObjects(a, d) > 0);
+        decrRefCount(a);
+        decrRefCount(b);
+        decrRefCount(c);
+        decrRefCount(d);
+    }
+
+    return 0;
+}
+
+#endif
