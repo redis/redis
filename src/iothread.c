@@ -144,7 +144,7 @@ void assignClientToIOThread(client *c) {
     c->running_tid = min_id;
     server.io_threads_clients_num[min_id]++;
 
-    /* The client running in IO thread needs to have deferred objects container. */
+    /* The client running in IO thread needs to have deferred objects array. */
     c->deferred_objects = zmalloc(sizeof(robj*) * CLIENT_MAX_DEFERRED_OBJECTS);
 
     /* Unbind connection of client from main thread event loop, disable read and

@@ -2794,7 +2794,7 @@ void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
 void tryDeferFreeClientObject(client *c, robj *o);
-void freeClientDeferredObjects(client *c, int container);
+void freeClientDeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);

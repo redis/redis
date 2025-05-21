@@ -1484,15 +1484,15 @@ void tryDeferFreeClientObject(client *c, robj *o) {
     }
 }
 
-/* Free the objects in the deferred_objects array. If container is true
+/* Free the objects in the deferred_objects array. If free_array is true
  * then free the array itself as well. */
-void freeClientDeferredObjects(client *c, int container) {
+void freeClientDeferredObjects(client *c, int free_array) {
     for (int j = 0; j < c->deferred_objects_num; j++) {
         decrRefCount(c->deferred_objects[j]);
     }
     c->deferred_objects_num = 0;
 
-    if (container) {
+    if (free_array) {
         zfree(c->deferred_objects);
         c->deferred_objects = NULL;
     }
