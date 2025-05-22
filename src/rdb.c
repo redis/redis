@@ -3208,15 +3208,19 @@ void startLoadingFile(size_t size, char* filename, int rdbflags) {
 /* Refresh the absolute loading progress info */
 void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
-    if (server.stat_peak_memory < zmalloc_used_memory())
+    if (server.stat_peak_memory < zmalloc_used_memory()) {
         server.stat_peak_memory = zmalloc_used_memory();
+        server.stat_peak_memory_time = time(NULL);
+    }
 }
 
 /* Refresh the incremental loading progress info */
 void loadingIncrProgress(off_t size) {
     server.loading_loaded_bytes += size;
-    if (server.stat_peak_memory < zmalloc_used_memory())
+    if (server.stat_peak_memory < zmalloc_used_memory()) {
         server.stat_peak_memory = zmalloc_used_memory();
+        server.stat_peak_memory_time = time(NULL);
+    }
 }
 
 /* Update the file name currently being loaded */

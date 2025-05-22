@@ -1347,8 +1347,10 @@ void checkChildrenDone(void) {
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats(void) {
     /* Record the max memory used since the server was started. */
-    if (zmalloc_used_memory() > server.stat_peak_memory)
+    if (zmalloc_used_memory() > server.stat_peak_memory) {
         server.stat_peak_memory = zmalloc_used_memory();
+        server.stat_peak_memory_time = time(NULL);
+    }
 
     run_with_period(100) {
         /* Sample the RSS and other metrics here since this is a relatively slow call.
@@ -1752,8 +1754,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
     size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
+    if (zmalloc_used > server.stat_peak_memory) {
         server.stat_peak_memory = zmalloc_used;
+        server.stat_peak_memory_time = time(NULL);
+    }
 
     /* Just call a subset of vital functions in case we are re-entering
      * the event loop from processEventsWhileBlocked(). Note that in this
@@ -2870,6 +2874,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_peak_memory_time = time(NULL);
     server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
@@ -3892,8 +3897,10 @@ void call(client *c, int flags) {
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
     size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
+    if (zmalloc_used > server.stat_peak_memory) {
         server.stat_peak_memory = zmalloc_used;
+        server.stat_peak_memory_time = time(NULL);
+    }
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
@@ -5931,8 +5938,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
          * may happen that the instantaneous value is slightly bigger than
          * the peak value. This may confuse users, so we update the peak
          * if found smaller than the current memory usage. */
-        if (zmalloc_used > server.stat_peak_memory)
+        if (zmalloc_used > server.stat_peak_memory) {
             server.stat_peak_memory = zmalloc_used;
+            server.stat_peak_memory_time = time(NULL);
+        }
 
         bytesToHuman(hmem,sizeof(hmem),zmalloc_used);
         bytesToHuman(peak_hmem,sizeof(peak_hmem),server.stat_peak_memory);
@@ -5951,6 +5960,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "used_memory_rss_human:%s\r\n", used_memory_rss_hmem,
             "used_memory_peak:%zu\r\n", server.stat_peak_memory,
             "used_memory_peak_human:%s\r\n", peak_hmem,
+            "used_memory_peak_time:%jd\r\n", (intmax_t)server.stat_peak_memory_time,
             "used_memory_peak_perc:%.2f%%\r\n", mh->peak_perc,
             "used_memory_overhead:%zu\r\n", mh->overhead_total,
             "used_memory_startup:%zu\r\n", mh->startup_allocated,
