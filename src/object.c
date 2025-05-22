@@ -991,7 +991,8 @@ int equalStringObjects(robj *a, robj *b) {
     } else {
         if (a->encoding != OBJ_ENCODING_INT &&
             b->encoding != OBJ_ENCODING_INT &&
-            sdslen(a->ptr) != sdslen(b->ptr)) {
+            sdslen(a->ptr) != sdslen(b->ptr))
+        {
             return 0;
         }
         return compareStringObjects(a,b) == 0;
