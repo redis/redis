@@ -106,7 +106,6 @@ void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link,
 /* dict with distinct key & value (no_value=1) currently is used only by pubsub. */
 void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key);
 void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val);
-void *kvstoreDictFetchValue(kvstore *kvs, int didx, const void *key);
 
 #ifdef REDIS_TEST
 int kvstoreTest(int argc, char *argv[], int flags);
