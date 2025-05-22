@@ -989,6 +989,9 @@ int equalStringObjects(robj *a, robj *b) {
          * long is the same. */
         return a->ptr == b->ptr;
     } else {
+        if (stringObjectLen(a) != stringObjectLen(b)) {
+            return 0;
+        }
         return compareStringObjects(a,b) == 0;
     }
 }
