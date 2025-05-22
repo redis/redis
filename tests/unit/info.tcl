@@ -546,6 +546,43 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_size * $ptr_size]
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
     }
+
+    test {memory: used_memory_peak_time} {
+        r flushall
+
+        set time_before_add_large_set [clock seconds]
+
+        # Add a memory-consuming set
+        set args {}
+        for {set i 0} {$i < 100000} {incr i} {
+            lappend args $i
+        }
+        r sadd myset {*}$args
+
+        set info_mem [r info memory]
+        set peak_time [getInfoProperty $info_mem used_memory_peak_time]
+
+        assert {$peak_time >= $time_before_add_large_set}
+
+
+        r del myset
+        after 1000
+
+        set time_after_peak [clock seconds]
+
+        # Add a small set, which cannot exceed the previous peak value
+        set args {}
+        for {set i 0} {$i < 1000} {incr i} {
+            lappend args $i
+        }
+        r sadd myset {*}$args
+
+        set info_mem [r info memory]
+        set peak_time [getInfoProperty $info_mem used_memory_peak_time]
+
+        assert {$peak_time < $time_after_peak}
+
+    }
 }
 
 start_cluster 1 0 {tags {external:skip cluster}} {
