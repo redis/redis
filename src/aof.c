@@ -1751,7 +1751,6 @@ fmterr: /* Format error. */
             "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
     }
     ret = AOF_FAILED;
-
     /* fall through to cleanup. */
 
 cleanup:
