@@ -1313,6 +1313,15 @@ typedef struct {
 } clientReqResInfo;
 #endif
 
+typedef struct {
+    int head;             /* Index of the getting object in pool. */
+    int tail;             /* Index of the putting object in pool. */
+    int count;            /* Number of objects in pool. */
+    int capacity;         /* Capacity of the pool. */
+    robj **object_queue;  /* Queue of objects. */
+    int object_size;      /* Size of the object in this pool. */
+} clientArgvOjectPool;
+
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */
@@ -1808,6 +1817,7 @@ struct redisServer {
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
+    clientArgvOjectPool *client_argv_object_pools; /* Pools for client argv objects. */
 
 #ifdef LOG_REQ_RES
     char *req_res_logfile; /* Path of log file for logging all requests and their replies. If NULL, no logging will be performed */
@@ -3035,6 +3045,9 @@ robj *createZsetObject(void);
 robj *createZsetListpackObject(void);
 robj *createStreamObject(void);
 robj *createModuleObject(moduleType *mt, void *value);
+clientArgvOjectPool *createClientArgvObjectPools(void);
+robj *tryAllocObjectFromArgvOjectPool(const char *ptr, size_t len);
+void tryFreeObjectToArgvOjectPool(robj *obj);
 int getLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
 int getPositiveLongFromObjectOrReply(client *c, robj *o, long *target, const char *msg);
 int getRangeLongFromObjectOrReply(client *c, robj *o, long min, long max, long *target, const char *msg);

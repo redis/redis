@@ -2792,6 +2792,7 @@ void initServer(void) {
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
     server.client_mem_usage_buckets = NULL;
+    server.client_argv_object_pools = createClientArgvObjectPools();
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
