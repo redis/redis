@@ -4158,9 +4158,4 @@ int iAmMaster(void);
 #define STRINGIFY_(x) #x
 #define STRINGIFY(x) STRINGIFY_(x)
 
-
-#ifdef REDIS_TEST
-int objectTest(int argc, char *argv[], int flags);
-#endif
-
 #endif
