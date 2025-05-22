@@ -100,10 +100,10 @@ void fetchClientFromIOThread(client *c) {
     }
     /* Unbind connection of client from io thread event loop. */
     connUnbindEventLoop(c->conn);
-    freeClientDeferredObjects(c, 1); /* Free deferred objects. */
     /* Now main thread can process it. */
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     resumeIOThread(c->tid);
+    freeClientDeferredObjects(c, 1); /* Free deferred objects. */
 }
 
 /* For some clients, we must handle them in the main thread, since there is
