@@ -1344,13 +1344,20 @@ void checkChildrenDone(void) {
     }
 }
 
+size_t getMemoryUsageAndUpdatePeak(){
+    size_t zmalloc_used = zmalloc_used_memory();
+
+    /* Record the max memory used since the server was started. */
+    if (zmalloc_used > server.stat_peak_memory) {
+        server.stat_peak_memory = zmalloc_used;
+        server.stat_peak_memory_time = server.unixtime;
+    }
+    return zmalloc_used;
+}
+
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats(void) {
-    /* Record the max memory used since the server was started. */
-    if (zmalloc_used_memory() > server.stat_peak_memory) {
-        server.stat_peak_memory = zmalloc_used_memory();
-        server.stat_peak_memory_time = time(NULL);
-    }
+    getMemoryUsageAndUpdatePeak();
 
     run_with_period(100) {
         /* Sample the RSS and other metrics here since this is a relatively slow call.
@@ -1753,11 +1760,7 @@ extern int ProcessingEventsWhileBlocked;
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory) {
-        server.stat_peak_memory = zmalloc_used;
-        server.stat_peak_memory_time = time(NULL);
-    }
+    getMemoryUsageAndUpdatePeak();
 
     /* Just call a subset of vital functions in case we are re-entering
      * the event loop from processEventsWhileBlocked(). Note that in this
@@ -2874,7 +2877,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
-    server.stat_peak_memory_time = time(NULL);
+    server.stat_peak_memory_time = server.unixtime;
     server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
@@ -3896,11 +3899,7 @@ void call(client *c, int flags) {
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory) {
-        server.stat_peak_memory = zmalloc_used;
-        server.stat_peak_memory_time = time(NULL);
-    }
+    getMemoryUsageAndUpdatePeak();
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
@@ -5927,7 +5926,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         char used_memory_scripts_hmem[64];
         char used_memory_rss_hmem[64];
         char maxmemory_hmem[64];
-        size_t zmalloc_used = zmalloc_used_memory();
         size_t total_system_mem = server.system_memory_size;
         const char *evict_policy = evictPolicyToString();
         long long memory_lua = evalScriptsMemoryVM();
@@ -5938,10 +5936,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
          * may happen that the instantaneous value is slightly bigger than
          * the peak value. This may confuse users, so we update the peak
          * if found smaller than the current memory usage. */
-        if (zmalloc_used > server.stat_peak_memory) {
-            server.stat_peak_memory = zmalloc_used;
-            server.stat_peak_memory_time = time(NULL);
-        }
+        size_t zmalloc_used = getMemoryUsageAndUpdatePeak();
 
         bytesToHuman(hmem,sizeof(hmem),zmalloc_used);
         bytesToHuman(peak_hmem,sizeof(peak_hmem),server.stat_peak_memory);
