@@ -552,35 +552,21 @@ start_server {tags {"info" "external:skip"}} {
 
         set time_before_add_large_set [clock seconds]
 
-        # Add a memory-consuming set
-        set args {}
-        for {set i 0} {$i < 100000} {incr i} {
-            lappend args $i
-        }
-        r sadd myset {*}$args
+        # Add a memory-consuming string
+        r set large_str [string repeat "a" 1000000]
 
-        set info_mem [r info memory]
-        set peak_time [getInfoProperty $info_mem used_memory_peak_time]
-
-        assert {$peak_time >= $time_before_add_large_set}
+        assert {[s used_memory_peak_time] >= $time_before_add_large_set}
 
 
-        r del myset
+        r del large_str
         after 1000
 
         set time_after_peak [clock seconds]
 
-        # Add a small set, which cannot exceed the previous peak value
-        set args {}
-        for {set i 0} {$i < 1000} {incr i} {
-            lappend args $i
-        }
-        r sadd myset {*}$args
+        # Add a small string, which cannot exceed the previous peak value
+        r set small_str [string repeat "a" 1000]
 
-        set info_mem [r info memory]
-        set peak_time [getInfoProperty $info_mem used_memory_peak_time]
-
-        assert {$peak_time < $time_after_peak}
+        assert {[s used_memory_peak_time] < $time_after_peak}
 
     }
 }
