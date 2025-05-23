@@ -431,6 +431,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
 
+/* Max deferred objects to be freed by IO thread for each client. */
+#define CLIENT_MAX_DEFERRED_OBJECTS 32
+
 /* Client flags for client IO */
 #define CLIENT_IO_READ_ENABLED (1ULL<<0) /* Client can read from socket. */
 #define CLIENT_IO_WRITE_ENABLED (1ULL<<1) /* Client can write to socket. */
@@ -1335,6 +1338,8 @@ typedef struct client {
     int original_argc;      /* Num of arguments of original command if arguments were rewritten. */
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
+    robj **deferred_objects;    /* Array of deferred objects to free. */
+    int deferred_objects_num;   /* Number of deferred objects to free. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     struct redisCommand *iolookedcmd;    /* Command looked up in IO threads. */
     struct redisCommand *realcmd; /* The original command that was executed by the client,
@@ -2795,6 +2800,8 @@ void clearClientConnectionState(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
+void tryDeferFreeClientObject(client *c, robj *o);
+void freeClientDeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);

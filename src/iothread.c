@@ -93,6 +93,7 @@ void keepClientInMainThread(client *c) {
     c->io_flags |= CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED;
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     c->tid = IOTHREAD_MAIN_THREAD_ID;
+    freeClientDeferredObjects(c, 1); /* Free deferred objects. */
     /* Main thread starts to manage it. */
     server.io_threads_clients_num[c->tid]++;
 }
@@ -130,6 +131,7 @@ void fetchClientFromIOThread(client *c) {
     /* Now main thread can process it. */
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     resumeIOThread(c->tid);
+    freeClientDeferredObjects(c, 1); /* Free deferred objects. */
 }
 
 /* For some clients, we must handle them in the main thread, since there is
@@ -169,6 +171,9 @@ void assignClientToIOThread(client *c) {
     c->tid = min_id;
     c->running_tid = min_id;
     server.io_threads_clients_num[min_id]++;
+
+    /* The client running in IO thread needs to have deferred objects array. */
+    c->deferred_objects = zmalloc(sizeof(robj*) * CLIENT_MAX_DEFERRED_OBJECTS);
 
     /* Unbind connection of client from main thread event loop, disable read and
      * write, and then put it in the list, main thread will send these clients
@@ -541,6 +546,9 @@ int processClientsFromMainThread(IOThread *t) {
         serverAssert(c->io_thread_client_list_node == NULL);
         listAddNodeTail(t->clients, c);
         c->io_thread_client_list_node = listLast(t->clients);
+
+        /* The client now is in the IO thread, let's free deferred objects. */
+        freeClientDeferredObjects(c, 0);
 
         /* The client is asked to close, we just let main thread free it. */
         if (c->io_flags & CLIENT_IO_CLOSE_ASAP) {
