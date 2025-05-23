@@ -108,6 +108,12 @@ static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg) 
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
+static inline int shouldShutdownAsap(void) {
+    int shutdown_asap;
+    atomicGet(server.shutdown_asap, shutdown_asap);
+    return shutdown_asap;
+}
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -1476,11 +1482,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We received a SIGTERM or SIGINT, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
-    if (server.shutdown_asap && !isShutdownInitiated()) {
+    if (shouldShutdownAsap() && !isShutdownInitiated()) {
         int shutdownFlags = SHUTDOWN_NOFLAGS;
-        if (server.last_sig_received == SIGINT && server.shutdown_on_sigint)
+        int last_sig_received;
+        atomicGet(server.last_sig_received, last_sig_received);
+        if (last_sig_received == SIGINT && server.shutdown_on_sigint)
             shutdownFlags = server.shutdown_on_sigint;
-        else if (server.last_sig_received == SIGTERM && server.shutdown_on_sigterm)
+        else if (last_sig_received == SIGTERM && server.shutdown_on_sigterm)
             shutdownFlags = server.shutdown_on_sigterm;
 
         if (prepareForShutdown(shutdownFlags) == C_OK) exit(0);
@@ -1722,11 +1730,11 @@ void whileBlockedCron(void) {
 
     /* We received a SIGTERM during loading, shutting down here in a safe way,
      * as it isn't ok doing so inside the signal handler. */
-    if (server.shutdown_asap && server.loading) {
+    if (shouldShutdownAsap() && server.loading) {
         if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
-        server.shutdown_asap = 0;
-        server.last_sig_received = 0;
+        atomicSet(server.shutdown_asap, 0);
+        atomicSet(server.last_sig_received, 0);
     }
 }
 
@@ -4608,10 +4616,10 @@ int isReadyToShutdown(void) {
 }
 
 static void cancelShutdown(void) {
-    server.shutdown_asap = 0;
+    atomicSet(server.shutdown_asap, 0);
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
-    server.last_sig_received = 0;
+    atomicSet(server.last_sig_received, 0);
     replyToClientsBlockedOnShutdown();
     unpauseActions(PAUSE_DURING_SHUTDOWN);
 }
@@ -4620,10 +4628,10 @@ static void cancelShutdown(void) {
 int abortShutdown(void) {
     if (isShutdownInitiated()) {
         cancelShutdown();
-    } else if (server.shutdown_asap) {
+    } else if (shouldShutdownAsap()) {
         /* Signal handler has requested shutdown, but it hasn't been initiated
          * yet. Just clear the flag. */
-        server.shutdown_asap = 0;
+        atomicSet(server.shutdown_asap, 0);
     } else {
         /* Shutdown neither initiated nor requested. */
         return C_ERR;
@@ -6764,7 +6772,7 @@ static void sigShutdownHandler(int sig) {
      * If we receive the signal the second time, we interpret this as
      * the user really wanting to quit ASAP without waiting to persist
      * on disk and without waiting for lagging replicas. */
-    if (server.shutdown_asap && sig == SIGINT) {
+    if (shouldShutdownAsap() && sig == SIGINT) {
         serverLogRawFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
@@ -6773,8 +6781,8 @@ static void sigShutdownHandler(int sig) {
     }
 
     serverLogRawFromHandler(LL_WARNING, msg);
-    server.shutdown_asap = 1;
-    server.last_sig_received = sig;
+    atomicSet(server.shutdown_asap, 1);
+    atomicSet(server.last_sig_received, sig);
 }
 
 void setupSignalHandlers(void) {

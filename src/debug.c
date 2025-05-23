@@ -2501,7 +2501,7 @@ void removeSigSegvHandlers(void) {
 }
 
 void printCrashReport(void) {
-    server.crashing = 1;
+    atomicSet(server.crashing, 1);
 
     /* Log INFO and CLIENT LIST */
     logServerInfo();

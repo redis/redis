@@ -3111,6 +3111,12 @@ char *getClientSockname(client *c) {
     return c->sockname;
 }
 
+static inline int isCrashing(void) {
+    int crashing;
+    atomicGet(server.crashing, crashing);
+    return crashing;
+}
+
 /* Concatenate a string representing the state of a client in a human
  * readable format, into the sds string 's'. */
 sds catClientInfoString(sds s, client *client) {
@@ -3120,7 +3126,7 @@ sds catClientInfoString(sds s, client *client) {
     int paused = 0;
     if (client->running_tid != IOTHREAD_MAIN_THREAD_ID &&
         pthread_equal(server.main_thread_id, pthread_self()) &&
-        !server.crashing)
+        !isCrashing())
     {
         paused = 1;
         pauseIOThread(client->running_tid);
@@ -3221,7 +3227,7 @@ sds getAllClientsInfoString(int type) {
     /* Pause all IO threads to access data of clients safely, and pausing the
      * specific IO thread will not repeatedly execute in catClientInfoString. */
     int allpaused = 0;
-    if (server.io_threads_num > 1 && !server.crashing &&
+    if (server.io_threads_num > 1 && !isCrashing() &&
         pthread_equal(server.main_thread_id, pthread_self()))
     {
         allpaused = 1;
