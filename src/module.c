@@ -4269,7 +4269,8 @@ int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
         return REDISMODULE_ERR;
     if (expire != REDISMODULE_NO_EXPIRE) {
         expire += commandTimeSnapshot();
-        setExpire(key->ctx->client,key->db,key->key,expire);
+        /* setExpire() might realloc kvobj */ 
+        key->kv = setExpire(key->ctx->client,key->db,key->key,expire);
     } else {
         removeExpire(key->db,key->key);
     }
