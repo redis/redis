@@ -2242,7 +2242,7 @@ int removeExpire(redisDb *db, robj *key) {
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
  * after which the key will no longer be considered valid.
  * 
- * Note: This function may reallocate kvobj. ref, optionally new, is returned. */
+ * Note: It may reallocate kvobj. The returned ref may point to a new object. */
 kvobj *setExpire(client *c, redisDb *db, robj *key, long long when) {
     return setExpireByLink(c,db,key->ptr,when,NULL);
 }
