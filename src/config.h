@@ -360,7 +360,7 @@ void setcpuaffinity(const char *cpulist);
 #define ATTRIBUTE_TARGET_AVX512
 #endif
 
-#if defined(__linux__) && (defined(__GNUC__) && (__GNUC__ > 4) || defined(__clang__) && (__clang_major__) > 5)
+#if defined(__linux__) && defined(__GLIBC__) && (defined(__GNUC__) && (__GNUC__ > 4) || defined(__clang__) && (__clang_major__) > 5)
 #define HAVE_IFUNC 1
 #else
 #define HAVE_IFUNC 0
