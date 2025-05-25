@@ -1734,16 +1734,19 @@ start_server {tags {"repl external:skip"}} {
         assert {$total_disconnect_time == $total_disconnect_time_reconnect}
 
     }
+    }
 }
+
 start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
+
     start_server {} {
         set slave [srv 0 client]
         $slave slaveof $master_host $master_port
 
-        # Here we are assuming that master link is successful on the first attempt.
+        # Test: Normal establishment of the master link
         test "Test normal establishment process of the master link" {
             wait_for_condition 50 100 {
                 [lindex [$slave role] 0] eq {slave} &&
@@ -1756,6 +1759,7 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 1 [status $slave master_total_sync_attempts]
         }
 
+        # Test: Sync attempts reset after 'slaveof no one'
         test "Test sync attempts reset after slaveof no one" {
             $slave slaveof no one
             $slave slaveof $master_host $master_port
@@ -1769,9 +1773,9 @@ start_server {tags {"repl external:skip"}} {
 
             assert_equal 1 [status $slave master_current_sync_attempts]
             assert_equal 1 [status $slave master_total_sync_attempts]
-
         }
 
+        # Test: Sync attempts reset on master reconnect
         test "Test sync attempts reset on master reconnect" {
             $slave client kill type master
 
@@ -1786,7 +1790,8 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 2 [status $slave master_total_sync_attempts]
         }
 
-        test "Test sync attempts reset on master switch {
+        # Test: Sync attempts reset on master switch
+        test "Test sync attempts reset on master switch" {
             start_server {} {
                 set new_master_host [srv 0 host]
                 set new_master_port [srv 0 port]
@@ -1801,31 +1806,30 @@ start_server {tags {"repl external:skip"}} {
 
                 assert_equal 1 [status $slave master_current_sync_attempts]
                 assert_equal 1 [status $slave master_total_sync_attempts]
-                
             }
         }
 
+        # Test: Replication current attempts counter behavior
         test "Replication current attempts counter behavior" {
             $slave slaveof $master_host $master_port
-            set unknown_port [get_free_port]
 
             # Wait until replica state becomes "connected"
             wait_for_condition 1000 50 {
-                    [lindex [$slave role] 0] eq {slave} &&
-                    [string match {*master_link_status:up*} [$slave info replication]]
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
             } else {
                 fail "slave did not connect to master."
             }
-            # Assume master_sync_attempts is now 1 after connecting to a valid master
+
             assert_equal 1 [status $slave master_current_sync_attempts]
 
-            # connect to an invalid master  
+            # Connect to an invalid master
+            set unknown_port [get_free_port]
             $slave slaveof $master_host $unknown_port
             after 1000
-            # Assume 1 sec (1 trying) of connecting to an invalid master => master_sync_attempts incer by 1
+
+            # Expect current sync attempts to increase
             assert {[status $slave master_current_sync_attempts] >= 2}
         }
     }
-}
-
 }

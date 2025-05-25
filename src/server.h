@@ -2148,8 +2148,8 @@ struct redisServer {
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
     long long repl_current_sync_attempts;    /* Number of times in current configuration, the replica attempted to sync since the last success. */
     long long repl_total_sync_attempts;      /* Number of times in current configuration, the replica attempted to sync to a master  */
-    time_t repl_disconnect_start_time;      /* Unix time that master disconnection start */
-    time_t repl_total_disconnect_time;      /* The total cumulative time we've been disconnected as a replica, visible when the link is up too. */
+    time_t repl_disconnect_start_time;       /* Unix time that master disconnection start */
+    time_t repl_total_disconnect_time;       /* The total cumulative time we've been disconnected as a replica, visible when the link is up too. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */

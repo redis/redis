@@ -6276,13 +6276,13 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     "master_link_down_since_seconds:%jd\r\n",
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
-            }else{
+            } else {
                 info = sdscatprintf(info,
                     "master_link_up_since_seconds:%jd\r\n",
                     server.repl_up_since ? /* defensive code, should never be 0 when connected */
                     (intmax_t)(server.unixtime-server.repl_up_since) : -1);
             }
-            info = sdscatprintf(info, "total_disconnect_time_sec:%jd\r\n", server.repl_total_disconnect_time+(current_disconnect_time));
+            info = sdscatprintf(info, "total_disconnect_time_sec:%jd\r\n", (intmax_t)server.repl_total_disconnect_time+(current_disconnect_time));
 
             info = sdscatprintf(info, FMTARGS(
                 "slave_priority:%d\r\n", server.slave_priority,
