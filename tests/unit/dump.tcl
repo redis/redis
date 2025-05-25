@@ -66,7 +66,7 @@ start_server {tags {"dump"}} {
         r del foo
         r set foo bar
         set encoded [r dump foo]
-        # Iterate several times it is consistent
+        # Iterate several times and verify it is consistent
         for {set i 0} {$i < 100} {incr i} {
             r del foo
             r restore foo 1000 $encoded IDLETIME 500
