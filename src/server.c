@@ -270,6 +270,7 @@ void exitFromChild(int retcode, int can_perform_io_during_coverage) {
         _exit(retcode);
     }
 #else
+    UNUSED(can_perform_io_during_coverage);
     _exit(retcode);
 #endif
 }
