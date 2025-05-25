@@ -258,13 +258,13 @@ mstime_t commandTimeSnapshot(void) {
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is
  * used in order to obtain the right coverage information. 
- * We want to allow the caller to dermine the exit type during a coverage run
+ * We want to allow the caller to determine the exit type during a coverage run
  * e.g we might not want to perform IO when handling a signal since it might lead to a deadlock
  * We were performing an IO operation - signal handler was called - we exit() - more IO operations which needs a lock we might already took
  * */
 void exitFromChild(int retcode, int can_perform_io_during_coverage) {
 #ifdef COVERAGE_TEST
-    if (can_perform_io) {
+    if (can_perform_io_during_coverage) {
         exit(retcode);
     } else {
         _exit(retcode);
