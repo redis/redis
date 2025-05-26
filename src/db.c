@@ -1818,7 +1818,7 @@ void renameGenericCommand(client *c, int nx) {
 
     dbDelete(c->db,c->argv[1]);
     dbAdd(c->db, c->argv[2], &o);
-    if (expire != -1) setExpire(c, c->db, c->argv[2], expire);
+    if (expire != -1) o = setExpire(c, c->db, c->argv[2], expire);
 
     /* If hash with HFEs, register in db->hexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
@@ -2021,7 +2021,7 @@ void copyCommand(client *c) {
 
     /* if key with expiration then set it */
     if (expire != -1)
-        setExpire(c, dst, newkey, expire);
+        newobj = setExpire(c, dst, newkey, expire);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
