@@ -1083,50 +1083,12 @@ size_t zmalloc_get_memory_size(void) {
 
 #define TEST(name) printf("test — %s\n", name);
 
-#include <time.h>
-
-/* Return the UNIX time in microseconds */
-static long long ustime(void) {
-    struct timeval tv;
-    long long ust;
-
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec) * 1000000;
-    ust += tv.tv_usec;
-    return ust;
-}
-
-/* Return the UNIX time in milliseconds */
-static long long mstime(void) { return ustime() / 1000; }
-
-void test(int sz) {
-    long long start = mstime();
-    for (int i = 0; i < 2000000000; i++) {
-    // for (int i = 0; i < 500000000; i++) {
-        void *ptr = zmalloc(sz);
-        ptr = zrealloc(ptr, sz*2);
-        zfree(ptr);
-    }
-    printf("size: %d, during: %ld\n", sz, mstime() - start);
-}
-
 int zmalloc_test(int argc, char **argv, int flags) {
     void *ptr, *ptr2;
 
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
-
-    test(8);
-    test(16);
-    test(32);
-    test(64);
-    test(128);
-    test(256);
-    test(512);
-    test(1024);
-    test(2048);
-    exit(0);
 
     printf("Malloc prefix size: %d\n", (int) PREFIX_SIZE);
 
