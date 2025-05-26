@@ -6802,9 +6802,9 @@ static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
     serverLogRawFromHandler(level, "Received SIGUSR1 in child, exiting now.");
-    /*We don't want to perform any IO in the child when the parent is terminating us.
-    * We don't know what our stack trace is, it is possible that we were called during an IO operation
-    * If we were to do another IO operation, we might end up in a deadlock */
+    /* We don't want to perform any IO in the child when the parent is terminating us.
+     * We don't know what our stack trace is, it is possible that we were called during an IO operation
+     * If we were to do another IO operation, we might end up in a deadlock */
     exitFromChild(SERVER_CHILD_NOERROR_RETVAL, 0);
 }
 
