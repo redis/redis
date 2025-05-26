@@ -69,9 +69,11 @@ void zlibc_free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #if defined(HAVE_USABLE_EXT)
 void *je_malloc_usable(size_t size, size_t *usize);
+void *je_calloc_usable(size_t num, size_t size, size_t *usize);
 void *je_realloc_usable(void *ptr, size_t size, size_t *old_usize, size_t *new_usize);
 void je_free_usable(void *ptr, size_t *usize);
 #define malloc_usable(size,usize) je_malloc_usable(size,usize)
+#define calloc_usable(num,size,usize) je_calloc_usable(num,size,usize)
 #define realloc_usable(ptr,size,old_usize,new_usize) je_realloc_usable(ptr,size,old_usize,new_usize)
 #define free_usable(ptr,usize) je_free_usable(ptr,usize)
 #endif
@@ -258,10 +260,18 @@ void zfree_no_tcache(void *ptr) {
 static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
+#ifdef HAVE_USABLE_EXT
+    void *ptr = calloc_usable(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+#else
     void *ptr = calloc(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
+#endif
     if (ptr == NULL) return NULL;
 
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_USABLE_EXT
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return ptr;
+#elif HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
     if (usable) *usable = size;
@@ -1073,12 +1083,50 @@ size_t zmalloc_get_memory_size(void) {
 
 #define TEST(name) printf("test — %s\n", name);
 
+#include <time.h>
+
+/* Return the UNIX time in microseconds */
+static long long ustime(void) {
+    struct timeval tv;
+    long long ust;
+
+    gettimeofday(&tv, NULL);
+    ust = ((long long)tv.tv_sec) * 1000000;
+    ust += tv.tv_usec;
+    return ust;
+}
+
+/* Return the UNIX time in milliseconds */
+static long long mstime(void) { return ustime() / 1000; }
+
+void test(int sz) {
+    long long start = mstime();
+    for (int i = 0; i < 2000000000; i++) {
+    // for (int i = 0; i < 500000000; i++) {
+        void *ptr = zmalloc(sz);
+        ptr = zrealloc(ptr, sz*2);
+        zfree(ptr);
+    }
+    printf("size: %d, during: %ld\n", sz, mstime() - start);
+}
+
 int zmalloc_test(int argc, char **argv, int flags) {
     void *ptr, *ptr2;
 
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
+
+    test(8);
+    test(16);
+    test(32);
+    test(64);
+    test(128);
+    test(256);
+    test(512);
+    test(1024);
+    test(2048);
+    exit(0);
 
     printf("Malloc prefix size: %d\n", (int) PREFIX_SIZE);
 
