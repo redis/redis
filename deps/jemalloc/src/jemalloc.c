@@ -4509,3 +4509,50 @@ free_usable(void *ptr, size_t *usable) {
 
 	LOG("core.free.exit", "");
 }
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ALLOC_SIZE(2)
+realloc_usable(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
+	LOG("core.realloc.entry", "ptr: %p, size: %zu\n", ptr, size);
+
+	if (likely(ptr != NULL && size != 0)) {
+		void *ret = do_rallocx(ptr, size, 0, true, old_usize, new_usize);
+		LOG("core.realloc.exit", "result: %p", ret);
+		return ret;
+	} else if (ptr != NULL && size == 0) {
+		void *ret = do_realloc_nonnull_zero(ptr, old_usize, new_usize);
+		LOG("core.realloc.exit", "result: %p", ret);
+		return ret;
+	} else {
+		/* realloc(NULL, size) is equivalent to malloc(size). */
+		void *ret;
+
+		static_opts_t sopts;
+		dynamic_opts_t dopts;
+
+		static_opts_init(&sopts);
+		dynamic_opts_init(&dopts);
+
+		sopts.null_out_result_on_error = true;
+		sopts.set_errno_on_error = true;
+		sopts.oom_string =
+		    "<jemalloc>: Error in realloc(): out of memory\n";
+
+		dopts.result = &ret;
+		dopts.num_items = 1;
+		dopts.item_size = size;
+
+		imalloc(&sopts, &dopts);
+		if (sopts.slow) {
+			printf("11111111111\n");
+			uintptr_t args[3] = {(uintptr_t)ptr, size};
+			hook_invoke_alloc(hook_alloc_realloc, ret,
+			    (uintptr_t)ret, args);
+		}
+		LOG("core.realloc.exit", "result: %p", ret);
+		if (old_usize) *old_usize = 0;
+		if (new_usize) *new_usize = dopts.usize;
+		return ret;
+	}
+}

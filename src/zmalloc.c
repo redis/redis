@@ -69,8 +69,10 @@ void zlibc_free(void *ptr) {
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #if defined(HAVE_USABLE_EXT)
 void *je_malloc_usable(size_t size, size_t *usize);
+void *je_realloc_usable(void *ptr, size_t size, size_t *old_usize, size_t *new_usize);
 void je_free_usable(void *ptr, size_t *usize);
 #define malloc_usable(size,usize) je_malloc_usable(size,usize)
+#define realloc_usable(ptr,size,old_usize,new_usize) je_realloc_usable(ptr,size,old_usize,new_usize)
 #define free_usable(ptr,usize) je_free_usable(ptr,usize)
 #endif
 #endif
@@ -348,8 +350,17 @@ static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *
         if (usable) *usable = 0;
         return NULL;
     }
-
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_USABLE_EXT
+    newptr = realloc_usable(ptr, size, &oldsize, &size);
+    if (newptr == NULL) {
+        if (usable) *usable = 0;
+        return NULL;
+    }
+    update_zmalloc_stat_free(oldsize);
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return newptr;
+#elif HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
     newptr = realloc(ptr,size);
     if (newptr == NULL) {
