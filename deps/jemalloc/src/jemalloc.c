@@ -2744,7 +2744,7 @@ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
 je_malloc(size_t size) {
-	return imalloc_fastpath(size, NULL, &malloc_default);
+	return imalloc_fastpath(size, &malloc_default, NULL);
 }
 
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
@@ -4496,7 +4496,7 @@ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
 malloc_usable(size_t size, size_t *usize) {
-	return imalloc_fastpath(size, usize, &malloc_default);
+	return imalloc_fastpath(size, &malloc_default, usize);
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW

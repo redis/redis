@@ -106,7 +106,7 @@ template <bool IsNoExcept>
 JEMALLOC_ALWAYS_INLINE
 void *
 newImpl(std::size_t size) noexcept(IsNoExcept) {
-	return imalloc_fastpath(size, NULL, &fallback_impl<IsNoExcept>);
+	return imalloc_fastpath(size, &fallback_impl<IsNoExcept>, NULL);
 }
 
 void *

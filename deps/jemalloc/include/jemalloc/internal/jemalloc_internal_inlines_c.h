@@ -255,7 +255,7 @@ malloc_initialized(void) {
  * tail-call to the slowpath if they fire.
  */
 JEMALLOC_ALWAYS_INLINE void *
-imalloc_fastpath(size_t size, size_t *usable_size, void *(fallback_alloc)(size_t, size_t *)) {
+imalloc_fastpath(size_t size, void *(fallback_alloc)(size_t, size_t *), size_t *usable_size) {
 	LOG("core.malloc.entry", "size: %zu", size);
 	if (tsd_get_allocates() && unlikely(!malloc_initialized())) {
 		return fallback_alloc(size, usable_size);
