@@ -151,3 +151,7 @@
 /* This version of Jemalloc, modified for Redis, has the je_get_defrag_hint()
  * function. */
 #define JEMALLOC_FRAG_HINT
+
+/* This version of Jemalloc, modified for Redis, has the je_malloc_usable() function and 
+ * je_free_usable() function. */
+#define JEMALLOC_USABLE_EXT

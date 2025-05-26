@@ -80,6 +80,13 @@
 #define HAVE_DEFRAG
 #endif
 
+/* We can enable the Redis defrag capabilities only if we are using Jemalloc
+ * and the version used is our special version modified for Redis having
+ * the ability to return usable size during allocation or deallocation. */
+#if defined(USE_JEMALLOC) && defined(JEMALLOC_USABLE_EXT)
+#define HAVE_USABLE_EXT
+#endif
+
 /* 'noinline' attribute is intended to prevent the `-Wstringop-overread` warning
  * when using gcc-12 later with LTO enabled. It may be removed once the
  * bug[https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96503] is fixed. */

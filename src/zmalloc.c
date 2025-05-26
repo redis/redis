@@ -67,6 +67,12 @@ void zlibc_free(void *ptr) {
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define rallocx(ptr,size,flags) je_rallocx(ptr,size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
+#if defined(HAVE_USABLE_EXT)
+void *je_malloc_usable(size_t size, size_t *usize);
+void je_free_usable(void *ptr, size_t *usize);
+#define malloc_usable(size,usize) je_malloc_usable(size,usize)
+#define free_usable(ptr,usize) je_free_usable(ptr,usize)
+#endif
 #endif
 
 #define MAX_THREADS 16 /* Keep it a power of 2 so we can use '&' instead of '%'. */
@@ -119,10 +125,17 @@ void *extend_to_usable(void *ptr, size_t size) {
 static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
+#ifdef HAVE_USABLE_EXT
+    void *ptr = malloc_usable(MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+#else
     void *ptr = malloc(MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
-
+#endif
     if (!ptr) return NULL;
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_USABLE_EXT
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return ptr;
+#elif HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
     if (usable) *usable = size;
@@ -423,7 +436,12 @@ void zfree(void *ptr) {
 #endif
 
     if (ptr == NULL) return;
-#ifdef HAVE_MALLOC_SIZE
+
+#ifdef HAVE_USABLE_EXT
+    size_t usize;
+    free_usable(ptr, &usize);
+    update_zmalloc_stat_free(usize);
+#elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
 #else
@@ -442,7 +460,11 @@ void zfree_usable(void *ptr, size_t *usable) {
 #endif
 
     if (ptr == NULL) return;
-#ifdef HAVE_MALLOC_SIZE
+
+#ifdef HAVE_USABLE_EXT
+    free_usable(ptr, usable);
+    update_zmalloc_stat_free(*usable);
+#elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
     free(ptr);
 #else
