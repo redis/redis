@@ -920,7 +920,7 @@ void ldbEndSession(client *c) {
     if (ldb.forked) {
         writeToClient(c,0);
         serverLog(LL_NOTICE,"Lua debugging session child exiting");
-        exitFromChild(0, 1);
+        exitFromChild(0, 0);
     } else {
         serverLog(LL_NOTICE,
             "Redis synchronous debugging eval session ended");

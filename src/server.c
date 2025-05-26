@@ -258,21 +258,18 @@ mstime_t commandTimeSnapshot(void) {
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is
  * used in order to obtain the right coverage information. 
- * We want to allow the caller to determine the exit type during a coverage run
- * e.g we might not want to perform IO when handling a signal since it might 
- * lead to a deadlock
- * We were performing an IO operation - signal handler was called - we exit() 
- * which leads to more IO operations which needs a lock we might already took
+ * There is a caveat for when we exit due to a signal.
+ * In this case we want the function to be async signal safe, so we can't use exit()
  * */
-void exitFromChild(int retcode, int can_perform_io_during_coverage) {
+void exitFromChild(int retcode, int from_signal) {
 #ifdef COVERAGE_TEST
-    if (can_perform_io_during_coverage) {
+    if (!from_signal) {
         exit(retcode);
     } else {
         _exit(retcode);
     }
 #else
-    UNUSED(can_perform_io_during_coverage);
+    UNUSED(from_signal);
     _exit(retcode);
 #endif
 }
@@ -6805,7 +6802,7 @@ static void sigKillChildHandler(int sig) {
     /* We don't want to perform any IO in the child when the parent is terminating us.
      * We don't know what our stack trace is, it is possible that we were called during an IO operation
      * If we were to do another IO operation, we might end up in a deadlock */
-    exitFromChild(SERVER_CHILD_NOERROR_RETVAL, 0);
+    exitFromChild(SERVER_CHILD_NOERROR_RETVAL, 1);
 }
 
 void setupChildSignalHandlers(void) {
