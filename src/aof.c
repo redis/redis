@@ -1735,7 +1735,7 @@ fmterr: /* Format error. */
                         strerror(errno));
                 } else {
                     serverLog(LL_WARNING,
-                        "AOF loaded anyway because aof-load-broken is enabled and broken size '%ld' is less than aof-load-broken-max-size '%ld'",
+                        "AOF loaded anyway because aof-load-broken is enabled and broken size '%lld' is less than aof-load-broken-max-size '%lld'",
                         sb.st_size - valid_up_to, server.aof_load_broken_max_size);
                     ret = AOF_BROKEN_RECOVERED;
                     goto loaded_ok;
@@ -1743,7 +1743,7 @@ fmterr: /* Format error. */
             }
         } else { /* The size of the corrupted portion exceeds the configured limit. */
             serverLog(LL_WARNING,
-                 "AOF did not loaded because the size of the corrupted portion exceeds the configured limit. aof-load-broken is enabled and broken size '%ld' is bigger than aof-load-broken-max-size '%ld'",
+                 "AOF was not loaded because the size of the corrupted portion exceeds the configured limit. aof-load-broken is enabled and broken size '%lld' is bigger than aof-load-broken-max-size '%lld'",
                  sb.st_size - valid_up_to, server.aof_load_broken_max_size);
         }
     } else {
