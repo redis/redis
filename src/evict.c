@@ -151,7 +151,7 @@ void evictionPoolPopulate(int dbid, dict *sampledict, dict *keydict, struct evic
     for (j = 0; j < count; j++) {
         unsigned long long idle;
         sds key;
-        robj *o;
+        robj *o = NULL;
         dictEntry *de;
 
         de = samples[j];
