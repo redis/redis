@@ -1709,7 +1709,7 @@ start_server {tags {"repl external:skip"}} {
         assert {[status $slave total_disconnect_time_sec] >= 4}
     }
 
-    test "Test currect replication disconnection time counters behavior" {
+    test "Test correct replication disconnection time counters behavior" {
         set unknown_port [get_free_port]
         # Simulate disconnection
         $slave slaveof $master_host $unknown_port
