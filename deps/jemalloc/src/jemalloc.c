@@ -2995,7 +2995,7 @@ isfree(tsd_t *tsd, void *ptr, size_t usize, tcache_t *tcache, bool slow_path) {
 
 JEMALLOC_NOINLINE
 void
-free_default(void *ptr, size_t *usable) {
+free_default(void *ptr, size_t *usize) {
 	UTRACE(ptr, 0, 0);
 	if (likely(ptr != NULL)) {
 		/*
@@ -3013,14 +3013,14 @@ free_default(void *ptr, size_t *usable) {
 			tcache_t *tcache = tcache_get_from_ind(tsd,
 			    TCACHE_IND_AUTOMATIC, /* slow */ false,
 			    /* is_alloc */ false);
-			ifree(tsd, ptr, tcache, /* slow */ false, usable);
+			ifree(tsd, ptr, tcache, /* slow */ false, usize);
 		} else {
 			tcache_t *tcache = tcache_get_from_ind(tsd,
 			    TCACHE_IND_AUTOMATIC, /* slow */ true,
 			    /* is_alloc */ false);
 			uintptr_t args_raw[3] = {(uintptr_t)ptr};
 			hook_invoke_dalloc(hook_dalloc_free, ptr, args_raw);
-			ifree(tsd, ptr, tcache, /* slow */ true, usable);
+			ifree(tsd, ptr, tcache, /* slow */ true, usize);
 		}
 
 		check_entry_exit_locking(tsd_tsdn(tsd));
@@ -3064,7 +3064,7 @@ free_fastpath_nonfast_aligned(void *ptr, bool check_prof) {
 
 /* Returns whether or not the free attempt was successful. */
 JEMALLOC_ALWAYS_INLINE
-bool free_fastpath(void *ptr, size_t size, bool size_hint, size_t *usable) {
+bool free_fastpath(void *ptr, size_t size, bool size_hint, size_t *usable_size) {
 	tsd_t *tsd = tsd_get(false);
 	/* The branch gets optimized away unless tsd_get_allocates(). */
 	if (unlikely(tsd == NULL)) {
@@ -3118,7 +3118,6 @@ bool free_fastpath(void *ptr, size_t size, bool size_hint, size_t *usable) {
 	te_free_fastpath_ctx(tsd, &deallocated, &threshold);
 
 	size_t usize = sz_index2size(alloc_ctx.szind);
-	if (usable) *usable = usize;
 	uint64_t deallocated_after = deallocated + usize;
 	/*
 	 * Check for events and tsd non-nominal (fast_threshold will be set to
@@ -3134,6 +3133,7 @@ bool free_fastpath(void *ptr, size_t size, bool size_hint, size_t *usable) {
 	bool fail = maybe_check_alloc_ctx(tsd, ptr, &alloc_ctx);
 	if (fail) {
 		/* See the comment in isfree. */
+		if (usable_size) *usable_size = usize;
 		return true;
 	}
 
@@ -3154,6 +3154,7 @@ bool free_fastpath(void *ptr, size_t size, bool size_hint, size_t *usable) {
 
 	*tsd_thread_deallocatedp_get(tsd) = deallocated_after;
 
+	if (usable_size) *usable_size = usize;
 	return true;
 }
 
