@@ -40,7 +40,7 @@ start_server {tags {"introspection"}} {
         } else {
             assert_match {id=* addr=*:* laddr=*:* fd=* name=* age=* idle=* flags=N db=* sub=0 psub=0 ssub=0 multi=-1 watch=0 qbuf=0 qbuf-free=* argv-mem=* multi-mem=0 rbs=* rbp=* obl=0 oll=0 omem=0 tot-mem=* events=r cmd=client|info user=* redir=-1 resp=* lib-name=* lib-ver=* io-thread=* tot-net-in=* tot-net-out=* tot-cmds=*} $client
         }
-    } 
+    }
 
     proc get_field_in_client_info {info field} {
         set info [string trim $info]
@@ -48,7 +48,7 @@ start_server {tags {"introspection"}} {
             set kv [split $item "="]
             set k [lindex $kv 0]
             if {[string match $field $k]} {
-                return [lindex $kv 1]   
+                return [lindex $kv 1]
             }
         }
         return ""
@@ -91,7 +91,7 @@ start_server {tags {"introspection"}} {
         set rd [redis_deferring_client]
         $rd client id
         set rd_id [$rd read]
- 
+
         set info_list [r client list]
         set input1 [get_field_in_client_list $rd_id $info_list "tot-net-in"]
         set output1 [get_field_in_client_list $rd_id $info_list "tot-net-out"]
@@ -374,7 +374,7 @@ start_server {tags {"introspection"}} {
         r migrate [srv 0 host] [srv 0 port] key 9 5000 AUTH2 user password
         catch {r auth not-real} _
         catch {r auth not-real not-a-password} _
-        
+
         assert_match {*"key"*"9"*"5000"*} [$rd read]
         assert_match {*"key"*"9"*"5000"*"(redacted)"*} [$rd read]
         assert_match {*"key"*"9"*"5000"*"(redacted)"*"(redacted)"*} [$rd read]
@@ -417,19 +417,19 @@ start_server {tags {"introspection"}} {
 
         $rd close
     }
-    
+
     test {MONITOR log blocked command only once} {
-        
+
         # need to reconnect in order to reset the clients state
         reconnect
-        
+
         set rd [redis_deferring_client]
         set bc [redis_deferring_client]
         r del mylist
-        
+
         $rd monitor
         $rd read ; # Discard the OK
-        
+
         $bc blpop mylist 0
         # make sure the blpop arrives first
         $bc flush
@@ -438,28 +438,28 @@ start_server {tags {"introspection"}} {
         r lpush mylist 1
         wait_for_blocked_clients_count 0
         r lpush mylist 2
-        
+
         # we expect to see the blpop on the monitor first
         assert_match {*"blpop"*"mylist"*"0"*} [$rd read]
-        
+
         # we scan out all the info commands on the monitor
         set monitor_output [$rd read]
         while { [string match {*"info"*} $monitor_output] } {
             set monitor_output [$rd read]
         }
-        
+
         # we expect to locate the lpush right when the client was unblocked
         assert_match {*"lpush"*"mylist"*"1"*} $monitor_output
-        
+
         # we scan out all the info commands
         set monitor_output [$rd read]
         while { [string match {*"info"*} $monitor_output] } {
             set monitor_output [$rd read]
         }
-        
+
         # we expect to see the next lpush and not duplicate blpop command
         assert_match {*"lpush"*"mylist"*"2"*} $monitor_output
-        
+
         $rd close
         $bc close
     }
@@ -602,6 +602,7 @@ start_server {tags {"introspection"}} {
             socket-mark-id
             req-res-logfile
             client-default-resp
+            vectorset-hnsw_max_threads
         }
 
         if {!$::tls} {
@@ -697,7 +698,7 @@ start_server {tags {"introspection"}} {
             assert_equal [r config get save] {save {}}
         }
     } {} {external:skip}
-    
+
     test {CONFIG SET with multiple args} {
         set some_configs {maxmemory 10000001 repl-backlog-size 10000002 save {3000 5}}
 
@@ -719,7 +720,7 @@ start_server {tags {"introspection"}} {
 
     test {CONFIG SET rollback on set error} {
         # This test passes an invalid percent value to maxmemory-clients which should cause an
-        # input verification failure during the "set" phase before trying to apply the 
+        # input verification failure during the "set" phase before trying to apply the
         # configuration. We want to make sure the correct failure happens and everything
         # is rolled back.
         # backup maxmemory config
@@ -742,7 +743,7 @@ start_server {tags {"introspection"}} {
 
     test {CONFIG SET rollback on apply error} {
         # This test tries to configure a used port number in redis. This is expected
-        # to pass the `CONFIG SET` validity checking implementation but fail on 
+        # to pass the `CONFIG SET` validity checking implementation but fail on
         # actual "apply" of the setting. This will validate that after an "apply"
         # failure we rollback to the previous values.
         proc dummy_accept {chan addr port} {}
@@ -774,8 +775,8 @@ start_server {tags {"introspection"}} {
         set used_port [find_available_port $::baseport $::portcount]
         dict set some_configs port $used_port
 
-        # Run a dummy server on used_port so we know we can't configure redis to 
-        # use it. It's ok for this to fail because that means used_port is invalid 
+        # Run a dummy server on used_port so we know we can't configure redis to
+        # use it. It's ok for this to fail because that means used_port is invalid
         # anyway
         catch {set sockfd [socket -server dummy_accept -myaddr 127.0.0.1 $used_port]} e
         if {$::verbose} { puts "dummy_accept: $e" }
@@ -822,18 +823,18 @@ start_server {tags {"introspection"}} {
 
     test {CONFIG GET multiple args} {
         set res [r config get maxmemory maxmemory* bind *of]
-        
+
         # Verify there are no duplicates in the result
         assert_equal [expr [llength [dict keys $res]]*2] [llength $res]
-        
+
         # Verify we got both name and alias in result
-        assert {[dict exists $res slaveof] && [dict exists $res replicaof]}  
+        assert {[dict exists $res slaveof] && [dict exists $res replicaof]}
 
         # Verify pattern found multiple maxmemory* configs
-        assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}  
+        assert {[dict exists $res maxmemory] && [dict exists $res maxmemory-samples] && [dict exists $res maxmemory-clients]}
 
         # Verify we also got the explicit config
-        assert {[dict exists $res bind]}  
+        assert {[dict exists $res bind]}
     }
 
     test {redis-server command line arguments - error cases} {
