@@ -94,6 +94,7 @@ class TestCase:
         self.test_key = f"test:{self.__class__.__name__.lower()}"
         # Primary Redis instance
         self.redis = redis.Redis(port=primary_port)
+        self.redis3 = redis.Redis(port=primary_port,protocol=3)
         # Replica Redis instance
         self.replica = redis.Redis(port=replica_port)
         # Replication status
@@ -184,6 +185,7 @@ def find_test_classes(primary_port, replica_port):
                         # Create test instance with specified ports
                         test_instance = obj()
                         test_instance.redis = redis.Redis(port=primary_port)
+                        test_instance.redis3 = redis.Redis(port=primary_port,protocol=3)
                         test_instance.replica = redis.Redis(port=replica_port)
                         test_instance.primary_port = primary_port
                         test_instance.replica_port = replica_port
