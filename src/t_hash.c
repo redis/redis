@@ -920,9 +920,13 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
         }
 
         if (!update) {
+            listpackEntry entries[2] = {
+                {.sval = (unsigned char*) field, .slen = sdslen(field)},
+                {.sval = (unsigned char*) value, .slen = sdslen(value)},
+            };
+
             /* Push new field/value pair onto the tail of the listpack */
-            zl = lpAppend(zl, (unsigned char*)field, sdslen(field));
-            zl = lpAppend(zl, (unsigned char*)value, sdslen(value));
+            zl = lpBatchAppend(zl, entries, 2);
         }
         o->ptr = zl;
 

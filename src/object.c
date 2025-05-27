@@ -980,7 +980,7 @@ int collateStringObjects(const robj *a, const robj *b) {
 
 /* Equal string objects return 1 if the two objects are the same from the
  * point of view of a string comparison, otherwise 0 is returned. Note that
- * this function is faster then checking for (compareStringObject(a,b) == 0)
+ * this function is faster than checking for (compareStringObject(a,b) == 0)
  * because it can perform some more optimization. */
 int equalStringObjects(robj *a, robj *b) {
     if (a->encoding == OBJ_ENCODING_INT &&
@@ -989,6 +989,11 @@ int equalStringObjects(robj *a, robj *b) {
          * long is the same. */
         return a->ptr == b->ptr;
     } else {
+        if (sdsEncodedObject(a) && sdsEncodedObject(b)
+            && sdslen(a->ptr) != sdslen(b->ptr))
+        {
+            return 0;
+        }
         return compareStringObjects(a,b) == 0;
     }
 }
@@ -1644,7 +1649,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
         lru_idle = lru_idle*lru_multiplier/LRU_CLOCK_RESOLUTION;
         long lru_abs = lru_clock - lru_idle; /* Absolute access time. */
         /* If the LRU field underflows (since lru_clock is a wrapping clock),
-         * we need to make it positive again. This be handled by the unwrapping
+         * we need to make it positive again. This will be handled by the unwrapping
          * code in estimateObjectIdleTime. I.e. imagine a day when lru_clock
          * wrap arounds (happens once in some 6 months), and becomes a low
          * value, like 10, an lru_idle of 1000 should be near LRU_CLOCK_MAX. */

@@ -40,7 +40,6 @@ typedef enum {
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
-static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dictEntryLink link);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -118,6 +117,46 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 
             if (dictMeta) dictMeta->keysizes_hist[type][0]++;
             kvstoreMeta->keysizes_hist[type][0]++;
+        }
+    }
+}
+
+/* Assert keysizes histogram (For debugging only)
+ *
+ * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
+ */
+void dbgAssertKeysizesHist(redisDb *db) {
+    /* Scan DB and build expected histogram by scanning all keys */
+    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
+    dictEntry *de;
+    kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
+    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        kvobj *kv = dictGetKV(de);
+        if (kv->type < OBJ_TYPE_BASIC_MAX) {
+            int64_t len = getObjectLength(kv);
+            scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
+        }
+    }
+    kvstoreIteratorRelease(kvs_it);
+    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+        volatile int64_t *keysizesHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
+        for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
+            if (scanHist[type][i] == keysizesHist[i])
+                continue;
+
+            /* print scanStr vs. expected histograms for debugging */
+            char scanStr[500], keysizesStr[500];
+            int l1 = 0, l2 = 0;
+            for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
+                if (scanHist[type][j])
+                    l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1,
+                                        "[%d]=%"PRId64" ", j, scanHist[type][j]);
+                if (keysizesHist[j])
+                    l2 += snprintf(keysizesStr + l2, sizeof(keysizesStr) - l2,
+                                            "[%d]=%"PRId64" ", j, keysizesHist[j]);
+            }
+            serverPanic("dbgAssertKeysizesHist: type=%d\nscanStr=%s\nkeysizes=%s\n",
+                        type, scanStr, keysizesStr);
         }
     }
 }
@@ -394,7 +433,8 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
  *   update of a value of an existing key (when false).
  * - The `link` is optional, can save lookup, if provided.
  */
-static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dictEntryLink link) {
+static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link, 
+                       int overwrite, int updateKeySizes, int keepTTL) {
     robj *val = *valref;
     int slot = getKeySlot(key->ptr);
     if (!link) {
@@ -446,28 +486,42 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
         val->lru = old->lru;
         /* Update expire reference if needed */
         long long expire = getExpire(db, key->ptr, old);
-        kvNew = kvobjSet(key->ptr, val, expire);
+        kvNew = kvobjSet(key->ptr, val, keepTTL ? expire : -1);
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* Replace the old value at its location in the expire space. */
         if (expire >= 0) {
-            dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot, key->ptr, NULL);
-            serverAssertWithInfo(NULL,key,exLink != NULL);
-            kvstoreDictSetAtLink(db->expires, slot, kvNew, &exLink, 0);
+            if (keepTTL) {
+                dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot,
+                                                           key->ptr, NULL);
+                serverAssertWithInfo(NULL, key, exLink != NULL);
+                kvstoreDictSetAtLink(db->expires, slot, kvNew, &exLink, 0);
+            } else {
+                kvstoreDictDelete(db->expires, slot, key->ptr);
+            }
         }
     }
 
     /* Remove old key and add new key to KEYSIZES histogram */
     int64_t newlen = (int64_t) getObjectLength(kvNew);
-    /* Save one call if old and new are the same type */
-    if (oldtype == kvNew->type) {
-        updateKeysizesHist(db, slot, oldtype, oldlen, newlen);
-    } else {
-        updateKeysizesHist(db, slot, oldtype, oldlen, -1);
-        updateKeysizesHist(db, slot, kvNew->type, -1, newlen);
+    if (updateKeySizes) {
+        /* Save one call if old and new are the same type */
+        if (oldtype == kvNew->type) {
+            updateKeysizesHist(db, slot, oldtype, oldlen, newlen);
+        } else {
+            updateKeysizesHist(db, slot, oldtype, oldlen, -1);
+            updateKeysizesHist(db, slot, kvNew->type, -1, newlen);
+        }
     }
 
-    if (server.lazyfree_lazy_server_del) {
+    if (server.io_threads_num > 1 && old->encoding == OBJ_ENCODING_RAW) {
+        /* In multi-threaded mode, the OBJ_ENCODING_RAW string object usually is
+         * allocated in the IO thread, so we defer the free to the IO thread.
+         * Besides, we never free a string object in BIO threads, so, even with
+         * lazyfree-lazy-server-del enabled, a fallback to main thread freeing
+         * due to defer free failure doesn't go against the config intention. */
+        tryDeferFreeClientObject(server.current_client, old);
+    } else if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key, old, db->id);
     } else {
         decrRefCount(old);
@@ -477,8 +531,8 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, int overwrite, dic
 
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
-void dbReplaceValue(redisDb *db, robj *key, robj **valref) {
-    dbSetValue(db, key, valref, 0, NULL);
+void dbReplaceValue(redisDb *db, robj *key, robj **valref, int updateKeySizes) {
+    dbSetValue(db, key, valref, NULL, 0, updateKeySizes, 1);
 }
 
 /* Replace an existing key with a new value (don't emit any events)
@@ -486,7 +540,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj **valref) {
  * parameter 'link' is optional. If provided, saves lookup.
  */
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link) {
-    dbSetValue(db, key, val, 0, link);
+    dbSetValue(db, key, val, link, 0, 1, 1);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -533,9 +587,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
 
     if (exists) {
         /* Update the value of an existing key */
-        dbSetValue(db, key, valref, 1, *link);
-        if ((-1 != kvobjGetExpire(*valref)) && (!(flags & SETKEY_KEEPTTL)))
-            removeExpire(db,key);
+        dbSetValue(db, key, valref, *link, 1, 1, flags & SETKEY_KEEPTTL);
     } else {
         /* Add the new key to the database */
         dbAddByLink(db, key, valref, link);

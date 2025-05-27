@@ -297,7 +297,11 @@ run_solo {defrag} {
             r config set maxmemory 0
             r config set list-max-ziplist-size 5 ;# list of 10k items will have 2000 quicklist nodes
             r config set stream-node-max-entries 5
-            r hmset hash h1 v1 h2 v2 h3 v3
+            r config set hash-max-listpack-entries 10
+            r hmset hash_lp h1 v1 h2 v2 h3 v3
+            assert_encoding listpack hash_lp
+            r hmset hash_ht h1 v1 h2 v2 h3 v3 h4 v4 h5 v5 h6 v6 h7 v7 h8 v8 h9 v9 h10 v10 h11 v11
+            assert_encoding hashtable hash_ht
             r lpush list a b c d
             r zadd zset 0 a 1 b 2 c 3 d
             r sadd set a b c d
@@ -347,7 +351,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 500015
+            assert_equal [r dbsize] 500016
 
             # create some fragmentation
             for {set j 0} {$j < 500000} {incr j 2} {
@@ -356,7 +360,7 @@ run_solo {defrag} {
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd read ; # Discard replies
             }
-            assert_equal [r dbsize] 250015
+            assert_equal [r dbsize] 250016
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms
@@ -512,15 +516,14 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
-        test "Active Defrag HFE: $type" {
+        foreach {eb_container fields n} {eblist 16 3000 ebrax 30 1600 large_ebrax 1600 30} {
+        test "Active Defrag HFE with $eb_container: $type" {
             r flushdb
             r config set hz 100
             r config set activedefrag no
             wait_for_defrag_stop 500 100
             r config resetstat
-            # TODO: Lower the threshold after defraging the ebuckets.
-            # Now just to ensure that the reference is updated correctly.
-            r config set active-defrag-threshold-lower 12
+            r config set active-defrag-threshold-lower 7
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
@@ -529,26 +532,29 @@ run_solo {defrag} {
             r config set hash-max-listpack-entries 10
 
             # Populate memory with interleaving hash field of same size
-            set n 3000
-            set fields 16 ;# make all the fields in an eblist.
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
                 for {set j 0} {$j < $fields} {incr j} {
-                    $rd hset h$i f$j $dummy_field
-                    $rd hexpire h$i 9999999 FIELDS 1 f$j
+                    $rd hset h$i $dummy_field$j v
+                    $rd hexpire h$i 9999999 FIELDS 1 $dummy_field$j
                     $rd set "k$i$j" $dummy_field
                 }
+                $rd expire h$i 9999999 ;# Ensure expire is updated after kvobj reallocation
             }
-            for {set j 0} {$j < [expr $n*$fields]} {incr j} {
-                $rd read ; # Discard hset replies
-                $rd read ; # Discard hexpire replies
-                $rd read ; # Discard set replies
+            
+            for {set i 0} {$i < $n} {incr i} {
+                for {set j 0} {$j < $fields} {incr j} {
+                    $rd read ; # Discard hset replies
+                    $rd read ; # Discard hexpire replies
+                    $rd read ; # Discard set replies
+                }
+                $rd read ; # Discard expire replies
             }
 
             # Coverage for listpackex.
-            r hset h_lpex f0 $dummy_field
-            r hexpire h_lpex 9999999 FIELDS 1 f0
+            r hset h_lpex $dummy_field v
+            r hexpire h_lpex 9999999 FIELDS 1 $dummy_field
             assert_encoding listpackex h_lpex
 
             after 120 ;# serverCron only updates the info once in 100ms
@@ -591,7 +597,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.5
+                wait_for_defrag_stop 500 100 1.07
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -603,6 +609,7 @@ run_solo {defrag} {
                 }
             }
         }
+        } ;# end of foreach
 
         test "Active defrag for argv retained by the main thread from IO thread: $type" {
             r flushdb

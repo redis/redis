@@ -524,7 +524,8 @@ start_server {tags {"info" "external:skip"}} {
         set info_mem [r info memory]
         set mem_stats [r memory stats]
         assert_equal [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] {0}
-        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr $ht0_size * 8]
+        set ptr_size [expr {[s arch_bits] == 32 ? 4 : 8}]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr $ht0_size * $ptr_size]
         assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] {0}
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {0}
 
@@ -540,9 +541,9 @@ start_server {tags {"info" "external:skip"}} {
         set mem_stats [lindex $res 3]
 
         # Verify the info reflects rehashing state
-        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 [expr $ht0_size * 8]
-        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr ($ht0_size + $ht1_size) * 8 ]
-        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_size * 8]
+        assert_range [getInfoProperty $info_mem mem_overhead_db_hashtable_rehashing] 1 [expr $ht0_size * $ptr_size]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr ($ht0_size + $ht1_size) * $ptr_size]
+        assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_size * $ptr_size]
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
     }
 }

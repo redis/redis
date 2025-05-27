@@ -15,9 +15,9 @@ proc wait_for_secret_sync {maxtries delay num_nodes} {
     }
 }
 
-start_cluster 10 10 {tags {external:skip cluster}} {
+start_cluster 3 3 {tags {external:skip cluster}} {
     test "Test internal secret sync" {
-        wait_for_secret_sync 50 100 20
+        wait_for_secret_sync 50 100 6
     }
 
     
@@ -60,7 +60,7 @@ start_cluster 10 10 {tags {external:skip cluster}} {
                     puts [r -1 debug internal_secret]
                 }
                 r cluster meet $first_shard_host $first_shard_port
-                wait_for_secret_sync 50 100 22
+                wait_for_secret_sync 50 100 8
                 if {$::verbose} {
                     puts {internal secret after join to bigger cluster:}
                     puts [r -1 debug internal_secret]

@@ -143,7 +143,7 @@ typedef struct raxStack {
  * Redis application for this callback).
  *
  * This is currently only supported in forward iterations (raxNext) */
-typedef int (*raxNodeCallback)(raxNode **noderef);
+typedef int (*raxNodeCallback)(raxNode **noderef, void *privdata);
 
 /* Radix tree iterator state is encapsulated into this data structure. */
 #define RAX_ITER_STATIC_LEN 128
@@ -164,6 +164,7 @@ typedef struct raxIterator {
     raxNode *node;          /* Current node. Only for unsafe iteration. */
     raxStack stack;         /* Stack used for unsafe iteration. */
     raxNodeCallback node_cb; /* Optional node callback. Normally set to NULL. */
+    void *privdata;         /* Optional private data for node callback. */
 } raxIterator;
 
 /* Exported API. */

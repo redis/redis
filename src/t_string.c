@@ -466,7 +466,8 @@ void setrangeCommand(client *c) {
         if (checkStringLength(c,offset,value_len) != C_OK)
             return;
 
-        robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, offset+value_len));
+        newLen = offset+value_len;
+        robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newLen));
         kv = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
         /* Key exists, check type */
@@ -486,6 +487,9 @@ void setrangeCommand(client *c) {
 
         /* Create a copy when the object is shared or encoded. */
         kv = dbUnshareStringValueByLink(c->db, c->argv[1], kv, link);
+
+        newLen = max(oldLen, (int64_t) (offset + value_len));
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldLen, newLen);            
     }
 
     if (value_len > 0) {
@@ -497,8 +501,6 @@ void setrangeCommand(client *c) {
         server.dirty++;
     }
 
-    newLen = sdslen(kv->ptr);
-    updateKeysizesHist(c->db,getKeySlot(c->argv[1]->ptr),OBJ_STRING,oldLen,newLen);
     addReplyLongLong(c,newLen);
 }
 

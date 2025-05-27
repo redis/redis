@@ -19,6 +19,7 @@
 
 void lolwut5Command(client *c);
 void lolwut6Command(client *c);
+void lolwut8Command(client *c);
 
 /* The default target for LOLWUT if no matching version was found.
  * This is what unstable versions of Redis will display. */
@@ -54,6 +55,9 @@ void lolwutCommand(client *c) {
     else if ((v[0] == '6' && v[1] == '.' && v[2] != '9') ||
              (v[0] == '5' && v[1] == '.' && v[2] == '9'))
         lolwut6Command(c);
+    else if ((v[0] == '8' && v[1] == '.' && v[2] != '9') ||
+             (v[0] == '7' && v[1] == '.' && v[2] == '9'))
+        lolwut8Command(c);
     else
         lolwutUnstableCommand(c);
 
