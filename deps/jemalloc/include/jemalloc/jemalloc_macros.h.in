@@ -152,6 +152,5 @@
  * function. */
 #define JEMALLOC_FRAG_HINT
 
-/* This version of Jemalloc, modified for Redis, has the je_malloc_usable() function and 
- * je_free_usable() function. */
-#define JEMALLOC_USABLE_EXT
+/* This version of Jemalloc, modified for Redis, has the je_*_usable() family functions. */
+#define JEMALLOC_ALLOC_WITH_USIZE

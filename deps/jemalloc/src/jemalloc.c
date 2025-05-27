@@ -4500,15 +4500,39 @@ malloc_with_usize(size_t size, size_t *usize) {
 	return imalloc_fastpath(size, &malloc_default, usize);
 }
 
-JEMALLOC_EXPORT void JEMALLOC_NOTHROW
-free_with_usize(void *ptr, size_t *usize) {
-	LOG("core.free.entry", "ptr: %p", ptr);
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
+calloc_with_usize(size_t num, size_t size, size_t *usize) {
+	void *ret;
+	static_opts_t sopts;
+	dynamic_opts_t dopts;
 
-	if (!free_fastpath(ptr, 0, false, usize)) {
-		free_default(ptr, usize);
+	LOG("core.calloc.entry", "num: %zu, size: %zu\n", num, size);
+
+	static_opts_init(&sopts);
+	dynamic_opts_init(&dopts);
+
+	sopts.may_overflow = true;
+	sopts.null_out_result_on_error = true;
+	sopts.set_errno_on_error = true;
+	sopts.oom_string = "<jemalloc>: Error in calloc(): out of memory\n";
+
+	dopts.result = &ret;
+	dopts.num_items = num;
+	dopts.item_size = size;
+	dopts.zero = true;
+
+	imalloc(&sopts, &dopts);
+	if (sopts.slow) {
+		uintptr_t args[3] = {(uintptr_t)num, (uintptr_t)size};
+		hook_invoke_alloc(hook_alloc_calloc, ret, (uintptr_t)ret, args);
 	}
 
-	LOG("core.free.exit", "");
+	LOG("core.calloc.exit", "result: %p", ret);
+
+	*usize = dopts.usize;
+	return ret;
 }
 
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
@@ -4557,37 +4581,13 @@ realloc_with_usize(void *ptr, size_t size, size_t *old_usize, size_t *new_usize)
 	}
 }
 
-JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
-void JEMALLOC_NOTHROW *
-JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
-calloc_with_usize(size_t num, size_t size, size_t *usize) {
-	void *ret;
-	static_opts_t sopts;
-	dynamic_opts_t dopts;
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+free_with_usize(void *ptr, size_t *usize) {
+	LOG("core.free.entry", "ptr: %p", ptr);
 
-	LOG("core.calloc.entry", "num: %zu, size: %zu\n", num, size);
-
-	static_opts_init(&sopts);
-	dynamic_opts_init(&dopts);
-
-	sopts.may_overflow = true;
-	sopts.null_out_result_on_error = true;
-	sopts.set_errno_on_error = true;
-	sopts.oom_string = "<jemalloc>: Error in calloc(): out of memory\n";
-
-	dopts.result = &ret;
-	dopts.num_items = num;
-	dopts.item_size = size;
-	dopts.zero = true;
-
-	imalloc(&sopts, &dopts);
-	if (sopts.slow) {
-		uintptr_t args[3] = {(uintptr_t)num, (uintptr_t)size};
-		hook_invoke_alloc(hook_alloc_calloc, ret, (uintptr_t)ret, args);
+	if (!free_fastpath(ptr, 0, false, usize)) {
+		free_default(ptr, usize);
 	}
 
-	LOG("core.calloc.exit", "result: %p", ret);
-
-	*usize = dopts.usize;
-	return ret;
+	LOG("core.free.exit", "");
 }
