@@ -116,6 +116,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include "hnsw.h"
+#include "vset_config.h"
 
 // We inline directly the expression implementation here so that building
 // the module is trivial.
@@ -1979,6 +1980,23 @@ void VectorSetDigest(RedisModuleDigest *md, void *value) {
     }
 }
 
+// int VectorSets_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
+
+    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Error registering module configuration");
+    return REDISMODULE_ERR;
+    }
+    RedisModule_Log(ctx, "warning", "config load");
+
+    // Load default values
+    RM_TRY_F(RedisModule_LoadDefaultConfigs, ctx);
+
+    RM_TRY_F(RedisModule_LoadConfigs, ctx);
+
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -1987,6 +2005,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_Init(ctx,"vectorset",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    if (VectorSets_InitModuleConfig(ctx) == REDISMODULE_ERR) {
+            return REDISMODULE_ERR;
+    }
 
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS|REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
 
