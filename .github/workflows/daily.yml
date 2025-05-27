@@ -723,7 +723,8 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=thread REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        # TODO Investigate why TSan clang builds with jemalloc crash on start
+        run: make SANITIZER=thread REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS' USE_JEMALLOC=$([ "$CC" == "clang" ] && echo no || echo yes)
       - name: testprep
         run: |
           sudo apt-get update
