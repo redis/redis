@@ -4495,16 +4495,16 @@ get_defrag_hint(void* ptr) {
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
-malloc_usable(size_t size, size_t *usize) {
+malloc_with_usize(size_t size, size_t *usize) {
 	return imalloc_fastpath(size, &malloc_default, usize);
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
-free_usable(void *ptr, size_t *usable) {
+free_with_usize(void *ptr, size_t *usize) {
 	LOG("core.free.entry", "ptr: %p", ptr);
 
-	if (!free_fastpath(ptr, 0, false, usable)) {
-		free_default(ptr, usable);
+	if (!free_fastpath(ptr, 0, false, usize)) {
+		free_default(ptr, usize);
 	}
 
 	LOG("core.free.exit", "");
@@ -4513,7 +4513,7 @@ free_usable(void *ptr, size_t *usable) {
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ALLOC_SIZE(2)
-realloc_usable(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
+realloc_with_usize(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
 	LOG("core.realloc.entry", "ptr: %p, size: %zu\n", ptr, size);
 
 	if (likely(ptr != NULL && size != 0)) {
@@ -4559,7 +4559,7 @@ realloc_usable(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
-calloc_usable(size_t num, size_t size, size_t *usize) {
+calloc_with_usize(size_t num, size_t size, size_t *usize) {
 	void *ret;
 	static_opts_t sopts;
 	dynamic_opts_t dopts;

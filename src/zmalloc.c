@@ -68,14 +68,14 @@ void zlibc_free(void *ptr) {
 #define rallocx(ptr,size,flags) je_rallocx(ptr,size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
 #if defined(HAVE_USABLE_EXT)
-void *je_malloc_usable(size_t size, size_t *usize);
-void *je_calloc_usable(size_t num, size_t size, size_t *usize);
-void *je_realloc_usable(void *ptr, size_t size, size_t *old_usize, size_t *new_usize);
-void je_free_usable(void *ptr, size_t *usize);
-#define malloc_usable(size,usize) je_malloc_usable(size,usize)
-#define calloc_usable(num,size,usize) je_calloc_usable(num,size,usize)
-#define realloc_usable(ptr,size,old_usize,new_usize) je_realloc_usable(ptr,size,old_usize,new_usize)
-#define free_usable(ptr,usize) je_free_usable(ptr,usize)
+void *je_malloc_with_usize(size_t size, size_t *usize);
+void *je_calloc_with_usize(size_t num, size_t size, size_t *usize);
+void *je_realloc_with_usize(void *ptr, size_t size, size_t *old_usize, size_t *new_usize);
+void je_free_with_usize(void *ptr, size_t *usize);
+#define malloc_with_usize(size,usize) je_malloc_with_usize(size,usize)
+#define calloc_with_usize(num,size,usize) je_calloc_with_usize(num,size,usize)
+#define realloc_with_usize(ptr,size,old_usize,new_usize) je_realloc_with_usize(ptr,size,old_usize,new_usize)
+#define free_with_usize(ptr,usize) je_free_with_usize(ptr,usize)
 #endif
 #endif
 
@@ -130,7 +130,7 @@ static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
 #ifdef HAVE_USABLE_EXT
-    void *ptr = malloc_usable(MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+    void *ptr = malloc_with_usize(MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
 #else
     void *ptr = malloc(MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
 #endif
@@ -261,7 +261,7 @@ static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
 #ifdef HAVE_USABLE_EXT
-    void *ptr = calloc_usable(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+    void *ptr = calloc_with_usize(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
 #else
     void *ptr = calloc(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
 #endif
@@ -361,7 +361,7 @@ static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *
         return NULL;
     }
 #ifdef HAVE_USABLE_EXT
-    newptr = realloc_usable(ptr, size, &oldsize, &size);
+    newptr = realloc_with_usize(ptr, size, &oldsize, &size);
     if (newptr == NULL) {
         if (usable) *usable = 0;
         return NULL;
@@ -460,7 +460,7 @@ void zfree(void *ptr) {
 
 #ifdef HAVE_USABLE_EXT
     size_t usize;
-    free_usable(ptr, &usize);
+    free_with_usize(ptr, &usize);
     update_zmalloc_stat_free(usize);
 #elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(zmalloc_size(ptr));
@@ -483,7 +483,7 @@ void zfree_usable(void *ptr, size_t *usable) {
     if (ptr == NULL) return;
 
 #ifdef HAVE_USABLE_EXT
-    free_usable(ptr, usable);
+    free_with_usize(ptr, usable);
     update_zmalloc_stat_free(*usable);
 #elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
