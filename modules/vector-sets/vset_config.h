@@ -7,7 +7,7 @@
 #define HNSW_CONF_MAX_MAX_THREADS 32
 
 typedef struct {
-  int hnswMaxThreads;
+  uint8_t hnswMaxThreads;
 } VSConfig;
 
 extern VSConfig VSGlobalConfig;

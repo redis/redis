@@ -114,7 +114,7 @@ typedef struct HNSW {
                                  * updates. */
     uint32_t quant_type;        /* Quantization used. HNSW_QUANT_... */
     hnswCursor *cursors;
-    int n_threads;     /* Maximum number of concurrent threads */
+    uint8_t n_threads;     /* Maximum number of concurrent threads */
 } HNSW;
 
 /* Serialized node. This structure is used as return value of
