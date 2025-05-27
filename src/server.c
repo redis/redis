@@ -260,7 +260,7 @@ mstime_t commandTimeSnapshot(void) {
  * used in order to obtain the right coverage information. 
  * There is a caveat for when we exit due to a signal.
  * In this case we want the function to be async signal safe, so we can't use exit()
- * */
+ */
 void exitFromChild(int retcode, int from_signal) {
 #ifdef COVERAGE_TEST
     if (!from_signal) {
