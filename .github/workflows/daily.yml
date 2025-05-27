@@ -730,16 +730,16 @@ jobs:
           sudo apt-get install tcl8.6 tclx -y
       - name: test
         if: true && !contains(github.event.inputs.skiptests, 'redis')
-        run: TSAN_OPTIONS="detect_deadlocks=0,suppressions=src/tsan.sup" ./runtest --tsan --clients 1 --config io-threads 4 --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
+        run: ./runtest --tsan --clients 1 --config io-threads 4 --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: module api test
         if: true && !contains(github.event.inputs.skiptests, 'modules')
-        run: TSAN_OPTIONS="detect_deadlocks=0,suppressions=src/tsan.sup" CFLAGS='-Werror' ./runtest-moduleapi --tsan --clients 1 --config io-threads 4 --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
+        run: CFLAGS='-Werror' ./runtest-moduleapi --tsan --clients 1 --config io-threads 4 --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
       - name: sentinel tests
         if: true && !contains(github.event.inputs.skiptests, 'sentinel')
-        run: TSAN_OPTIONS="detect_deadlocks=0,suppressions=src/tsan.sup" ./runtest-sentinel --tsan ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-sentinel --tsan ${{github.event.inputs.cluster_test_args}}
       - name: cluster tests
         if: true && !contains(github.event.inputs.skiptests, 'cluster')
-        run: TSAN_OPTIONS="detect_deadlocks=0,suppressions=src/tsan.sup" ./runtest-cluster --tsan ${{github.event.inputs.cluster_test_args}}
+        run: ./runtest-cluster --tsan ${{github.event.inputs.cluster_test_args}}
       - name: unittest
         if: true && !contains(github.event.inputs.skiptests, 'unittest')
         run: TSAN_OPTIONS="detect_deadlocks=0,suppressions=src/tsan.sup" ./src/redis-server test all --accurate
