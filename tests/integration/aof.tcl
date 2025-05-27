@@ -762,7 +762,7 @@ tags {"aof external:skip"} {
     start_server_aof_ex [list dir $server_path aof-load-broken yes aof-load-broken-max-size 2] [list wait_ready false] {
         test "Bad format: Server should have logged an error" {
  
-            wait_for_log_messages 0 {"*AOF did not loaded because the size*"} 0 10 1000
+            wait_for_log_messages 0 {"*AOF was not loaded because the size*"} 0 10 1000
         }
     }
 }
