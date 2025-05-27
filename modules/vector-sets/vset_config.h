@@ -1,11 +1,17 @@
+#ifndef VSET_CONFIG_H
+#define VSET_CONFIG_H
+
 #include "../../src/redismodule.h"
 
 #define HNSW_DEFAULT_MAX_THREADS 32
-#define HNSW_MAX_MAX_THREADS 32
+#define HNSW_CONF_MAX_MAX_THREADS 32
 
 typedef struct {
   int hnswMaxThreads;
 } VSConfig;
+
+extern VSConfig VSGlobalConfig;
+
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \
@@ -27,3 +33,5 @@ typedef struct {
 }
 
 int RegisterModuleConfig(RedisModuleCtx *ctx);
+
+#endif

@@ -1,13 +1,6 @@
 #include "vset_config.h"
 
-
-/* Read configuration from redis module arguments into the global config object. Return
- * REDISMODULE_ERR and sets an error message if something is invalid */
-// int ReadConfig(RedisModuleString **argv, int argc, char **err);
-
-
 VSConfig VSGlobalConfig = VS_DEFAULT_CONFIG;
-
 
 int set_numeric_config(const char *name, long long val, void *privdata,
     RedisModuleString **err) {
@@ -22,7 +15,6 @@ REDISMODULE_NOT_USED(name);
 return (*(long long *)privdata);
 }
 
-
 int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RedisModule_Log(ctx, "warning", "config load from config file");
     // Numeric parameters
@@ -30,7 +22,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "vectorset-hnsw_max_threads", HNSW_DEFAULT_MAX_THREADS,
       REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_IMMUTABLE, 0,
-      HNSW_MAX_MAX_THREADS, get_numeric_config,
+      HNSW_CONF_MAX_MAX_THREADS, get_numeric_config,
       set_numeric_config, NULL,
       (void *)&(VSGlobalConfig.hnswMaxThreads)
     )
