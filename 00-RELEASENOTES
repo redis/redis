@@ -12,6 +12,22 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 7.4.4    Released Tue 27 May 2025 12:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+### Security fixes
+
+* (CVE-2025-27151) redis-check-aof may lead to stack overflow and potential RCE
+
+### Bug fixes
+
+- #13966, #13932 `CLUSTER SLOTS` - TLS port update not reflected in CLUSTER SLOTS
+- #13958 `XTRIM`, `XADD` - incorrect lag due to trimming stream
+
+
+================================================================================
 Redis 7.4.3    Released Wed 23 Apr 2025 12:00:00 IST
 ================================================================================
 
