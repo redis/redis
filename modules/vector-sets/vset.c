@@ -837,14 +837,15 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     }
 
     /* Return results */
-    if (withscores)
+    int resp3 = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_RESP3;
+    int reply_with_map = resp3 && (withscores || withattribs);
+
+    if (reply_with_map)
         RedisModule_ReplyWithMap(ctx, REDISMODULE_POSTPONED_LEN);
     else
         RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_LEN);
+
     long long arraylen = 0;
-
-    int resp3 = RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_RESP3;
-
     for (unsigned int i = 0; i < found && i < count; i++) {
         if (distances[i] > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
@@ -876,7 +877,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
     }
     hnsw_release_read_slot(vset->hnsw,slot);
 
-    if (resp3 && (withscores || withattribs)) {
+    if (reply_with_map) {
         RedisModule_ReplySetMapLength(ctx, arraylen);
     } else {
         int items_per_ele = 1+withattribs+withscores;
