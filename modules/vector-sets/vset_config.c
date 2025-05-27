@@ -1,6 +1,6 @@
 #include "vset_config.h"
 
-VSConfig VSGlobalConfig = VS_DEFAULT_CONFIG;
+VSConfig VSGlobalConfig;
 
 int set_numeric_config(const char *name, long long val, void *privdata,
     RedisModuleString **err) {
@@ -20,7 +20,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "vectorset-hnsw_max_threads", HNSW_DEFAULT_MAX_THREADS,
+      ctx, "vectorset-hnsw_max_threads", HNSW_CONF_DFLT_MAX_THREADS,
       REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_IMMUTABLE, 0,
       HNSW_CONF_MAX_MAX_THREADS, get_numeric_config,
       set_numeric_config, NULL,

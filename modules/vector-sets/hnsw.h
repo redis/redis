@@ -21,12 +21,14 @@
 #define HNSW_DEFAULT_M  16     /* Used when 0 is given at creation time. */
 #define HNSW_MIN_M      4      /* Probably even too low already. */
 #define HNSW_MAX_M      4096   /* Safeguard sanity limit. */
-#define HNSW_MAX_THREADS HNSW_CONF_MAX_MAX_THREADS    /* Maximum number of concurrent threads */
+#define HNSW_MAX_THREADS HNSW_CONF_MAX_MAX_THREADS + 1    /* Maximum number of concurrent threads, including main thread */
 
 /* Quantization types you can enable at creation time in hnsw_new() */
 #define HNSW_QUANT_NONE  0   // No quantization.
 #define HNSW_QUANT_Q8    1   // Q8 quantization.
 #define HNSW_QUANT_BIN   2   // Binary quantization.
+
+#define MAIN_THREAD_I 0
 
 /* Layer structure for HNSW nodes. Each node will have from one to a few
  * of this depending on its level. */
@@ -112,6 +114,7 @@ typedef struct HNSW {
                                  * updates. */
     uint32_t quant_type;        /* Quantization used. HNSW_QUANT_... */
     hnswCursor *cursors;
+    int n_threads;     /* Maximum number of concurrent threads */
 } HNSW;
 
 /* Serialized node. This structure is used as return value of

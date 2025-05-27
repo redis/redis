@@ -3,7 +3,7 @@
 
 #include "../../src/redismodule.h"
 
-#define HNSW_DEFAULT_MAX_THREADS 32
+#define HNSW_CONF_DFLT_MAX_THREADS 32
 #define HNSW_CONF_MAX_MAX_THREADS 32
 
 typedef struct {
@@ -29,7 +29,7 @@ extern VSConfig VSGlobalConfig;
 
 
 #define VS_DEFAULT_CONFIG {                                                                           \
-  .hnswMaxThreads = HNSW_DEFAULT_MAX_THREADS,                                                         \
+  .hnswMaxThreads = HNSW_CONF_DFLT_MAX_THREADS,                                                       \
 }
 
 int RegisterModuleConfig(RedisModuleCtx *ctx);
