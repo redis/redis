@@ -1736,7 +1736,7 @@ fmterr: /* Format error. */
                 } else {
                     serverLog(LL_WARNING,
                         "AOF loaded anyway because aof-load-broken is enabled and broken size '%lld' is less than aof-load-broken-max-size '%lld'",
-                        sb.st_size - valid_up_to, server.aof_load_broken_max_size);
+                        (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
                     ret = AOF_BROKEN_RECOVERED;
                     goto loaded_ok;
                 }
@@ -1744,7 +1744,7 @@ fmterr: /* Format error. */
         } else { /* The size of the corrupted portion exceeds the configured limit. */
             serverLog(LL_WARNING,
                  "AOF was not loaded because the size of the corrupted portion exceeds the configured limit. aof-load-broken is enabled and broken size '%lld' is bigger than aof-load-broken-max-size '%lld'",
-                 sb.st_size - valid_up_to, server.aof_load_broken_max_size);
+                 (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
         }
     } else {
         serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
