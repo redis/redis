@@ -1,3 +1,13 @@
+/* vector set module configuration.
+ *
+ * Copyright (c) 2009-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "vset_config.h"
 
 #define RM_TRY(expr)                                                  \
@@ -26,9 +36,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "vectorset-hnsw_max_threads", HNSW_CONF_DFLT_MAX_THREADS,
+      ctx, "vectorset-hnsw_max_threads", VSET_DEFAULT_MAX_THREADS,
       REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_IMMUTABLE, 0,
-      HNSW_CONF_MAX_MAX_THREADS, get_uint8_numeric_config,
+      VSET_MAX_ALLOWED_THREADS, get_uint8_numeric_config,
       set_uint8_numeric_config, NULL,
       (void *)&(VSGlobalConfig.hnswMaxThreads)
     )
