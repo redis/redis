@@ -19,12 +19,14 @@ start_server {tags {"modules"}} {
     } {{f1 v1} {f2 v2}}
 
     test {Module scan hash listpack with int value} {
+        r del hh1
         r hmset hh1 f1 1
         assert_encoding listpack hh1
         lsort [r scan.scan_key hh1]
     } {{f1 1}}
 
     test {Module scan hash listpack with hexpire} {
+        r del hh
         r debug set-active-expire 0
         r hmset hh f1 v1 f2 v2 f3 v3
         r hexpire hh 100000 fields 1 f1
@@ -37,6 +39,8 @@ start_server {tags {"modules"}} {
     } {{f1 v1} {f2 v2}} {needs:debug}
 
     test {Module scan hash dict} {
+        r del hh
+        r hset hh f1 v1 f2 v2
         r config set hash-max-ziplist-entries 2
         r hmset hh f3 v3
         assert_encoding hashtable hh
@@ -72,6 +76,8 @@ start_server {tags {"modules"}} {
     } {{f1 1} {f2 2}}
 
     test {Module scan zset skiplist} {
+        r del zz
+        r zadd zz 1 f1 2 f2
         r config set zset-max-ziplist-entries 2
         r zadd zz 3 f3
         assert_encoding skiplist zz
@@ -79,12 +85,15 @@ start_server {tags {"modules"}} {
     } {{f1 1} {f2 2} {f3 3}}
 
     test {Module scan set intset} {
+        r del ss
         r sadd ss 1 2
         assert_encoding intset ss
         lsort [r scan.scan_key ss]
     } {{1 {}} {2 {}}}
 
     test {Module scan set dict} {
+        r del ss
+        r sadd ss 1 2
         r config set set-max-intset-entries 2
         r sadd ss 3
         assert_encoding hashtable ss
