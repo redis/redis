@@ -80,7 +80,7 @@
 #define HAVE_DEFRAG
 #endif
 
-/* We can enable the Redis defrag capabilities only if we are using Jemalloc
+/* We can enable allocation with usable size capabilities only if we are using Jemalloc
  * and the version used is our special version modified for Redis having
  * the ability to return usable size during allocation or deallocation. */
 #if defined(USE_JEMALLOC) && defined(JEMALLOC_ALLOC_WITH_USIZE)

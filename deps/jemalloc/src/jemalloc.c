@@ -2740,11 +2740,15 @@ malloc_default(size_t size, size_t *usize) {
  * Begin malloc(3)-compatible functions.
  */
 
+static inline void *je_malloc_internal(size_t size, size_t *usize) {
+	return imalloc_fastpath(size, &malloc_default, usize);
+}
+
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
 je_malloc(size_t size) {
-	return imalloc_fastpath(size, &malloc_default, NULL);
+	return je_malloc_internal(size, NULL);
 }
 
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
@@ -2827,10 +2831,7 @@ je_aligned_alloc(size_t alignment, size_t size) {
 	return ret;
 }
 
-JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
-void JEMALLOC_NOTHROW *
-JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
-je_calloc(size_t num, size_t size) {
+static void *je_calloc_internal(size_t num, size_t size, size_t *usize) {
 	void *ret;
 	static_opts_t sopts;
 	dynamic_opts_t dopts;
@@ -2858,7 +2859,15 @@ je_calloc(size_t num, size_t size) {
 
 	LOG("core.calloc.exit", "result: %p", ret);
 
+	*usize = dopts.usize;
 	return ret;
+}
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
+je_calloc(size_t num, size_t size) {
+	return je_calloc_internal(num, size, NULL);;
 }
 
 JEMALLOC_ALWAYS_INLINE void
@@ -3158,15 +3167,19 @@ bool free_fastpath(void *ptr, size_t size, bool size_hint, size_t *usable_size) 
 	return true;
 }
 
-JEMALLOC_EXPORT void JEMALLOC_NOTHROW
-je_free(void *ptr) {
+static inline void je_free_internal(void *ptr, size_t *usize) {
 	LOG("core.free.entry", "ptr: %p", ptr);
 
-	if (!free_fastpath(ptr, 0, false, NULL)) {
-		free_default(ptr, NULL);
+	if (!free_fastpath(ptr, 0, false, usize)) {
+		free_default(ptr, usize);
 	}
 
 	LOG("core.free.exit", "");
+}
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+je_free(void *ptr) {
+	je_free_internal(ptr, NULL);
 }
 
 /*
@@ -3626,18 +3639,15 @@ do_realloc_nonnull_zero(void *ptr, size_t *old_usize, size_t *new_usize) {
 	}
 }
 
-JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
-void JEMALLOC_NOTHROW *
-JEMALLOC_ALLOC_SIZE(2)
-je_realloc(void *ptr, size_t size) {
+static inline void *je_realloc_internal(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
 	LOG("core.realloc.entry", "ptr: %p, size: %zu\n", ptr, size);
 
 	if (likely(ptr != NULL && size != 0)) {
-		void *ret = do_rallocx(ptr, size, 0, true, NULL, NULL);
+		void *ret = do_rallocx(ptr, size, 0, true, old_usize, new_usize);
 		LOG("core.realloc.exit", "result: %p", ret);
 		return ret;
 	} else if (ptr != NULL && size == 0) {
-		void *ret = do_realloc_nonnull_zero(ptr, NULL, NULL);
+		void *ret = do_realloc_nonnull_zero(ptr, old_usize, new_usize);
 		LOG("core.realloc.exit", "result: %p", ret);
 		return ret;
 	} else {
@@ -3666,8 +3676,17 @@ je_realloc(void *ptr, size_t size) {
 			    (uintptr_t)ret, args);
 		}
 		LOG("core.realloc.exit", "result: %p", ret);
+		*old_usize = 0;
+		*new_usize = dopts.usize;
 		return ret;
 	}
+}
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ALLOC_SIZE(2)
+je_realloc(void *ptr, size_t size) {
+	return je_realloc_internal(ptr, size, NULL, NULL);
 }
 
 JEMALLOC_ALWAYS_INLINE size_t
@@ -4497,97 +4516,24 @@ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
 malloc_with_usize(size_t size, size_t *usize) {
-	return imalloc_fastpath(size, &malloc_default, usize);
+	return je_malloc_internal(size, usize);
 }
 
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
 calloc_with_usize(size_t num, size_t size, size_t *usize) {
-	void *ret;
-	static_opts_t sopts;
-	dynamic_opts_t dopts;
-
-	LOG("core.calloc.entry", "num: %zu, size: %zu\n", num, size);
-
-	static_opts_init(&sopts);
-	dynamic_opts_init(&dopts);
-
-	sopts.may_overflow = true;
-	sopts.null_out_result_on_error = true;
-	sopts.set_errno_on_error = true;
-	sopts.oom_string = "<jemalloc>: Error in calloc(): out of memory\n";
-
-	dopts.result = &ret;
-	dopts.num_items = num;
-	dopts.item_size = size;
-	dopts.zero = true;
-
-	imalloc(&sopts, &dopts);
-	if (sopts.slow) {
-		uintptr_t args[3] = {(uintptr_t)num, (uintptr_t)size};
-		hook_invoke_alloc(hook_alloc_calloc, ret, (uintptr_t)ret, args);
-	}
-
-	LOG("core.calloc.exit", "result: %p", ret);
-
-	*usize = dopts.usize;
-	return ret;
+	return je_calloc_internal(num, size, usize);
 }
 
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ALLOC_SIZE(2)
 realloc_with_usize(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
-	LOG("core.realloc.entry", "ptr: %p, size: %zu\n", ptr, size);
-
-	if (likely(ptr != NULL && size != 0)) {
-		void *ret = do_rallocx(ptr, size, 0, true, old_usize, new_usize);
-		LOG("core.realloc.exit", "result: %p", ret);
-		return ret;
-	} else if (ptr != NULL && size == 0) {
-		void *ret = do_realloc_nonnull_zero(ptr, old_usize, new_usize);
-		LOG("core.realloc.exit", "result: %p", ret);
-		return ret;
-	} else {
-		/* realloc(NULL, size) is equivalent to malloc(size). */
-		void *ret;
-
-		static_opts_t sopts;
-		dynamic_opts_t dopts;
-
-		static_opts_init(&sopts);
-		dynamic_opts_init(&dopts);
-
-		sopts.null_out_result_on_error = true;
-		sopts.set_errno_on_error = true;
-		sopts.oom_string =
-		    "<jemalloc>: Error in realloc(): out of memory\n";
-
-		dopts.result = &ret;
-		dopts.num_items = 1;
-		dopts.item_size = size;
-
-		imalloc(&sopts, &dopts);
-		if (sopts.slow) {
-			uintptr_t args[3] = {(uintptr_t)ptr, size};
-			hook_invoke_alloc(hook_alloc_realloc, ret,
-			    (uintptr_t)ret, args);
-		}
-		LOG("core.realloc.exit", "result: %p", ret);
-		*old_usize = 0;
-		*new_usize = dopts.usize;
-		return ret;
-	}
+	return je_realloc_internal(ptr, size, old_usize, new_usize);
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 free_with_usize(void *ptr, size_t *usize) {
-	LOG("core.free.entry", "ptr: %p", ptr);
-
-	if (!free_fastpath(ptr, 0, false, usize)) {
-		free_default(ptr, usize);
-	}
-
-	LOG("core.free.exit", "");
+	je_free_internal(ptr, usize);
 }
