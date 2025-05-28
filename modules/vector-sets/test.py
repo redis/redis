@@ -183,12 +183,7 @@ def find_test_classes(primary_port, replica_port):
                 for name, obj in inspect.getmembers(module):
                     if inspect.isclass(obj) and obj.__name__ != 'TestCase' and hasattr(obj, 'test'):
                         # Create test instance with specified ports
-                        test_instance = obj()
-                        test_instance.redis = redis.Redis(port=primary_port)
-                        test_instance.redis3 = redis.Redis(port=primary_port,protocol=3)
-                        test_instance.replica = redis.Redis(port=replica_port)
-                        test_instance.primary_port = primary_port
-                        test_instance.replica_port = replica_port
+                        test_instance = obj(primary_port,replica_port)
                         test_classes.append(test_instance)
             except Exception as e:
                 print(f"Error loading {file}: {e}")
