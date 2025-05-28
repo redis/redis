@@ -215,7 +215,7 @@ def check_replica_running(replica_port):
         return True
     except redis.exceptions.ConnectionError:
         print(colored(f"WARNING: Replica Redis instance (port {replica_port}) is not running.", "yellow"))
-        print(colored("Replication tests will fail. Make sure to start the replica instance.", "yellow"))
+        print(colored("Replication tests will be skipped. Make sure to start the replica instance.", "yellow"))
         return False
 
 def run_tests():
@@ -252,11 +252,17 @@ def run_tests():
     tests.sort(key=lambda t: t.estimated_runtime())
 
     passed = 0
+    skipped = 0
     total = len(tests)
 
     for test in tests:
         print(f"{test.getname()}: ", end="")
         sys.stdout.flush()
+
+        if not replica_running and test.getname().lower().find("replication") != -1:
+            print(colored("SKIPPING","yellow"))
+            skipped += 1
+            continue
 
         start_time = time.time()
         success = test.run()
@@ -276,9 +282,12 @@ def run_tests():
     print(f"\nTest Summary: {passed}/{total} tests passed")
 
     if passed == total:
-        print(colored("\nALL TESTS PASSED!", "green"))
+        print(colored("ALL TESTS PASSED!", "green"))
     else:
-        print(colored(f"\n{total-passed} TESTS FAILED!", "red"))
+        if total-skipped-passed > 0:
+            print(colored(f"{total-skipped-passed} TESTS FAILED!", "red"))
+        if skipped > 0:
+            print(colored(f"{skipped} TESTS SKIPPED!", "yellow"))
 
 if __name__ == "__main__":
     run_tests()
