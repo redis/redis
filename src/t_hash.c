@@ -1527,7 +1527,7 @@ static kvobj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
 
     if (kv == NULL) {
         robj *o = createHashObject();
-        kv = dbAddByLink(c->db, key, &o, &link);
+        kv = dbAddByLink(c->db, key, &o, &link, -1);
     }
     return kv;
 }
@@ -2107,7 +2107,7 @@ void hsetnxCommand(client *c) {
     /* Field expired and in turn hash deleted. Create new one! */
     if (isHashDeleted) {
         robj *o = createHashObject();
-        kv = dbAdd(c->db,c->argv[1],&o);
+        kv = dbAdd(c->db,c->argv[1],&o, -1);
     }
 
     hashTypeTryConversion(c->db, kv, c->argv, 2, 3);
@@ -2350,7 +2350,7 @@ void hsetexCommand(client *c) {
             return;
         }
         o = createHashObject();
-        dbAddByLink(c->db, c->argv[1], &o, &link);
+        dbAddByLink(c->db, c->argv[1], &o, &link, -1);
     }
     oldlen = (int64_t) hashTypeLength(o, 0);
 
@@ -2477,7 +2477,7 @@ void hincrbyCommand(client *c) {
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
         o = createHashObject();
-        dbAdd(c->db,c->argv[1],&o);
+        dbAdd(c->db,c->argv[1],&o, -1);
         value = 0;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, 0, 1);
     }
@@ -2529,7 +2529,7 @@ void hincrbyfloatCommand(client *c) {
     } else {
         /* Field expired and in turn hash deleted. Create new one! */
         o = createHashObject();
-        dbAdd(c->db, c->argv[1], &o);
+        dbAdd(c->db, c->argv[1], &o, -1);
         value = 0;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, 0, 1);
     }

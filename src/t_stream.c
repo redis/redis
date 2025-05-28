@@ -1866,7 +1866,7 @@ kvobj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
         return NULL;
     }
     robj *o = createStreamObject();
-    dbAddByLink(c->db, key, &o, &link);
+    dbAddByLink(c->db, key, &o, &link, -1);
     return o;
 }
 
@@ -2707,7 +2707,7 @@ NULL
         if (s == NULL) {
             serverAssert(mkstream);
             o = createStreamObject();
-            dbAdd(c->db, c->argv[2], &o);
+            dbAdd(c->db, c->argv[2], &o, -1);
             s = o->ptr;
             signalModifiedKey(c,c->db,c->argv[2]);
         }

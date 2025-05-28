@@ -322,12 +322,23 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * link - Optional link to bucket where the key should be added.
  *          On return, get updated, by need, to the inserted key.
  */
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire) {
     int slot = getKeySlot(key->ptr);
+    dictEntryLink tmp = NULL;
+    if (link == NULL) link = &tmp;
     robj *val = *valref;
-    kvobj *kv = kvobjSet(key->ptr, val, -1);
+    kvobj *kv = kvobjSet(key->ptr, val, expire);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
+
+    if (expire != -1) {
+        /* Change expire of kv to -1 since it wasn't added to expires yet (Otherwise,
+         * setExpireByLink() will wrongly assume the key already has an expiration) */
+        kvobjSetExpire(kv, -1);
+        /* Add to expires. Leverage setExpireByLink() to reuse the key link. */
+        kv = setExpireByLink(NULL, db, key->ptr, expire, *link);
+    }
+
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
@@ -336,8 +347,8 @@ kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
 }
 
 /* Read dbAddByLink() comment */
-kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    return dbAddByLink(db, key, valref, NULL);
+kvobj *dbAdd(redisDb *db, robj *key, robj **valref, long long expire) {
+    return dbAddByLink(db, key, valref, NULL, expire);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -572,7 +583,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         dbSetValue(db, key, valref, *link, 1, 1, flags & SETKEY_KEEPTTL);
     } else {
         /* Add the new key to the database */
-        dbAddByLink(db, key, valref, link);
+        dbAddByLink(db, key, valref, link, -1);
     }
 
     if (!(flags & SETKEY_NO_SIGNAL))
@@ -1817,8 +1828,7 @@ void renameGenericCommand(client *c, int nx) {
         minHashExpireTime = hashTypeRemoveFromExpires(&c->db->hexpires, o);
 
     dbDelete(c->db,c->argv[1]);
-    dbAdd(c->db, c->argv[2], &o);
-    if (expire != -1) o = setExpire(c, c->db, c->argv[2], expire);
+    dbAdd(c->db, c->argv[2], &o, expire);
 
     /* If hash with HFEs, register in db->hexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
@@ -1901,7 +1911,7 @@ void moveCommand(client *c) {
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
-    dbAddByLink(dst, c->argv[1], &kv, &dstBucket);
+    dbAddByLink(dst, c->argv[1], &kv, &dstBucket, -1);
     if (expire != -1)
         setExpireByLink(c, dst, c->argv[1]->ptr, expire, dstBucket);
 
@@ -2017,11 +2027,7 @@ void copyCommand(client *c) {
         dbDelete(dst,newkey);
     }
 
-    kvobj *kvCopy = dbAdd(dst, newkey, &newobj);
-
-    /* if key with expiration then set it */
-    if (expire != -1)
-        newobj = setExpire(c, dst, newkey, expire);
+    kvobj *kvCopy = dbAdd(dst, newkey, &newobj, expire);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
