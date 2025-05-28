@@ -94,7 +94,7 @@ void sendChildInfoGeneric(childInfoType info_type, size_t keys, double progress,
     if (write(server.child_info_pipe[1], &data, wlen) != wlen) {
         /* Failed writing to parent, it could have been killed, exit. */
         serverLog(LL_WARNING,"Child failed reporting info to parent, exiting. %s", strerror(errno));
-        exitFromChild(1);
+        exitFromChild(1, 0);
     }
 }
 

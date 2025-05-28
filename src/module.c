@@ -11445,7 +11445,7 @@ void RM_SendChildHeartbeat(double progress) {
  */
 int RM_ExitFromChild(int retcode) {
     sendChildCowInfo(CHILD_INFO_TYPE_MODULE_COW_SIZE, "Module fork");
-    exitFromChild(retcode);
+    exitFromChild(retcode, 0);
     return REDISMODULE_OK;
 }
 

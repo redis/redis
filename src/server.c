@@ -257,11 +257,19 @@ mstime_t commandTimeSnapshot(void) {
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is
- * used in order to obtain the right coverage information. */
-void exitFromChild(int retcode) {
+ * used in order to obtain the right coverage information. 
+ * There is a caveat for when we exit due to a signal.
+ * In this case we want the function to be async signal safe, so we can't use exit()
+ */
+void exitFromChild(int retcode, int from_signal) {
 #ifdef COVERAGE_TEST
-    exit(retcode);
+    if (!from_signal) {
+        exit(retcode);
+    } else {
+        _exit(retcode);
+    }
 #else
+    UNUSED(from_signal);
     _exit(retcode);
 #endif
 }
@@ -6727,7 +6735,10 @@ static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
     serverLogRawFromHandler(level, "Received SIGUSR1 in child, exiting now.");
-    exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
+    /* We don't want to perform any IO in the child when the parent is terminating us.
+     * We don't know what our stack trace is, it is possible that we were called during an IO operation
+     * If we were to do another IO operation, we might end up in a deadlock */
+    exitFromChild(SERVER_CHILD_NOERROR_RETVAL, 1);
 }
 
 void setupChildSignalHandlers(void) {

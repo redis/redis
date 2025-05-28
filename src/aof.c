@@ -2579,9 +2579,9 @@ int rewriteAppendOnlyFileBackground(void) {
             serverLog(LL_NOTICE,
                 "Successfully created the temporary AOF base file %s", tmpfile);
             sendChildCowInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
-            exitFromChild(0);
+            exitFromChild(0, 0);
         } else {
-            exitFromChild(1);
+            exitFromChild(1, 0);
         }
     } else {
         /* Parent */

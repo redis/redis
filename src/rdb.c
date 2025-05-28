@@ -1658,7 +1658,7 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
-        exitFromChild((retval == C_OK) ? 0 : 1);
+        exitFromChild((retval == C_OK) ? 0 : 1, 0);
     } else {
         /* Parent */
         if (childpid == -1) {
@@ -3978,7 +3978,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             UNUSED(dummy);
         }
         zfree(conns);
-        exitFromChild((retval == C_OK) ? 0 : 1);
+        exitFromChild((retval == C_OK) ? 0 : 1, 0);
     } else {
         /* Parent */
         if (childpid == -1) {
