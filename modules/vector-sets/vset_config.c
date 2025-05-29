@@ -18,12 +18,12 @@
 
 VSConfig VSGlobalConfig;
 
-int set_uint8_numeric_config(const char *name, long long val,
-void *privdata, RedisModuleString **err) {
-REDISMODULE_NOT_USED(name);
-REDISMODULE_NOT_USED(err);
-*(uint8_t *)privdata = (uint8_t) val;
-return REDISMODULE_OK;
+int set_uint8_numeric_config(const char * name, long long val,
+  void * privdata, RedisModuleString ** err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  *(uint8_t * ) privdata = (uint8_t) val;
+  return REDISMODULE_OK;
 }
 
 long long get_uint8_numeric_config(const char *name, void *privdata) {
@@ -36,7 +36,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "vectorset-hnsw_max_threads", VSET_DEFAULT_MAX_THREADS,
+      ctx, "vectorset-hnsw-max-threads", VSET_DEFAULT_MAX_THREADS,
       REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_IMMUTABLE, 0,
       VSET_MAX_ALLOWED_THREADS, get_uint8_numeric_config,
       set_uint8_numeric_config, NULL,
