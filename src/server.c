@@ -1355,8 +1355,7 @@ void updatePeakMemory(size_t used_memory) {
 
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats(void) {
-    size_t zmalloc_used = zmalloc_used_memory();
-    updatePeakMemory(zmalloc_used);
+    updatePeakMemory(zmalloc_used_memory());
 
     run_with_period(100) {
         /* Sample the RSS and other metrics here since this is a relatively slow call.
@@ -1759,8 +1758,7 @@ extern int ProcessingEventsWhileBlocked;
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
-    size_t zmalloc_used = zmalloc_used_memory();
-    updatePeakMemory(zmalloc_used);
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Just call a subset of vital functions in case we are re-entering
      * the event loop from processEventsWhileBlocked(). Note that in this
@@ -3899,8 +3897,7 @@ void call(client *c, int flags) {
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
-    size_t zmalloc_used = zmalloc_used_memory();
-    updatePeakMemory(zmalloc_used);
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
