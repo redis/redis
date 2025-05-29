@@ -2867,7 +2867,7 @@ JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
 je_calloc(size_t num, size_t size) {
-	return je_calloc_internal(num, size, NULL);;
+	return je_calloc_internal(num, size, NULL);
 }
 
 JEMALLOC_ALWAYS_INLINE void
