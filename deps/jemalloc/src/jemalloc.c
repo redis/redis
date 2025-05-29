@@ -2859,7 +2859,7 @@ static void *je_calloc_internal(size_t num, size_t size, size_t *usize) {
 
 	LOG("core.calloc.exit", "result: %p", ret);
 
-	*usize = dopts.usize;
+	if (usize) *usize = dopts.usize;
 	return ret;
 }
 
