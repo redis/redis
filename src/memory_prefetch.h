@@ -18,7 +18,7 @@
 struct client;
 
 void prefetchCommandsBatchInit(void);
-int getConfigPrefetchBatchSize(void);
+int determinePrefetchCount(int len);
 int addCommandToBatch(struct client *c);
 void resetCommandsBatch(void);
 void prefetchCommands(void);

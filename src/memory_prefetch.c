@@ -71,18 +71,15 @@ typedef struct KeyPrefetchInfo {
 /* PrefetchCommandsBatch structure holds the state of the current batch of client commands being processed. */
 typedef struct PrefetchCommandsBatch {
     size_t cur_idx;                 /* Index of the current key being processed */
-    size_t keys_done;               /* Number of keys that have been prefetched */
     size_t key_count;               /* Number of keys in the current batch */
     size_t client_count;            /* Number of clients in the current batch */
     size_t max_prefetch_size;       /* Maximum number of keys to prefetch in a batch */
-    size_t executed_commands;       /* Number of commands executed in the current batch */
-    int *slots;                     /* Array of slots for each key */
     void **keys;                    /* Array of keys to prefetch in the current batch */
     client **clients;               /* Array of clients in the current batch */
     dict **keys_dicts;              /* Main dict for each key */
     dict **current_dicts;           /* Points to dict to prefetch from */
     KeyPrefetchInfo *prefetch_info; /* Prefetch info for each key */
-    GetValueDataFunc  get_value_data_func; /* Function to get the value data */
+    GetValueDataFunc get_value_data_func; /* Function to get the value data */
 } PrefetchCommandsBatch;
 
 static PrefetchCommandsBatch *batch = NULL;
@@ -95,7 +92,6 @@ void freePrefetchCommandsBatch(void) {
     zfree(batch->clients);
     zfree(batch->keys);
     zfree(batch->keys_dicts);
-    zfree(batch->slots);
     zfree(batch->prefetch_info);
     zfree(batch);
     batch = NULL;
@@ -106,7 +102,7 @@ void prefetchCommandsBatchInit(void) {
 
     /* To avoid prefetching small batches, we set the max size to twice
      * the configured size, so if not exceeding twice the limit, we can
-     * prefetch all of it. */
+     * prefetch all of it. See alo `determinePrefetchCount` */
     size_t max_prefetch_size = server.prefetch_batch_max_size * 2;
 
     if (max_prefetch_size == 0) {
@@ -118,7 +114,6 @@ void prefetchCommandsBatchInit(void) {
     batch->clients = zcalloc(max_prefetch_size * sizeof(client *));
     batch->keys = zcalloc(max_prefetch_size * sizeof(void *));
     batch->keys_dicts = zcalloc(max_prefetch_size * sizeof(dict *));
-    batch->slots = zcalloc(max_prefetch_size * sizeof(int));
     batch->prefetch_info = zcalloc(max_prefetch_size * sizeof(KeyPrefetchInfo));
 }
 
@@ -142,7 +137,6 @@ static inline void prefetchAndMoveToNextKey(void *addr) {
 static inline void markKeyAsdone(KeyPrefetchInfo *info) {
     info->state = PREFETCH_DONE;
     server.stat_total_prefetch_entries++;
-    batch->keys_done++;
 }
 
 /* Returns the next KeyPrefetchInfo structure that needs to be processed. */
@@ -165,7 +159,6 @@ static void initBatchInfo(dict **dicts, GetValueDataFunc func) {
         KeyPrefetchInfo *info = &batch->prefetch_info[i];
         if (!batch->current_dicts[i] || dictSize(batch->current_dicts[i]) == 0) {
             info->state = PREFETCH_DONE;
-            batch->keys_done++;
             continue;
         }
         info->ht_idx = HT_IDX_INVALID;
@@ -303,10 +296,8 @@ void resetCommandsBatch(void) {
     }
 
     batch->cur_idx = 0;
-    batch->keys_done = 0;
     batch->key_count = 0;
     batch->client_count = 0;
-    batch->executed_commands = 0;
 
     /* Handle the case where the max prefetch size has been changed. */
     if (batch->max_prefetch_size != (size_t)server.prefetch_batch_max_size * 2) {
@@ -314,12 +305,20 @@ void resetCommandsBatch(void) {
     }
 }
 
-/* The config of max prefetch size may be changed during running, the function
- * can get the size when initializing the batch. */
-int getConfigPrefetchBatchSize(void) {
+/* Prefetching in very small batches tends to be ineffective because the technique
+ * relies on a small gap—typically a few CPU cycles—between issuing the prefetch
+ * and performing the actual memory access. If the batch is too small, this delay
+ * cannot be effectively inserted, and the prefetching yields little to no benefit.
+ *
+ * To avoid wasting effort, when the remaining data is small (less than twice the
+ * maximum batch size), we simply prefetch all of it at once. Otherwise, we only
+ * prefetch a limited portion, capped at the configured maximum. */
+int determinePrefetchCount(int len) {
     if (!batch) return 0;
-    /* We double the size when initializing the batch, so divide it by 2. */
-    return batch->max_prefetch_size / 2;
+
+    /* The batch max size is double of the configured size. */
+    int config_size = batch->max_prefetch_size / 2;
+    return len < server.prefetch_batch_max_size ? len : config_size;
 }
 
 /* Prefetch command-related data:
@@ -335,7 +334,7 @@ void prefetchCommands(void) {
         client *c = batch->clients[i];
         if (!c || c->argc <= 1) continue;
         /* Skip prefetching first argv (cmd name) it was already looked up by
-         * the I/O thread. */
+         * the I/O thread, and the main thread will not touch argv[0]. */
         for (int j = 1; j < c->argc; j++) {
             redis_prefetch(c->argv[j]);
         }
@@ -389,9 +388,8 @@ int addCommandToBatch(client *c) {
         int num_keys = getKeysFromCommand(c->iolookedcmd, c->argv, c->argc, &result);
         for (int i = 0; i < num_keys && batch->key_count < batch->max_prefetch_size; i++) {
             batch->keys[batch->key_count] = c->argv[result.keys[i].pos];
-            batch->slots[batch->key_count] = c->slot > 0 ? c->slot : 0;
             batch->keys_dicts[batch->key_count] =
-                kvstoreGetDict(c->db->keys, batch->slots[batch->key_count]);
+                kvstoreGetDict(c->db->keys, c->slot > 0 ? c->slot : 0);
             batch->key_count++;
         }
         getKeysFreeResult(&result);

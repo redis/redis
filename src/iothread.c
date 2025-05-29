@@ -346,11 +346,8 @@ int sendPendingClientsToIOThreads(void) {
 /* Prefetch the commands from the IO thread. The return value is the number
  * of clients that have been prefetched. */
 int prefetchIOThreadCommands(IOThread *t) {
-    /* Since small batch prefetching is not much effective, so if the remaining
-     * is small (less than twice the max batch size), prefetch all of it. */
     int len = listLength(mainThreadProcessingClients[t->id]);
-    int config_size = getConfigPrefetchBatchSize();
-    int to_prefetch = len < config_size*2 ? len : config_size;
+    int to_prefetch = determinePrefetchCount(len);
     if (to_prefetch == 0) return 0;
 
     int clients = 0;
@@ -359,8 +356,8 @@ int prefetchIOThreadCommands(IOThread *t) {
     listRewind(mainThreadProcessingClients[t->id], &li);
     while((ln = listNext(&li)) && clients++ < to_prefetch) {
         client *c = listNodeValue(ln);
-        /* One command may have several keys, the batch may be full,
-         * so we stop prefetching if failed. */
+        /* A single command may contain multiple keys. If the batch is full,
+         * we stop adding clients to it. */
         if (addCommandToBatch(c) == C_ERR) break;
     }
 
