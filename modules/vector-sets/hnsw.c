@@ -2429,7 +2429,7 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
     }
 
     // Initialize connectivity check.
-    index->current_epoch[MAIN_THREAD_I]++;
+    index->current_epoch[MAIN_THREAD_IDX]++;
     *connected_nodes = 0;
     *reciprocal_links = 1;
 
@@ -2440,7 +2440,7 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
     uint64_t stack_top = 0;
 
     // Start from entry point.
-    index->enter_point->visited_epoch[MAIN_THREAD_I] = index->current_epoch[MAIN_THREAD_I];
+    index->enter_point->visited_epoch[MAIN_THREAD_IDX] = index->current_epoch[MAIN_THREAD_IDX];
     (*connected_nodes)++;
     stack[stack_top++] = index->enter_point;
 
@@ -2466,8 +2466,8 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
                 }
 
                 // If we haven't visited this neighbor yet.
-                if (neighbor->visited_epoch[MAIN_THREAD_I] != index->current_epoch[MAIN_THREAD_I]) {
-                    neighbor->visited_epoch[MAIN_THREAD_I] = index->current_epoch[MAIN_THREAD_I];
+                if (neighbor->visited_epoch[MAIN_THREAD_IDX] != index->current_epoch[MAIN_THREAD_IDX]) {
+                    neighbor->visited_epoch[MAIN_THREAD_IDX] = index->current_epoch[MAIN_THREAD_IDX];
                     (*connected_nodes)++;
                     if (stack_top < stack_size) {
                         stack[stack_top++] = neighbor;
@@ -2489,7 +2489,7 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
 
     hnswNode *current = index->head;
     while (current) {
-        if (current->visited_epoch[MAIN_THREAD_I] != index->current_epoch[MAIN_THREAD_I]) {
+        if (current->visited_epoch[MAIN_THREAD_IDX] != index->current_epoch[MAIN_THREAD_IDX]) {
             printf("\nUnreachable node found:\n");
             printf("- Node pointer: %p\n", (void*)current);
             printf("- Node ID: %llu\n", (unsigned long long)current->id);
@@ -2512,7 +2512,7 @@ int hnsw_validate_graph(HNSW *index, uint64_t *connected_nodes, int *reciprocal_
                     printf("    - Link %llu: pointer=%p, id=%llu, visited=%s,recpr=%s\n",
                            (unsigned long long)i, (void*)neighbor,
                            (unsigned long long)neighbor->id,
-                           neighbor->visited_epoch[MAIN_THREAD_I] == index->current_epoch[MAIN_THREAD_I] ?
+                           neighbor->visited_epoch[MAIN_THREAD_IDX] == index->current_epoch[MAIN_THREAD_IDX] ?
                            "yes" : "no",
                            found_backlink ? "yes" : "no");
                 }

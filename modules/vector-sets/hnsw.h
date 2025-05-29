@@ -28,7 +28,7 @@
 #define HNSW_QUANT_Q8    1   // Q8 quantization.
 #define HNSW_QUANT_BIN   2   // Binary quantization.
 
-#define MAIN_THREAD_I 0
+#define MAIN_THREAD_IDX 0
 
 /* Layer structure for HNSW nodes. Each node will have from one to a few
  * of this depending on its level. */
