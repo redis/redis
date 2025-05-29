@@ -129,7 +129,7 @@ void onMaxBatchSizeChange(void) {
 
 /* Prefetch the given pointer and move to the next key in the batch. */
 static inline void prefetchAndMoveToNextKey(void *addr) {
-    redis_prefetch(addr);
+    redis_prefetch_read(addr);
     /* While the prefetch is in progress, we can continue to the next key */
     batch->cur_idx = (batch->cur_idx + 1) % batch->key_count;
 }
@@ -336,7 +336,7 @@ void prefetchCommands(void) {
         /* Skip prefetching first argv (cmd name) it was already looked up by
          * the I/O thread, and the main thread will not touch argv[0]. */
         for (int j = 1; j < c->argc; j++) {
-            redis_prefetch(c->argv[j]);
+            redis_prefetch_read(c->argv[j]);
         }
     }
 
@@ -346,7 +346,7 @@ void prefetchCommands(void) {
         if (!c || c->argc <= 1) continue;
         for (int j = 1; j < c->argc; j++) {
             if (c->argv[j]->encoding == OBJ_ENCODING_RAW) {
-                redis_prefetch(c->argv[j]->ptr);
+                redis_prefetch_read(c->argv[j]->ptr);
             }
         }
     }
