@@ -2158,6 +2158,13 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
 
+        /* Sanity check: links should be less than max links and
+         * in general a reasonable amount. */
+        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+            hnsw_node_free(node);
+            return NULL;
+        }
+
         /* If max_links is larger than current allocation, reallocate.
          * It could happen in select_neighbors() that we over-allocate the
          * node under very unlikely to happen conditions. */
@@ -2268,7 +2275,10 @@ int hnsw_deserialize_index(HNSW *index) {
                     }
                     bucket = (bucket+1) & (table_size-1);
                 }
-                if (neighbor == NULL) {
+
+                /* The neighbor must exist and also exist at the right
+                 * level. */
+                if (neighbor == NULL || neighbor->level < i) {
                     /* Unresolved link! Either a bug in this code
                      * or broken serialization data. */
                     hfree(table);
@@ -2279,7 +2289,31 @@ int hnsw_deserialize_index(HNSW *index) {
         }
         node = node->next;
     }
-    hfree(table);
+    hfree(table); // No longer needed for the final pass.
+
+    /* Third pass: are all the links reciprocal? */
+    node = index->head; // Rewind.
+    while(node) {
+        for (uint32_t i = 0; i <= node->level; i++) {
+            for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
+                hnswNode *neighbor = node->layers[i].links[j];
+
+                // Check if neighbor links back to this node at the same layer.
+                int found = 0;
+                for (uint32_t k = 0; k < neighbor->layers[i].num_links; k++) {
+                    if (neighbor->layers[i].links[k] == node) {
+                        found = 1;
+                        break;
+                    }
+                }
+                if (!found) return 0; // Error: no reciprocal link.
+            }
+            //hnsw_update_worst_neighbor(index,node,i);
+        }
+        node = node->next;
+    }
+
+    /* Everything fine. Return success. */
     return 1;
 }
 
