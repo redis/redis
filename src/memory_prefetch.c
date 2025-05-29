@@ -102,7 +102,7 @@ void prefetchCommandsBatchInit(void) {
 
     /* To avoid prefetching small batches, we set the max size to twice
      * the configured size, so if not exceeding twice the limit, we can
-     * prefetch all of it. See alo `determinePrefetchCount` */
+     * prefetch all of it. See also `determinePrefetchCount` */
     size_t max_prefetch_size = server.prefetch_batch_max_size * 2;
 
     if (max_prefetch_size == 0) {
