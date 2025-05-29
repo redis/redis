@@ -1344,10 +1344,11 @@ void checkChildrenDone(void) {
     }
 }
 
-void updatePeakMemory(size_t cur_used_memory) {
+
+void updatePeakMemory(size_t used_memory) {
     /* Record the max memory used since the server was started. */
-    if (cur_used_memory > server.stat_peak_memory) {
-        server.stat_peak_memory = cur_used_memory;
+    if (unlikely(used_memory > server.stat_peak_memory)) {
+        server.stat_peak_memory = used_memory;
         server.stat_peak_memory_time = server.unixtime;
     }
 }
