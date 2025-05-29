@@ -141,7 +141,9 @@ start_server {tags {"hll"}} {
         r del hll
         
         # Create a sparse-encoded HyperLogLog header
-        set pl [string cat "HYLL" [binary format c12 {1 0 0 0 0 0 0 0 0 0 0 0}]]
+        set header "HYLL"
+        set payload [binary format c12 {1 0 0 0 0 0 0 0 0 0 0 0}]
+        set pl [binary format a4a12 $header $payload]
 
         # Create an XZERO opcode with the maximum run length of 16384(2^14)
         set runlen [expr 16384 - 1]
@@ -167,7 +169,9 @@ start_server {tags {"hll"}} {
         r del hll
         
         # Create a sparse-encoded HyperLogLog header
-        set pl [string cat "HYLL" [binary format c12 {1 0 0 0 0 0 0 0 0 0 0 0}]]
+        set header "HYLL"
+        set payload [binary format c12 {1 0 0 0 0 0 0 0 0 0 0 0}]
+        set pl [binary format a4a12 $header $payload]
 
         # # Create an ZERO opcode with the maximum run length of 64(2^6)
         set chunk [binary format c [expr {0b00000000 | 0x3f}]]
