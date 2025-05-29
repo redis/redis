@@ -3208,8 +3208,7 @@ void startLoadingFile(size_t size, char* filename, int rdbflags) {
 /* Refresh the absolute loading progress info */
 void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
-    size_t zmalloc_used = zmalloc_used_memory();
-    updatePeakMemory(zmalloc_used);
+    updatePeakMemory(zmalloc_used_memory());
 }
 
 /* Refresh the incremental loading progress info */
