@@ -32,7 +32,6 @@ return (long long)(*(uint8_t *)privdata);
 }
 
 int RegisterModuleConfig(RedisModuleCtx *ctx) {
-  RedisModule_Log(ctx, "warning", "config load from config file");
   // Numeric parameters
   RM_TRY(
     RedisModule_RegisterNumericConfig(
