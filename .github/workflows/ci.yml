@@ -67,6 +67,14 @@ jobs:
         sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib g++-multilib
         make REDIS_CFLAGS='-Werror' 32bit
 
+  build-cluster-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: make
+        run: |
+          make CLUSTER_PLUGIN=1
+
   build-libc-malloc:
     runs-on: ubuntu-latest
     steps:
