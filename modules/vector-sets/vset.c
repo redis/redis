@@ -1999,7 +1999,7 @@ int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
     if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
         RedisModule_Log(ctx, "warning", "Error loading user module configuration");
         return REDISMODULE_ERR;
-      } else {
+    } else {
         RedisModule_Log(ctx, "verbose", "Successfully loaded user module configuration");
     }
 
