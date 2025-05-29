@@ -550,11 +550,9 @@ start_server {tags {"info" "external:skip"}} {
     test {memory: used_memory_peak_time} {
         r flushall
 
+        # Add a large string to trigger memory peak tracking
         set time_before_add_large_set [clock seconds]
-
-        # Add a memory-consuming string
         r set large_str [string repeat "a" 1000000]
-
         assert {[s used_memory_peak_time] >= $time_before_add_large_set}
 
 
