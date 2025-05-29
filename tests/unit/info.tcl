@@ -559,13 +559,10 @@ start_server {tags {"info" "external:skip"}} {
         r del large_str
         after 1000
 
-        set time_after_peak [clock seconds]
-
         # Add a small string, which cannot exceed the previous peak value
+        set time_after_peak [clock seconds]
         r set small_str [string repeat "a" 1000]
-
         assert {[s used_memory_peak_time] < $time_after_peak}
-
     }
 }
 
