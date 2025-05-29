@@ -3676,8 +3676,8 @@ static inline void *je_realloc_internal(void *ptr, size_t size, size_t *old_usiz
 			    (uintptr_t)ret, args);
 		}
 		LOG("core.realloc.exit", "result: %p", ret);
-		*old_usize = 0;
-		*new_usize = dopts.usize;
+		if (old_usize) *old_usize = 0;
+		if (new_usize) *new_usize = dopts.usize;
 		return ret;
 	}
 }
