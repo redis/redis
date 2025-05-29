@@ -3214,8 +3214,7 @@ void loadingAbsProgress(off_t pos) {
 /* Refresh the incremental loading progress info */
 void loadingIncrProgress(off_t size) {
     server.loading_loaded_bytes += size;
-    size_t zmalloc_used = zmalloc_used_memory();
-    updatePeakMemory(zmalloc_used);
+    updatePeakMemory(zmalloc_used_memory());
 }
 
 /* Update the file name currently being loaded */
