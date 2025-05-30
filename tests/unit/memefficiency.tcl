@@ -523,7 +523,7 @@ run_solo {defrag} {
             r config set activedefrag no
             wait_for_defrag_stop 500 100
             r config resetstat
-            r config set active-defrag-threshold-lower 7
+            r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
@@ -597,7 +597,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.07
+                wait_for_defrag_stop 500 100 1.05
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
