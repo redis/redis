@@ -45,6 +45,7 @@
 #include <float.h>  /* for INFINITY if not in math.h */
 #include <assert.h>
 #include "hnsw.h"
+#include "murmur3.h"
 
 #if 0
 #define debugmsg printf
@@ -2232,9 +2233,15 @@ uint64_t hnsw_hash_node_id(uint64_t id) {
  * neighbors links are just IDs (casted to pointers), instead of the actual
  * pointers. We need to resolve IDs into pointers.
  *
+ * The two integers salt0 and salt1 are used to make the internal state
+ * of the function unguessable to an external attacker, in order to protect
+ * from corruptions. Show be two random numbers from /dev/urandom if possible
+ * otherwise can be just 0,0 if the application is not security critical and
+ * never processes untrusted inputs.
+ *
  * Return 0 on error (out of memory or some ID that can't be resolved), 1 on
  * success. */
-int hnsw_deserialize_index(HNSW *index) {
+int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     /* We will use simple linear probing, so over-allocating is a good
      * idea: anyway this flat array of pointers will consume a fraction
      * of the memory of the loaded index. */
@@ -2260,12 +2267,58 @@ int hnsw_deserialize_index(HNSW *index) {
         node = node->next;
     }
 
-    /* Second pass: fix pointers of all the neighbors links. */
+    /* Second pass: fix pointers of all the neighbors links.
+     * As we scan and fix the links, we also compute the accumulator
+     * register "reciprocal", that is used in order to guarantee that all
+     * the links are reciprocal.
+     *
+     * This is how it works, we hash with murmur3 the following key
+     * for each link that we see from A to B (or vice versa):
+     *
+     *      murmur3(sald || A || B || link-level)
+     *
+     * We always sort A and B, so the same link from A to B and from B to A
+     * will hash the same. The we xor the result into the 128 bit accumulator.
+     * If each link has its own backlink, the accumulator is guaranteed to
+     * be zero at the end.
+     *
+     * Collisions are extremely unlikely to happen, and an external attacker
+     * can't easily control the hash function output, since the salt is
+     * unknown, and also there would be to control the pointers.
+     *
+     * This algorithm is O(1) for each node so it is basically free for
+     * us, as we scan the list of nodes, and runs on constant and very
+     * small memory. */
+    uint64_t accumulator[2] = {0,0};
+    uint64_t acc_key[2+1+1+1]; /* 2 for salt, A id, B id, level. */
+    acc_key[0] = salt0;
+    acc_key[1] = salt1;
+
     node = index->head; // Rewind.
     while(node) {
+        uint64_t this_node_id = node->id;
         for (uint32_t i = 0; i <= node->level; i++) {
             for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
                 uint64_t linked_id = (uint64_t) node->layers[i].links[j];
+
+                // We can't link to our own node.
+                if (linked_id == this_node_id) goto corrupted;
+
+                // Compute accumulator for reciprocal links check.
+                if (this_node_id > linked_id) {
+                    acc_key[2] = this_node_id;
+                    acc_key[3] = linked_id;
+                } else {
+                    acc_key[2] = linked_id;
+                    acc_key[3] = this_node_id;
+                }
+                acc_key[4] = i; // level.
+                uint64_t mmhash[2];
+                MurmurHash3_x64_128(acc_key,sizeof(acc_key),0xaabbccdd,mmhash);
+                accumulator[0] ^= mmhash[0];
+                accumulator[1] ^= mmhash[1];
+
+                // Fix links.
                 uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
@@ -2281,40 +2334,25 @@ int hnsw_deserialize_index(HNSW *index) {
                 if (neighbor == NULL || neighbor->level < i) {
                     /* Unresolved link! Either a bug in this code
                      * or broken serialization data. */
-                    hfree(table);
-                    return 0;
+                    goto corrupted;
                 }
                 node->layers[i].links[j] = neighbor;
             }
         }
         node = node->next;
     }
-    hfree(table); // No longer needed for the final pass.
 
-    /* Third pass: are all the links reciprocal? */
-    node = index->head; // Rewind.
-    while(node) {
-        for (uint32_t i = 0; i <= node->level; i++) {
-            for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
-                hnswNode *neighbor = node->layers[i].links[j];
-
-                // Check if neighbor links back to this node at the same layer.
-                int found = 0;
-                for (uint32_t k = 0; k < neighbor->layers[i].num_links; k++) {
-                    if (neighbor->layers[i].links[k] == node) {
-                        found = 1;
-                        break;
-                    }
-                }
-                if (!found) return 0; // Error: no reciprocal link.
-            }
-            //hnsw_update_worst_neighbor(index,node,i);
-        }
-        node = node->next;
-    }
+    /* Check that links are reciprocal, otherwise fail. */
+    if (accumulator[0] || accumulator[1]) goto corrupted;
 
     /* Everything fine. Return success. */
+    hfree(table);
     return 1;
+
+corrupted:
+    /* Some corruption error detected. */
+    hfree(table);
+    return 0;
 }
 
 /* ================================ Iterator ================================ */
