@@ -1344,9 +1344,8 @@ void checkChildrenDone(void) {
     }
 }
 
-
+/* Record the max memory used since the server was started. */
 void updatePeakMemory(size_t used_memory) {
-    /* Record the max memory used since the server was started. */
     if (unlikely(used_memory > server.stat_peak_memory)) {
         server.stat_peak_memory = used_memory;
         server.stat_peak_memory_time = server.unixtime;

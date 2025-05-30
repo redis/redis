@@ -547,13 +547,14 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
     }
 
-    test {memory: used_memory_peak tracks peak memory correctly} {
+    test {memory: used_memory_peak_time is updated when used_memory_peak is updated} {
         r flushall
 
         # Add a large string to trigger memory peak tracking
+        set time_before_add_large_set [clock seconds]
         r set large_str [string repeat "a" 1000000]
+        assert {[s used_memory_peak_time] >= $time_before_add_large_set}
         set peak_value [s used_memory_peak]
-
 
         r del large_str
         # Add a small string, which cannot exceed the previous peak value
