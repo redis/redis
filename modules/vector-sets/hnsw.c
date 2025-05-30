@@ -45,7 +45,7 @@
 #include <float.h>  /* for INFINITY if not in math.h */
 #include <assert.h>
 #include "hnsw.h"
-#include "murmur3.h"
+#include "mixer.h"
 
 #if 0
 #define debugmsg printf
@@ -2272,10 +2272,10 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
      * register "reciprocal", that is used in order to guarantee that all
      * the links are reciprocal.
      *
-     * This is how it works, we hash with murmur3 the following key
-     * for each link that we see from A to B (or vice versa):
+     * This is how it works, we hash (using a strong hash function) the
+     * following key for each link that we see from A to B (or vice versa):
      *
-     *      murmur3(sald || A || B || link-level)
+     *      hash(sald || A || B || link-level)
      *
      * We always sort A and B, so the same link from A to B and from B to A
      * will hash the same. The we xor the result into the 128 bit accumulator.
@@ -2290,9 +2290,6 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
      * us, as we scan the list of nodes, and runs on constant and very
      * small memory. */
     uint64_t accumulator[2] = {0,0};
-    uint64_t acc_key[2+1+1+1]; /* 2 for salt, A id, B id, level. */
-    acc_key[0] = salt0;
-    acc_key[1] = salt1;
 
     node = index->head; // Rewind.
     while(node) {
@@ -2305,18 +2302,11 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 if (linked_id == this_node_id) goto corrupted;
 
                 // Compute accumulator for reciprocal links check.
-                if (this_node_id > linked_id) {
-                    acc_key[2] = this_node_id;
-                    acc_key[3] = linked_id;
-                } else {
-                    acc_key[2] = linked_id;
-                    acc_key[3] = this_node_id;
-                }
-                acc_key[4] = i; // level.
-                uint64_t mmhash[2];
-                MurmurHash3_x64_128(acc_key,sizeof(acc_key),0xaabbccdd,mmhash);
-                accumulator[0] ^= mmhash[0];
-                accumulator[1] ^= mmhash[1];
+                uint64_t mixed_h1, mixed_h2;
+                secure_pair_mixer_128(salt0, salt1, this_node_id, linked_id, (uint64_t)i, &mixed_h1, &mixed_h2);
+
+                accumulator[0] ^= mixed_h1;
+                accumulator[1] ^= mixed_h2;
 
                 // Fix links.
                 uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
