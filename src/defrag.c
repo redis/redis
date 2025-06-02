@@ -1241,7 +1241,7 @@ static doneStatus defragStageDbKeys(void *ctx, monotime endtime) {
 static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
     defragKeysCtx *defrag_keys_ctx = ctx;
     redisDb *db = &server.db[defrag_keys_ctx->dbid];
-    if (db->keys != defrag_keys_ctx->kvstate.kvs) {
+    if (db->expires != defrag_keys_ctx->kvstate.kvs) {
         /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
         return DEFRAG_DONE;
     }
@@ -1316,6 +1316,12 @@ static doneStatus defragStagePubsubKvstore(void *ctx, monotime endtime) {
         .defragKey = NULL, /* Handled by defragPubsubScanCallback */
         .defragVal = NULL, /* Not needed for expires (no value) */
     };
+
+    defragPubSubCtx *defrag_pubsub_ctx = ctx;
+    if (defrag_pubsub_ctx->kvstate.kvs != server.pubsub_channels) {
+        /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
+        return DEFRAG_DONE;
+    }
 
     return defragStageKvstoreHelper(endtime, ctx,
         defragPubsubScanCallback, NULL, &defragfns);
@@ -1579,7 +1585,9 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
     latencyAddSampleIfNeeded("active-defrag-cycle", latency);
 
     if (haveMoreWork) {
-        return computeDelayMs(endtime);
+        int delay = computeDelayMs(endtime);
+        return delay;
+        // return computeDelayMs(endtime);
     } else {
         endDefragCycle(1);
         return AE_NOMORE; /* Ends the timer proc */

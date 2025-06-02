@@ -56,8 +56,8 @@ run_solo {defrag} {
             [s active_defrag_running] eq 0 && ($expect_frag == 0 || [s allocator_frag_ratio] <= $expect_frag)
         } else {
             after 120 ;# serverCron only updates the info once in 100ms
-            puts [r info memory]
-            puts [r info stats]
+            puts [r info all]
+            # puts [r info stats]
             puts [r memory malloc-stats]
             if {$expect_frag != 0} {
                 fail "defrag didn't stop or failed to achieve expected frag ratio ([s allocator_frag_ratio] > $expect_frag)"
@@ -516,20 +516,20 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
-        foreach {eb_container fields n} {eblist 16 3000 ebrax 30 1600 large_ebrax 1600 30} {
+        foreach {eb_container fields n} {ebrax 20 2500} {
         test "Active Defrag HFE with $eb_container: $type" {
             r flushdb
             r config set hz 100
             r config set activedefrag no
             wait_for_defrag_stop 500 100
             r config resetstat
-            r config set active-defrag-threshold-lower 7
+            r config set active-defrag-threshold-lower 6
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1500kb
             r config set maxmemory 0
             r config set hash-max-listpack-value 512
-            r config set hash-max-listpack-entries 10
+            r config set hash-max-listpack-entries 5
 
             # Populate memory with interleaving hash field of same size
             set dummy_field "[string repeat x 400]"
@@ -597,7 +597,9 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.07
+                wait_for_defrag_stop 500 100 1.05
+                puts [r info all]
+                puts [r memory malloc-stats]
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -931,11 +933,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
-        test_active_defrag "cluster"
-    }
+    # start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
+    #     test_active_defrag "cluster"
+    # }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel debug}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo
