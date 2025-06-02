@@ -636,32 +636,35 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     link = kvstoreDictTwoPhaseUnlinkFind(db->keys, slot, key->ptr, &table);
 
     if (link) {
-        kvobj *val = dictGetKV(*link);
+        kvobj *kv = dictGetKV(*link);
 
-        int64_t oldlen = (int64_t) getObjectLength(val);
-        int type = val->type;
+        int64_t oldlen = (int64_t) getObjectLength(kv);
+        int type = kv->type;
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (type == OBJ_HASH)
-            hashTypeRemoveFromExpires(&db->hexpires, val);
+            hashTypeRemoveFromExpires(&db->hexpires, kv);
 
-        /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
-         * need to incr to retain val */
-        incrRefCount(val); /* refcnt=1->2 */
+        /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
+         * need to incr to retain kv */
+        incrRefCount(kv); /* refcnt=1->2 */
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val,db->id,flags);
+        moduleNotifyKeyUnlink(key, kv, db->id, flags);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,type);
         /* We should call decr before freeObjAsync. If not, the refcount may be
          * greater than 1, so freeObjAsync doesn't work */
-        decrRefCount(val);
+        decrRefCount(kv);
 
-        /* Delete an entry from the expires dict is not decrRefCount of kvobj */
-        kvstoreDictDelete(db->expires, slot, key->ptr);
+        /* Because of dbUnshareStringValue, the val in db may change. */
+        kv = dictGetKV(*link);
+        
+        /* if expirable, delete an entry from the expires dict is not decrRefCount of kvobj */
+        if (kvobjGetExpire(kv) != -1)
+            kvstoreDictDelete(db->expires, slot, key->ptr);
 
         if (async) {
-            /* Because of dbUnshareStringValue, the val in db may change. */
-            freeObjAsync(key, dictGetKV(*link), db->id);
+            freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
         }
