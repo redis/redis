@@ -18,17 +18,18 @@
 
 VSConfig VSGlobalConfig = VS_DEFAULT_CONFIG;
 
-int set_uint8_numeric_config(const char * name, long long val,
-  void * privdata, RedisModuleString ** err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  *(uint8_t * ) privdata = (uint8_t) val;
-  return REDISMODULE_OK;
+int set_uint8_numeric_config(const char *name, long long val,
+                                                   void *privdata, RedisModuleString **err)
+{
+    REDISMODULE_NOT_USED(name);
+    REDISMODULE_NOT_USED(err);
+    *(uint8_t * ) privdata = (uint8_t) val;
+    return REDISMODULE_OK;
 }
 
 long long get_uint8_numeric_config(const char *name, void *privdata) {
-REDISMODULE_NOT_USED(name);
-return (long long)(*(uint8_t *)privdata);
+    REDISMODULE_NOT_USED(name);
+    return (long long)(*(uint8_t *)privdata);
 }
 
 int RegisterModuleConfig(RedisModuleCtx *ctx) {

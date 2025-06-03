@@ -1990,10 +1990,10 @@ int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
 
     // Load default values
     if (RedisModule_LoadDefaultConfigs(ctx) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Error loading default module configuration");
-      return REDISMODULE_ERR;
+        RedisModule_Log(ctx, "warning", "Error loading default module configuration");
+        return REDISMODULE_ERR;
     } else {
-      RedisModule_Log(ctx, "verbose", "Successfully loaded default module configuration");
+        RedisModule_Log(ctx, "verbose", "Successfully loaded default module configuration");
     }
 
     if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
