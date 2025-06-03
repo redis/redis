@@ -333,9 +333,9 @@ struct _clusterNode {
 
 /* Struct used for storing slot statistics. */
 typedef struct slotStat {
-    uint64_t cpu_usec;
-    uint64_t network_bytes_in;
-    uint64_t network_bytes_out;
+    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
+    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
+    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
 } slotStat;
 
 struct clusterState {
