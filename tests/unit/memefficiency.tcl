@@ -526,7 +526,7 @@ run_solo {defrag} {
             r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
-            r config set active-defrag-ignore-bytes 1500kb
+            r config set active-defrag-ignore-bytes 1000kb
             r config set maxmemory 0
             r config set hash-max-listpack-value 512
             r config set hash-max-listpack-entries 10
