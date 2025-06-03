@@ -1317,12 +1317,6 @@ static doneStatus defragStagePubsubKvstore(void *ctx, monotime endtime) {
         .defragVal = NULL, /* Not needed for expires (no value) */
     };
 
-    defragPubSubCtx *defrag_pubsub_ctx = ctx;
-    if (defrag_pubsub_ctx->kvstate.kvs != server.pubsub_channels) {
-        /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
-        return DEFRAG_DONE;
-    }
-
     return defragStageKvstoreHelper(endtime, ctx,
         defragPubsubScanCallback, NULL, &defragfns);
 }
