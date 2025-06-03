@@ -702,7 +702,6 @@ tags {"aof external:skip"} {
         }
     }
 
-
     # Check AOF load broken behavior
     start_server_aof [list dir $server_path aof-load-broken yes] {
         test "Unfinished MULTI: Server should start if aof-load-broken is yes" {
@@ -766,4 +765,3 @@ tags {"aof external:skip"} {
         }
     }
 }
-

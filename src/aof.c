@@ -1853,7 +1853,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             last_file = ++aof_num == total_num;
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
-            if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+            if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds",
                     aof_name, (float)(ustime()-start)/1000000);
             }
