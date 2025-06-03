@@ -24,8 +24,8 @@ static const clock_t RUN_ON_THREADS_TIMEOUT = 2;
 
 /*================================= Globals ================================= */
 
-static run_on_thread_cb g_callback = NULL;
-static volatile size_t g_tids_len = 0;
+static redisAtomic run_on_thread_cb g_callback = NULL;
+static redisAtomic size_t g_tids_len = 0;
 static redisAtomic size_t g_num_threads_done = 0;
 
 /* This flag is set while ThreadsManager_runOnThreads is running */
@@ -63,15 +63,15 @@ int ThreadsManager_runOnThreads(pid_t *tids, size_t tids_len, run_on_thread_cb c
     }
 
     /* Update g_callback */
-    g_callback = callback;
+    atomicSet(g_callback, callback);
 
     /* Set g_tids_len */
-    g_tids_len = tids_len;
+    atomicSet(g_tids_len, tids_len);
 
     /* set g_num_threads_done to 0 To handler the case where in the previous run we reached the timeout
     and called ThreadsManager_cleanups before one or more threads were done and increased
     (the already set to 0) g_num_threads_done */
-    g_num_threads_done = 0;
+    atomicSet(g_num_threads_done, 0);
 
     /* Send signal to all the threads in tids */
     pid_t pid = getpid();
@@ -103,7 +103,9 @@ static int test_and_start(void) {
 __attribute__ ((noinline))
 static void invoke_callback(int sig) {
     UNUSED(sig);
-    run_on_thread_cb callback = g_callback;
+
+    run_on_thread_cb callback;
+    atomicGet(g_callback, callback);
     if (callback) {
         callback();
         atomicIncr(g_num_threads_done, 1);
@@ -122,6 +124,7 @@ static void wait_threads(void) {
     /* Wait until all threads are done to invoke the callback or until we reached the timeout */
     size_t curr_done_count;
     struct timespec curr_time;
+    size_t tids_len;
 
     do {
         struct timeval tv = {
@@ -132,7 +135,8 @@ static void wait_threads(void) {
         select(0, NULL, NULL, NULL, &tv);
         atomicGet(g_num_threads_done, curr_done_count);
         clock_gettime(CLOCK_REALTIME, &curr_time);
-    } while (curr_done_count < g_tids_len &&
+        atomicGet(g_tids_len, tids_len);
+    } while (curr_done_count < tids_len &&
              curr_time.tv_sec <= timeout_time.tv_sec);
 
     if (curr_time.tv_sec > timeout_time.tv_sec) {
@@ -142,9 +146,9 @@ static void wait_threads(void) {
 }
 
 static void ThreadsManager_cleanups(void) {
-    g_callback = NULL;
-    g_tids_len = 0;
-    g_num_threads_done = 0;
+    atomicSet(g_callback, NULL);
+    atomicSet(g_tids_len, 0);
+    atomicSet(g_num_threads_done, 0);
 
     /* Lastly, turn off g_in_progress */
     atomicSet(g_in_progress, 0);

@@ -66,7 +66,7 @@ performed in the background, while the command is executed in the main thread.
 
 **VSIM: return elements by vector similarity**
 
-    VSIM key [ELE|FP32|VALUES] <vector or element> [WITHSCORES] [COUNT num] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD]
+    VSIM key [ELE|FP32|VALUES] <vector or element> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD]
 
 The command returns similar vectors, for simplicity (and verbosity) in the following example, instead of providing a vector using FP32 or VALUES (like in `VADD`), we will ask for elements having a vector similar to a given element already in the sorted set:
 
@@ -98,7 +98,13 @@ The `TRUTH` option forces the command to perform a linear scan of all the entrie
 
 The `NOTHREAD` option forces the command to execute the search on the data structure in the main thread. Normally `VSIM` spawns a thread instead. This may be useful for benchmarking purposes, or when we work with extremely small vector sets and don't want to pay the cost of spawning a thread. It is possible that in the future this option will be automatically used by Redis when we detect small vector sets. Note that this option blocks the server for all the time needed to complete the command, so it is a source of potential latency issues: if you are in doubt, never use it.
 
+The `WITHSCORES` option returns, for each returned element, a floating point number representing how near the element is from the query, as a similarity between 0 and 1, where 0 means the vectors are opposite, and 1 means they are pointing exactly in the same direction (maximum similarity).
+
+The `WITHATTRIBS` option returns, for each element, the JSON attribute associated with the element, or NULL for the elements missing an attribute.
+
 For `FILTER` and `FILTER-EF` options, please check the filtered search section of this documentation.
+
+Note that when `WITHSCORES` and `WITHATTRIBS` are provided at the same time, the RESP2 reply guarantees that the returned elements are always in the sequence *ele*,*score*,*attribs*, while RESP3 replies will be in the form *ele > score|attrib* when just one is provided, or *ele -> [score,attrib]* when both are provided, that is, when both options are used and RESP3 is used the score and attribute will be a two-items array associated to the element key.
 
 **VDIM: return the dimension of the vectors inside the vector set**
 

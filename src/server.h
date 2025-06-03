@@ -431,6 +431,9 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
 
+/* Max deferred objects to be freed by IO thread for each client. */
+#define CLIENT_MAX_DEFERRED_OBJECTS 32
+
 /* Client flags for client IO */
 #define CLIENT_IO_READ_ENABLED (1ULL<<0) /* Client can read from socket. */
 #define CLIENT_IO_WRITE_ENABLED (1ULL<<1) /* Client can write to socket. */
@@ -1335,6 +1338,8 @@ typedef struct client {
     int original_argc;      /* Num of arguments of original command if arguments were rewritten. */
     robj **original_argv;   /* Arguments of original command if arguments were rewritten. */
     size_t argv_len_sum;    /* Sum of lengths of objects in argv list. */
+    robj **deferred_objects;    /* Array of deferred objects to free. */
+    int deferred_objects_num;   /* Number of deferred objects to free. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     struct redisCommand *iolookedcmd;    /* Command looked up in IO threads. */
     struct redisCommand *realcmd; /* The original command that was executed by the client,
@@ -1762,10 +1767,10 @@ struct redisServer {
     rax *errors;                /* Errors table */
     int errors_enabled;         /* If true, errorstats is enabled, and we will add new errors. */
     unsigned int lruclock; /* Clock for LRU eviction */
-    volatile sig_atomic_t shutdown_asap; /* Shutdown ordered by signal handler. */
-    volatile sig_atomic_t crashing;      /* Server is crashing report. */
+    redisAtomic int shutdown_asap; /* Shutdown ordered by signal handler. */
+    redisAtomic int crashing;      /* Server is crashing report. */
     mstime_t shutdown_mstime;   /* Timestamp to limit graceful shutdown. */
-    int last_sig_received;      /* Indicates the last SIGNAL received, if any (e.g., SIGINT or SIGTERM). */
+    redisAtomic int last_sig_received;      /* Indicates the last SIGNAL received, if any (e.g., SIGINT or SIGTERM). */
     int shutdown_flags;         /* Flags passed to prepareForShutdown(). */
     int activerehashing;        /* Incremental rehash in serverCron() */
     int active_defrag_running;  /* Active defragmentation running (holds current scan aggressiveness) */
@@ -2289,6 +2294,7 @@ struct redisServer {
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
+    int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
 };
 
 /* we use 6 so that all getKeyResult fits a cacheline */
@@ -2779,7 +2785,7 @@ mstime_t commandTimeSnapshot(void);
 void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
-void exitFromChild(int retcode);
+void exitFromChild(int retcode, int from_signal);
 long long redisPopcount(void *s, long count);
 int redisSetProcTitle(char *title);
 int validateProcTitleTemplate(const char *template);
@@ -2800,6 +2806,8 @@ void clearClientConnectionState(client *c);
 void resetClient(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
+void tryDeferFreeClientObject(client *c, robj *o);
+void freeClientDeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);
@@ -3596,6 +3604,7 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
 
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
+void dbgAssertKeysizesHist(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
@@ -3630,7 +3639,7 @@ static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
-void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal);
+void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
 #define SETKEY_KEEPTTL 1

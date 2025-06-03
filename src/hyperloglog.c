@@ -1795,10 +1795,12 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (hdr->encoding == HLL_SPARSE) {
+            uint64_t oldlen = (uint64_t) stringObjectLen(o);
             if (hllSparseToDense(o) == C_ERR) {
                 addReplyError(c,invalid_hll_err);
                 return;
             }
+            updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
             server.dirty++; /* Force propagation on encoding change. */
         }
 

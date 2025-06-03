@@ -290,8 +290,13 @@ int auxTlsPortPresent(clusterNode *n) {
 typedef struct {
     size_t totlen; /* Total length of this block including the message */
     int refcount;  /* Number of cluster link send msg queues containing the message */
-    clusterMsg msg;
+    clusterMsg msg[];
 } clusterMsgSendBlock;
+
+/* Helper function to extract a normal message from a send block. */
+static clusterMsg *getMessageFromSendBlock(clusterMsgSendBlock *msgblock) {
+    return &msgblock->msg[0];
+}
 
 /* -----------------------------------------------------------------------------
  * Initialization
@@ -1132,12 +1137,12 @@ void clusterReset(int hard) {
  * CLUSTER communication link
  * -------------------------------------------------------------------------- */
 static clusterMsgSendBlock *createClusterMsgSendBlock(int type, uint32_t msglen) {
-    uint32_t blocklen = msglen + sizeof(clusterMsgSendBlock) - sizeof(clusterMsg);
+    uint32_t blocklen = msglen + sizeof(clusterMsgSendBlock);
     clusterMsgSendBlock *msgblock = zcalloc(blocklen);
     msgblock->refcount = 1;
     msgblock->totlen = blocklen;
     server.stat_cluster_links_memory += blocklen;
-    clusterBuildMessageHdr(&msgblock->msg,type,msglen);
+    clusterBuildMessageHdr(getMessageFromSendBlock(msgblock),type,msglen);
     return msgblock;
 }
 
@@ -2887,9 +2892,19 @@ int clusterProcessPacket(clusterLink *link) {
          * resolved when we'll receive PONGs from the node. */
         if (!sender && type == CLUSTERMSG_TYPE_MEET) {
             clusterNode *node;
+            char ip[NET_IP_STR_LEN] = {0};
+            if (nodeIp2String(ip, link, hdr->myip) != C_OK) {
+                /* Unable to retrieve the node's IP address from the connection. Without a
+                 * valid IP, the node becomes unusable in the cluster. This failure might be
+                 * due to the connection being closed. */
+                serverLog(LL_NOTICE, "Closing link even though we received a MEET packet on it, "
+                                     "because the connection has an error");
+                freeClusterLink(link);
+                return 0;
+            }
 
             node = createClusterNode(NULL,CLUSTER_NODE_HANDSHAKE);
-            serverAssert(nodeIp2String(node->ip,link,hdr->myip) == C_OK);
+            memcpy(node->ip, ip, sizeof(ip));
             getClientPortFromClusterMsg(hdr, &node->tls_port, &node->tcp_port);
             node->cport = ntohs(hdr->cport);
             clusterAddNode(node);
@@ -3306,7 +3321,7 @@ void clusterWriteHandler(connection *conn) {
     while (totwritten < NET_MAX_WRITES_PER_EVENT && listLength(link->send_msg_queue) > 0) {
         listNode *head = listFirst(link->send_msg_queue);
         clusterMsgSendBlock *msgblock = (clusterMsgSendBlock*)head->value;
-        clusterMsg *msg = &msgblock->msg;
+        clusterMsg *msg = getMessageFromSendBlock(msgblock);
         size_t msg_offset = link->head_msg_send_offset;
         size_t msg_len = ntohl(msg->totlen);
 
@@ -3480,7 +3495,7 @@ void clusterSendMessage(clusterLink *link, clusterMsgSendBlock *msgblock) {
     if (!link) {
         return;
     }
-    if (listLength(link->send_msg_queue) == 0 && msgblock->msg.totlen != 0)
+    if (listLength(link->send_msg_queue) == 0 && getMessageFromSendBlock(msgblock)->totlen != 0)
         connSetWriteHandlerWithBarrier(link->conn, clusterWriteHandler, 1);
 
     listAddNodeTail(link->send_msg_queue, msgblock);
@@ -3491,7 +3506,7 @@ void clusterSendMessage(clusterLink *link, clusterMsgSendBlock *msgblock) {
     server.stat_cluster_links_memory += sizeof(listNode);
 
     /* Populate sent messages stats. */
-    uint16_t type = ntohs(msgblock->msg.type);
+    uint16_t type = ntohs(getMessageFromSendBlock(msgblock)->type);
     if (type < CLUSTERMSG_TYPE_COUNT)
         server.cluster->stats_bus_messages_sent[type]++;
 }
@@ -3666,7 +3681,7 @@ void clusterSendPing(clusterLink *link, int type) {
      * sizeof(clusterMsg) or more. */
     if (estlen < (int)sizeof(clusterMsg)) estlen = sizeof(clusterMsg);
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, estlen);
-    clusterMsg *hdr = &msgblock->msg;
+    clusterMsg *hdr = getMessageFromSendBlock(msgblock);
 
     if (!link->inbound && type == CLUSTERMSG_TYPE_PING)
         link->node->ping_sent = mstime();
@@ -3801,7 +3816,7 @@ clusterMsgSendBlock *clusterCreatePublishMsgBlock(robj *channel, robj *message, 
     msglen += sizeof(clusterMsgDataPublish) - 8 + channel_len + message_len;
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(type, msglen);
 
-    clusterMsg *hdr = &msgblock->msg;
+    clusterMsg *hdr = getMessageFromSendBlock(msgblock);
     hdr->data.publish.msg.channel_len = htonl(channel_len);
     hdr->data.publish.msg.message_len = htonl(message_len);
     memcpy(hdr->data.publish.msg.bulk_data,channel->ptr,sdslen(channel->ptr));
@@ -3824,7 +3839,7 @@ void clusterSendFail(char *nodename) {
         + sizeof(clusterMsgDataFail);
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAIL, msglen);
 
-    clusterMsg *hdr = &msgblock->msg;
+    clusterMsg *hdr = getMessageFromSendBlock(msgblock);
     memcpy(hdr->data.fail.about.nodename,nodename,CLUSTER_NAMELEN);
 
     clusterBroadcastMessage(msgblock);
@@ -3841,7 +3856,7 @@ void clusterSendUpdate(clusterLink *link, clusterNode *node) {
         + sizeof(clusterMsgDataUpdate);
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_UPDATE, msglen);
 
-    clusterMsg *hdr = &msgblock->msg;
+    clusterMsg *hdr = getMessageFromSendBlock(msgblock);
     memcpy(hdr->data.update.nodecfg.nodename,node->name,CLUSTER_NAMELEN);
     hdr->data.update.nodecfg.configEpoch = htonu64(node->configEpoch);
     memcpy(hdr->data.update.nodecfg.slots,node->slots,sizeof(node->slots));
@@ -3863,7 +3878,7 @@ void clusterSendModule(clusterLink *link, uint64_t module_id, uint8_t type,
     msglen += sizeof(clusterMsgModule) - 3 + len;
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_MODULE, msglen);
 
-    clusterMsg *hdr = &msgblock->msg;
+    clusterMsg *hdr = getMessageFromSendBlock(msgblock);
     hdr->data.module.msg.module_id = module_id; /* Already endian adjusted. */
     hdr->data.module.msg.type = type;
     hdr->data.module.msg.len = htonl(len);
@@ -3945,11 +3960,10 @@ void clusterRequestFailoverAuth(void) {
     uint32_t msglen = sizeof(clusterMsg)-sizeof(union clusterMsgData);
     clusterMsgSendBlock *msgblock = createClusterMsgSendBlock(CLUSTERMSG_TYPE_FAILOVER_AUTH_REQUEST, msglen);
 
-    clusterMsg *hdr = &msgblock->msg;
     /* If this is a manual failover, set the CLUSTERMSG_FLAG0_FORCEACK bit
      * in the header to communicate the nodes receiving the message that
      * they should authorized the failover even if the master is working. */
-    if (server.cluster->mf_end) hdr->mflags[0] |= CLUSTERMSG_FLAG0_FORCEACK;
+    if (server.cluster->mf_end) msgblock->msg[0].mflags[0] |= CLUSTERMSG_FLAG0_FORCEACK;
     clusterBroadcastMessage(msgblock);
     clusterMsgSendBlockDecrRefCount(msgblock);
 }

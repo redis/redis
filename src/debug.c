@@ -412,6 +412,8 @@ void debugCommand(client *c) {
 "    Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> [full]",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
+"KEYSIZES-HIST-ASSERT <0|1>",
+"    Enable/disable keysizes histogram assertion after each command.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "REPLICATE <string>",
@@ -527,6 +529,12 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
         serverAssertWithInfo(c,c->argv[0],1 == 2);
+    } else if (!strcasecmp(c->argv[1]->ptr,"KEYSIZES-HIST-ASSERT") && c->argc == 3) {
+        long long flag;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
+            return;
+        server.dbg_assert_keysizes = (flag != 0);
+        addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
         addReply(c,shared.ok);
@@ -2493,7 +2501,7 @@ void removeSigSegvHandlers(void) {
 }
 
 void printCrashReport(void) {
-    server.crashing = 1;
+    atomicSet(server.crashing, 1);
 
     /* Log INFO and CLIENT LIST */
     logServerInfo();
@@ -2575,6 +2583,9 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 #include <sys/time.h>
 
 void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
+    /* Save and restore errno to avoid spoiling it's value as caught by
+     * WARNING: ThreadSanitizer: signal handler spoils errno */
+    int save_errno = errno;
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
 #else
@@ -2595,6 +2606,7 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
     serverLogRawFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
     serverLogRawFromHandler(LL_WARNING,"--------\n");
+    errno = save_errno;
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.

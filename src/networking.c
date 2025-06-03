@@ -165,6 +165,8 @@ client *createClient(connection *conn) {
     c->argv_len_sum = 0;
     c->original_argc = 0;
     c->original_argv = NULL;
+    c->deferred_objects = NULL;
+    c->deferred_objects_num = 0;
     c->cmd = c->lastcmd = c->realcmd = c->iolookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
@@ -1472,6 +1474,37 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
+/* Attempt to defer freeing the object to the IO thread. We usually call this since
+ * we know the object is allocated in the IO thread, to avoid memory arena contention,
+ * and also reducing the load of the main thread. */
+void tryDeferFreeClientObject(client *c, robj *o) {
+    if (!c || c->tid == IOTHREAD_MAIN_THREAD_ID || o->refcount > 1) {
+        decrRefCount(o);
+        return;
+    }
+
+    /* Put the object in the deferred objects array. */
+    if (c->deferred_objects && c->deferred_objects_num < CLIENT_MAX_DEFERRED_OBJECTS) {
+        c->deferred_objects[c->deferred_objects_num++] = o;
+    } else {
+        decrRefCount(o);
+    }
+}
+
+/* Free the objects in the deferred_objects array. If free_array is true
+ * then free the array itself as well. */
+void freeClientDeferredObjects(client *c, int free_array) {
+    for (int j = 0; j < c->deferred_objects_num; j++) {
+        decrRefCount(c->deferred_objects[j]);
+    }
+    c->deferred_objects_num = 0;
+
+    if (free_array) {
+        zfree(c->deferred_objects);
+        c->deferred_objects = NULL;
+    }
+}
+
 void freeClientOriginalArgv(client *c) {
     /* We didn't rewrite this client */
     if (!c->original_argv) return;
@@ -1485,8 +1518,13 @@ void freeClientOriginalArgv(client *c) {
 
 static inline void freeClientArgvInternal(client *c, int free_argv) {
     int j;
-    for (j = 0; j < c->argc; j++)
-        decrRefCount(c->argv[j]);
+    if (c->tid == IOTHREAD_MAIN_THREAD_ID) {
+        for (j = 0; j < c->argc; j++)
+            decrRefCount(c->argv[j]);
+    } else {
+        for (j = 0; j < c->argc; j++)
+            tryDeferFreeClientObject(c, c->argv[j]);
+    }
     c->argc = 0;
     c->cmd = NULL;
     c->iolookedcmd = NULL;
@@ -1784,6 +1822,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
+    freeClientDeferredObjects(c, 1);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
@@ -3140,6 +3179,12 @@ char *getClientSockname(client *c) {
     return c->sockname;
 }
 
+static inline int isCrashing(void) {
+    int crashing;
+    atomicGet(server.crashing, crashing);
+    return crashing;
+}
+
 /* Concatenate a string representing the state of a client in a human
  * readable format, into the sds string 's'. */
 sds catClientInfoString(sds s, client *client) {
@@ -3149,7 +3194,7 @@ sds catClientInfoString(sds s, client *client) {
     int paused = 0;
     if (client->running_tid != IOTHREAD_MAIN_THREAD_ID &&
         pthread_equal(server.main_thread_id, pthread_self()) &&
-        !server.crashing)
+        !isCrashing())
     {
         paused = 1;
         pauseIOThread(client->running_tid);
@@ -3250,7 +3295,7 @@ sds getAllClientsInfoString(int type) {
     /* Pause all IO threads to access data of clients safely, and pausing the
      * specific IO thread will not repeatedly execute in catClientInfoString. */
     int allpaused = 0;
-    if (server.io_threads_num > 1 && !server.crashing &&
+    if (server.io_threads_num > 1 && !isCrashing() &&
         pthread_equal(server.main_thread_id, pthread_self()))
     {
         allpaused = 1;

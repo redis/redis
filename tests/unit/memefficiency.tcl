@@ -931,11 +931,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_cluster 1 0 {tags {"defrag external:skip tsan:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_server {tags {"defrag external:skip tsan:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo

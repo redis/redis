@@ -944,8 +944,12 @@ void spopWithCountCommand(client *c) {
         }
         setTypeReleaseIterator(si);
 
-        /* Assign the new set as the key value (Also update KEYSIZES histogram) */
-        dbReplaceValue(c->db, c->argv[1], &newset);
+        /* Update key size histogram "explicitly" and not indirectly by dbReplaceValue()
+         * since function dbReplaceValue() assumes the entire set is being replaced, 
+         * but here we're building the new set from the existing one. As a result, 
+         * the size of the old set has already changed by the time we reach this point. */
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-count);
+        dbReplaceValue(c->db, c->argv[1], &newset, 0);
     }
 
     /* Replicate/AOF the remaining elements as an SREM operation */
