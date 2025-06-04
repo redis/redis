@@ -2128,6 +2128,7 @@ void hnsw_free_serialized_node(hnswSerNode *sn) {
  * The function returns NULL both on out of memory and if the remaining
  * parameters length does not match the number of links or other items
  * to load. */
+#define HNSW_SER_WORSTLINK_MISSING UINT32_MAX
 hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, uint32_t params_len, void *value)
 {
     if (params_len < 2) return NULL;
@@ -2193,6 +2194,10 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
          * fit more than 2^32 nodes in a 32 bit system. */
         for (uint32_t j = 0; j < num_links; j++)
             node->layers[i].links[j] = (hnswNode*)params[param_idx++];
+
+        /* XXX: fix me, we need to store the worst link info in a
+         * backward compatible way. */
+        node->layers[i].worst_idx = HNSW_SER_WORSTLINK_MISSING;
     }
 
     /* Get l2 and quantization range. */
@@ -2349,7 +2354,12 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 }
                 node->layers[i].links[j] = neighbor;
             }
-            //hnsw_update_worst_neighbor(index,node,i);
+
+            /* The worst link information was missing from older
+             * serialization formats. Compute it on the fly if needed. */
+            if (node->layers[i].worst_idx == HNSW_SER_WORSTLINK_MISSING) {
+                hnsw_update_worst_neighbor(index,node,i);
+            }
         }
         node = node->next;
     }
