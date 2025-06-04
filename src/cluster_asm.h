@@ -10,5 +10,7 @@
 #ifndef CLUSTER_ASM_H
 #define CLUSTER_ASM_H
 
+void clusterMigrationCommand(client *c);
+
 #endif
 
