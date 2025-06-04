@@ -1,6 +1,7 @@
 /*
  * Copyright (c) 2009-current, Redis Ltd.
  * Copyright (c) 2012, Twitter, Inc.
+ * Copyright (c) 2025-Present, Valkey contributors.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
