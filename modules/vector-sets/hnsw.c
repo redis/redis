@@ -2229,6 +2229,15 @@ uint64_t hnsw_hash_node_id(uint64_t id) {
     return id;
 }
 
+/* Helper for duplicated link detection in hnsw_deserialize_index(). */
+static int qsort_compare_pointers(const void *aptr, const void *bptr) {
+    uintptr_t a = *((uintptr_t*)aptr);
+    uintptr_t b = *((uintptr_t*)bptr);
+    if (a > b) return 1;
+    if (a < b) return -1;
+    return 0;
+}
+
 /* Fix pointers of neighbors nodes: after loading the serialized nodes, the
  * neighbors links are just IDs (casted to pointers), instead of the actual
  * pointers. We need to resolve IDs into pointers.
@@ -2295,6 +2304,18 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     while(node) {
         uint64_t this_node_id = node->id;
         for (uint32_t i = 0; i <= node->level; i++) {
+            // Check if there are duplicated links: those are
+            // also corruptions of the on-disk serialization format.
+            if (node->layers[i].num_links > 0) {
+                qsort(node->layers[i].links, node->layers[i].num_links,
+                        sizeof(void*), qsort_compare_pointers);
+                for (uint32_t j = 0; j < node->layers[i].num_links-1; j++) {
+                    if (node->layers[i].links[j] == node->layers[i].links[j+1])
+                        goto corrupted;
+                }
+            }
+
+            // Resolve pointers.
             for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
                 uint64_t linked_id = (uint64_t) node->layers[i].links[j];
 
@@ -2328,6 +2349,7 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
                 }
                 node->layers[i].links[j] = neighbor;
             }
+            //hnsw_update_worst_neighbor(index,node,i);
         }
         node = node->next;
     }
