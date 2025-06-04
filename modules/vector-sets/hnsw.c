@@ -390,7 +390,7 @@ uint32_t random_level(void) {
 }
 
 /* Create new HNSW index, quantized or not. */
-HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m) {
+HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_threads) {
     HNSW *index = hmalloc(sizeof(HNSW));
     if (!index) return NULL;
 
@@ -407,7 +407,7 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m) {
     index->last_id = 0;
     index->head = NULL;
     index->cursors = NULL;
-    index->n_threads = VSGlobalConfig.hnswMaxThreads + 1; // +1 for main thread
+    index->n_threads = n_threads; // +1 for main thread
 
     /* Initialize epochs array. */
     for (int i = 0; i < index->n_threads; i++)
@@ -2019,7 +2019,7 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
  * When reloading nodes, you first load the index vector dimension and
  * quantization type, and create the index with:
  *
- * HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type);
+ * HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_threads);
  *
  * Then you load back, for each node (you stored how many nodes you had)
  * the vector and the params array / count.

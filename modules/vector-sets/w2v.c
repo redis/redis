@@ -218,7 +218,7 @@ void test_recall(HNSW *index, int ef) {
 /* Example usage in main() */
 int w2v_single_thread(int m_param, int quantization, uint64_t numele, int massdel, int self_recall, int recall_ef) {
     /* Create index */
-    HNSW *index = hnsw_new(300, quantization, m_param);
+    HNSW *index = hnsw_new(300, quantization, m_param, HNSW_MAX_THREADS);
     float v[300];
     uint16_t wlen;
 
@@ -414,7 +414,7 @@ int w2v_multi_thread(int m_param, int numthreads, int quantization, uint64_t num
     /* Create index */
     struct threadContext ctx;
 
-    ctx.index = hnsw_new(300, quantization, m_param);
+    ctx.index = hnsw_new(300, quantization, m_param, HNSW_MAX_THREADS);
 
     ctx.fp = fopen("word2vec.bin","rb");
     if (ctx.fp == NULL) {

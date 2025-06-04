@@ -16,12 +16,11 @@
 
 #include <pthread.h>
 #include <stdatomic.h>
-#include "vset_config.h"
 
 #define HNSW_DEFAULT_M   16                             /* Used when 0 is given at creation time. */
 #define HNSW_MIN_M       4                              /* Probably even too low already. */
 #define HNSW_MAX_M       4096                           /* Safeguard sanity limit. */
-#define HNSW_MAX_THREADS VSET_MAX_ALLOWED_THREADS + 1   /* Maximum number of concurrent threads, including main thread */
+#define HNSW_MAX_THREADS 32                             /* Maximum number of concurrent threads, including main thread */
 
 /* Quantization types you can enable at creation time in hnsw_new() */
 #define HNSW_QUANT_NONE  0   // No quantization.
@@ -130,7 +129,7 @@ typedef struct hnswSerNode {
 typedef struct InsertContext InsertContext;
 
 /* Core HNSW functions */
-HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m);
+HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_threads);
 void hnsw_free(HNSW *index,void(*free_value)(void*value));
 void hnsw_node_free(hnswNode *node);
 void hnsw_print_stats(HNSW *index);

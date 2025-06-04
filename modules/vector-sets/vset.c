@@ -134,6 +134,9 @@ static uint64_t VectorSetTypeNextId = 0;
 // Default num elements returned by VSIM.
 #define VSET_DEFAULT_COUNT 10
 
+_Static_assert(HNSW_MAX_THREADS == VSET_MAX_ALLOWED_THREADS,
+    "VSET_MAX_ALLOWED_THREADS should be be equal to HNSW_MAX_THREADS");
+
 /* ========================== Internal data structure  ====================== */
 
 /* Our abstract data type needs a dual representation similar to Redis
@@ -236,7 +239,7 @@ struct vsetObject *createVectorSetObject(unsigned int dim, uint32_t quant_type, 
     o = RedisModule_Alloc(sizeof(*o));
 
     o->id = VectorSetTypeNextId++;
-    o->hnsw = hnsw_new(dim,quant_type,hnsw_M);
+    o->hnsw = hnsw_new(dim,quant_type,hnsw_M, VSGlobalConfig.hnswMaxThreads+1);
     if (!o->hnsw) { // May fail because of mutex creation.
         RedisModule_Free(o);
         return NULL;
