@@ -239,7 +239,7 @@ struct vsetObject *createVectorSetObject(unsigned int dim, uint32_t quant_type, 
     o = RedisModule_Alloc(sizeof(*o));
 
     o->id = VectorSetTypeNextId++;
-    o->hnsw = hnsw_new(dim,quant_type,hnsw_M, VSGlobalConfig.hnswMaxThreads+1);
+    o->hnsw = hnsw_new(dim,quant_type,hnsw_M, VSGlobalConfig.hnswMaxThreads);
     if (!o->hnsw) { // May fail because of mutex creation.
         RedisModule_Free(o);
         return NULL;

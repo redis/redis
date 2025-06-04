@@ -394,6 +394,8 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
     HNSW *index = hmalloc(sizeof(HNSW));
     if (!index) return NULL;
 
+    assert(n_threads <= HNSW_MAX_THREADS); // Change to if > -> = MAX or return NULL ?
+
     /* M parameter sanity check. */
     if (m == 0) m = HNSW_DEFAULT_M;
     else if (m > HNSW_MAX_M) m = HNSW_MAX_M;
@@ -407,7 +409,7 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
     index->last_id = 0;
     index->head = NULL;
     index->cursors = NULL;
-    index->n_threads = n_threads; // +1 for main thread
+    index->n_threads = n_threads;
 
     /* Initialize epochs array. */
     for (int i = 0; i < index->n_threads; i++)
