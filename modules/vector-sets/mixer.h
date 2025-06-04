@@ -18,13 +18,9 @@
 #include <stdint.h>
 #include <string.h>
 
-#if defined(__GNUC__) || defined(__clang__)
-#define ROTL64(x, r) __builtin_rotateleft64(x, r)
-#else
 static inline uint64_t ROTL64(uint64_t x, int r) {
     return (x << r) | (x >> (64 - r));
 }
-#endif
 
 // Use more rounds and stronger constants
 #define MIX_PRIME_1 0xFF51AFD7ED558CCDULL
