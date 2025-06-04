@@ -25,6 +25,7 @@ all: $(TARGET_MODULE)
 
 $(TARGET_MODULE): get_source
 	$(MAKE) -C $(SRC_DIR)
+	cp ${TARGET_MODULE} ./
 
 get_source: $(SRC_DIR)/.prepared
 
@@ -35,8 +36,9 @@ $(SRC_DIR)/.prepared:
 
 clean:
 	-$(MAKE) -C $(SRC_DIR) clean
+	-rm -f ./*.so
 
-distclean:
+distclean: clean
 	-$(MAKE) -C $(SRC_DIR) distclean
 
 pristine:

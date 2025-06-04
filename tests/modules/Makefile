@@ -11,9 +11,27 @@ else	# Linux, others
 	SHOBJ_LDFLAGS ?= -shared
 endif
 
+CLANG := $(findstring clang,$(shell sh -c '$(CC) --version | head -1'))
+
+ifeq ($(SANITIZER),memory)
+ifeq (clang, $(CLANG))
+	LD=clang
+	MALLOC=libc
+	CFLAGS+=-fsanitize=memory -fsanitize-memory-track-origins=2 -fno-sanitize-recover=all -fno-omit-frame-pointer
+	LDFLAGS+=-fsanitize=memory
+else
+    $(error "MemorySanitizer needs to be compiled and linked with clang. Please use CC=clang")
+endif
+endif
+
+
+# This is a hack to override the default CC. When running with SANITIZER=memory
+# tough we want to keep the compiler as clang as MSan is not supported for gcc
 ifeq ($(uname_S),Linux)
-    LD = gcc
-    CC = gcc
+ifneq ($(SANITIZER),memory)
+	LD = gcc
+	CC = gcc
+endif
 endif
 
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.

@@ -5,8 +5,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -163,6 +164,8 @@ client *createClient(connection *conn) {
     c->argv_len_sum = 0;
     c->original_argc = 0;
     c->original_argv = NULL;
+    c->deferred_objects = NULL;
+    c->deferred_objects_num = 0;
     c->cmd = c->lastcmd = c->realcmd = c->iolookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
@@ -221,6 +224,9 @@ client *createClient(connection *conn) {
     c->mem_usage_bucket_node = NULL;
     if (conn) linkClient(c);
     initClientMultiState(c);
+    c->net_input_bytes = 0;
+    c->net_output_bytes = 0;
+    c->commands_processed = 0;
     return c;
 }
 
@@ -1461,6 +1467,37 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
+/* Attempt to defer freeing the object to the IO thread. We usually call this since
+ * we know the object is allocated in the IO thread, to avoid memory arena contention,
+ * and also reducing the load of the main thread. */
+void tryDeferFreeClientObject(client *c, robj *o) {
+    if (!c || c->tid == IOTHREAD_MAIN_THREAD_ID || o->refcount > 1) {
+        decrRefCount(o);
+        return;
+    }
+
+    /* Put the object in the deferred objects array. */
+    if (c->deferred_objects && c->deferred_objects_num < CLIENT_MAX_DEFERRED_OBJECTS) {
+        c->deferred_objects[c->deferred_objects_num++] = o;
+    } else {
+        decrRefCount(o);
+    }
+}
+
+/* Free the objects in the deferred_objects array. If free_array is true
+ * then free the array itself as well. */
+void freeClientDeferredObjects(client *c, int free_array) {
+    for (int j = 0; j < c->deferred_objects_num; j++) {
+        decrRefCount(c->deferred_objects[j]);
+    }
+    c->deferred_objects_num = 0;
+
+    if (free_array) {
+        zfree(c->deferred_objects);
+        c->deferred_objects = NULL;
+    }
+}
+
 void freeClientOriginalArgv(client *c) {
     /* We didn't rewrite this client */
     if (!c->original_argv) return;
@@ -1474,8 +1511,13 @@ void freeClientOriginalArgv(client *c) {
 
 static inline void freeClientArgvInternal(client *c, int free_argv) {
     int j;
-    for (j = 0; j < c->argc; j++)
-        decrRefCount(c->argv[j]);
+    if (c->tid == IOTHREAD_MAIN_THREAD_ID) {
+        for (j = 0; j < c->argc; j++)
+            decrRefCount(c->argv[j]);
+    } else {
+        for (j = 0; j < c->argc; j++)
+            tryDeferFreeClientObject(c, c->argv[j]);
+    }
     c->argc = 0;
     c->cmd = NULL;
     c->iolookedcmd = NULL;
@@ -1773,6 +1815,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
+    freeClientDeferredObjects(c, 1);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
@@ -2140,6 +2183,7 @@ int writeToClient(client *c, int handler_installed) {
         }
         atomicIncr(server.stat_net_output_bytes, totwritten);
     }
+    c->net_output_bytes += totwritten;
 
     if (nwritten == -1) {
         if (connGetState(c->conn) != CONN_STATE_CONNECTED) {
@@ -2982,6 +3026,7 @@ void readQueryFromClient(connection *conn) {
     } else {
         atomicIncr(server.stat_net_input_bytes, nread);
     }
+    c->net_input_bytes += nread;
 
     if (!(c->flags & CLIENT_MASTER) &&
         /* The commands cached in the MULTI/EXEC queue have not been executed yet,
@@ -3066,6 +3111,12 @@ char *getClientSockname(client *c) {
     return c->sockname;
 }
 
+static inline int isCrashing(void) {
+    int crashing;
+    atomicGet(server.crashing, crashing);
+    return crashing;
+}
+
 /* Concatenate a string representing the state of a client in a human
  * readable format, into the sds string 's'. */
 sds catClientInfoString(sds s, client *client) {
@@ -3075,7 +3126,7 @@ sds catClientInfoString(sds s, client *client) {
     int paused = 0;
     if (client->running_tid != IOTHREAD_MAIN_THREAD_ID &&
         pthread_equal(server.main_thread_id, pthread_self()) &&
-        !server.crashing)
+        !isCrashing())
     {
         paused = 1;
         pauseIOThread(client->running_tid);
@@ -3157,7 +3208,10 @@ sds catClientInfoString(sds s, client *client) {
         " resp=%i", client->resp,
         " lib-name=%s", client->lib_name ? (char*)client->lib_name->ptr : "",
         " lib-ver=%s", client->lib_ver ? (char*)client->lib_ver->ptr : "",
-        " io-thread=%i", client->tid));
+        " io-thread=%i", client->tid,
+        " tot-net-in=%U", client->net_input_bytes,
+        " tot-net-out=%U", client->net_output_bytes,
+        " tot-cmds=%U", client->commands_processed));
 
     if (paused) resumeIOThread(client->running_tid);
     return ret;
@@ -3173,7 +3227,7 @@ sds getAllClientsInfoString(int type) {
     /* Pause all IO threads to access data of clients safely, and pausing the
      * specific IO thread will not repeatedly execute in catClientInfoString. */
     int allpaused = 0;
-    if (server.io_threads_num > 1 && !server.crashing &&
+    if (server.io_threads_num > 1 && !isCrashing() &&
         pthread_equal(server.main_thread_id, pthread_self()))
     {
         allpaused = 1;
@@ -4216,6 +4270,11 @@ char *getClientTypeName(int class) {
 int checkClientOutputBufferLimits(client *c) {
     int soft = 0, hard = 0, class;
     unsigned long used_mem = getClientOutputBufferMemoryUsage(c);
+
+    /* For unauthenticated clients the output buffer is limited to prevent
+     * them from abusing it by not reading the replies */
+    if (used_mem > 1024 && authRequired(c))
+        return 1;
 
     class = getClientType(c);
     /* For the purpose of output buffer limiting, masters are handled

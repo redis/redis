@@ -1,7 +1,7 @@
 By contributing code to the Redis project in any form you agree to the Redis Software Grant and
 Contributor License Agreement attached below. Only contributions made under the Redis Software Grant
 and Contributor License Agreement may be accepted by Redis, and any contribution is subject to the
-terms of the Redis dual-license under RSALv2/SSPLv1 as described in the LICENSE.txt file included in
+terms of the Redis tri-license under RSALv2/SSPLv1/AGPLv3 as described in the LICENSE.txt file included in
 the Redis source distribution.
 
 # REDIS SOFTWARE GRANT AND CONTRIBUTOR LICENSE AGREEMENT
@@ -9,7 +9,7 @@ the Redis source distribution.
 To specify the intellectual property license granted in any Contribution, Redis Ltd., ("**Redis**")
 requires a Software Grant and Contributor License Agreement ("**Agreement**"). This Agreement is for
 your protection as a contributor as well as the protection of Redis and its users; it does not
-change your rights to use your own Contribution for any other purpose.
+change your rights to use your own Contribution for any other purpose permitted by this Agreement.
 
 By making any Contribution, You accept and agree to the following terms and conditions for the
 Contribution. Except for the license granted in this Agreement to Redis and the recipients of the
@@ -115,4 +115,4 @@ view, and so forth. This helps.
 
 4. For minor fixes - open a pull request on GitHub.
 
-Additional information on the RSALv2/SSPLv1 dual-license is also found in the LICENSE.txt file.
+Additional information on the RSALv2/SSPLv1/AGPLv3 tri-license is also found in the LICENSE.txt file.

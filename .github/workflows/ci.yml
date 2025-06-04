@@ -54,7 +54,9 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     - name: make
-      run: make REDIS_CFLAGS='-Werror'
+      # Fail build if there are warnings
+      # build with TLS just for compilation coverage
+      run: make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
 
   build-32bit:
     runs-on: ubuntu-latest
@@ -91,8 +93,8 @@ jobs:
       run: |
         apt-get update
         apt-get install -y gnupg2
-        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
-        echo "deb http://dk.archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
+        echo "deb http://archive.ubuntu.com/ubuntu/ xenial main" >> /etc/apt/sources.list
+        echo "deb http://archive.ubuntu.com/ubuntu/ xenial universe" >> /etc/apt/sources.list
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
         apt-get update

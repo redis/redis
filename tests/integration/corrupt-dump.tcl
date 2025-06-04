@@ -14,7 +14,7 @@ tags {"dump" "corruption" "external:skip"} {
 # iterating as many as 2^61 hash table slots.
 
 set arch_name [exec uname -m]
-set run_oom_tests [expr {$arch_name == "x86_64" || $arch_name == "aarch64"}]
+set run_oom_tests [expr {($arch_name == "x86_64" || $arch_name == "aarch64") && !$::tsan}]
 
 set corrupt_payload_7445 "\x0E\x01\x1D\x1D\x00\x00\x00\x16\x00\x00\x00\x03\x00\x00\x04\x43\x43\x43\x43\x06\x04\x42\x42\x42\x42\x06\x3F\x41\x41\x41\x41\xFF\x09\x00\x88\xA5\xCA\xA8\xC5\x41\xF4\x35"
 
@@ -583,7 +583,7 @@ test {corrupt payload: fuzzer findings - OOM in dictExpand} {
         assert_match "*Bad data format*" $err
         r ping
     }
-}
+} {} {tsan:skip}
 
 }
 
@@ -670,7 +670,7 @@ test {corrupt payload: fuzzer findings - dict init to huge size} {
         assert_match "*Bad data format*" $err
         r ping
     }
-}
+} {} {tsan:skip}
 
 test {corrupt payload: fuzzer findings - huge string} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
@@ -680,7 +680,7 @@ test {corrupt payload: fuzzer findings - huge string} {
         assert_match "*Bad data format*" $err
         r ping
     }
-}
+} {} {tsan:skip}
 
 test {corrupt payload: fuzzer findings - stream PEL without consumer} {
     start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
@@ -930,6 +930,17 @@ test {corrupt payload: hash listpack encoded with invalid length causes hscan to
         assert_equal [count_log_message 0 "ASSERTION FAILED"] 1
     }
 }
+
+test {corrupt payload: fuzzer findings - vector sets with wrong encoding} {
+    start_server [list overrides [list loglevel verbose use-exit-on-panic yes crash-memcheck-enabled no] ] {
+        r config set sanitize-dump-payload yes
+        r debug set-skip-checksum-validation 1
+        catch {r restore _key 0 "\x07\x81\xBD\xE7\x2D\xA2\xBB\x1E\xB4\x00\x02\x03\x02\x03\x02\x50\x8F\x02\x00\x05\xC0\x02\x05\x03\x7F\x7F\x7F\x02\x07\x02\x03\x02\x00\x02\x02\x02\x20\x02\x01\x02\x02\x02\x81\x3F\x13\xCD\x3A\x3F\xDD\xB3\xD7\x05\xC0\x01\x05\x03\x7F\x7F\x7F\x02\x0B\x02\x02\x02\x02\x02\x02\x02\x20\x02\x01\x02\x03\x02\x06\x02\x10\x02\x00\x02\x10\x02\x81\x3F\x13\xCD\x3A\x3F\xDD\xB3\xD7\x05\xC0\x00\x05\x03\x7F\x7F\x7F\x02\x07\x02\x01\x02\x00\x02\x02\x02\x20\x02\x02\x02\x03\x02\x81\x3F\x13\xCD\x3A\x3F\xDD\xB3\xD7\x00\x0C\x00\xC6\xA3\x70\x40\x02\x26\xE8\x9B"} err
+        assert_match "*Bad data format*" $err
+        r ping
+    }
+}
+
 
 } ;# tags
 

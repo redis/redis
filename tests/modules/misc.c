@@ -65,7 +65,7 @@ int test_call_generic(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     }
 
     const char* cmdname = RedisModule_StringPtrLen(argv[1], NULL);
-    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdname, "v", argv+2, argc-2);
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, cmdname, "v", argv+2, (size_t)argc-2);
     if (reply) {
         RedisModule_ReplyWithCallReply(ctx, reply);
         RedisModule_FreeCallReply(reply);
@@ -397,7 +397,7 @@ int test_rm_call(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
 
     const char* cmd = RedisModule_StringPtrLen(argv[1], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, argc - 2);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, "Ev", argv + 2, (size_t)argc - 2);
     if(!rep){
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     }else{
@@ -429,7 +429,7 @@ int test_rm_call_flags(RedisModuleCtx *ctx, RedisModuleString **argv, int argc){
     const char* flg = RedisModule_StringPtrLen(flags, NULL);
     const char* cmd = RedisModule_StringPtrLen(argv[2], NULL);
 
-    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, argc - 3);
+    RedisModuleCallReply* rep = RedisModule_Call(ctx, cmd, flg, argv + 3, (size_t)argc - 3);
     if(!rep){
         RedisModule_ReplyWithError(ctx, "NULL reply returned");
     }else{

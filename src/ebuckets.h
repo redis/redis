@@ -1,8 +1,9 @@
 /*
  * Copyright Redis Ltd. 2024 - present
  *
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2)
- * or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  *
  * WHAT IS EBUCKETS?
@@ -269,6 +270,13 @@ typedef struct EbucketsIterator {
     uint64_t itemsCurrBucket;     /* Number of items in current bucket. */
 } EbucketsIterator;
 
+typedef void *(ebDefragAllocFunction)(void *ptr);
+typedef void *(ebDefragAllocItemFunction)(void *ptr, void *privdata);
+typedef struct {
+    ebDefragAllocFunction *defragAlloc; /* Used for rax nodes, segment etc. */
+    ebDefragAllocItemFunction *defragItem;  /* Defrag-realloc eitem */
+} ebDefragFunctions;
+
 /* ebuckets API */
 
 static inline ebuckets ebCreate(void) { return NULL; } /* Empty ebuckets */
@@ -303,8 +311,8 @@ int ebNext(EbucketsIterator *iter);
 
 int ebNextBucket(EbucketsIterator *iter);
 
-typedef eItem (ebDefragFunction)(const eItem item);
-eItem ebDefragItem(ebuckets *eb, EbucketsType *type, eItem item, ebDefragFunction *fn);
+int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
+                 ebDefragFunctions *defragfns, void *privdata);
 
 static inline uint64_t ebGetMetaExpTime(ExpireMeta *expMeta) {
     return (((uint64_t)(expMeta)->expireTimeHi << 32) | (expMeta)->expireTimeLo);
