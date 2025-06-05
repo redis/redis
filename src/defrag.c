@@ -1187,7 +1187,7 @@ static doneStatus defragStageDbKeys(void *ctx, monotime endtime) {
 static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
     defragKeysCtx *defrag_keys_ctx = ctx;
     redisDb *db = &server.db[defrag_keys_ctx->dbid];
-    if (db->keys != defrag_keys_ctx->kvstate.kvs) {
+    if (db->expires != defrag_keys_ctx->kvstate.kvs) {
         /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
         return DEFRAG_DONE;
     }

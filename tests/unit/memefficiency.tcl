@@ -520,10 +520,10 @@ run_solo {defrag} {
             r config resetstat
             # TODO: Lower the threshold after defraging the ebuckets.
             # Now just to ensure that the reference is updated correctly.
-            r config set active-defrag-threshold-lower 12
+            r config set active-defrag-threshold-lower 10
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
-            r config set active-defrag-ignore-bytes 1500kb
+            r config set active-defrag-ignore-bytes 1000kb
             r config set maxmemory 0
             r config set hash-max-listpack-value 512
             r config set hash-max-listpack-entries 10
@@ -558,7 +558,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_lessthan [s allocator_frag_ratio] 1.05
+            assert_lessthan [s allocator_frag_ratio] 1.1
 
             # Delete all the keys to create fragmentation
             for {set i 0} {$i < $n} {incr i} {
@@ -591,7 +591,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.5
+                wait_for_defrag_stop 500 100 1.1
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
