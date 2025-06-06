@@ -1655,7 +1655,7 @@ static void test_string2ll(void) {
     assert(string2ll(buf,strlen(buf),&v) == 0);
 
     redis_strlcpy(buf, "18446744073709551615", sizeof(buf)); /* overflow */
-    TEST_ASSERT(string2ll(buf, strlen(buf), &v) == 0);
+    assert(string2ll(buf, strlen(buf), &v) == 0);
 }
 
 static void test_string2l(void) {
