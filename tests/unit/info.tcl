@@ -559,7 +559,6 @@ start_server {tags {"info" "external:skip"}} {
         r del large_str
         # Add a small string, which cannot exceed the previous peak value
         r set small_str [string repeat "a" 1000]
-
         assert {[s used_memory_peak] == $peak_value}
     }
 }
