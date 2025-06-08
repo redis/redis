@@ -4,7 +4,7 @@ import json
 import os
 import subprocess
 from collections import OrderedDict
-from sys import argv
+import sys
 
 
 def convert_flags_to_boolean_dict(flags):
@@ -69,8 +69,8 @@ def convert_entry_to_objects_array(cmd, docs):
     # The command's value is ordered so the interesting stuff that we care about
     # is at the start. Optional `None` and empty list values are filtered out.
     value = OrderedDict()
-    value['summary'] = docs.pop('summary')
-    value['since'] = docs.pop('since')
+    set_if_not_none_or_empty(value, 'summary', docs.pop('summary', None))
+    set_if_not_none_or_empty(value, 'since', docs.pop('since', None))
     value['group'] = docs.pop('group')
     set_if_not_none_or_empty(value, 'complexity', docs.pop('complexity', None))
     set_if_not_none_or_empty(value, 'deprecated_since', docs.pop('deprecated_since', None))
@@ -103,7 +103,7 @@ srcdir = os.path.abspath(os.path.dirname(os.path.abspath(__file__)) + "/../src")
 if __name__ == '__main__':
     opts = {
         'description': 'Transform the output from `redis-cli --json` using COMMAND and COMMAND DOCS to a single commands.json format.',
-        'epilog': f'Usage example: {argv[0]} --cli src/redis-cli --port 6379 > commands.json'
+        'epilog': f'Usage example: {sys.argv[0]} --cli src/redis-cli --port 6379 > commands.json'
     }
     parser = argparse.ArgumentParser(**opts)
     parser.add_argument('--host', type=str, default='localhost')
@@ -133,4 +133,10 @@ if __name__ == '__main__':
         name = list(cmd.keys())[0]
         payload[name] = cmd[name]
 
-    print(json.dumps(payload, indent=4))
+    # Print the final JSON output. If the output is piped and the pipe is closed (e.g., by 'less' or 'head'),
+    # catch BrokenPipeError to prevent a traceback and exit gracefully.
+    try:
+        print(json.dumps(payload, indent=4))
+    except BrokenPipeError:
+        sys.stderr.close()
+        sys.exit(0)
