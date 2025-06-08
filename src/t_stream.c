@@ -1866,7 +1866,7 @@ kvobj *streamTypeLookupWriteOrCreate(client *c, robj *key, int no_create) {
         return NULL;
     }
     robj *o = createStreamObject();
-    dbAddByLink(c->db, key, &o, &link);
+    dbAddByLink(c->db, key, &o, &link, 0);
     return o;
 }
 

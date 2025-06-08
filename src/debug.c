@@ -939,8 +939,8 @@ NULL
         kvstoreGetStats(server.db[dbid].keys, buf, sizeof(buf), full);
         stats = sdscat(stats,buf);
 
-        stats = sdscatprintf(stats,"[Expires HT]\n");
-        kvstoreGetStats(server.db[dbid].expires, buf, sizeof(buf), full);
+        stats = sdscatprintf(stats,"[EBUCKETS]\n");
+        estoreGetStats(server.db[dbid].expiresNew, buf, sizeof(buf), full);
         stats = sdscat(stats,buf);
 
         addReplyVerbatim(c,stats,sdslen(stats),"txt");

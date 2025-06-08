@@ -100,6 +100,7 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
     /* When expire is not NULL, we avoid deleting the TTL so it can be updated later instead of being deleted and then created again. */
     setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
+    setkey_flags |= expire ? SETKEY_HAS_EXPIRE : 0;
 
     setKeyByLink(c, c->db, key, valref, setkey_flags, &link);
     /* If there's an expiration, setExpireByLink may reallocate the object.
@@ -366,12 +367,12 @@ void getexCommand(client *c) {
         return;
     }
 
-    kvobj *o;
+    kvobj *kv;
 
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
+    if ((kv = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp])) == NULL)
         return;
 
-    if (checkType(c,o,OBJ_STRING)) {
+    if (checkType(c,kv,OBJ_STRING)) {
         return;
     }
 
@@ -382,7 +383,7 @@ void getexCommand(client *c) {
     }
 
     /* We need to do this before we expire the key or delete it */
-    addReplyBulk(c,o);
+    addReplyBulk(c,kv);
 
     /* This command is never propagated as is. It is either propagated as PEXPIRE[AT],DEL,UNLINK or PERSIST.
      * This why it doesn't need special handling in feedAppendOnlyFile to convert relative expire time to absolute one. */
@@ -397,7 +398,7 @@ void getexCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
     } else if (expire) {
-        o = setExpire(c,c->db,c->argv[1],milliseconds);
+        setExpire(c,c->db,c->argv[1],milliseconds);
         /* Propagate as PXEXPIREAT millisecond-timestamp if there is
          * EX/PX/EXAT/PXAT flag and the key has not expired. */
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
@@ -407,7 +408,7 @@ void getexCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
         server.dirty++;
     } else if (flags & OBJ_PERSIST) {
-        if (removeExpire(c->db, c->argv[1])) {
+        if (removeExpire(c->db, c->argv[1], kv)) {
             signalModifiedKey(c, c->db, c->argv[1]);
             rewriteClientCommandVector(c, 2, shared.persist, c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
@@ -468,7 +469,7 @@ void setrangeCommand(client *c) {
 
         newLen = offset+value_len;
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newLen));
-        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link, 0);
     } else {
         /* Key exists, check type */
         if (checkType(c,kv,OBJ_STRING))
@@ -633,7 +634,7 @@ void incrDecrCommand(client *c, long long incr) {
             dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
         } else {
             /* Add new key to db and also update keysizes hist */
-            dbAddByLink(c->db, c->argv[1], &new, &link);
+            dbAddByLink(c->db, c->argv[1], &new, &link, 0);
         }
     }
     addReplyLongLongFromStr(c,new);
@@ -688,7 +689,7 @@ void incrbyfloatCommand(client *c) {
     if (o)
         dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
     else
-        dbAddByLink(c->db, c->argv[1], &new, &link);
+        dbAddByLink(c->db, c->argv[1], &new, &link, 0);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
@@ -712,7 +713,7 @@ void appendCommand(client *c) {
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAddByLink(c->db, c->argv[1], &c->argv[2], &link);
+        dbAddByLink(c->db, c->argv[1], &c->argv[2], &link, 0);
         incrRefCount(c->argv[2]);
         totlen = stringObjectLen(c->argv[2]);
     } else {

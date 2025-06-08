@@ -477,7 +477,7 @@ void pushGenericCommand(client *c, int where, int xx) {
         }
 
         lobj = createListListpackObject();
-        dbAddByLink(c->db, c->argv[1], &lobj, &link);
+        dbAddByLink(c->db, c->argv[1], &lobj, &link, 0);
     }
 
     listTypeTryConversionAppend(lobj,c->argv,2,c->argc-1,NULL,NULL);

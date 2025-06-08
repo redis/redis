@@ -13,7 +13,7 @@
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
  * update the expiration time of the hash object in global HFE DS. */
-#define HASH_NEW_EXPIRE_DIFF_THRESHOLD max(4000, 1<<EB_BUCKET_KEY_PRECISION)
+#define HASH_NEW_EXPIRE_DIFF_THRESHOLD 4000
 
 /* Reserve 2 bits out of hash-field expiration time for possible future lightweight
  * indexing/categorizing of fields. It can be achieved by hacking HFE as follows:
@@ -47,8 +47,8 @@ typedef listpackEntry CommonEntry; /* extend usage beyond lp */
 
 /* hash field expiration (HFE) funcs */
 static ExpireAction onFieldExpire(eItem item, void *ctx);
-static ExpireMeta* hfieldGetExpireMeta(const eItem field);
-static ExpireMeta *hashGetExpireMeta(const eItem hash);
+static ExpireMeta* hfieldGetExpireMeta(const void *field);
+static ExpireMeta *hashGetExpireMeta(const void *hash);
 static void hexpireGenericCommand(client *c, long long basetime, int unit);
 static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
 static uint64_t hashTypeExpire(kvobj *kv, ExpireCtx *expireCtx, int updateGlobalHFE);
@@ -117,6 +117,8 @@ EbucketsType hashExpireBucketsType = {
     .onDeleteItem = NULL,
     .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
     .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
+    .ebp.precision = 0,
+    .ebp.keySize = EB_PRECISION2KEYSIZE(0 /*.ebp.precision*/),
 };
 
 /* dictExpireMetadata - ebuckets-type for hash fields with time-Expiration. ebuckets
@@ -126,6 +128,8 @@ EbucketsType hashFieldExpireBucketsType = {
     .onDeleteItem = NULL,
     .getExpireMeta = hfieldGetExpireMeta, /* get ExpireMeta attached to each field */
     .itemsAddrAreOdd = 1,                 /* Addresses of hfield (mstr) are odd!! */
+    .ebp.precision = 0,
+    .ebp.keySize = EB_PRECISION2KEYSIZE(0 /*.ebp.precision*/),
 };
 
 /* OnFieldExpireCtx passed to OnFieldExpire() */
@@ -298,7 +302,7 @@ static void hashDictWithExpireOnRelease(dict *d) {
 
 struct listpackEx *listpackExCreate(void) {
     listpackEx *lpt = zcalloc(sizeof(*lpt));
-    lpt->meta.trash = 1;
+    lpt->meta.storedIn = EB_STORED_IN_TRASH;
     lpt->lp = NULL;
     return lpt;
 }
@@ -1138,7 +1142,7 @@ void initDictExpireMetadata(robj *o) {
 
     dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(ht);
     m->hfe = ebCreate();     /* Allocate HFE DS */
-    m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
+    m->expireMeta.storedIn = EB_STORED_IN_TRASH; /* trash as long it wasn't ebAdd() */
 }
 
 /* Init HashTypeSetEx struct before calling hashTypeSetEx() */
@@ -1170,7 +1174,7 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
 
             /* Fillup dict HFE metadata */
             m->hfe = ebCreate();     /* Allocate HFE DS */
-            m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
+            m->expireMeta.storedIn = EB_STORED_IN_TRASH; /* trash as long it wasn't ebAdd() */
         }
     }
 
@@ -1277,7 +1281,7 @@ unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
         listpackEx *lpt = o->ptr;
         length = lpLength(lpt->lp) / 3;
 
-        if (subtractExpiredFields && lpt->meta.trash == 0)
+        if (subtractExpiredFields && lpt->meta.storedIn != EB_STORED_IN_TRASH)
             length -= listpackExExpireDryRun(o);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         uint64_t expiredItems = 0;
@@ -1285,7 +1289,7 @@ unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
         if (subtractExpiredFields && isDictWithMetaHFE(d)) {
             dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
             /* If dict registered in global HFE DS */
-            if (meta->expireMeta.trash == 0)
+            if (meta->expireMeta.storedIn != EB_STORED_IN_TRASH)
                 expiredItems = ebExpireDryRun(meta->hfe,
                                               &hashFieldExpireBucketsType,
                                               commandTimeSnapshot());
@@ -1527,7 +1531,7 @@ static kvobj *hashTypeLookupWriteOrCreate(client *c, robj *key) {
 
     if (kv == NULL) {
         robj *o = createHashObject();
-        kv = dbAddByLink(c->db, key, &o, &link);
+        kv = dbAddByLink(c->db, key, &o, &link, 0);
     }
     return kv;
 }
@@ -1604,7 +1608,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
         listpackEx *lpt = o->ptr;
         uint64_t minExpire = hashTypeGetMinExpire(o, 0);
 
-        if (hexpires && lpt->meta.trash != 1)
+        if (hexpires && lpt->meta.storedIn != EB_STORED_IN_TRASH)
             ebRemove(hexpires, &hashExpireBucketsType, o);
 
         dict = dictCreate(&mstrHashDictTypeWithHFE);
@@ -1613,7 +1617,7 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
 
         /* Fillup dict HFE metadata */
         dictExpireMeta->hfe = ebCreate();     /* Allocate HFE DS */
-        dictExpireMeta->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
+        dictExpireMeta->expireMeta.storedIn = EB_STORED_IN_TRASH; /* mark as trash */
 
         hi = hashTypeInitIterator(o);
 
@@ -1681,7 +1685,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
     } else if(o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = o->ptr;
 
-        if (lpt->meta.trash == 0)
+        if (lpt->meta.storedIn != EB_STORED_IN_TRASH)
             *minHashExpire = ebGetMetaExpTime(&lpt->meta);
 
         listpackEx *dup = listpackExCreate();
@@ -1705,11 +1709,11 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
             dictExpireMetaSrc = (dictExpireMetadata *) dictMetadata((dict *) o->ptr);
             dictExpireMetaDst = (dictExpireMetadata *) dictMetadata(d);
             dictExpireMetaDst->hfe = ebCreate();     /* Allocate HFE DS */
-            dictExpireMetaDst->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
+            dictExpireMetaDst->expireMeta.storedIn = EB_STORED_IN_TRASH; /* mark as trash (as long it wasn't ebAdd()) */
 
             /* Extract the minimum expire time of the source hash (Will be used by caller
              * to register the new hash in the global ebuckets, i.e db->hexpires) */
-            if (dictExpireMetaSrc->expireMeta.trash == 0)
+            if (dictExpireMetaSrc->expireMeta.storedIn != EB_STORED_IN_TRASH)
                 *minHashExpire = ebGetMetaExpTime(&dictExpireMetaSrc->expireMeta);
         }
         dictExpand(d, dictSize((const dict*)o->ptr));
@@ -1947,7 +1951,7 @@ uint64_t hashTypeGetMinExpire(robj *o, int accurate) {
         }
 
         /* Keep aside next hash-field expiry before updating HFE DS. Verify it is not trash */
-        if (expireMeta->trash == 1)
+        if (expireMeta->storedIn == EB_STORED_IN_TRASH)
             return EB_EXPIRE_TIME_INVALID;
 
         return ebGetMetaExpTime(expireMeta);
@@ -2066,7 +2070,7 @@ void hashTypeFree(robj *o) {
             /* Verify hash is not registered in global HFE ds */
             if (isDictWithMetaHFE((dict*)o->ptr)) {
                 dictExpireMetadata *m = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
-                serverAssert(m->expireMeta.trash == 1);
+                serverAssert(m->expireMeta.storedIn == EB_STORED_IN_TRASH);
             }
             dictRelease((dict*) o->ptr);
             break;
@@ -2075,7 +2079,7 @@ void hashTypeFree(robj *o) {
             break;
         case OBJ_ENCODING_LISTPACK_EX:
             /* Verify hash is not registered in global HFE ds */
-            serverAssert(((listpackEx *) o->ptr)->meta.trash == 1);
+            serverAssert(((listpackEx *) o->ptr)->meta.storedIn == EB_STORED_IN_TRASH);
             listpackExFree(o->ptr);
             break;
         default:
@@ -2350,7 +2354,7 @@ void hsetexCommand(client *c) {
             return;
         }
         o = createHashObject();
-        dbAddByLink(c->db, c->argv[1], &o, &link);
+        dbAddByLink(c->db, c->argv[1], &o, &link, 0);
     }
     oldlen = (int64_t) hashTypeLength(o, 0);
 
@@ -3374,7 +3378,7 @@ static hfield _hfieldNew(const void *field, size_t fieldlen, int withExpireMeta,
     ExpireMeta *expireMeta = mstrMetaRef(hf, &mstrFieldKind, HFIELD_META_EXPIRE);
 
     /* as long as it is not inside ebuckets, it is considered trash */
-    expireMeta->trash = 1;
+    expireMeta->storedIn = EB_STORED_IN_TRASH;
     return hf;
 }
 
@@ -3391,9 +3395,9 @@ int hfieldIsExpireAttached(hfield field) {
     return mstrIsMetaAttached(field) && mstrGetFlag(field, (int) HFIELD_META_EXPIRE);
 }
 
-static ExpireMeta* hfieldGetExpireMeta(const eItem field) {
+static ExpireMeta* hfieldGetExpireMeta(const void *field) {
     /* extract the expireMeta from the field of type mstr */
-    return mstrMetaRef(field, &mstrFieldKind, (int) HFIELD_META_EXPIRE);
+    return mstrMetaRef((mstr)field, &mstrFieldKind, (int) HFIELD_META_EXPIRE);
 }
 
 /* returned value is unix time in milliseconds */
@@ -3402,7 +3406,7 @@ uint64_t hfieldGetExpireTime(hfield field) {
         return EB_EXPIRE_TIME_INVALID;
 
     ExpireMeta *expireMeta = mstrMetaRef(field, &mstrFieldKind, (int) HFIELD_META_EXPIRE);
-    if (expireMeta->trash)
+    if (expireMeta->storedIn == EB_STORED_IN_TRASH)
         return EB_EXPIRE_TIME_INVALID;
 
     return ebGetMetaExpTime(expireMeta);
@@ -3419,7 +3423,7 @@ static void hfieldPersist(robj *hashObj, hfield field) {
     dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
 
     /* If field has valid expiry then dict must have valid metadata as well */
-    serverAssert(dictExpireMeta->expireMeta.trash == 0);
+    serverAssert(dictExpireMeta->expireMeta.storedIn != EB_STORED_IN_TRASH);
 
     /* Remove field from private HFE DS */
     ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, field);
@@ -3481,7 +3485,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
 
 /* Retrieve the ExpireMeta associated with the hash.
  * The caller is responsible for ensuring that it is indeed attached. */
-static ExpireMeta *hashGetExpireMeta(const eItem hash) {
+static ExpireMeta *hashGetExpireMeta(const void *hash) {
     robj *hashObj = (robj *)hash;
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = hashObj->ptr;

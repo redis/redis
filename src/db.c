@@ -322,10 +322,10 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  * link - Optional link to bucket where the key should be added.
  *          On return, get updated, by need, to the inserted key.
  */
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link, int hasExpire) {
     int slot = getKeySlot(key->ptr);
     robj *val = *valref;
-    kvobj *kv = kvobjSet(key->ptr, val, -1);
+    kvobj *kv = kvobjSet(key->ptr, val, hasExpire);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
     signalKeyAsReady(db, key, kv->type);
@@ -337,7 +337,7 @@ kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
 
 /* Read dbAddByLink() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    return dbAddByLink(db, key, valref, NULL);
+    return dbAddByLink(db, key, valref, NULL, 0);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -385,13 +385,14 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
         return NULL;
 
     /* prepare kvobj for insertion. Pass expire to reserve space for it */
-    kvobj *kv = kvobjSet(key, *valref, -1);
+    int hasExpire = expire != -1;
+    kvobj *kv = kvobjSet(key, *valref, hasExpire);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
     /* Set the expire time if needed */
-    if (expire != -1)
-        kv = setExpireByLink(NULL, db, key, expire, bucket);
+    if (hasExpire)
+        estoreAdd(db->expiresNew, kv, slot, expire);
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
     return *valref = kv;
@@ -473,14 +474,9 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
 
         /* Replace the old value at its location in the expire space. */
         if (expire >= 0) {
-            if (keepTTL) {
-                dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot,
-                                                           key->ptr, NULL);
-                serverAssertWithInfo(NULL, key, exLink != NULL);
-                kvstoreDictSetAtLink(db->expires, slot, kvNew, &exLink, 0);
-            } else {
-                kvstoreDictDelete(db->expires, slot, key->ptr);
-            }
+            estoreRemove(db->expiresNew, slot, old);
+            if (keepTTL)
+                estoreAdd(db->expiresNew, kvNew, slot, expire);
         }
     }
 
@@ -572,7 +568,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         dbSetValue(db, key, valref, *link, 1, 1, flags & SETKEY_KEEPTTL);
     } else {
         /* Add the new key to the database */
-        dbAddByLink(db, key, valref, link);
+        dbAddByLink(db, key, valref, link,  (flags & SETKEY_HAS_EXPIRE) ? 1 : 0);
     }
 
     if (!(flags & SETKEY_NO_SIGNAL))
@@ -586,7 +582,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
 robj *dbRandomKey(redisDb *db) {
     dictEntry *de;
     int maxtries = 100;
-    int allvolatile = kvstoreSize(db->keys) == kvstoreSize(db->expires);
+    int allvolatile = kvstoreSize(db->keys) == estoreSize(db->expiresNew);
 
     while(1) {
         robj *keyobj;
@@ -625,32 +621,35 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     link = kvstoreDictTwoPhaseUnlinkFind(db->keys, slot, key->ptr, &table);
 
     if (link) {
-        kvobj *val = dictGetKV(*link);
+        kvobj *kv = dictGetKV(*link);
 
-        int64_t oldlen = (int64_t) getObjectLength(val);
-        int type = val->type;
+        int64_t oldlen = (int64_t) getObjectLength(kv);
+        int type = kv->type;
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (type == OBJ_HASH)
-            hashTypeRemoveFromExpires(&db->hexpires, val);
+            hashTypeRemoveFromExpires(&db->hexpires, kv);
 
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
          * need to incr to retain val */
-        incrRefCount(val); /* refcnt=1->2 */
+        incrRefCount(kv); /* refcnt=1->2 */
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val,db->id,flags);
+        moduleNotifyKeyUnlink(key, kv, db->id, flags);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,type);
         /* We should call decr before freeObjAsync. If not, the refcount may be
          * greater than 1, so freeObjAsync doesn't work */
-        decrRefCount(val);
+        decrRefCount(kv);
 
-        /* Delete an entry from the expires dict is not decrRefCount of kvobj */
-        kvstoreDictDelete(db->expires, slot, key->ptr);
+        /* Because of dbUnshareStringValue, the val in db may change. */
+        kv = dictGetKV(*link);
+        
+        /* Delete an entry from the estore. No need to decrRefCount */
+        if (kvobjGetExpire(kv) != -1)
+            estoreRemove(db->expiresNew, slot, kv);
 
         if (async) {
-            /* Because of dbUnshareStringValue, the val in db may change. */
-            freeObjAsync(key, dictGetKV(*link), db->id);
+            freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
         }
@@ -765,7 +764,7 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
              * DS is embedded in the stored objects. */
             ebDestroy(&dbarray[j].hexpires, &hashExpireBucketsType, NULL);
             kvstoreEmpty(dbarray[j].keys, callback);
-            kvstoreEmpty(dbarray[j].expires, callback);
+            estoreEmpty(dbarray[j].expiresNew);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
@@ -843,8 +842,8 @@ redisDb *initTempDb(void) {
         tempDb[i].id = i;
         tempDb[i].keys = kvstoreCreate(&dbDictType, slot_count_bits,
                                        flags | KVSTORE_ALLOC_META_KEYS_HIST);
-        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
         tempDb[i].hexpires = ebCreate();
+        tempDb[i].expiresNew = estoreCreate(&estoreBucketsType, slot_count_bits);
     }
 
     return tempDb;
@@ -860,8 +859,8 @@ void discardTempDb(redisDb *tempDb) {
         /* Destroy global HFE DS before deleting the hashes since ebuckets DS is
          * embedded in the stored objects. */
         ebDestroy(&tempDb[i].hexpires, &hashExpireBucketsType, NULL);
+        estoreRelease(tempDb[i].expiresNew);
         kvstoreRelease(tempDb[i].keys);
-        kvstoreRelease(tempDb[i].expires);
     }
 
     zfree(tempDb);
@@ -1901,9 +1900,10 @@ void moveCommand(client *c) {
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
-    dbAddByLink(dst, c->argv[1], &kv, &dstBucket);
-    if (expire != -1)
-        setExpireByLink(c, dst, c->argv[1]->ptr, expire, dstBucket);
+    int hasExpire = expire != -1;
+    dbAddByLink(dst, c->argv[1], &kv, &dstBucket, hasExpire);
+    if (hasExpire)
+        estoreAdd(dst->expiresNew, kv, getKeySlot(c->argv[1]->ptr), expire);
 
     /* If object of type hash with expiration on fields. Taken care to add the
      * hash to hexpires of `dst` only after dbDelete(). */
@@ -1928,8 +1928,8 @@ void copyCommand(client *c) {
     long long expire;
     int j, replace = 0, delete = 0;
 
-    /* Obtain source and target DB pointers 
-     * Default target DB is the same as the source DB 
+    /* Obtain source and target DB pointers
+     * Default target DB is the same as the source DB
      * Parse the REPLACE option and targetDB option. */
     src = c->db;
     dst = c->db;
@@ -2111,13 +2111,13 @@ int dbSwapDatabases(int id1, int id2) {
      * ready_keys and watched_keys, since we want clients to
      * remain in the same DB they were. */
     db1->keys = db2->keys;
-    db1->expires = db2->expires;
+    db1->expiresNew = db2->expiresNew;
     db1->hexpires = db2->hexpires;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
 
     db2->keys = aux.keys;
-    db2->expires = aux.expires;
+    db2->expiresNew = aux.expiresNew;
     db2->hexpires = aux.hexpires;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
@@ -2155,13 +2155,13 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * ready_keys and watched_keys, since clients 
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
-        activedb->expires = newdb->expires;
+        activedb->expiresNew = newdb->expiresNew;
         activedb->hexpires = newdb->hexpires;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 
         newdb->keys = aux.keys;
-        newdb->expires = aux.expires;
+        newdb->expiresNew = aux.expiresNew;
         newdb->hexpires = aux.hexpires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
@@ -2218,21 +2218,14 @@ void swapdbCommand(client *c) {
  * Expires API
  *----------------------------------------------------------------------------*/
 
-/* Remove expiry from key
- *
- *  Remove the object from db->expires and set to -1 attached TTL to KV
- */
-int removeExpire(redisDb *db, robj *key) {
-    int table;
+/* Remove expiry from kv */
+int removeExpire(redisDb *db, robj *key, kvobj *kv) {
     int slot = getKeySlot(key->ptr);
-    dictEntryLink link = kvstoreDictTwoPhaseUnlinkFind(db->expires, slot, key->ptr, &table);
 
-    if (link == NULL) return 0;
-    dictEntry *de = *link;
-    kvobj *kv = dictGetKV(de);
-    kvobj *newkv = kvobjSetExpire(kv, -1);
-    serverAssert(newkv == kv);
-    kvstoreDictTwoPhaseUnlinkFree(db->expires, slot, link, table);
+    if (kvobjGetExpire(kv) == -1) return 0;
+    
+    /* Remove from estore */
+    estoreRemove(db->expiresNew, slot, kv);
     return 1;
 }
 
@@ -2259,26 +2252,31 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
     long long old_when = kvobjGetExpire(kv);
 
     if (old_when != -1) { /* old expire */
-        kvobj *kvnew = kvobjSetExpire(kv, when); /* release kv if reallocated */
-        /* Val already had an expire field, so it was not reallocated. */
-        serverAssert(kv == kvnew);
+        estoreRemove(db->expiresNew, slot, kv);
+        estoreAdd(db->expiresNew, kv, slot, when);
     } else { /* No old expire */
+        /* No expire was set and still isn't */
+        if (when == -1) return kv;
+
         uint64_t hexpire = EB_EXPIRE_TIME_INVALID;
         /* If hash with HFEs, take care to remove from global HFE DS before attempting
          * to manipulate and maybe free kv object */
         if (kv->type == OBJ_HASH)
             hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
+        
+        /* If hash with HFEs, take care to remove from global HFE DS before attempting
+         * to manipulate and maybe free kv object */
+        if (kv->type == OBJ_HASH)
+            hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
 
-        kvobj *kvnew = kvobjSetExpire(kv, when); /* release kv if reallocated */
-        /* if kvobj was reallocated, update dict */
-        if (kv != kvnew) {
+        kvobj *kvnew;
+        if (!kv->expirable) {
+            kvnew = kvobjSet(kvobjGetKey(kv), kv, 1);
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
             kv = kvnew;
         }
-        /* Now add to expires */
-        dictEntry *de = kvstoreDictAddRaw(db->expires, slot, kv, NULL);
-        serverAssert(de != NULL);
-
+        estoreAdd(db->expiresNew, kv, slot, when);
+        
         if (hexpire != EB_EXPIRE_TIME_INVALID)
             hashTypeAddToExpires(db, kv, hexpire);
     }
@@ -2295,7 +2293,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
  * To avoid lookup, pass key-value object (`kv`) instead of `key`.
  */
 long long getExpire(redisDb *db, sds key, kvobj *kv) {
-    if (kv == NULL) kv = dbFindExpires(db, key);
+    if (kv == NULL) kv = dbFind(db, key);
     if (kv == NULL) return -1;
     return kvobjGetExpire(kv);
 }
@@ -2533,10 +2531,6 @@ int dbExpand(redisDb *db, uint64_t db_size, int try_expand) {
     return dbExpandGeneric(db->keys, db_size, try_expand);
 }
 
-int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand) {
-    return dbExpandGeneric(db->expires, db_size, try_expand);
-}
-
 static kvobj *dbFindGeneric(kvstore *kvs, sds key) {
     dictEntry *res = kvstoreDictFind(kvs, getKeySlot(key), key);
     return (res) ? dictGetKey(res) : NULL;
@@ -2564,10 +2558,6 @@ kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *plink) {
         if (plink) *plink = link;
         return dictGetKV(*link);
     }
-}
-
-kvobj *dbFindExpires(redisDb *db, sds key) {
-    return dbFindGeneric(db->expires, key);
 }
 
 unsigned long long dbSize(redisDb *db) {
@@ -2626,10 +2616,10 @@ int64_t getAllKeySpecsFlags(struct redisCommand *cmd, int inv) {
 
 /* Fetch the keys based of the provided key specs. Returns the number of keys found, or -1 on error.
  * There are several flags that can be used to modify how this function finds keys in a command.
- * 
+ *
  * GET_KEYSPEC_INCLUDE_NOT_KEYS: Return 'fake' keys as if they were keys.
  * GET_KEYSPEC_RETURN_PARTIAL:   Skips invalid and incomplete keyspecs but returns the keys
- *                               found in other valid keyspecs. 
+ *                               found in other valid keyspecs.
  */
 int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result) {
     long j, i, last, first, step;
@@ -2746,13 +2736,13 @@ invalid_spec:
     return result->numkeys;
 }
 
-/* Return all the arguments that are keys in the command passed via argc / argv. 
+/* Return all the arguments that are keys in the command passed via argc / argv.
  * This function will eventually replace getKeysFromCommand.
  *
  * The command returns the positions of all the key arguments inside the array,
  * so the actual return value is a heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
- * 
+ *
  * Along with the position, this command also returns the flags that are
  * associated with how Redis will access the key.
  *
@@ -2829,14 +2819,14 @@ int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags) {
     return 0;
 }
 
-/* Return all the arguments that are channels in the command passed via argc / argv. 
- * This function behaves similar to getKeysFromCommandWithSpecs, but with channels 
+/* Return all the arguments that are channels in the command passed via argc / argv.
+ * This function behaves similar to getKeysFromCommandWithSpecs, but with channels
  * instead of keys.
- * 
+ *
  * The command returns the positions of all the channel arguments inside the array,
  * so the actual return value is a heap allocated array of integers. The
  * length of the array is returned by reference into *numkeys.
- * 
+ *
  * Along with the position, this command also returns the flags that are
  * associated with how Redis will access the channel.
  *
@@ -2870,12 +2860,12 @@ int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getK
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,
- * all other commands should be handled by getkeys_proc. 
- * 
+ * all other commands should be handled by getkeys_proc.
+ *
  * If the commands keyspec is incomplete, no keys will be returned, and the provided
  * keys function should be called instead.
- * 
- * NOTE: This function does not guarantee populating the flags for 
+ *
+ * NOTE: This function does not guarantee populating the flags for
  * the keys, in order to get flags you should use getKeysUsingKeySpecs. */
 int getKeysUsingLegacyRangeSpec(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int j, i = 0, last, first, step;
@@ -2959,7 +2949,7 @@ void getKeysFreeResult(getKeysResult *result) {
  * 'keyCountOfs': num-keys index.
  * 'firstKeyOfs': firstkey index.
  * 'keyStep': the interval of each key, usually this value is 1.
- * 
+ *
  * The commands using this function have a fully defined keyspec, so returning flags isn't needed. */
 int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keyStep,
                     robj **argv, int argc, getKeysResult *result) {
@@ -2982,12 +2972,12 @@ int genericGetKeys(int storeKeyOfs, int keyCountOfs, int firstKeyOfs, int keySte
     for (i = 0; i < num; i++) {
         keys[i].pos = firstKeyOfs+(i*keyStep);
         keys[i].flags = 0;
-    } 
+    }
 
     if (storeKeyOfs) {
         keys[num].pos = storeKeyOfs;
         keys[num].flags = 0;
-    } 
+    }
     return result->numkeys;
 }
 
@@ -3065,8 +3055,8 @@ int sortROGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
  *
  * The first argument of SORT is always a key, however a list of options
  * follow in SQL-alike style. Here we parse just the minimum in order to
- * correctly identify keys in the "STORE" option. 
- * 
+ * correctly identify keys in the "STORE" option.
+ *
  * This command declares incomplete keys, so the flags are correctly set for this function */
 int sortGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, j, num, found_store = 0;
@@ -3126,7 +3116,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     struct {
         char* name;
         int skip;
-    } skip_keywords[] = {       
+    } skip_keywords[] = {
         {"copy", 0},
         {"replace", 0},
         {"auth", 1},
@@ -3139,7 +3129,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
                 if (sdslen(argv[3]->ptr) > 0) {
                     /* This is a syntax error. So ignore the keys and leave
                      * the syntax error to be handled by migrateCommand. */
-                    num = 0; 
+                    num = 0;
                 } else {
                     first = i + 1;
                     num = argc - first;
@@ -3159,7 +3149,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
     for (i = 0; i < num; i++) {
         keys[i].pos = first+i;
         keys[i].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_DELETE;
-    } 
+    }
     result->numkeys = num;
     return num;
 }
@@ -3168,7 +3158,7 @@ int migrateGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResul
  * GEORADIUS key x y radius unit [WITHDIST] [WITHHASH] [WITHCOORD] [ASC|DESC]
  *                             [COUNT count] [STORE key|STOREDIST key]
  * GEORADIUSBYMEMBER key member radius unit ... options ...
- * 
+ *
  * This command has a fully defined keyspec, so returning flags isn't needed. */
 int georadiusGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     int i, num;
@@ -3251,8 +3241,8 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
     keys = getKeysPrepareResult(result, num);
     for (i = streams_pos+1; i < argc-num; i++) {
         keys[i-streams_pos-1].pos = i;
-        keys[i-streams_pos-1].flags = 0; 
-    } 
+        keys[i-streams_pos-1].flags = 0;
+    }
     result->numkeys = num;
     return num;
 }
