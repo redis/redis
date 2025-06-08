@@ -715,7 +715,7 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
     default: return REDISMODULE_ERR;
     }
 
-    key->kv = dbAdd(key->db, key->key, &obj, -1);
+    key->kv = dbAdd(key->db, key->key, &obj);
     moduleInitKeyTypeSpecific(key);
     return REDISMODULE_OK;
 }

@@ -468,7 +468,7 @@ void setrangeCommand(client *c) {
 
         newLen = offset+value_len;
         robj *o = createObject(OBJ_STRING,sdsnewlen(NULL, newLen));
-        kv = dbAddByLink(c->db, c->argv[1], &o, &link, -1);
+        kv = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
         /* Key exists, check type */
         if (checkType(c,kv,OBJ_STRING))
@@ -633,7 +633,7 @@ void incrDecrCommand(client *c, long long incr) {
             dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
         } else {
             /* Add new key to db and also update keysizes hist */
-            dbAddByLink(c->db, c->argv[1], &new, &link, -1);
+            dbAddByLink(c->db, c->argv[1], &new, &link);
         }
     }
     addReplyLongLongFromStr(c,new);
@@ -688,7 +688,7 @@ void incrbyfloatCommand(client *c) {
     if (o)
         dbReplaceValueWithLink(c->db, c->argv[1], &new, link);
     else
-        dbAddByLink(c->db, c->argv[1], &new, &link, -1);
+        dbAddByLink(c->db, c->argv[1], &new, &link);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
@@ -712,7 +712,7 @@ void appendCommand(client *c) {
     if (o == NULL) {
         /* Create the key */
         c->argv[2] = tryObjectEncoding(c->argv[2]);
-        dbAddByLink(c->db, c->argv[1], &c->argv[2], &link, -1);
+        dbAddByLink(c->db, c->argv[1], &c->argv[2], &link);
         incrRefCount(c->argv[2]);
         totlen = stringObjectLen(c->argv[2]);
     } else {

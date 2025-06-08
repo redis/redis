@@ -1839,7 +1839,7 @@ void zaddGenericCommand(client *c, int flags) {
     if (zobj == NULL) {
         if (xx) goto reply_to_client; /* No key + XX option: nothing to do. */
         robj *o = zsetTypeCreate(elements, sdslen(c->argv[scoreidx + 1]->ptr));
-        zobj = dbAdd(c->db,key,&o, -1);
+        zobj = dbAdd(c->db,key,&o);
     } else {
         zsetTypeMaybeConvert(zobj, elements);
     }

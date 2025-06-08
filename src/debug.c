@@ -760,7 +760,7 @@ NULL
                 val = createStringObject(NULL,valsize);
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
-            dbAdd(c->db, key, &val, -1);
+            dbAdd(c->db, key, &val);
             signalModifiedKey(c,c->db,key);
             decrRefCount(key);
         }
