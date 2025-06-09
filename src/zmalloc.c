@@ -492,12 +492,16 @@ void zfree_usable(void *ptr, size_t *usable) {
 #endif
 }
 
-char *zstrdup(const char *s) {
+char *zstrdup_usable(const char *s, size_t *usable) {
     size_t l = strlen(s)+1;
-    char *p = zmalloc(l);
+    char *p = zmalloc_usable(l, usable);
 
     memcpy(p,s,l);
     return p;
+}
+
+char *zstrdup(const char *s) {
+    return zstrdup_usable(s, NULL);
 }
 
 size_t zmalloc_used_memory(void) {
