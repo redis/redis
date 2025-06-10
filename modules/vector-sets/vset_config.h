@@ -23,11 +23,6 @@ typedef struct {
   uint8_t hnswMaxThreads;
 } VSConfig;
 
-
-#define VS_DEFAULT_CONFIG {                                           \
-  .hnswMaxThreads = VSET_DEFAULT_MAX_THREADS,                         \
-}
-
 extern VSConfig VSGlobalConfig;
 
 int RegisterModuleConfig(RedisModuleCtx *ctx);

@@ -16,7 +16,7 @@
     return REDISMODULE_ERR;                                           \
   }
 
-VSConfig VSGlobalConfig = VS_DEFAULT_CONFIG;
+VSConfig VSGlobalConfig;
 
 int set_uint8_numeric_config(const char *name, long long val,
                                                    void *privdata, RedisModuleString **err)
