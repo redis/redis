@@ -2289,7 +2289,7 @@ int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
      * This is how it works, we hash (using a strong hash function) the
      * following key for each link that we see from A to B (or vice versa):
      *
-     *      hash(sald || A || B || link-level)
+     *      hash(salt || A || B || link-level)
      *
      * We always sort A and B, so the same link from A to B and from B to A
      * will hash the same. The we xor the result into the 128 bit accumulator.
