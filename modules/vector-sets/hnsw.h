@@ -1,4 +1,4 @@
-h/*
+/*
  * HNSW (Hierarchical Navigable Small World) Implementation
  * Based on the paper by Yu. A. Malkov, D. A. Yashunin
  *
