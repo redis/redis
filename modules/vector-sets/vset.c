@@ -1883,7 +1883,10 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         RedisModule_Free(vector);
         RedisModule_Free(params);
     }
-    if (!hnsw_deserialize_index(vset->hnsw)) goto ioerr;
+
+    uint64_t salt[2];
+    RedisModule_GetRandomBytes((unsigned char*)salt,sizeof(salt));
+    if (!hnsw_deserialize_index(vset->hnsw, salt[0], salt[1])) goto ioerr;
 
     return vset;
 
