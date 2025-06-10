@@ -363,6 +363,24 @@ int getKeySlot(sds key) {
     return calculateKeySlot(key);
 }
 
+/* Return the slot of the key in the command. IO threads use this function
+ * to calculate slot to reduce main-thread load */
+int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
+    int slot = -1;
+    if (!cmd || !server.cluster_enabled) return slot;
+
+    /* Get the keys from the command */
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
+    if (numkeys > 0) {
+        /* Get the slot of the first key */
+        robj *first = argv[result.keys[0].pos];
+        slot = keyHashSlot(first->ptr, (int)sdslen(first->ptr));
+    }
+    getKeysFreeResult(&result);
+    return slot;
+}
+
 /* This is a special version of dbAdd() that is used only when loading
  * keys from the RDB file: the key is passed as an SDS string that is
  * copied by the function and freed by the caller.

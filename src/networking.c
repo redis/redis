@@ -2877,6 +2877,7 @@ int processInputBuffer(client *c) {
             if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
                 c->io_flags |= CLIENT_IO_PENDING_COMMAND;
                 c->iolookedcmd = lookupCommand(c->argv, c->argc);
+                c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
                 enqueuePendingClientsToMainThread(c, 0);
                 break;
             }
