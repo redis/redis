@@ -324,22 +324,18 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  *          
  * expire - Set expiry of the key. -1 for no expiry.
  */
-kvobj *dbAddCommon(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire) {
+kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire) {
     int slot = getKeySlot(key->ptr);
     dictEntryLink tmp = NULL;
     if (link == NULL) link = &tmp;
     robj *val = *valref;
-    kvobj *kv = kvobjSet(key->ptr, val, expire);
+    int hasExpire = expire != -1;
+    kvobj *kv = kvobjSet(key->ptr, val, hasExpire);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
 
-    if (expire != -1) {
-        /* Change expire of kv to -1 since it wasn't added to expires yet (Otherwise,
-         * setExpireByLink() will wrongly assume the key already has an expiration) */
-        kvobjSetExpire(kv, -1);
-        /* Add to expires. Leverage setExpireByLink() to reuse the key link. */
-        kv = setExpireByLink(NULL, db, key->ptr, expire, *link);
-    }
+    /* Add to expires. Leverage setExpireByLink() to reuse the key link. */
+    if (hasExpire) kv = setExpireByLink(NULL, db, key->ptr, expire, *link);
 
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
@@ -348,13 +344,13 @@ kvobj *dbAddCommon(redisDb *db, robj *key, robj **valref, dictEntryLink *link, l
     return kv;
 }
 
-/* Read dbAddByLink() comment */
+/* Read dbAddInternal() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    return dbAddCommon(db, key, valref, NULL, -1);
+    return dbAddInternal(db, key, valref, NULL, -1);
 }
 
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
-    return dbAddCommon(db, key, valref, link, -1);
+    return dbAddInternal(db, key, valref, link, -1);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -402,7 +398,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
         return NULL;
 
     /* prepare kvobj for insertion. Pass expire to reserve space for it */
-    kvobj *kv = kvobjSet(key, *valref, -1);
+    kvobj *kv = kvobjSet(key, *valref, expire != -1);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
@@ -485,12 +481,14 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         val->lru = old->lru;
         /* Update expire reference if needed */
         long long expire = getExpire(db, key->ptr, old);
-        kvNew = kvobjSet(key->ptr, val, keepTTL ? expire : -1);
+        int hasExpire = keepTTL && (expire != -1);
+        kvNew = kvobjSet(key->ptr, val, hasExpire);
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* Replace the old value at its location in the expire space. */
         if (expire >= 0) {
             if (keepTTL) {
+                kvobjSetExpire(kvNew, expire); /* kvNew not reallocated here */
                 dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot,
                                                            key->ptr, NULL);
                 serverAssertWithInfo(NULL, key, exLink != NULL);
@@ -1837,7 +1835,7 @@ void renameGenericCommand(client *c, int nx) {
         minHashExpireTime = hashTypeRemoveFromExpires(&c->db->hexpires, o);
 
     dbDelete(c->db,c->argv[1]);
-    dbAddCommon(c->db, c->argv[2], &o, NULL, expire);
+    dbAddInternal(c->db, c->argv[2], &o, NULL, expire);
 
     /* If hash with HFEs, register in db->hexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
@@ -2036,7 +2034,7 @@ void copyCommand(client *c) {
         dbDelete(dst,newkey);
     }
 
-    kvobj *kvCopy = dbAddCommon(dst, newkey, &newobj, NULL, expire);
+    kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, expire);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
