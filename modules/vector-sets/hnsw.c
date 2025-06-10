@@ -396,7 +396,6 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
 
     /* n_threads parameter sanity check. */
     if (n_threads > HNSW_MAX_THREADS) n_threads = HNSW_MAX_THREADS;
-    else if (n_threads == 0) n_threads = 1;
 
     /* M parameter sanity check. */
     if (m == 0) m = HNSW_DEFAULT_M;

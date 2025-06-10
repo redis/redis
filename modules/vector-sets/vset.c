@@ -745,6 +745,12 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (cas && RedisModule_DictGet(vset->dict,val,NULL) != NULL)
         cas = 0;
 
+    /* If n_threads is 0, fall back to synchronous candidate search. */
+    if (vset->hnsw->n_threads == 0) {
+        cas = 0;
+        RedisModule_Log(ctx, "verbose", "CAS option disabled: vectorset-hnsw-max-threads set to 0");
+    }
+
     /* Here depending on the CAS option we directly insert in a blocking
      * way, or use a thread to do candidate neighbors selection and only
      * later, in the reply callback, actually add the element. */
@@ -1083,9 +1089,10 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int threaded_request = 1; // Run on a thread, by default.
     if (filter_ef == 0) filter_ef = count * 100; // Max filter visited nodes.
 
-    /* Disable threaded for MULTI/EXEC and Lua, or if explicitly
-     * requested by the user via the NOTHREAD option. */
-    if (no_thread || (RedisModule_GetContextFlags(ctx) &
+    /* Disable threaded for MULTI/EXEC and Lua, if explicitly
+     * requested by the user via the NOTHREAD option or if the max number
+     * of threads is set to 0. */
+    if (no_thread || vset->hnsw->n_threads == 0 || (RedisModule_GetContextFlags(ctx) &
                       (REDISMODULE_CTX_FLAGS_LUA|
                        REDISMODULE_CTX_FLAGS_MULTI)))
     {
