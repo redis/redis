@@ -394,7 +394,8 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
     HNSW *index = hmalloc(sizeof(HNSW));
     if (!index) return NULL;
 
-    assert(n_threads <= HNSW_MAX_THREADS); // Change to if > -> = MAX or return NULL ?
+    /* n_threads parameter sanity check. */
+    if (n_threads > HNSW_MAX_THREADS) n_threads = HNSW_MAX_THREADS;
 
     /* M parameter sanity check. */
     if (m == 0) m = HNSW_DEFAULT_M;
