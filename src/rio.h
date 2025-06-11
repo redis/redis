@@ -23,7 +23,6 @@
 
 #define RIO_FLAG_READ_ERROR (1<<0)
 #define RIO_FLAG_WRITE_ERROR (1<<1)
-#define RIO_FLAG_ABORT (1<<2)
 
 #define RIO_TYPE_FILE (1<<0)
 #define RIO_TYPE_BUFFER (1<<1)
@@ -103,7 +102,7 @@ typedef struct _rio rio;
  * if needed. */
 
 static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
-    if (r->flags & (RIO_FLAG_WRITE_ERROR | RIO_FLAG_ABORT)) return 0;
+    if (r->flags & (RIO_FLAG_WRITE_ERROR)) return 0;
     while (len) {
         size_t bytes_to_write = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
         if (r->update_cksum) r->update_cksum(r,buf,bytes_to_write);
@@ -119,7 +118,7 @@ static inline size_t rioWrite(rio *r, const void *buf, size_t len) {
 }
 
 static inline size_t rioRead(rio *r, void *buf, size_t len) {
-    if (r->flags & (RIO_FLAG_READ_ERROR | RIO_FLAG_ABORT)) return 0;
+    if (r->flags & (RIO_FLAG_READ_ERROR)) return 0;
     while (len) {
         size_t bytes_to_read = (r->max_processing_chunk && r->max_processing_chunk < len) ? r->max_processing_chunk : len;
         if (r->read(r,buf,bytes_to_read) == 0) {
@@ -142,8 +141,10 @@ static inline int rioFlush(rio *r) {
     return r->flush(r);
 }
 
+/* Abort RIO asynchronously by setting read and write error flags. Subsequent
+ * rioRead()/rioWrite() calls will fail, letting the caller terminate safely. */
 static inline void rioAbort(rio *r) {
-    r->flags |= RIO_FLAG_ABORT;
+    r->flags |= (RIO_FLAG_READ_ERROR | RIO_FLAG_WRITE_ERROR);
 }
 
 /* This function allows to know if there was a read error in any past
@@ -159,7 +160,7 @@ static inline int rioGetWriteError(rio *r) {
 }
 
 static inline void rioClearErrors(rio *r) {
-    r->flags &= ~(RIO_FLAG_READ_ERROR|RIO_FLAG_WRITE_ERROR|RIO_FLAG_ABORT);
+    r->flags &= ~(RIO_FLAG_READ_ERROR|RIO_FLAG_WRITE_ERROR);
 }
 
 void rioInitWithFile(rio *r, FILE *fp);

@@ -1241,7 +1241,7 @@ static doneStatus defragStageDbKeys(void *ctx, monotime endtime) {
 static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
     defragKeysCtx *defrag_keys_ctx = ctx;
     redisDb *db = &server.db[defrag_keys_ctx->dbid];
-    if (db->keys != defrag_keys_ctx->kvstate.kvs) {
+    if (db->expires != defrag_keys_ctx->kvstate.kvs) {
         /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
         return DEFRAG_DONE;
     }
@@ -1553,12 +1553,6 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
     int dutyCycleUs = computeDefragCycleUs();
     monotime endtime = starttime + dutyCycleUs;
     int haveMoreWork = 1;
-
-    /* Increment server.cronloops so that run_with_period works. */
-    long hz_ms = 1000 / server.hz;
-    int cronloops = (server.mstime - server.blocked_last_cron + (hz_ms - 1)) / hz_ms; /* rounding up */
-    server.blocked_last_cron += cronloops * hz_ms;
-    server.cronloops += cronloops;
 
     mstime_t latency;
     latencyStartMonitor(latency);
