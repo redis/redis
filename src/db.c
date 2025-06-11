@@ -1674,8 +1674,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter the expired keys */
-    if (o == NULL && listLength(keys)) {
+    /* Step 3: Filter the expired keys in case there is something to expire. */
+    if (o == NULL && listLength(keys) && kvstoreSize(c->db->expires)) {
         robj kobj;
         listIter li;
         listNode *ln;
