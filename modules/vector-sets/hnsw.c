@@ -396,6 +396,7 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
 
     /* n_threads parameter sanity check. */
     if (n_threads > HNSW_MAX_THREADS) n_threads = HNSW_MAX_THREADS;
+    else if (n_threads == 0) n_threads = 1;
 
     /* M parameter sanity check. */
     if (m == 0) m = HNSW_DEFAULT_M;
@@ -410,10 +411,10 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
     index->last_id = 0;
     index->head = NULL;
     index->cursors = NULL;
-    index->n_threads = n_threads;
+    index->n_slots = n_threads;
 
     /* Initialize epochs array. */
-    for (int i = 0; i < index->n_threads; i++)
+    for (int i = 0; i < index->n_slots; i++)
         index->current_epoch[i] = 0;
 
     /* Initialize locks. */
@@ -422,7 +423,7 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
         return NULL;
     }
 
-    for (int i = 0; i < index->n_threads; i++) {
+    for (int i = 0; i < index->n_slots; i++) {
         if (pthread_mutex_init(&index->slot_locks[i], NULL) != 0) {
             /* Clean up previously initialized mutexes. */
             for (int j = 0; j < i; j++)
@@ -509,7 +510,7 @@ hnswNode *hnsw_node_new(HNSW *index, uint64_t id, const float *vector, const int
                     // up to the caller to fill this later, if needed.
 
     /* Initialize visited epoch array. */
-    for (int i = 0; i < index->n_threads; i++)
+    for (int i = 0; i < index->n_slots; i++)
         node->visited_epoch[i] = 0;
 
     if (qvector == NULL) {
@@ -606,7 +607,7 @@ void hnsw_free(HNSW *index,void(*free_value)(void*value)) {
 
     /* Destroy locks */
     pthread_rwlock_destroy(&index->global_lock);
-    for (int i = 0; i < index->n_threads; i++) {
+    for (int i = 0; i < index->n_slots; i++) {
         pthread_mutex_destroy(&index->slot_locks[i]);
     }
 
@@ -1599,7 +1600,7 @@ int hnsw_delete_node(HNSW *index, hnswNode *node, void(*free_value)(void*value))
  * on success, -1 on error (pthread mutex errors). */
 int hnsw_acquire_read_slot(HNSW *index) {
     /* First try a non-blocking approach on all slots. */
-    for (uint32_t i = 0; i < index->n_threads; i++) {
+    for (uint32_t i = 0; i < index->n_slots; i++) {
         if (pthread_mutex_trylock(&index->slot_locks[i]) == 0) {
             if (pthread_rwlock_rdlock(&index->global_lock) != 0) {
                 pthread_mutex_unlock(&index->slot_locks[i]);
@@ -1610,7 +1611,7 @@ int hnsw_acquire_read_slot(HNSW *index) {
     }
 
     /* All trylock attempts failed, use atomic increment to select slot. */
-    uint32_t slot = index->next_slot++ % index->n_threads;
+    uint32_t slot = index->next_slot++ % index->n_slots;
 
     /* Try to lock the selected slot. */
     if (pthread_mutex_lock(&index->slot_locks[slot]) != 0) return -1;
@@ -1628,7 +1629,7 @@ int hnsw_acquire_read_slot(HNSW *index) {
  * nodes returned by hnsw_search() are accessed while the read lock is
  * still active, to be sure that nodes are not freed. */
 void hnsw_release_read_slot(HNSW *index, int slot) {
-    if (slot < 0 || slot >= index->n_threads) return;
+    if (slot < 0 || slot >= index->n_slots) return;
     pthread_rwlock_unlock(&index->global_lock);
     pthread_mutex_unlock(&index->slot_locks[slot]);
 }

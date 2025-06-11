@@ -745,8 +745,8 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (cas && RedisModule_DictGet(vset->dict,val,NULL) != NULL)
         cas = 0;
 
-    /* If n_threads is 0, fall back to synchronous candidate search. */
-    if (vset->hnsw->n_threads == 0) {
+    /* If n_slots is 1, no additional threading is available, fall back to synchronous candidate search. */
+    if (vset->hnsw->n_slots == 1) {
         cas = 0;
         RedisModule_Log(ctx, "verbose", "CAS option disabled: vectorset-hnsw-max-threads set to 0");
     }
@@ -1091,8 +1091,8 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     /* Disable threaded for MULTI/EXEC and Lua, if explicitly
      * requested by the user via the NOTHREAD option or if the max number
-     * of threads is set to 0. */
-    if (no_thread || vset->hnsw->n_threads == 0 || (RedisModule_GetContextFlags(ctx) &
+     * of threads is set to 1. */
+    if (no_thread || vset->hnsw->n_slots == 1 || (RedisModule_GetContextFlags(ctx) &
                       (REDISMODULE_CTX_FLAGS_LUA|
                        REDISMODULE_CTX_FLAGS_MULTI)))
     {
