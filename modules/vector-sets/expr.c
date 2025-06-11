@@ -20,7 +20,6 @@
 #define RedisModule_Assert assert
 #define _DEFAULT_SOURCE
 #define _USE_MATH_DEFINES
-#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <math.h>
 #endif
