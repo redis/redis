@@ -620,11 +620,12 @@ exprstate *exprCompile(char *expr, int *errpos) {
 
         if (token->token_type == EXPR_TOKEN_EOF) break;
 
-        /* Handle values (numbers, strings, selectors). */
+        /* Handle values (numbers, strings, selectors, null). */
         if (token->token_type == EXPR_TOKEN_NUM ||
             token->token_type == EXPR_TOKEN_STR ||
             token->token_type == EXPR_TOKEN_TUPLE ||
-            token->token_type == EXPR_TOKEN_SELECTOR)
+            token->token_type == EXPR_TOKEN_SELECTOR ||
+            token->token_type == EXPR_TOKEN_NULL)
         {
             exprStackPush(&es->program, token);
             exprTokenRetain(token);
