@@ -703,13 +703,42 @@ tags {"aof external:skip"} {
     }
 
     # Check AOF load broken behavior
+    # Corrupted base AOF, no incr AOF present
+    create_aof $aof_dirpath $aof_base_file {
+        append_to_aof [formatCommand set param ok]
+        append_to_aof "corruption"
+    }
+
+    start_server_aof_ex [list dir $server_path aof-load-broken yes] [list wait_ready false] {
+        test "Log should mention truncated file is not last" {
+            wait_for_log_messages 0 {
+                {*AOF loaded anyway because aof-load-broken is enabled*}
+                {*Fatal error: the truncated file is not the last file*}
+            } 0 10 1000
+        }
+    }
+    # Remove all incr AOF files to make the base file being the last file
+    exec rm -f $aof_dirpath/appendonly.aof.*
+    start_server_aof [list dir $server_path aof-load-broken yes] {
+        test "Corrupted base AOF (last file): should recover" {
+            assert_equal 1 [is_alive [srv pid]]
+        }
+
+        test "param should be 'ok'" {
+            set client [redis [srv host] [srv port]]
+            wait_done_loading $client
+            assert {[$client get param] eq "ok"}
+        }
+    }
+
+    # Check AOF load broken behavior
     start_server_aof [list dir $server_path aof-load-broken yes] {
         test "Unfinished MULTI: Server should start if aof-load-broken is yes" {
             assert_equal 1 [is_alive [srv pid]]
         }
     }
 
-    # Should also start with broken AOF.
+    # Should also start with broken incer AOF.
     create_aof $aof_dirpath $aof_file {
         append_to_aof [formatCommand set foo 1]
         append_to_aof [formatCommand incr foo]
@@ -760,8 +789,8 @@ tags {"aof external:skip"} {
     # so the AOF file will not be reloaded.
     start_server_aof_ex [list dir $server_path aof-load-broken yes aof-load-broken-max-size 2] [list wait_ready false] {
         test "Bad format: Server should have logged an error" {
- 
+
             wait_for_log_messages 0 {"*AOF was not loaded because the size*"} 0 10 1000
         }
     }
-}
+# }

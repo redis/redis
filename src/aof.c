@@ -1658,7 +1658,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeClientArgv(fakeClient);
-        if (server.aof_load_truncated || server.aof_load_broken ) valid_up_to = ftello(fp);
+        if (server.aof_load_truncated || server.aof_load_broken) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
     }
