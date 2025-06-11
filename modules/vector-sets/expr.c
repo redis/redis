@@ -735,6 +735,17 @@ int exprTokensEqual(exprtoken *a, exprtoken *b) {
     return exprTokenToNum(a) == exprTokenToNum(b);
 }
 
+/* Return true if the string a is a substring of b. */
+int exprTokensStringIn(exprtoken *a, exprtoken *b) {
+    assert(a->token_type == EXPR_TOKEN_STR &&
+           b->token_type == EXPR_TOKEN_STR);
+    if (a->str.len > b->str.len) return 0; // A is bigger, can't be a substring.
+    for (size_t i = 0; i <= b->str.len - a->str.len; i++) {
+        if (memcmp(b->str.start+i,a->str.start,a->str.len) == 0) return 1;
+    }
+    return 0;
+}
+
 #include "fastjson.c" // JSON parser implementation used by exprRun().
 
 /* Execute the compiled expression program. Returns 1 if the final stack value
@@ -824,7 +835,9 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             result->num = !exprTokensEqual(a, b) ? 1 : 0;
             break;
         case EXPR_OP_IN: {
-            // For 'in' operator, b must be a tuple.
+            /* For 'in' operator, b must be a tuple, and we check for
+             * membership. Otherwise both a and b must be strings, and
+             * in this case we check if a is a substring of b. */
             result->num = 0;  // Default to false.
             if (b->token_type == EXPR_TOKEN_TUPLE) {
                 for (size_t j = 0; j < b->tuple.len; j++) {
@@ -833,6 +846,10 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
                         break;
                     }
                 }
+            } else if (a->token_type == EXPR_TOKEN_STR &&
+                       b->token_type == EXPR_TOKEN_STR)
+            {
+                result->num = exprTokensStringIn(a,b);
             }
             break;
         }
