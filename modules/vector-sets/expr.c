@@ -736,8 +736,8 @@ int exprTokensEqual(exprtoken *a, exprtoken *b) {
 
 /* Return true if the string a is a substring of b. */
 int exprTokensStringIn(exprtoken *a, exprtoken *b) {
-    assert(a->token_type == EXPR_TOKEN_STR &&
-           b->token_type == EXPR_TOKEN_STR);
+    RedisModule_Assert(a->token_type == EXPR_TOKEN_STR &&
+                       b->token_type == EXPR_TOKEN_STR);
     if (a->str.len > b->str.len) return 0; // A is bigger, can't be a substring.
     for (size_t i = 0; i <= b->str.len - a->str.len; i++) {
         if (memcmp(b->str.start+i,a->str.start,a->str.len) == 0) return 1;
