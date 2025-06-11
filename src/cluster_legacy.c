@@ -970,7 +970,7 @@ void clusterInit(void) {
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
-    server.cluster->asm_links = listCreate();
+    server.cluster->asm_tasks = listCreate();
 
     /* Initialize stats */
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
@@ -6401,6 +6401,8 @@ int clusterCommandSpecial(client *c) {
         addReplyClusterLinksDescription(c);
     } else if (!strcasecmp(c->argv[1]->ptr, "migration")) {
         clusterMigrationCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"syncslots") && c->argc >= 3) {
+        clusterSyncSlotsCommand(c);
     } else {
         return 0;
     }

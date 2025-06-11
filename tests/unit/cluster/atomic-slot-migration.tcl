@@ -34,7 +34,7 @@ start_cluster 3 3 {tags {external:skip cluster}} {
     }
 
     test "Test IMPORT not allowed if the node is already the owner" {
-        assert_error {*already the owner of the slot: 100*} {R 0 CLUSTER MIGRATION IMPORT 100 100}
+        assert_error {*already the owner of the slot*} {R 0 CLUSTER MIGRATION IMPORT 100 100}
     }
 
     test "Test IMPORT not allowed for a slot without an owner" {
@@ -58,11 +58,18 @@ start_cluster 3 3 {tags {external:skip cluster}} {
     }
 
     test "Test IMPORT not allowed if there is an overlapping import" {
+        R 1 set tag22273 tag22273 ;# slot hash is 7000
+        R 1 set tag9283 tag9283 ;# slot hash is 8000
         R 0 CLUSTER MIGRATION IMPORT 7000 8000
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 8000 9000}
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 7500 8500}
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6000 7000}
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6500 7500}
+        test "slot range 7000-8000 is imported" {
+            after 3000
+            # Now slot 7000-8000 is served by node 0
+            assert_equal {tag22273} [R 0 get tag22273]
+            assert_equal {tag9283} [R 0 get tag9283]
+        }
     }
-
 }

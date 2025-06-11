@@ -96,7 +96,7 @@ unsigned long replicationLogicalReplicaCount(void) {
     return count;
 }
 
-static ConnectionType *connTypeOfReplication(void) {
+ConnectionType *connTypeOfReplication(void) {
     if (server.tls_replication) {
         return connectionTypeTls();
     }
@@ -778,6 +778,20 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
      * slave as well. Set slaveseldb to -1 in order to force to re-emit
      * a SELECT statement in the replication stream. */
     server.slaveseldb = -1;
+
+    /* Slot range snapshot. */
+    if (slave->flags & CLIENT_REPL_RDB_CHANNEL &&
+        slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
+    {
+        /* TODO: Start to deliver the commands stream on exporting slots. */
+        /* task->state = +ASM_SEND_BULK_AND_STREAM */
+        buflen = snprintf(buf, sizeof(buf), "+SLOTSSNAPSHOT\r\n");
+        if (connWrite(slave->conn, buf, buflen) != buflen) {
+            freeClientAsync(slave);
+            return C_ERR;
+        }
+        return C_OK;
+    }
 
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
@@ -1786,6 +1800,13 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
              * diskless replication, our work is trivial, we can just put
              * the slave online. */
             if (type == RDB_CHILD_TYPE_SOCKET) {
+                /* Slots snapshot */
+                if (slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT) {
+                    serverLog(LL_NOTICE, "Streamed slots snapshot transfer succeeded");
+                    freeClientAsync(slave);
+                    continue;
+                }
+
                 serverLog(LL_NOTICE,
                     "Streamed RDB transfer with replica %s succeeded (socket). Waiting for REPLCONF ACK from replica to enable streaming",
                         replicationGetSlaveName(slave));

@@ -379,7 +379,7 @@ struct clusterState {
     unsigned char owner_not_claiming_slot[CLUSTER_SLOTS / 8];
 
     /* Atomic slot migration */
-    list *asm_links;
+    list *asm_tasks;
 };
 
 

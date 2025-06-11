@@ -3719,6 +3719,8 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     return rdbLoadWithEmptyFunc(filename, rsi, rdbflags, NULL);
 }
 
+int slotRangesSnapshotSaveRio(int req, rio *rdb, int *error);
+
 /* Like rdbLoadRio() but takes a filename instead of a rio stream. The
  * filename is open for reading and a rio stream object created in order
  * to do the actual loading. Moreover the ETA displayed in the INFO
@@ -3955,7 +3957,13 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
-        retval = rdbSaveRioWithEOFMark(req,&rdb,NULL,rsi);
+        if (req & SLAVE_REQ_SLOTS_SNAPSHOT) {
+            /* Slots snapshot is required */
+            retval = slotRangesSnapshotSaveRio(req, &rdb, NULL);
+        } else {
+            retval = rdbSaveRioWithEOFMark(req,&rdb,NULL,rsi);
+        }
+
         if (retval == C_OK && rioFlush(&rdb) == 0)
             retval = C_ERR;
 

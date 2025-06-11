@@ -1,0 +1,17 @@
+{
+    "SYNCSLOTS": {
+        "summary": "Atomic slots migration.",
+        "complexity": "O(N) where N is the total number of Cluster nodes",
+        "group": "cluster",
+        "since": "9.0.0",
+        "arity": -3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        }
+    }
+}

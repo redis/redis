@@ -988,6 +988,25 @@ const char *CLUSTER_SLOTS_Tips[] = {
 #define CLUSTER_SLOTS_Keyspecs NULL
 #endif
 
+/********** CLUSTER SYNCSLOTS ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* CLUSTER SYNCSLOTS history */
+#define CLUSTER_SYNCSLOTS_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* CLUSTER SYNCSLOTS tips */
+const char *CLUSTER_SYNCSLOTS_Tips[] = {
+"nondeterministic_output",
+};
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* CLUSTER SYNCSLOTS key specs */
+#define CLUSTER_SYNCSLOTS_Keyspecs NULL
+#endif
+
 /* CLUSTER command table */
 struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("addslots","Assigns new hash slots to a node.","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_History,0,CLUSTER_ADDSLOTS_Tips,0,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_ADDSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_ADDSLOTS_Args},
@@ -1019,6 +1038,7 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("shards","Returns the mapping of cluster slots to shards.","O(N) where N is the total number of cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SHARDS_History,0,CLUSTER_SHARDS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SHARDS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("slaves","Lists the replica nodes of a master node.","O(N) where N is the number of replicas.","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args},
 {MAKE_CMD("slots","Returns the mapping of cluster slots to nodes.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("syncslots","Atomic slots migration.","O(N) where N is the total number of Cluster nodes","9.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SYNCSLOTS_History,0,CLUSTER_SYNCSLOTS_Tips,1,clusterCommand,-3,0,0,CLUSTER_SYNCSLOTS_Keyspecs,0,NULL,0)},
 {0}
 };
 

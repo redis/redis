@@ -227,6 +227,7 @@ client *createClient(connection *conn) {
     c->net_input_bytes = 0;
     c->net_output_bytes = 0;
     c->commands_processed = 0;
+    c->task = NULL;
     return c;
 }
 
@@ -1778,7 +1779,7 @@ void freeClient(client *c) {
     }
 
     /* Log link disconnection with slave */
-    if (clientTypeIsSlave(c)) {
+    if (clientTypeIsSlave(c) && !(c->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)) {
         const char *type = c->flags & CLIENT_REPL_RDB_CHANNEL ? " (rdbchannel)" : "";
         serverLog(LL_NOTICE,"Connection with replica%s %s lost.", type,
             replicationGetSlaveName(c));
