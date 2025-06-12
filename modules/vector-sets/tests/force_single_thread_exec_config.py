@@ -7,12 +7,12 @@ class ForceSingleThreadExecConfigTest(TestCase):
 
     def test(self):
         # Check default value (should be 0 or 1, but let's just get it)
-        default = self.redis.execute_command('VS.CONFIG', 'GET', 'forceSingleThreadExec')
+        default = self.redis.execute_command('CONFIG', 'GET', 'forceSingleThreadExec')
         assert default=='no', f"Unexpected default: {default}"
 
         # Set to 0 and 1, check value is set, and VADD/VSIM still work
         for val in ['yes','no']:
-            res = self.redis.execute_command('VS.CONFIG', 'SET', 'forceSingleThreadExec', str(val))
+            res = self.redis.execute_command('CONFIG', 'SET', 'forceSingleThreadExec', str(val))
             assert res == b'OK', f"SET should return OK, got {res}"
             getval = self.redis.execute_command('VS.CONFIG', 'GET', 'forceSingleThreadExec')
             assert getval == str(val).encode(), f"GET after SET should return {val}, got {getval}"
@@ -31,11 +31,11 @@ class ForceSingleThreadExecConfigTest(TestCase):
         wrong_args = ["", "abc", "2", "-1", "True", "False", None]
         for arg in wrong_args:
             try:
-                self.redis.execute_command('VS.CONFIG', 'SET', 'forceSingleThreadExec', arg)
+                self.redis.execute_command('CONFIG', 'SET', 'forceSingleThreadExec', arg)
                 assert False, f"Should fail for arg: {arg}"
             except Exception as e:
                 # Accept any error, but must be an error
                 assert True
 
         # Restore default
-        self.redis.execute_command('VS.CONFIG', 'SET', 'forceSingleThreadExec', default.decode())
+        self.redis.execute_command('CONFIG', 'SET', 'forceSingleThreadExec', default.decode())
