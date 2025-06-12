@@ -45,6 +45,7 @@
 #include <float.h>  /* for INFINITY if not in math.h */
 #include <assert.h>
 #include "hnsw.h"
+#include "mixer.h"
 
 #if 0
 #define debugmsg printf
@@ -390,13 +391,9 @@ uint32_t random_level(void) {
 }
 
 /* Create new HNSW index, quantized or not. */
-HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_threads) {
+HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m) {
     HNSW *index = hmalloc(sizeof(HNSW));
     if (!index) return NULL;
-
-    /* n_threads parameter sanity check. */
-    if (n_threads > HNSW_MAX_THREADS) n_threads = HNSW_MAX_THREADS;
-    else if (n_threads == 0) n_threads = 1;
 
     /* M parameter sanity check. */
     if (m == 0) m = HNSW_DEFAULT_M;
@@ -411,10 +408,9 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
     index->last_id = 0;
     index->head = NULL;
     index->cursors = NULL;
-    index->n_slots = n_threads;
 
     /* Initialize epochs array. */
-    for (int i = 0; i < index->n_slots; i++)
+    for (int i = 0; i < HNSW_MAX_THREADS; i++)
         index->current_epoch[i] = 0;
 
     /* Initialize locks. */
@@ -423,7 +419,7 @@ HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_t
         return NULL;
     }
 
-    for (int i = 0; i < index->n_slots; i++) {
+    for (int i = 0; i < HNSW_MAX_THREADS; i++) {
         if (pthread_mutex_init(&index->slot_locks[i], NULL) != 0) {
             /* Clean up previously initialized mutexes. */
             for (int j = 0; j < i; j++)
@@ -510,7 +506,7 @@ hnswNode *hnsw_node_new(HNSW *index, uint64_t id, const float *vector, const int
                     // up to the caller to fill this later, if needed.
 
     /* Initialize visited epoch array. */
-    for (int i = 0; i < index->n_slots; i++)
+    for (int i = 0; i < HNSW_MAX_THREADS; i++)
         node->visited_epoch[i] = 0;
 
     if (qvector == NULL) {
@@ -607,7 +603,7 @@ void hnsw_free(HNSW *index,void(*free_value)(void*value)) {
 
     /* Destroy locks */
     pthread_rwlock_destroy(&index->global_lock);
-    for (int i = 0; i < index->n_slots; i++) {
+    for (int i = 0; i < HNSW_MAX_THREADS; i++) {
         pthread_mutex_destroy(&index->slot_locks[i]);
     }
 
@@ -1600,7 +1596,7 @@ int hnsw_delete_node(HNSW *index, hnswNode *node, void(*free_value)(void*value))
  * on success, -1 on error (pthread mutex errors). */
 int hnsw_acquire_read_slot(HNSW *index) {
     /* First try a non-blocking approach on all slots. */
-    for (uint32_t i = 0; i < index->n_slots; i++) {
+    for (uint32_t i = 0; i < HNSW_MAX_THREADS; i++) {
         if (pthread_mutex_trylock(&index->slot_locks[i]) == 0) {
             if (pthread_rwlock_rdlock(&index->global_lock) != 0) {
                 pthread_mutex_unlock(&index->slot_locks[i]);
@@ -1611,7 +1607,7 @@ int hnsw_acquire_read_slot(HNSW *index) {
     }
 
     /* All trylock attempts failed, use atomic increment to select slot. */
-    uint32_t slot = index->next_slot++ % index->n_slots;
+    uint32_t slot = index->next_slot++ % HNSW_MAX_THREADS;
 
     /* Try to lock the selected slot. */
     if (pthread_mutex_lock(&index->slot_locks[slot]) != 0) return -1;
@@ -1629,7 +1625,7 @@ int hnsw_acquire_read_slot(HNSW *index) {
  * nodes returned by hnsw_search() are accessed while the read lock is
  * still active, to be sure that nodes are not freed. */
 void hnsw_release_read_slot(HNSW *index, int slot) {
-    if (slot < 0 || slot >= index->n_slots) return;
+    if (slot < 0 || slot >= HNSW_MAX_THREADS) return;
     pthread_rwlock_unlock(&index->global_lock);
     pthread_mutex_unlock(&index->slot_locks[slot]);
 }
@@ -2023,7 +2019,7 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
  * When reloading nodes, you first load the index vector dimension and
  * quantization type, and create the index with:
  *
- * HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_threads);
+ * HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type);
  *
  * Then you load back, for each node (you stored how many nodes you had)
  * the vector and the params array / count.
@@ -2132,6 +2128,7 @@ void hnsw_free_serialized_node(hnswSerNode *sn) {
  * The function returns NULL both on out of memory and if the remaining
  * parameters length does not match the number of links or other items
  * to load. */
+#define HNSW_SER_WORSTLINK_MISSING UINT32_MAX
 hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, uint32_t params_len, void *value)
 {
     if (params_len < 2) return NULL;
@@ -2163,11 +2160,18 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
 
+        /* Sanity check: links should be less than max links and
+         * in general a reasonable amount. */
+        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+            hnsw_node_free(node);
+            return NULL;
+        }
+
         /* If max_links is larger than current allocation, reallocate.
          * It could happen in select_neighbors() that we over-allocate the
          * node under very unlikely to happen conditions. */
         if (max_links > node->layers[i].max_links) {
-            hnswNode **new_links = hrealloc(node->layers[i].links,
+            hnswNode **new_links = hrealloc(node->layers[i].links, 
                                          sizeof(hnswNode*) * max_links);
             if (!new_links) {
                 hnsw_node_free(node);
@@ -2190,6 +2194,10 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
          * fit more than 2^32 nodes in a 32 bit system. */
         for (uint32_t j = 0; j < num_links; j++)
             node->layers[i].links[j] = (hnswNode*)params[param_idx++];
+
+        /* XXX: fix me, we need to store the worst link info in a
+         * backward compatible way. */
+        node->layers[i].worst_idx = HNSW_SER_WORSTLINK_MISSING;
     }
 
     /* Get l2 and quantization range. */
@@ -2226,13 +2234,28 @@ uint64_t hnsw_hash_node_id(uint64_t id) {
     return id;
 }
 
+/* Helper for duplicated link detection in hnsw_deserialize_index(). */
+static int qsort_compare_pointers(const void *aptr, const void *bptr) {
+    uintptr_t a = *((uintptr_t*)aptr);
+    uintptr_t b = *((uintptr_t*)bptr);
+    if (a > b) return 1;
+    if (a < b) return -1;
+    return 0;
+}
+
 /* Fix pointers of neighbors nodes: after loading the serialized nodes, the
  * neighbors links are just IDs (casted to pointers), instead of the actual
  * pointers. We need to resolve IDs into pointers.
  *
+ * The two integers salt0 and salt1 are used to make the internal state
+ * of the function unguessable to an external attacker, in order to protect
+ * from corruptions. Show be two random numbers from /dev/urandom if possible
+ * otherwise can be just 0,0 if the application is not security critical and
+ * never processes untrusted inputs.
+ *
  * Return 0 on error (out of memory or some ID that can't be resolved), 1 on
  * success. */
-int hnsw_deserialize_index(HNSW *index) {
+int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     /* We will use simple linear probing, so over-allocating is a good
      * idea: anyway this flat array of pointers will consume a fraction
      * of the memory of the loaded index. */
@@ -2258,12 +2281,60 @@ int hnsw_deserialize_index(HNSW *index) {
         node = node->next;
     }
 
-    /* Second pass: fix pointers of all the neighbors links. */
+    /* Second pass: fix pointers of all the neighbors links.
+     * As we scan and fix the links, we also compute the accumulator
+     * register "reciprocal", that is used in order to guarantee that all
+     * the links are reciprocal.
+     *
+     * This is how it works, we hash (using a strong hash function) the
+     * following key for each link that we see from A to B (or vice versa):
+     *
+     *      hash(salt || A || B || link-level)
+     *
+     * We always sort A and B, so the same link from A to B and from B to A
+     * will hash the same. The we xor the result into the 128 bit accumulator.
+     * If each link has its own backlink, the accumulator is guaranteed to
+     * be zero at the end.
+     *
+     * Collisions are extremely unlikely to happen, and an external attacker
+     * can't easily control the hash function output, since the salt is
+     * unknown, and also there would be to control the pointers.
+     *
+     * This algorithm is O(1) for each node so it is basically free for
+     * us, as we scan the list of nodes, and runs on constant and very
+     * small memory. */
+    uint64_t accumulator[2] = {0,0};
+
     node = index->head; // Rewind.
     while(node) {
+        uint64_t this_node_id = node->id;
         for (uint32_t i = 0; i <= node->level; i++) {
+            // Check if there are duplicated links: those are
+            // also corruptions of the on-disk serialization format.
+            if (node->layers[i].num_links > 0) {
+                qsort(node->layers[i].links, node->layers[i].num_links,
+                        sizeof(void*), qsort_compare_pointers);
+                for (uint32_t j = 0; j < node->layers[i].num_links-1; j++) {
+                    if (node->layers[i].links[j] == node->layers[i].links[j+1])
+                        goto corrupted;
+                }
+            }
+
+            // Resolve pointers.
             for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
                 uint64_t linked_id = (uint64_t) node->layers[i].links[j];
+
+                // We can't link to our own node.
+                if (linked_id == this_node_id) goto corrupted;
+
+                // Compute accumulator for reciprocal links check.
+                uint64_t mixed_h1, mixed_h2;
+                secure_pair_mixer_128(salt0, salt1, this_node_id, linked_id, (uint64_t)i, &mixed_h1, &mixed_h2);
+
+                accumulator[0] ^= mixed_h1;
+                accumulator[1] ^= mixed_h2;
+
+                // Fix links.
                 uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
@@ -2273,19 +2344,37 @@ int hnsw_deserialize_index(HNSW *index) {
                     }
                     bucket = (bucket+1) & (table_size-1);
                 }
-                if (neighbor == NULL) {
+
+                /* The neighbor must exist and also exist at the right
+                 * level. */
+                if (neighbor == NULL || neighbor->level < i) {
                     /* Unresolved link! Either a bug in this code
                      * or broken serialization data. */
-                    hfree(table);
-                    return 0;
+                    goto corrupted;
                 }
                 node->layers[i].links[j] = neighbor;
+            }
+
+            /* The worst link information was missing from older
+             * serialization formats. Compute it on the fly if needed. */
+            if (node->layers[i].worst_idx == HNSW_SER_WORSTLINK_MISSING) {
+                hnsw_update_worst_neighbor(index,node,i);
             }
         }
         node = node->next;
     }
+
+    /* Check that links are reciprocal, otherwise fail. */
+    if (accumulator[0] || accumulator[1]) goto corrupted;
+
+    /* Everything fine. Return success. */
     hfree(table);
     return 1;
+
+corrupted:
+    /* Some corruption error detected. */
+    hfree(table);
+    return 0;
 }
 
 /* ================================ Iterator ================================ */

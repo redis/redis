@@ -116,7 +116,6 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include "hnsw.h"
-#include "vset_config.h"
 
 // We inline directly the expression implementation here so that building
 // the module is trivial.
@@ -133,9 +132,6 @@ static uint64_t VectorSetTypeNextId = 0;
 
 // Default num elements returned by VSIM.
 #define VSET_DEFAULT_COUNT 10
-
-_Static_assert(HNSW_MAX_THREADS == VSET_MAX_ALLOWED_THREADS,
-    "VSET_MAX_ALLOWED_THREADS should be be equal to HNSW_MAX_THREADS");
 
 /* ========================== Internal data structure  ====================== */
 
@@ -239,7 +235,7 @@ struct vsetObject *createVectorSetObject(unsigned int dim, uint32_t quant_type, 
     o = RedisModule_Alloc(sizeof(*o));
 
     o->id = VectorSetTypeNextId++;
-    o->hnsw = hnsw_new(dim,quant_type,hnsw_M, VSGlobalConfig.hnswMaxThreads);
+    o->hnsw = hnsw_new(dim,quant_type,hnsw_M);
     if (!o->hnsw) { // May fail because of mutex creation.
         RedisModule_Free(o);
         return NULL;
@@ -745,12 +741,6 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (cas && RedisModule_DictGet(vset->dict,val,NULL) != NULL)
         cas = 0;
 
-    /* If n_slots is 1, no additional threading is available, fall back to synchronous candidate search. */
-    if (vset->hnsw->n_slots == 1) {
-        cas = 0;
-        RedisModule_Log(ctx, "verbose", "CAS option disabled: vectorset-hnsw-max-threads set to 0");
-    }
-
     /* Here depending on the CAS option we directly insert in a blocking
      * way, or use a thread to do candidate neighbors selection and only
      * later, in the reply callback, actually add the element. */
@@ -1089,10 +1079,9 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     int threaded_request = 1; // Run on a thread, by default.
     if (filter_ef == 0) filter_ef = count * 100; // Max filter visited nodes.
 
-    /* Disable threaded for MULTI/EXEC and Lua, if explicitly
-     * requested by the user via the NOTHREAD option or if the max number
-     * of threads is set to 1. */
-    if (no_thread || vset->hnsw->n_slots == 1 || (RedisModule_GetContextFlags(ctx) &
+    /* Disable threaded for MULTI/EXEC and Lua, or if explicitly
+     * requested by the user via the NOTHREAD option. */
+    if (no_thread || (RedisModule_GetContextFlags(ctx) &
                       (REDISMODULE_CTX_FLAGS_LUA|
                        REDISMODULE_CTX_FLAGS_MULTI)))
     {
@@ -1990,32 +1979,6 @@ void VectorSetDigest(RedisModuleDigest *md, void *value) {
     }
 }
 
-// int VectorSets_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
-
-    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
-        RedisModule_Log(ctx, "warning", "Error registering module configuration");
-        return REDISMODULE_ERR;
-    }
-
-    // Load default values
-    if (RedisModule_LoadDefaultConfigs(ctx) == REDISMODULE_ERR) {
-        RedisModule_Log(ctx, "warning", "Error loading default module configuration");
-        return REDISMODULE_ERR;
-    } else {
-        RedisModule_Log(ctx, "verbose", "Successfully loaded default module configuration");
-    }
-
-    if (RedisModule_LoadConfigs(ctx) == REDISMODULE_ERR) {
-        RedisModule_Log(ctx, "warning", "Error loading user module configuration");
-        return REDISMODULE_ERR;
-    } else {
-        RedisModule_Log(ctx, "verbose", "Successfully loaded user module configuration");
-    }
-
-    return REDISMODULE_OK;
-}
-
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -2024,10 +1987,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_Init(ctx,"vectorset",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
-
-    if (VectorSets_InitModuleConfig(ctx) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
 
     RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS|REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD);
 

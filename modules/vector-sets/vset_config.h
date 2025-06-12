@@ -13,14 +13,8 @@
 
 #include "../../src/redismodule.h"
 
-#define VSET_MAX_ALLOWED_THREADS 32
-#define VSET_DEFAULT_MAX_THREADS VSET_MAX_ALLOWED_THREADS
-
-_Static_assert(VSET_DEFAULT_MAX_THREADS <= VSET_MAX_ALLOWED_THREADS,
-   "VSET_DEFAULT_MAX_THREADS must be <= VSET_MAX_ALLOWED_THREADS");
-
 typedef struct {
-  uint8_t hnswMaxThreads;
+  bool forceSingleThreadExec;
 } VSConfig;
 
 extern VSConfig VSGlobalConfig;

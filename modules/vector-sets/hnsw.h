@@ -111,7 +111,6 @@ typedef struct HNSW {
                                  * updates. */
     uint32_t quant_type;        /* Quantization used. HNSW_QUANT_... */
     hnswCursor *cursors;
-    uint8_t n_slots;     /* Maximum number of concurrent threads */
 } HNSW;
 
 /* Serialized node. This structure is used as return value of
@@ -127,7 +126,7 @@ typedef struct hnswSerNode {
 typedef struct InsertContext InsertContext;
 
 /* Core HNSW functions */
-HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m, uint8_t n_threads);
+HNSW *hnsw_new(uint32_t vector_dim, uint32_t quant_type, uint32_t m);
 void hnsw_free(HNSW *index,void(*free_value)(void*value));
 void hnsw_node_free(hnswNode *node);
 void hnsw_print_stats(HNSW *index);
@@ -159,7 +158,7 @@ void hnsw_free_insert_context(InsertContext *ctx);
 hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node);
 void hnsw_free_serialized_node(hnswSerNode *sn);
 hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, uint32_t params_len, void *value);
-int hnsw_deserialize_index(HNSW *index);
+int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1);
 
 // Helper function in case the user wants to directly copy
 // the vector bytes.
