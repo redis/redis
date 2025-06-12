@@ -1674,12 +1674,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter the expired keys in case there is something to expire. */
-    if (o == NULL && listLength(keys) && kvstoreSize(c->db->expires)) {
+    /* Step 3: Filter the expired keys */
+    if (o == NULL && listLength(keys)) {
         robj kobj;
         listIter li;
         listNode *ln;
         listRewind(keys, &li);
+        /* Only check expiration when there are volatile keys on the DB. */
+        const int contains_volatile = kvstoreSize(c->db->expires) > 0;
         while ((ln = listNext(&li))) {
             sds key = listNodeValue(ln);
             initStaticStringObject(kobj, key);
@@ -1692,7 +1694,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
                 }
                 continue;
             }
-            if (expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
+            if (contains_volatile && expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
                 listDelNode(keys, ln);
             }
         }
