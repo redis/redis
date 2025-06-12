@@ -22,13 +22,13 @@ int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  *(bool *)privdata = val;
+  *(int *)privdata = val;
   return REDISMODULE_OK;
 }
 
 int get_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
-  return *(bool *)privdata;
+  return *(int *)privdata;
 }
 
 int RegisterModuleConfig(RedisModuleCtx *ctx) {
