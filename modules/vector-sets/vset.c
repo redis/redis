@@ -636,6 +636,10 @@ int VADD_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         cas = 0;
     }
 
+    if (VSGlobalConfig.forceSingleThreadExec) {
+        cas = 0;
+    }
+
     /* Open/create key */
     RedisModuleKey *key = RedisModule_OpenKey(ctx,argv[1],
         REDISMODULE_READ|REDISMODULE_WRITE);
@@ -1081,9 +1085,9 @@ int VSIM_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     /* Disable threaded for MULTI/EXEC and Lua, or if explicitly
      * requested by the user via the NOTHREAD option. */
-    if (no_thread || (RedisModule_GetContextFlags(ctx) &
-                      (REDISMODULE_CTX_FLAGS_LUA|
-                       REDISMODULE_CTX_FLAGS_MULTI)))
+    if (no_thread || VSGlobalConfig.forceSingleThreadExec ||
+        (RedisModule_GetContextFlags(ctx) &
+        (REDISMODULE_CTX_FLAGS_LUA | REDISMODULE_CTX_FLAGS_MULTI)))
     {
         threaded_request = 0;
     }
