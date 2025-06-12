@@ -250,7 +250,7 @@ void restoreCommand(client *c) {
     }
 
     if (ttl) {
-        setExpire(c,c->db,key,ttl);
+        kv = setExpire(c,c->db,key,ttl); /* might realloc kvobj */
         if (!absttl) {
             /* Propagate TTL as absolute timestamp */
             robj *ttl_obj = createStringObjectFromLongLong(ttl);

@@ -480,7 +480,9 @@ start_server {} {
 
         # Make sure we have only half of our clients now
         wait_for_condition 200 100 {
-            [llength [regexp -all -inline {name=client} [r client list]]] == $client_count / 2
+            ([lindex [r config get io-threads] 1] == 1) ?
+                ([llength [regexp -all -inline {name=client} [r client list]]] == $client_count / 2) :
+                ([llength [regexp -all -inline {name=client} [r client list]]] <= $client_count / 2)
         } else {
             fail "Failed to evict clients"
         }

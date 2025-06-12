@@ -397,7 +397,7 @@ void getexCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
     } else if (expire) {
-        setExpire(c,c->db,c->argv[1],milliseconds);
+        o = setExpire(c,c->db,c->argv[1],milliseconds);
         /* Propagate as PXEXPIREAT millisecond-timestamp if there is
          * EX/PX/EXAT/PXAT flag and the key has not expired. */
         robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);

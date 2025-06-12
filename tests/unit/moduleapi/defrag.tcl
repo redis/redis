@@ -34,7 +34,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             assert_morethan [getInfoProperty $info defragtest_datatype_raw_defragged] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
-        }
+        } {} {tsan:skip}
 
         test {Module defrag: late defrag with cursor works} {
             r config set activedefrag no
@@ -64,7 +64,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             assert_morethan [getInfoProperty $info defragtest_datatype_raw_defragged] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
-        }
+        } {} {tsan:skip}
 
         test {Module defrag: global defrag works} {
             r config set activedefrag no
@@ -94,6 +94,6 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
             assert_morethan [getInfoProperty $info defragtest_global_dicts_resumes] [getInfoProperty $info defragtest_defrag_ended]
             assert_morethan [getInfoProperty $info defragtest_global_subdicts_resumes] [getInfoProperty $info defragtest_defrag_ended]
-        }
+        } {} {tsan:skip}
     }
 }

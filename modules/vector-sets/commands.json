@@ -291,6 +291,12 @@
         "name": "withscores",
         "type": "pure-token",
         "optional": true
+      },
+      {
+        "token": "WITHATTRIBS",
+        "name": "withattribs",
+        "type": "pure-token",
+        "optional": true
       }
     ]
   },

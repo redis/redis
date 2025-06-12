@@ -363,6 +363,24 @@ int getKeySlot(sds key) {
     return calculateKeySlot(key);
 }
 
+/* Return the slot of the key in the command. IO threads use this function
+ * to calculate slot to reduce main-thread load */
+int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
+    int slot = -1;
+    if (!cmd || !server.cluster_enabled) return slot;
+
+    /* Get the keys from the command */
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
+    if (numkeys > 0) {
+        /* Get the slot of the first key */
+        robj *first = argv[result.keys[0].pos];
+        slot = keyHashSlot(first->ptr, (int)sdslen(first->ptr));
+    }
+    getKeysFreeResult(&result);
+    return slot;
+}
+
 /* This is a special version of dbAdd() that is used only when loading
  * keys from the RDB file: the key is passed as an SDS string that is
  * copied by the function and freed by the caller.
@@ -1818,7 +1836,7 @@ void renameGenericCommand(client *c, int nx) {
 
     dbDelete(c->db,c->argv[1]);
     dbAdd(c->db, c->argv[2], &o);
-    if (expire != -1) setExpire(c, c->db, c->argv[2], expire);
+    if (expire != -1) o = setExpire(c, c->db, c->argv[2], expire);
 
     /* If hash with HFEs, register in db->hexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
@@ -2021,7 +2039,7 @@ void copyCommand(client *c) {
 
     /* if key with expiration then set it */
     if (expire != -1)
-        setExpire(c, dst, newkey, expire);
+        newobj = setExpire(c, dst, newkey, expire);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
@@ -2240,7 +2258,9 @@ int removeExpire(redisDb *db, robj *key) {
 /* Set an expire to the specified key. If the expire is set in the context
  * of an user calling a command 'c' is the client, otherwise 'c' is set
  * to NULL. The 'when' parameter is the absolute unix time in milliseconds
- * after which the key will no longer be considered valid. */
+ * after which the key will no longer be considered valid.
+ * 
+ * Note: It may reallocate kvobj. The returned ref may point to a new object. */
 kvobj *setExpire(client *c, redisDb *db, robj *key, long long when) {
     return setExpireByLink(c,db,key->ptr,when,NULL);
 }

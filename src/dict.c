@@ -66,7 +66,6 @@ static void _dictShrinkIfNeeded(dict *d);
 static void _dictRehashStepIfNeeded(dict *d, uint64_t visitedIdx);
 static signed char _dictNextExp(unsigned long size);
 static int _dictInit(dict *d, dictType *type);
-static dictEntry *dictGetNext(const dictEntry *de);
 static dictEntryLink dictGetNextLink(dictEntry *de);
 static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
@@ -497,6 +496,12 @@ int dictAdd(dict *d, void *key, void *val)
     if (!entry) return DICT_ERR;
     if (!d->type->no_value) dictSetVal(d, entry, val);
     return DICT_OK;
+}
+
+int dictCompareKeys(dict *d, const void *key1, const void *key2) {
+    dictCmpCache cache = {0};
+    keyCmpFunc cmpFunc = dictGetCmpFunc(d);
+    return cmpFunc(&cache, key1, key2);
 }
 
 /* Low level add or find:
@@ -1007,6 +1012,10 @@ double dictIncrDoubleVal(dictEntry *de, double val) {
     return de->v.d += val;
 }
 
+int dictEntryIsKey(const dictEntry *de) {
+    return entryIsKey(de);
+}
+
 void *dictGetKey(const dictEntry *de) {
     /* if entryIsKey() */
     if ((uintptr_t)de & ENTRY_PTR_IS_ODD_KEY) return (void *) de;
@@ -1044,7 +1053,7 @@ double *dictGetDoubleValPtr(dictEntry *de) {
 
 /* Returns the 'next' field of the entry or NULL if the entry doesn't have a
  * 'next' field. */
-static dictEntry *dictGetNext(const dictEntry *de) {
+dictEntry *dictGetNext(const dictEntry *de) {
     if (entryIsKey(de)) return NULL; /* there's no next */
     if (entryIsNoValue(de)) return decodeEntryNoValue(de)->next;
     return de->next;

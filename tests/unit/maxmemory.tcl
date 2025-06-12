@@ -421,7 +421,7 @@ start_server {tags {"maxmemory external:skip"}} {
     } {4098}
 }
 
-start_server {tags {"maxmemory external:skip"}} {
+start_server {tags {"maxmemory external:skip tsan:skip"}} {
     test {client tracking don't cause eviction feedback loop} {
         r config set latency-tracking no
         r config set maxmemory 0

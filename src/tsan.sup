@@ -1,0 +1,8 @@
+# collect_stacktrace_data() calls backtrace() from a signal handler but
+# backtrace() is signal-unsafe since it might allocate memory, at least on
+# glibc 2.39 it does through a call to _dl_map_object_deps().
+signal:collect_stacktrace_data
+signal:printCrashReport
+# TODO Investigate this race in jemalloc probably related to
+# https://github.com/jemalloc/jemalloc/issues/2621
+race:malloc_mutex_trylock_final
