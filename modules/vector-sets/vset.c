@@ -116,6 +116,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 #include "hnsw.h"
+#include "vset_config.h"
 
 // We inline directly the expression implementation here so that building
 // the module is trivial.
