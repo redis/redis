@@ -1665,6 +1665,7 @@ start_server {tags {"repl external:skip"}} {
         }
     }
 }
+
 start_server {tags {"repl external:skip"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
@@ -1674,66 +1675,66 @@ start_server {tags {"repl external:skip"}} {
         set slave [srv 0 client]
         $slave slaveof $master_host $master_port
 
-    test "Accumulate repl_total_disconnect_time with delayed reconnection" {
-        set unknown_port [get_free_port]
-        wait_for_condition 50 100 {
-            [string match {*master_link_status:up*} [$slave info replication]]
-        } else {
-            fail "Initial replica setup failed"
+        test "Accumulate repl_total_disconnect_time with delayed reconnection" {
+            wait_for_condition 50 100 {
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Initial replica setup failed"
+            }
+
+            # Simulate disconnect by pointing to invalid master
+            $slave slaveof $master_host 0
+            after 1000
+
+            $slave slaveof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Initial replica setup failed"
+            }
+            assert {[status $slave total_disconnect_time_sec] >= 1}
         }
-        
-        # Simulate disconnect by pointing to invalid master
-        $slave slaveof $master_host $unknown_port
-        after 2000
 
-        # Back to real master (triggers reconnect and stat update)
-        $slave slaveof $master_host $master_port
-        wait_for_condition 50 100 {
-            [string match {*master_link_status:up*} [$slave info replication]]
-        } else {
-            fail "Initial replica setup failed"
+        test "Test the total_disconnect_time_sec incer after slaveof no one" {
+            $slave slaveof no one
+            after 1000
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+            assert {[status $slave total_disconnect_time_sec] >= 2}
         }
-        assert {[status $slave total_disconnect_time_sec] >= 2}
-    }
 
-    test "Test the total_disconnect_time_sec incer after slaveof no one" {
-        $slave slaveof no one
-        after 2000
-        $slave slaveof $master_host $master_port
-        wait_for_condition 50 100 {
-            [lindex [$slave role] 0] eq {slave} &&
-            [string match {*master_link_status:up*} [$slave info replication]]
-        } else {
-            fail "Can't turn the instance into a replica"
+        test "Test correct replication disconnection time counters behavior" {
+            # Simulate disconnection
+            $slave slaveof $master_host 0
+
+            after 1000
+
+            set total_disconnect_time [status $slave total_disconnect_time_sec]
+            set link_down_since [status $slave master_link_down_since_seconds]
+
+            # Restore real master
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Replication did not reconnect"
+            }
+            #  total_disconnect_time and link_down_since incer
+            assert {$total_disconnect_time >= 3}
+            assert {$link_down_since > 0}
+            assert {$total_disconnect_time > $link_down_since}
+
+            #  total_disconnect_time did not change after reconnect to real master
+            set total_disconnect_time_reconnect [status $slave total_disconnect_time_sec]
+            assert {$total_disconnect_time == $total_disconnect_time_reconnect}
+
         }
-        assert {[status $slave total_disconnect_time_sec] >= 4}
-    }
-
-    test "Test correct replication disconnection time counters behavior" {
-        set unknown_port [get_free_port]
-        # Simulate disconnection
-        $slave slaveof $master_host $unknown_port
-        after 2000
-        set total_disconnect_time [status $slave total_disconnect_time_sec]
-        set link_down_since [status $slave master_link_down_since_seconds]
-
-        # Restore real master
-        $slave slaveof $master_host $master_port
-        wait_for_condition 50 100 {
-            [string match {*master_link_status:up*} [$slave info replication]]
-        } else {
-            fail "Replication did not reconnect"
-        }
-        #  total_disconnect_time and link_down_since incer
-        assert {$total_disconnect_time >= 6}
-        assert {$link_down_since > 0}
-        assert {$total_disconnect_time > $link_down_since}
-
-        #  total_disconnect_time did not change after reconnect to real master
-        set total_disconnect_time_reconnect [status $slave total_disconnect_time_sec]
-        assert {$total_disconnect_time == $total_disconnect_time_reconnect}
-
-    }
     }
 }
 
@@ -1824,8 +1825,7 @@ start_server {tags {"repl external:skip"}} {
             assert_equal 1 [status $slave master_current_sync_attempts]
 
             # Connect to an invalid master
-            set unknown_port [get_free_port]
-            $slave slaveof $master_host $unknown_port
+            $slave slaveof $master_host 0
             after 1000
 
             # Expect current sync attempts to increase
