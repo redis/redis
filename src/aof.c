@@ -1718,8 +1718,8 @@ uxeof: /* Unexpected AOF end of file. */
     goto cleanup;
 
 fmterr: /* Format error. */
-    /* fmterr may be caused by accidentally machine shutdown, so if the broken tail is less than a specified size,
-     * try to recover it automatically */
+    /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
+    * is less than a specified size, try to recover it automatically */
     if (server.aof_load_broken) {
         if (valid_up_to == -1) {
             serverLog(LL_WARNING,"Last valid command offset is invalid");
@@ -1735,7 +1735,8 @@ fmterr: /* Format error. */
                         strerror(errno));
                 } else {
                     serverLog(LL_WARNING,
-                        "AOF loaded anyway because aof-load-broken is enabled and broken size '%lld' is less than aof-load-broken-max-size '%lld'",
+                        "AOF loaded anyway because aof-load-broken is enabled and "
+                        "broken size '%lld' is less than aof-load-broken-max-size '%lld'",
                         (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
                     ret = AOF_BROKEN_RECOVERED;
                     goto loaded_ok;
@@ -1743,7 +1744,9 @@ fmterr: /* Format error. */
             }
         } else { /* The size of the corrupted portion exceeds the configured limit. */
             serverLog(LL_WARNING,
-                 "AOF was not loaded because the size of the corrupted portion exceeds the configured limit. aof-load-broken is enabled and broken size '%lld' is bigger than aof-load-broken-max-size '%lld'",
+                 "AOF was not loaded because the size of the corrupted portion "
+                 "exceeds the configured limit. aof-load-broken is enabled and broken size '%lld' "
+                 "is bigger than aof-load-broken-max-size '%lld'",
                  (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
         }
     } else {
