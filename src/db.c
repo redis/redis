@@ -2263,11 +2263,6 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
          * to manipulate and maybe free kv object */
         if (kv->type == OBJ_HASH)
             hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
-        
-        /* If hash with HFEs, take care to remove from global HFE DS before attempting
-         * to manipulate and maybe free kv object */
-        if (kv->type == OBJ_HASH)
-            hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
 
         kvobj *kvnew;
         if (!kv->expirable) {
