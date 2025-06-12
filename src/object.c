@@ -257,19 +257,16 @@ long long kvobjGetExpire(const kvobj *kv) {
  * the old object's reference counter is decremented and possibly freed. Use the
  * returned object instead of 'val' after calling this function. */
 kvobj *kvobjSetExpire(kvobj *kv, long long expire) {
-    if (!kv->expirable) {
-        /* Nothing to do if kv not expirable and expire is -1 */
-        if (expire == -1)
-            return kv;
-        
-        /* Reallocate kvobj to add expire field. */
-        kv = kvobjSet(kvobjGetKey(kv), kv, 1);
+    if (kv->expirable) {
+        /* Update existing expire field. */
+        unsigned char *data = (void *)(kv + 1);
+        *(long long *)data = expire;
+        return kv;
+    } else if (expire == -1) {
+        return kv;
+    } else {
+        return kvobjSet(kvobjGetKey(kv), kv, expire);
     }
-
-    /* kv is expirable. Update expire field. */
-    unsigned char *data = (void *)(kv + 1);
-    *(long long *)data = expire;
-    return kv;
 }
 
 /* This functions may reallocate the value. The new allocation is returned and
