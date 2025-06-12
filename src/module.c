@@ -8862,7 +8862,7 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 }
 
 /*
- * RM_RemoveSubscribeFromKeyspaceEvents - Unregister a module's callback from keyspace notifications for specific event types.
+ * RM_UnsubscribeFromKeyspaceEvents - Unregister a module's callback from keyspace notifications for specific event types.
  *
  * This function removes a previously registered subscription identified by both the event mask and the callback function.
  * It is useful to reduce performance overhead when the module no longer requires notifications for certain events.
@@ -8876,17 +8876,15 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
  *  - REDISMODULE_OK on successful removal of the subscription.
  *  - REDISMODULE_ERR if no matching subscription was found or if invalid parameters were provided.
  */
-int RM_RemoveSubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
+int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
     if (!ctx || !callback) return REDISMODULE_ERR;
     int removed = 0;
     listIter li;
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
-
     while ((ln = listNext(&li))) {
         RedisModuleKeyspaceSubscriber* sub = ln->value;
-        if (sub->event_mask == types && sub->notify_callback == callback && sub->module == ctx->module)
-        {
+        if (sub->event_mask == types && sub->notify_callback == callback && sub->module == ctx->module) {
             zfree(sub);
             listDelNode(moduleKeyspaceSubscribers, ln);
             removed++;
@@ -14751,7 +14749,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
-    REGISTER_API(RemoveSubscribeFromKeyspaceEvents);
+    REGISTER_API(UnsubscribeFromKeyspaceEvents);
     REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);

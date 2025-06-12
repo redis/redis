@@ -332,7 +332,7 @@ static int CmdUnsub(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx, "ERR unknown event mask");
     }
 
-    if (RedisModule_RemoveSubscribeFromKeyspaceEvents(ctx, (int)event_mask, cb) != REDISMODULE_OK) {
+    if (RedisModule_UnsubscribeFromKeyspaceEvents(ctx, (int)event_mask, cb) != REDISMODULE_OK) {
         return RedisModule_ReplyWithError(ctx, "ERR unsubscribe failed");
     }
 
@@ -426,7 +426,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe", CmdUnsub, "write", 0, 0, 0) == REDISMODULE_ERR){
-
     return REDISMODULE_ERR;
    }
     if (argc == 1) {
