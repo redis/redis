@@ -8,10 +8,10 @@ class ForceSingleThreadExecConfigTest(TestCase):
     def test(self):
         # Check default value (should be 0 or 1, but let's just get it)
         default = self.redis.execute_command('VS.CONFIG', 'GET', 'forceSingleThreadExec')
-        assert default in [b'0', b'1'], f"Unexpected default: {default}"
+        assert default=='no', f"Unexpected default: {default}"
 
         # Set to 0 and 1, check value is set, and VADD/VSIM still work
-        for val in [0, 1]:
+        for val in ['yes','no']:
             res = self.redis.execute_command('VS.CONFIG', 'SET', 'forceSingleThreadExec', str(val))
             assert res == b'OK', f"SET should return OK, got {res}"
             getval = self.redis.execute_command('VS.CONFIG', 'GET', 'forceSingleThreadExec')
