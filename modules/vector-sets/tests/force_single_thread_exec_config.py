@@ -7,7 +7,7 @@ class ForceSingleThreadExecConfigTest(TestCase):
 
     def test(self):
         # Check default value (should be 0 or 1, but let's just get it)
-        default = self.redis.execute_command('CONFIG', 'GET', 'vset-force-single-threaded-execution')[1]
+        default = self.redis.execute_command('CONFIG', 'GET', 'vset-force-single-threaded-execution')[1].decode()
         assert default=='no', f"Unexpected default: {default}"
 
         # Set to 0 and 1, check value is set, and VADD/VSIM still work
