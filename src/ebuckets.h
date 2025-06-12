@@ -92,11 +92,11 @@
  * without compromise on accuracy because the exact expiration-time is kept
  * attached as well to each item, in `ExpireMeta`, and each traversal of item with
  * expiration will behave as expected down to the msec. Take care to configure
- * `EB_BUCKET_KEY_PRECISION` according to your needs.
+ * `EbucketsType.ebp.precision` according to your needs.
  *
  * EBUCKET KEY
  * -----------
- * Taking into account configured value of `EB_BUCKET_KEY_PRECISION`, two items
+ * Taking into account configured value of `EbucketsType.ebp.precision`, two items
  * with expiration-time t1 and t2 will be considered to have the same key in the
  * rax-tree/buckets if and only if:
  *

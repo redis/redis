@@ -168,8 +168,8 @@ typedef struct ExpireMetaL3 {
 typedef long long mstime_t; /* millisecond time type. */
 mstime_t commandTimeSnapshot(void);
 #else /* Let tests control time */
-uint64_t __now__ = 0;
-#define commandTimeSnapshot() __now__
+uint64_t __NOW__ = 0;
+#define commandTimeSnapshot() __NOW__
 #endif
 
 /* Verify that "head" field is aligned in FirstSegHdr, NextSegHdr and CommonSegHdr */
@@ -224,6 +224,7 @@ static inline eItem ebGetListPtr(EbucketsType *type, ebuckets eb) {
         return (void*)((uintptr_t)(eb) & ~1);
 }
 
+/* Set the index of the item in the infinity vector (L3) */
 static inline void ebSetMetaL3Index(ExpireMetaL3 *em3, uint64_t idx) { 
     ebSetMetaExpTime( (ExpireMeta *)em3, idx); 
 }
@@ -1957,6 +1958,9 @@ uint64_t ebGetTotalItems(ebuckets eb, EbucketsType *type) {
 
 /* print expiration-time of items, ebuckets layout and some statistics */
 void ebPrintItems(ebuckets eb, EbucketsType *type) {
+    if (ebIsEmpty(eb))
+        return;
+
     if (type->isEbStack) {
         ebStack *stack = (ebStack *) eb;
         printf("[EBSTACK-LEVEL1]:\n");
@@ -2529,9 +2533,9 @@ void distributeTest(int lowestTime,
         for (int i = 0 ; i < numRanges ; i++) {
 
             /* When checking how many items are expired, we need to take into
-             * consideration EB_BUCKET_KEY_PRECISION. The value of "info->now"
+             * consideration EbucketsType.ebp.precision. The value of "info->now"
              * will be adjusted by ebActiveExpire() to lookup only for all buckets
-             * with assigned keys that are older than 1<<EB_BUCKET_KEY_PRECISION
+             * with assigned keys that are older than 1<<EbucketsType.ebp.precision
              * msec ago. That is, it is needed to visit only the buckets with keys
              * that are "<" EB_BUCKET_KEY(info->now) and not "<=".
              * But if there is a list behind ebuckets, then this limitation is not
@@ -2539,14 +2543,14 @@ void distributeTest(int lowestTime,
              *
              * The '-1' in case of list brings makes both cases aligned to have
              * same result */
-            uint64_t now = EB_BUCKET_EXP_TIME(expireRanges[i], &myEbType) + (ebIsList(eb) ? -1 : 0);
+            uint64_t now = EB_BUCKET_EXP_TIME(expireRanges[i], &myEbType);
 
             TimeRange range = {EB_BUCKET_EXP_TIME(startRange, &myEbType), EB_BUCKET_EXP_TIME(expireRanges[i], &myEbType) };
             ExpireInfo info = {
                     .maxToExpire = 0xFFFFFFFF,
                     .onExpireItem = expireItemCb,
                     .ctx = &range,
-                    .now = now+1,
+                    .now = now,
                     .itemsExpired = 0};
 
             ebExpire(&eb, &myEbType, &info);
@@ -2804,238 +2808,81 @@ int ebucketsTest(int argc, char **argv, int flags) {
     }
 
     TEST("ebStack - L1 & L2 basic functionality") {
-        uint64_t expireAt;
-        const int L2_BUCKET_INTERVAL = 1 << ebpStackL2.precision;
-        __now__ = L2_BUCKET_INTERVAL + 1;
         EbucketsType type = myEbType2;
         type.isEbStack = 1; /* Set to hierarchical ebuckets stack for the test */
 
-        /* Test basic ebStack functionality */
-        ebuckets eb = ebCreate();
-        uint64_t at = 0;
-        MyItem items[10];
-
-        /* Test Level 1: Short-term expiration (high precision) */
-        expireAt = __now__ + 1000;
-        ebAdd(&eb, &type, items + at, expireAt);
-        assert(!ebIsEmpty(eb));
-
-        /* Verify 1 item was stored in L1 */
-        ebStack *stack = (ebStack *)eb;
-        assert(ebGetTotalItems(eb, &type) == at+1);
-        assert(stack->items == at+1);
-        assert(ebStackItems(eb, &type, 1) == 1);
-        assert(ebStackItems(eb, &type, 2) == 0);
-        assert(ebStackItems(eb, &type, 3) == 0);
-        assert(type.getExpireMeta(&items[at])->storedIn == EB_STORED_IN_EB);
+        for (int nowAlignment = 0; nowAlignment < 2; nowAlignment++) {
+            const int L2_BUCKET_INTERVAL = 1 << ebpStackL2.precision;
+            __NOW__ = L2_BUCKET_INTERVAL + nowAlignment;
+            uint64_t l1MaxExpireTime = (__NOW__ + (1 << ebpStackL2.precision)) | ((1 << ebpStackL2.precision) - 1);
+            uint64_t l2MinExpireTime = l1MaxExpireTime + 1;
+            uint64_t l2MaxDeltaExpireTime = (5 * L2_BUCKET_INTERVAL);        
+            MyItem items[80];        
+            uint64_t l1, l2, l3;
+            //srand(0);
+    
+            for (int cascadeIter = 1; cascadeIter <= 2; cascadeIter++) {
+                uint64_t cascadeTime = __NOW__ + (cascadeIter << ebpStackL2.precision);            
+                for (uint64_t totalItems = 0 ; totalItems < 80; totalItems++) {
+                    for (l1 = 0; l1 <= totalItems; l1++) {
+                        for (l2 = 0; l2 <= totalItems - l1; l2++) {
+                            l3 = totalItems - l1 - l2;                            
+                            uint64_t cascadedItemsLo = 0, cascadedItemsHi = 0;    
+                            /* 1. Create ebStack */
+                            ebuckets eb = ebCreate();
+                            
+                            /* 2. Randomize l1/l2/l3 items */
+                            int counter = 0;
+                            for (uint64_t i = 0; i < l1; i++) {
+                                uint64_t expireTime = __NOW__ + (rand() % (l1MaxExpireTime - __NOW__));
+                                ebAdd(&eb, &type, items + counter, expireTime);
+                                counter++;
+                            }                       
+                            
+                            for (uint64_t i = 0; i < l2; i++) {
+                                uint64_t expireTime = l2MinExpireTime + (rand() % l2MaxDeltaExpireTime);
+                                ebAdd(&eb, &type, items + counter, expireTime);
+                                counter++;
+                                
+                                /* Can expired either based on accurate comparison of the item
+                                 * expire time, or based on bucket key. */
+                                if (expireTime < cascadeTime + (2 << ebpStackL2.precision))
+                                    cascadedItemsLo++;
+                                if ( (expireTime >> ebpStackL2.precision) < (2 + (cascadeTime >> ebpStackL2.precision)))
+                                    cascadedItemsHi++;
+                            }
+                            for (uint64_t i = 0; i < l3; i++) {
+                                uint64_t expireTime = ((uint64_t)rand() << 32) | (uint64_t)rand();
+                                if (expireTime < (1ULL << 48)) 
+                                    expireTime += (1ULL << 48); 
         
-        at++;
-        
-        /* Test Level 1: Short-term expiration (high precision) */
-        expireAt = __now__ + L2_BUCKET_INTERVAL;
-        ebAdd(&eb, &type, items + at, expireAt);
-        assert(!ebIsEmpty(eb));
-        /* Verify 2 item are stored in L1 */        
-        assert(ebGetTotalItems(eb, &type) == at+1);
-        assert(stack->items == at+1);
-        assert(ebStackItems(eb, &type, 1) == 2);
-        assert(ebStackItems(eb, &type, 2) == 0);
-        assert(ebStackItems(eb, &type, 3) == 0);
-        assert(type.getExpireMeta(&items[at])->storedIn == EB_STORED_IN_EB);
-        
-        at++;
+                                ebAdd(&eb, &type, items + counter, expireTime);
+                                counter++;
+                            }
+                            assert(ebGetTotalItems(eb, &type) == totalItems);
+                            assert(ebStackItems(eb, &type, 1) == l1);
+                            assert(ebStackItems(eb, &type, 2) == l2);
+                            assert(ebStackItems(eb, &type, 3) == l3);
+                            
+                            /* Now let's cascade */
+                            ebStack *stack = (ebStack *)eb;
+                            
+                            if (ebIsEmpty(eb) || ebIsEmpty(stack->l2))
+                                continue;
 
-        /* Verify level 2: Add item that should be added to L2 */
-        expireAt = __now__ + (2 << ebpStackL2.precision);
-        ebAdd(&eb, &type, &items[at], expireAt);
-        assert(ebGetTotalItems(eb, &type) == at+1);
-        assert(stack->items == at+1);
-        assert(ebStackItems(eb, &type, 1) == 2);
-        assert(ebStackItems(eb, &type, 2) == 1);
-        assert(ebStackItems(eb, &type, 3) == 0);
-        assert(type.getExpireMeta(&items[at])->storedIn == EB_STORED_IN_EB_L2);
-        
-        at++;
-        
-        /* Verify level 2: Add another item that should be added to L2 */
-        expireAt = __now__ + (3 << ebpStackL2.precision);
-        ebAdd(&eb, &type, &items[at], expireAt);
-        assert(ebGetTotalItems(eb, &type) == at+1);
-        assert(stack->items == at+1);
-        assert(ebStackItems(eb, &type, 1) == 2);
-        assert(ebStackItems(eb, &type, 2) == 2);
-        assert(ebStackItems(eb, &type, 3) == 0);
-        assert(type.getExpireMeta(&items[at])->storedIn == EB_STORED_IN_EB_L2);
-
-        ebPrintItems(eb, &type);
-        /* Now cascade such that the 1st item in L2 should be cascaded to L1 */
-        __now__ += L2_BUCKET_INTERVAL;
-        uint64_t cascaded = ebCascade(&eb, &type, __now__, 10);
-        ebPrintItems(eb, &type);
-        assert(cascaded == 1);
-        assert(ebGetTotalItems(eb, &type) == at+1);
-        assert(stack->items == at+1);
-        assert(ebStackItems(eb, &type, 1) == 3);
-        assert(ebStackItems(eb, &type, 2) == 1);
-        assert(ebStackItems(eb, &type, 3) == 0);
-        assert(type.getExpireMeta(&items[at-1])->storedIn == EB_STORED_IN_EB);
-
-//        /* Test Level 3: TBD */
-//
-//        /* Test ebCascade functionality */
-//        /* Add some items to L2 that should be cascaded to L1 */
-//        /* Use a large value that will definitely go to L2 due to precision difference */
-//        uint64_t l2Expire = (1ULL << 30); /* Should go to L2 due to precision difference */
-//
-//        /* Add item that will be eligible for cascade */
-//        ebAdd(&eb, &type, &items[2], l2Expire);
-//        assert(ebGetTotalItems(eb, &type) == 3);
-//        assert(stack->items == 3);
-//        assert(type.getExpireMeta(&items[2])->storedIn == EB_STORED_IN_EB_L2);
-
-        ebDestroy(&eb, &type, NULL);
-    }
-//
-//    TEST("ebStack - Cascading") {
-//        EbucketsType type = myEbType2;
-//        type.isEbStack = 1; /* Set to hierarchical ebuckets stack for the test */
-//
-//        /* Test 1: Basic cascading functionality */
-//        {
-//            ebuckets eb = ebCreate();
-//            MyItem items[5];
-//
-//            /* Current time for testing - use a base time */
-//            uint64_t baseTime = 1000000; /* Base time in milliseconds */
-//
-//            /* Add items to L2 that should be eligible for cascading */
-//            /* Items with expiration times that fall within cascade threshold should move to L1 */
-//
-//            /* Calculate L2 bucket precision threshold */
-//            uint64_t l2BucketDuration = (1ULL << ebpStackL2.precision); /* ~34.9 minutes */
-//            //uint64_t cascadeThreshold = baseTime + (2 * l2BucketDuration); /* Cascade threshold */
-//
-//            /* Add item to L2 that should be cascaded (expires before threshold) */
-//            uint64_t l2ExpireEarly = baseTime + l2BucketDuration; /* Within cascade window */
-//            ebAdd(&eb, &type, &items[0], l2ExpireEarly);
-//
-//            /* Add item to L2 that should NOT be cascaded (expires after threshold) */
-//            uint64_t l2ExpireLate = baseTime + (3 * l2BucketDuration); /* Beyond cascade window */
-//            ebAdd(&eb, &type, &items[1], l2ExpireLate);
-//
-//            /* Verify initial state - both items should be in L2 */
-//            ebStack *stack = (ebStack *)eb;
-//            assert(ebGetTotalItems(eb, &type) == 2);
-//            assert(stack->items == 2);
-//            assert(ebIsEmpty(stack->l1)); /* L1 should be empty initially */
-//            assert(!ebIsEmpty(stack->l2)); /* L2 should have items */
-//            assert(type.getExpireMeta(&items[0])->storedIn == EB_STORED_IN_EB_L2);
-//            assert(type.getExpireMeta(&items[1])->storedIn == EB_STORED_IN_EB_L2);
-//
-//            /* Perform cascade operation */
-//            uint64_t cascaded = ebCascade(&eb, &type, baseTime, 10); /* Allow up to 10 cascades */
-//
-//            /* Verify cascade results */
-//            assert(cascaded == 1); /* Only one item should be cascaded */
-//            assert(ebGetTotalItems(eb, &type) == 2); /* Total items unchanged */
-//            assert(stack->items == 2);
-//            assert(!ebIsEmpty(stack->l1)); /* L1 should now have the cascaded item */
-//            assert(!ebIsEmpty(stack->l2)); /* L2 should still have the late item */
-//
-//            /* Verify storage locations after cascade */
-//            assert(type.getExpireMeta(&items[0])->storedIn == EB_STORED_IN_EB); /* Moved to L1 */
-//            assert(type.getExpireMeta(&items[1])->storedIn == EB_STORED_IN_EB_L2); /* Stayed in L2 */
-//
-//            ebDestroy(&eb, &type, NULL);
-//        }
-//
-//        /* Test 2: Edge cases */
-//        {
-//            /* Test empty ebStack */
-//            ebuckets emptyEb = ebCreate();
-//            uint64_t cascaded = ebCascade(&emptyEb, &type, 1000, 10);
-//            assert(cascaded == 0); /* No items to cascade */
-//            ebDestroy(&emptyEb, &type, NULL);
-//
-//            /* Test non-ebStack */
-//            EbucketsType nonStackType = myEbType2;
-//            nonStackType.isEbStack = 0; /* Not an ebStack */
-//            ebuckets nonStackEb = ebCreate();
-//            MyItem item;
-//            ebAdd(&nonStackEb, &nonStackType, &item, 1000);
-//            cascaded = ebCascade(&nonStackEb, &nonStackType, 1000, 10);
-//            assert(cascaded == 0); /* Should not cascade non-ebStack */
-//            ebDestroy(&nonStackEb, &nonStackType, NULL);
-//        }
-//
-//        /* Test 3: MaxCascade limit */
-//        {
-//            ebuckets eb = ebCreate();
-//            MyItem items[5];
-//            uint64_t baseTime = 2000000;
-//            uint64_t l2BucketDuration = (1ULL << ebpStackL2.precision);
-//
-//            /* Add multiple items to L2 that should all be cascaded */
-//            for (int i = 0; i < 3; i++) {
-//                uint64_t expireTime = baseTime + (l2BucketDuration / 2); /* All within cascade window */
-//                ebAdd(&eb, &type, &items[i], expireTime);
-//            }
-//
-//            /* Verify all items are in L2 */
-//            ebStack *stack = (ebStack *)eb;
-//            assert(ebGetTotalItems(eb, &type) == 3);
-//            assert(ebIsEmpty(stack->l1));
-//            assert(!ebIsEmpty(stack->l2));
-//
-//            /* Cascade with limit of 2 items */
-//            uint64_t cascaded = ebCascade(&eb, &type, baseTime, 2);
-//
-//            /* Should cascade exactly 2 items due to limit */
-//            assert(cascaded == 2);
-//            assert(ebGetTotalItems(eb, &type) == 3); /* Total unchanged */
-//            assert(!ebIsEmpty(stack->l1)); /* L1 should have cascaded items */
-//            assert(!ebIsEmpty(stack->l2)); /* L2 should still have remaining item */
-//
-//            ebDestroy(&eb, &type, NULL);
-//        }
-//
-//        /* Test 4: Cascade with L1 already having items */
-//        {
-//            ebuckets eb = ebCreate();
-//            MyItem items[3];
-//            uint64_t baseTime = 3000000;
-//            uint64_t l2BucketDuration = (1ULL << ebpStackL2.precision);
-//
-//            /* Add item directly to L1 (short expiration) */
-//            uint64_t l1ExpireTime = baseTime + 1000; /* Should go to L1 */
-//            ebAdd(&eb, &type, &items[0], l1ExpireTime);
-//
-//            /* Add item to L2 that should be cascaded */
-//            uint64_t l2ExpireTime = baseTime + l2BucketDuration; /* Should cascade to L1 */
-//            ebAdd(&eb, &type, &items[1], l2ExpireTime);
-//
-//            /* Verify initial state */
-//            ebStack *stack = (ebStack *)eb;
-//            assert(ebGetTotalItems(eb, &type) == 2);
-//            assert(!ebIsEmpty(stack->l1)); /* L1 has one item */
-//            assert(!ebIsEmpty(stack->l2)); /* L2 has one item */
-//            assert(type.getExpireMeta(&items[0])->storedIn == EB_STORED_IN_EB); /* In L1 */
-//            assert(type.getExpireMeta(&items[1])->storedIn == EB_STORED_IN_EB_L2); /* In L2 */
-//
-//            /* Perform cascade */
-//            uint64_t cascaded = ebCascade(&eb, &type, baseTime, 10);
-//
-//            /* Verify results */
-//            assert(cascaded == 1); /* One item cascaded */
-//            assert(ebGetTotalItems(eb, &type) == 2); /* Total unchanged */
-//            assert(!ebIsEmpty(stack->l1)); /* L1 now has both items */
-//            assert(ebIsEmpty(stack->l2)); /* L2 should be empty */
-//            assert(type.getExpireMeta(&items[0])->storedIn == EB_STORED_IN_EB); /* Still in L1 */
-//            assert(type.getExpireMeta(&items[1])->storedIn == EB_STORED_IN_EB); /* Moved to L1 */
-//
-//            ebDestroy(&eb, &type, NULL);
-//        }
-//    }
+                            /* Verify no cascade before cascadeTime */
+                            assert(0 == ebCascade(&eb, &type, __NOW__, 1000000 /*no limit*/ ));
+                            /* Verify cascade on cascadeTime */
+                            uint64_t cascaded = ebCascade(&eb, &type, cascadeTime, 1000000 /*no limit*/ );
+                            assert( (cascadedItemsHi <= cascaded) && (cascaded <= cascadedItemsLo));
+            
+                            ebDestroy(&eb, &type, NULL);
+                        }
+                    }
+                }
+            }
+        }
+    }    
 
     TEST("list - Create few items on random times and then expire/delete ") {
         for (int isExpire = 0 ; isExpire <= 1 ; ++isExpire ) {
