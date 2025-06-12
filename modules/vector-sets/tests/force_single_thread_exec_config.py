@@ -14,7 +14,7 @@ class ForceSingleThreadExecConfigTest(TestCase):
         for val in ['yes','no']:
             res = self.redis.execute_command('CONFIG', 'SET', 'vset-force-single-threaded-execution', str(val))
             assert res == b'OK', f"SET should return OK, got {res}"
-            getval = self.redis.execute_command('CONFIG', 'GET', 'vset-force-single-threaded-execution')
+            getval = self.redis.execute_command('CONFIG', 'GET', 'vset-force-single-threaded-execution')[1].decode()
             assert getval == str(val).encode(), f"GET after SET should return {val}, got {getval}"
 
             # Add a vector and check VADD works
