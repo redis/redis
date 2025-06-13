@@ -69,9 +69,9 @@ def convert_entry_to_objects_array(cmd, docs):
     # The command's value is ordered so the interesting stuff that we care about
     # is at the start. Optional `None` and empty list values are filtered out.
     value = OrderedDict()
-    value['summary'] = docs.pop('summary')
-    value['since'] = docs.pop('since')
-    value['group'] = docs.pop('group')
+    set_if_not_none_or_empty(value, 'summary', docs.pop('summary', None))
+    set_if_not_none_or_empty(value, 'since', docs.pop('since', None))
+    set_if_not_none_or_empty(value, 'group', docs.pop('group', None))
     set_if_not_none_or_empty(value, 'complexity', docs.pop('complexity', None))
     set_if_not_none_or_empty(value, 'deprecated_since', docs.pop('deprecated_since', None))
     set_if_not_none_or_empty(value, 'replaced_by', docs.pop('replaced_by', None))
