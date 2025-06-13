@@ -1248,6 +1248,7 @@ typedef struct {
     long sampled; /* cumulative number of keys sampled */
     int no_values; /* set to 1 means to return keys only */
     size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
+    sds typename; /* typename string, NULL means no type filter */
 } scanData;
 
 /* Helper function to compare key type in scan commands */
@@ -1282,10 +1283,19 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
 
     if (!o) { /* If scanning keyspace */
         kvobj *kv = dictGetKV(de);
-        /* scan filter an element if it isn't the type we want. */
-        /* TODO: uncomment in redis 8.0
-        if (data->type != LLONG_MAX)
-            if (!objectTypeCompare(kv, data->type)) return;*/
+
+        /* Type filtering - only for database keyspace scanning */
+        if (data->typename) {
+            /* For unknown types (LLONG_MAX), skip all keys */
+            if (data->type == LLONG_MAX) {
+                return; /* Skip all keys for unknown type */
+            }
+            /* For known types, skip keys that don't match */
+            if (!objectTypeCompare(kv, data->type)) {
+                return; /* Skip key that doesn't match type */
+            }
+        }
+
         keyStr = kvobjGetKey(kv);
     } else {
         keyStr = dictGetKey(de);
@@ -1517,6 +1527,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .sampled = 0,
             .no_values = no_values,
             .strlen = (isKeysHfield) ? hfieldlen : sdslen,
+            .typename = typename,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
@@ -1674,27 +1685,17 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter the expired keys */
-    if (o == NULL && listLength(keys)) {
+    /* Step 3: Filter the expired keys.
+     * In case there are no volatile keys on the DB we can skip this step. */
+    if (o == NULL && listLength(keys) && kvstoreSize(c->db->expires) > 0) {
         robj kobj;
         listIter li;
         listNode *ln;
         listRewind(keys, &li);
-        /* Only check expiration when there are volatile keys on the DB. */
-        const int contains_volatile = kvstoreSize(c->db->expires) > 0;
         while ((ln = listNext(&li))) {
             sds key = listNodeValue(ln);
             initStaticStringObject(kobj, key);
-            /* Filter an element if it isn't the type we want. */
-            /* TODO: remove this in redis 8.0 */
-            if (typename) {
-                kvobj* kv = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
-                if (!kv || !objectTypeCompare(kv, type)) {
-                    listDelNode(keys, ln);
-                }
-                continue;
-            }
-            if (contains_volatile && expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
+            if (expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
                 listDelNode(keys, ln);
             }
         }
