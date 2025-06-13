@@ -1249,6 +1249,8 @@ typedef struct {
     int no_values; /* set to 1 means to return keys only */
     size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
     sds typename; /* typename string, NULL means no type filter */
+    redisDb *db;  /* database reference for expiration checks */
+    int skip_expiration_check; /* optimization: set to 1 to skip expiration checks when safe */
 } scanData;
 
 /* Helper function to compare key type in scan commands */
@@ -1284,16 +1286,24 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     if (!o) { /* If scanning keyspace */
         kvobj *kv = dictGetKV(de);
 
+        /* Expiration check first - only for database keyspace scanning */
+        if (!data->skip_expiration_check) {
+            robj kobj;
+            sds keyname = kvobjGetKey(kv);
+            initStaticStringObject(kobj, keyname);
+            if (expireIfNeeded(data->db, &kobj, kv, 0) != KEY_VALID) {
+                return;
+            }
+        }
+
         /* Type filtering - only for database keyspace scanning */
         if (data->typename) {
             /* For unknown types (LLONG_MAX), skip all keys */
-            if (data->type == LLONG_MAX) {
-                return; /* Skip all keys for unknown type */
-            }
+            if (data->type == LLONG_MAX)
+                return;
             /* For known types, skip keys that don't match */
-            if (!objectTypeCompare(kv, data->type)) {
-                return; /* Skip key that doesn't match type */
-            }
+            if (!objectTypeCompare(kv, data->type))
+                return;
         }
 
         keyStr = kvobjGetKey(kv);
@@ -1528,6 +1538,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .no_values = no_values,
             .strlen = (isKeysHfield) ? hfieldlen : sdslen,
             .typename = typename,
+            .db = c->db,
+            .skip_expiration_check = (o == NULL) ? (kvstoreSize(c->db->expires) == 0) : 0,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
@@ -1685,23 +1697,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter the expired keys.
-     * In case there are no volatile keys on the DB we can skip this step. */
-    if (o == NULL && listLength(keys) && kvstoreSize(c->db->expires) > 0) {
-        robj kobj;
-        listIter li;
-        listNode *ln;
-        listRewind(keys, &li);
-        while ((ln = listNext(&li))) {
-            sds key = listNodeValue(ln);
-            initStaticStringObject(kobj, key);
-            if (expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
-                listDelNode(keys, ln);
-            }
-        }
-    }
-
-    /* Step 4: Reply to the client. */
+    /* Step 3: Reply to the client. */
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
