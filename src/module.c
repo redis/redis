@@ -2953,6 +2953,15 @@ int RM_StringCompare(const RedisModuleString *a, const RedisModuleString *b) {
     return compareStringObjects(a,b);
 }
 
+/* Equal string objects return 1 if a == b, otherwise 0 is returned. 
+ * Strings are compared byte by byte as two binary blobs without any 
+ * encoding care / collation attempt. Note that this function is faster
+ * than checking for (RM_StringCompare(a,b) == 0) because it can perform 
+ * some more optimization. */
+int RM_EqualString(const RedisModuleString *a, const RedisModuleString *b) {
+    return equalStringObjects(a,b);
+}
+
 /* Return the (possibly modified in encoding) input 'str' object if
  * the string is unshared, otherwise NULL is returned. */
 RedisModuleString *moduleAssertUnsharedString(RedisModuleString *str) {
@@ -14360,6 +14369,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RetainString);
     REGISTER_API(HoldString);
     REGISTER_API(StringCompare);
+    REGISTER_API(EqualString);
     REGISTER_API(GetContextFromIO);
     REGISTER_API(GetKeyNameFromIO);
     REGISTER_API(GetKeyNameFromModuleKey);
