@@ -2970,20 +2970,20 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                streamNACK *nack = streamCreateNACK(NULL);
+                streamNACK *nack = streamCreateNACK(s, NULL, cgroup, rawid);
                 nack->delivery_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream PEL NACK loading failed.");
+                    streamFreeNACKAndRemoveFromIndex(s, nack, rawid);
                     decrRefCount(o);
-                    streamFreeNACK(nack);
                     return NULL;
                 }
                 if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
+                    streamFreeNACKAndRemoveFromIndex(s, nack, rawid);
                     decrRefCount(o);
-                    streamFreeNACK(nack);
                     return NULL;
                 }
             }

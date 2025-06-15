@@ -1,0 +1,87 @@
+{
+    "XACKDEL": {
+        "summary": "Acknowledges and deletes one or multiple messages for a stream consumer group.",
+        "complexity": "O(1) for ach message ID processed.",
+        "group": "stream",
+        "since": "8.2.0",
+        "arity": -6,
+        "function": "xackdelCommand",
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "group",
+                "type": "string"
+            },
+            {
+                "name": "condition",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "delpel",
+                        "type": "pure-token",
+                        "token": "DELPEL"
+                    },
+                    {
+                        "name": "acked",
+                        "type": "pure-token",
+                        "token": "ACKED"
+                    }
+                ]
+            },
+            {
+                "name": "ids",
+                "token": "IDS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "numids",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "id",
+                        "type": "string",
+                        "multiple": true
+                    }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "description": "The command returns the number of messages successfully acknowledged. Certain message IDs may no longer be part of the PEL (for example because they have already been acknowledged), and XACK will not count them as successfully acknowledged.",
+            "type": "integer",
+            "minimum": 0
+        }
+    }
+}

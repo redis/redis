@@ -10,6 +10,10 @@
             [
                 "6.2.0",
                 "Added the `MINID` trimming strategy and the `LIMIT` option."
+            ],
+            [
+                "8.2.0",
+                "Added the `DELPEL` option and `ACKED` option."
             ]
         ],
         "command_flags": [
@@ -95,6 +99,23 @@
                         "type": "integer",
                         "optional": true,
                         "since": "6.2.0"
+                    },
+                    {
+                        "name": "condition",
+                        "type": "oneof",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "delpel",
+                                "type": "pure-token",
+                                "token": "DELPEL"
+                            },
+                            {
+                                "name": "acked",
+                                "type": "pure-token",
+                                "token": "ACKED"
+                            }
+                        ]
                     }
                 ]
             }
