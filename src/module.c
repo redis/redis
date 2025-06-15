@@ -4461,6 +4461,30 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     return REDISMODULE_OK;
 }
 
+/* Try converting this key into an integer. On success retrieve the 
+ * interger associated at the string key and returns REDISMODULE_OK. 
+ * Otherwise REDISMODULE_ERR is returned to signal one of the following 
+ * conditions:
+ *
+ * - The key is NULL.
+ * - The key is of another type than string.
+ * - The interger is NULL.
+ */
+int RM_StringGetAsInteger(RedisModuleKey *key, long long *integer) {
+    int converted = 0;
+    if (!key || key->kv == NULL || key->kv->type != OBJ_STRING || !integer) 
+        return REDISMODULE_ERR;
+
+    if (sdsEncodedObject(key->kv)) {
+        converted = string2ll(key->kv->ptr, sdslen(key->kv->ptr), integer);
+    } else {
+        serverAssert(key->kv->encoding == OBJ_ENCODING_INT);
+        *integer = (long long)key->kv->ptr;
+        converted = 1;
+    }
+    return converted ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
 /* --------------------------------------------------------------------------
  * ## Key API for List type
  *
@@ -14283,6 +14307,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(StringSet);
     REGISTER_API(StringDMA);
     REGISTER_API(StringTruncate);
+    REGISTER_API(StringGetAsInteger);
     REGISTER_API(SetExpire);
     REGISTER_API(GetExpire);
     REGISTER_API(SetAbsExpire);
