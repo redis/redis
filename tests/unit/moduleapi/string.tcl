@@ -10,6 +10,15 @@ start_server {tags {"modules"}} {
         r get k
     } {123}
 
+    test {Module string set not keep ttl} {
+        r set k mystring
+        assert_equal mystring [r get k]
+        r expire k 2
+        assert_equal OK [r string.set k 123]
+        after 3000
+        r get k
+    } {123}
+
     test {Module string get_interger work} {
         r set k 456
         assert_equal 456 [r get k]
