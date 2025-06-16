@@ -199,7 +199,7 @@ mstrFlags *mstrFlagsRef(mstr s) {
  * to the starting location where it would have been written among other metadatas.
  * To verify if `flagIdx` of some metadata is attached, use `mstrGetFlag(s, flagIdx)`.
  */
-void *mstrMetaRef(mstr s, struct mstrKind *kind, int flagIdx) {
+void *mstrMetaRef(const mstr s, struct mstrKind *kind, int flagIdx) {
     int metaOffset = 0;
     /* start iterating from flags backward */
     mstrFlags *pFlags = mstrFlagsRef(s);

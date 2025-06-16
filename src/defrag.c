@@ -894,6 +894,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
      * the pointer it holds, since it won't be able to do the string
      * compare. Search it before, if needed. */ 
      if (expire != -1) {
+         serverAssert(0); // TODO_MOTI: Implement estore defrag
+         
          exlink = kvstoreDictFindLink(db->expires, slot, kvobjGetKey(ob), NULL);
          serverAssert(exlink != NULL);
      }
@@ -906,8 +908,10 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     }
     if (kvnew) {
         kvstoreDictSetAtLink(db->keys, slot, kvnew, &link, 0);
-        if (expire != -1)
+        if (expire != -1) {
+            serverAssert(0); // TODO_MOTI: Implement estore defrag
             kvstoreDictSetAtLink(db->expires, slot, kvnew, &exlink, 0);
+        }
         ob = kvnew;
     }
 

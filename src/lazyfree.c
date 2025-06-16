@@ -22,12 +22,17 @@ void lazyfreeFreeObject(void *args[]) {
  * when the database was logically deleted. */
 void lazyfreeFreeDatabase(void *args[]) {
     kvstore *da1 = args[0];
-    kvstore *da2 = args[1];
+    //kvstore *da2 = args[1];
+    estore *oldExpiresNew = args[1];
     ebuckets oldHfe = args[2];
+    
+
+    /* Destroy the hash field expiration store */
     ebDestroy(&oldHfe, &hashExpireBucketsType, NULL);
+
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
-    kvstoreRelease(da2);
+    estoreRelease(oldExpiresNew);
     atomicDecr(lazyfree_objects,numkeys);
     atomicIncr(lazyfreed_objects,numkeys);
 
@@ -205,13 +210,17 @@ void emptyDbAsync(redisDb *db) {
         slot_count_bits = CLUSTER_SLOT_MASK_BITS;
         flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
-    kvstore *oldkeys = db->keys, *oldexpires = db->expires;
+    kvstore *oldkeys = db->keys;
     ebuckets oldHfe = db->hexpires;
+    estore *oldExpiresNew = db->expiresNew;
+
     db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
-    db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+    //db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
     db->hexpires = ebCreate();
+    db->expiresNew = estoreCreate(&estoreBucketsType, slot_count_bits);
+
     atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, oldkeys, oldexpires, oldHfe);
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 4, oldkeys, /*oldexpires*/ oldExpiresNew, oldHfe);
 }
 
 /* Free the key tracking table.

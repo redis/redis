@@ -530,7 +530,7 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
 
     if (o == NULL) {
         o = createObject(OBJ_STRING,sdsnewlen(NULL, byte+1));
-        dbAddByLink(c->db,c->argv[1],&o,&link);
+        dbAddByLink(c->db,c->argv[1],&o,&link, 0);
         *strGrowSize = byte + 1;
         *strOldSize = 0;
     } else {

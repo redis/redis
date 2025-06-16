@@ -200,7 +200,7 @@ void mstrFree(struct mstrKind *kind, mstr s);
 
 mstrFlags *mstrFlagsRef(mstr s);
 
-void *mstrMetaRef(mstr s, struct mstrKind *kind, int flagIdx);
+void *mstrMetaRef(const mstr s, struct mstrKind *kind, int flagIdx);
 
 size_t mstrlen(const mstr s);
 

@@ -1387,7 +1387,8 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
     written += res;
 
     /* Write the RESIZE DB opcode. */
-    unsigned long long expires_size = kvstoreSize(db->expires);
+    //unsigned long long expires_size = kvstoreSize(db->expires);
+    unsigned long long expires_size = estoreSize(db->expiresNew);
     if ((res = rdbSaveType(rdb,RDB_OPCODE_RESIZEDB)) < 0) goto werr;
     written += res;
     if ((res = rdbSaveLen(rdb,db_size)) < 0) goto werr;
@@ -1408,7 +1409,8 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             written += res;
             if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->keys, curr_slot))) < 0) goto werr;
             written += res;
-            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr;
+            //if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, estoreSlotSize(db->expiresNew, curr_slot))) < 0) goto werr;
             written += res;
             last_slot = curr_slot;
         }
@@ -3437,7 +3439,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             }
             /* In cluster mode we resize individual slot specific dictionaries based on the number of keys that slot holds. */
             kvstoreDictExpand(db->keys, slot_id, slot_size);
-            kvstoreDictExpand(db->expires, slot_id, expires_slot_size);
+            //kvstoreDictExpand(db->expires, slot_id, expires_slot_size);
             should_expand_db = 0;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_AUX) {
@@ -3572,7 +3574,6 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * In this case we want to estimate number of keys per slot and resize accordingly. */
         if (should_expand_db) {
             dbExpand(db, db_size, 0);
-            dbExpandExpires(db, expires_size, 0);
             should_expand_db = 0;
         }
 

@@ -317,7 +317,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_morethan $cycle1 0
             assert_morethan $el_sum1 0
             assert_morethan $cmd_sum1 0
-            after 110 ;# default hz is 10, wait for a cron tick. 
+            after 110 ;# default hz is 10, wait for a cron tick.
             set info2 [r info stats]
             set cycle2 [getInfoProperty $info2 eventloop_cycles]
             set el_sum2 [getInfoProperty $info2 eventloop_duration_sum]
@@ -531,7 +531,7 @@ start_server {tags {"info" "external:skip"}} {
 
         # Set 2 more keys to trigger rehashing
         # get the info within a transaction to make sure the rehashing is not completed
-        r multi 
+        r multi
         r set this_will_reach_max_load_factor 1
         r set this_must_be_rehashed 1
         r info memory
@@ -559,7 +559,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
 
         # In cluster mode, we use KVSTORE_FREE_EMPTY_DICTS to ensure that dicts
         # are freed when they are emptied. This test verifies that after a dict
-        # is cleared, the lut overhead is properly updated, preventing it from 
+        # is cleared, the lut overhead is properly updated, preventing it from
         # growing indefinitely.
         for {set j 1} {$j <= 500} {incr j} {
             R 0 set k v

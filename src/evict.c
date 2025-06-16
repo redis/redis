@@ -567,6 +567,8 @@ int performEvictions(void) {
                         kvs = db->keys;
                     } else {
                         kvs = db->expires;
+                        
+                        serverAssert(0); // TODO_MOTI: Implement estore eviction
                     }
                     unsigned long sampled_keys = 0;
                     unsigned long current_db_keys = kvstoreSize(kvs);
@@ -599,6 +601,8 @@ int performEvictions(void) {
                         kvs = server.db[bestdbid].keys;
                     } else {
                         kvs = server.db[bestdbid].expires;
+                        
+                        serverAssert(0); // TODO_MOTI: Implement estore eviction                        
                     }
                     de = kvstoreDictFind(kvs, pool[k].slot, pool[k].key);
 
@@ -633,17 +637,35 @@ int performEvictions(void) {
                 kvstore *kvs;
                 if (server.maxmemory_policy == MAXMEMORY_ALLKEYS_RANDOM) {
                     kvs = db->keys;
+                    int slot = kvstoreGetFairRandomDictIndex(kvs);
+                    de = kvstoreDictGetRandomKey(kvs, slot);
+                    if (de) {
+                        kvobj *kv = dictGetKV(de);
+                        bestkey = kvobjGetKey(kv);
+                        bestdbid = j;
+                        break;
+                    }
                 } else {
-                    kvs = db->expires;
+                    /* Evict next minimum TTL from db->expiresNew */
+                    if (db->expiresNew != NULL && !estoreSlotIsEmpty(db->expiresNew, 0)) {
+                        ebuckets *bucket = estoreGetBucket(db->expiresNew, 0);
+
+                        /* Get the item with the minimum TTL */
+                        EbucketsIterator iter;
+                        ebStart(&iter, *bucket, db->expiresNew->bucket_type);
+
+                        /* If we can get the first item, it's the one with minimum TTL */
+                        if (ebNext(&iter)) {
+                            kvobj *kv = (kvobj *)iter.currItem;
+                            bestkey = kvobjGetKey(kv);
+                            bestdbid = j;
+                            ebStop(&iter);
+                            break;
+                        }
+                        ebStop(&iter);
+                    }
                 }
-                int slot = kvstoreGetFairRandomDictIndex(kvs);
-                de = kvstoreDictGetRandomKey(kvs, slot);
-                if (de) {
-                    kvobj *kv = dictGetKV(de);
-                    bestkey = kvobjGetKey(kv);
-                    bestdbid = j;
-                    break;
-                }
+
             }
         }
 

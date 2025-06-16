@@ -21,6 +21,7 @@
 #include "rio.h"
 #include "atomicvar.h"
 #include "commands.h"
+#include "expire.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1106,7 +1107,8 @@ typedef struct replBufBlock {
  * database. The database number is the 'id' field in the structure. */
 typedef struct redisDb {
     kvstore *keys;              /* The keyspace for this DB. As metadata, holds keysizes histogram */
-    kvstore *expires;           /* Timeout of keys with a timeout set */
+    kvstore *expires;           /* Timeout of keys with a timeout set */  // TODO_MOTI: To be removed
+    estore  *expiresNew;
     ebuckets hexpires;          /* Hash expiration DS. Single TTL per hash (of next min field to expire) */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
@@ -3065,11 +3067,11 @@ unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
-kvobj *kvobjCreate(int type, const sds key, void *ptr, long long expire);
-kvobj *kvobjSet(sds key, robj *val, long long expire);
-kvobj *kvobjSetExpire(kvobj *kv, long long expire);
+kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire);
+kvobj *kvobjSet(sds key, robj *val, int hasExpire);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
+ExpireMeta *kvobjGetExpireMeta(const void *kvptr);
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
@@ -3397,10 +3399,8 @@ int calculateKeySlot(sds key);
 
 /* kvstore wrappers */
 int dbExpand(redisDb *db, uint64_t db_size, int try_expand);
-int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand);
 kvobj *dbFind(redisDb *db, sds key);
 kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *link);
-kvobj *dbFindExpires(redisDb *db, sds key);
 unsigned long long dbSize(redisDb *db);
 unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata);
 
@@ -3603,7 +3603,7 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
 void dbgAssertKeysizesHist(redisDb *db);
-int removeExpire(redisDb *db, robj *key);
+int removeExpire(redisDb *db, robj *key, kvobj *kv);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
 void propagateDeletion(redisDb *db, robj *key, int lazy);
@@ -3635,7 +3635,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link, int hasExpire);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
@@ -3644,6 +3644,7 @@ void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink li
 #define SETKEY_NO_SIGNAL 2
 #define SETKEY_ALREADY_EXIST 4
 #define SETKEY_DOESNT_EXIST 8
+#define SETKEY_HAS_EXPIRE 16
 
 void setKey(client *c, redisDb *db, robj *key, robj **ioval, int flags);
 void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntryLink *link);

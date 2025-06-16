@@ -597,7 +597,7 @@ void saddCommand(client *c) {
     
     if (set == NULL) {
         robj *o = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
-        set = dbAddByLink(c->db, c->argv[1], &o, &link);
+        set = dbAddByLink(c->db, c->argv[1], &o, &link, 0);
     } else {
         setTypeMaybeConvert(set, c->argc - 2);
     }

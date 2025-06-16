@@ -1232,7 +1232,7 @@ void databasesCron(void) {
         for (j = 0; j < dbs_per_call; j++) {
             redisDb *db = &server.db[resize_db % server.dbnum];
             kvstoreTryResizeDicts(db->keys, CRON_DICTS_PER_DB);
-            kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB);
+            //kvstoreTryResizeDicts(db->expires, CRON_DICTS_PER_DB);
             resize_db++;
         }
 
@@ -1244,9 +1244,9 @@ void databasesCron(void) {
                 elapsed_us += kvstoreIncrementallyRehash(db->keys, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
                 if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
                     break;
-                elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
-                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
-                    break;
+//                elapsed_us += kvstoreIncrementallyRehash(db->expires, INCREMENTAL_REHASHING_THRESHOLD_US - elapsed_us);
+//                if (elapsed_us >= INCREMENTAL_REHASHING_THRESHOLD_US)
+//                    break;
                 rehash_db++;
             }
         }
@@ -1515,7 +1515,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
                 size = kvstoreBuckets(server.db[j].keys);
                 used = kvstoreSize(server.db[j].keys);
-                vkeys = kvstoreSize(server.db[j].expires);
+                //vkeys = kvstoreSize(server.db[j].expires);
+                vkeys = estoreSize(server.db[j].expiresNew);
+                
                 if (used || vkeys) {
                     serverLog(LL_VERBOSE,"DB %d: %lld keys (%lld volatile) in %lld slots HT.",j,used,vkeys,size);
                 }
@@ -2846,7 +2848,7 @@ void initServer(void) {
     }
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
-        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].expiresNew = estoreCreate(&estoreBucketsType, slot_count_bits);
         server.db[j].hexpires = ebCreate();
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
@@ -6447,7 +6449,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             long long keys, vkeys, hexpires;
 
             keys = kvstoreSize(server.db[j].keys);
-            vkeys = kvstoreSize(server.db[j].expires);
+            //vkeys = kvstoreSize(server.db[j].expires);
+            vkeys = estoreSize(server.db[j].expiresNew);
             hexpires = ebGetTotalItems(server.db[j].hexpires, &hashExpireBucketsType);
 
             if (keys || vkeys) {

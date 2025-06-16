@@ -92,11 +92,11 @@
  * without compromise on accuracy because the exact expiration-time is kept
  * attached as well to each item, in `ExpireMeta`, and each traversal of item with
  * expiration will behave as expected down to the msec. Take care to configure
- * `EB_BUCKET_KEY_PRECISION` according to your needs.
+ * `EbucketsType.ebp.precision` according to your needs.
  *
  * EBUCKET KEY
  * -----------
- * Taking into account configured value of `EB_BUCKET_KEY_PRECISION`, two items
+ * Taking into account configured value of `EbucketsType.ebp.precision`, two items
  * with expiration-time t1 and t2 will be considered to have the same key in the
  * rax-tree/buckets if and only if:
  *
@@ -107,6 +107,38 @@
  * To avoid the cost of allocating rax data-structure for only few elements,
  * ebuckets will start as a simple linked-list and only when it reaches some
  * threshold, it will be converted to rax.
+ *
+ * HIERARCHICAL EBUCKETS STACK (ebStack)
+ * -------------------------------------
+ * The hierarchical ebuckets stack, or `ebStack`, is a multi-tiered structure
+ * designed to manage items across varying expiration time ranges efficiently.
+ * Inspired by hierarchical timing wheels algorithm (https://dl.acm.org/doi/10.1145/41457.37504),
+ * it is organized into three levels, each reflecting a different time range and
+ * precision, forming a coherent expiration system:
+ *
+ * level #1 - High-precision ebuckets, optimized for items expected to expire
+ *            in the short term. This level uses fine time granularity to
+ *            support accurate expiration and precise eviction.
+ *
+ * level #2 - Low-precision ebuckets, suitable for items with longer-term
+ *            expiration. Precision is reduced to lower memory usage, fewer
+ *            buckets and limit modifications to the rax tree.
+ *
+ * level #3 - A plain vector of items with very long expiration times, treated
+ *            as practically infinite. This level avoids the overhead of
+ *            bucket or rax structures entirely. Since regular ExpireMeta can 
+ *            only store 48-bit timestamps (sufficient until year 10889), L3 items
+ *            use `ExpireMetaL3` which replaces the `next` pointer with a full
+ *            64-bit timestamp and stores the index (expireIndexLo/Hi) into the 
+ *            infinity vector instead of the expiration time in the expireTimeLo/Hi 
+ *            fields.            
+ *
+ * It is specifically designed for Redis’s EXPIRE use case, but can be adapted
+ * to other use cases. Internally, this multi-level logic is abstracted away from 
+ * the ebuckets API. From the user's perspective, ebuckets appear as a single 
+ * expiration structure. This hierarchical mode is enabled by setting `isEbStack` 
+ * in the `EbucketsType` structure. Yet, the caller must periodically call 
+ * `ebCascade()` to promote items from level 2 to level 1 as their TTL shortens. 
  *
  * TODO
  * ----
@@ -125,29 +157,15 @@
 #include <stdint.h>
 #include "rax.h"
 
-/*
- * EB_BUCKET_KEY_PRECISION - Defines the number of bits to ignore from the
- * expiration-time when mapping to buckets. The higher the value, the more items
- * with similar expiration-time will be aggregated into the same bucket. The lower
- * the value, the more "accurate" the active expiration of buckets will be.
- *
- * Note that the accurate time expiration of each item is preserved anyway and
- * enforced by lazy expiration. It only impacts the active expiration that will
- * be able to work on buckets older than (1<<EB_BUCKET_KEY_PRECISION) msec ago.
- * For example if EB_BUCKET_KEY_PRECISION is 10, then active expiration
- * will work only on buckets that already got expired at least 1sec ago.
- *
- * The idea of it is to trim the rax tree depth, avoid having too many branches,
- * and reduce frequent modifications of the tree to the minimum.
- */
-#define EB_BUCKET_KEY_PRECISION 0   /* TBD: modify to 10 */
-
-/* From expiration time to bucket-key */
-#define EB_BUCKET_KEY(exptime) ((exptime) >> EB_BUCKET_KEY_PRECISION)
-
 
 #define EB_EXPIRE_TIME_MAX     ((uint64_t)0x0000FFFFFFFFFFFF) /* Maximum expire-time. */
 #define EB_EXPIRE_TIME_INVALID (EB_EXPIRE_TIME_MAX+1) /* assumed bigger than max */
+
+/* ExpireMeta.storedIn values */
+#define EB_STORED_IN_TRASH 0
+#define EB_STORED_IN_EB    1
+#define EB_STORED_IN_EB_L2 2
+#define EB_STORED_IN_EB_L3 3
 
 /* Handler to ebuckets DS. Pointer to a list, rax or NULL (empty DS). See also ebIsList(). */
 typedef void *ebuckets;
@@ -158,49 +176,50 @@ typedef void *ebuckets;
  */
 typedef void *eItem;
 
+/* Flags in ExpireMeta & ExpireMetaL3 */
+#define EXPIRE_META_FLAGS \
+    unsigned int lastInSegment    : 1;  /* Last item in segment. If set, then 'next' will   \
+                                           point to the NextSegHdr, unless lastItemBucket=1 \
+                                           then it will point to segment header of the      \
+                                           current segment. */                              \
+    unsigned int firstItemBucket  : 1;  /* First item in bucket. This flag assist           \
+                                           to manipulate segments directly without          \
+                                           the need to traverse from start the              \
+                                           rax tree  */                                     \
+    unsigned int lastItemBucket   : 1;  /* Last item in bucket. This flag assist            \
+                                           to manipulate segments directly without          \
+                                           the need to traverse from start the              \
+                                           rax tree  */                                     \
+    unsigned int numItems         : 5;  /* Only first item in segment will maintain         \
+                                           this value. */                                   \
+                                                                                            \
+    unsigned int storedIn         : 2;  /* This flag indicates whether the item             \
+                                           is stored in ebuckets or trash. If               \
+                                           ebuckets is actually hierarchical ebuckets       \
+                                           stack (ebStack) then it will distinct            \
+                                           between the storage in level 1, 2 or 3. */       \
+                                                                                            \
+    unsigned int userData         : 3;  /* ebuckets can be used to store in same            \
+                                           instance few different types of items,           \
+                                           such as, listpack and hash. This field           \
+                                           is reserved to store such identification         \
+                                           associated with the item and can help            \
+                                           to distinct on delete or expire callback.        \
+                                           It is not used by ebuckets internally and        \
+                                           should be maintained by the user */              \
+                                                                                            \
+    unsigned int reserved         : 3;
+
 /* This struct Should be embedded inside `eItem` and must be aligned in memory. */
 typedef struct ExpireMeta {
     /* 48bits of unix-time in msec.  This value is sufficient to represent, in
      * unix-time, until the date of 02 August, 10889
      */
-    uint32_t expireTimeLo;              /* Low bits of expireTime. */
-    uint16_t expireTimeHi;              /* High bits of expireTime. */
-
-    unsigned int lastInSegment    : 1;  /* Last item in segment. If set, then 'next' will
-                                           point to the NextSegHdr, unless lastItemBucket=1
-                                           then it will point to segment header of the
-                                           current segment. */
-    unsigned int firstItemBucket  : 1;  /* First item in bucket. This flag assist
-                                           to manipulate segments directly without
-                                           the need to traverse from start the
-                                           rax tree  */
-    unsigned int lastItemBucket   : 1;  /* Last item in bucket. This flag assist
-                                           to manipulate segments directly without
-                                           the need to traverse from start the
-                                           rax tree  */
-    unsigned int numItems         : 5;  /* Only first item in segment will maintain
-                                           this value. */
-
-    unsigned int trash            : 1;  /* This flag indicates whether the ExpireMeta
-                                           associated with the item is leftover.
-                                           There is always a potential to reuse the
-                                           item after removal/deletion. Note that,
-                                           the user can still safely O(1) TTL lookup
-                                           a given item and verify whether attached
-                                           TTL is valid or leftover. See function
-                                           ebGetExpireTime(). */
-
-    unsigned int userData         : 3;  /* ebuckets can be used to store in same
-                                           instance few different types of items,
-                                           such as, listpack and hash. This field
-                                           is reserved to store such identification
-                                           associated with the item and can help
-                                           to distinct on delete or expire callback.
-                                           It is not used by ebuckets internally and
-                                           should be maintained by the user */
-
-    unsigned int reserved         : 4;
-
+    uint32_t expireTimeLo;            /* Low bits of expireTime. */
+    uint16_t expireTimeHi;            /* High bits of expireTime. */
+    
+    EXPIRE_META_FLAGS
+    
     void *next;                       /* - If not last item in segment then next
                                            points to next eItem (lastInSegment=0).
                                          - If last in segment but not last in
@@ -211,22 +230,64 @@ typedef struct ExpireMeta {
                                            of type FirstSegHdr or NextSegHdr). */
 } ExpireMeta;
 
-/* Each instance of ebuckets need to have corresponding EbucketsType that holds
+/* Defines the number of bits to ignore from the expiration-time when mapping
+ * to buckets. The higher the value, the more items with similar expiration-time
+ * will be aggregated into the same bucket. The lower the value, the more
+ * "accurate" the active expiration of buckets will be. */
+typedef union EBucketPrecision {
+    struct {
+        /* Number of bits to ignore from the expiration-time when mapping to buckets. */
+        uint32_t precision;
+
+        /* The size of the key in bytes used for rax operations. This value is derived
+         * from bucketPrecision and must be aligned with it. That is, for rax key size
+         * of 6 bytes, we can keep just enough bytes of bucket-key, taking into
+         * consideration configured `bucketPrecision`, and ignore LSB bits that has
+         * no impact. The main motivation is that since the bucket-key size determines
+         * the maximum depth of the rax tree, then we can prune the tree to be more
+         * shallow and thus reduce the maintenance and traversal of each node in the
+         * * B-tree. The following mapping should always hold true:
+         *    0  <= bucketPrecision < 8     -->    keySize = 6
+         *    8  <= bucketPrecision < 16    -->    keySize = 5
+         *    16 <= bucketPrecision < 32    -->    keySize = 4
+         *    32 <= bucketPrecision         -->    keySize = 3
+         */
+#define EB_PRECISION2KEYSIZE(bp) ((bp)<8 ? 6 : ((bp)<16 ? 5 : ((bp)<32 ? 4 : 3)))
+        uint32_t keySize; /* Use EB_PRECISION2KEYSIZE() to set it. */
+    };
+
+    uint64_t v;
+
+} EBucketPrecision;
+
+extern const EBucketPrecision ebpStackL2;
+
+/* Each instance of ebuckets needs to have corresponding EbucketsType that holds
  * the necessary callbacks and configuration to operate correctly on the type
- * of items that are stored in it. Conceptually it should have hold reference
- * from ebuckets instance to this type, but to save memory we will pass it as
- * an argument to each API call. */
+ * of items that are stored in it. Conceptually an instance should have hold
+ * reference from ebuckets instance to this type, but to save memory we will pass
+ * it as an argument to each API call. This approach also makes it easier to 
+ * manipulate the type when needed. */
 typedef struct EbucketsType {
     /* getter to extract the ExpireMeta from the item */
-    ExpireMeta* (*getExpireMeta)(const eItem item);
+    ExpireMeta* (*getExpireMeta)(const void *item);
 
     /* Called during ebDestroy(). Set to NULL if not needed. */
     void (*onDeleteItem)(eItem item, void *ctx);
 
+    /* Number of bits to ignore from the expiration-time when mapping to buckets.
+     * If `isEbStack` is set, then this value is relevant only for level 1. 
+     * Level 2 has fixed precision of 21 bits. See EBucketPrecision for more details. */
+    EBucketPrecision ebp;
+
+    /* For hierarchical ebuckets stack (ebStack), Set to 1. */
+    int isEbStack;
+
     /* Is addresses of items are odd in memory. It is taken into consideration
      * and used by ebuckets to know how to distinct between ebuckets pointer to
      * rax versus a pointer to item which is head of list. */
-    unsigned int itemsAddrAreOdd;
+    int itemsAddrAreOdd;
+
 } EbucketsType;
 
 /* Returned value by `onExpireItem` callback to indicate the action to be taken by
@@ -291,8 +352,6 @@ static inline int ebIsEmpty(ebuckets eb) { return eb == NULL; }
 
 uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type);
 
-uint64_t ebGetMaxExpireTime(ebuckets eb, EbucketsType *type, int accurate);
-
 uint64_t ebGetTotalItems(ebuckets eb, EbucketsType *type);
 
 /* Item related API */
@@ -300,6 +359,8 @@ uint64_t ebGetTotalItems(ebuckets eb, EbucketsType *type);
 int ebRemove(ebuckets *eb, EbucketsType *type, eItem item);
 
 int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime);
+
+uint64_t ebCascade(ebuckets *eb, EbucketsType *type, uint64_t now, uint64_t maxCascade);
 
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item);
 
@@ -314,20 +375,37 @@ int ebNextBucket(EbucketsIterator *iter);
 int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
                  ebDefragFunctions *defragfns, void *privdata);
 
+/* Cannot be used with ebStack L3 */
 static inline uint64_t ebGetMetaExpTime(ExpireMeta *expMeta) {
     return (((uint64_t)(expMeta)->expireTimeHi << 32) | (expMeta)->expireTimeLo);
 }
 
+/* Cannot be used with ebStack L3 */
 static inline void ebSetMetaExpTime(ExpireMeta *expMeta, uint64_t t) {
     expMeta->expireTimeLo = (uint32_t)(t&0xFFFFFFFF);
     expMeta->expireTimeHi = (uint16_t)((t) >> 32);
 }
 
+/* Statistics API */
+
+#define EBUCKETS_STATS_VECTLEN 50
+
+typedef struct ebucketsStats {
+    uint64_t totalItems;           /* Total number of items */
+    uint64_t totalBuckets;         /* Total number of buckets */
+    uint64_t totalSegments;        /* Total number of segments */
+    uint64_t avgItemsPerBucket;    /* Average number of items per bucket */
+    uint64_t avgItemsPerSegment;   /* Average number of items per segment */
+    uint64_t avgSegPerBucket;      /* Average number of segments per bucket */
+} ebucketsStats;
+void ebGetStats(ebuckets eb, EbucketsType *type, ebucketsStats *stats);
+size_t ebGetStatsMsg(char *buf, size_t bufsize, ebucketsStats *stats, int full);
+
 /* Debug API */
 
 void ebValidate(ebuckets eb, EbucketsType *type);
 
-void ebPrint(ebuckets eb, EbucketsType *type);
+void ebPrintItems(ebuckets eb, EbucketsType *type);
 
 #ifdef REDIS_TEST
 int ebucketsTest(int argc, char *argv[], int flags);
