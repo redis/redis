@@ -384,11 +384,20 @@ int listTypeReplaceAtIndex(robj *o, int index, robj *value) {
     return replaced;
 }
 
-/* Compare the given object with the entry at the current position. */
-int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len) {
+/* Compare the given object with the entry at the current position.
+ *
+ * If the list encoding is quicklist, delegates to quicklistCompare(),
+ * passing along the cached integer conversion state.
+ *
+ * If the list encoding is listpack, uses lpCompare().
+ *
+ * Returns 1 if equal, 0 otherwise.
+ */
+int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len,
+                  long long *cached_val, int *cached_valid) {
     serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        return quicklistCompare(&entry->entry,o->ptr,object_len);
+        return quicklistCompare(&entry->entry,o->ptr,object_len,cached_val,cached_valid);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         return lpCompare(entry->lpe,o->ptr,object_len);
     } else {
@@ -543,10 +552,13 @@ void linsertCommand(client *c) {
     listTypeTryConversionAppend(subject,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
+    robj *pivot = c->argv[3];
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
-    const size_t object_len = sdslen(c->argv[3]->ptr);
+    const size_t object_len = sdslen(pivot->ptr);
+    long long cached_val = 0;
+    int cached_valid = 0;
     while (listTypeNext(iter,&entry)) {
-        if (listTypeEqual(&entry,c->argv[3],object_len)) {
+        if (listTypeEqual(&entry,pivot,object_len,&cached_val,&cached_valid)) {
             listTypeInsert(&entry,c->argv[4],where);
             inserted = 1;
             break;
@@ -1011,8 +1023,10 @@ void lposCommand(client *c) {
     long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1, arraylen = 0;
     const size_t ele_len = sdslen(ele->ptr);
+    long long cached_val = 0;
+    int cached_valid = 0;
     while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
-        if (listTypeEqual(&entry,ele,ele_len)) {
+        if (listTypeEqual(&entry,ele,ele_len,&cached_val,&cached_valid)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
             if (matches >= rank) {
@@ -1065,8 +1079,10 @@ void lremCommand(client *c) {
 
     listTypeEntry entry;
     const size_t object_len = sdslen(c->argv[3]->ptr);
+    long long cached_val = 0;
+    int cached_valid = 0;
     while (listTypeNext(li,&entry)) {
-        if (listTypeEqual(&entry,obj,object_len)) {
+        if (listTypeEqual(&entry,obj,object_len,&cached_val,&cached_valid)) {
             listTypeDelete(li, &entry);
             server.dirty++;
             removed++;
