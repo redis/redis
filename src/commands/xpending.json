@@ -82,54 +82,54 @@
                             "type": "integer"
                         },
                         {
-                            "oneOf": [
-                                {
-                                    "type": "null"
-                                },
-                                {
-                                    "description": "Minimal pending entry ID",
-                                    "type": "string",
-                                    "pattern": "[0-9]+-[0-9]+"
-                                }
-                            ]
+                            "description": "Minimal pending entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
                         },
                         {
-                            "oneOf": [
-                                {
-                                    "type": "null"
-                                },
-                                {
-                                    "description": "Maximal pending entry ID",
-                                    "type": "string",
-                                    "pattern": "[0-9]+-[0-9]+"
-                                }
-                            ]
+                            "description": "Maximal pending entry ID",
+                            "type": "string",
+                            "pattern": "[0-9]+-[0-9]+"
                         },
                         {
-                            "oneOf": [
-                                {
-                                    "type": "null"
-                                },
-                                {
-                                    "description": "Consumers with pending messages",
-                                    "type": "array",
-                                    "items": {
-                                        "type": "array",
-                                        "minItems": 2,
-                                        "maxItems": 2,
-                                        "items": [
-                                            {
-                                                "description": "Consumer name",
-                                                "type": "string"
-                                            },
-                                            {
-                                                "description": "Number of pending messages",
-                                                "type": "string"
-                                            }
-                                        ]
+                            "description": "Consumers with pending messages",
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "Consumer name",
+                                        "type": "string"
+                                    },
+                                    {
+                                        "description": "Number of pending messages",
+                                        "type": "string"
                                     }
-                                }
-                            ]
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "description": "Summary form, in case `start` was not given and there are no pending messages.",
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": [
+                        {
+                            "description": "Total number of pending messages",
+                            "const": 0
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
                         }
                     ]
                 }
