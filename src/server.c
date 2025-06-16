@@ -2745,6 +2745,8 @@ void resetServerStats(void) {
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
     server.stat_cluster_incompatible_ops = 0;
+    server.stat_total_prefetch_batches = 0;
+    server.stat_total_prefetch_entries = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
@@ -6223,6 +6225,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n", stat_total_writes_processed,
             "io_threaded_reads_processed:%lld\r\n", stat_io_reads_processed,
             "io_threaded_writes_processed:%lld\r\n", stat_io_writes_processed,
+            "io_threaded_total_prefetch_batches:%lld\r\n", server.stat_total_prefetch_batches,
+            "io_threaded_total_prefetch_entries:%lld\r\n", server.stat_total_prefetch_entries,
             "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
             "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
             "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,

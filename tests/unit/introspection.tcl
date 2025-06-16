@@ -602,6 +602,7 @@ start_server {tags {"introspection"}} {
             socket-mark-id
             req-res-logfile
             client-default-resp
+            vset-force-single-threaded-execution
         }
 
         if {!$::tls} {
