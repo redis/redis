@@ -36,9 +36,12 @@ enum asmState {
     ASM_CONNECTING,
     ASM_AUTH_REPLY,
     ASM_CANCELED,
+    ASM_FAILED,
     ASM_DONE,
 
     /* Import state */
+    ASM_SEND_HANDSHAKE,
+    ASM_HANDSHAKE_REPLY,
     ASM_SEND_SYNCSLOTS,
     ASM_SYNCSLOTS_REPLY,
     ASM_INIT_RDBCHANNEL,
@@ -72,6 +75,7 @@ ConnectionType *connTypeOfReplication(void);
 void createDumpPayload(rio *payload, robj *o, robj *key, int dbid);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
+static sds createSlotRangesStr(list *slot_ranges);
 
 char *asmTaskStateToString(int state) {
     switch (state) {
@@ -79,9 +83,12 @@ char *asmTaskStateToString(int state) {
         case ASM_CONNECTING: return "connecting";
         case ASM_AUTH_REPLY: return "auth-reply";
         case ASM_CANCELED: return "canceled";
+        case ASM_FAILED: return "failed";
         case ASM_DONE: return "done";
 
         /* Import state */
+        case ASM_SEND_HANDSHAKE: return "send-handshake";
+        case ASM_HANDSHAKE_REPLY: return "handshake-reply";
         case ASM_SEND_SYNCSLOTS: return "send-syncslots";
         case ASM_SYNCSLOTS_REPLY: return "syncslots-reply";
         case ASM_INIT_RDBCHANNEL: return "init-rdbchannel";
@@ -268,6 +275,11 @@ static void clusterCommandMigrationImport(client *c) {
     memcpy(task->dest, server.cluster->myself->name, CLUSTER_NAMELEN);
     listAddNodeTail(server.cluster->asm_tasks, task);
 
+    sds slot_ranges_str = createSlotRangesStr(slot_ranges);
+    serverLog(LL_NOTICE, "Migrate slots task created: source: %s, dest: %s, sync slot ranges: %s, operation: %s",
+            task->source, task->dest, slot_ranges_str, task->operation == ASM_IMPORT ? "importing" : "migrating");
+    sdsfree(slot_ranges_str);
+
     /* Only start the first task, TODO: check, retry and schedule new task in cron */
     asmStartSyncSlots(listNodeValue(listFirst(server.cluster->asm_tasks)));
 
@@ -439,6 +451,14 @@ void asmRdbChannelSyncWithSource(connection *conn) {
     asmTask *task = connGetPrivateData(conn);
     char *err = NULL;
 
+    /* Check for errors in the socket: after a non blocking connect() we
+     * may find that the socket is in error state. */
+    if (connGetState(conn) != CONN_STATE_CONNECTED) {
+        serverLog(LL_WARNING, "Error condition on socket for establishing rdb channel: %s",
+                connGetLastError(conn));
+        goto error;
+    }
+
     if (task->rdb_channel_state == ASM_CONNECTING) {
         connSetReadHandler(conn, asmRdbChannelSyncWithSource);
         connSetWriteHandler(conn, NULL);
@@ -530,6 +550,14 @@ void asmSyncWithSource(connection *conn) {
     asmTask *task = connGetPrivateData(conn);
     char *err = NULL;
 
+    /* Check for errors in the socket: after a non blocking connect() we
+     * may find that the socket is in error state. */
+    if (connGetState(conn) != CONN_STATE_CONNECTED) {
+        serverLog(LL_WARNING, "Error condition on socket for sync slots: %s",
+                connGetLastError(conn));
+        goto error;
+    }
+
     if (task->state == ASM_CONNECTING) {
         connSetReadHandler(conn, asmSyncWithSource);
         connSetWriteHandler(conn, NULL);
@@ -549,10 +577,37 @@ void asmSyncWithSource(connection *conn) {
         if (!strcmp(err, "+OK")) {
             sdsfree(err);
             err = NULL;
-            task->state = ASM_SEND_SYNCSLOTS;
+            task->state = ASM_SEND_HANDSHAKE;
             serverLog(LL_NOTICE, "Source node replied to AUTH command, sync slots can continue...");
         } else {
             serverLog(LL_WARNING, "Error reply to AUTH from the source: '%s'", err);
+            sdsfree(err);
+            goto error;
+        }
+    }
+
+    if (task->state == ASM_SEND_HANDSHAKE) {
+        sds node_id = sdsnewlen(getMyClusterNode()->name, CLUSTER_NAMELEN);
+        err = sendCommand(conn, "CLUSTER", "SYNCSLOTS", "CONF", "NODE-ID", node_id, NULL);
+        sdsfree(node_id);
+        if (err) goto write_error;
+        task->state = ASM_HANDSHAKE_REPLY;
+        return;
+    }
+
+    if (task->state == ASM_HANDSHAKE_REPLY) {
+        err = receiveSynchronousResponse(conn);
+        /* The source node did not reply */
+        if (err == NULL) goto no_response_error;
+
+        /* Check `+OK` reply */
+        if (!strcmp(err, "+OK")) {
+            sdsfree(err);
+            err = NULL;
+            task->state = ASM_SEND_SYNCSLOTS;
+            serverLog(LL_NOTICE, "Source node replied to SYNCSLOTS CONF command, sync slots can continue...");
+        } else {
+            serverLog(LL_WARNING, "Error reply to SYNCSLOTS CONF from the source: '%s'", err);
             sdsfree(err);
             goto error;
         }
@@ -820,7 +875,15 @@ void clusterSyncSlotsCommand(client *c) {
         task->main_channel_id = c->id;
         task->state = ASM_NONE;
         task->operation = ASM_MIGRATE;
+        memcpy(task->source, getMyClusterNode()->name, CLUSTER_NAMELEN);
+        if (c->node_id) memcpy(task->dest, c->node_id, CLUSTER_NAMELEN);
         listAddNodeTail(server.cluster->asm_tasks, task);
+
+        sds slot_ranges_str = createSlotRangesStr(slot_ranges);
+        serverLog(LL_NOTICE, "Migrate slots task created: source: %s, dest: %s, sync slot ranges: %s, operation: %s",
+                task->source, task->dest, slot_ranges_str, task->operation == ASM_IMPORT ? "importing" : "migrating");
+        sdsfree(slot_ranges_str);
+
         addReplyStatusFormat(c, "RDBCHANNELSYNCSLOTS %llu",
                                (unsigned long long) c->id);
     } else if (!strcasecmp(c->argv[2]->ptr, "rdbchannel") && c->argc == 4) {
@@ -831,7 +894,6 @@ void clusterSyncSlotsCommand(client *c) {
             return;
         }
 
-        
         if (listLength(server.cluster->asm_tasks) == 0) {
             addReplyError(c, "No migrate slots task in progress");
             return;
@@ -928,14 +990,22 @@ void clusterSyncSlotsCommand(client *c) {
                 return;
             }
             /* Handle each option here */
-            if (!strcasecmp(c->argv[j]->ptr, "option1")) {
-                /* Handle option 'snapshot' */
-                long value1 = 0;
-                if (getRangeLongFromObjectOrReply(c, c->argv[j+1],
-                                    0, 1, &value1, NULL) != C_OK)
-                {
+            if (!strcasecmp(c->argv[j]->ptr, "node-id")) {
+                sds node_id = c->argv[j + 1]->ptr;
+                if (sdslen(node_id) != CLUSTER_NAMELEN) {
+                    addReplyErrorFormat(c, "Invalid node id length %d", (int)sdslen(node_id));
                     return;
                 }
+
+                /* Lookup the node in the cluster. */
+                clusterNode *node = clusterLookupNode(node_id, sdslen(node_id));
+                if (node == NULL) {
+                    addReplyErrorFormat(c, "Node %s not found in cluster", node_id);
+                    return;
+                }
+
+                if (c->node_id) sdsfree(c->node_id);
+                c->node_id = sdsdup(node_id);
                 addReply(c, shared.ok);
             } else {
                 addReplyErrorFormat(c, "Unknown option %s", (char *)c->argv[j]->ptr);

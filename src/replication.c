@@ -619,6 +619,13 @@ void showLatestBacklog(void) {
  * to our sub-slaves. */
 #include <ctype.h>
 void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
+    /* For atomic slot migration, we will create a fake master client to
+     * apply command stream from the source node. Instead of proxying
+     * the command stream from the source node, we want the destination
+     * node to propagate the commands after executing them.
+     *
+     * TODO: maybe proxy the command stream in the future. */
+    if (server.master == NULL) return;
     /* There must be replication backlog if having attached slaves. */
     if (listLength(server.slaves)) serverAssert(server.repl_backlog != NULL);
     if (server.repl_backlog) {
