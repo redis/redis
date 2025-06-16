@@ -161,6 +161,18 @@ class VSIMFilterExpressions(TestCase):
                                           'FILTER', '"" in .name')
         assert len(result) == 3, "Expected 3 results for empty string (matches all strings)"
 
+        # Off-by-one tests - non-empty strings are never substrings of ""
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.name in ""')
+        assert len(result) == 0, "Expected 0 results for empty string on the right of IN operator"
+
+        # Off-by-one tests - empty string match empty string.
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '"" in .name && "" in ""')
+        assert len(result) == 3, "Expected empty string matching empty string"
+
         # Arithmetic operations - addition
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
