@@ -1571,14 +1571,77 @@ void readonlyCommand(client *c) {
     addReply(c,shared.ok);
 }
 
-void replySlotsFlushAndFree(client *c, SlotsFlush *sflush) {
-    addReplyArrayLen(c, sflush->numRanges);
-    for (int i = 0 ; i < sflush->numRanges ; i++) {
+void replySlotsFlushAndFree(client *c, slotRangeArray *sra) {
+    addReplyArrayLen(c, sra->num_ranges);
+    for (int i = 0 ; i < sra->num_ranges ; i++) {
         addReplyArrayLen(c, 2);
-        addReplyLongLong(c, sflush->ranges[i].first);
-        addReplyLongLong(c, sflush->ranges[i].last);
+        addReplyLongLong(c, sra->ranges[i].start);
+        addReplyLongLong(c, sra->ranges[i].end);
     }
-    zfree(sflush);
+    zfree(sra);
+}
+
+/* Checks that slot ranges are well-formed and non-overlapping. */
+int validateSlotRanges(slotRangeArray *sra, sds *err) {
+    unsigned char slots[CLUSTER_SLOTS] = {0};
+
+    for (int i = 0; i < sra->num_ranges; i++) {
+        if (sra->ranges[i].start >= CLUSTER_SLOTS ||
+            sra->ranges[i].end >= CLUSTER_SLOTS)
+        {
+            *err = sdscatprintf(sdsempty(), "slot range is out of range: %d-%d",
+                                sra->ranges[i].start, sra->ranges[i].end);
+            return C_ERR;
+        }
+
+        if (sra->ranges[i].start > sra->ranges[i].end) {
+            *err = sdscatprintf(sdsempty(), "start slot number %d is greater than end slot number %d",
+                                sra->ranges[i].start, sra->ranges[i].end);
+            return C_ERR;
+        }
+
+        for (int j = sra->ranges[i].start; j <= sra->ranges[i].end; j++) {
+            if (slots[j]) {
+                *err = sdscatprintf(sdsempty(), "Slot %d specified multiple times", j);
+                return C_ERR;
+            }
+            slots[j]++;
+        }
+    }
+    return C_OK;
+}
+
+/* Parse slot ranges from the command arguments. Returns NULL on error. */
+slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
+    int start, end, count;
+    slotRangeArray *sra;
+
+    serverAssert(pos <= argc);
+    serverAssert((argc - pos) % 2 == 0);
+
+    count = (argc - pos) / 2;
+    sra = zcalloc(sizeof(*sra) + count * sizeof(slotRange));
+    sra->num_ranges = 0;
+
+    for (int j = pos; j < argc; j += 2) {
+        if ((start = getSlotOrReply(c, c->argv[j])) == -1 ||
+            (end = getSlotOrReply(c, c->argv[j + 1])) == -1)
+        {
+            zfree(sra);
+            return NULL;
+        }
+        sra->ranges[sra->num_ranges].start = start;
+        sra->ranges[sra->num_ranges].end = end;
+        sra->num_ranges++;
+    }
+
+    sds err = NULL;
+    if (validateSlotRanges(sra, &err) != C_OK) {
+        addReplyErrorSds(c, err);
+        zfree(sra);
+        return NULL;
+    }
+    return sra;
 }
 
 /* Partially flush destination DB in a cluster node, based on the slot range.
@@ -1618,45 +1681,27 @@ void sflushCommand(client *c) {
         return;
     }
 
-    /* Verify <first, last> slot pairs are valid and not overlapping */
-    long long j, first, last;
+    slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, argc, 1);
+    if (!slot_ranges) return;
+
+    /* Mark the slots in slotsToFlushRq[] */
     unsigned char slotsToFlushRq[CLUSTER_SLOTS] = {0};
-    for (j = 1; j < argc; j += 2) {
-        /* check if the first slot is valid */
-        if (getLongLongFromObject(c->argv[j], &first) != C_OK || first < 0 || first >= CLUSTER_SLOTS) {
-            addReplyError(c,"Invalid or out of range slot");
-            return;
-        }
 
-        /* check if the last slot is valid */
-        if (getLongLongFromObject(c->argv[j+1], &last) != C_OK || last < 0 || last >= CLUSTER_SLOTS) {
-            addReplyError(c,"Invalid or out of range slot");
-            return;
-        }
-
-        if (first > last) {
-            addReplyErrorFormat(c,"start slot number %lld is greater than end slot number %lld", first, last);
-            return;
-        }
-
-        /* Mark the slots in slotsToFlushRq[] */
-        for (int i = first; i <= last; i++) {
-            if (slotsToFlushRq[i]) {
-                addReplyErrorFormat(c, "Slot %d specified multiple times", i);
-                return;
-            }
-            slotsToFlushRq[i] = 1;
-        }
+    for (int i = 0; i < slot_ranges->num_ranges; i++) {
+        slotRange *sr = &slot_ranges->ranges[i];
+        for (int j = sr->start; j <= sr->end; j++)
+            slotsToFlushRq[j] = 1;
     }
+    zfree(slot_ranges);
 
     /* Verify slotsToFlushRq[] covers ALL slots of myNode. */
     clusterNode *myNode = getMyClusterNode();
     /* During iteration trace also the slot range pairs and save in SlotsFlush.
-     * It is allocated on heap since there is a chance that FLUSH SYNC will be 
+     * It is allocated on heap since there is a chance that FLUSH SYNC will be
      * running as blocking ASYNC and only later reply with slot ranges */
     int capacity = 32; /* Initial capacity */
-    SlotsFlush *sflush = zmalloc(sizeof(SlotsFlush) + sizeof(SlotRange) * capacity);
-    sflush->numRanges = 0;
+    slotRangeArray *sflush = zmalloc(sizeof(*sflush) + sizeof(slotRange) * capacity);
+    sflush->num_ranges = 0;
     int inSlotRange = 0;
     for (int i = 0; i < CLUSTER_SLOTS; i++) {
         if (myNode == getNodeBySlot(i)) {
@@ -1667,25 +1712,25 @@ void sflushCommand(client *c) {
             }
 
             if (!inSlotRange) { /* If start another slot range */
-                sflush->ranges[sflush->numRanges].first = i;
+                sflush->ranges[sflush->num_ranges].start = i;
                 inSlotRange = 1;
             }
         } else {
             if (inSlotRange) { /* If end another slot range */
-                sflush->ranges[sflush->numRanges++].last = i - 1;
+                sflush->ranges[sflush->num_ranges++].end = i - 1;
                 inSlotRange = 0;
                 /* If reached 'sflush' capacity, double the capacity */
-                if (sflush->numRanges >= capacity) {
+                if (sflush->num_ranges >= capacity) {
                     capacity *= 2;
-                    sflush = zrealloc(sflush, sizeof(SlotsFlush) + sizeof(SlotRange) * capacity);
+                    sflush = zrealloc(sflush, sizeof(*sflush) + sizeof(slotRange) * capacity);
                 }
             }
         }
     }
 
     /* Update last pair if last cluster slot is also end of last range */
-    if (inSlotRange) sflush->ranges[sflush->numRanges++].last = CLUSTER_SLOTS - 1;
-    
+    if (inSlotRange) sflush->ranges[sflush->num_ranges++].end = CLUSTER_SLOTS - 1;
+
     /* Flush selected slots. If not flush as blocking async, then reply immediately */
     if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, sflush) == 0)
         replySlotsFlushAndFree(c, sflush);

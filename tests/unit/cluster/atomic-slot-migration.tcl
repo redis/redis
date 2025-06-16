@@ -4,7 +4,7 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT}
         assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT 100}
         assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT 100 200 300}
-        assert_error {*invalid slot range*} {R 0 CLUSTER MIGRATION IMPORT 200 100}
+        assert_error {*greater than end slot number*} {R 0 CLUSTER MIGRATION IMPORT 200 100}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 17000 18000}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 14000 18000}
         assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT -1 0}
@@ -53,8 +53,8 @@ start_cluster 3 3 {tags {external:skip cluster}} {
     }
 
     test "Test IMPORT not allowed if slot is given multiple times" {
-        assert_error {*slot*is given twice in different slot ranges*} {R 0 CLUSTER MIGRATION IMPORT 7000 8000 8000 9000}
-        assert_error {*slot*is given twice in different slot ranges*} {R 0 CLUSTER MIGRATION IMPORT 7000 8000 7900 9000}
+        assert_error {*Slot*specified multiple times*} {R 0 CLUSTER MIGRATION IMPORT 7000 8000 8000 9000}
+        assert_error {*Slot*specified multiple times*} {R 0 CLUSTER MIGRATION IMPORT 7000 8000 7900 9000}
     }
 
     test "Test IMPORT not allowed if there is an overlapping import" {

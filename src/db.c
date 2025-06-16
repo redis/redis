@@ -977,7 +977,7 @@ void flushAllDataAndResetRDB(int flags) {
  * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
  */
 void flushallSyncBgDone(uint64_t client_id, void *sflush) {
-    SlotsFlush *slotsFlush = sflush;
+    slotRangeArray *slotsFlush = sflush;
     client *c = lookupClientByID(client_id);
 
     /* Verify that client still exists and being blocked. */
@@ -1026,7 +1026,7 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
  *          completion to reply with the slots flush result. Ownership is passed
  *          to the completion job in case of `blocking_async`.
  */
-int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
+int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sflush) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */

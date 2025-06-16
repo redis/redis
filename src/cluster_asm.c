@@ -17,7 +17,7 @@
 
 typedef struct asmTask {
     int operation;                      /* Either ASM_IMPORT or ASM_MIGRATE */
-    list *slot_ranges;                  /* List of slot ranges for this migration operation */
+    slotRangeArray *slot_ranges;        /* List of slot ranges for this migration operation */
     int state;                          /* Current state of the task */
     char source[CLUSTER_NAMELEN];       /* Source node name */
     char dest[CLUSTER_NAMELEN];         /* Destination node name */
@@ -110,9 +110,9 @@ char *asmTaskStateToString(int state) {
 
 /* Returns C_OK if there is no overlapping import operation in progress for the
  * given slot range. Otherwise, returns C_ERR */
-static int checkOverlappingImport(SlotRange *req) {
-    listIter li, sli;
-    listNode *ln, *sln;
+static int checkOverlappingImport(slotRange *req) {
+    listIter li;
+    listNode *ln;
 
     listRewind(server.cluster->asm_tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
@@ -123,11 +123,10 @@ static int checkOverlappingImport(SlotRange *req) {
             continue;
         }
 
-        listRewind(task->slot_ranges, &sli);
-        while ((sln = listNext(&sli)) != NULL) {
-            SlotRange *sr = sln->value;
+        for (int i = 0; i < task->slot_ranges->num_ranges; i++) {
+            slotRange *sr = &task->slot_ranges->ranges[i];
             /* Cancel if any slot range overlaps with the requested range. */
-            if (sr->first <= req->last && sr->last >= req->first)
+            if (sr->start <= req->end && sr->end >= req->start)
                 return C_ERR;
         }
     }
@@ -144,9 +143,7 @@ static int checkOverlappingImport(SlotRange *req) {
  *
  * Returns the source node if validation succeeds.
  * Otherwise, returns NULL and sets 'err' variable. */
-static clusterNode *validateImportSlotRanges(list *slot_ranges, sds *err) {
-    listNode *ln;
-    listIter li;
+static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *err) {
     clusterNode *source = NULL;
     unsigned char *slots = zcalloc(CLUSTER_SLOTS);
 
@@ -168,41 +165,28 @@ static clusterNode *validateImportSlotRanges(list *slot_ranges, sds *err) {
         }
     }
 
-    listRewind(slot_ranges, &li);
-    while ((ln = listNext(&li))) {
-        SlotRange *sr = listNodeValue(ln);
-
-        /* Validate slot boundaries */
-        if (sr->first > sr->last) {
-            *err = sdscatprintf(sdsempty(), "invalid slot range: %d-%d",
-                                sr->first, sr->last);
-            goto out;
-        }
+    for (int i = 0; i < slot_ranges->num_ranges; i++) {
+        slotRange *sr = &slot_ranges->ranges[i];
 
         /* Ensure no import operation overlaps with this slot range. */
         if (checkOverlappingImport(sr) != C_OK) {
             *err = sdscatprintf(sdsempty(),
                                 "overlapping import exists for slot range: %d-%d",
-                                sr->first, sr->last);
+                                sr->start, sr->end);
             goto out;
         }
 
         /* Validate if we can start migration operation for this slot range. */
-        for (int i = sr->first; i <= sr->last; i++) {
-            if (server.cluster->slots[i] == NULL) {
-                *err = sdscatprintf(sdsempty(), "slot has no owner: %d", i);
+        for (int j = sr->start; j <= sr->end; j++) {
+            if (server.cluster->slots[j] == NULL) {
+                *err = sdscatprintf(sdsempty(), "slot has no owner: %d", j);
                 goto out;
             }
 
             if (!source) {
-                source = server.cluster->slots[i];
-            } else if (source != server.cluster->slots[i]) {
+                source = server.cluster->slots[j];
+            } else if (source != server.cluster->slots[j]) {
                 *err = sdsnew("slots belong to different source nodes");
-                goto out;
-            }
-
-            if (slots[i]++ != 0) {
-                *err = sdscatprintf(sdsempty(), "slot %d is given twice in different slot ranges", i);
                 goto out;
             }
         }
@@ -224,24 +208,8 @@ static void clusterCommandMigrationImport(client *c) {
         return;
     }
 
-    /* Parse slot ranges */
-    int first, last;
-    list *slot_ranges = listCreate();
-    listSetFreeMethod(slot_ranges, zfree);
-
-    for (int i = 3; i < c->argc; i += 2) {
-        if ((first = getSlotOrReply(c, c->argv[i])) == -1 ||
-            (last = getSlotOrReply(c, c->argv[i + 1])) == -1)
-        {
-            listRelease(slot_ranges);
-            return;
-        }
-
-        SlotRange *sr = zmalloc(sizeof(*sr));
-        sr->first = first;
-        sr->last = last;
-        listAddNodeTail(slot_ranges, sr);
-    }
+    slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, c->argc, 3);
+    if (!slot_ranges) return;
 
     sds err = NULL;
     clusterNode *source;
@@ -251,13 +219,13 @@ static void clusterCommandMigrationImport(client *c) {
     source = validateImportSlotRanges(slot_ranges, &err);
     if (!source) {
         addReplyErrorSds(c, err);
-        listRelease(slot_ranges);
+        zfree(slot_ranges);
         return;
     }
 
     if (source == getMyClusterNode()) {
         addReplyError(c, "this node is already the owner of the slot range");
-        listRelease(slot_ranges);
+        zfree(slot_ranges);
         return;
     }
 
@@ -288,10 +256,10 @@ static void clusterCommandMigrationImport(client *c) {
 
 /* Cancel atomic slot migration operations that overlap with the given slot
  * range. Returns the number of cancelled operations. */
-static int cancelLinksForSlotRange(SlotRange *req_range) {
+static int cancelLinksForSlotRange(slotRange *req_range) {
     int num_cancelled = 0;
-    listIter li, sli;
-    listNode *ln, *sln;
+    listIter li;
+    listNode *ln;
 
     listRewind(server.cluster->asm_tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
@@ -302,11 +270,10 @@ static int cancelLinksForSlotRange(SlotRange *req_range) {
             continue;
         }
 
-        listRewind(task->slot_ranges, &sli);
-        while ((sln = listNext(&sli)) != NULL) {
-            SlotRange *sr = sln->value;
+        for (int i = 0; i < task->slot_ranges->num_ranges; i++) {
+            slotRange *sr = &task->slot_ranges->ranges[i];
             /* Cancel if any slot range overlaps with the requested range. */
-            if (sr->first <= req_range->last && sr->last >= req_range->first) {
+            if (sr->start <= req_range->end && sr->end >= req_range->start) {
                 task->state = ASM_CANCELED;
                 num_cancelled++;
                 break;
@@ -322,11 +289,8 @@ static int cancelLinksForSlotRange(SlotRange *req_range) {
  * Cancels import operations that overlap with the specified slot ranges.
  * Multiple operations may be cancelled. */
 static void clusterCommandMigrationCancel(client *c) {
-    int remaining, first, last;
-    int num_cancelled = 0;
-    listIter li;
-    listNode *ln;
-    list *slot_ranges;
+    int remaining, num_cancelled = 0;
+    slotRangeArray *slot_ranges;
 
     /* Validate slot range arg count */
     remaining = c->argc - 3;
@@ -335,50 +299,24 @@ static void clusterCommandMigrationCancel(client *c) {
         return;
     }
 
-    slot_ranges = listCreate();
-    listSetFreeMethod(slot_ranges, zfree);
-
-    /* Parse slot ranges into the list */
-    for (int i = 3; i < c->argc; i += 2) {
-        if ((first = getSlotOrReply(c, c->argv[i])) == -1 ||
-            (last = getSlotOrReply(c, c->argv[i + 1])) == -1)
-        {
-            listRelease(slot_ranges);
-            return;
-        }
-
-        if (first > last) {
-            addReplyErrorFormat(c, "invalid slot range: %d-%d", first, last);
-            listRelease(slot_ranges);
-            return;
-        }
-
-        SlotRange *sr = zmalloc(sizeof(*sr));
-        sr->first = first;
-        sr->last = last;
-        listAddNodeTail(slot_ranges, sr);
-    }
+    slot_ranges = parseSlotRangesOrReply(c, c->argc, 3);
+    if (!slot_ranges) return;
 
     /* Cancel asm operations that overlaps with the slot ranges. */
-    listRewind(slot_ranges, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        num_cancelled += cancelLinksForSlotRange(listNodeValue(ln));
-    }
+    for (int i = 0; i < slot_ranges->num_ranges; i++)
+        num_cancelled += cancelLinksForSlotRange(&slot_ranges->ranges[i]);
 
     addReplyLongLong(c, num_cancelled);
-    listRelease(slot_ranges);
+    zfree(slot_ranges);
 }
 
 /* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
-static sds createSlotRangesStr(list *slot_ranges) {
-    listNode *ln;
-    listIter li;
+static sds createSlotRangesStr(slotRangeArray *slot_ranges) {
     sds s = sdsempty();
 
-    listRewind(slot_ranges, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        SlotRange *range = listNodeValue(ln);
-        s = sdscatprintf(s, "%d-%d ", range->first, range->last);
+    for (int i = 0; i < slot_ranges->num_ranges; i++) {
+        slotRange *sr = &slot_ranges->ranges[i];
+        s = sdscatprintf(s, "%d-%d ", sr->start, sr->end);
     }
     sdssetlen(s, sdslen(s) - 1);
     s[sdslen(s)] = '\0';
@@ -615,7 +553,7 @@ void asmSyncWithSource(connection *conn) {
 
     if (task->state == ASM_SEND_SYNCSLOTS) {
         /* Prepare and send CLUSTER SYNCSLOTS RANGES command */
-        size_t argc = (listLength(task->slot_ranges)*2 + 3);
+        size_t argc = (task->slot_ranges->num_ranges*2 + 3);
         char **args = zcalloc(sizeof(char*) * argc);
         size_t *lens = zcalloc(sizeof(size_t) * argc);
         args[0] = "CLUSTER";
@@ -626,14 +564,11 @@ void asmSyncWithSource(connection *conn) {
         lens[2] = strlen("RANGES");
 
         size_t i = 3;
-        listNode *ln;
-        listIter li;
-        listRewind(task->slot_ranges, &li);
-        while ((ln = listNext(&li)) != NULL) {
-            SlotRange *sr = listNodeValue(ln);
-            args[i] = sdscatprintf(sdsempty(), "%d", sr->first);
+        for (int j = 0; j < task->slot_ranges->num_ranges; j++) {
+            slotRange *sr = &task->slot_ranges->ranges[j];
+            args[i] = sdscatprintf(sdsempty(), "%d", sr->start);
             lens[i] = sdslen(args[i]);
-            args[i+1] = sdscatprintf(sdsempty(), "%d", sr->last);
+            args[i+1] = sdscatprintf(sdsempty(), "%d", sr->end);
             lens[i+1] = sdslen(args[i+1]);
             i += 2;
         }
@@ -768,15 +703,13 @@ void clusterSyncSlotsStreamEOF(client *c) {
     
     /* Iterate task->slot_range, and handoff the ownership of slots */
     task->state = ASM_SLOTS_HANDOFF;
-    listIter li;
-    listNode *ln;
-    listRewind(task->slot_ranges, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        SlotRange *sr = listNodeValue(ln);
-        for (int i = sr->first; i <= sr->last; i++) {
+
+    for (int i = 0; i < task->slot_ranges->num_ranges; i++) {
+        slotRange *sr = &task->slot_ranges->ranges[i];
+        for (int j = sr->start; j <= sr->end; j++) {
             clusterNode *myself = getMyClusterNode();
-            server.cluster->slots[i] = myself;
-            clusterNodeSetSlotBit(myself, i);
+            server.cluster->slots[j] = myself;
+            clusterNodeSetSlotBit(myself, j);
         }
     }
     /* New config and Bump new config */
@@ -791,7 +724,7 @@ void clusterSyncSlotsStreamEOF(client *c) {
 
     /* Free the task */
     listDelNode(server.cluster->asm_tasks, listSearchKey(server.cluster->asm_tasks, task));
-    listRelease(task->slot_ranges); /* Free the slot ranges list */
+    zfree(task->slot_ranges); /* Free the slot ranges list */
     zfree(task); /* Free the task itself */
     serverLog(LL_NOTICE, "Slot migration task completed");
 
@@ -822,28 +755,13 @@ void asmStartSyncSlots(asmTask *task) {
 void clusterSyncSlotsCommand(client *c) {
     if (!strcasecmp(c->argv[2]->ptr, "ranges") && c->argc >= 5) {
         /* CLUSTER SYNCSLOTS RANGES <start-slot> <end-slot> [<start-slot> <end-slot>] */
-        int j, first, last;
         if (c->argc % 2 == 0) {
             addReplyErrorArity(c);
             return;
         }
 
-        list *slot_ranges = listCreate();
-        listSetFreeMethod(slot_ranges, zfree);
-
-        for (j = 3; j < c->argc; j += 2) {
-            if ((first = getSlotOrReply(c, c->argv[j])) == -1 ||
-                (last = getSlotOrReply(c, c->argv[j + 1])) == -1) 
-            {
-                listRelease(slot_ranges);
-                return;
-            }
-
-            SlotRange *sr = zmalloc(sizeof(*sr));
-            sr->first = first;
-            sr->last = last;
-            listAddNodeTail(slot_ranges, sr);
-        }
+        slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, c->argc, 3);
+        if (!slot_ranges) return;
 
         /* Validate that the slot ranges are valid and that migration can be
          * initiated for them. */
@@ -851,21 +769,21 @@ void clusterSyncSlotsCommand(client *c) {
         clusterNode *source = validateImportSlotRanges(slot_ranges, &err);
         if (!source) {
             addReplyErrorSds(c, err);
-            listRelease(slot_ranges);
+            zfree(slot_ranges);
             return;
         }
 
         /* Check if the source node is the same as the current node. */
         if (source != getMyClusterNode()) {
             addReplyError(c, "This node is not the owner of the slots");
-            listRelease(slot_ranges);
+            zfree(slot_ranges);
             return;
         }
 
         /* Only one slots sync on source node */
         if (listLength(server.cluster->asm_tasks) != 0) {
             addReplyError(c, "SYNCSLOTS RANGES already in progress");
-            listRelease(slot_ranges);
+            zfree(slot_ranges);
             return;
         }
 
@@ -976,7 +894,7 @@ void clusterSyncSlotsCommand(client *c) {
         sendCommand(c->conn, "CLUSTER", "SYNCSLOTS", "STREAM-EOF", NULL);
 
         listDelNode(server.cluster->asm_tasks, listFirst(server.cluster->asm_tasks));
-        listRelease(task->slot_ranges); /* Free the slot ranges list */
+        zfree(task->slot_ranges); /* Free the slot ranges list */
         zfree(task); /* Free the task itself */
         freeClientAsync(c); /* Free the client, it is no longer needed. */
     } else if (!strcasecmp(c->argv[2]->ptr, "fail") && c->argc == 4) {
@@ -1042,14 +960,11 @@ int slotRangesSnapshotSaveRio(int req, rio *rdb, int *error) {
 
         /* Iterate all slot ranges, and generate the DUMP encoded
          * representation of each key in the DB. */
-        listIter li;
-        listNode *ln;
-        listRewind(task->slot_ranges, &li);
-        while ((ln = listNext(&li)) != NULL) {
-            SlotRange *sr = listNodeValue(ln);
+        for (int i = 0; i < task->slot_ranges->num_ranges; i++) {
+            slotRange *sr = &task->slot_ranges->ranges[i];
             /* Iterate all keys in the slot range */
-            for (int i = sr->first; i <= sr->last; i++) {
-                kvs_di = kvstoreGetDictIterator(server.db->keys, i);
+            for (int j = sr->start; j <= sr->end; j++) {
+                kvs_di = kvstoreGetDictIterator(server.db->keys, j);
                 while ((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
                     /* Get the value object (of type kvobj) */
                     kvobj *o = dictGetKV(de);

@@ -142,6 +142,7 @@ int isValidAuxString(char *s, unsigned int length);
 void migrateCommand(client *c);
 void clusterCommand(client *c);
 ConnectionType *connTypeOfCluster(void);
+slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos);
 
 void clusterGenNodesSlotsInfo(int filter);
 void clusterFreeNodesSlotsInfo(clusterNode *n);
