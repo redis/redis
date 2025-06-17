@@ -2486,6 +2486,22 @@ listNode *streamAddCGroupRef(stream *s, streamCG *cg, unsigned char *key) {
     return listLast(cglist);
 }
 
+/* Remove a consumer group reference from the message index for a specific stream ID.
+ * This is called when a message is acknowledged or when a consumer group is deleted.
+ * If this was the last reference, the list is removed from the index. */
+void streamRemoveCGroupRef(stream *s, streamNACK *na, unsigned char *key) {
+    list *l;
+    if (raxFind(s->message_cgroups_index, key, sizeof(streamID), (void**)&l)) {
+        listDelNode(l, na->cgroups_index_node);
+        
+        /* If the list is now empty, remove it from the index. */
+        if (listLength(l) == 0) {
+            raxRemove(s->message_cgroups_index, key, sizeof(streamID), NULL);
+            listRelease(l);
+        }
+    }
+}
+
 /* Create a NACK entry setting the delivery count to 1 and the delivery
  * time to the current time. The NACK consumer will be set to the one
  * specified as argument of the function. */
@@ -2503,26 +2519,10 @@ void streamFreeNACK(streamNACK *na) {
     zfree(na);
 }
 
-/* Remove a consumer group reference from the message index for a specific stream ID.
- * This is called when a message is acknowledged or when a consumer group is deleted.
- * If this was the last reference, the list is removed from the index. */
-void streamRemoveConsumerGroupReference(stream *s, streamNACK *na, unsigned char *key) {
-    list *l;
-    if (raxFind(s->message_cgroups_index, key, sizeof(streamID), (void**)&l)) {
-        listDelNode(l, na->cgroups_index_node);
-        
-        /* If the list is now empty, remove it from the index. */
-        if (listLength(l) == 0) {
-            raxRemove(s->message_cgroups_index, key, sizeof(streamID), NULL);
-            listRelease(l);
-        }
-    }
-}
-
 /* Free a NACK entry and remove its reference from the message_cgroups_index.
  * This ensures proper cleanup of the consumer group list associated with the message ID. */
 void streamFreeNACKAndRemoveFromIndex(stream *s, streamNACK *na, unsigned char *key) {
-    streamRemoveConsumerGroupReference(s, na, key);
+    streamRemoveCGroupRef(s, na, key);
     zfree(na);
 }
 
@@ -2581,7 +2581,7 @@ void streamFreeCGAndRemoveRef(stream *s, streamCG *cg) {
     raxSeek(&it, "^", NULL, 0);
     while(raxNext(&it)) {
         streamNACK *nack = it.data;
-        streamRemoveConsumerGroupReference(s, nack, it.key);
+        streamRemoveCGroupRef(s, nack, it.key);
     }
     raxStop(&it);
     streamFreeCG(cg);
