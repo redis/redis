@@ -10,6 +10,11 @@
 
 #include "vset_config.h"
 
+/* Define __STRING macro for portability (not available in all environments) */
+#ifndef __STRING
+#define __STRING(x) #x
+#endif
+
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \
     RedisModule_Log(ctx, "warning", "Could not run " __STRING(expr)); \
