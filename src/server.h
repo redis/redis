@@ -2650,9 +2650,6 @@ typedef struct {
     quicklistEntry entry; /* Entry in quicklist */
 } listTypeEntry;
 
-
-
-
 /* Structure to hold set iteration abstraction. */
 typedef struct {
     robj *subject;
