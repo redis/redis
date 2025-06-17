@@ -1099,7 +1099,7 @@ start_server {tags {"stream"}} {
         assert_error {*Number of IDs must be greater than 0*} {r XDELEX s IDS 0 1-1}
         assert_error {*Number of IDs must be greater than 0*} {r XDELEX s IDS -5 1-1}
 
-        # Test whether numids is euqal to the number of IDs provided
+        # Test whether numids is equal to the number of IDs provided
         assert_error {*Number of IDs can't exceed the remaining arguments*} {r XDELEX s IDS 3 1-1 2-2}
         assert_error {*syntax error*} {r XDELEX s IDS 1 1-1 2-2}
     }
