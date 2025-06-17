@@ -1250,7 +1250,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
  * comparison against p2.
  *
  * If the entry stores an integer (entry->value == NULL), lazily convert p2 to
- * a long long using string2ll() once and cache the result using cached_val
+ * a long long using string2ll() once and cache the result using cached_longval
  * and cached_valid.
  *
  * This optimization avoids repeatedly calling string2ll() in tight loops.
