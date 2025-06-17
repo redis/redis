@@ -552,13 +552,12 @@ void linsertCommand(client *c) {
     listTypeTryConversionAppend(subject,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
-    robj *pivot = c->argv[3];
     iter = listTypeInitIterator(subject,0,LIST_TAIL);
-    const size_t object_len = sdslen(pivot->ptr);
+    const size_t object_len = sdslen(c->argv[3]->ptr);
     long long cached_val = 0;
     int cached_valid = 0;
     while (listTypeNext(iter,&entry)) {
-        if (listTypeEqual(&entry,pivot,object_len,&cached_val,&cached_valid)) {
+        if (listTypeEqual(&entry,c->argv[3],object_len,&cached_val,&cached_valid)) {
             listTypeInsert(&entry,c->argv[4],where);
             inserted = 1;
             break;

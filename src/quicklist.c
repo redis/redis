@@ -1261,7 +1261,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
  * Returns 1 if equal, 0 otherwise.
  */
 int quicklistCompare(quicklistEntry *entry, unsigned char *p2, const size_t p2_len,
-                     long long *cached_val, int *cached_valid) {
+                     long long *cached_longval, int *cached_valid) {
     if (entry->value) {
         return ((entry->sz == p2_len) && (memcmp(entry->value, p2, p2_len) == 0));
     } else {
@@ -1271,13 +1271,13 @@ int quicklistCompare(quicklistEntry *entry, unsigned char *p2, const size_t p2_l
         if (cached_valid != NULL) {
             /* Use caching */
             if (*cached_valid == 0) {
-                if (string2ll((const char *)p2, p2_len, cached_val)) {
+                if (string2ll((const char *)p2, p2_len, cached_longval)) {
                     *cached_valid = 1;
                 } else {
                     *cached_valid = -1;
                 }
             }
-            return (*cached_valid == 1 && entry->longval == *cached_val);
+            return (*cached_valid == 1 && entry->longval == *cached_longval);
         } else {
             /* No caching - direct conversion */
             long long sval;
