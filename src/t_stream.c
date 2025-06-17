@@ -2900,6 +2900,41 @@ void xsetidCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
 }
 
+/* Check if a stream item is still referenced by any consumer group.
+ * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
+int streamMessageHasPendingReferences(stream *s, streamID *id) {
+    unsigned char buf[sizeof(streamID)];
+    streamEncodeID(buf,id);
+    return raxFind(s->message_cgroups_index, buf, sizeof(streamID), NULL);
+}
+
+/* Remove all consumer group references to a specific stream message. */
+void streamRemoveAllGroupReferences(stream *s, streamID *id) {
+    list *l;
+    listIter li;
+    listNode *ln;
+    unsigned char buf[sizeof(streamID)];
+    streamEncodeID(buf,id);
+
+    /* If message is not in any consumer group, proceed to deletion */
+    if (!raxFind(s->message_cgroups_index, buf, sizeof(streamID), (void **)&l))
+        return;
+
+    listRewind(l, &li);
+    while((ln = listNext(&li))) {
+        streamNACK *nack;
+        streamCG *group = listNodeValue(ln);
+        
+        /* Find the message in this consumer group's PEL */
+        serverAssert(raxFind(group->pel, buf, sizeof(buf), (void **)&nack));
+        
+        /* Remove from group and consumer PELs */
+        raxRemove(group->pel, buf, sizeof(buf), NULL);
+        raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
+        streamFreeNACKAndRemoveFromIndex(s, nack, buf);
+    }
+}
+
 int streamDeleteMessagesWithOptions(stream *s, streamID *ids, int id_count, int delpel, int acked) {
     int deleted = 0;
     int first_entry = 0;
@@ -2968,14 +3003,20 @@ delete_item:
     return deleted;
 }
 
-void xackGenericCommand(client *c, int start_idx, int id_count, int delpel, int acked) {
-    stream *s = NULL;
+/* XACK <key> <group> <id> <id> ... <id>
+ * Acknowledge a message as processed. In practical terms we just check the
+ * pending entries list (PEL) of the group, and delete the PEL entry both from
+ * the group and the consumer (pending messages are referenced in both places).
+ *
+ * Return value of the command is the number of messages successfully
+ * acknowledged, that is, the IDs we were actually able to resolve in the PEL.
+ */
+void xackCommand(client *c) {
     streamCG *group = NULL;
     kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
     if (kv) {
         if (checkType(c, kv, OBJ_STREAM)) return; /* Type error. */
         group = streamLookupCG(kv->ptr, c->argv[2]->ptr);
-        s = kv->ptr;
     }
 
     /* No key or group? Nothing to ack. */
@@ -2990,16 +3031,17 @@ void xackGenericCommand(client *c, int start_idx, int id_count, int delpel, int 
      * executed in a "all or nothing" fashion. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
+    int id_count = c->argc-3;
     if (id_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*id_count);
-    for (int j = 0; j < id_count; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[j+start_idx],&ids[j],0,NULL) != C_OK) goto cleanup;
+    for (int j = 3; j < c->argc; j++) {
+        if (streamParseStrictIDOrReply(c,c->argv[j],&ids[j-3],0,NULL) != C_OK) goto cleanup;
     }
 
     int acknowledged = 0;
-    for (int j = 0; j < id_count; j++) {
+    for (int j = 3; j < c->argc; j++) {
         unsigned char buf[sizeof(streamID)];
-        streamEncodeID(buf,&ids[j]);
+        streamEncodeID(buf,&ids[j-3]);
 
         /* Lookup the ID in the group PEL: it will have a reference to the
          * NACK structure that will have a reference to the consumer, so that
@@ -3009,38 +3051,14 @@ void xackGenericCommand(client *c, int start_idx, int id_count, int delpel, int 
             streamNACK *nack = result;
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            streamFreeNACKAndRemoveFromIndex(s, nack, buf);
+            streamFreeNACKAndRemoveFromIndex(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
         }
     }
-
-    /* Revmoe this entry */
-    if (c->cmd->proc == xackdelCommand) {
-        int deleted = streamDeleteMessagesWithOptions(s, ids, id_count, delpel, acked);
-
-        /* Propagate the write if needed. */
-        if (deleted) {
-            signalModifiedKey(c,c->db,c->argv[1]);
-            notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
-            server.dirty += deleted;
-        } 
-    }
     addReplyLongLong(c,acknowledged);
 cleanup:
     if (ids != static_ids) zfree(ids);
-}
-
-/* XACK <key> <group> <id> <id> ... <id>
- * Acknowledge a message as processed. In practical terms we just check the
- * pending entries list (PEL) of the group, and delete the PEL entry both from
- * the group and the consumer (pending messages are referenced in both places).
- *
- * Return value of the command is the number of messages successfully
- * acknowledged, that is, the IDs we were actually able to resolve in the PEL.
- */
-void xackCommand(client *c) {
-    xackGenericCommand(c, 3, c->argc - 3, 0, 0);
 }
 
 /* XACKDEL <key> <group> [DELPEL|ACKED] [IDS <numids> <id ...>]
@@ -3056,6 +3074,21 @@ void xackdelCommand(client *c) {
     int acked = 0;      /* Only delete messages that are acknowledged */
     long numids = 0;    /* Number of IDs to process */
     int startidx = -1;  /* Starting index of IDs in argv */
+
+    stream *s = NULL;
+    streamCG *group = NULL;
+    kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
+    if (kv) {
+        if (checkType(c, kv, OBJ_STREAM)) return; /* Type error. */
+        group = streamLookupCG(kv->ptr, c->argv[2]->ptr);
+        s = kv->ptr;
+    }
+
+    /* No key or group? Nothing to ack. */
+    if (kv == NULL || group == NULL) {
+        addReply(c,shared.czero);
+        return;
+    }
 
     /* Parse command options */
     int j = 3;
@@ -3099,7 +3132,75 @@ void xackdelCommand(client *c) {
         return;
     }
 
-    xackGenericCommand(c, startidx, numids, delpel, acked);
+    /* Start parsing the IDs, so that we abort ASAP if there is a syntax
+     * error: the return value of this command cannot be an error in case
+     * the client successfully acknowledged some messages, so it should be
+     * executed in a "all or nothing" fashion. */
+    streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
+    streamID *ids = static_ids;
+    for (int j = 0; j < numids; j++) {
+        if (streamParseStrictIDOrReply(c,c->argv[j+startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
+    }
+
+    int first_entry = 0;
+    int deleted = 0;
+    addReplyArrayLen(c, numids);
+    for (int j = 0; j < numids; j++) {
+        int code = -2;
+        streamID *id = &ids[j];
+        unsigned char buf[sizeof(streamID)];
+        streamEncodeID(buf,id);
+
+        /* Lookup the ID in the group PEL: it will have a reference to the
+         * NACK structure that will have a reference to the consumer, so that
+         * we are able to remove the entry from both PELs. */
+        void *result;
+        if (raxFind(group->pel,buf,sizeof(buf),&result)) {
+            streamNACK *nack = result;
+            raxRemove(group->pel,buf,sizeof(buf),NULL);
+            raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            streamFreeNACKAndRemoveFromIndex(s, nack, buf);
+            server.dirty++;
+
+            if (acked && streamMessageHasPendingReferences(s, id)) {
+                /* Skip deletion if still referenced by other groups */
+                code = 2;
+                goto reply;
+            } else if (delpel) {
+                streamRemoveAllGroupReferences(s, id);
+            }
+
+            if (streamDeleteItem(s,id)) {
+                /* We want to know if the first entry in the stream was deleted
+                * so we can later set the new one. */
+                if (streamCompareID(id,&s->first_id) == 0) {
+                    first_entry = 1;
+                }
+                /* Update the stream's maximal tombstone if needed. */
+                if (streamCompareID(id,&s->max_deleted_entry_id) > 0) {
+                    s->max_deleted_entry_id = *id;
+                }
+                deleted++;
+                code = delpel ? 1 : 0;
+            } else {
+                code = -2; /* Item not found in stream */
+            }
+        }
+reply:
+        addReplyLongLong(c, code);
+    }
+
+    /* Update the stream's first ID. */
+    if (deleted) {
+        if (s->length == 0) {
+            s->first_id.ms = 0;
+            s->first_id.seq = 0;
+        } else if (first_entry) {
+            streamGetEdgeID(s,1,1,&s->first_id);
+        }
+    }
+cleanup:
+    if (ids != static_ids) zfree(ids);
 }
 
 /* XPENDING <key> <group> [[IDLE <idle>] <start> <stop> <count> [<consumer>]]
