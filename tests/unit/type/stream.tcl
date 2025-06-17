@@ -1095,12 +1095,12 @@ start_server {tags {"stream"}} {
         r XGROUP CREATE s g 0
 
         # Test invalid numids
-        assert_error {*Number of IDs must be greater than 0*} {r XDELEX s IDS abc 1-1}
-        assert_error {*Number of IDs must be greater than 0*} {r XDELEX s IDS 0 1-1}
-        assert_error {*Number of IDs must be greater than 0*} {r XDELEX s IDS -5 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS abc 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS 0 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS -5 1-1}
 
-        # Test whether numids is equal to the number of IDs provided
-        assert_error {*Number of IDs can't exceed the remaining arguments*} {r XDELEX s IDS 3 1-1 2-2}
+        # Test whether numids is euqal to the number of IDs provided
+        assert_error {*The `numids` parameter must match the number of arguments*} {r XDELEX s IDS 3 1-1 2-2}
         assert_error {*syntax error*} {r XDELEX s IDS 1 1-1 2-2}
     }
 
@@ -1190,12 +1190,12 @@ start_server {tags {"stream"}} {
         r XGROUP CREATE s g 0
 
         # Test invalid numids
-        assert_error {*Number of IDs must be greater than 0*} {r XACKDEL s g IDS abc 1-1}
-        assert_error {*Number of IDs must be greater than 0*} {r XACKDEL s g IDS 0 1-1}
-        assert_error {*Number of IDs must be greater than 0*} {r XACKDEL s g IDS -5 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XACKDEL s g IDS abc 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XACKDEL s g IDS 0 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XACKDEL s g IDS -5 1-1}
 
         # Test whether numids is euqal to the number of IDs provided
-        assert_error {*Number of IDs can't exceed the remaining arguments*} {r XACKDEL s g IDS 3 1-1 2-2}
+        assert_error {*The `numids` parameter must match the number of arguments*} {r XACKDEL s g IDS 3 1-1 2-2}
         assert_error {*syntax error*} {r XACKDEL s g IDS 1 1-1 2-2}
     }
 

@@ -3035,13 +3035,13 @@ void xackdelCommand(client *c) {
         } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
             /* Parse the number of IDs */
             if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, LONG_MAX,
-                &numids, "Number of IDs must be greater than 0") != C_OK) {
+                &numids, "Number of IDs must be a positive integer") != C_OK) {
                 return;
             }
 
             /* Verify that the specified number of IDs matches the actual arguments */
             if (numids > (c->argc - j - 2)) {
-                addReplyError(c, "Number of IDs can't exceed the remaining arguments");
+                addReplyError(c, "The `numids` parameter must match the number of arguments");
                 return;
             }
             
@@ -3877,13 +3877,13 @@ void xdelexCommand(client *c) {
         } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
             /* Parse the number of IDs */
             if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, LONG_MAX,
-                &numids, "Number of IDs must be greater than 0") != C_OK) {
+                &numids, "Number of IDs must be a positive integer") != C_OK) {
                 return;
             }
 
             /* Verify that the specified number of IDs matches the actual arguments */
             if (numids > (c->argc - j - 2)) {
-                addReplyError(c, "Number of IDs can't exceed the remaining arguments");
+                addReplyError(c, "The `numids` parameter must match the number of arguments");
                 return;
             }
             
