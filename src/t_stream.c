@@ -2472,29 +2472,29 @@ cleanup: /* Cleanup. */
 /* Add a consumer group to the list of groups that are processing a given stream entry.
  * Returns a pointer to the list node, so that it can be used for future deletion.
  * The message_cgroups_index maps stream IDs to lists of consumer groups. */
-listNode *streamAddCGroupToMessageIndex(stream *s, streamCG *group, unsigned char *key) {
-    list *l;
+listNode *streamAddCGroupRef(stream *s, streamCG *cg, unsigned char *key) {
+    list *cglist;
     
     /* Try to find the list for this stream ID, create it if it doesn't exist */
-    if (!raxFind(s->message_cgroups_index, key, sizeof(streamID), (void**)&l)) {
-        l = listCreate();
-        raxInsert(s->message_cgroups_index, key, sizeof(streamID), l, NULL);
+    if (!raxFind(s->message_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
+        cglist = listCreate();
+        raxInsert(s->message_cgroups_index, key, sizeof(streamID), cglist, NULL);
     }
     
     /* Add the consumer group to the list and return the list node */
-    listAddNodeTail(l, group);
-    return listLast(l);
+    listAddNodeTail(cglist, cg);
+    return listLast(cglist);
 }
 
 /* Create a NACK entry setting the delivery count to 1 and the delivery
  * time to the current time. The NACK consumer will be set to the one
  * specified as argument of the function. */
-streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamCG *group, unsigned char *key) {
+streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamCG *cg, unsigned char *key) {
     streamNACK *nack = zmalloc(sizeof(*nack));
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
-    nack->cgroups_index_node = streamAddCGroupToMessageIndex(s, group, key);
+    nack->cgroups_index_node = streamAddCGroupRef(s, cg, key);
     return nack;
 }
 
