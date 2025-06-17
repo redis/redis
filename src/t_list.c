@@ -394,10 +394,10 @@ int listTypeReplaceAtIndex(robj *o, int index, robj *value) {
  * Returns 1 if equal, 0 otherwise.
  */
 int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len,
-                  long long *cached_val, int *cached_valid) {
+                  long long *cached_longval, int *cached_valid) {
     serverAssertWithInfo(NULL,o,sdsEncodedObject(o));
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        return quicklistCompare(&entry->entry,o->ptr,object_len,cached_val,cached_valid);
+        return quicklistCompare(&entry->entry,o->ptr,object_len,cached_longval,cached_valid);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         return lpCompare(entry->lpe,o->ptr,object_len);
     } else {
