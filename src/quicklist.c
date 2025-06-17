@@ -39,8 +39,6 @@
 #include "lzf.h"
 #include "redisassert.h"
 
-
-
 #ifndef REDIS_STATIC
 #define REDIS_STATIC static
 #endif
