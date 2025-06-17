@@ -2478,7 +2478,7 @@ listNode *streamEntryRefCG(stream *s, streamCG *cg, unsigned char *key) {
     /* Try to find the list for this stream ID, create it if it doesn't exist */
     if (!raxFind(s->entry_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
         cglist = listCreate();
-        raxInsert(s->entry_cgroups_index, key, sizeof(streamID), cglist, NULL);
+        serverAssert(raxInsert(s->entry_cgroups_index, key, sizeof(streamID), cglist, NULL));
     }
     
     /* Add the consumer group to the list and return the list node */
@@ -2504,18 +2504,18 @@ void streamEntryUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
 
 /* Remove all consumer group references to a specific stream message. */
 void streamEntryUnrefAllCG(stream *s, streamID *id) {
-    list *l;
+    list *cglist;
     listIter li;
     listNode *ln;
     unsigned char buf[sizeof(streamID)];
-    streamEncodeID(buf,id);
+    streamEncodeID(buf, id);
 
-    /* If message is not in any consumer group, proceed to deletion */
-    if (!raxFind(s->entry_cgroups_index, buf, sizeof(streamID), (void **)&l))
+    /* If message is not in any consumer group, nothing to do */
+    if (!raxFind(s->entry_cgroups_index, buf, sizeof(streamID), (void **)&cglist))
         return;
 
-    listRewind(l, &li);
-    while((ln = listNext(&li))) {
+    listRewind(cglist, &li);
+    while ((ln = listNext(&li))) {
         streamNACK *nack;
         streamCG *group = listNodeValue(ln);
         
@@ -2525,7 +2525,9 @@ void streamEntryUnrefAllCG(stream *s, streamID *id) {
         /* Remove from group and consumer PELs */
         raxRemove(group->pel, buf, sizeof(buf), NULL);
         raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
-        streamFreeNACKAndUnrefCG(s, nack, buf);
+        /* Since we're removing all references from the entry_cgroups_index, we can directly
+         * free the NACK without unlinking it from the entry_cgroups_index. */
+        streamFreeNACK(nack); 
     }
 }
 
@@ -2533,7 +2535,7 @@ void streamEntryUnrefAllCG(stream *s, streamID *id) {
  * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
 int streamEntryIsReferenced(stream *s, streamID *id) {
     unsigned char buf[sizeof(streamID)];
-    streamEncodeID(buf,id);
+    streamEncodeID(buf, id);
     return raxFind(s->entry_cgroups_index, buf, sizeof(streamID), NULL);
 }
 
