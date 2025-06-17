@@ -2935,73 +2935,6 @@ void streamRemoveAllGroupReferences(stream *s, streamID *id) {
     }
 }
 
-int streamDeleteMessagesWithOptions(stream *s, streamID *ids, int id_count, int delpel, int acked) {
-    int deleted = 0;
-    int first_entry = 0;
-
-    for (int j = 0; j < id_count; j++) {
-        list *l;
-        unsigned char buf[sizeof(streamID)];
-        streamID *id = &ids[j];
-
-        if (!(delpel || acked))
-            goto delete_item;
-
-        streamEncodeID(buf,id);
-        /* If message is not in any consumer group, proceed to deletion */
-        if (!raxFind(s->message_cgroups_index, buf, sizeof(streamID), (void **)&l))
-            goto delete_item;
-
-        /* For ACKED option, skip deletion if there are pending consumers */ 
-        if (acked) continue;
-
-        /* For DELPEL option: remove the entry from all consumer groups */
-        if (delpel) {
-            listIter li;
-            listNode *ln;
-
-            listRewind(l, &li);
-            while((ln = listNext(&li))) {
-                streamNACK *nack;
-                streamCG *group = listNodeValue(ln);
-                
-                /* Find the message in this consumer group's PEL */
-                serverAssert(raxFind(group->pel, buf, sizeof(buf), (void **)&nack));
-                
-                /* Remove from group and consumer PELs */
-                raxRemove(group->pel, buf, sizeof(buf), NULL);
-                raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
-                streamFreeNACKAndRemoveFromIndex(s, nack, buf);
-            }
-        }
-
-delete_item:
-        if (streamDeleteItem(s,id)) {
-            /* We want to know if the first entry in the stream was deleted
-             * so we can later set the new one. */
-            if (streamCompareID(id,&s->first_id) == 0) {
-                first_entry = 1;
-            }
-            /* Update the stream's maximal tombstone if needed. */
-            if (streamCompareID(id,&s->max_deleted_entry_id) > 0) {
-                s->max_deleted_entry_id = *id;
-            }
-            deleted++;
-        }
-    }
-
-    /* Update the stream's first ID. */
-    if (deleted) {
-        if (s->length == 0) {
-            s->first_id.ms = 0;
-            s->first_id.seq = 0;
-        } else if (first_entry) {
-            streamGetEdgeID(s,1,1,&s->first_id);
-        }
-    }
-
-    return deleted;
-}
 
 /* XACK <key> <group> <id> <id> ... <id>
  * Acknowledge a message as processed. In practical terms we just check the
@@ -3855,7 +3788,12 @@ void xautoclaimCommand(client *c) {
     preventCommandPropagation(c);
 }
 
-void xdelGenericCommand(client *c, int start_idx, int id_count, int delpel, int acked) {
+/* XDEL <key> [<ID1> <ID2> ... <IDN>]
+ *
+ * Removes the specified entries from the stream. Returns the number
+ * of items actually deleted, that may be different from the number
+ * of IDs passed in case certain IDs do not exist. */
+void xdelCommand(client *c) {
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
@@ -3865,13 +3803,41 @@ void xdelGenericCommand(client *c, int start_idx, int id_count, int delpel, int 
      * executed because at some point an invalid ID is parsed. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
+    int id_count = c->argc-2;
     if (id_count > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*id_count);
-    for (int j = 0; j < id_count; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[j+start_idx],&ids[j],0,NULL) != C_OK) goto cleanup;
+    for (int j = 2; j < c->argc; j++) {
+        if (streamParseStrictIDOrReply(c,c->argv[j],&ids[j-2],0,NULL) != C_OK) goto cleanup;
     }
 
-    int deleted = streamDeleteMessagesWithOptions(s, ids, id_count, delpel, acked);
+    /* Actually apply the command. */
+    int deleted = 0;
+    int first_entry = 0;
+    for (int j = 2; j < c->argc; j++) {
+        streamID *id = &ids[j-2];
+        if (streamDeleteItem(s,id)) {
+            /* We want to know if the first entry in the stream was deleted
+             * so we can later set the new one. */
+            if (streamCompareID(id,&s->first_id) == 0) {
+                first_entry = 1;
+            }
+            /* Update the stream's maximal tombstone if needed. */
+            if (streamCompareID(id,&s->max_deleted_entry_id) > 0) {
+                s->max_deleted_entry_id = *id;
+            }
+            deleted++;
+        };
+    }
+
+    /* Update the stream's first ID. */
+    if (deleted) {
+        if (s->length == 0) {
+            s->first_id.ms = 0;
+            s->first_id.seq = 0;
+        } else if (first_entry) {
+            streamGetEdgeID(s,1,1,&s->first_id);
+        }
+    }
 
     /* Propagate the write if needed. */
     if (deleted) {
@@ -3880,18 +3846,8 @@ void xdelGenericCommand(client *c, int start_idx, int id_count, int delpel, int 
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
-
 cleanup:
     if (ids != static_ids) zfree(ids);
-}
-
-/* XDEL <key> [<ID1> <ID2> ... <IDN>]
- *
- * Removes the specified entries from the stream. Returns the number
- * of items actually deleted, that may be different from the number
- * of IDs passed in case certain IDs do not exist. */
-void xdelCommand(client *c) {
-    xdelGenericCommand(c, 2, c->argc - 2, 0, 0);
 }
 
 /* XDELEX <key> [DELPEL|ACKED] [IDS <numids> <id ...>]
@@ -3904,6 +3860,10 @@ void xdelexCommand(client *c) {
     int acked = 0;      /* Only delete messages that are acknowledged */
     long numids = 0;    /* Number of IDs to process */
     int startidx = -1;  /* Starting index of IDs in argv */
+
+    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
+    if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
+    stream *s = kv->ptr;
 
     /* Parse command options */
     int j = 2;
@@ -3947,7 +3907,72 @@ void xdelexCommand(client *c) {
         return;
     }
 
-    xdelGenericCommand(c, startidx, numids, delpel, acked);
+    /* We need to sanity check the IDs passed to start. Even if not
+     * a big issue, it is not great that the command is only partially
+     * executed because at some point an invalid ID is parsed. */
+    streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
+    streamID *ids = static_ids;
+    if (numids > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*numids);
+    for (int j = 0; j < numids; j++) {
+        if (streamParseStrictIDOrReply(c,c->argv[j+startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
+    }
+
+    int first_entry = 0;
+    int deleted = 0;
+    addReplyArrayLen(c, numids);
+    for (int j = 0; j < numids; j++) {
+        int code = -2;
+        streamID *id = &ids[j];
+        unsigned char buf[sizeof(streamID)];
+        streamEncodeID(buf,id);
+
+        if (acked && streamMessageHasPendingReferences(s, id)) {
+            /* Skip deletion if still referenced by other groups */
+            code = 2;
+            goto reply;
+        } else if (delpel) {
+            streamRemoveAllGroupReferences(s, id);
+        }
+
+        if (streamDeleteItem(s,id)) {
+            /* We want to know if the first entry in the stream was deleted
+            * so we can later set the new one. */
+            if (streamCompareID(id,&s->first_id) == 0) {
+                first_entry = 1;
+            }
+            /* Update the stream's maximal tombstone if needed. */
+            if (streamCompareID(id,&s->max_deleted_entry_id) > 0) {
+                s->max_deleted_entry_id = *id;
+            }
+            deleted++;
+            code = delpel ? 1 : 0;
+        } else {
+            code = -2; /* Item not found in stream */
+        }
+reply:
+        addReplyLongLong(c, code);
+    }
+
+    /* Update the stream's first ID. */
+    if (deleted) {
+        if (s->length == 0) {
+            s->first_id.ms = 0;
+            s->first_id.seq = 0;
+        } else if (first_entry) {
+            streamGetEdgeID(s,1,1,&s->first_id);
+        }
+    }
+
+    /* Propagate the write if needed. */
+    if (deleted) {
+        signalModifiedKey(c,c->db,c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
+        server.dirty += deleted;
+    }
+
+cleanup:
+    if (ids != static_ids) zfree(ids);
 }
 
 /* General form: XTRIM <key> [... options ...]

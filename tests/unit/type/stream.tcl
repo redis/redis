@@ -1090,6 +1090,10 @@ start_server {tags {"stream"}} {
     }
 
     test "XDELEX IDS parameter validation" {
+        r DEL s
+        r XADD s 1-0 f v
+        r XGROUP CREATE s g 0
+
         # Test invalid numids
         assert_error {*Number of IDs must be greater than 0*} {r XDELEX s IDS abc 1-1}
         assert_error {*Number of IDs must be greater than 0*} {r XDELEX s IDS 0 1-1}
@@ -1121,7 +1125,7 @@ start_server {tags {"stream"}} {
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
         # Verify the message was removed from both groups' PELs when with DELPEL
-        assert_equal 2 [r XDELEX mystream DELPEL IDS 2 1-0 2-0]
+        assert_equal {1 1} [r XDELEX mystream DELPEL IDS 2 1-0 2-0]
         assert_equal 0 [r XLEN mystream] 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
         assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
@@ -1141,11 +1145,11 @@ start_server {tags {"stream"}} {
         # The messageis referenced by two groups.
         # Even after one of them is ack, it still can't be deleted.
         r XACK mystream group1 1-0 2-0
-        assert_equal 0 [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 2 [r XLEN mystream]
         #
         r XACK mystream group2 1-0 2-0
-        assert_equal 2 [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal {0 0} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 0 [r XLEN mystream]
 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
@@ -1166,7 +1170,7 @@ start_server {tags {"stream"}} {
         # Test XDELEX without DELPEL or ACKED (default behavior)
         # Without DELPEL or ACKED options, XDELEX only deletes the message from the stream
         # but does not clean up references in consumer groups' PELs
-        assert_equal 2 [r XDELEX mystream IDS 2 1-0 2-0]
+        assert_equal {0 0} [r XDELEX mystream IDS 2 1-0 2-0]
         assert_equal 0 [r XLEN mystream]
         assert_equal {2 1-0 2-0 {{consumer1 2}}} [r XPENDING mystream group1]
         assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
