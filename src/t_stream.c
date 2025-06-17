@@ -57,7 +57,7 @@ stream *streamNew(void) {
     s->max_deleted_entry_id.ms = 0;
     s->entries_added = 0;
     s->cgroups = NULL; /* Created on demand to save memory when not used. */
-    s->message_cgroups_index = raxNew();
+    s->entry_cgroups_index = raxNew();
     return s;
 }
 
@@ -66,7 +66,7 @@ void freeStream(stream *s) {
     raxFreeWithCallback(s->rax, lpFreeGeneric);
     if (s->cgroups)
         raxFreeWithCallback(s->cgroups, streamFreeCGGeneric);
-    raxFreeWithCallback(s->message_cgroups_index, listReleaseGeneric);
+    raxFreeWithCallback(s->entry_cgroups_index, listReleaseGeneric);
     zfree(s);
 }
 
@@ -2471,14 +2471,14 @@ cleanup: /* Cleanup. */
 
 /* Add a consumer group to the list of groups that are processing a given stream entry.
  * Returns a pointer to the list node, so that it can be used for future deletion.
- * The message_cgroups_index maps stream IDs to lists of consumer groups. */
-listNode *streamAddCGroupRef(stream *s, streamCG *cg, unsigned char *key) {
+ * The entry_cgroups_index maps stream IDs to lists of consumer groups. */
+listNode *streamRefCG(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
     
     /* Try to find the list for this stream ID, create it if it doesn't exist */
-    if (!raxFind(s->message_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
+    if (!raxFind(s->entry_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
         cglist = listCreate();
-        raxInsert(s->message_cgroups_index, key, sizeof(streamID), cglist, NULL);
+        raxInsert(s->entry_cgroups_index, key, sizeof(streamID), cglist, NULL);
     }
     
     /* Add the consumer group to the list and return the list node */
@@ -2486,18 +2486,18 @@ listNode *streamAddCGroupRef(stream *s, streamCG *cg, unsigned char *key) {
     return listLast(cglist);
 }
 
-/* Remove a consumer group reference from the message index for a specific stream ID.
+/* Remove a consumer group reference from the entry index for a specific stream ID.
  * This is called when a message is acknowledged or when a consumer group is deleted.
  * If this was the last reference, the list is removed from the index. */
-void streamRemoveCGroupRef(stream *s, streamNACK *na, unsigned char *key) {
-    list *l;
-    if (raxFind(s->message_cgroups_index, key, sizeof(streamID), (void**)&l)) {
-        listDelNode(l, na->cgroups_index_node);
+void streamUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
+    list *cglist;
+    if (raxFind(s->entry_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
+        listDelNode(cglist, na->cg_node);
         
         /* If the list is now empty, remove it from the index. */
-        if (listLength(l) == 0) {
-            raxRemove(s->message_cgroups_index, key, sizeof(streamID), NULL);
-            listRelease(l);
+        if (listLength(cglist) == 0) {
+            raxRemove(s->entry_cgroups_index, key, sizeof(streamID), NULL);
+            listRelease(cglist);
         }
     }
 }
@@ -2510,7 +2510,7 @@ streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamCG *cg, 
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
-    nack->cgroups_index_node = streamAddCGroupRef(s, cg, key);
+    nack->cg_node = streamRefCG(s, cg, key);
     return nack;
 }
 
@@ -2519,10 +2519,10 @@ void streamFreeNACK(streamNACK *na) {
     zfree(na);
 }
 
-/* Free a NACK entry and remove its reference from the message_cgroups_index.
+/* Free a NACK entry and remove its reference from the entry_cgroups_index.
  * This ensures proper cleanup of the consumer group list associated with the message ID. */
-void streamFreeNACKAndRemoveFromIndex(stream *s, streamNACK *na, unsigned char *key) {
-    streamRemoveCGroupRef(s, na, key);
+void streamFreeNACKAndUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
+    streamUnrefCG(s, na, key);
     zfree(na);
 }
 
@@ -2573,15 +2573,15 @@ void streamFreeCG(streamCG *cg) {
     zfree(cg);
 }
 
-void streamFreeCGAndRemoveRef(stream *s, streamCG *cg) {
+void streamUnrefAndFreeCG(stream *s, streamCG *cg) {
     /* Before removing the consumer group, we need to clean up all references
-     * to this group in the message_cgroups_index */
+     * to this group in the entry_cgroups_index */
     raxIterator it;
     raxStart(&it, cg->pel);
     raxSeek(&it, "^", NULL, 0);
     while(raxNext(&it)) {
         streamNACK *nack = it.data;
-        streamRemoveCGroupRef(s, nack, it.key);
+        streamUnrefCG(s, nack, it.key);
     }
     raxStop(&it);
     streamFreeCG(cg);
@@ -2642,7 +2642,7 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         streamNACK *nack = ri.data;
-        streamFreeNACKAndRemoveFromIndex(s, nack, ri.key);
+        streamFreeNACKAndUnrefCG(s, nack, ri.key);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
     }
     raxStop(&ri);
@@ -2793,7 +2793,7 @@ NULL
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
-            streamFreeCGAndRemoveRef(s, cg);
+            streamUnrefAndFreeCG(s, cg);
             addReply(c,shared.cone);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
@@ -2905,7 +2905,7 @@ void xsetidCommand(client *c) {
 int streamMessageHasPendingReferences(stream *s, streamID *id) {
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf,id);
-    return raxFind(s->message_cgroups_index, buf, sizeof(streamID), NULL);
+    return raxFind(s->entry_cgroups_index, buf, sizeof(streamID), NULL);
 }
 
 /* Remove all consumer group references to a specific stream message. */
@@ -2917,7 +2917,7 @@ void streamRemoveAllGroupReferences(stream *s, streamID *id) {
     streamEncodeID(buf,id);
 
     /* If message is not in any consumer group, proceed to deletion */
-    if (!raxFind(s->message_cgroups_index, buf, sizeof(streamID), (void **)&l))
+    if (!raxFind(s->entry_cgroups_index, buf, sizeof(streamID), (void **)&l))
         return;
 
     listRewind(l, &li);
@@ -2931,7 +2931,7 @@ void streamRemoveAllGroupReferences(stream *s, streamID *id) {
         /* Remove from group and consumer PELs */
         raxRemove(group->pel, buf, sizeof(buf), NULL);
         raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
-        streamFreeNACKAndRemoveFromIndex(s, nack, buf);
+        streamFreeNACKAndUnrefCG(s, nack, buf);
     }
 }
 
@@ -2984,7 +2984,7 @@ void xackCommand(client *c) {
             streamNACK *nack = result;
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            streamFreeNACKAndRemoveFromIndex(kv->ptr, nack, buf);
+            streamFreeNACKAndUnrefCG(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
         }
@@ -3092,7 +3092,7 @@ void xackdelCommand(client *c) {
             streamNACK *nack = result;
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            streamFreeNACKAndRemoveFromIndex(s, nack, buf);
+            streamFreeNACKAndUnrefCG(s, nack, buf);
             server.dirty++;
 
             if (acked && streamMessageHasPendingReferences(s, id)) {
@@ -3524,7 +3524,7 @@ void xclaimCommand(client *c) {
                 /* Release the NACK */
                 raxRemove(group->pel,buf,sizeof(buf),NULL);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                streamFreeNACKAndRemoveFromIndex(o->ptr, nack, buf);
+                streamFreeNACKAndUnrefCG(o->ptr, nack, buf);
             }
             continue;
         }
@@ -3713,7 +3713,7 @@ void xautoclaimCommand(client *c) {
             /* Clear this entry from the PEL, it no longer exists */
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
-            streamFreeNACKAndRemoveFromIndex(o->ptr, nack, ri.key);
+            streamFreeNACKAndUnrefCG(o->ptr, nack, ri.key);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
             raxSeek(&ri,">=",ri.key,ri.key_len);
