@@ -3715,78 +3715,75 @@ error:
     rdbChannelAbort();
 }
 
+void replDataBufInit(replDataBuf *buf) {
+    serverAssert(buf->blocks == NULL);
+    buf->size = 0;
+    buf->used = 0;
+    buf->last_num_blocks = 0;
+    buf->mem_used = 0;
+    buf->blocks = listCreate();
+    buf->blocks->free = zfree;
+}
+
+void replDataBufClear(replDataBuf *buf) {
+    if (buf->blocks) listRelease(buf->blocks);
+    buf->blocks = NULL;
+    buf->size = 0;
+    buf->used = 0;
+    buf->last_num_blocks = 0;
+    buf->mem_used = 0;
+}
+
 /* Replication: Replica side.
  * Initialize replica's local replication buffer to accumulate repl stream
  * during rdb channel sync. */
 static void rdbChannelReplDataBufInit(void) {
-    serverAssert(server.repl_full_sync_buffer.blocks == NULL);
-    server.repl_full_sync_buffer.size = 0;
-    server.repl_full_sync_buffer.used = 0;
-    server.repl_full_sync_buffer.last_num_blocks = 0;
-    server.repl_full_sync_buffer.mem_used = 0;
-    server.repl_full_sync_buffer.blocks = listCreate();
-    server.repl_full_sync_buffer.blocks->free = zfree;
+    replDataBufInit(&server.repl_full_sync_buffer);
 }
 
 /* Replication: Replica side.
- * Free replica's local replication buffer */
-static void rdbChannelReplDataBufFree(void) {
-    listRelease(server.repl_full_sync_buffer.blocks);
-    server.repl_full_sync_buffer.blocks = NULL;
-    server.repl_full_sync_buffer.size = 0;
-    server.repl_full_sync_buffer.used = 0;
-    server.repl_full_sync_buffer.last_num_blocks = 0;
-    server.repl_full_sync_buffer.mem_used = 0;
+ * Clear replica's local replication buffer */
+static void rdbChannelReplDataBufClear(void) {
+    replDataBufClear(&server.repl_full_sync_buffer);
 }
 
-/* Replication: Replica side.
- * Reads replication data from master connection into the repl buffer block */
-int rdbChannelReadIntoBuf(connection *conn, replDataBufBlock *b) {
+/* Generic function to read data from connection into the last block. */
+static int replDataBufReadIntoLastBlock(connection *conn, replDataBuf *buf,
+                                    void (*error_handler)(connection *conn))
+{
     atomicIncr(server.stat_io_reads_processed[IOTHREAD_MAIN_THREAD_ID], 1);
 
-    int nread = connRead(conn, b->buf + b->used, b->size - b->used);
+    replDataBufBlock *block = listNodeValue(listLast(buf->blocks));
+    serverAssert(block && block->size > block->used);
+
+    int nread = connRead(conn, block->buf + block->used, block->size - block->used);
     if (nread <= 0) {
         if (nread == 0 || connGetState(conn) != CONN_STATE_CONNECTED) {
-            serverLog(LL_WARNING, "Main channel error while reading from master: %s",
-                      connGetLastError(conn));
-            cancelReplicationHandshake(1);
+            error_handler(conn);
         }
         return -1;
     }
 
-    b->used += nread;
-    server.repl_full_sync_buffer.used += nread;
+    block->used += nread;
+    if (buf) buf->used += nread;
     atomicIncr(server.stat_net_repl_input_bytes, nread);
 
     return nread;
 }
 
-/* Replication: Replica side.
- * Read handler for buffering incoming repl data during RDB download/loading. */
-void rdbChannelBufferReplData(connection *conn) {
+/* Generic function to read data from connection into a buffer. */
+void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_handler)(connection *conn)) {
     const int buflen = 1024 * 1024;
     const int minread = 16 * 1024;
     int nread = 0;
     int needs_read = 1;
 
-    listNode *ln = listLast(server.repl_full_sync_buffer.blocks);
+    listNode *ln = listLast(buf->blocks);
     replDataBufBlock *tail = ln ? listNodeValue(ln) : NULL;
-
-    if (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF) {
-        /* While streaming accumulated buffers, we continue reading from the
-         * master to prevent accumulation on master side as much as possible.
-         * However, we aim to drain buffer eventually. To ensure we consume more
-         * than we read, we'll read at most one block after two blocks of
-         * buffers are consumed. */
-        replDataBuf *buf = &server.repl_full_sync_buffer;
-        if (listLength(buf->blocks) + 1 >= buf->last_num_blocks)
-            return;
-        buf->last_num_blocks = listLength(buf->blocks);
-    }
 
     /* Try to append last node. */
     if (tail && tail->size > tail->used) {
-        nread = rdbChannelReadIntoBuf(conn, tail);
+        nread = replDataBufReadIntoLastBlock(conn, buf, error_handler);
         if (nread <= 0)
             return;
 
@@ -3804,11 +3801,18 @@ void rdbChannelBufferReplData(connection *conn) {
          * the limit.*/
         limit = server.repl_full_sync_buffer_limit;
         if (limit == 0)
-             limit = server.client_obuf_limits[CLIENT_TYPE_SLAVE].hard_limit_bytes;
+            limit = server.client_obuf_limits[CLIENT_TYPE_SLAVE].hard_limit_bytes;
 
-        if (limit != 0 && server.repl_full_sync_buffer.size > limit) {
-            serverLog(LL_NOTICE, "Replication buffer limit has been reached (%llu bytes), "
-                                 "stopped buffering replication stream. Further accumulation may occur on master side. ", limit);
+        if (limit != 0 && buf->size > limit) {
+            /* Currently this function is only used for replication and slots sync.
+             * Log accordingly, maybe should be extendable in the future. */
+            if (server.masterhost)
+                serverLog(LL_NOTICE, "Replication buffer limit has been reached (%llu bytes), "
+                    "stopped buffering replication stream. Further accumulation may occur on master side.", limit);
+            else
+                serverLog(LL_NOTICE, "Slots sync buffer limit has been reached (%llu bytes), "
+                    "stopped buffering slots sync stream. Further accumulation may occur on source side.", limit);
+
             connSetReadHandler(conn, NULL);
             return;
         }
@@ -3817,30 +3821,145 @@ void rdbChannelBufferReplData(connection *conn) {
         tail->size = usable_size - sizeof(replDataBufBlock);
         tail->used = 0;
 
-        listAddNodeTail(server.repl_full_sync_buffer.blocks, tail);
-        server.repl_full_sync_buffer.size += tail->size;
-        server.repl_full_sync_buffer.mem_used += usable_size + sizeof(listNode);
+        listAddNodeTail(buf->blocks, tail);
+        buf->size += tail->size;
+        buf->mem_used += usable_size + sizeof(listNode);
 
         /* Update buffer's peak */
-        if (server.repl_full_sync_buffer.peak < server.repl_full_sync_buffer.size)
-            server.repl_full_sync_buffer.peak = server.repl_full_sync_buffer.size;
+        if (buf->peak < buf->size)
+            buf->peak = buf->size;
 
-        rdbChannelReadIntoBuf(conn, tail);
+        replDataBufReadIntoLastBlock(conn, buf, error_handler);
     }
+}
+
+/* Replication: Replica side.
+ * Main channel read error handler */
+static void readReplBufferErrorHandler(connection *conn) {
+    serverLog(LL_WARNING, "Main channel error while reading from master: %s",
+              connGetLastError(conn));
+    cancelReplicationHandshake(1);
+}
+
+/* Replication: Replica side.
+ * Read handler for buffering incoming repl data during RDB download/loading. */
+static void rdbChannelBufferReplData(connection *conn) {
+    replDataBuf *buf = &server.repl_full_sync_buffer;
+
+    if (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF) {
+        /* While streaming accumulated buffers, we continue reading from the
+         * master to prevent accumulation on master side as much as possible.
+         * However, we aim to drain buffer eventually. To ensure we consume more
+         * than we read, we'll read at most one block after two blocks of
+         * buffers are consumed. */
+        if (listLength(buf->blocks) + 1 >= buf->last_num_blocks)
+            return;
+        buf->last_num_blocks = listLength(buf->blocks);
+    }
+
+    replDataBufReadFromConn(conn, buf, readReplBufferErrorHandler);
+}
+
+/* Generic function to stream replDataBuf data into database
+ * Returns C_OK on success, C_ERR on error */
+int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
+    listNode *n;
+    int ret = C_OK;
+    size_t offset = 0;
+    client *c = ctx->client;
+
+    blockingOperationStarts();
+    while ((n = listFirst(buf->blocks))) {
+        replDataBufBlock *o = listNodeValue(n);
+        listUnlinkNode(buf->blocks, n);
+        zfree(n);
+
+        size_t processed = 0;
+        while (processed < o->used) {
+            size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
+            c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
+            c->read_reploff += (long long int) bytes;
+
+            /* We don't expect error return value but just in case. */
+            ret = processInputBuffer(c);
+            if (ret != C_OK) break;
+
+            processed += bytes;
+            buf->used -= bytes;
+
+            if (server.repl_debug_pause & REPL_DEBUG_ON_STREAMING_REPL_BUF)
+                debugPauseProcess();
+
+            /* Check if we should yield back to the event loop */
+            if (server.loading_process_events_interval_bytes &&
+                ((offset + bytes) / server.loading_process_events_interval_bytes >
+                  offset / server.loading_process_events_interval_bytes))
+            {
+                ctx->yield_callback(ctx);
+                processEventsWhileBlocked();
+            }
+            offset += bytes;
+
+            /* Check if we should continue processing */
+            if (!ctx->should_continue(ctx)) {
+                ret = C_ERR;
+                break;
+            }
+        }
+        size_t size = o->size;
+        zfree(o);
+
+        /* Break the loop if there is an error. */
+        if (ret != C_OK) break;
+
+        /* Update stats */
+        buf->size -= size;
+        buf->mem_used -= (size + sizeof(listNode) + sizeof(replDataBufBlock));
+    }
+    blockingOperationEnds();
+
+    ctx->total_offset = offset;
+    return ret;
+}
+
+/* Replication: Replica side.
+ * Yield callback for streaming replDataBuf to database */
+static void rdbChannelStreamYieldCallback(void *ctx) {
+    UNUSED(ctx);
+    replicationSendNewlineToMaster();
+}
+
+/* Replication: Replica side.
+ * Global variable to track number of master disconnection.
+ * Used to detect master disconnection when streaming replDataBuf to database */
+static uint64_t ReplNumMasterDisconnection = 0;
+
+/* Replication: Replica side.
+ * Check if we should continue streaming replDataBuf to database */
+static int rdbChannelStreamShouldContinue(void *ctx) {
+    replDataBufToDbCtx *context = ctx;
+
+    /* Check if master client was freed in processEventsWhileBlocked().
+     * It can happen if we receive 'replicaof' command or 'client kill'
+     * command for the master. */
+    if (ReplNumMasterDisconnection != server.repl_num_master_disconnection ||
+        !server.repl_full_sync_buffer.blocks ||
+        context->client->flags & CLIENT_CLOSE_ASAP)
+    {
+        return 0;
+    }
+    return 1;
 }
 
 /* Replication: Replica side.
  * Streams accumulated replication data into the database. */
 static void rdbChannelStreamReplDataToDb(void) {
-    int ret = C_OK, master_disconnected = 0, close_asap = 0;
-    size_t offset = 0;
-    listNode *n = NULL;
-    replDataBufBlock *o = NULL;
+    int ret = C_OK, close_asap = 0;
     client *c = server.master;
 
     /* Save repl_num_master_disconnection to figure out if master gets
      * disconnected when we yield back to processEventsWhileBlocked() */
-    uint64_t seq = server.repl_num_master_disconnection;
+    ReplNumMasterDisconnection = server.repl_num_master_disconnection;
 
     server.repl_main_ch_state |= REPL_MAIN_CH_STREAMING_BUF;
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Starting to stream replication buffer into the db"
@@ -3854,63 +3973,14 @@ static void rdbChannelStreamReplDataToDb(void) {
     /* Set read handler to continue accumulating during streaming */
     connSetReadHandler(c->conn, rdbChannelBufferReplData);
 
-    blockingOperationStarts();
-    while ((n = listFirst(server.repl_full_sync_buffer.blocks))) {
-        o = listNodeValue(n);
-        listUnlinkNode(server.repl_full_sync_buffer.blocks, n);
-        zfree(n);
+    replDataBufToDbCtx ctx = {
+        .client = c,
+        .total_offset = 0,
+        .should_continue = rdbChannelStreamShouldContinue,
+        .yield_callback = rdbChannelStreamYieldCallback,
+    };
 
-        size_t processed = 0;
-        while (processed < o->used) {
-            size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
-            c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
-            c->read_reploff += (long long int) bytes;
-
-            /* We don't expect error return value but just in case. */
-            ret = processInputBuffer(c);
-            if (ret != C_OK)
-                break;
-
-            processed += bytes;
-            server.repl_full_sync_buffer.used -= bytes;
-
-            if (server.repl_debug_pause & REPL_DEBUG_ON_STREAMING_REPL_BUF)
-                debugPauseProcess();
-
-            /* Check if we should yield back to the event loop */
-            if (server.loading_process_events_interval_bytes &&
-                ((offset + bytes) / server.loading_process_events_interval_bytes >
-                  offset / server.loading_process_events_interval_bytes))
-            {
-                replicationSendNewlineToMaster();
-                processEventsWhileBlocked();
-            }
-
-            offset += bytes;
-            /* Check if master client was freed in processEventsWhileBlocked().
-             * It can happen if we receive 'replicaof' command or 'client kill'
-             * command for the master. */
-            master_disconnected = (seq != server.repl_num_master_disconnection);
-            if (master_disconnected ||
-                !server.repl_full_sync_buffer.blocks ||
-                c->flags & CLIENT_CLOSE_ASAP)
-            {
-                ret = C_ERR;
-                break;
-            }
-        }
-        size_t size = o->size;
-        zfree(o);
-
-        /* Break the loop if there is an error. */
-        if (ret != C_OK)
-            break;
-        /* Update stats */
-        server.repl_full_sync_buffer.size -= size;
-        server.repl_full_sync_buffer.mem_used -= (size + sizeof(listNode) +
-                                                  sizeof(replDataBufBlock));
-    }
-    blockingOperationEnds();
+    ret = replDataBufStreamToDb(&server.repl_full_sync_buffer, &ctx);
 
 out:
     /* If main channel state is CLOSE_ASAP, it means main channel faced a
@@ -3921,7 +3991,8 @@ out:
     close_asap = (server.repl_main_ch_state & REPL_MAIN_CH_CLOSE_ASAP);
 
     if (ret == C_OK) {
-        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Successfully streamed replication buffer into the db (%zu bytes in total)", offset);
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Successfully streamed replication buffer into the db (%zu bytes in total)",
+                             ctx.total_offset);
         /* Revert the read handler */
         if (!close_asap && connSetReadHandler(c->conn, readQueryFromClient) != C_OK) {
             serverLog(LL_WARNING,
@@ -3934,9 +4005,9 @@ out:
         close_asap = 1;
     }
 
-    /* If master_disconnected is set, state should have been cleaned up
+    /* If master is disconnected, state should have been cleaned up
      * already. Otherwise, we do it here. */
-    if (!master_disconnected) {
+    if (ReplNumMasterDisconnection == server.repl_num_master_disconnection) {
         rdbChannelCleanup();
         if (server.master && close_asap)
             freeClient(server.master);
@@ -3946,7 +4017,7 @@ out:
 static void rdbChannelCleanup(void) {
     server.repl_rdb_ch_state = REPL_RDB_CH_STATE_NONE;
     server.repl_main_ch_state = REPL_MAIN_CH_NONE;
-    rdbChannelReplDataBufFree();
+    rdbChannelReplDataBufClear();
 }
 
 /* Replication: Replica side.
