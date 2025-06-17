@@ -2902,14 +2902,14 @@ void xsetidCommand(client *c) {
 
 /* Check if a stream item is still referenced by any consumer group.
  * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
-int streamMessageHasPendingReferences(stream *s, streamID *id) {
+int streamEntryIsReferenced(stream *s, streamID *id) {
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf,id);
     return raxFind(s->entry_cgroups_index, buf, sizeof(streamID), NULL);
 }
 
 /* Remove all consumer group references to a specific stream message. */
-void streamRemoveAllGroupReferences(stream *s, streamID *id) {
+void streamEntryUnrefAllCG(stream *s, streamID *id) {
     list *l;
     listIter li;
     listNode *ln;
@@ -3095,12 +3095,12 @@ void xackdelCommand(client *c) {
             streamFreeNACKAndUnrefCG(s, nack, buf);
             server.dirty++;
 
-            if (acked && streamMessageHasPendingReferences(s, id)) {
+            if (acked && streamEntryIsReferenced(s, id)) {
                 /* Skip deletion if still referenced by other groups */
                 code = 2;
                 goto reply;
             } else if (delpel) {
-                streamRemoveAllGroupReferences(s, id);
+                streamEntryUnrefAllCG(s, id);
             }
 
             if (streamDeleteItem(s,id)) {
@@ -3927,12 +3927,12 @@ void xdelexCommand(client *c) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
 
-        if (acked && streamMessageHasPendingReferences(s, id)) {
+        if (acked && streamEntryIsReferenced(s, id)) {
             /* Skip deletion if still referenced by other groups */
             code = 2;
             goto reply;
         } else if (delpel) {
-            streamRemoveAllGroupReferences(s, id);
+            streamEntryUnrefAllCG(s, id);
         }
 
         if (streamDeleteItem(s,id)) {
