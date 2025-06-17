@@ -2472,7 +2472,7 @@ cleanup: /* Cleanup. */
 /* Add a consumer group to the list of groups that are processing a given stream entry.
  * Returns a pointer to the list node, so that it can be used for future deletion.
  * The entry_cgroups_index maps stream IDs to lists of consumer groups. */
-listNode *streamRefCG(stream *s, streamCG *cg, unsigned char *key) {
+listNode *streamEntryRefCG(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
     
     /* Try to find the list for this stream ID, create it if it doesn't exist */
@@ -2489,7 +2489,7 @@ listNode *streamRefCG(stream *s, streamCG *cg, unsigned char *key) {
 /* Remove a consumer group reference from the entry index for a specific stream ID.
  * This is called when a message is acknowledged or when a consumer group is deleted.
  * If this was the last reference, the list is removed from the index. */
-void streamUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
+void streamEntryUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
     list *cglist;
     if (raxFind(s->entry_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
         listDelNode(cglist, na->cg_node);
@@ -2502,6 +2502,41 @@ void streamUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
     }
 }
 
+/* Remove all consumer group references to a specific stream message. */
+void streamEntryUnrefAllCG(stream *s, streamID *id) {
+    list *l;
+    listIter li;
+    listNode *ln;
+    unsigned char buf[sizeof(streamID)];
+    streamEncodeID(buf,id);
+
+    /* If message is not in any consumer group, proceed to deletion */
+    if (!raxFind(s->entry_cgroups_index, buf, sizeof(streamID), (void **)&l))
+        return;
+
+    listRewind(l, &li);
+    while((ln = listNext(&li))) {
+        streamNACK *nack;
+        streamCG *group = listNodeValue(ln);
+        
+        /* Find the message in this consumer group's PEL */
+        serverAssert(raxFind(group->pel, buf, sizeof(buf), (void **)&nack));
+        
+        /* Remove from group and consumer PELs */
+        raxRemove(group->pel, buf, sizeof(buf), NULL);
+        raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
+        streamFreeNACKAndUnrefCG(s, nack, buf);
+    }
+}
+
+/* Check if a stream item is still referenced by any consumer group.
+ * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
+int streamEntryIsReferenced(stream *s, streamID *id) {
+    unsigned char buf[sizeof(streamID)];
+    streamEncodeID(buf,id);
+    return raxFind(s->entry_cgroups_index, buf, sizeof(streamID), NULL);
+}
+
 /* Create a NACK entry setting the delivery count to 1 and the delivery
  * time to the current time. The NACK consumer will be set to the one
  * specified as argument of the function. */
@@ -2510,7 +2545,7 @@ streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamCG *cg, 
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
-    nack->cg_node = streamRefCG(s, cg, key);
+    nack->cg_node = streamEntryRefCG(s, cg, key);
     return nack;
 }
 
@@ -2522,7 +2557,7 @@ void streamFreeNACK(streamNACK *na) {
 /* Free a NACK entry and remove its reference from the entry_cgroups_index.
  * This ensures proper cleanup of the consumer group list associated with the message ID. */
 void streamFreeNACKAndUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
-    streamUnrefCG(s, na, key);
+    streamEntryUnrefCG(s, na, key);
     zfree(na);
 }
 
@@ -2581,7 +2616,7 @@ void streamUnrefAndFreeCG(stream *s, streamCG *cg) {
     raxSeek(&it, "^", NULL, 0);
     while(raxNext(&it)) {
         streamNACK *nack = it.data;
-        streamUnrefCG(s, nack, it.key);
+        streamEntryUnrefCG(s, nack, it.key);
     }
     raxStop(&it);
     streamFreeCG(cg);
@@ -2899,42 +2934,6 @@ void xsetidCommand(client *c) {
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
 }
-
-/* Check if a stream item is still referenced by any consumer group.
- * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
-int streamEntryIsReferenced(stream *s, streamID *id) {
-    unsigned char buf[sizeof(streamID)];
-    streamEncodeID(buf,id);
-    return raxFind(s->entry_cgroups_index, buf, sizeof(streamID), NULL);
-}
-
-/* Remove all consumer group references to a specific stream message. */
-void streamEntryUnrefAllCG(stream *s, streamID *id) {
-    list *l;
-    listIter li;
-    listNode *ln;
-    unsigned char buf[sizeof(streamID)];
-    streamEncodeID(buf,id);
-
-    /* If message is not in any consumer group, proceed to deletion */
-    if (!raxFind(s->entry_cgroups_index, buf, sizeof(streamID), (void **)&l))
-        return;
-
-    listRewind(l, &li);
-    while((ln = listNext(&li))) {
-        streamNACK *nack;
-        streamCG *group = listNodeValue(ln);
-        
-        /* Find the message in this consumer group's PEL */
-        serverAssert(raxFind(group->pel, buf, sizeof(buf), (void **)&nack));
-        
-        /* Remove from group and consumer PELs */
-        raxRemove(group->pel, buf, sizeof(buf), NULL);
-        raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
-        streamFreeNACKAndUnrefCG(s, nack, buf);
-    }
-}
-
 
 /* XACK <key> <group> <id> <id> ... <id>
  * Acknowledge a message as processed. In practical terms we just check the
