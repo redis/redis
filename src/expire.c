@@ -628,7 +628,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     long long when; /* unix time in milliseconds when the key will expire. */
     long long current_expire = -1;
     int flag = 0;
-
+    serverLog(LL_WARNING,
+          "STAV. expireGenericCommand. start" );
     /* checking optional flags */
     if (parseExtendedExpireArgumentsOrReply(c, &flag) != C_OK) {
         return;
@@ -659,7 +660,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c,shared.czero);
         return;
     }
-
+    serverLog(LL_WARNING,
+          "STAV. expireGenericCommand. 1" );
     if (flag) {
         current_expire = kvobjGetExpire(kv);
 
@@ -690,7 +692,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
                 return;
             }
         }
-
+        serverLog(LL_WARNING,
+              "STAV. expireGenericCommand. 2" );
         /* LT option is set, check current expiry */
         if (flag & EXPIRE_LT) {
             /* When current_expire -1, we consider it as infinite TTL,
@@ -706,7 +709,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
 
     if (checkAlreadyExpired(when)) {
         robj *aux;
-
+        serverLog(LL_WARNING,
+              "STAV. expireGenericCommand. in checkAlreadyExpired" );
         int deleted = dbGenericDelete(c->db,key,server.lazyfree_lazy_expire,DB_FLAG_KEY_EXPIRED);
         serverAssertWithInfo(c,key,deleted);
         server.dirty++;
