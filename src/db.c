@@ -40,6 +40,7 @@ typedef enum {
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
+static keyStatus expireIfNeededWithKV(redisDb *db, kvobj *kv, int flags);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -1304,10 +1305,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         kvobj *kv = dictGetKV(de);
 
         /* Expiration check first - only for database keyspace scanning */
-        robj kobj;
-        sds keyname = kvobjGetKey(kv);
-        initStaticStringObject(kobj, keyname);
-        if (expireIfNeeded(data->db, &kobj, kv, 0) != KEY_VALID)
+        if (expireIfNeededWithKV(data->db, kv, 0) != KEY_VALID)
             return;
 
         /* Type filtering - only for database keyspace scanning */
@@ -2434,6 +2432,21 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
  *
  * Provide either the key name for a lookup or KV object (to save lookup)
  */
+static inline int keyIsExpiredWithKV(kvobj *kv) {
+    /* Don't expire anything while loading. It will be done later. */
+    if (unlikely(server.loading)) return 0;
+    const mstime_t when = kvobjGetExpire(kv);
+    if (when < 0) return 0; /* No expire for this key */
+    const mstime_t now = commandTimeSnapshot();
+    /* The key expired if the current (virtual or real) time is greater
+     * than the expire time of the key. */
+    return now > when;
+}
+
+/* Check if the key is expired
+ *
+ * Provide either the key name for a lookup or KV object (to save lookup)
+ */
 int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     /* Don't expire anything while loading. It will be done later. */
     if (server.loading) return 0;
@@ -2520,6 +2533,83 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
 
     return KEY_DELETED;
 }
+
+
+/* This function is called when we are going to perform some operation
+ * in a given key, but such key may be already logically expired even if
+ * it still exists in the database. The main way this function is called
+ * is via lookupKey*() family of functions.
+ *
+ * The behavior of the function depends on the replication role of the
+ * instance, because by default replicas do not delete expired keys. They
+ * wait for DELs from the master for consistency matters. However even
+ * replicas will try to have a coherent return value for the function,
+ * so that read commands executed in the replica side will be able to
+ * behave like if the key is expired even if still present (because the
+ * master has yet to propagate the DEL).
+ *
+ * In masters as a side effect of finding a key which is expired, such
+ * key will be evicted from the database. Also this may trigger the
+ * propagation of a DEL/UNLINK command in AOF / replication stream.
+ *
+ * On replicas, this function does not delete expired keys by default, but
+ * it still returns KEY_EXPIRED if the key is logically expired. To force deletion
+ * of logically expired keys even on replicas, use the EXPIRE_FORCE_DELETE_EXPIRED
+ * flag. Note though that if the current client is executing
+ * replicated commands from the master, keys are never considered expired.
+ *
+ * On the other hand, if you just want expiration check, but need to avoid
+ * the actual key deletion and propagation of the deletion, use the
+ * EXPIRE_AVOID_DELETE_EXPIRED flag. If also needed to read expired key (that
+ * hasn't being deleted yet) then use EXPIRE_ALLOW_ACCESS_EXPIRED.
+ *
+ * The return value of the function is KEY_VALID if the key is still valid.
+ * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
+ * or returns KEY_DELETED if the key is expired and deleted.
+ *
+ * You can optionally pass `kv` to save a lookup.
+ */
+keyStatus expireIfNeededWithKV(redisDb *db, kvobj *kv, int flags) {
+    if ((server.allow_access_expired) ||
+        (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
+        (!keyIsExpiredWithKV(kv)))
+        return KEY_VALID;
+
+    /* If we are running in the context of a replica, instead of
+     * evicting the expired key from the database, we return ASAP:
+     * the replica key expiration is controlled by the master that will
+     * send us synthesized DEL operations for expired keys. The
+     * exception is when write operations are performed on writable
+     * replicas.
+     *
+     * Still we try to return the right information to the caller,
+     * that is, KEY_VALID if we think the key should still be valid,
+     * KEY_EXPIRED if we think the key is expired but don't want to delete it at this time.
+     *
+     * When replicating commands from the master, keys are never considered
+     * expired. */
+    if (server.masterhost != NULL) {
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
+        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
+    }
+
+    /* In some cases we're explicitly instructed to return an indication of a
+     * missing key without actually deleting it, even on masters. */
+    if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
+        return KEY_EXPIRED;
+
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
+
+    /* Delete the key */
+    sds keyname = kvobjGetKey(kv);
+    robj *keyobj = createStringObject(keyname,sdslen(keyname));
+    deleteExpiredKeyAndPropagate(db,keyobj);
+    return KEY_DELETED;
+}
+
 
 /* CB passed to kvstoreExpand.
  * The purpose is to skip expansion of unused dicts in cluster mode (all
