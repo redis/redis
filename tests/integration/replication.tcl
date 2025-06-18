@@ -11,13 +11,6 @@
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
-proc get_free_port {} {
-    set sock [socket -server accept 0]
-    set port [lindex [fconfigure $sock -sockname] 2]
-    close $sock
-    return $port
-}
-
 proc log_file_matches {log pattern} {
     set fp [open $log r]
     set content [read $fp]
@@ -1696,7 +1689,7 @@ start_server {tags {"repl external:skip"}} {
             assert {[status $slave total_disconnect_time_sec] >= 1}
         }
 
-        test "Test the total_disconnect_time_sec incer after slaveof no one" {
+        test "Test the total_disconnect_time_sec incr after slaveof no one" {
             $slave slaveof no one
             after 1000
             $slave slaveof $master_host $master_port
