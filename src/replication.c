@@ -1574,7 +1574,7 @@ void sendBulkToSlave(connection *conn) {
     }
 
     /* If the preamble was already transferred, send the RDB bulk data. */
-    if(lseek(slave->repldbfd,slave->repldboff,SEEK_SET) == -1){
+    if (lseek(slave->repldbfd,slave->repldboff,SEEK_SET) == -1) {
 	serverLog(LL_WARNING,"Failed to lseek the RDB file to offset %lld for replica %s: %s",
 	    (long long)slave->repldboff,
 	    replicationGetSlaveName(slave),
