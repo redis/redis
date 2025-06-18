@@ -2995,7 +2995,12 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XACKDEL <key> <group> [DELPEL|ACKED] [IDS <numids> <id ...>]
+#define DELETE_STRATEGY_NONE 0
+#define DELETE_STRATEGY_KEEPREF 1   /* Delete and keep references */
+#define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
+#define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
+
+/* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
  * Acknowledges messages as processed and deletes them from the stream.
  * 
  * This command combines the functionality of XACK and XDEL:
@@ -3004,10 +3009,9 @@ cleanup:
  * 
  * Return value is the number of messages successfully acknowledged. */
 void xackdelCommand(client *c) {
-    int delpel = 0;     /* Delete from pending entries list */
-    int acked = 0;      /* Only delete messages that are acknowledged */
-    long numids = 0;    /* Number of IDs to process */
+    int delete_strategy = DELETE_STRATEGY_NONE;
     int startidx = -1;  /* Starting index of IDs in argv */
+    long numids = 0;    /* Number of IDs to process */
 
     stream *s = NULL;
     streamCG *group = NULL;
@@ -3028,11 +3032,14 @@ void xackdelCommand(client *c) {
     int j = 3;
     while (j < c->argc) {
         char *opt = c->argv[j]->ptr;
-        if (!strcasecmp(opt, "DELPEL")) {
-            delpel = 1;
+        if (!strcasecmp(opt, "KEEPREF") && delete_strategy == DELETE_STRATEGY_NONE) {
+            delete_strategy = DELETE_STRATEGY_KEEPREF;
             j++;
-        } else if (!strcasecmp(opt, "ACKED")) {
-            acked = 1;
+        } else if (!strcasecmp(opt, "DELREF") && delete_strategy == DELETE_STRATEGY_NONE) {
+            delete_strategy = DELETE_STRATEGY_DELREF;
+            j++;
+        } else if (!strcasecmp(opt, "ACKED") && delete_strategy == DELETE_STRATEGY_NONE) {
+            delete_strategy = DELETE_STRATEGY_ACKED;
             j++;
         } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
             /* Parse the number of IDs */
@@ -3055,9 +3062,9 @@ void xackdelCommand(client *c) {
         }
     }
 
-    /* Check for mutually exclusive options */
-    if (delpel && acked) {
-        addReplyError(c, "DELPEL and ACKED options are mutually exclusive");
+    /* Ensure a delete strategy was specified */
+    if (delete_strategy == DELETE_STRATEGY_NONE) {
+        addReplyErrorFormat(c,"syntax error, %s must be called with a trimming strategy",c->cmd->fullname);
         return;
     }
 
@@ -3096,11 +3103,11 @@ void xackdelCommand(client *c) {
             streamFreeNACKAndUnrefCG(s, nack, buf);
             server.dirty++;
 
-            if (acked && streamEntryIsReferenced(s, id)) {
+            if ((delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
                 /* Skip deletion if still referenced by other groups */
                 code = 2;
                 goto reply;
-            } else if (delpel) {
+            } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
                 streamEntryUnrefAllCG(s, id);
             }
 
@@ -3115,7 +3122,7 @@ void xackdelCommand(client *c) {
                     s->max_deleted_entry_id = *id;
                 }
                 deleted++;
-                code = delpel ? 1 : 0;
+                code = (delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
             } else {
                 code = -2; /* Item not found in stream */
             }
@@ -3851,16 +3858,15 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-/* XDELEX <key> [DELPEL|ACKED] [IDS <numids> <id ...>]
+/* XDELEX <key> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
  *
  * Removes the specified entries from the stream. Returns the number
  * of items actually deleted, that may be different from the number
  * of IDs passed in case certain IDs do not exist. */
 void xdelexCommand(client *c) {
-    int delpel = 0;     /* Delete from pending entries list */
-    int acked = 0;      /* Only delete messages that are acknowledged */
-    long numids = 0;    /* Number of IDs to process */
+    int delete_strategy = DELETE_STRATEGY_NONE;
     int startidx = -1;  /* Starting index of IDs in argv */
+    long numids = 0;    /* Number of IDs to process */
 
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
@@ -3870,11 +3876,14 @@ void xdelexCommand(client *c) {
     int j = 2;
     while (j < c->argc) {
         char *opt = c->argv[j]->ptr;
-        if (!strcasecmp(opt, "DELPEL")) {
-            delpel = 1;
+        if (!strcasecmp(opt, "KEEPREF") && delete_strategy == DELETE_STRATEGY_NONE) {
+            delete_strategy = DELETE_STRATEGY_KEEPREF;
             j++;
-        } else if (!strcasecmp(opt, "ACKED")) {
-            acked = 1;
+        } else if (!strcasecmp(opt, "DELREF") && delete_strategy == DELETE_STRATEGY_NONE) {
+            delete_strategy = DELETE_STRATEGY_DELREF;
+            j++;
+        } else if (!strcasecmp(opt, "ACKED") && delete_strategy == DELETE_STRATEGY_NONE) {
+            delete_strategy = DELETE_STRATEGY_ACKED;
             j++;
         } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
             /* Parse the number of IDs */
@@ -3897,9 +3906,9 @@ void xdelexCommand(client *c) {
         }
     }
 
-    /* Check for mutually exclusive options */
-    if (delpel && acked) {
-        addReplyError(c,"DELPEL and ACKED options are mutually exclusive");
+    /* Ensure a delete strategy was specified */
+    if (delete_strategy == DELETE_STRATEGY_NONE) {
+        addReplyErrorFormat(c,"syntax error, %s must be called with a trimming strategy",c->cmd->fullname);
         return;
     }
 
@@ -3928,11 +3937,11 @@ void xdelexCommand(client *c) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
 
-        if (acked && streamEntryIsReferenced(s, id)) {
+        if ((delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
             /* Skip deletion if still referenced by other groups */
             code = 2;
             goto reply;
-        } else if (delpel) {
+        } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
             streamEntryUnrefAllCG(s, id);
         }
 
@@ -3947,7 +3956,7 @@ void xdelexCommand(client *c) {
                 s->max_deleted_entry_id = *id;
             }
             deleted++;
-            code = delpel ? 1 : 0;
+            code = (delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
         } else {
             code = -2; /* Item not found in stream */
         }
