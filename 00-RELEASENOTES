@@ -14,14 +14,13 @@ SECURITY: There are security fixes in the release.
 The release notes contain PRs from multiple repositories:
 
 #n - Redis (https://github.com/redis/redis)
-#QEn = Query Engine (https://github.com/RediSearch/RediSearch)
-#JSn = JSON (https://github.com/RedisJSON/RedisJSON)
-#TSn = Time Series (https://github.com/RedisTimeSeries/RedisTimeSeries)
-#PRn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
-
+#Qn = Query Engine (https://github.com/RediSearch/RediSearch)
+#Jn = JSON (https://github.com/RedisJSON/RedisJSON)
+#Tn = Time Series (https://github.com/RedisTimeSeries/RedisTimeSeries)
+#Pn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
 
 ===========================================================
-8.2-M01 (v8.1.224)    Released Thu 12 Sep 2024 10:00:00 IST
+8.2-M01 (v8.1.224)    Released Thu 19 Jun 2024 10:00:00 IST
 ===========================================================
 
 This is the first Milestone of Redis Community Edition 8.2.
@@ -29,4 +28,37 @@ This is the first Milestone of Redis Community Edition 8.2.
 Milestones are non-feature-complete pre-releases. Pre-releases are not suitable for production use.
 Once we reach feature-completeness we will release RC1.
 
+### Headlines:
+
+Redis 8.2 introduces major performance and memory footprint improvements, and command extensions.
+
+8.2-M01 is available as a Docker image and can be downloaded from [Docker Hub](https://hub.docker.com/_/redis). Additional distributions will be introduced in upcoming pre-releases.
+
+### New Features
+
+- #13898 `BITOP`: new operators: `DIFF`, `DIFF1`, `ANDOR`, and `ONE` (RED-143607)
+- #14065 `VSIM`: Add new `WITHATTRIBS` to return the JSON attribute associated with an element
+
+### Bug fixes (compared to 8.0.2)
+
+- #13984 Memory usage and overhead report not updated when emptying or releasing a dict
+- #14081 Cron-based timers run twice as fast when active defrag is enabled
+- #14085 A short read may lead to an exit() on a replica
+- #14092 db->expires is not defragmented
+
+### Performance and resource utilization improvements (compared to 8.0.2)
+
+- #13806 Keyspace - unify key and value
+- #13968 Offload memory release of argv and rewrite objects into I/O threads
+- #13969 Make I/O threads and main thread process in parallel and reduce notifications
+- #14017 Improve I/O threads performance by using memory prefetching
+- #J1351 JSON - Reduce memory footprint of numerical values (MOD-9511)
+
+### Metrics
+
+- #13944 `CLIENT INFO` and `CLIENT LIST`:
+  - `tot-net-in`: total network bytes read from the client connection
+  - `tot-net-out`: total network bytes sent to the client connection
+  - `tot-cmds`: number of commands executed by the client connection
+- #13907 `INFO`: `sentinel` section - `sentinel_total_tilt` - number of times entering tilt mode
 
