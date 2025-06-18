@@ -181,11 +181,6 @@ typedef struct {
     if ((d)->type->keyDestructor) \
         (d)->type->keyDestructor((d), dictGetKey(entry))
 
-#define dictCompareKeys(d, key1, key2) \
-    (((d)->type->keyCompare) ? \
-        (d)->type->keyCompare((d), key1, key2) : \
-        (key1) == (key2))
-
 #define dictMetadata(d) (&(d)->metadata)
 #define dictMetadataSize(d) ((d)->type->dictMetadataBytes \
                              ? (d)->type->dictMetadataBytes(d) : 0)
@@ -234,6 +229,8 @@ dictEntry * dictFind(dict *d, const void *key);
 int dictShrinkIfNeeded(dict *d);
 int dictExpandIfNeeded(dict *d);
 void *dictGetKey(const dictEntry *de);
+int dictEntryIsKey(const dictEntry *de);
+int dictCompareKeys(dict *d, const void *key1, const void *key2);
 size_t dictMemUsage(const dict *d);
 size_t dictEntryMemUsage(int noValueDict);
 dictIterator *dictGetIterator(dict *d);
@@ -242,6 +239,7 @@ void dictInitIterator(dictIterator *iter, dict *d);
 void dictInitSafeIterator(dictIterator *iter, dict *d);
 void dictResetIterator(dictIterator *iter);
 dictEntry *dictNext(dictIterator *iter);
+dictEntry *dictGetNext(const dictEntry *de);
 void dictReleaseIterator(dictIterator *iter);
 dictEntry *dictGetRandomKey(dict *d);
 dictEntry *dictGetFairRandomKey(dict *d);

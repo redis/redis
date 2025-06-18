@@ -1,3 +1,17 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2025-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 source tests/support/cli.tcl
 
 test {CONFIG SET port number} {
@@ -167,6 +181,146 @@ start_server {config "minimal.conf" tags {"external:skip"}} {
             assert_equal {OK} [r config set protected-mode no]
             set r2 [redis $myaddr [srv 0 "port"] 0 $::tls]
             assert_equal {PONG} [$r2 ping]
+        }
+    }
+}
+
+start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-debug-command {yes} io-threads 2}} {
+    set server_pid [s process_id]
+    # Since each thread may perform memory prefetch independently, this test is
+    # only run when the number of IO threads is 2 to ensure deterministic results.
+    if {[r config get io-threads] eq "io-threads 2"} {
+        test {prefetch works as expected when killing a client from the middle of prefetch commands batch} {
+            # Create 16 (prefetch batch size) +1 clients
+            for {set i 0} {$i < 16} {incr i} {
+                set rd$i [redis_deferring_client]
+            }
+
+            # set a key that will be later be prefetch
+            r set a 0
+
+            # Get the client ID of rd4
+            $rd4 client id
+            set rd4_id [$rd4 read]
+
+            # Create a batch of commands by suspending the server for a while
+            # before responding to the first command
+            pause_process $server_pid
+
+            # The first client will kill the fourth client
+            $rd0 client kill id $rd4_id
+
+            # Send set commands for all clients except the first
+            for {set i 1} {$i < 16} {incr i} {
+                [set rd$i] set a $i
+                [set rd$i] flush
+            }
+
+            # Resume the server
+            resume_process $server_pid
+
+            # Read the results
+            assert_equal {1} [$rd0 read]
+            catch {$rd4 read} err
+            assert_match {I/O error reading reply} $err
+
+            # verify the prefetch stats are as expected
+            set info [r info stats]
+            set prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            assert_range $prefetch_entries 2 15; # With slower machines, the number of prefetch entries can be lower
+            set prefetch_batches [getInfoProperty $info io_threaded_total_prefetch_batches]
+            assert_range $prefetch_batches 1 7; # With slower machines, the number of batches can be higher
+
+            # Verify the final state
+            $rd15 get a
+            assert_equal {OK} [$rd15 read]
+            assert_equal {15} [$rd15 read]
+        }
+
+        test {prefetch works as expected when changing the batch size while executing the commands batch} {
+            # Create 16 (default prefetch batch size) clients
+            for {set i 0} {$i < 16} {incr i} {
+                set rd$i [redis_deferring_client]
+            }
+
+            # Create a batch of commands by suspending the server for a while
+            # before responding to the first command
+            pause_process $server_pid
+
+            # Send set commands for all clients the 5th client will change the prefetch batch size
+            for {set i 0} {$i < 16} {incr i} {
+                if {$i == 4} {
+                    [set rd$i] config set prefetch-batch-max-size 1
+                }
+                [set rd$i] set a $i
+                [set rd$i] flush
+            }
+            # Resume the server
+            resume_process $server_pid
+            # Read the results
+            for {set i 0} {$i < 16} {incr i} {
+                assert_equal {OK} [[set rd$i] read]
+                [set rd$i] close
+            }
+
+            # assert the configured prefetch batch size was changed
+            assert {[r config get prefetch-batch-max-size] eq "prefetch-batch-max-size 1"}
+        }
+ 
+        proc do_prefetch_batch {server_pid batch_size} {
+            # Create clients
+            for {set i 0} {$i < $batch_size} {incr i} {
+                set rd$i [redis_deferring_client]
+            }
+
+            # Suspend the server to batch the commands
+            pause_process $server_pid
+
+            # Send commands from all clients
+            for {set i 0} {$i < $batch_size} {incr i} {
+                [set rd$i] set a $i
+                [set rd$i] flush
+            }
+
+            # Resume the server to process the batch
+            resume_process $server_pid
+
+            # Verify responses
+            for {set i 0} {$i < $batch_size} {incr i} {
+                assert_equal {OK} [[set rd$i] read]
+                [set rd$i] close
+            }
+        }
+
+        test {no prefetch when the batch size is set to 0} {
+            # set the batch size to 0
+            r config set prefetch-batch-max-size 0
+            # save the current value of prefetch entries
+            set info [r info stats]
+            set prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+
+            do_prefetch_batch $server_pid 16
+
+            # assert the prefetch entries did not change
+            set info [r info stats]
+            set new_prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            assert_equal $prefetch_entries $new_prefetch_entries
+        }
+
+        test {Prefetch can resume working when the configuration option is set to a non-zero value} {
+            # save the current value of prefetch entries
+            set info [r info stats]
+            set prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # set the batch size to 0
+            r config set prefetch-batch-max-size 16
+
+            do_prefetch_batch $server_pid 16
+
+            # assert the prefetch entries did not change
+            set info [r info stats]
+            set new_prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # With slower machines, the number of prefetch entries can be lower
+            assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 16}]
         }
     }
 }

@@ -63,6 +63,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "rax.h"     /* Radix tree */
 #include "connection.h" /* Connection abstraction */
 #include "eventnotifier.h" /* Event notification */
+#include "memory_prefetch.h"
 
 #define REDISMODULE_CORE 1
 typedef struct redisObject robj;
@@ -1843,6 +1844,7 @@ struct redisServer {
     int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
+    int prefetch_batch_max_size;/* Maximum number of keys to prefetch in a single batch */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
     int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
@@ -1918,6 +1920,8 @@ struct redisServer {
     redisAtomic long long stat_client_qbuf_limit_disconnections;  /* Total number of clients reached query buf length limit */
     long long stat_client_outbuf_limit_disconnections;  /* Total number of clients reached output buf length limit */
     long long stat_cluster_incompatible_ops; /* Number of operations that are incompatible with cluster mode */
+    long long stat_total_prefetch_entries;  /* Total number of prefetched dict entries */
+    long long stat_total_prefetch_batches;  /* Total number of prefetched batches */
     /* The following two are used to track instantaneous metrics, like
      * number of operations per second, network traffic. */
     struct {
@@ -3067,8 +3071,8 @@ unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
-kvobj *kvobjCreate(int type, const sds key, void *ptr, long long expire);
-kvobj *kvobjSet(sds key, robj *val, long long expire);
+kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire);
+kvobj *kvobjSet(sds key, robj *val, int hasExpire);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
@@ -3638,6 +3642,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
+kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
@@ -3701,6 +3706,7 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result);
 keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc);
 int doesCommandHaveKeys(struct redisCommand *cmd);
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int doesCommandHaveChannelsWithFlags(struct redisCommand *cmd, int flags);

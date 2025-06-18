@@ -69,6 +69,9 @@ long long redisPopcount(void *s, long count) {
             cnt[3] += __builtin_popcountll(*(uint64_t*)(p + 24));
             count -= 32;
             p += 32;
+            /* Prefetch with 2K stride is just enough to overlap L3 miss latency effectively
+             * without causing pressure on lower memory hierarchy or polluting L1/L2 */
+            redis_prefetch_read(p + 2048);
         }
         bits += cnt[0] + cnt[1] + cnt[2] + cnt[3];
         goto remain;
