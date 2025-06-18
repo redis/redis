@@ -1268,7 +1268,6 @@ typedef struct {
     size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
     sds typename; /* typename string, NULL means no type filter */
     redisDb *db;  /* database reference for expiration checks */
-    int skip_expiration_check; /* optimization: set to 1 to skip expiration checks when safe */
 } scanData;
 
 /* Helper function to compare key type in scan commands */
@@ -1305,14 +1304,11 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         kvobj *kv = dictGetKV(de);
 
         /* Expiration check first - only for database keyspace scanning */
-        if (!data->skip_expiration_check) {
-            robj kobj;
-            sds keyname = kvobjGetKey(kv);
-            initStaticStringObject(kobj, keyname);
-            if (expireIfNeeded(data->db, &kobj, kv, 0) != KEY_VALID) {
-                return;
-            }
-        }
+        robj kobj;
+        sds keyname = kvobjGetKey(kv);
+        initStaticStringObject(kobj, keyname);
+        if (expireIfNeeded(data->db, &kobj, kv, 0) != KEY_VALID)
+            return;
 
         /* Type filtering - only for database keyspace scanning */
         if (data->typename) {
@@ -1557,7 +1553,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .strlen = (isKeysHfield) ? hfieldlen : sdslen,
             .typename = typename,
             .db = c->db,
-            .skip_expiration_check = (o == NULL) ? (kvstoreSize(c->db->expires) == 0) : 0,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
