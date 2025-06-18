@@ -3329,7 +3329,7 @@ struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
 int commandCheckExistence(client *c, sds *err);
-int commandCheckArity(client *c, sds *err);
+int commandCheckArity(struct redisCommand *cmd, int argc, sds *err);
 void startCommandExecution(void);
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
