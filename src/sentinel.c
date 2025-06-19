@@ -239,6 +239,7 @@ struct sentinelState {
                            Key is the instance name, value is the
                            sentinelRedisInstance structure pointer. */
     int tilt;           /* Are we in TILT mode? */
+    int total_tilt;   /* Number of tilt. */
     int running_scripts;    /* Number of scripts in execution right now. */
     mstime_t tilt_start_time;       /* When TITL started. */
     mstime_t previous_time;         /* Last time we ran the time handler. */
@@ -473,6 +474,7 @@ void initSentinel(void) {
     sentinel.masters = dictCreate(&instancesDictType);
     sentinel.tilt = 0;
     sentinel.tilt_start_time = 0;
+    sentinel.total_tilt = 0;
     sentinel.previous_time = mstime();
     sentinel.running_scripts = 0;
     sentinel.scripts_queue = listCreate();
@@ -4270,12 +4272,14 @@ void sentinelInfoCommand(client *c) {
             "sentinel_masters:%lu\r\n"
             "sentinel_tilt:%d\r\n"
             "sentinel_tilt_since_seconds:%jd\r\n"
+            "sentinel_total_tilt:%d\r\n"
             "sentinel_running_scripts:%d\r\n"
             "sentinel_scripts_queue_length:%ld\r\n"
             "sentinel_simulate_failure_flags:%lu\r\n",
             dictSize(sentinel.masters),
             sentinel.tilt,
             sentinel.tilt ? (intmax_t)((mstime()-sentinel.tilt_start_time)/1000) : -1,
+            sentinel.total_tilt,
             sentinel.running_scripts,
             listLength(sentinel.scripts_queue),
             sentinel.simfailure_flags);
@@ -5442,6 +5446,7 @@ void sentinelCheckTiltCondition(void) {
     if (delta < 0 || delta > sentinel_tilt_trigger) {
         sentinel.tilt = 1;
         sentinel.tilt_start_time = mstime();
+        sentinel.total_tilt++;
         sentinelEvent(LL_WARNING,"+tilt",NULL,"#tilt mode entered");
     }
     sentinel.previous_time = mstime();

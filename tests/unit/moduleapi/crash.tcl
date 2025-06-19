@@ -4,7 +4,7 @@ set testmodule [file normalize tests/modules/crash.so]
 set backtrace_supported [system_backtrace_supported]
 
 # Valgrind will complain that the process terminated by a signal, skip it.
-if {!$::valgrind} {
+if {!$::valgrind && !$::tsan} {
     start_server {tags {"modules"}} {
         r module load $testmodule assert
         test {Test module crash when info crashes with an assertion } {
