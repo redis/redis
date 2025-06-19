@@ -17,7 +17,7 @@
             ],
             [
                 "8.2.0",
-                "Added the `DELPEL` option and `ACKED` option."
+                "Added the `KEEPREF`, `DELREF` and `ACKED` option."
             ]
         ],
         "command_flags": [

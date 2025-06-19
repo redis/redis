@@ -34,7 +34,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
              * XADD). */
             {"6.2.0", "Added the `NOMKSTREAM` option, `MINID` trimming strategy and the `LIMIT` option."},
             {"7.0.0", "Added support for the `<ms>-*` explicit ID form."},
-            {"8.2.0", "Added the `DELPEL` option and `ACKED` option."},
+            {"8.2.0", "Added the `KEEPREF`, `DELREF` and `ACKED` option."},
             {0}
         },
         .key_specs = (RedisModuleCommandKeySpec[]){
@@ -67,9 +67,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 .flags = REDISMODULE_CMD_ARG_OPTIONAL,
                 .subargs = (RedisModuleCommandArg[]){
                     {
-                        .name = "delpel",
+                        .name = "keepref",
                         .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
-                        .token = "DELPEL"
+                        .token = "KEEPREF"
+                    },
+                    {
+                        .name = "delref",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                        .token = "DELREF"
                     },
                     {
                         .name = "acked",
