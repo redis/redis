@@ -106,9 +106,14 @@
                         "optional": true,
                         "arguments": [
                             {
-                                "name": "delpel",
+                                "name": "keepref",
                                 "type": "pure-token",
-                                "token": "DELPEL"
+                                "token": "KEEPREF"
+                            },
+                            {
+                                "name": "delref",
+                                "type": "pure-token",
+                                "token": "DELREF"
                             },
                             {
                                 "name": "acked",

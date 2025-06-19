@@ -39,6 +39,8 @@ void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
+int streamEntryIsReferenced(stream *s, streamID *id);
+void streamEntryUnrefAllCG(stream *s, streamID *id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -654,6 +656,11 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     return C_OK;
 }
 
+#define DELETE_STRATEGY_NONE 0
+#define DELETE_STRATEGY_KEEPREF 1   /* Delete and keep references */
+#define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
+#define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
+
 typedef struct {
     /* XADD options */
     streamID id; /* User-provided ID, for XADD only. */
@@ -672,6 +679,9 @@ typedef struct {
     long long maxlen; /* After trimming, leave stream at this length . */
     /* TRIM_STRATEGY_MINID options */
     streamID minid; /* Trim by ID (No stream entries with ID < 'minid' will remain) */
+
+    /* Consumer group reference handling options */
+    int delete_strategy; /* DELETE_STRATEGY_* */
 } streamAddTrimArgs;
 
 #define TRIM_STRATEGY_NONE 0
@@ -701,12 +711,20 @@ typedef struct {
  * that should be trimmed, there is a chance we will still have entries with
  * IDs < 'id' (or number of elements >= maxlen in case of MAXLEN).
  */
+/* Enhanced streamTrim with consumer group reference handling options.
+ *
+ * New options:
+ * - KEEPREF: Skip messages that are still referenced by consumer groups
+ * - DELREF: Remove messages and clean up all consumer group references
+ * - ACKED: Only remove messages that have no pending consumers
+ */
 int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
     size_t maxlen = args->maxlen;
     streamID *id = &args->minid;
     int approx = args->approx_trim;
     int64_t limit = args->limit;
     int trim_strategy = args->trim_strategy;
+    int delete_strategy = args->delete_strategy;
 
     if (trim_strategy == TRIM_STRATEGY_NONE)
         return 0;
@@ -730,7 +748,11 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         /* Check if we can remove the whole node. */
         int remove_node;
         streamID master_id = {0}; /* For MINID */
-        if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
+        /* Read the master ID from the radix tree key. */
+        streamDecodeID(ri.key, &master_id);
+        if (delete_strategy == DELETE_STRATEGY_ACKED) {
+            remove_node = 0;
+        } if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             remove_node = s->length - entries >= maxlen;
         } else {
             /* Read the master ID from the radix tree key. */
@@ -788,10 +810,8 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             p = lpNext(lp, p); /* Skip ID seq delta */
 
             streamID currid = {0}; /* For MINID */
-            if (trim_strategy == TRIM_STRATEGY_MINID) {
-                currid.ms = master_id.ms + ms_delta;
-                currid.seq = master_id.seq + seq_delta;
-            }
+            currid.ms = master_id.ms + ms_delta;
+            currid.seq = master_id.seq + seq_delta;
 
             int stop;
             if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
@@ -815,8 +835,34 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             while(to_skip--) p = lpNext(lp,p); /* Skip the whole entry. */
             p = lpNext(lp,p); /* Skip the final lp-count field. */
 
-            /* Mark the entry as deleted. */
-            if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
+            /* Check consumer group references before marking as deleted */
+            int can_delete = 1;
+            if (delete_strategy != DELETE_STRATEGY_NONE) {
+                int is_referenced = streamEntryIsReferenced(s, &currid);
+
+                if (is_referenced) {
+                    switch (delete_strategy) {
+                        case DELETE_STRATEGY_KEEPREF:
+                            can_delete = 1;
+                            break;
+                        case DELETE_STRATEGY_ACKED:
+                            /* Skip deletion for referenced messages */
+                            can_delete = 0;
+                            break;
+                        case DELETE_STRATEGY_DELREF:
+                            /* Remove all consumer group references for this entry */
+                            streamEntryUnrefAllCG(s, &currid);
+                            break;
+                        default:
+                            /* Should not happen, but be safe */
+                            can_delete = 0;
+                            break;
+                    }
+                }
+            }
+
+            /* Mark the entry as deleted if allowed */
+            if (can_delete && !(flags & STREAM_ITEM_FLAG_DELETED)) {
                 intptr_t delta = p - lp;
                 flags |= STREAM_ITEM_FLAG_DELETED;
                 lp = lpReplaceInteger(lp, &pcopy, flags);
@@ -966,6 +1012,15 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             }
             limit_given = 1;
             i++;
+        } else if (!strcasecmp(opt,"keepref") && args->delete_strategy == DELETE_STRATEGY_NONE) {
+            /* KEEPREF: Skip messages that are still referenced by consumer groups */
+            args->delete_strategy = DELETE_STRATEGY_KEEPREF;
+        } else if (!strcasecmp(opt,"delref") && args->delete_strategy == DELETE_STRATEGY_NONE) {
+            /* DELREF: Remove messages and clean up all consumer group references */
+            args->delete_strategy = DELETE_STRATEGY_DELREF;
+        } else if (!strcasecmp(opt,"acked") && args->delete_strategy == DELETE_STRATEGY_NONE) {
+            /* ACKED: Only remove messages that have no pending consumers */
+            args->delete_strategy = DELETE_STRATEGY_ACKED;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
         } else if (xadd) {
@@ -1019,6 +1074,11 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
                 args->limit = 0;
             }
         }
+    }
+
+    /* Set default consumer group reference handling to KEEPREF if none was specified */
+    if (args->delete_strategy == DELETE_STRATEGY_NONE) {
+        args->delete_strategy = DELETE_STRATEGY_KEEPREF;
     }
 
     return i;
@@ -2995,11 +3055,6 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
-#define DELETE_STRATEGY_NONE 0
-#define DELETE_STRATEGY_KEEPREF 1   /* Delete and keep references */
-#define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
-#define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
-
 /* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
  * Acknowledges messages as processed and deletes them from the stream.
  * 
@@ -3862,7 +3917,12 @@ cleanup:
  *
  * Removes the specified entries from the stream. Returns the number
  * of items actually deleted, that may be different from the number
- * of IDs passed in case certain IDs do not exist. */
+ * of IDs passed in case certain IDs do not exist.
+ *
+ * The command accepts one of the following options (optional, defaults to KEEPREF):
+ * - KEEPREF: Skip messages that are still referenced by consumer groups
+ * - DELREF: Remove messages and clean up all consumer group references
+ * - ACKED: Only remove messages that have no pending consumers */
 void xdelexCommand(client *c) {
     int delete_strategy = DELETE_STRATEGY_NONE;
     int startidx = -1;  /* Starting index of IDs in argv */
@@ -3999,6 +4059,12 @@ cleanup:
  *                             with IDs smaller than 'id'. Use ~ before the
  *                             count in order to demand approximated trimming
  *                             (like XADD MINID option).
+ *
+ * Consumer group reference handling (optional, defaults to KEEPREF):
+ *
+ * KEEPREF                  -- Skip messages that are still referenced by consumer groups
+ * DELREF                   -- Remove messages and clean up all consumer group references
+ * ACKED                    -- Only remove messages that have no pending consumers
  *
  * Other options:
  *

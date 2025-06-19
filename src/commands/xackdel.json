@@ -47,12 +47,16 @@
             {
                 "name": "condition",
                 "type": "oneof",
-                "optional": true,
                 "arguments": [
                     {
-                        "name": "delpel",
+                        "name": "keepref",
                         "type": "pure-token",
-                        "token": "DELPEL"
+                        "token": "KEEPREF"
+                    },
+                    {
+                        "name": "delref",
+                        "type": "pure-token",
+                        "token": "DELREF"
                     },
                     {
                         "name": "acked",
@@ -79,9 +83,30 @@
             }
         ],
         "reply_schema": {
-            "description": "The command returns the number of messages successfully acknowledged. Certain message IDs may no longer be part of the PEL (for example because they have already been acknowledged), and XACK will not count them as successfully acknowledged.",
-            "type": "integer",
-            "minimum": 0
+            "description": "Array of results. Returns empty array if the key does not exist.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "The id does not exist.",
+                        "const": -2
+                    },
+                    {
+                        "description": "Specified NX | XX | GT | LT condition not met",
+                        "const": 0
+                    },
+                    {
+                        "description": "Expiration time was set or updated.",
+                        "const": 1
+                    },
+                    {
+                        "description": "Field deleted because the specified expiration time is in the past.",
+                        "const": 2
+                    }
+                ]
+            }
         }
     }
 }
