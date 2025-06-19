@@ -426,8 +426,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     }
 
     if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe", CmdUnsub, "write", 0, 0, 0) == REDISMODULE_ERR){
-    return REDISMODULE_ERR;
-   }
+        return REDISMODULE_ERR;
+    }
     if (argc == 1) {
         const char *ptr = RedisModule_StringPtrLen(argv[0], NULL);
         if (!strcasecmp(ptr, "noload")) {

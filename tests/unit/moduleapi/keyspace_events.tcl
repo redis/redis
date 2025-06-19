@@ -88,7 +88,7 @@ tags "modules" {
         }
 
         test "Keyspace notifications: unsubscribe removes handler" {
-            r config set notify-keyspace-events Kd
+            r config set notify-keyspace-events Kgd
             r del x
             set rd1 [redis_deferring_client]
             assert_equal {1} [psubscribe $rd1 *]
