@@ -2104,10 +2104,16 @@ hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node) {
             sn->params[param_idx++] = node->layers[i].links[j]->id;
         }
     }
-    uint64_t l2_and_range = 0;
-    unsigned char *aux = (unsigned char*)&l2_and_range;
-    memcpy(aux,&node->l2,sizeof(float));
-    memcpy(aux+4,&node->quants_range,sizeof(float));
+
+    /* Store l2 and range as uint32_t, in a way that is endian-safe.
+     * Note that in big endian archs both are reversed: integers and
+     * also the bytes of floats, so they will match. */
+    uint64_t l2_and_range;
+    uint32_t l2_bits, range_bits;
+    memcpy(&l2_bits,&node->l2,sizeof(float));
+    memcpy(&range_bits,&node->quants_range,sizeof(float));
+    l2_and_range = ((uint64_t)range_bits<<32) | l2_bits;
+
     sn->params[param_idx++] = l2_and_range;
 
     /* Better safe than sorry: */
@@ -2205,10 +2211,14 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         hnsw_node_free(node);
         return NULL;
     }
+
+    /* Load l2 and range packed into an uint64_t in an endian safe way. */
     uint64_t l2_and_range = params[param_idx];
-    unsigned char *aux = (unsigned char*)&l2_and_range;
-    memcpy(&node->l2, aux, sizeof(float));
-    memcpy(&node->quants_range, aux+4, sizeof(float));
+    uint32_t l2_bits, range_bits;
+    l2_bits = l2_and_range & 0xffffffff;
+    range_bits = l2_and_range >> 32;
+    memcpy(&node->l2, &l2_bits, sizeof(float));
+    memcpy(&node->quants_range, &range_bits, sizeof(float));
 
     node->value = value;
     hnsw_add_node(index, node);
