@@ -719,13 +719,6 @@ typedef struct {
  * that should be trimmed, there is a chance we will still have entries with
  * IDs < 'id' (or number of elements >= maxlen in case of MAXLEN).
  */
-/* Enhanced streamTrim with consumer group reference handling options.
- *
- * New options:
- * - KEEPREF: Skip messages that are still referenced by consumer groups
- * - DELREF: Remove messages and clean up all consumer group references
- * - ACKED: Only remove messages that have no pending consumers
- */
 int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
     size_t maxlen = args->maxlen;
     streamID *id = &args->minid;
@@ -1021,13 +1014,10 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             limit_given = 1;
             i++;
         } else if (!strcasecmp(opt,"keepref") && args->delete_strategy == DELETE_STRATEGY_NONE) {
-            /* KEEPREF: Skip messages that are still referenced by consumer groups */
             args->delete_strategy = DELETE_STRATEGY_KEEPREF;
         } else if (!strcasecmp(opt,"delref") && args->delete_strategy == DELETE_STRATEGY_NONE) {
-            /* DELREF: Remove messages and clean up all consumer group references */
             args->delete_strategy = DELETE_STRATEGY_DELREF;
         } else if (!strcasecmp(opt,"acked") && args->delete_strategy == DELETE_STRATEGY_NONE) {
-            /* ACKED: Only remove messages that have no pending consumers */
             args->delete_strategy = DELETE_STRATEGY_ACKED;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
@@ -4034,7 +4024,7 @@ cleanup:
  *
  * Consumer group reference handling (optional, defaults to KEEPREF):
  *
- * KEEPREF                  -- Skip messages that are still referenced by consumer groups
+ * KEEPREF                  -- Preserves existing consumer group references
  * DELREF                   -- Remove messages and clean up all consumer group references
  * ACKED                    -- Only remove messages that have no pending consumers
  *
