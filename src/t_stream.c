@@ -688,6 +688,14 @@ typedef struct {
 #define TRIM_STRATEGY_MAXLEN 1
 #define TRIM_STRATEGY_MINID 2
 
+typedef struct {
+    int startidx;  /* Starting index of IDs in argv */
+    long numids;    /* Number of IDs to process */
+
+    /* Consumer group reference handling options */
+    int delete_strategy; /* DELETE_STRATEGY_* */
+} streamAckDelArgs;
+
 /* Trim the stream 's' according to args->trim_strategy, and return the
  * number of elements removed from the stream. The 'approx' option, if non-zero,
  * specifies that the trimming must be performed in a approximated way in
@@ -1082,6 +1090,60 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
     }
 
     return i;
+}
+
+static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelArgs *args) {
+    /* Initialize arguments to defaults */
+    memset(args, 0, sizeof(*args));
+    args->startidx = -1;
+    args->delete_strategy = DELETE_STRATEGY_NONE;
+
+    /* Parse command options */
+    int j = start_pos;
+    while (j < c->argc) {
+        char *opt = c->argv[j]->ptr;
+        if (!strcasecmp(opt, "KEEPREF") && args->delete_strategy == DELETE_STRATEGY_NONE) {
+            args->delete_strategy = DELETE_STRATEGY_KEEPREF;
+            j++;
+        } else if (!strcasecmp(opt, "DELREF") && args->delete_strategy == DELETE_STRATEGY_NONE) {
+            args->delete_strategy = DELETE_STRATEGY_DELREF;
+            j++;
+        } else if (!strcasecmp(opt, "ACKED") && args->delete_strategy == DELETE_STRATEGY_NONE) {
+            args->delete_strategy = DELETE_STRATEGY_ACKED;
+            j++;
+        } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
+            /* Parse the number of IDs */
+            if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, LONG_MAX,
+                &args->numids, "Number of IDs must be a positive integer") != C_OK) {
+                return 0;
+            }
+
+            /* Verify that the specified number of IDs matches the actual arguments */
+            if (args->numids > (c->argc - j - 2)) {
+                addReplyError(c, "The `numids` parameter must match the number of arguments");
+                return 0;
+            }
+
+            args->startidx = j + 2;  /* Skip "IDS" and numids */
+            j = args->startidx + args->numids;
+        } else {
+            addReplyErrorObject(c,shared.syntaxerr);
+            return 0;
+        }
+    }
+
+    /* Ensure a delete strategy was specified */
+    if (args->delete_strategy == DELETE_STRATEGY_NONE) {
+        addReplyErrorFormat(c,"syntax error, %s must be called with a trimming strategy",c->cmd->fullname);
+        return 0;
+    }
+
+    if (args->startidx == -1) {
+        addReplyError(c, "IDS option is required");
+        return 0;
+    }
+
+    return 1;
 }
 
 /* Initialize the stream iterator, so that we can call iterating functions
@@ -3064,10 +3126,7 @@ cleanup:
  * 
  * Return value is the number of messages successfully acknowledged. */
 void xackdelCommand(client *c) {
-    int delete_strategy = DELETE_STRATEGY_NONE;
-    int startidx = -1;  /* Starting index of IDs in argv */
-    long numids = 0;    /* Number of IDs to process */
-
+    streamAckDelArgs args;
     stream *s = NULL;
     streamCG *group = NULL;
     kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
@@ -3084,49 +3143,7 @@ void xackdelCommand(client *c) {
     }
 
     /* Parse command options */
-    int j = 3;
-    while (j < c->argc) {
-        char *opt = c->argv[j]->ptr;
-        if (!strcasecmp(opt, "KEEPREF") && delete_strategy == DELETE_STRATEGY_NONE) {
-            delete_strategy = DELETE_STRATEGY_KEEPREF;
-            j++;
-        } else if (!strcasecmp(opt, "DELREF") && delete_strategy == DELETE_STRATEGY_NONE) {
-            delete_strategy = DELETE_STRATEGY_DELREF;
-            j++;
-        } else if (!strcasecmp(opt, "ACKED") && delete_strategy == DELETE_STRATEGY_NONE) {
-            delete_strategy = DELETE_STRATEGY_ACKED;
-            j++;
-        } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
-            /* Parse the number of IDs */
-            if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, LONG_MAX,
-                &numids, "Number of IDs must be a positive integer") != C_OK) {
-                return;
-            }
-
-            /* Verify that the specified number of IDs matches the actual arguments */
-            if (numids > (c->argc - j - 2)) {
-                addReplyError(c, "The `numids` parameter must match the number of arguments");
-                return;
-            }
-            
-            startidx = j + 2;  /* Skip "IDS" and numids */
-            j = startidx + numids;
-        } else {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-        }
-    }
-
-    /* Ensure a delete strategy was specified */
-    if (delete_strategy == DELETE_STRATEGY_NONE) {
-        addReplyErrorFormat(c,"syntax error, %s must be called with a trimming strategy",c->cmd->fullname);
-        return;
-    }
-
-    if (startidx == -1) {
-        addReplyError(c, "IDS option is required");
-        return;
-    }
+    if (!streamParseAckDelArgsOrReply(c, 3, &args)) return;
 
     /* Start parsing the IDs, so that we abort ASAP if there is a syntax
      * error: the return value of this command cannot be an error in case
@@ -3134,14 +3151,14 @@ void xackdelCommand(client *c) {
      * executed in a "all or nothing" fashion. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
-    for (int j = 0; j < numids; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[j+startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
+    for (int j = 0; j < args.numids; j++) {
+        if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
     int first_entry = 0;
     int deleted = 0;
-    addReplyArrayLen(c, numids);
-    for (int j = 0; j < numids; j++) {
+    addReplyArrayLen(c, args.numids);
+    for (int j = 0; j < args.numids; j++) {
         int code = -2;
         streamID *id = &ids[j];
         unsigned char buf[sizeof(streamID)];
@@ -3158,11 +3175,11 @@ void xackdelCommand(client *c) {
             streamFreeNACKAndUnrefCG(s, nack, buf);
             server.dirty++;
 
-            if ((delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
+            if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
                 /* Skip deletion if still referenced by other groups */
                 code = 2;
                 goto reply;
-            } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
+            } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
                 streamEntryUnrefAllCG(s, id);
             }
 
@@ -3177,7 +3194,7 @@ void xackdelCommand(client *c) {
                     s->max_deleted_entry_id = *id;
                 }
                 deleted++;
-                code = (delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
+                code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
             } else {
                 code = -2; /* Item not found in stream */
             }
@@ -3924,84 +3941,39 @@ cleanup:
  * - DELREF: Remove messages and clean up all consumer group references
  * - ACKED: Only remove messages that have no pending consumers */
 void xdelexCommand(client *c) {
-    int delete_strategy = DELETE_STRATEGY_NONE;
-    int startidx = -1;  /* Starting index of IDs in argv */
-    long numids = 0;    /* Number of IDs to process */
-
+    streamAckDelArgs args;
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
 
     /* Parse command options */
-    int j = 2;
-    while (j < c->argc) {
-        char *opt = c->argv[j]->ptr;
-        if (!strcasecmp(opt, "KEEPREF") && delete_strategy == DELETE_STRATEGY_NONE) {
-            delete_strategy = DELETE_STRATEGY_KEEPREF;
-            j++;
-        } else if (!strcasecmp(opt, "DELREF") && delete_strategy == DELETE_STRATEGY_NONE) {
-            delete_strategy = DELETE_STRATEGY_DELREF;
-            j++;
-        } else if (!strcasecmp(opt, "ACKED") && delete_strategy == DELETE_STRATEGY_NONE) {
-            delete_strategy = DELETE_STRATEGY_ACKED;
-            j++;
-        } else if (!strcasecmp(opt, "IDS") && j+1 < c->argc) {
-            /* Parse the number of IDs */
-            if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, LONG_MAX,
-                &numids, "Number of IDs must be a positive integer") != C_OK) {
-                return;
-            }
-
-            /* Verify that the specified number of IDs matches the actual arguments */
-            if (numids > (c->argc - j - 2)) {
-                addReplyError(c, "The `numids` parameter must match the number of arguments");
-                return;
-            }
-            
-            startidx = j + 2;  /* Skip "IDS" and numids */
-            j = startidx + numids;
-        } else {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-        }
-    }
-
-    /* Ensure a delete strategy was specified */
-    if (delete_strategy == DELETE_STRATEGY_NONE) {
-        addReplyErrorFormat(c,"syntax error, %s must be called with a trimming strategy",c->cmd->fullname);
-        return;
-    }
-
-    if (startidx == -1) {
-        addReplyError(c,"IDS option is required");
-        return;
-    }
+    if (!streamParseAckDelArgsOrReply(c, 2, &args)) return;
 
     /* We need to sanity check the IDs passed to start. Even if not
      * a big issue, it is not great that the command is only partially
      * executed because at some point an invalid ID is parsed. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
-    if (numids > STREAMID_STATIC_VECTOR_LEN)
-        ids = zmalloc(sizeof(streamID)*numids);
-    for (int j = 0; j < numids; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[j+startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
+    if (args.numids > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*args.numids);
+    for (int j = 0; j < args.numids; j++) {
+        if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
     int first_entry = 0;
     int deleted = 0;
-    addReplyArrayLen(c, numids);
-    for (int j = 0; j < numids; j++) {
+    addReplyArrayLen(c, args.numids);
+    for (int j = 0; j < args.numids; j++) {
         int code = -2;
         streamID *id = &ids[j];
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
 
-        if ((delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
+        if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
             /* Skip deletion if still referenced by other groups */
             code = 2;
             goto reply;
-        } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
+        } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
             streamEntryUnrefAllCG(s, id);
         }
 
@@ -4016,7 +3988,7 @@ void xdelexCommand(client *c) {
                 s->max_deleted_entry_id = *id;
             }
             deleted++;
-            code = (delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
+            code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
         } else {
             code = -2; /* Item not found in stream */
         }

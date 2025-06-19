@@ -1,7 +1,7 @@
 {
     "XACKDEL": {
         "summary": "Acknowledges and deletes one or multiple messages for a stream consumer group.",
-        "complexity": "O(1) for ach message ID processed.",
+        "complexity": "O(1) for each message ID processed.",
         "group": "stream",
         "since": "8.2.0",
         "arity": -6,
