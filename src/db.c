@@ -2607,6 +2607,7 @@ keyStatus expireIfNeededWithKV(redisDb *db, kvobj *kv, int flags) {
     sds keyname = kvobjGetKey(kv);
     robj *keyobj = createStringObject(keyname,sdslen(keyname));
     deleteExpiredKeyAndPropagate(db,keyobj);
+    decrRefCount(keyobj);
     return KEY_DELETED;
 }
 
