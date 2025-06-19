@@ -1202,6 +1202,12 @@ proc format_command {args} {
 
 # Returns whether or not the system supports stack traces
 proc system_backtrace_supported {} {
+    # Thread sanitizer reports backtrace_symbols_fd() as
+    # signal-unsafe since it allocates memory
+    if {$::tsan} {
+        return 0
+    }
+
     set system_name [string tolower [exec uname -s]]
     if {$system_name eq {darwin}} {
         return 1

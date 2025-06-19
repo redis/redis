@@ -231,6 +231,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::tsan && [lsearch $tags "tsan:skip"] >= 0} {
+        set err "Not supported under thread sanitizer"
+        return 0
+    }
+
     if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
         set err "Not supported in tls mode"
         return 0
@@ -294,7 +299,12 @@ proc spawn_server {config_file stdout stderr args} {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 MSAN_OPTIONS=allocator_may_return_null=1 {*}$cmd >> $stdout 2>> $stderr &]
+        set env [list \
+            "ASAN_OPTIONS=allocator_may_return_null=1" \
+            "MSAN_OPTIONS=allocator_may_return_null=1" \
+            "TSAN_OPTIONS=allocator_may_return_null=1,detect_deadlocks=0,suppressions=src/tsan.sup" \
+        ]
+        set pid [exec /usr/bin/env {*}$env {*}$cmd >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {

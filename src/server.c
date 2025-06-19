@@ -108,6 +108,12 @@ static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg) 
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
 
+static inline int shouldShutdownAsap(void) {
+    int shutdown_asap;
+    atomicGet(server.shutdown_asap, shutdown_asap);
+    return shutdown_asap;
+}
+
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
 void serverLogRaw(int level, const char *msg) {
@@ -257,11 +263,19 @@ mstime_t commandTimeSnapshot(void) {
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is
- * used in order to obtain the right coverage information. */
-void exitFromChild(int retcode) {
+ * used in order to obtain the right coverage information. 
+ * There is a caveat for when we exit due to a signal.
+ * In this case we want the function to be async signal safe, so we can't use exit()
+ */
+void exitFromChild(int retcode, int from_signal) {
 #ifdef COVERAGE_TEST
-    exit(retcode);
+    if (!from_signal) {
+        exit(retcode);
+    } else {
+        _exit(retcode);
+    }
 #else
+    UNUSED(from_signal);
     _exit(retcode);
 #endif
 }
@@ -1476,11 +1490,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We received a SIGTERM or SIGINT, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
-    if (server.shutdown_asap && !isShutdownInitiated()) {
+    if (shouldShutdownAsap() && !isShutdownInitiated()) {
         int shutdownFlags = SHUTDOWN_NOFLAGS;
-        if (server.last_sig_received == SIGINT && server.shutdown_on_sigint)
+        int last_sig_received;
+        atomicGet(server.last_sig_received, last_sig_received);
+        if (last_sig_received == SIGINT && server.shutdown_on_sigint)
             shutdownFlags = server.shutdown_on_sigint;
-        else if (server.last_sig_received == SIGTERM && server.shutdown_on_sigterm)
+        else if (last_sig_received == SIGTERM && server.shutdown_on_sigterm)
             shutdownFlags = server.shutdown_on_sigterm;
 
         if (prepareForShutdown(shutdownFlags) == C_OK) exit(0);
@@ -1722,11 +1738,11 @@ void whileBlockedCron(void) {
 
     /* We received a SIGTERM during loading, shutting down here in a safe way,
      * as it isn't ok doing so inside the signal handler. */
-    if (server.shutdown_asap && server.loading) {
+    if (shouldShutdownAsap() && server.loading) {
         if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
-        server.shutdown_asap = 0;
-        server.last_sig_received = 0;
+        atomicSet(server.shutdown_asap, 0);
+        atomicSet(server.last_sig_received, 0);
     }
 }
 
@@ -2729,6 +2745,8 @@ void resetServerStats(void) {
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
     server.stat_cluster_incompatible_ops = 0;
+    server.stat_total_prefetch_batches = 0;
+    server.stat_total_prefetch_entries = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
@@ -4013,13 +4031,11 @@ int commandCheckExistence(client *c, sds *err) {
 
 /* Check if c->argc is valid for c->cmd, fills `err` with details in case it isn't.
  * Return 1 if valid. */
-int commandCheckArity(client *c, sds *err) {
-    if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
-        (c->argc < -c->cmd->arity))
-    {
+int commandCheckArity(struct redisCommand *cmd, int argc, sds *err) {
+    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         if (err) {
             *err = sdsnew(NULL);
-            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", c->cmd->fullname);
+            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", cmd->fullname);
         }
         return 0;
     }
@@ -4112,7 +4128,7 @@ int processCommand(client *c) {
             rejectCommandSds(c, err);
             return C_OK;
         }
-        if (!commandCheckArity(c, &err)) {
+        if (!commandCheckArity(c->cmd, c->argc, &err)) {
             rejectCommandSds(c, err);
             return C_OK;
         }
@@ -4608,10 +4624,10 @@ int isReadyToShutdown(void) {
 }
 
 static void cancelShutdown(void) {
-    server.shutdown_asap = 0;
+    atomicSet(server.shutdown_asap, 0);
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
-    server.last_sig_received = 0;
+    atomicSet(server.last_sig_received, 0);
     replyToClientsBlockedOnShutdown();
     unpauseActions(PAUSE_DURING_SHUTDOWN);
 }
@@ -4620,10 +4636,10 @@ static void cancelShutdown(void) {
 int abortShutdown(void) {
     if (isShutdownInitiated()) {
         cancelShutdown();
-    } else if (server.shutdown_asap) {
+    } else if (shouldShutdownAsap()) {
         /* Signal handler has requested shutdown, but it hasn't been initiated
          * yet. Just clear the flag. */
-        server.shutdown_asap = 0;
+        atomicSet(server.shutdown_asap, 0);
     } else {
         /* Shutdown neither initiated nor requested. */
         return C_ERR;
@@ -6207,6 +6223,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n", stat_total_writes_processed,
             "io_threaded_reads_processed:%lld\r\n", stat_io_reads_processed,
             "io_threaded_writes_processed:%lld\r\n", stat_io_writes_processed,
+            "io_threaded_total_prefetch_batches:%lld\r\n", server.stat_total_prefetch_batches,
+            "io_threaded_total_prefetch_entries:%lld\r\n", server.stat_total_prefetch_entries,
             "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
             "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
             "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,
@@ -6764,7 +6782,7 @@ static void sigShutdownHandler(int sig) {
      * If we receive the signal the second time, we interpret this as
      * the user really wanting to quit ASAP without waiting to persist
      * on disk and without waiting for lagging replicas. */
-    if (server.shutdown_asap && sig == SIGINT) {
+    if (shouldShutdownAsap() && sig == SIGINT) {
         serverLogRawFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
@@ -6773,8 +6791,8 @@ static void sigShutdownHandler(int sig) {
     }
 
     serverLogRawFromHandler(LL_WARNING, msg);
-    server.shutdown_asap = 1;
-    server.last_sig_received = sig;
+    atomicSet(server.shutdown_asap, 1);
+    atomicSet(server.last_sig_received, sig);
 }
 
 void setupSignalHandlers(void) {
@@ -6797,7 +6815,10 @@ static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
     serverLogRawFromHandler(level, "Received SIGUSR1 in child, exiting now.");
-    exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
+    /* We don't want to perform any IO in the child when the parent is terminating us.
+     * We don't know what our stack trace is, it is possible that we were called during an IO operation
+     * If we were to do another IO operation, we might end up in a deadlock */
+    exitFromChild(SERVER_CHILD_NOERROR_RETVAL, 1);
 }
 
 void setupChildSignalHandlers(void) {

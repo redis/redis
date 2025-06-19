@@ -641,7 +641,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip tsan:skip"}} {
     set replica [srv 0 client]
     set replica_pid  [srv 0 pid]
 
