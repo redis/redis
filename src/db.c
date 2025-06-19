@@ -2258,22 +2258,23 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* No expire was set and still isn't */
         if (when == -1) return kv;
 
-        uint64_t hexpire = EB_EXPIRE_TIME_INVALID;
-        /* If hash with HFEs, take care to remove from global HFE DS before attempting
-         * to manipulate and maybe free kv object */
-        if (kv->type == OBJ_HASH)
-            hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
+        /* If not reserved space in kvobj for expiry */
+        if  (!kv->expirable) {
+            uint64_t hexpire = EB_EXPIRE_TIME_INVALID;
 
-        kvobj *kvnew;
-        if (!kv->expirable) {
-            kvnew = kvobjSet(kvobjGetKey(kv), kv, 1);
-            kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
-            kv = kvnew;
-        }
+            /* If hash with HFEs, take care to remove from global HFE DS before 
+             * attempting realloc kv object */
+            if (kv->type == OBJ_HASH)
+                hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
+
+            /* reallocate kvobj to make it expirable and store it in keyspace */
+            kv = kvobjSet(kvobjGetKey(kv), kv, 1);
+            kvstoreDictSetAtLink(db->keys, slot, kv, &keyLink, 0);
+
+            if (hexpire != EB_EXPIRE_TIME_INVALID)
+                hashTypeAddToExpires(db, kv, hexpire);
+        }        
         estoreAdd(db->expiresNew, kv, slot, when);
-        
-        if (hexpire != EB_EXPIRE_TIME_INVALID)
-            hashTypeAddToExpires(db, kv, hexpire);
     }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;

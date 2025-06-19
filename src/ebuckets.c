@@ -1447,7 +1447,6 @@ int ebAddToRax(ebuckets *eb, EbucketsType *type, eItem item, uint64_t bucketKeyI
         metaItem->firstItemBucket = 1;
         metaItem->numItems = 1;
         metaItem->next = firstSegHdr;
-        bucketKey2RaxKey(bucketKeyItem, raxKey, type);
         raxInsert(rax, raxKey, type->ebp.keySize, firstSegHdr, NULL);
         raxStop(&iter);
         return 0;

@@ -96,11 +96,19 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
         }
         return;
     }
+    
+    if (found) {
+        /* mark key already exists and provide its `link` (to save lookup) */ 
+        setkey_flags |= SETKEY_ALREADY_EXIST;
+        /* if flagged to keep expiration time */
+        setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
 
-    /* When expire is not NULL, we avoid deleting the TTL so it can be updated later instead of being deleted and then created again. */
-    setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
-    setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
-    setkey_flags |= expire ? SETKEY_HAS_EXPIRE : 0;
+    } else {
+        /* mark key doesn't exists and provide `link` to insert (to save lookup) */
+        setkey_flags |= SETKEY_DOESNT_EXIST;
+        /* Indicates whether to reserve space in new kvobj */
+        setkey_flags |= (expire) ? SETKEY_HAS_EXPIRE : 0;
+    }
 
     setKeyByLink(c, c->db, key, valref, setkey_flags, &link);
     /* If there's an expiration, setExpireByLink may reallocate the object.
