@@ -11,6 +11,7 @@
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
+
 proc log_file_matches {log pattern} {
     set fp [open $log r]
     set content [read $fp]
