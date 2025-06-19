@@ -47,6 +47,7 @@
             {
                 "name": "condition",
                 "type": "oneof",
+                "optional": true,
                 "arguments": [
                     {
                         "name": "keepref",
@@ -90,19 +91,19 @@
             "items": {
                 "oneOf": [
                     {
-                        "description": "The id does not exist.",
+                        "description": "The id does not exist in the provided stream key.",
                         "const": -2
                     },
                     {
-                        "description": "Specified NX | XX | GT | LT condition not met",
+                        "description": "Entry was deleted from the stream, but existing consumer group references were preserved.",
                         "const": 0
                     },
                     {
-                        "description": "Expiration time was set or updated.",
+                        "description": "Entry was deleted from the stream, and all consumer group references were cleaned up.",
                         "const": 1
                     },
                     {
-                        "description": "Field deleted because the specified expiration time is in the past.",
+                        "description": "Entry was not deleted because it's still being referenced by other consumer groups.",
                         "const": 2
                     }
                 ]

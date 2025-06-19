@@ -1,6 +1,6 @@
 {
     "XDELEX": {
-        "summary": "Returns the number of messages after removing them from a stream. The command can be used to remove entries from the stream based on the PEL or the ACKED status.",
+        "summary": "Deletes one or multiple entries from the stream.",
         "complexity": "O(1) for each single item to delete in the stream, regardless of the stream size.",
         "group": "stream",
         "since": "8.2.0",
@@ -42,6 +42,7 @@
             {
                 "name": "condition",
                 "type": "oneof",
+                "optional": true,
                 "arguments": [
                     {
                         "name": "keepref",
@@ -78,9 +79,30 @@
             }
         ],
         "reply_schema": {
-            "description": "The number of entries actually deleted",
-            "type": "integer",
-            "minimum": 0
+            "description": "Array of results. Returns empty array if the key does not exist.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "The id does not exist in the provided stream key.",
+                        "const": -2
+                    },
+                    {
+                        "description": "Entry was acknowledged and deleted from the stream, but existing consumer group references were preserved.",
+                        "const": 0
+                    },
+                    {
+                        "description": "Entry was acknowledged and deleted from the stream, and all consumer group references were cleaned up.",
+                        "const": 1
+                    },
+                    {
+                        "description": "Entry was acknowledged but not deleted because it's still being referenced by other consumer groups.",
+                        "const": 2
+                    }
+                ]
+            }
         }
     }
 }
