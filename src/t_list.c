@@ -399,7 +399,7 @@ int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len,
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         return quicklistCompare(&entry->entry,o->ptr,object_len,cached_longval,cached_valid);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
-        return lpCompare(entry->lpe,o->ptr,object_len);
+        return lpCompare(entry->lpe,o->ptr,object_len,cached_longval,cached_valid);
     } else {
         serverPanic("Unknown list encoding");
     }
