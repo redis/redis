@@ -546,6 +546,21 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_size * $ptr_size]
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
     }
+
+    test {memory: used_memory_peak_time is updated when used_memory_peak is updated} {
+        r flushall
+
+        # Add a large string to trigger memory peak tracking
+        set time_before_add_large_str [clock seconds]
+        r set large_str [string repeat "a" 1000000]
+        assert {[s used_memory_peak_time] >= $time_before_add_large_str}
+        set peak_value [s used_memory_peak]
+
+        r del large_str
+        # Add a small string, which cannot exceed the previous peak value
+        r set small_str [string repeat "a" 1000]
+        assert {[s used_memory_peak] == $peak_value}
+    }
 }
 
 start_cluster 1 0 {tags {external:skip cluster}} {

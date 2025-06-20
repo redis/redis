@@ -1266,6 +1266,8 @@ typedef struct {
     long sampled; /* cumulative number of keys sampled */
     int no_values; /* set to 1 means to return keys only */
     size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
+    sds typename; /* typename string, NULL means no type filter */
+    redisDb *db;  /* database reference for expiration checks */
 } scanData;
 
 /* Helper function to compare key type in scan commands */
@@ -1300,10 +1302,24 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
 
     if (!o) { /* If scanning keyspace */
         kvobj *kv = dictGetKV(de);
-        /* scan filter an element if it isn't the type we want. */
-        /* TODO: uncomment in redis 8.0
-        if (data->type != LLONG_MAX)
-            if (!objectTypeCompare(kv, data->type)) return;*/
+
+        /* Expiration check first - only for database keyspace scanning */
+        robj kobj;
+        sds keyname = kvobjGetKey(kv);
+        initStaticStringObject(kobj, keyname);
+        if (expireIfNeeded(data->db, &kobj, kv, 0) != KEY_VALID)
+            return;
+
+        /* Type filtering - only for database keyspace scanning */
+        if (data->typename) {
+            /* For unknown types (LLONG_MAX), skip all keys */
+            if (data->type == LLONG_MAX)
+                return;
+            /* For known types, skip keys that don't match */
+            if (!objectTypeCompare(kv, data->type))
+                return;
+        }
+
         keyStr = kvobjGetKey(kv);
     } else {
         keyStr = dictGetKey(de);
@@ -1535,6 +1551,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .sampled = 0,
             .no_values = no_values,
             .strlen = (isKeysHfield) ? hfieldlen : sdslen,
+            .typename = typename,
+            .db = c->db,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
@@ -1692,31 +1710,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter the expired keys */
-    if (o == NULL && listLength(keys)) {
-        robj kobj;
-        listIter li;
-        listNode *ln;
-        listRewind(keys, &li);
-        while ((ln = listNext(&li))) {
-            sds key = listNodeValue(ln);
-            initStaticStringObject(kobj, key);
-            /* Filter an element if it isn't the type we want. */
-            /* TODO: remove this in redis 8.0 */
-            if (typename) {
-                kvobj* kv = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
-                if (!kv || !objectTypeCompare(kv, type)) {
-                    listDelNode(keys, ln);
-                }
-                continue;
-            }
-            if (expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
-                listDelNode(keys, ln);
-            }
-        }
-    }
-
-    /* Step 4: Reply to the client. */
+    /* Step 3: Reply to the client. */
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 

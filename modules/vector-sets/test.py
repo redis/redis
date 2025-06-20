@@ -28,7 +28,10 @@ def colored(text: str, color: str) -> str:
     colors = {
         'red': '\033[91m',
         'green': '\033[92m',
-        'yellow': '\033[93m'
+        'yellow': '\033[93m',
+        'blue': '\033[94m',
+        'magenta': '\033[95m',
+        'cyan': '\033[96m',
     }
     reset = '\033[0m'
     return f"{colors.get(color, '')}{text}{reset}"
@@ -93,10 +96,10 @@ class TestCase:
         self.error_details = None
         self.test_key = f"test:{self.__class__.__name__.lower()}"
         # Primary Redis instance
-        self.redis = redis.Redis(port=primary_port)
-        self.redis3 = redis.Redis(port=primary_port,protocol=3)
+        self.redis = redis.Redis(port=primary_port,db=9)
+        self.redis3 = redis.Redis(port=primary_port,protocol=3,db=9)
         # Replica Redis instance
-        self.replica = redis.Redis(port=replica_port)
+        self.replica = redis.Redis(port=replica_port,db=9)
         # Replication status
         self.replication_setup = False
         # Ports
@@ -118,7 +121,7 @@ class TestCase:
         self.replica.execute_command('REPLICAOF', '127.0.0.1', self.primary_port)
 
         # Wait for replication to be established
-        max_attempts = 10
+        max_attempts = 50
         for attempt in range(max_attempts):
             # Check replication info
             repl_info = self.replica.info('replication')
@@ -133,6 +136,7 @@ class TestCase:
                 return True
 
             # Wait before next attempt
+            print(colored(".",'cyan'),end="",flush=True)
             time.sleep(0.5)
 
         # If we get here, replication wasn't established
@@ -183,12 +187,7 @@ def find_test_classes(primary_port, replica_port):
                 for name, obj in inspect.getmembers(module):
                     if inspect.isclass(obj) and obj.__name__ != 'TestCase' and hasattr(obj, 'test'):
                         # Create test instance with specified ports
-                        test_instance = obj()
-                        test_instance.redis = redis.Redis(port=primary_port)
-                        test_instance.redis3 = redis.Redis(port=primary_port,protocol=3)
-                        test_instance.replica = redis.Redis(port=replica_port)
-                        test_instance.primary_port = primary_port
-                        test_instance.replica_port = replica_port
+                        test_instance = obj(primary_port,replica_port)
                         test_classes.append(test_instance)
             except Exception as e:
                 print(f"Error loading {file}: {e}")
@@ -200,7 +199,7 @@ def check_redis_empty(r, instance_name):
     try:
         dbsize = r.dbsize()
         if dbsize > 0:
-            print(colored(f"ERROR: {instance_name} Redis instance is not empty (dbsize: {dbsize}).", "red"))
+            print(colored(f"ERROR: {instance_name} Redis instance DB 9 is not empty (dbsize: {dbsize}).", "red"))
             print(colored("Make sure you're not using a production instance and that all data is safe to delete.", "red"))
             sys.exit(1)
     except redis.exceptions.ConnectionError:
@@ -215,7 +214,7 @@ def check_replica_running(replica_port):
         return True
     except redis.exceptions.ConnectionError:
         print(colored(f"WARNING: Replica Redis instance (port {replica_port}) is not running.", "yellow"))
-        print(colored("Replication tests will fail. Make sure to start the replica instance.", "yellow"))
+        print(colored("Replication tests will be skipped. Make sure to start the replica instance.", "yellow"))
         return False
 
 def run_tests():
@@ -233,8 +232,8 @@ def run_tests():
     print("================================================\n")
 
     # Check if Redis instances are empty
-    primary = redis.Redis(port=args.primary_port)
-    replica = redis.Redis(port=args.replica_port)
+    primary = redis.Redis(port=args.primary_port,db=9)
+    replica = redis.Redis(port=args.replica_port,db=9)
 
     check_redis_empty(primary, "Primary")
 
@@ -252,11 +251,17 @@ def run_tests():
     tests.sort(key=lambda t: t.estimated_runtime())
 
     passed = 0
+    skipped = 0
     total = len(tests)
 
     for test in tests:
         print(f"{test.getname()}: ", end="")
         sys.stdout.flush()
+
+        if not replica_running and test.getname().lower().find("replication") != -1:
+            print(colored("SKIPPING","yellow"))
+            skipped += 1
+            continue
 
         start_time = time.time()
         success = test.run()
@@ -276,9 +281,12 @@ def run_tests():
     print(f"\nTest Summary: {passed}/{total} tests passed")
 
     if passed == total:
-        print(colored("\nALL TESTS PASSED!", "green"))
+        print(colored("ALL TESTS PASSED!", "green"))
     else:
-        print(colored(f"\n{total-passed} TESTS FAILED!", "red"))
+        if total-skipped-passed > 0:
+            print(colored(f"{total-skipped-passed} TESTS FAILED!", "red"))
+        if skipped > 0:
+            print(colored(f"{skipped} TESTS SKIPPED!", "yellow"))
 
 if __name__ == "__main__":
     run_tests()
