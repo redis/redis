@@ -2000,7 +2000,6 @@ static int _ql_verify_alloc_size(quicklist *ql) {
         node = node->next;
     }
 
-    alloc_size += sizeof(quicklistBookmark) * ql->bookmark_count;
     for (unsigned i = 0; i < ql->bookmark_count; i++) {
         alloc_size += zmalloc_size(ql->bookmarks[i].name);
     }
