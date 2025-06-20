@@ -749,17 +749,19 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
         /* Check if we can remove the whole node. */
         int remove_node;
-        streamID master_id = {0}; /* For MINID */
+        streamID master_id = {0};
         /* Read the master ID from the radix tree key. */
         streamDecodeID(ri.key, &master_id);
-        if (delete_strategy == DELETE_STRATEGY_ACKED) {
+        if (delete_strategy != DELETE_STRATEGY_KEEPREF) {
+            /* With ACKED or DELREF strategy, we can't remove the whole node directly.
+             * For ACKED, we need to check each entry individually to see if it's
+             * referenced by any consumer group before deletion.
+             * For DELREF, we need to clean up all existing consumer group references
+             * for each entry before deleting it. */
             remove_node = 0;
         } if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             remove_node = s->length - entries >= maxlen;
         } else {
-            /* Read the master ID from the radix tree key. */
-            streamDecodeID(ri.key, &master_id);
-
             /* Read last ID. */
             streamID last_id = {0,0};
             lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
@@ -811,7 +813,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             int64_t seq_delta = lpGetInteger(p);
             p = lpNext(lp, p); /* Skip ID seq delta */
 
-            streamID currid = {0}; /* For MINID */
+            streamID currid = {0};
             currid.ms = master_id.ms + ms_delta;
             currid.seq = master_id.seq + seq_delta;
 
