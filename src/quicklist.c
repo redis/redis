@@ -1512,7 +1512,7 @@ quicklist *quicklistDup(quicklist *orig) {
     for (quicklistNode *current = orig->head; current;
          current = current->next) {
         quicklistNode *node = quicklistCreateNode(&copy->alloc_size);
-        size_t entry_size;
+        size_t entry_size = 0;
 
         if (current->encoding == QUICKLIST_NODE_ENCODING_LZF) {
             quicklistLZF *lzf = (quicklistLZF *)current->entry;
