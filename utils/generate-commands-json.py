@@ -2,9 +2,9 @@
 import argparse
 import json
 import os
+import sys
 import subprocess
 from collections import OrderedDict
-import sys
 
 
 def convert_flags_to_boolean_dict(flags):
