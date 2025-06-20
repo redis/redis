@@ -556,6 +556,12 @@ int redis_check_aof_main(int argc, char **argv) {
         goto invalid_args;
     }
 
+    /* Check if filepath is longer than PATH_MAX */
+    if (strlen(filepath) > PATH_MAX) {
+        printf("Error: filepath is too long (exceeds PATH_MAX)\n");
+        goto invalid_args;
+    }
+
     /* In the glibc implementation dirname may modify their argument. */
     memcpy(temp_filepath, filepath, strlen(filepath) + 1);
     dirpath = dirname(temp_filepath);

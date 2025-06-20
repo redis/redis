@@ -6499,7 +6499,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
             reply = callReplyCreateError(err, ctx);
         goto cleanup;
     }
-    if (!commandCheckArity(c, error_as_call_replies? &err : NULL)) {
+    if (!commandCheckArity(c->cmd, c->argc, error_as_call_replies? &err : NULL)) {
         errno = EINVAL;
         if (error_as_call_replies)
             reply = callReplyCreateError(err, ctx);

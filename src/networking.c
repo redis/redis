@@ -2877,6 +2877,11 @@ int processInputBuffer(client *c) {
             if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
                 c->io_flags |= CLIENT_IO_PENDING_COMMAND;
                 c->iolookedcmd = lookupCommand(c->argv, c->argc);
+                if (c->iolookedcmd && !commandCheckArity(c->iolookedcmd, c->argc, NULL)) {
+                    /* The command was found, but the arity is invalid, reset it and let main
+                     * thread handle. To avoid memory prefetching on an invalid command. */
+                    c->iolookedcmd = NULL;
+                }
                 c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
                 enqueuePendingClientsToMainThread(c, 0);
                 break;
