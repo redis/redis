@@ -910,7 +910,8 @@ int64_t streamTrimByLength(stream *s, long long maxlen, int approx) {
         .trim_strategy = TRIM_STRATEGY_MAXLEN,
         .approx_trim = approx,
         .limit = approx ? 100 * server.stream_node_max_entries : 0,
-        .maxlen = maxlen
+        .maxlen = maxlen,
+        .delete_strategy = DELETE_STRATEGY_KEEPREF
     };
     return streamTrim(s, &args);
 }
@@ -921,7 +922,8 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx) {
         .trim_strategy = TRIM_STRATEGY_MINID,
         .approx_trim = approx,
         .limit = approx ? 100 * server.stream_node_max_entries : 0,
-        .minid = minid
+        .minid = minid,
+        .delete_strategy = DELETE_STRATEGY_KEEPREF
     };
     return streamTrim(s, &args);
 }
