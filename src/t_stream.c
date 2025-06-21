@@ -1083,7 +1083,7 @@ static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelAr
     /* Initialize arguments to defaults */
     memset(args, 0, sizeof(*args));
     args->startidx = -1;
-    args->delete_strategy = DELETE_STRATEGY_KEEPREF; /* Default delete stragery. */
+    args->delete_strategy = DELETE_STRATEGY_NONE; /* Default delete stragery. */
 
     /* Parse command options */
     int j = start_pos;
@@ -1122,6 +1122,11 @@ static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelAr
     if (args->startidx == -1) {
         addReplyError(c, "IDS option is required");
         return 0;
+    }
+
+    /* Set default consumer group reference handling to KEEPREF if none was specified */
+    if (args->delete_strategy == DELETE_STRATEGY_NONE) {
+        args->delete_strategy = DELETE_STRATEGY_KEEPREF;
     }
 
     return 1;
