@@ -39,8 +39,8 @@ void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
-int streamEntryIsReferenced(stream *s, streamID *id);
-void streamEntryUnrefAllCG(stream *s, streamID *id);
+int streamEntryIsCGReferenced(stream *s, streamID *id);
+void streamEntryRemoveAllCGReferences(stream *s, streamID *id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -846,11 +846,11 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                     break;
                 case DELETE_STRATEGY_ACKED:
                     /* Only delete entry that has been acknowledged by all consumer groups. */
-                    can_delete = (streamEntryIsReferenced(s, &currid) == 0);
+                    can_delete = (streamEntryIsCGReferenced(s, &currid) == 0);
                     break;
                 case DELETE_STRATEGY_DELREF:
                     /* Remove all consumer group references for this entry */
-                    streamEntryUnrefAllCG(s, &currid);
+                    streamEntryRemoveAllCGReferences(s, &currid);
                     break;
                 default:
                     serverPanic("Unknown delete strategy");
@@ -1083,7 +1083,7 @@ static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelAr
     /* Initialize arguments to defaults */
     memset(args, 0, sizeof(*args));
     args->startidx = -1;
-    args->delete_strategy = DELETE_STRATEGY_NONE;
+    args->delete_strategy = DELETE_STRATEGY_KEEPREF; /* Default delete stragery. */
 
     /* Parse command options */
     int j = start_pos;
@@ -1117,12 +1117,6 @@ static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelAr
             addReplyErrorObject(c,shared.syntaxerr);
             return 0;
         }
-    }
-
-    /* Ensure a delete strategy was specified */
-    if (args->delete_strategy == DELETE_STRATEGY_NONE) {
-        addReplyErrorFormat(c,"syntax error, %s must be called with a trimming strategy",c->cmd->fullname);
-        return 0;
     }
 
     if (args->startidx == -1) {
@@ -2581,7 +2575,7 @@ cleanup: /* Cleanup. */
 /* Add a consumer group to the list of groups that are processing a given stream entry.
  * Returns a pointer to the list node, so that it can be used for future deletion.
  * The entry_cgroups_index maps stream IDs to lists of consumer groups. */
-listNode *streamEntryRefCG(stream *s, streamCG *cg, unsigned char *key) {
+listNode *streamEntryAddCGRef(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
 
     if (!s->entry_cgroups_index)
@@ -2601,7 +2595,7 @@ listNode *streamEntryRefCG(stream *s, streamCG *cg, unsigned char *key) {
 /* Remove a consumer group reference from the entry index for a specific stream ID.
  * This is called when a message is acknowledged or when a consumer group is deleted.
  * If this was the last reference, the list is removed from the index. */
-void streamEntryUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
+void streamEntryRemoveCGReference(stream *s, streamNACK *na, unsigned char *key) {
     list *cglist;
     if (!s->entry_cgroups_index) return;
     if (raxFind(s->entry_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
@@ -2616,7 +2610,7 @@ void streamEntryUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
 }
 
 /* Remove all consumer group references to a specific stream message. */
-void streamEntryUnrefAllCG(stream *s, streamID *id) {
+void streamEntryRemoveAllCGReferences(stream *s, streamID *id) {
     if (!s->entry_cgroups_index) return;
     list *cglist;
     listIter li;
@@ -2647,7 +2641,7 @@ void streamEntryUnrefAllCG(stream *s, streamID *id) {
 
 /* Check if a stream item is still referenced by any consumer group.
  * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
-int streamEntryIsReferenced(stream *s, streamID *id) {
+int streamEntryIsCGReferenced(stream *s, streamID *id) {
     if (!s->entry_cgroups_index) return 0;
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
@@ -2662,7 +2656,7 @@ streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamCG *cg, 
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
-    nack->cg_node = streamEntryRefCG(s, cg, key);
+    nack->cg_node = streamEntryAddCGRef(s, cg, key);
     return nack;
 }
 
@@ -2674,7 +2668,7 @@ void streamFreeNACK(streamNACK *na) {
 /* Free a NACK entry and remove its reference from the entry_cgroups_index.
  * This ensures proper cleanup of the consumer group list associated with the message ID. */
 void streamFreeNACKAndUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
-    streamEntryUnrefCG(s, na, key);
+    streamEntryRemoveCGReference(s, na, key);
     zfree(na);
 }
 
@@ -2733,7 +2727,7 @@ void streamUnrefAndFreeCG(stream *s, streamCG *cg) {
     raxSeek(&it, "^", NULL, 0);
     while(raxNext(&it)) {
         streamNACK *nack = it.data;
-        streamEntryUnrefCG(s, nack, it.key);
+        streamEntryRemoveCGReference(s, nack, it.key);
     }
     raxStop(&it);
     streamFreeCG(cg);
@@ -3176,12 +3170,12 @@ void xackdelCommand(client *c) {
             streamFreeNACKAndUnrefCG(s, nack, buf);
             server.dirty++;
 
-            if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
+            if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsCGReferenced(s, id)) {
                 /* Skip deletion if still referenced by other groups */
                 code = XACKDEL_STILL_REFERENCED;
                 goto reply;
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
-                streamEntryUnrefAllCG(s, id);
+                streamEntryRemoveAllCGReferences(s, id);
             }
 
             if (streamDeleteItem(s,id)) {
@@ -3971,12 +3965,12 @@ void xdelexCommand(client *c) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
 
-        if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
+        if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsCGReferenced(s, id)) {
             /* Skip deletion if still referenced by other consumer groups */
             code = 2;
             goto reply;
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
-            streamEntryUnrefAllCG(s, id);
+            streamEntryRemoveAllCGReferences(s, id);
         }
 
         if (streamDeleteItem(s,id)) {
