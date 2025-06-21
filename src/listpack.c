@@ -3278,7 +3278,7 @@ int listpackTest(int argc, char *argv[], int flags) {
             for (int i = 0; i < 2000; i++) {
                 unsigned char *eptr = lpSeek(lp,0);
                 while (eptr != NULL) {
-                    lpCompare(eptr, (unsigned char*)"99999", 5,NULL,NULL);
+                    lpCompare(eptr, (unsigned char*)"99999", 5, NULL, NULL);
                     eptr = lpNext(lp,eptr);
                 }
             }
