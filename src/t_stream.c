@@ -657,11 +657,6 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
     return C_OK;
 }
 
-#define DELETE_STRATEGY_NONE 0
-#define DELETE_STRATEGY_KEEPREF 1   /* Delete and keep references */
-#define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
-#define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
-
 typedef struct {
     /* XADD options */
     streamID id; /* User-provided ID, for XADD only. */
@@ -696,6 +691,11 @@ typedef struct {
     /* Consumer group reference handling options */
     int delete_strategy; /* DELETE_STRATEGY_* */
 } streamAckDelArgs;
+
+#define DELETE_STRATEGY_NONE 0
+#define DELETE_STRATEGY_KEEPREF 1   /* Delete and keep references */
+#define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
+#define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
 
 /* Trim the stream 's' according to args->trim_strategy, and return the
  * number of elements removed from the stream. The 'approx' option, if non-zero,
@@ -841,28 +841,20 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
             /* Check consumer group references before marking as deleted */
             int can_delete = 1;
-            if (delete_strategy != DELETE_STRATEGY_NONE) {
-                int is_referenced = streamEntryIsReferenced(s, &currid);
-
-                if (is_referenced) {
-                    switch (delete_strategy) {
-                        case DELETE_STRATEGY_KEEPREF:
-                            can_delete = 1;
-                            break;
-                        case DELETE_STRATEGY_ACKED:
-                            /* Skip deletion for referenced messages */
-                            can_delete = 0;
-                            break;
-                        case DELETE_STRATEGY_DELREF:
-                            /* Remove all consumer group references for this entry */
-                            streamEntryUnrefAllCG(s, &currid);
-                            break;
-                        default:
-                            /* Should not happen, but be safe */
-                            can_delete = 0;
-                            break;
-                    }
-                }
+            switch (delete_strategy) {
+                case DELETE_STRATEGY_KEEPREF:
+                    break;
+                case DELETE_STRATEGY_ACKED:
+                    /* Only delete entry that has been acknowledged by all consumer groups. */
+                    can_delete = (streamEntryIsReferenced(s, &currid) == 0);
+                    break;
+                case DELETE_STRATEGY_DELREF:
+                    /* Remove all consumer group references for this entry */
+                    streamEntryUnrefAllCG(s, &currid);
+                    break;
+                default:
+                    serverPanic("Unknown delete strategy");
+                    break;
             }
 
             /* Mark the entry as deleted if allowed */
@@ -3116,6 +3108,14 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
+/* Used by xackdelCommand() */
+typedef enum XAckDelRes {
+    XACKDEL_NO_ID = -2,           /* ID not found in PEL. */
+    XACKDEL_DELETED_KEEPREF = 0,  /* Message acknowledged and deleted. */
+    XACKDEL_DELETED_DELREF = 1,   /* Message acknowledged, deleted, and references cleaned. */
+    XACKDEL_STILL_REFERENCED = 2, /* Message acknowledged but not deleted (still referenced). */
+} XAckDelRes;
+
 /* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
  * Acknowledges messages as processed and deletes them from the stream.
  * 
@@ -3125,7 +3125,6 @@ cleanup:
  * 
  * Return value is the number of messages successfully acknowledged. */
 void xackdelCommand(client *c) {
-    streamAckDelArgs args;
     stream *s = NULL;
     streamCG *group = NULL;
     kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
@@ -3142,6 +3141,7 @@ void xackdelCommand(client *c) {
     }
 
     /* Parse command options */
+    streamAckDelArgs args;
     if (!streamParseAckDelArgsOrReply(c, 3, &args)) return;
 
     /* Start parsing the IDs, so that we abort ASAP if there is a syntax
@@ -3158,7 +3158,7 @@ void xackdelCommand(client *c) {
     int deleted = 0;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
-        int code = -2;
+        int code = XACKDEL_NO_ID;
         streamID *id = &ids[j];
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
@@ -3176,7 +3176,7 @@ void xackdelCommand(client *c) {
 
             if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
                 /* Skip deletion if still referenced by other groups */
-                code = 2;
+                code = XACKDEL_STILL_REFERENCED;
                 goto reply;
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
                 streamEntryUnrefAllCG(s, id);
@@ -3193,10 +3193,11 @@ void xackdelCommand(client *c) {
                     s->max_deleted_entry_id = *id;
                 }
                 deleted++;
-                code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
-            } else {
-                code = -2; /* Item not found in stream */
-            }
+            } 
+            
+            /* Even if the entry doesn't exist, we still consider it to have been deleted. */
+            code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
+               XACKDEL_DELETED_DELREF: XACKDEL_DELETED_KEEPREF;
         }
 reply:
         addReplyLongLong(c, code);
@@ -3940,12 +3941,12 @@ cleanup:
  * - DELREF: Remove messages and clean up all consumer group references
  * - ACKED: Only remove messages that have no pending consumers */
 void xdelexCommand(client *c) {
-    streamAckDelArgs args;
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
 
     /* Parse command options */
+    streamAckDelArgs args;
     if (!streamParseAckDelArgsOrReply(c, 2, &args)) return;
 
     /* We need to sanity check the IDs passed to start. Even if not
@@ -3969,7 +3970,7 @@ void xdelexCommand(client *c) {
         streamEncodeID(buf,id);
 
         if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsReferenced(s, id)) {
-            /* Skip deletion if still referenced by other groups */
+            /* Skip deletion if still referenced by other consumer groups */
             code = 2;
             goto reply;
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {

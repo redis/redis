@@ -1500,4 +1500,103 @@ start_server {
             assert_equal [r xinfo groups mystream] $grpinfo
         }
     }
+
+    start_server {} {
+        test "XACKDEL wrong number of args" {
+            assert_error {*wrong number of arguments for 'xackdel' command} {r XACKDEL}
+            assert_error {*wrong number of arguments for 'xackdel' command} {r XACKDEL s}
+            assert_error {*wrong number of arguments for 'xackdel' command} {r XACKDEL s g}
+        }
+
+        test "XACKDEL IDS parameter validation" {
+            r DEL s
+            r XADD s 1-0 f v
+            r XGROUP CREATE s g 0
+
+            # Test invalid numids
+            assert_error {*Number of IDs must be a positive integer*} {r XACKDEL s g IDS abc 1-1}
+            assert_error {*Number of IDs must be a positive integer*} {r XACKDEL s g IDS 0 1-1}
+            assert_error {*Number of IDs must be a positive integer*} {r XACKDEL s g IDS -5 1-1}
+
+            # Test whether numids is euqal to the number of IDs provided
+            assert_error {*The `numids` parameter must match the number of arguments*} {r XACKDEL s g IDS 3 1-1 2-2}
+            assert_error {*syntax error*} {r XACKDEL s g IDS 1 1-1 2-2}
+        }
+
+        test "XACKDEL KEEPREF/DELREF/ACKED parameter validation" {
+            # Test mutually exclusive options
+            assert_error {*syntax error*} {r XACKDEL s g KEEPREF DELREF IDS 1 1-1}
+            assert_error {*syntax error*} {r XACKDEL s g KEEPREF ACKED IDS 1 1-1}
+            assert_error {*syntax error*} {r XACKDEL s g DELREF ACKED IDS 1 1-1}
+        }
+
+        test "XACKDEL with DELREF option acknowledges will remove entry from all PELs" {
+            r DEL mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+
+            # Create two consumer groups
+            r XGROUP CREATE mystream group1 0
+            r XGROUP CREATE mystream group2 0
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
+
+            # Verify the message was removed from both groups' PELs when with DELREF
+            assert_equal {1 1} [r XACKDEL mystream group1 DELREF IDS 2 1-0 2-0]
+            assert_equal 0 [r XLEN mystream] 
+            assert_equal {0 {} {} {}} [r XPENDING mystream group1]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
+            assert_equal {-2 -2} [r XACKDEL mystream group2 DELREF IDS 2 1-0 2-0]
+        }
+
+        test "XACKDEL with ACKED option only deletes messages acknowledged by all groups" {
+            r DEL mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+
+            # Create two consumer groups
+            r XGROUP CREATE mystream group1 0
+            r XGROUP CREATE mystream group2 0
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
+
+            # The messageis referenced by two groups.
+            # Even after one of them is ack, it still can't be deleted.
+            assert_equal {2 2} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
+            assert_equal 2 [r XLEN mystream]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group1]
+            assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
+
+            # When these messages are dereferenced by all groups, they can be deleted.
+            assert_equal {0 0} [r XACKDEL mystream group2 ACKED IDS 2 1-0 2-0]
+            assert_equal 0 [r XLEN mystream]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group1]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group2]
+        }
+
+        test "XACKDEL with KEEPREF" {
+            r DEL mystream
+            r XADD mystream 1-0 f v
+            r XADD mystream 2-0 f v
+
+            # Create two consumer groups
+            r XGROUP CREATE mystream group1 0
+            r XGROUP CREATE mystream group2 0
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
+
+            # Test XACKDEL with KEEPREF
+            # XACKDEL only deletes the message from the stream
+            # but does not clean up references in consumer groups' PELs
+            assert_equal {0 0} [r XACKDEL mystream group1 KEEPREF IDS 2 1-0 2-0]
+            assert_equal 0 [r XLEN mystream]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group1]
+            assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
+
+            # Acknowledge remaining messages in group2
+            assert_equal {0 0} [r XACKDEL mystream group2 KEEPREF IDS 2 1-0 2-0]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group1]
+            assert_equal {0 {} {} {}} [r XPENDING mystream group2]
+        }
+    }
 }
