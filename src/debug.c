@@ -498,6 +498,8 @@ void debugCommand(client *c) {
 "    Output SHA and content of all scripts or of a specific script with its SHA.",
 "MARK-INTERNAL-CLIENT [UNMARK]",
 "    Promote the current connection to an internal connection.",
+"REPL-FORCE-FULLSYNC",
+"    Force a full-sync between this server and its master or replica.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1097,6 +1099,18 @@ NULL
             addReplySubcommandSyntaxError(c);
             return;
         }
+    } else if (!strcasecmp(c->argv[1]->ptr,"force-full-sync") && c->argc == 2) {
+        int ret = 0;
+        if (server.masterhost) {
+            ret = replicationForceFullSyncReplica();
+        } else {
+            ret = replicationForceFullSyncMaster();
+        }
+        if (!ret) {
+            addReplyError(c, "Failed to force full sync (either master without replicas or replica without a connected master)");
+            return;
+        }
+        addReply(c, shared.ok);
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
         return;

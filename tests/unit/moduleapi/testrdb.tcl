@@ -158,15 +158,8 @@ tags "modules" {
                         set loglines [lindex $res 1]
                         if {![string match "*Internal error in RDB*" $log_text]} {
                             # force the replica to try another full sync
-                            $master multi
-                            $master client kill type replica
-                            $master set asdf asdf
-                            # fill replication backlog with new content
-                            $master config set repl-backlog-size 16384
-                            for {set keyid 0} {$keyid < 10} {incr keyid} {
-                                $master set "$keyid string_$keyid" [string repeat A 16384]
-                            }
-                            $master exec
+                            wait_for_sync $replica
+                            $master debug force-full-sync
                         }
 
                         # wait for loading to stop (fail)
