@@ -765,6 +765,8 @@ test {diskless loading short read} {
                     r set "$k string_$i" [string repeat A [expr {int(rand()*1000000)}]]
                     r hset "$k hash_small" [string repeat A [expr {int(rand()*10)}]]  0[string repeat A [expr {int(rand()*10)}]]
                     r hset "$k hash_large" [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
+                    r hsetex "$k hfe_small" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10)}]] 0[string repeat A [expr {int(rand()*10)}]]
+                    r hsetex "$k hfe_large" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
                     r sadd "$k set_small" [string repeat A [expr {int(rand()*10)}]]
                     r sadd "$k set_large" [string repeat A [expr {int(rand()*1000000)}]]
                     r zadd "$k zset_small" [expr {rand()}] [string repeat A [expr {int(rand()*10)}]]
