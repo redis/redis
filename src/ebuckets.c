@@ -1012,8 +1012,19 @@ static int ebAddToBucket(EbucketsType *type,
 
     if (bucketKey == itemKey) {
         /* New item has the same bucket-key as the ones in this bucket, Add it as well */
-        if (mHead->numItems < EB_SEG_MAX_ITEMS)
-            return ebSegAddAvail(type, firstSegBkt, item); /* Add item to first segment */
+        if (mHead->numItems < EB_SEG_MAX_ITEMS) {
+            /* Add item to the head of the segment (Don't sort. All with same expiry) */
+            mItem->next = firstSegBkt->head;
+            mItem->firstItemBucket = 1;
+            mItem->numItems = mHead->numItems + 1;
+            /* Modify previous head to be the second item */
+            mHead->firstItemBucket = 0;
+            mHead->numItems = 0;
+            /* Update firstSegHdr */
+            firstSegBkt->totalItems++;
+            firstSegBkt->head = item;
+            return 0;
+        }
         else  {
             /* If a regular segment becomes extended-segment, then update the
              * bucket-key to be aligned with the expiration-time of the items
@@ -1434,7 +1445,7 @@ int ebAddToRax(ebuckets *eb, EbucketsType *type, eItem item, uint64_t bucketKeyI
     *ebRaxNumItems(rax) += 1;
     /* If expireTime of the item is below the bucket-key of first bucket in rax,
      * then need to add it as a new bucket at the beginning of the rax. */
-    if(raxNext(&iter) == 0) {
+    if(unlikely(raxNext(&iter) == 0)) {
         FirstSegHdr *firstSegHdr = zmalloc(sizeof(FirstSegHdr));
         firstSegHdr->head = item;
         firstSegHdr->totalItems = 1;
