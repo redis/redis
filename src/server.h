@@ -3636,11 +3636,11 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 
-#define SETKEY_KEEPTTL 1
+#define SETKEY_KEEPTTL 1        /* Keep the TTL associated with the key */
 #define SETKEY_NO_SIGNAL 2
 #define SETKEY_ALREADY_EXIST 4
 #define SETKEY_DOESNT_EXIST 8
-#define SETKEY_HAS_EXPIRE 16
+#define SETKEY_HAS_EXPIRE 16    /* Reserve space in new kvobj for later expiry */
 
 void setKey(client *c, redisDb *db, robj *key, robj **ioval, int flags);
 void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, dictEntryLink *link);

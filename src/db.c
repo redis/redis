@@ -415,9 +415,15 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
  *   replacement (in which case we need to emit deletion signals), or just an
  *   update of a value of an existing key (when false).
  * - The `link` is optional, can save lookup, if provided.
+ * 
+ * Arguments:
+ * 
+ * flags - Either SETKEY_KEEPTTL, SETKEY_HAS_EXPIRE or NONE. 
  */
 static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link, 
-                       int overwrite, int updateKeySizes, int keepTTL) {
+                       int overwrite, int updateKeySizes, int flags)
+{
+    debugServerAssert(flags == (flags & (SETKEY_KEEPTTL|SETKEY_HAS_EXPIRE)));
     robj *val = *valref;
     int slot = getKeySlot(key->ptr);
     if (!link) {
@@ -468,15 +474,17 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         /* Replace the old value at its location in the key space. */
         val->lru = old->lru;
         /* Update expire reference if needed */
-        long long expire = getExpire(db, key->ptr, old);
-        kvNew = kvobjSet(key->ptr, val, keepTTL ? expire : -1);
+        long long oldExpiry = getExpire(db, key->ptr, old);
+        int keepTTL = (oldExpiry >= 0) && (flags & SETKEY_KEEPTTL);
+        int hasExpire = flags & SETKEY_HAS_EXPIRE;
+        kvNew = kvobjSet(key->ptr, val, hasExpire || keepTTL);
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* Replace the old value at its location in the expire space. */
-        if (expire >= 0) {
+        if (oldExpiry >= 0) {
             estoreRemove(db->expiresNew, slot, old);
             if (keepTTL)
-                estoreAdd(db->expiresNew, kvNew, slot, expire);
+                estoreAdd(db->expiresNew, kvNew, slot, oldExpiry);
         }
     }
 
@@ -510,7 +518,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
 /* Replace an existing key with a new value, we just replace value and don't
  * emit any events */
 void dbReplaceValue(redisDb *db, robj *key, robj **valref, int updateKeySizes) {
-    dbSetValue(db, key, valref, NULL, 0, updateKeySizes, 1);
+    dbSetValue(db, key, valref, NULL, 0, updateKeySizes, SETKEY_KEEPTTL);
 }
 
 /* Replace an existing key with a new value (don't emit any events)
@@ -518,7 +526,7 @@ void dbReplaceValue(redisDb *db, robj *key, robj **valref, int updateKeySizes) {
  * parameter 'link' is optional. If provided, saves lookup.
  */
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link) {
-    dbSetValue(db, key, val, link, 0, 1, 1);
+    dbSetValue(db, key, val, link, 0, 1, SETKEY_KEEPTTL);
 }
 
 /* High level Set operation. This function can be used in order to set
@@ -565,7 +573,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
 
     if (exists) {
         /* Update the value of an existing key */
-        dbSetValue(db, key, valref, *link, 1, 1, flags & SETKEY_KEEPTTL);
+        dbSetValue(db, key, valref, *link, 1, 1, flags);
     } else {
         /* Add the new key to the database */
         dbAddByLink(db, key, valref, link,  (flags & SETKEY_HAS_EXPIRE) ? 1 : 0);
@@ -859,6 +867,7 @@ void discardTempDb(redisDb *tempDb) {
         /* Destroy global HFE DS before deleting the hashes since ebuckets DS is
          * embedded in the stored objects. */
         ebDestroy(&tempDb[i].hexpires, &hashExpireBucketsType, NULL);
+        /* Must release expiration store before releasing kvstore */
         estoreRelease(tempDb[i].expiresNew);
         kvstoreRelease(tempDb[i].keys);
     }
@@ -2242,6 +2251,7 @@ kvobj *setExpire(client *c, redisDb *db, robj *key, long long when) {
 
 /* Like setExpire(), but accepts an optional `keyLink` to save lookup */
 kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntryLink keyLink) {
+    debugServerAssert(when >= 0);
     /* Reuse the sds from the main dict in the expire dict */
     int slot = getKeySlot(key);
     if (!keyLink) {
@@ -2253,10 +2263,8 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
 
     if (old_when != -1) { /* old expire */
         estoreRemove(db->expiresNew, slot, kv);
-        estoreAdd(db->expiresNew, kv, slot, when);
+
     } else { /* No old expire */
-        /* No expire was set and still isn't */
-        if (when == -1) return kv;
 
         /* If not reserved space in kvobj for expiry */
         if  (!kv->expirable) {
@@ -2273,9 +2281,10 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
 
             if (hexpire != EB_EXPIRE_TIME_INVALID)
                 hashTypeAddToExpires(db, kv, hexpire);
-        }        
-        estoreAdd(db->expiresNew, kv, slot, when);
+        }
     }
+
+    estoreAdd(db->expiresNew, kv, slot, when);
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;
     if (c && writable_slave && !(c->flags & CLIENT_MASTER))
