@@ -26,13 +26,14 @@ void lazyfreeFreeDatabase(void *args[]) {
     estore *oldExpiresNew = args[1];
     ebuckets oldHfe = args[2];
     
-
     /* Destroy the hash field expiration store */
     ebDestroy(&oldHfe, &hashExpireBucketsType, NULL);
 
+    /* Must release expiration store before releasing kvstore */ 
+    estoreRelease(oldExpiresNew);
+    
     size_t numkeys = kvstoreSize(da1);
     kvstoreRelease(da1);
-    estoreRelease(oldExpiresNew);
     atomicDecr(lazyfree_objects,numkeys);
     atomicIncr(lazyfreed_objects,numkeys);
 
