@@ -793,4 +793,31 @@ tags {"aof external:skip"} {
             wait_for_log_messages 0 {"*AOF was not loaded because the size*"} 0 10 1000
         }
     }
-# }
+    # Create base and incr files
+    create_aof $aof_dirpath $aof_base_file {
+        append_to_aof [formatCommand set foo base]
+    }
+
+    # Create first incr AOF (not last)
+    set mid_aof_file $aof_dirpath/appendonly.aof.1
+    create_aof $aof_dirpath $mid_aof_file {
+        append_to_aof [formatCommand set foo mid]
+        append_to_aof "CORRUPTION"
+    }
+
+    # Create second incr AOF (last and correct)
+    set last_aof_file $aof_dirpath/appendonly.aof.2
+    create_aof $aof_dirpath $last_aof_file {
+        append_to_aof [formatCommand set foo last]
+    }
+
+    # Start Redis with broken intermediate file
+    start_server_aof_ex [list dir $server_path aof-load-broken yes] [list wait_ready false] {
+        test "Intermediate AOF is broken: should load last and recover" {
+            wait_for_log_messages 0 {
+                {*AOF loaded anyway because aof-load-broken is enabled*}
+                {*Fatal error: the truncated file is not the last file*}
+            } 0 10 1000
+        }
+    }
+}
