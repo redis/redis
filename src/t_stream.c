@@ -40,7 +40,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 int streamEntryIsCGReferenced(stream *s, streamID *id);
-void streamEntryRemoveAllCGReferences(stream *s, streamID *id);
+void streamRemoveAllCGReferences(stream *s, streamID *id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -850,7 +850,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                     break;
                 case DELETE_STRATEGY_DELREF:
                     /* Remove all consumer group references for this entry */
-                    streamEntryRemoveAllCGReferences(s, &currid);
+                    streamRemoveAllCGReferences(s, &currid);
                     break;
                 default:
                     serverPanic("Unknown delete strategy");
@@ -1072,9 +1072,8 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
     }
 
     /* Set default consumer group reference handling to KEEPREF if none was specified */
-    if (args->delete_strategy == DELETE_STRATEGY_NONE) {
+    if (args->delete_strategy == DELETE_STRATEGY_NONE)
         args->delete_strategy = DELETE_STRATEGY_KEEPREF;
-    }
 
     return i;
 }
@@ -1125,9 +1124,8 @@ static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelAr
     }
 
     /* Set default consumer group reference handling to KEEPREF if none was specified */
-    if (args->delete_strategy == DELETE_STRATEGY_NONE) {
+    if (args->delete_strategy == DELETE_STRATEGY_NONE)
         args->delete_strategy = DELETE_STRATEGY_KEEPREF;
-    }
 
     return 1;
 }
@@ -2580,7 +2578,7 @@ cleanup: /* Cleanup. */
 /* Add a consumer group to the list of groups that are processing a given stream entry.
  * Returns a pointer to the list node, so that it can be used for future deletion.
  * The entry_cgroups_index maps stream IDs to lists of consumer groups. */
-listNode *streamEntryAddCGRef(stream *s, streamCG *cg, unsigned char *key) {
+listNode *streamAddCGReference(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
 
     if (!s->entry_cgroups_index)
@@ -2600,7 +2598,7 @@ listNode *streamEntryAddCGRef(stream *s, streamCG *cg, unsigned char *key) {
 /* Remove a consumer group reference from the entry index for a specific stream ID.
  * This is called when a message is acknowledged or when a consumer group is deleted.
  * If this was the last reference, the list is removed from the index. */
-void streamEntryRemoveCGReference(stream *s, streamNACK *na, unsigned char *key) {
+void streamRemoveCGReference(stream *s, streamNACK *na, unsigned char *key) {
     list *cglist;
     if (!s->entry_cgroups_index) return;
     if (raxFind(s->entry_cgroups_index, key, sizeof(streamID), (void**)&cglist)) {
@@ -2615,7 +2613,7 @@ void streamEntryRemoveCGReference(stream *s, streamNACK *na, unsigned char *key)
 }
 
 /* Remove all consumer group references to a specific stream message. */
-void streamEntryRemoveAllCGReferences(stream *s, streamID *id) {
+void streamRemoveAllCGReferences(stream *s, streamID *id) {
     if (!s->entry_cgroups_index) return;
     list *cglist;
     listIter li;
@@ -2661,7 +2659,7 @@ streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamCG *cg, 
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
-    nack->cg_node = streamEntryAddCGRef(s, cg, key);
+    nack->cg_node = streamAddCGReference(s, cg, key);
     return nack;
 }
 
@@ -2672,8 +2670,8 @@ void streamFreeNACK(streamNACK *na) {
 
 /* Free a NACK entry and remove its reference from the entry_cgroups_index.
  * This ensures proper cleanup of the consumer group list associated with the message ID. */
-void streamFreeNACKAndUnrefCG(stream *s, streamNACK *na, unsigned char *key) {
-    streamEntryRemoveCGReference(s, na, key);
+void streamRemoveCGReferenceAndFreeNACK(stream *s, streamNACK *na, unsigned char *key) {
+    streamRemoveCGReference(s, na, key);
     zfree(na);
 }
 
@@ -2724,7 +2722,7 @@ void streamFreeCG(streamCG *cg) {
     zfree(cg);
 }
 
-void streamUnrefAndFreeCG(stream *s, streamCG *cg) {
+void streamRemoveReferenceAndFreeCG(stream *s, streamCG *cg) {
     /* Before removing the consumer group, we need to clean up all references
      * to this group in the entry_cgroups_index */
     raxIterator it;
@@ -2732,7 +2730,7 @@ void streamUnrefAndFreeCG(stream *s, streamCG *cg) {
     raxSeek(&it, "^", NULL, 0);
     while(raxNext(&it)) {
         streamNACK *nack = it.data;
-        streamEntryRemoveCGReference(s, nack, it.key);
+        streamRemoveCGReference(s, nack, it.key);
     }
     raxStop(&it);
     streamFreeCG(cg);
@@ -2793,7 +2791,8 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
     raxSeek(&ri,"^",NULL,0);
     while(raxNext(&ri)) {
         streamNACK *nack = ri.data;
-        streamFreeNACKAndUnrefCG(s, nack, ri.key);
+        streamRemoveCGReference(s, nack, ri.key);
+        streamFreeNACK(nack);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
     }
     raxStop(&ri);
@@ -2944,7 +2943,7 @@ NULL
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
-            streamUnrefAndFreeCG(s, cg);
+            streamRemoveReferenceAndFreeCG(s, cg);
             addReply(c,shared.cone);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
@@ -3099,7 +3098,7 @@ void xackCommand(client *c) {
             streamNACK *nack = result;
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            streamFreeNACKAndUnrefCG(kv->ptr, nack, buf);
+            streamRemoveCGReferenceAndFreeNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
         }
@@ -3172,7 +3171,7 @@ void xackdelCommand(client *c) {
             streamNACK *nack = result;
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-            streamFreeNACKAndUnrefCG(s, nack, buf);
+            streamRemoveCGReferenceAndFreeNACK(s, nack, buf);
             server.dirty++;
 
             if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsCGReferenced(s, id)) {
@@ -3180,7 +3179,7 @@ void xackdelCommand(client *c) {
                 code = XACKDEL_STILL_REFERENCED;
                 goto reply;
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
-                streamEntryRemoveAllCGReferences(s, id);
+                streamRemoveAllCGReferences(s, id);
             }
 
             if (streamDeleteItem(s,id)) {
@@ -3605,7 +3604,7 @@ void xclaimCommand(client *c) {
                 /* Release the NACK */
                 raxRemove(group->pel,buf,sizeof(buf),NULL);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                streamFreeNACKAndUnrefCG(o->ptr, nack, buf);
+                streamRemoveCGReferenceAndFreeNACK(o->ptr, nack, buf);
             }
             continue;
         }
@@ -3794,7 +3793,7 @@ void xautoclaimCommand(client *c) {
             /* Clear this entry from the PEL, it no longer exists */
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
-            streamFreeNACKAndUnrefCG(o->ptr, nack, ri.key);
+            streamRemoveCGReferenceAndFreeNACK(o->ptr, nack, ri.key);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
             raxSeek(&ri,">=",ri.key,ri.key_len);
@@ -3975,7 +3974,7 @@ void xdelexCommand(client *c) {
             code = 2;
             goto reply;
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
-            streamEntryRemoveAllCGReferences(s, id);
+            streamRemoveAllCGReferences(s, id);
         }
 
         if (streamDeleteItem(s,id)) {
