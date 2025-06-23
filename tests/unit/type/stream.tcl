@@ -1099,7 +1099,7 @@ start_server {tags {"stream"}} {
         assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS 0 1-1}
         assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS -5 1-1}
 
-        # Test whether numids is euqal to the number of IDs provided
+        # Test whether numids is equal to the number of IDs provided
         assert_error {*The `numids` parameter must match the number of arguments*} {r XDELEX s IDS 3 1-1 2-2}
         assert_error {*syntax error*} {r XDELEX s IDS 1 1-1 2-2}
     }
@@ -1140,7 +1140,7 @@ start_server {tags {"stream"}} {
         r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
-        # The messageis referenced by two groups.
+        # The message is referenced by two groups.
         # Even after one of them is ack, it still can't be deleted.
         r XACK mystream group1 1-0 2-0
         assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]

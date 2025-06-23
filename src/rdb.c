@@ -2975,15 +2975,15 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream PEL NACK loading failed.");
-                    streamFreeNACK(nack);
                     decrRefCount(o);
+                    streamFreeNACK(nack);
                     return NULL;
                 }
                 if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
-                    streamFreeNACK(nack);
                     decrRefCount(o);
+                    streamFreeNACK(nack);
                     return NULL;
                 }
             }
