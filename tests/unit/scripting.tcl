@@ -1158,6 +1158,27 @@ start_server {tags {"scripting"}} {
         set _ $e
     } {*Attempt to modify a readonly table*}
 
+    test "Try trick readonly table on basic types metatable" {
+        # Run the following scripts for basic types. Either getmetatable()
+        # should return nil or the metatable must be readonly.
+        set scripts {
+            {getmetatable(nil).__index = function() return 1 end}
+            {getmetatable('').__index = function() return 1 end}
+            {getmetatable(123.222).__index = function() return 1 end}
+            {getmetatable(true).__index = function() return 1 end}
+            {getmetatable(function() return 1 end).__index = function() return 1 end}
+            {getmetatable(coroutine.create(function() return 1 end)).__index = function() return 1 end}
+        }
+
+        foreach code $scripts {
+            catch {run_script $code 0} e
+            assert {
+                [string match "*attempt to index a nil value script*" $e] ||
+                [string match "*Attempt to modify a readonly table*" $e]
+            }
+        }
+    }
+
     test "Test loadfile are not available" {
         catch {
             run_script {
@@ -1184,6 +1205,55 @@ start_server {tags {"scripting"}} {
         } e
         set _ $e
     } {*Script attempted to access nonexistent global variable 'print'*}
+}
+
+# Start a new server to test lua-enable-deprecated-api config
+foreach enabled {no yes} {
+start_server [subst {tags {"scripting external:skip"} overrides {lua-enable-deprecated-api $enabled}}] {
+    test "Test setfenv availability lua-enable-deprecated-api=$enabled" {
+        catch {
+            run_script {
+                local f = function() return 1 end
+                setfenv(f, {})
+                return 0
+            } 0
+        } e
+        if {$enabled} {
+            assert_equal $e 0
+        } else {
+            assert_match {*Script attempted to access nonexistent global variable 'setfenv'*} $e
+        }
+    }
+
+    test "Test getfenv availability lua-enable-deprecated-api=$enabled" {
+        catch {
+            run_script {
+                local f = function() return 1 end
+                getfenv(f)
+                return 0
+            } 0
+        } e
+        if {$enabled} {
+            assert_equal $e 0
+        } else {
+            assert_match {*Script attempted to access nonexistent global variable 'getfenv'*} $e
+        }
+    }
+
+    test "Test newproxy availability lua-enable-deprecated-api=$enabled" {
+        catch {
+            run_script {
+                getmetatable(newproxy(true)).__gc = function() return 1 end
+                return 0
+            } 0
+        } e
+        if {$enabled} {
+            assert_equal $e 0
+        } else {
+            assert_match {*Script attempted to access nonexistent global variable 'newproxy'*} $e
+        }
+    }
+}
 }
 
 # Start a new server since the last test in this stanza will kill the
