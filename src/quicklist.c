@@ -1242,17 +1242,46 @@ int quicklistDelRange(quicklist *quicklist, const long start,
     return 1;
 }
 
-/* compare between a two entries */
-int quicklistCompare(quicklistEntry* entry, unsigned char *p2, const size_t p2_len) {
+/* Compare a quicklistEntry with a raw value.
+ *
+ * If the entry stores a string (entry->value != NULL), perform a binary-safe
+ * comparison against p2.
+ *
+ * If the entry stores an integer (entry->value == NULL), lazily convert p2 to
+ * a long long using string2ll() once and cache the result using cached_longval
+ * and cached_valid.
+ *
+ * This optimization avoids repeatedly calling string2ll() in tight loops.
+ * - If cached_valid == NULL: skip caching
+ * - If cached_valid == 0: conversion attempted
+ * - If cached_valid == 1/-1: cached result reused
+ *
+ * Returns 1 if equal, 0 otherwise.
+ */
+int quicklistCompare(quicklistEntry *entry, unsigned char *p2, const size_t p2_len,
+                     long long *cached_longval, int *cached_valid) {
     if (entry->value) {
         return ((entry->sz == p2_len) && (memcmp(entry->value, p2, p2_len) == 0));
     } else {
         /* We use string2ll() to get an integer representation of the
          * string 'p2' and compare it to 'entry->longval', it's much
          * faster than convert integer to string and comparing. */
-        long long sval;
-        if (string2ll((const char*)p2, p2_len, &sval))
-            return entry->longval == sval;
+        if (cached_valid != NULL) {
+            /* Use caching */
+            if (*cached_valid == 0) {
+                if (string2ll((const char *)p2, p2_len, cached_longval)) {
+                    *cached_valid = 1;
+                } else {
+                    *cached_valid = -1;
+                }
+            }
+            return (*cached_valid == 1 && entry->longval == *cached_longval);
+        } else {
+            /* No caching - direct conversion */
+            long long sval;
+            if (string2ll((const char *)p2, p2_len, &sval))
+                return entry->longval == sval;
+        }
     }
     return 0;
 }
@@ -2889,7 +2918,8 @@ int quicklistTest(int argc, char *argv[], int flags) {
                 quicklistEntry entry;
                 int i = 0;
                 while (quicklistNext(iter, &entry)) {
-                    if (quicklistCompare(&entry, (unsigned char *)"bar", 3)) {
+                    if (quicklistCompare(&entry, (unsigned char *)"bar", 3,
+                                         NULL, NULL)) {
                         quicklistDelEntry(iter, &entry);
                     }
                     i++;
@@ -2918,7 +2948,8 @@ int quicklistTest(int argc, char *argv[], int flags) {
                 i = 0;
                 int del = 2;
                 while (quicklistNext(iter, &entry)) {
-                    if (quicklistCompare(&entry, (unsigned char *)"foo", 3)) {
+                    if (quicklistCompare(&entry, (unsigned char *)"foo", 3,
+                                         NULL, NULL)) {
                         quicklistDelEntry(iter, &entry);
                         del--;
                     }
@@ -2965,7 +2996,8 @@ int quicklistTest(int argc, char *argv[], int flags) {
                 quicklistIter *iter = quicklistGetIterator(ql, AL_START_TAIL);
                 int i = 0;
                 while (quicklistNext(iter, &entry)) {
-                    if (quicklistCompare(&entry, (unsigned char *)"hij", 3)) {
+                    if (quicklistCompare(&entry, (unsigned char *)"hij", 3,
+                                         NULL, NULL)) {
                         quicklistDelEntry(iter, &entry);
                     }
                     i++;
@@ -2981,7 +3013,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
                 char *vals[] = {"abc", "def", "jkl", "oop"};
                 while (quicklistNext(iter, &entry)) {
                     if (!quicklistCompare(&entry, (unsigned char *)vals[i],
-                                          3)) {
+                                          3, NULL, NULL)) {
                         ERR("Value at %d didn't match %s\n", i, vals[i]);
                     }
                     i++;
@@ -3264,6 +3296,181 @@ int quicklistTest(int argc, char *argv[], int flags) {
         assert(!quicklistBookmarkFind(ql, "0"));
         assert(!quicklistBookmarkFind(ql, "_test"));
         quicklistRelease(ql);
+    }
+
+    TEST("quicklistCompare cached string2ll optimization") {
+        quicklist *ql = quicklistNew(-2, 0);
+
+        /* Create a list with mixed integer and string entries */
+        quicklistPushTail(ql, "123", 3);    /* integer as string */
+        quicklistPushTail(ql, "456", 3);    /* integer as string */
+        quicklistPushTail(ql, "hello", 5);  /* non-numeric string */
+        quicklistPushTail(ql, "789", 3);    /* integer as string */
+        quicklistPushTail(ql, "world", 5);  /* non-numeric string */
+
+        quicklistEntry entry;
+        quicklistIter *iter;
+
+        /* Test 1: NULL parameters should work without crashing */
+        iter = quicklistGetIterator(ql, AL_START_HEAD);
+        assert(quicklistNext(iter, &entry));
+        assert(quicklistCompare(&entry, (unsigned char *)"123", 3, NULL, NULL) == 1);
+        assert(quicklistCompare(&entry, (unsigned char *)"456", 3, NULL, NULL) == 0);
+        ql_release_iterator(iter);
+
+        /* Test 2: Caching with numeric strings */
+        long long cached_val = 0;
+        int cached_valid = 0;
+
+        /* First comparison should cache the value */
+        iter = quicklistGetIterator(ql, AL_START_HEAD);
+        assert(quicklistNext(iter, &entry)); /* entry = "123" */
+        assert(quicklistCompare(&entry, (unsigned char *)"123", 3, &cached_val, &cached_valid) == 1);
+        assert(cached_valid == 1);  /* Should be cached as valid */
+        assert(cached_val == 123);  /* Should have cached value */
+
+        /* Second comparison with same search string should use cache */
+        assert(quicklistNext(iter, &entry)); /* entry = "456" */
+        assert(quicklistCompare(&entry, (unsigned char *)"123", 3, &cached_val, &cached_valid) == 0);
+        assert(cached_valid == 1);  /* Cache should still be valid */
+        assert(cached_val == 123);  /* Cache value should be unchanged */
+
+        /* Third comparison with same search string should use cache */
+        assert(quicklistNext(iter, &entry)); /* entry = "hello" (string) */
+        assert(quicklistCompare(&entry, (unsigned char *)"123", 3, &cached_val, &cached_valid) == 0);
+        assert(cached_valid == 1);  /* Cache should still be valid */
+        ql_release_iterator(iter);
+
+        /* Test 3: Caching with non-numeric strings */
+        cached_val = 0;
+        cached_valid = 0;
+
+        iter = quicklistGetIterator(ql, AL_START_HEAD);
+        assert(quicklistNext(iter, &entry)); /* entry = "123" */
+        assert(quicklistCompare(&entry, (unsigned char *)"abc", 3, &cached_val, &cached_valid) == 0);
+        assert(cached_valid == -1); /* Should be cached as invalid */
+
+        /* Second comparison with same non-numeric string should use cache */
+        assert(quicklistNext(iter, &entry)); /* entry = "456" */
+        assert(quicklistCompare(&entry, (unsigned char *)"abc", 3, &cached_val, &cached_valid) == 0);
+        assert(cached_valid == -1); /* Cache should still be invalid */
+        ql_release_iterator(iter);
+
+        /* Test 4: String entries should work correctly with both NULL and caching */
+        iter = quicklistGetIterator(ql, AL_START_HEAD);
+        quicklistNext(iter, &entry); /* skip "123" */
+        quicklistNext(iter, &entry); /* skip "456" */
+        assert(quicklistNext(iter, &entry)); /* entry = "hello" */
+
+        /* String comparison with NULL parameters */
+        assert(quicklistCompare(&entry, (unsigned char *)"hello", 5, NULL, NULL) == 1);
+        assert(quicklistCompare(&entry, (unsigned char *)"world", 5, NULL, NULL) == 0);
+
+        /* String comparison with caching parameters (cache not used for strings) */
+        cached_val = 0;
+        cached_valid = 0;
+        assert(quicklistCompare(&entry, (unsigned char *)"hello", 5, &cached_val, &cached_valid) == 1);
+        assert(cached_valid == 0); /* Cache should not be used for string entries */
+        ql_release_iterator(iter);
+
+        /* Test 5: Performance verification - cache should reduce conversions */
+        /* This test demonstrates the optimization by showing cache reuse */
+        cached_val = 0;
+        cached_valid = 0;
+        int comparisons = 0;
+
+        /* Search for "456" across all integer entries */
+        iter = quicklistGetIterator(ql, AL_START_HEAD);
+        while (quicklistNext(iter, &entry)) {
+            if (entry.value == NULL) { /* Only test integer entries */
+                quicklistCompare(&entry, (unsigned char *)"456", 3, &cached_val, &cached_valid);
+                comparisons++;
+            }
+        }
+        ql_release_iterator(iter);
+
+        /* After first comparison, cache should be valid and reused for subsequent ones */
+        assert(cached_valid == 1);
+        assert(cached_val == 456);
+        assert(comparisons >= 2); /* Should have compared against multiple integer entries */
+
+        quicklistRelease(ql);
+    }
+
+    /* Benchmarks for quicklistCompare caching optimization */
+    {
+        printf("\n=== quicklistCompare Caching Benchmarks ===\n");
+
+        /* Create a quicklist with 10K integer elements */
+        quicklist *ql = quicklistNew(-2, 0);
+        char buf[16];
+        for (int i = 1; i <= 10000; i++) {
+            snprintf(buf, sizeof(buf), "%d", i);
+            quicklistPushTail(ql, buf, strlen(buf));
+        }
+        printf("Created quicklist with %lu integer elements\n", ql->count);
+
+        /* Search string that exists in the middle */
+        unsigned char *search_str = (unsigned char *)"5000";
+        size_t search_len = 4;
+        int iterations = accurate ? 50000 : 10000;
+
+        /* Benchmark 1: quicklistCompare WITHOUT caching (NULL parameters) */
+        TEST("Benchmark quicklistCompare without caching") {
+            long long start = ustime();
+            int matches = 0;
+
+            for (int iter = 0; iter < iterations; iter++) {
+                quicklistIter *iter_ptr = quicklistGetIterator(ql, AL_START_HEAD);
+                quicklistEntry entry;
+
+                while (quicklistNext(iter_ptr, &entry)) {
+                    if (entry.value == NULL) { /* Only test integer entries */
+                        if (quicklistCompare(&entry, search_str, search_len, NULL, NULL)) {
+                            matches++;
+                        }
+                    }
+                }
+                ql_release_iterator(iter_ptr);
+            }
+
+            long long elapsed = ustime() - start;
+            printf("Found %d matches in %d iterations\n", matches, iterations);
+            printf("Without caching: %lld usec (%.2f usec per iteration)\n",
+                   elapsed, (double)elapsed / iterations);
+        }
+
+        /* Benchmark 2: quicklistCompare WITH caching */
+        TEST("Benchmark quicklistCompare with caching") {
+            long long start = ustime();
+            int matches = 0;
+
+            for (int iter = 0; iter < iterations; iter++) {
+                /* Reset cache for each iteration to simulate real usage */
+                long long cached_val = 0;
+                int cached_valid = 0;
+
+                quicklistIter *iter_ptr = quicklistGetIterator(ql, AL_START_HEAD);
+                quicklistEntry entry;
+
+                while (quicklistNext(iter_ptr, &entry)) {
+                    if (entry.value == NULL) { /* Only test integer entries */
+                        if (quicklistCompare(&entry, search_str, search_len, &cached_val, &cached_valid)) {
+                            matches++;
+                        }
+                    }
+                }
+                ql_release_iterator(iter_ptr);
+            }
+
+            long long elapsed = ustime() - start;
+            printf("Found %d matches in %d iterations\n", matches, iterations);
+            printf("With caching: %lld usec (%.2f usec per iteration)\n",
+                   elapsed, (double)elapsed / iterations);
+        }
+
+        quicklistRelease(ql);
+        printf("=== End quicklistCompare Benchmarks ===\n\n");
     }
 
     if (flags & REDIS_TEST_LARGE_MEMORY) {
