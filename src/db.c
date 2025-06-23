@@ -768,11 +768,11 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
-            /* Destroy global HFE DS before deleting the hashes since ebuckets
-             * DS is embedded in the stored objects. */
+            /* Destroy global HFE DS & ESTORE before deleting keyspace, since 
+             * those DS is embedded in the keyspace. */
             ebDestroy(&dbarray[j].hexpires, &hashExpireBucketsType, NULL);
-            kvstoreEmpty(dbarray[j].keys, callback);
             estoreEmpty(dbarray[j].expiresNew);
+            kvstoreEmpty(dbarray[j].keys, callback);
         }
         /* Because all keys of database are removed, reset average ttl. */
         dbarray[j].avg_ttl = 0;
