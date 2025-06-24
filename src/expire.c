@@ -931,7 +931,8 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
     when += basetime;
 
     /* No key, return zero. */
-    kvobj *kv = lookupKeyWrite(c->db,key); 
+    dictEntryLink link;
+    kvobj *kv = lookupKeyWriteWithLink(c->db, key, &link);
     if (kv == NULL) {
         addReply(c,shared.czero);
         return;
@@ -996,7 +997,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         addReply(c, shared.cone);
         return;
     } else {
-        kv = setExpire(c,c->db,key,when); /* might realloc kv */
+        kv = setExpireByLink(c,c->db,key->ptr,when, link); /* might realloc kv */
         addReply(c,shared.cone);
         /* Propagate as PEXPIREAT millisecond-timestamp
          * Only rewrite the command arg if not already PEXPIREAT */
