@@ -22,6 +22,7 @@ typedef struct stream {
     uint64_t entries_added; /* All time count of elements added. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
     rax *entry_cgroups_index; /* Index mapping message IDs to their consumer groups. */
+    struct streamCG *cgroups_sorted_list; /* Sorted linked list of consumer groups by last_id */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
@@ -71,6 +72,7 @@ typedef struct streamCG {
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
+    struct streamCG *prev, *next; /* Sorted Linked list pointers */
 } streamCG;
 
 /* A specific consumer in a consumer group.  */

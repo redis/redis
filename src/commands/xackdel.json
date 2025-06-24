@@ -103,7 +103,7 @@
                         "const": 1
                     },
                     {
-                        "description": "Entry was not deleted because it's still being referenced by other consumer groups.",
+                        "description": "Entry was not deleted because it wasn't read and acknowledged by all consumer groups yet.",
                         "const": 2
                     }
                 ]

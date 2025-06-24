@@ -41,6 +41,10 @@ int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missin
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 int streamEntryIsCGReferenced(stream *s, streamID *id);
 void streamRemoveAllCGReferences(stream *s, streamID *id);
+void streamAddCGToSortedList(stream *s, streamCG *cg);
+void streamRemoveCGFromSortedList(stream *s, streamCG *cg);
+void streamUpdateCGInSortedList(stream *s, streamCG *cg);
+void streamRemoveAllCGReferences(stream *s, streamID *id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -60,6 +64,7 @@ stream *streamNew(void) {
     s->entries_added = 0;
     s->cgroups = NULL; /* Created on demand to save memory when not used. */
     s->entry_cgroups_index = NULL;
+    s->cgroups_sorted_list = NULL; /* Head of sorted consumer group list */
     return s;
 }
 
@@ -2645,7 +2650,12 @@ void streamRemoveAllCGReferences(stream *s, streamID *id) {
 /* Check if a stream item is still referenced by any consumer group.
  * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
 int streamEntryIsCGReferenced(stream *s, streamID *id) {
-    if (!s->entry_cgroups_index) return 0;
+    if (!s->cgroups_sorted_list) return 0;
+    /* The consume group doesn't read it. */
+    if (streamCompareID(&s->cgroups_sorted_list->last_id, id) < 0)
+        return 1;
+
+    /* Check if the message is in any consumer group's PEL */
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
     return raxFind(s->entry_cgroups_index, buf, sizeof(streamID), NULL);
@@ -2711,6 +2721,9 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->consumers = raxNew();
     cg->last_id = *id;
     cg->entries_read = entries_read;
+    cg->prev = NULL;
+    cg->next = NULL;
+    streamAddCGToSortedList(s, cg);
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
     return cg;
 }
@@ -2936,6 +2949,7 @@ NULL
             return;
         }
         cg->last_id = id;
+        streamUpdateCGInSortedList(s, cg);
         cg->entries_read = entries_read;
         addReply(c,shared.ok);
         server.dirty++;
@@ -2943,6 +2957,7 @@ NULL
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
+            streamRemoveCGFromSortedList(s, cg);
             streamRemoveReferenceAndFreeCG(s, cg);
             addReply(c,shared.cone);
             server.dirty++;
@@ -4483,4 +4498,156 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
         return 0;
 
     return 1;
+}
+
+/* Add a consumer group to the sorted linked list by last_id (ascending order) */
+void streamAddCGToSortedList(stream *s, streamCG *cg) {
+    /* list is empty */
+    if (s->cgroups_sorted_list == NULL) {
+        s->cgroups_sorted_list = cg;
+        cg->prev = cg->next = NULL;
+        return;
+    }
+
+    /* Find the correct position to insert (maintain ascending order by last_id) */
+    streamCG *current = s->cgroups_sorted_list;
+
+    /* Case 1: Insert at the beginning (smallest last_id) */
+    if (streamCompareID(&cg->last_id, &current->last_id) <= 0) {
+        cg->next = s->cgroups_sorted_list;
+        cg->prev = NULL;
+        s->cgroups_sorted_list->prev = cg;
+        s->cgroups_sorted_list = cg;
+        return;
+    }
+
+    /* Case 2: Find position in the middle or at the end */
+    while (current->next && streamCompareID(&cg->last_id, &current->next->last_id) > 0) {
+        current = current->next;
+    }
+
+    /* Insert after current */
+    cg->next = current->next;
+    cg->prev = current;
+    if (current->next)
+        current->next->prev = cg;
+    current->next = cg;
+}
+
+/* Remove a consumer group from the sorted linked list */
+void streamRemoveCGFromSortedList(stream *s, streamCG *cg) {
+    /* Update previous node's next pointer */
+    if (cg->prev) {
+        cg->prev->next = cg->next;
+    } else {
+        /* This was the head */
+        s->cgroups_sorted_list = cg->next;
+    }
+
+    /* Update next node's previous pointer */
+    if (cg->next)
+        cg->next->prev = cg->prev;
+}
+
+/* Update a consumer group's position in the sorted list when last_id changes */
+void streamUpdateCGInSortedList(stream *s, streamCG *cg) {
+    /* Check if the order is still correct */
+    int needs_move_forward = 0;  /* Need to move towards tail (larger last_id) */
+    int needs_move_backward = 0; /* Need to move towards head (smaller last_id) */
+
+    /* Check with previous node - if prev > new, need to move backward */
+    if (cg->prev &&
+        streamCompareID(&cg->prev->last_id, &cg->last_id) > 0) {
+        needs_move_backward = 1;
+    }
+
+    /* Check with next node - if new > next, need to move forward */
+    if (cg->next &&
+        streamCompareID(&cg->last_id, &cg->next->last_id) > 0) {
+        needs_move_forward = 1;
+    }
+
+    /* If position is still correct, we're done */
+    if (!needs_move_forward && !needs_move_backward) return;
+
+    /* First, remove the node from its current position */
+    streamCG *prev = cg->prev;
+    streamCG *next = cg->next;
+
+    /* Update links to bypass current node */
+    if (prev) {
+        prev->next = next;
+    } else {
+        s->cgroups_sorted_list = next;
+    }
+
+    if (next) {
+        next->prev = prev;
+    }
+
+    /* Now find the new position and insert */
+    if (needs_move_backward) {
+        /* Move towards head (smaller last_id) */
+        streamCG *current = prev; /* Start from previous position */
+
+        /* Find the correct position moving backward */
+        while (current && streamCompareID(&current->last_id, &cg->last_id) > 0) {
+            current = current->prev;
+        }
+
+        /* Insert after current (or at head if current is NULL) */
+        if (current == NULL) {
+            /* Insert at head */
+            cg->prev = NULL;
+            cg->next = s->cgroups_sorted_list;
+            if (s->cgroups_sorted_list) {
+                s->cgroups_sorted_list->prev = cg;
+            }
+            s->cgroups_sorted_list = cg;
+        } else {
+            /* Insert after current */
+            cg->prev = current;
+            cg->next = current->next;
+            if (current->next) {
+                current->next->prev = cg;
+            }
+            current->next = cg;
+        }
+    } else {
+        /* Move towards tail (larger last_id) */
+        streamCG *current = next; /* Start from next position */
+
+        /* Find the correct position moving forward */
+        while (current && streamCompareID(&cg->last_id, &current->last_id) > 0) {
+            current = current->next;
+        }
+
+        /* Insert before current (or at tail if current is NULL) */
+        if (current == NULL) {
+            /* Insert at tail - find the current tail first */
+            streamCG *tail = s->cgroups_sorted_list;
+            if (tail) {
+                while (tail->next) {
+                    tail = tail->next;
+                }
+                cg->next = NULL;
+                cg->prev = tail;
+                tail->next = cg;
+            } else {
+                /* List was empty */
+                s->cgroups_sorted_list = cg;
+                cg->prev = cg->next = NULL;
+            }
+        } else {
+            /* Insert before current */
+            cg->next = current;
+            cg->prev = current->prev;
+            if (current->prev) {
+                current->prev->next = cg;
+            } else {
+                s->cgroups_sorted_list = cg;
+            }
+            current->prev = cg;
+        }
+    }
 }
