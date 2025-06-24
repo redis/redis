@@ -970,7 +970,6 @@ void clusterInit(void) {
     server.cluster->failover_auth_epoch = 0;
     server.cluster->cant_failover_reason = CLUSTER_CANT_FAILOVER_NONE;
     server.cluster->lastVoteEpoch = 0;
-    server.cluster->asm_tasks = listCreate();
 
     /* Initialize stats */
     for (int i = 0; i < CLUSTERMSG_TYPE_COUNT; i++) {
@@ -1034,6 +1033,7 @@ void clusterInit(void) {
     clusterUpdateMyselfHumanNodename();
 
     getRandomHexChars(server.cluster->internal_secret, CLUSTER_INTERNALSECRETLEN);
+    clusterCommonInit();
 }
 
 void clusterInitLast(void) {
@@ -6507,4 +6507,53 @@ int clusterAllowFailoverCmd(client *c) {
 
 void clusterPromoteSelfToMaster(void) {
     replicationUnsetMaster();
+}
+
+int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
+    UNUSED(arg);
+
+    sds str = createSlotRangesStr(slot_ranges);
+
+    switch (state) {
+        case ASM_EVENT_IMPORT_STARTED:
+            serverLog(LL_NOTICE, "Import started for slot ranges: %s", str);
+            break;
+        case ASM_EVENT_IMPORT_FAILED:
+            serverLog(LL_NOTICE, "Import failed for slot ranges: %s", str);
+            break;
+        case ASM_EVENT_MIGRATE_WAIT_PAUSE:
+            clusterAsmRequest(slot_ranges, ASM_REQUEST_MIGRATE_PAUSED, NULL, NULL);
+            serverLog(LL_NOTICE, "Import paused for slot ranges: %s", str);
+            break;
+        case ASM_EVENT_IMPORT_WAIT_FINALIZE:
+            serverLog(LL_NOTICE, "Import completed for slot ranges: %s", str);
+
+            for (int i = 0; i < slot_ranges->num_ranges; i++) {
+                slotRange *sr = &slot_ranges->ranges[i];
+                for (int j = sr->start; j <= sr->end; j++) {
+                    server.cluster->slots[j] = myself;
+                    clusterNodeSetSlotBit(myself, j);
+                }
+            }
+            /* New config and Bump new config */
+            clusterBumpConfigEpochWithoutConsensus();
+            clusterBroadcastPong(0);
+            clusterSaveConfigOrDie(1);
+            clusterAsmRequest(slot_ranges, ASM_REQUEST_CONFIG_UPDATED, NULL, NULL);
+            break;
+        case ASM_EVENT_MIGRATE_STARTED:
+            serverLog(LL_NOTICE, "Migration started for slot ranges: %s", str);
+            break;
+        case ASM_EVENT_MIGRATE_FAILED:
+            serverLog(LL_NOTICE, "Migration failed for slot ranges: %s", str);
+            break;
+        case ASM_EVENT_MIGRATE_WAIT_FINALIZE:
+            serverLog(LL_NOTICE, "Migration completed for slot ranges: %s", str);
+            break;
+        default:
+            break;
+    }
+
+    sdsfree(str);
+    return C_OK;
 }

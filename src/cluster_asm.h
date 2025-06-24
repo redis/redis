@@ -13,6 +13,8 @@
 struct asmTask;
 struct asmTaskManager;
 
+void clusterAsmInit(void);
+
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);
 

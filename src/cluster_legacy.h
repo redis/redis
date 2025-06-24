@@ -377,9 +377,6 @@ struct clusterState {
      * stops claiming the slot. This prevents spreading incorrect information (that
      * source still owns the slot) using UPDATE messages. */
     unsigned char owner_not_claiming_slot[CLUSTER_SLOTS / 8];
-
-    /* Atomic slot migration */
-    list *asm_tasks;
 };
 
 

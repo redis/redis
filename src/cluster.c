@@ -17,6 +17,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_asm.h"
 
 #include <ctype.h>
 
@@ -1745,3 +1746,22 @@ void readwriteCommand(client *c) {
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
 }
+
+void clusterCommonInit(void) {
+    clusterAsmInit();
+}
+
+/* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
+sds createSlotRangesStr(slotRangeArray *slot_ranges) {
+    sds s = sdsempty();
+
+    for (int i = 0; i < slot_ranges->num_ranges; i++) {
+        slotRange *sr = &slot_ranges->ranges[i];
+        s = sdscatprintf(s, "%d-%d ", sr->start, sr->end);
+    }
+    sdssetlen(s, sdslen(s) - 1);
+    s[sdslen(s)] = '\0';
+
+    return s;
+}
+

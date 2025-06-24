@@ -64,6 +64,8 @@ typedef int (*clusterNodeTlsPortFunc)(clusterNode *node);
 
 typedef const char *(*clusterGetSecretFunc)(size_t *len);
 
+typedef int (*clusterAsmOnEventFunc)(slotRangeArray *slot_ranges, int event, void *arg);
+
 typedef struct {
     clusterAllowFailoverCmdFunc clusterAllowFailoverCmd;
     clusterGenNodesDescriptionFunc clusterGenNodesDescription;
@@ -110,6 +112,9 @@ typedef struct {
     clusterNodeTcpPortFunc clusterNodeTcpPort;
     clusterNodeTlsPortFunc clusterNodeTlsPort;
     clusterGetSecretFunc clusterGetSecret;
+    clusterAsmOnEventFunc clusterAsmOnEvent;
+
+
 } ClusterPlugin;
 
 void clusterPluginInit(ClusterPlugin *plugin);

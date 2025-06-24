@@ -132,6 +132,7 @@ clusterNode *getNodeBySlot(int slot) {
 }
 
 void clusterInit(void) {
+    clusterCommonInit();
 }
 
 void clusterCron(void) {
@@ -336,3 +337,8 @@ int clusterNodeTlsPort(clusterNode *node) {
 const char *clusterGetSecret(size_t *len) {
     return clusterPlugin->clusterGetSecret(len);
 }
+
+int clusterAsmOnEvent(slotRangeArray *slot_ranges, int event, void *arg) {
+    return clusterPlugin->clusterAsmOnEvent(slot_ranges, event, arg);
+}
+
