@@ -34,6 +34,21 @@ start_server {tags {"expire"}} {
         r expireat x [expr [clock seconds]+15]
         r ttl x
     } {1[345]}
+    
+    test {EXPIREAT - Should store timestamps up to 2^63-1} {
+        # This test also verifies also no issues with the internal 48-bit expiry
+        # time optimization storage of ebuckets
+        for {set i 46} {$i < 62} {incr i} {
+            r pexpireat x [expr (1<<$i)-1]
+            assert_equal [r pexpiretime x] [expr (1<<$i)-1]
+            r pexpireat x [expr (1<<$i)]
+            assert_equal [r pexpiretime x] [expr (1<<$i)]
+            r pexpireat x [expr (1<<$i)+1]
+            assert_equal [r pexpiretime x] [expr (1<<$i)+1]                        
+        }
+        r pexpireat x [expr (1<<63)-1]
+        assert_equal [r pexpiretime x] [expr (1<<63)-1]                               
+    }    
 
     test {SETEX - Set + Expire combo operation. Check for TTL} {
         r setex x 12 test

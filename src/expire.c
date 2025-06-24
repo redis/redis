@@ -108,7 +108,7 @@ void estoreAdd(estore *es, kvobj *kv, int slot, long long when) {
 
 void estoreIncrementalCascade(estore *es, uint64_t now, uint64_t maxCascade) {
     if (!server.cluster_enabled) {
-        ebCascade(es->buckets + 0, es->bucket_type, now, maxCascade);
+        ebStackCascade(es->buckets + 0, es->bucket_type, now, maxCascade);
         return;
     } else {
         assert(0); // TODO_MOTI: Support cluster mode (See:kvstoreIncrementalCascade())

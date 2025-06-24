@@ -258,14 +258,10 @@ ExpireMeta *kvobjGetExpireMeta(const void *kvptr) {
 }
 
 long long kvobjGetExpire(const kvobj *kv) {
-    if (kv->expirable) {
-        uint64_t expireTime = ebGetExpireTime(&estoreBucketsType, (eItem) kv);
-        if (expireTime == EB_EXPIRE_TIME_INVALID)
-            return -1;
-        return (long long) expireTime;
-    } else {
+    if (!kv->expirable)
         return -1;
-    }
+    
+    return ebStackGetExpireTime(&estoreBucketsType, (eItem) kv);
 }
 
 /* This functions may reallocate the value. The new allocation is returned and

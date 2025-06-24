@@ -126,10 +126,12 @@ typedef struct ebVector {
 } ebVector;
 
 typedef struct ebStack {
-    uint64_t items;
-    ebuckets l1;
-    ebuckets l2;
-    ebVector *l3; /*infinity*/
+    /* Hierarchical ebuckets stack */
+    ebuckets l1;          /* LEVEL1: TTL < 2^(ebpStackL2.precision+1) msec */
+    ebuckets l2;          /* LEVEL2: expiration-time < 2^48 msec */
+    ebVector *l3;         /* LEVEL3: expiration-time >= 2^48 msec (infinity) */
+    
+    uint64_t items;       /* Total number of items in the stack */
 } ebStack;
 
 /* Unlike ebuckets level 1 in ebStack, the level 2 precision is not configurable
@@ -147,16 +149,18 @@ const EBucketPrecision ebpStackL2 = {
  * ExpireMeta can only store 48-bit timestamps (sufficient until year 10889), but 
  * L3 items need full 64-bit timestamps for practically infinite expiration times.
  *
- * Key differences from ExpireMeta:
- * - expireIndexLo/Hi: 6-byte index into the infinity vector (replaces expireTimeLo/Hi)
- * - expireTime: Full 8-byte timestamp (replaces the `next` pointer)
- * - Same size and alignment as ExpireMeta for memory compatibility
+ * The struct is aligned with ExpireMeta to allow in-place conversion.
  */
 typedef struct ExpireMetaL3 {
-    uint32_t expireIndexLo;     /* Lo Index in infinity vector */
-    uint16_t expireIndexHi;     /* Hi Index in infinity vector */
+    /* 48 bits of Index into infinity vector (Overlays ExpireMeta.expireTimeLo/Hi) */
+    uint32_t expireIndexLo;
+    uint16_t expireIndexHi;
+    
+    /* Same flags like ExpireMeta (but only `storedIn` is being used) */
     EXPIRE_META_FLAGS
-    uint64_t expireTime;        /* replaces `next` with actual 8 bytes timestamp */
+    
+    /* 8-byte of expiration time (Overlays the `ExpireMeta.next` pointer) */
+    uint64_t expireTime;
 } ExpireMetaL3;
 
 /* Selective declarations from server.h instead of including it */
@@ -227,6 +231,10 @@ static inline eItem ebGetListPtr(EbucketsType *type, ebuckets eb) {
 /* Set the index of the item in the infinity vector (L3) */
 static inline void ebSetMetaL3Index(ExpireMetaL3 *em3, uint64_t idx) { 
     ebSetMetaExpTime( (ExpireMeta *)em3, idx); 
+}
+
+static inline void ebSetMetaL3ExpireTime(ExpireMetaL3 *em3, uint64_t t) { 
+    em3->expireTime = t; 
 }
 
 /* Converts the logical starting time value of a given bucket-key to its equivalent
@@ -1309,9 +1317,6 @@ int ebAddToStack(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTi
 
     /* If ebStack level 3 (infinity) */
     if (unlikely(expireTime > EB_EXPIRE_TIME_MAX)) {
-        // TODO_MOTI: Need to change EB_EXPIRE_TIME_INVALID to be 0 and MAX to be 2^64-1
-        //assert(expireTime <= EB_EXPIRE_TIME_MAX);
-      
         /* init or expand the l3 if needed */
         if (stack->l3 == NULL) {
             stack->l3 = zmalloc(EB_STACK_L3_SIZEOF(2));
@@ -1324,8 +1329,10 @@ int ebAddToStack(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTi
             stack->l3->vecSize = newSize;
         }
 
-        /* Store index of new item in its expireMeta */
+        /* Store expireTime & L3 index of new item in its expireMeta */
         ebSetMetaL3Index(((ExpireMetaL3 *) itemMeta) , stack->l3->items);
+        ebSetMetaL3ExpireTime(((ExpireMetaL3 *) itemMeta), expireTime);
+
         itemMeta->storedIn = EB_STORED_IN_EB_L3;
 
         /* Add item to infinity vector */
@@ -1404,7 +1411,7 @@ static ExpireAction onCascadeItem(eItem item, void *ctx) {
  *
  * @return Number of items cascaded from L2 to L1
  */
-uint64_t ebCascade(ebuckets *eb, EbucketsType *type, uint64_t now, uint64_t maxCascade)
+uint64_t ebStackCascade(ebuckets *eb, EbucketsType *type, uint64_t now, uint64_t maxCascade)
 {
     /* If empty, not ebStack, or L2 is empty, then nothing to cascade */
     if (ebIsEmpty(*eb) || !type->isEbStack || ebIsEmpty(((ebStack *)*eb)->l2))
@@ -1790,6 +1797,14 @@ void ebExpire(ebuckets *eb, EbucketsType *type, ExpireInfo *info) {
  */
 uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
     if (ebIsEmpty(eb)) return 0;
+    
+    if (unlikely(type->isEbStack)) {
+        /* Only items from L1 get expired */
+        ebStack *stack = (ebStack *) eb;
+        uint64_t res = 0;
+        EB_STACK_EXEC_L1(type, res = ebExpireDryRun(stack->l1, type, now));
+        return res;
+    }
 
     uint64_t numExpired = 0;
 
@@ -1891,6 +1906,7 @@ uint64_t ebExpireDryRun(ebuckets eb, EbucketsType *type, uint64_t now) {
  *         bounded).
  */
 uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type) {
+    debugAssert(eb.isEbStack == 0); /* Not required for now */
     if (ebIsEmpty(eb))
         return EB_EXPIRE_TIME_INVALID;
 
@@ -1932,7 +1948,7 @@ uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type) {
     return minExpire;
 }
 
-/* Returns number of items in ebStack level (Level can be either 1, 2 or 3) */
+/* Returns number of items in ebStack level (Used only for testing) */
 uint64_t ebStackItems(ebuckets eb, EbucketsType *type, int level) {
     debugAssert(type->isEbStack);
     uint64_t res = 0;
@@ -2206,19 +2222,41 @@ int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
         return ebDefragRax(eb, type, cursor, defragfns, privdata);
     }
 }
-
-/* Retrieves the expiration time associated with the given item. If associated
- * ExpireMeta is marked as trash, then return EB_EXPIRE_TIME_INVALID */
+/* Gets the item's expiration timestamp. Returns EB_EXPIRE_TIME_INVALID 
+ * if the item's ExpireMeta is marked as trash  */
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
+    debugAssert(type->isEbStack == 0); /* See ebStackGetExpireTime() */
     ExpireMeta *meta = type->getExpireMeta(item);
     
     if (unlikely(meta->storedIn == EB_STORED_IN_TRASH))
         return EB_EXPIRE_TIME_INVALID;
-
-    // TODO_MOTI: Modify EB_EXPIRE_TIME_INVALID from 0x0000FFFFFFFFFFFF to 0x0
-    if (unlikely(meta->storedIn == EB_STORED_IN_EB_L3))
-        return ((uint64_t) ((ExpireMetaL3 *) meta)->expireTime);
     
+    if (unlikely(meta->storedIn == EB_STORED_IN_EB_L3))
+        return ((ExpireMetaL3 *) meta)->expireTime;
+    
+    return ebGetMetaExpTime(meta);
+}
+
+/* Gets the expiration timestamp for an item stored in ebStack.
+ * 
+ * ebStack also extends ebuckets to handle timestamps beyond the standard limit
+ * (timestamps ≥ 2^48 msec are considered "infinite") with L3 vector. 
+ * 
+ * Returns -1 if the item is marked as trash, otherwise returns the actual
+ * expiration time. (can't use here the value EB_EXPIRE_TIME_INVALID!) */
+long long ebStackGetExpireTime(EbucketsType *type, eItem item) {
+    debugAssert(type->isEbStack);
+    
+    ExpireMeta *meta = type->getExpireMeta(item);
+
+    if (unlikely(meta->storedIn == EB_STORED_IN_TRASH))
+        return -1;
+
+    /* L3 */
+    if (unlikely(meta->storedIn == EB_STORED_IN_EB_L3))
+        return ((ExpireMetaL3 *) meta)->expireTime;
+
+    /* L1 or L2 */
     return ebGetMetaExpTime(meta);
 }
 
@@ -2230,6 +2268,7 @@ uint64_t ebGetExpireTime(EbucketsType *type, eItem item) {
  * iter->currItem will be NULL and iter->itemsCurrBucket will be set to 0.
  */
 void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
+    debugAssert(type->isEbStack == 0); /* Not required for now */
     iter->eb = eb;
     iter->type = type;
     iter->isRax = 0;
@@ -2237,8 +2276,6 @@ void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
     if (ebIsEmpty(eb)) {
         iter->currItem = NULL;
         iter->itemsCurrBucket = 0;
-    } else if (type->isEbStack) {
-        assert(0); /* Not implemented (Not needed) */
     } else if (ebIsList(eb)) {
         iter->currItem = ebGetListPtr(type, eb);
         iter->itemsCurrBucket = type->getExpireMeta(iter->currItem)->numItems;
@@ -2262,6 +2299,7 @@ void ebStart(EbucketsIterator *iter, ebuckets eb, EbucketsType *type) {
  *   - 1 otherwise, updating `iter->currItem` to the next item.
  */
 int ebNext(EbucketsIterator *iter) {
+    debugAssert(iter->type->isEbStack == 0); /* Not required for now */
     if (iter->currItem == NULL)
         return 0;
 
@@ -2303,6 +2341,7 @@ int ebNext(EbucketsIterator *iter) {
  *       next ebucket.
  */
 int ebNextBucket(EbucketsIterator *iter) {
+    debugAssert(iter->type->isEbStack == 0); /* Not required for now */
     if (iter->currItem == NULL)
         return 0;
 
@@ -2319,6 +2358,7 @@ int ebNextBucket(EbucketsIterator *iter) {
 
 /* Stop and cleanup the ebuckets iterator */
 void ebStop(EbucketsIterator *iter) {
+    debugAssert(iter->type->isEbStack == 0); /* Not required for now */
     if (iter->isRax)
         raxStop(&iter->raxIter);
 }

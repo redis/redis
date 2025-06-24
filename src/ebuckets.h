@@ -126,17 +126,16 @@
  *
  * level #3 - A plain vector of items with very long expiration times, treated
  *            as practically infinite. This level avoids the overhead of
- *            bucket or rax structures entirely. Since regular ExpireMeta can 
- *            only store 48-bit timestamps (sufficient until year 10889), L3 items
+ *            bucket or rax structures entirely. Since regular ExpireMeta is optimized 
+ *            to store 48-bit timestamps (sufficient until year 10889), L3 items
  *            use `ExpireMetaL3` which replaces the `next` pointer with a full
  *            64-bit timestamp and stores the index (expireIndexLo/Hi) into the 
  *            infinity vector instead of the expiration time in the expireTimeLo/Hi 
- *            fields.            
+ *            fields. See struct ExpireMetaL3 for more details.           
  *
  * It is specifically designed for Redis’s EXPIRE use case, but can be adapted
- * to other use cases. Internally, this multi-level logic is abstracted away from 
- * the ebuckets API. From the user's perspective, ebuckets appear as a single 
- * expiration structure. This hierarchical mode is enabled by setting `isEbStack` 
+ * to other use cases. Internally, this multi-level logic is mostly abstracted away 
+ * from the ebuckets API. This hierarchical mode is enabled by setting `isEbStack` 
  * in the `EbucketsType` structure. Yet, the caller must periodically call 
  * `ebCascade()` to promote items from level 2 to level 1 as their TTL shortens. 
  *
@@ -155,6 +154,7 @@
 #include <sys/types.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include "redisassert.h"
 #include "rax.h"
 
 
@@ -338,7 +338,16 @@ typedef struct {
     ebDefragAllocItemFunction *defragItem;  /* Defrag-realloc eitem */
 } ebDefragFunctions;
 
-/* ebuckets API */
+typedef struct ebucketsStats {
+    uint64_t totalItems;           /* Total number of items */
+    uint64_t totalBuckets;         /* Total number of buckets */
+    uint64_t totalSegments;        /* Total number of segments */
+    uint64_t avgItemsPerBucket;    /* Average number of items per bucket */
+    uint64_t avgItemsPerSegment;   /* Average number of items per segment */
+    uint64_t avgSegPerBucket;      /* Average number of segments per bucket */
+} ebucketsStats;
+
+/* Common API (ebuckets and ebStack) */
 
 static inline ebuckets ebCreate(void) { return NULL; } /* Empty ebuckets */
 
@@ -354,13 +363,19 @@ uint64_t ebGetNextTimeToExpire(ebuckets eb, EbucketsType *type);
 
 uint64_t ebGetTotalItems(ebuckets eb, EbucketsType *type);
 
-/* Item related API */
-
 int ebRemove(ebuckets *eb, EbucketsType *type, eItem item);
 
 int ebAdd(ebuckets *eb, EbucketsType *type, eItem item, uint64_t expireTime);
 
-uint64_t ebCascade(ebuckets *eb, EbucketsType *type, uint64_t now, uint64_t maxCascade);
+
+/* Common statistics API */
+
+void ebGetStats(ebuckets eb, EbucketsType *type, ebucketsStats *stats);
+
+size_t ebGetStatsMsg(char *buf, size_t bufsize, ebucketsStats *stats, int full);
+
+
+/* ebuckets API (cannot be used with ebStack) */
 
 uint64_t ebGetExpireTime(EbucketsType *type, eItem item);
 
@@ -372,34 +387,31 @@ int ebNext(EbucketsIterator *iter);
 
 int ebNextBucket(EbucketsIterator *iter);
 
-int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
-                 ebDefragFunctions *defragfns, void *privdata);
+int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor, // TODO_MOTI: Support ebStack
+                 ebDefragFunctions *defragfns, void *privdata); 
 
-/* Cannot be used with ebStack L3 */
+static inline uint64_t ebGetMetaExpTime(ExpireMeta *expMeta);
+
+static inline void ebSetMetaExpTime(ExpireMeta *expMeta, uint64_t t);
+
+/* ebStack only API */
+
+long long ebStackGetExpireTime(EbucketsType *type, eItem item);
+
+uint64_t ebStackCascade(ebuckets *eb, EbucketsType *type, uint64_t now, uint64_t maxCascade);
+
+/* inline functions */
+
 static inline uint64_t ebGetMetaExpTime(ExpireMeta *expMeta) {
+    debugAssert(expMeta->storedIn != EB_STORED_IN_EB_L3);
     return (((uint64_t)(expMeta)->expireTimeHi << 32) | (expMeta)->expireTimeLo);
 }
 
-/* Cannot be used with ebStack L3 */
 static inline void ebSetMetaExpTime(ExpireMeta *expMeta, uint64_t t) {
+    debugAssert(expMeta->storedIn != EB_STORED_IN_EB_L3);
     expMeta->expireTimeLo = (uint32_t)(t&0xFFFFFFFF);
     expMeta->expireTimeHi = (uint16_t)((t) >> 32);
 }
-
-/* Statistics API */
-
-#define EBUCKETS_STATS_VECTLEN 50
-
-typedef struct ebucketsStats {
-    uint64_t totalItems;           /* Total number of items */
-    uint64_t totalBuckets;         /* Total number of buckets */
-    uint64_t totalSegments;        /* Total number of segments */
-    uint64_t avgItemsPerBucket;    /* Average number of items per bucket */
-    uint64_t avgItemsPerSegment;   /* Average number of items per segment */
-    uint64_t avgSegPerBucket;      /* Average number of segments per bucket */
-} ebucketsStats;
-void ebGetStats(ebuckets eb, EbucketsType *type, ebucketsStats *stats);
-size_t ebGetStatsMsg(char *buf, size_t bufsize, ebucketsStats *stats, int full);
 
 /* Debug API */
 
