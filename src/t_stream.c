@@ -2721,6 +2721,9 @@ void streamRemoveAllCGroupRef(stream *s, streamID *id) {
          * free the NACK without unlinking it from the cgroups_ref. */
         streamFreeNACK(nack); 
     }
+
+    raxRemove(s->cgroups_ref, buf, sizeof(streamID), NULL);
+    listRelease(cglist);
 }
 
 /* Check if a stream item is still referenced by any consumer group.
