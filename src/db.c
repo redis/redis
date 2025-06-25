@@ -2517,10 +2517,10 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     if (key) {
         deleteExpiredKeyAndPropagate(db, key);
     } else {
+        robj kobj;
         sds keyname = kvobjGetKey(kv);
-        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
-        deleteExpiredKeyAndPropagate(db, tmpkey);
-        decrRefCount(tmpkey);
+        initStaticStringObject(kobj, keyname);
+        deleteExpiredKeyAndPropagate(db, &kobj);
     }
     return KEY_DELETED;
 }
