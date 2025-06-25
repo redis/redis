@@ -755,14 +755,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         streamID master_id = {0};
         /* Read the master ID from the radix tree key. */
         streamDecodeID(ri.key, &master_id);
-        if (delete_strategy != DELETE_STRATEGY_KEEPREF) {
-            /* With ACKED or DELREF strategy, we can't remove the whole node directly.
-             * For ACKED, we need to check each entry individually to see if it's
-             * referenced by any consumer group before deletion.
-             * For DELREF, we need to clean up all existing consumer group references
-             * for each entry before deleting it. */
-            remove_node = 0;
-        } else if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
+        if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             remove_node = s->length - entries >= maxlen;
         } else {
             /* Read last ID. */
@@ -771,6 +764,15 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
             /* We can remove the entire node id its last ID < 'id' */
             remove_node = streamCompareID(&last_id, id) < 0;
+        }
+
+        if (delete_strategy != DELETE_STRATEGY_KEEPREF) {
+            /* With ACKED or DELREF strategy, we can't remove the whole node directly.
+             * For ACKED, we need to check each entry individually to see if it's
+             * referenced by any consumer group before deletion.
+             * For DELREF, we need to clean up all existing consumer group references
+             * for each entry before deleting it. */
+            remove_node = 0;
         }
 
         if (remove_node) {
@@ -843,31 +845,24 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             p = lpNext(lp,p); /* Skip the final lp-count field. */
 
             /* Check consumer group references before marking as deleted */
-            int can_delete = 1;
-            switch (delete_strategy) {
-                case DELETE_STRATEGY_KEEPREF:
-                    break;
-                case DELETE_STRATEGY_ACKED:
+            if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
+                int can_delete = 1;
+                if (delete_strategy == DELETE_STRATEGY_ACKED) {
                     /* Only delete entry that has been acknowledged by all consumer groups. */
                     can_delete = (streamEntryIsAckedByAllCGroups(s, &currid) == 0);
-                    break;
-                case DELETE_STRATEGY_DELREF:
+                } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
                     /* Remove all consumer group references for this entry */
                     streamRemoveAllCGroupRef(s, &currid);
-                    break;
-                default:
-                    serverPanic("Unknown delete strategy");
-                    break;
-            }
+                }
 
-            /* Mark the entry as deleted if allowed */
-            if (can_delete && !(flags & STREAM_ITEM_FLAG_DELETED)) {
-                intptr_t delta = p - lp;
-                flags |= STREAM_ITEM_FLAG_DELETED;
-                lp = lpReplaceInteger(lp, &pcopy, flags);
-                deleted_from_lp++;
-                s->length--;
-                p = lp + delta;
+                if (can_delete) {
+                    intptr_t delta = p - lp;
+                    flags |= STREAM_ITEM_FLAG_DELETED;
+                    lp = lpReplaceInteger(lp, &pcopy, flags);
+                    deleted_from_lp++;
+                    s->length--;
+                    p = lp + delta;
+                }
             }
         }
         deleted += deleted_from_lp;
