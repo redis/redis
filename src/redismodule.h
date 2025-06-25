@@ -1334,10 +1334,36 @@ REDISMODULE_API int (*RedisModule_RdbLoad)(RedisModuleCtx *ctx, RedisModuleRdbSt
 REDISMODULE_API int (*RedisModule_RdbSave)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_GetInternalSecret)(RedisModuleCtx *ctx, size_t *len) REDISMODULE_ATTR;
 
+typedef struct {
+	void (*serializeMetadata)(void *metadata,
+							  RedisModuleRdbStream *stream, int flags);
+	void *(*deserializeMetadata)(RedisModuleRdbStream *stream, int flags);
+
+	void (*freeMetadata)( void *metadata) ;
+	void *(*defragMetadata)(void *metadata);
+} RedisMetadataMethods;
+
+
+typedef enum {
+    METADATA_MODULE_OK = 0,
+	METADATA_NO_MORE_MODULES,
+	METADATA_MODULE_ALREADY_EXISTS
+} RedisMetadtaStatus;
+
+REDISMODULE_API  RedisMetadtaStatus (*RedisModule_RegisterMetadataMethods)(RedisModuleCtx *ctx, RedisMetadataMethods *metadata_methods) REDISMODULE_ATTR;
+
+REDISMODULE_API  void * (*RedisModule_GetModuleMetadata)(RedisModuleCtx *ctx,
+														 RedisModuleString *keyname) REDISMODULE_ATTR;
+REDISMODULE_API  void  (*RedisModule_SetModuleMetadata)(RedisModuleCtx *ctx,
+														RedisModuleString *keyname, void *newMetadata) REDISMODULE_ATTR;
+
+
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
 /* This is included inline inside each Redis module. */
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) REDISMODULE_ATTR_UNUSED;
+
+
 static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int apiver) {
     void *getapifuncptr = ((void**)ctx)[0];
     RedisModule_GetApi = (int (*)(const char *, void *)) (unsigned long)getapifuncptr;
@@ -1708,6 +1734,9 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RdbLoad);
     REDISMODULE_GET_API(RdbSave);
     REDISMODULE_GET_API(GetInternalSecret);
+	REDISMODULE_GET_API(RegisterMetadataMethods);
+	REDISMODULE_GET_API(GetModuleMetadata);
+	REDISMODULE_GET_API(SetModuleMetadata);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

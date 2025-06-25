@@ -2,7 +2,7 @@
  *
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
- * 
+ *
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
@@ -16,7 +16,7 @@
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 #include <ctype.h>
-
+#include "module_metadata.h"
 #ifdef __CYGWIN__
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
@@ -27,20 +27,19 @@
 
 /* ===================== Creation and parsing of objects ==================== */
 
-/* Creates an object, with embedded key and expire fields. The key and expire 
+/* Creates an object, with embedded key and expire fields. The key and expire
  * fields can be omitted by passing NULL and -1, respectively.
- * 
+ *
  * Example of kvobj "mykey" WITH expiry (16+8+1+7=32bytes):
- * 
- *    +-----------+------------+------------------+------------------------+
- *    | robj (16) | expiry (8) | key-hdr-size (1) | sdshdr5 "mykey" \0 (7) | 
- *    +-----------+------------+------------------+------------------------+
+ *
+ *    +---------------+------------+------------------------+------------------------+
+ *    | expirity(8) | robj (16) |  key-hdr-size (1) | sdshdr5 "mykey" \0 (7) |
+ *    +---------------+------------+------------------------+------------------------+
  */
-kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire) {
+static kvobj *kvobjCreate(int type, const sds key, void *ptr, int num_modules) {
     /* Determine embedded key and expiration flags */
     serverAssert(key != NULL);
-    hasExpire = hasExpire || (sdslen(key) >= KEY_SIZE_TO_INCLUDE_EXPIRE_THRESHOLD);
-    
+
     /* Calculate embedded key size */
     size_t key_sds_len = sdslen(key);
     char key_sds_type = sdsReqType(key_sds_len);
@@ -48,39 +47,24 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire) {
 
     /* Compute the base object size */
     size_t min_size = sizeof(robj);
-    if (hasExpire) min_size += sizeof(long long);
+    min_size += num_modules * sizeof(void *);
     min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
 
     /* Allocate object memory */
-    size_t bufsize = 0;
-    robj *o = zmalloc_usable(min_size, &bufsize);
+    size_t *alloc = zmalloc(min_size);
+    kvobj *o = (kvobj *) (alloc + num_modules);
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 1;
+    o->modules_bitmap = 0;
 
-    /* If extra space allows, pre-allocate anyway expiration */
-    if ((!hasExpire) && (bufsize >= min_size + sizeof(long long))) {
-        hasExpire = 1;
-        min_size += sizeof(long long);
-    }
-    o->expirable = hasExpire;
-
-    /* The memory after the struct where we embedded data. */
     char *data = (void *)(o + 1);
-
-    /* Set the expire field. */
-    if (o->expirable) {
-        *(long long *)data = -1;
-        data += sizeof(long long);
-    }
-
     /* Store embedded key. */
     *data++ = sdsHdrSize(key_sds_type);
     sdsnewplacement(data, key_sds_size, key_sds_type, key, key_sds_len);
-
     return o;
 }
 
@@ -92,7 +76,7 @@ robj *createObject(int type, void *ptr) {
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 0;
-    o->expirable = 0;
+    o->modules_bitmap = 0;
     return o;
 }
 
@@ -133,16 +117,16 @@ robj *createRawStringObject(const char *ptr, size_t len) {
 }
 
 /* Creates a new embedded string object and copies the content of key, val and
- * expire to the new object. LRU is set to 0. 
- * 
+ * expire to the new object. LRU is set to 0.
+ *
  * Example of kvobj "mykey" with embedded "myvalue" (16+1+7+11 = 35bytes):
  *    +-----------+------------------+------------------------+----------------------------+
- *    | robj (16) | key-hdr-size (1) | sdshdr5 "mykey" \0 (7) | sdshdr8 "myvalue" \0  (11) | 
+ *    | robj (16) | key-hdr-size (1) | sdshdr5 "mykey" \0 (7) | sdshdr8 "myvalue" \0  (11) |
  *    +-----------+------------------+------------------------+----------------------------+
  */
 static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
-                                     const sds key, int hasExpire)
-                                               
+                                     const sds key, size_t num_modules)
+
 {
     serverAssert(key != NULL);
 
@@ -156,35 +140,22 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
 
     /* Compute base object size */
     size_t min_size = sizeof(robj) + val_sds_size;
-    if (hasExpire != 0) min_size += sizeof(long long);
+    min_size += num_modules * sizeof(void *);
     min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
 
     /* Allocate object memory */
-    size_t bufsize = 0;
-    robj *o = zmalloc_usable(min_size, &bufsize);
+    size_t *alloc = zmalloc (min_size);
+    kvobj *o = (kvobj *) (alloc+num_modules);
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->refcount = 1;
     o->lru = 0;
-    o->expirable = (hasExpire != 0);
     o->iskvobj = 1;
+    o->modules_bitmap = 0;
 
-    /* If the allocation has enough space for an expire field, add it even if we
-     * don't need it now. Then we don't need to realloc if it's needed later. */
-    if (!o->expirable && bufsize >= min_size + sizeof(long long)) {
-        o->expirable = 1;
-        min_size += sizeof(long long);
-    }
 
     /* The memory after the struct where we embedded data. */
     char *data = (char *)(o + 1);
-
-    /* Set the expire field. */
-    if (o->expirable) {
-        *(long long *)data = -1;
-        data += sizeof(long long);
-    }
-
     /* Store embedded key */
     *data++ = sdsHdrSize(key_sds_type);
     sdsnewplacement(data, key_sds_size, key_sds_type, key, key_sds_len);
@@ -192,24 +163,23 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
 
     /* Copy embedded value (EMBSTR) always as SDS TYPE 8. Account for unused
      * memory in the SDS alloc field. */
-    size_t remaining_size = bufsize - (data - (char *)(void *)o);
-    o->ptr = sdsnewplacement(data, remaining_size, SDS_TYPE_8, val_ptr, val_len);
+    o->ptr = sdsnewplacement(data, val_sds_size, SDS_TYPE_8, val_ptr, val_len);
     return o;
 }
 
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself.
- * 
+ *
  * Example of robj with embedded "myvalue" (16+1+11 = 28 bytes):
  *    +-----------+------------------+----------------------------+
- *    | robj (16) | key-hdr-size (1) | sdshdr8 "myvalue" \0  (11) | 
+ *    | robj (16) | key-hdr-size (1) | sdshdr8 "myvalue" \0  (11) |
  *    +-----------+------------------+----------------------------+
  */
 robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
-    
+
     /* Allocate object memory */
     size_t bufsize = 0;
     robj *o = zmalloc_usable(sizeof(robj) + val_sds_size, &bufsize);
@@ -217,12 +187,12 @@ robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->refcount = 1;
     o->lru = 0;
-    o->expirable = 0;
+    o->modules_bitmap = 0;
     o->iskvobj = 0;
 
     /* The memory after the struct where we embedded data. */
     char *data = (char *)(o + 1);
-    
+
     /* Copy embedded value (EMBSTR) always as SDS TYPE 8. Account for unused
      * memory in the SDS alloc field. */
     size_t remaining_size = bufsize - (data - (char *)(void *)o);
@@ -232,10 +202,6 @@ robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
 
 sds kvobjGetKey(const kvobj *kv) {
     unsigned char *data = (void *)(kv + 1);
-    if (kv->expirable) {
-        /* Skip expire field */
-        data += sizeof(long long);
-    }
     if (kv->iskvobj) {
         uint8_t hdr_size = *(uint8_t *)data;
         data += 1 + hdr_size;
@@ -244,81 +210,157 @@ sds kvobjGetKey(const kvobj *kv) {
     return NULL;
 }
 
-long long kvobjGetExpire(const kvobj *kv) {
-    unsigned char *data = (void *)(kv + 1);
-    if (kv->expirable) {
-        return *(long long *)data;
-    } else {
-        return -1;
+#define BIT_IS_SET(o,index) (((o) & (1 << (index))) != 0)
+#define BIT_SET(o,index) ((o) |= (1 <<(index)))
+/* count number of bits that are set in x (x & x-1 always clear 1 bit)  */
+static size_t nBitsSet(unsigned int x) {
+    int c = 0;
+    while (x) {
+    	c++;
+    	x &= (x-1);
     }
+    return c;
+}
+
+
+static size_t nBitsSetUntil(unsigned int x, int index) {
+    return nBitsSet(x & ~(0xffffffff >> index));
+}
+
+static void pushModulesMetadata(void **src, int src_bitmap, void *metadata,
+    							void **trg, int trg_bitmap) {
+     for (int i =0; i < NUM_MODULES_SUPPORTED;  i++) {
+    	 if (BIT_IS_SET(src_bitmap, i)) {
+    		 *trg = *src;
+    		 src++;
+    		 trg++;
+    	 } else  if (BIT_IS_SET(trg_bitmap, i)) {
+    		 *trg = metadata;
+    		 trg++;
+    	 }
+     }
+
+}
+
+static void ** kvobjGetAllocPtr(const kvobj *val) {
+    return ((void **)val) - nBitsSet(val->modules_bitmap);
+}
+
+/* This functions always reallocate the value with enough space to place the modules metadata.
+ * The new allocation is returned and  the old object's reference counter is decremented and possibly freed.
+ * Use the returned object instead of 'val' after calling this function. */
+static kvobj *kvobjSetInternal(sds key, kvobj *val, int num_modules) {
+
+    kvobj *kv;
+    if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_EMBSTR) {
+        size_t len = sdslen(val->ptr);
+
+        /* Embed when the sum is up to 64 bytes. */
+        size_t size = sizeof(kvobj);
+        size += (key != NULL) * (sdslen(key) + 3); /* hdr size (1) + hdr (1) + nullterm (1) */
+        size += 4 + len; /* embstr header (3) + nullterm (1) */
+        if (size <= CACHE_LINE_SIZE) {
+            kv = kvobjCreateEmbedString(val->ptr, len, key, num_modules);
+        } else {
+            kv = kvobjCreate(OBJ_STRING, key, sdsnewlen(val->ptr, len), num_modules);
+        }
+    	serverAssert(sdscmp(key, kvobjGetKey(kv)) == 0 && sdscmp((sds)val->ptr, (sds)kv->ptr) == 0);
+    } else {		
+    	/* Create a new object with embedded key. Reuse ptr if possible. */
+    	void *valptr;
+    	if (val->refcount == 1) {
+    		/* Reuse the ptr. There are no other references to val. */
+    		valptr = val->ptr;
+    		val->ptr = NULL;
+    	} else if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_INT) {
+    		/* The pointer is not allocated memory. We can just copy the pointer. */
+    		valptr = val->ptr;
+    	} else if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_RAW) {
+    		/* Dup the string. */
+    		valptr = sdsdup(val->ptr);
+    	} else {
+    		/* There are multiple references to this non-string object. Most types
+    		 * can be duplicated, but for a module type is not always possible. */
+    		serverPanic("Not implemented");		}\
+    	kv = kvobjCreate(val->type, key, valptr, num_modules);
+    	kv->encoding = val->encoding;
+    }	
+    kv->lru = val->lru;
+    return kv;
+}
+
+int expire_index=-1;
+
+static void ** getModulesMetadataPtr(const kvobj *val, int index) {
+    return  kvobjGetAllocPtr(val) + nBitsSetUntil(val->modules_bitmap, index);	
+}
+
+/* This functions reallocate the object value. The new allocation is returned and
+ * the old object's reference counter is decremented and possibly freed. Use the
+ * returned object instead of 'val' after calling this function. */
+
+kvobj *kvobjSet(sds key, kvobj *val/*, long long expire*/) {
+    long long expire = -1;
+    kvobj *ret = kvobjSetInternal(key, val, expire >= 0);	
+    decrRefCount(val);
+    if (expire >= 0) {
+    	if (expire_index == -1) {
+    		static const char *expire_module_name="EXPIRE";
+    		RedisMetadataMethods expire_methods = {NULL,NULL,NULL,NULL};
+    		expire_index = registerInternalMetadataModule(expire_module_name,  &expire_methods);
+    	}
+    	BIT_SET(ret->modules_bitmap, expire_index);
+    	*getModulesMetadataPtr(ret, expire_index) = (void *)expire;		
+    }
+    return ret;
+}
+
+kvobj *kvobjSetModuleMetadata(kvobj *val, int index, void *metadata) {
+    if (BIT_IS_SET(val->modules_bitmap, index)) {
+    	void **p = getModulesMetadataPtr(val, index);
+    	freeModuleMetadata(*p , index);
+    	*p = metadata;
+    	return val;
+    } /* else */
+
+
+    kvobj *kv = kvobjSetInternal(kvobjGetKey(val), val, nBitsSet(val->modules_bitmap) +1);
+    kv->modules_bitmap = val->modules_bitmap;
+    BIT_SET(kv->modules_bitmap , index);
+    pushModulesMetadata(kvobjGetAllocPtr(val), val->modules_bitmap,
+    					metadata, kvobjGetAllocPtr(kv), kv->modules_bitmap);
+>>>>>>> theirs
+    decrRefCount(val);
+    return kv;
+
+}
+
+long long kvobjGetExpire(const kvobj *kv) {
+    return (expire_index == -1 || !BIT_IS_SET(kv->modules_bitmap, expire_index)) ? -1 :
+    	*(long long*)(getModulesMetadataPtr(kv, expire_index));
+
+}
+
+void *kvobjGetModuleMetadata(const kvobj *kv, int index) {
+    return   *(getModulesMetadataPtr(kv, index));
+
 }
 
 /* This functions may reallocate the value. The new allocation is returned and
  * the old object's reference counter is decremented and possibly freed. Use the
  * returned object instead of 'val' after calling this function. */
 kvobj *kvobjSetExpire(kvobj *kv, long long expire) {
-    if (!kv->expirable) {
-        /* Nothing to do if kv not expirable and expire is -1 */
-        if (expire == -1)
-            return kv;
-        
-        /* Reallocate kvobj to add expire field. */
-        kv = kvobjSet(kvobjGetKey(kv), kv, 1 /*hasExpire*/);
+    if (expire == -1 && expire_index == -1) {
+    	return kv;
+    } else if (expire_index == -1) {
+    	static const char *expire_module_name="EXPIRE";
+    	RedisMetadataMethods expire_methods = {NULL,NULL,NULL,NULL};
+    	expire_index = registerInternalMetadataModule(expire_module_name,  &expire_methods);
     }
+    return kvobjSetModuleMetadata(kv, expire_index, (void *)expire);
 
-    /* kv is expirable. Update expire field. */
-    unsigned char *data = (void *)(kv + 1);
-    *(long long *)data = expire;
-    return kv;
-}
+}    	
 
-/* This functions may reallocate the value. The new allocation is returned and
- * the old object's reference counter is decremented and possibly freed. Use the
- * returned object instead of 'val' after calling this function. */
-kvobj *kvobjSet(sds key, robj *val, int hasExpire) {
-    if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_EMBSTR) {
-        kvobj *kv;
-        size_t len = sdslen(val->ptr);
-
-        /* Embed when the sum is up to 64 bytes. */
-        size_t size = sizeof(kvobj);
-        size += (key != NULL) * (sdslen(key) + 3); /* hdr size (1) + hdr (1) + nullterm (1) */
-        size += (!!hasExpire) * sizeof(long long);
-        size += 4 + len; /* embstr header (3) + nullterm (1) */
-        if (size <= CACHE_LINE_SIZE) {
-            kv = kvobjCreateEmbedString(val->ptr, len, key, hasExpire);
-        } else {
-            kv = kvobjCreate(OBJ_STRING, key, sdsnewlen(val->ptr, len), hasExpire);
-        }
-
-        kv->lru = val->lru;
-        decrRefCount(val);
-        return kv;
-    }
-
-    /* Create a new object with embedded key. Reuse ptr if possible. */
-    void *valptr;
-    if (val->refcount == 1) {
-        /* Reuse the ptr. There are no other references to val. */
-        valptr = val->ptr;
-        val->ptr = NULL;
-    } else if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_INT) {
-        /* The pointer is not allocated memory. We can just copy the pointer. */
-        valptr = val->ptr;
-    } else if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_RAW) {
-        /* Dup the string. */
-        valptr = sdsdup(val->ptr);
-    } else {
-        /* There are multiple references to this non-string object. Most types
-         * can be duplicated, but for a module type is not always possible. */
-        serverPanic("Not implemented");
-    }
-    robj *new = kvobjCreate(val->type, key, valptr, hasExpire);
-    new->encoding = val->encoding;
-    new->lru = val->lru;
-    decrRefCount(val);
-    return new;
-}
 
 /* Create a string object with EMBSTR encoding if it is smaller than
  * OBJ_ENCODING_EMBSTR_SIZE_LIMIT, otherwise the RAW encoding is
@@ -608,7 +650,16 @@ void decrRefCount(robj *o) {
             default: serverPanic("Unknown object type"); break;
             }
         }
-        zfree(o);
+    	if (o->modules_bitmap) {
+    		void ** p = kvobjGetAllocPtr(o);		
+    		for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
+    			if (BIT_IS_SET(o->modules_bitmap, i)) {
+    				freeModuleMetadata(*p , i);
+    				p++;
+    			}
+    		}
+    	}
+    	zfree(kvobjGetAllocPtr(o));
     }
 }
 
@@ -819,7 +870,7 @@ void trimStringObjectIfNeeded(robj *o, int trim_small_values) {
     if (o->encoding != OBJ_ENCODING_RAW) return;
     /* A string may have free space in the following cases:
      * 1. When an arg len is greater than PROTO_MBULK_BIG_ARG the query buffer may be used directly as the SDS string.
-     * 2. When utilizing the argument caching mechanism in Lua. 
+     * 2. When utilizing the argument caching mechanism in Lua.
      * 3. When calling from RM_TrimStringAllocation (trim_small_values is true). */
     size_t len = sdslen(o->ptr);
     if (len >= PROTO_MBULK_BIG_ARG ||

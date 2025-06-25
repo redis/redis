@@ -45,6 +45,7 @@
 #include "call_reply.h"
 #include "hdr_histogram.h"
 #include "crc16_slottable.h"
+#include "module_metadata.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -154,7 +155,8 @@ struct RedisModuleCtx {
     const struct RedisModuleUser *user;  /* RedisModuleUser commands executed via
                                             RM_Call should be executed as, if set */
 };
-typedef struct RedisModuleCtx RedisModuleCtx;
+
+typedef struct RedisModuleCtx  RedisModuleCtx ;
 
 #define REDISMODULE_CTX_NONE (0)
 #define REDISMODULE_CTX_AUTO_MEMORY (1<<0)
@@ -14179,6 +14181,71 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
     return ctx->dbid;
 }
 
+
+struct {
+	const char *name;
+	RedisMetadataMethods metadata_methods;
+} registerdModules[NUM_MODULES_SUPPORTED] ;
+
+
+/* register to metadata services  */
+RedisMetadtaStatus RM_RegisterMetadataMethods(RedisModuleCtx *ctx, RedisMetadataMethods *metadata_methods) {
+	const char *name = ctx->module->name;
+	return registerInternalMetadataModule(name,  metadata_methods);
+}
+
+RedisMetadtaStatus registerInternalMetadataModule(const char *name,
+												   RedisMetadataMethods *metadata_methods)
+{
+	for(int i = 0;  i < NUM_MODULES_SUPPORTED; i++) {
+		if (registerdModules[i].name == 0) {
+			registerdModules[i].name = name;
+			registerdModules[i].metadata_methods = *metadata_methods;
+			return METADATA_MODULE_OK;
+		} else if (strcmp(registerdModules[i].name , name) == 0) {
+			return METADATA_MODULE_ALREADY_EXISTS;
+		}
+	}
+	return METADATA_NO_MORE_MODULES;
+}
+
+static int moduleName2Index(const char *name) {
+	for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
+		if (registerdModules[i].name &&
+			strcmp(registerdModules[i].name, name) == 0) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+
+void freeModuleMetadata(void *data, int module_index) {
+	if (registerdModules[module_index].metadata_methods.freeMetadata)
+		registerdModules[module_index].metadata_methods.freeMetadata(data);
+}
+
+void defragModuleMetadata(void *data, int module_index) {
+	if (registerdModules[module_index].metadata_methods.defragMetadata)
+		registerdModules[module_index].metadata_methods.defragMetadata( data);
+}
+
+
+
+void * RM_GetModuleMetadata(RedisModuleCtx *ctx, robj *keyname) {
+	
+	kvobj *kv = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
+	int index = moduleName2Index(ctx->module->name);
+	return kv ? kvobjGetModuleMetadata(kv, index) : NULL;
+}
+
+void RM_SetModuleMetadata(RedisModuleCtx *ctx, robj *keyname, void *newMetadata) {
+	int index = moduleName2Index(ctx->module->name);
+	serverAssert(index>=0);
+	dbSetModuleMetadata(ctx->client->db, keyname, index, newMetadata);
+}		
+
+
 /* Register all the APIs we export. Keep this function at the end of the
  * file so that's easy to seek it to add new entries. */
 void moduleRegisterCoreAPI(void) {
@@ -14550,4 +14617,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(RdbLoad);
     REGISTER_API(RdbSave);
     REGISTER_API(GetInternalSecret);
+	REGISTER_API(RegisterMetadataMethods);
+	REGISTER_API(GetModuleMetadata);
+	REGISTER_API(SetModuleMetadata);
 }

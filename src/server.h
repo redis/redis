@@ -11,7 +11,6 @@
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
-
 #ifndef __REDIS_H
 #define __REDIS_H
 
@@ -1029,7 +1028,8 @@ struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
-#define OBJ_REFCOUNT_BITS 30
+#define NUM_MODULES_SUPPORTED 8
+#define OBJ_REFCOUNT_BITS (32-1-NUM_MODULES_SUPPORTED) /*1 for iskvobj few more for modules bitmap */
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
@@ -1037,12 +1037,11 @@ struct RedisModuleDigest {
 struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
+	unsigned  modules_bitmap : 8; /* 1 bit for each module that is registered */
+    unsigned iskvobj : 1;   /* 1 if the key is embeded */
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
-    unsigned expirable : 1; /* 1 if this key has expiration time attached.
-                             * If set, then this object is of type kvobj */
     unsigned refcount : OBJ_REFCOUNT_BITS;
     void *ptr;
 };
@@ -1060,7 +1059,7 @@ char *getObjectTypeName(robj*);
     _var.refcount = OBJ_STATIC_REFCOUNT; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
-    _var.expirable = 0; \
+    _var.modules_bitmap = 0;		  \
     _var.iskvobj = 0; \
     _var.ptr = _ptr; \
 } while(0)
@@ -3072,12 +3071,13 @@ unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
-kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire);
-kvobj *kvobjSet(sds key, robj *val, int hasExpire);
+kvobj *kvobjSet(sds key, robj *val/*, long long expire*/);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
-
+kvobj *dbSetModuleMetadata(redisDb *db, robj *key, int index, void *metadata);
+kvobj *kvobjSetModuleMetadata(kvobj *kv, int index, void *metadata);
+void   *kvobjGetModuleMetadata(const kvobj *kv, int index);
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
