@@ -2428,7 +2428,6 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[1]);
 }
 
-
 /* Check if the key is expired
  *
  * Provide either the key name for a lookup or KV object (to save lookup)
@@ -2442,55 +2441,6 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     /* The key expired if the current (virtual or real) time is greater
      * than the expire time of the key. */
     return now > when;
-}
-
-
-/* Internal helper to process expiration status and deletion.
- *
- * This function assumes expiration has already been determined.
- * It handles replica behavior, deletion suppression, and AOF/replication propagation.
- *
- * The `key` argument may be NULL if `kv` is used and the caller wants to avoid robj creation.
- */
-static inline keyStatus handleExpiredKey(redisDb *db, robj *key, kvobj *kv, int flags) {
-    /* If we are running in the context of a replica, instead of
-     * evicting the expired key from the database, we return ASAP:
-     * the replica key expiration is controlled by the master that will
-     * send us synthesized DEL operations for expired keys. The
-     * exception is when write operations are performed on writable
-     * replicas.
-     *
-     * Still we try to return the right information to the caller,
-     * that is, KEY_VALID if we think the key should still be valid,
-     * KEY_EXPIRED if we think the key is expired but don't want to delete it at this time.
-     *
-     * When replicating commands from the master, keys are never considered
-     * expired. */
-    if (server.masterhost != NULL) {
-        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
-        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
-    }
-
-    /* In some cases we're explicitly instructed to return an indication of a
-     * missing key without actually deleting it, even on masters. */
-    if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
-        return KEY_EXPIRED;
-
-    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
-     * Typically, at the end of the pause we will properly expire the key OR we
-     * will have failed over and the new primary will send us the expire. */
-    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
-
-    /* Perform deletion */
-    if (key) {
-        deleteExpiredKeyAndPropagate(db, key);
-    } else {
-        sds keyname = kvobjGetKey(kv);
-        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
-        deleteExpiredKeyAndPropagate(db, tmpkey);
-        decrRefCount(tmpkey);
-    }
-    return KEY_DELETED;
 }
 
 /* This function is called when we are going to perform some operation
@@ -2535,7 +2485,44 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         (!keyIsExpired(db, keyname, kv)))
         return KEY_VALID;
 
-    return handleExpiredKey(db, key, kv, flags);
+    /* If we are running in the context of a replica, instead of
+     * evicting the expired key from the database, we return ASAP:
+     * the replica key expiration is controlled by the master that will
+     * send us synthesized DEL operations for expired keys. The
+     * exception is when write operations are performed on writable
+     * replicas.
+     *
+     * Still we try to return the right information to the caller,
+     * that is, KEY_VALID if we think the key should still be valid,
+     * KEY_EXPIRED if we think the key is expired but don't want to delete it at this time.
+     *
+     * When replicating commands from the master, keys are never considered
+     * expired. */
+    if (server.masterhost != NULL) {
+        if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
+        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
+    }
+
+    /* In some cases we're explicitly instructed to return an indication of a
+     * missing key without actually deleting it, even on masters. */
+    if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
+        return KEY_EXPIRED;
+
+    /* If 'expire' action is paused, for whatever reason, then don't expire any key.
+     * Typically, at the end of the pause we will properly expire the key OR we
+     * will have failed over and the new primary will send us the expire. */
+    if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
+
+    /* Perform deletion */
+    if (key) {
+        deleteExpiredKeyAndPropagate(db, key);
+    } else {
+        sds keyname = kvobjGetKey(kv);
+        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
+        deleteExpiredKeyAndPropagate(db, tmpkey);
+        decrRefCount(tmpkey);
+    }
+    return KEY_DELETED;
 }
 
 
