@@ -40,7 +40,6 @@ typedef enum {
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
-static keyStatus expireIfNeededWithKV(redisDb *db, kvobj *kv, int flags);
 
 /* Update LFU when an object is accessed.
  * Firstly, decrement the counter if the decrement time is reached.
@@ -1304,8 +1303,9 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     if (!o) { /* If scanning keyspace */
         kvobj *kv = dictGetKV(de);
 
-        /* Expiration check first - only for database keyspace scanning */
-        if (expireIfNeededWithKV(data->db, kv, 0) != KEY_VALID)
+        /* Expiration check first - only for database keyspace scanning.
+         * Use kv obj to avoid robj creation. */
+        if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
             return;
 
         /* Type filtering - only for database keyspace scanning */
@@ -2428,23 +2428,6 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
     decrRefCount(argv[1]);
 }
 
-/* Return whether a key is logically expired based on its `kvobj`.
- *
- * This variant avoids looking up the expiration metadata by extracting it
- * directly from the provided `kvobj`, avoiding unnecessary allocation or key construction.
- *
- * Returns 1 if the key is expired, or 0 otherwise.
- */
-static inline int keyIsExpiredWithKV(kvobj *kv) {
-    /* Don't expire anything while loading. It will be done later. */
-    if (unlikely(server.loading)) return 0;
-    const mstime_t when = kvobjGetExpire(kv);
-    if (when < 0) return 0; /* No expire for this key */
-    const mstime_t now = commandTimeSnapshot();
-    /* The key expired if the current (virtual or real) time is greater
-     * than the expire time of the key. */
-    return now > when;
-}
 
 /* Check if the key is expired
  *
@@ -2462,7 +2445,7 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
 }
 
 
-/* Shared internal helper to process expiration status and deletion.
+/* Internal helper to process expiration status and deletion.
  *
  * This function assumes expiration has already been determined.
  * It handles replica behavior, deletion suppression, and AOF/replication propagation.
@@ -2545,8 +2528,8 @@ static inline keyStatus handleExpiredKey(redisDb *db, robj *key, kvobj *kv, int 
  * You can optionally pass `kv` to save a lookup.
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
-    serverAssert(key != NULL);
-    sds keyname = key->ptr;
+    serverAssert(key != NULL || kv != NULL);
+    sds keyname = key ? key->ptr : NULL;
     if ((server.allow_access_expired) ||
         (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db, keyname, kv)))
@@ -2555,28 +2538,6 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     return handleExpiredKey(db, key, kv, flags);
 }
 
-
-/* Like expireIfNeeded(), but avoids constructing a temporary robj key.
- *
- * This function checks whether a key is logically expired using the provided `kvobj`,
- * and handles deletion and propagation if needed. It follows the same semantics
- * as expireIfNeeded() regarding replica behavior, deletion suppression,
- * and flag handling.
- *
- * It should be preferred in hot paths (e.g. scan callbacks) where the `kvobj` is already known.
- *
- * The return value of the function is KEY_VALID if the key is still valid.
- * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
- * or returns KEY_DELETED if the key is expired and deleted.
- */
-keyStatus expireIfNeededWithKV(redisDb *db, kvobj *kv, int flags) {
-    if ((server.allow_access_expired) ||
-        (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
-        (!keyIsExpiredWithKV(kv)))
-        return KEY_VALID;
-
-    return handleExpiredKey(db, NULL, kv, flags);
-}
 
 /* CB passed to kvstoreExpand.
  * The purpose is to skip expansion of unused dicts in cluster mode (all
