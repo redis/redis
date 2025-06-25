@@ -762,7 +762,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
              * For DELREF, we need to clean up all existing consumer group references
              * for each entry before deleting it. */
             remove_node = 0;
-        } if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
+        } else if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
             remove_node = s->length - entries >= maxlen;
         } else {
             /* Read last ID. */
@@ -890,6 +890,9 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
         /* Update the listpack with the new pointer. */
         raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+
+        if (delete_strategy != DELETE_STRATEGY_KEEPREF)
+            continue;
 
         break; /* If we are here, there was enough to delete in the current
                   node, so no need to go to the next node. */

@@ -158,6 +158,24 @@ start_server {
         assert {[r XLEN mystream] == 5}
     }
 
+    test {XADD with MAXLEN option and ACKED option} {
+        r DEL mystream
+        for {set j 0} {$j < 1000} {incr j} {
+            r XADD mystream * xitem $j
+        }
+        assert {[r XLEN mystream] == 1000}
+
+        # Verifying that there is still consumer group that have not consumed,
+        # we will not delete any messages.
+        r XGROUP CREATE mystream group1 0
+        r XADD mystream MAXLEN = 5 ACKED * xitem $j
+
+        # This should trim the stream to exactly 5 entries since no consumer groups exist.
+        r XGROUP DESTROY mystream group1
+        r XADD mystream MAXLEN = 5 ACKED * xitem $j
+        assert {[r XLEN mystream] == 5}
+    }
+
     test {XADD with MAXLEN option and the '~' argument} {
         r DEL mystream
         r config set stream-node-max-entries 100
