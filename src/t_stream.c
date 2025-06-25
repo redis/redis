@@ -670,6 +670,7 @@ typedef struct {
     /* XADD + XTRIM common options */
     int trim_strategy; /* TRIM_STRATEGY_* */
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
+    int delete_strategy; /* DELETE_STRATEGY_* */
     int approx_trim; /* If 1 only delete whole radix tree nodes, so
                       * the trim argument is not applied verbatim. */
     long long limit; /* Maximum amount of entries to trim. If 0, no limitation
@@ -678,9 +679,6 @@ typedef struct {
     long long maxlen; /* After trimming, leave stream at this length . */
     /* TRIM_STRATEGY_MINID options */
     streamID minid; /* Trim by ID (No stream entries with ID < 'minid' will remain) */
-
-    /* Consumer group reference handling options */
-    int delete_strategy; /* DELETE_STRATEGY_* */
 } streamAddTrimArgs;
 
 #define TRIM_STRATEGY_NONE 0
@@ -690,8 +688,6 @@ typedef struct {
 typedef struct {
     int startidx;  /* Starting index of IDs in argv */
     long numids;    /* Number of IDs to process */
-
-    /* Consumer group reference handling options */
     int delete_strategy; /* DELETE_STRATEGY_* */
 } streamAckDelArgs;
 
@@ -750,29 +746,27 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         if (limit && (deleted + entries) > limit)
             break;
 
-        /* Check if we can remove the whole node. */
-        int remove_node;
+        /* Check if we can remove the whole node at once */
+        int remove_node = 0; /* Final decision flag for node removal */
+        int node_eligible_for_remove = 0; /* Whether node meets the basic criteria for removal */
         streamID master_id = {0};
         /* Read the master ID from the radix tree key. */
         streamDecodeID(ri.key, &master_id);
         if (trim_strategy == TRIM_STRATEGY_MAXLEN) {
-            remove_node = s->length - entries >= maxlen;
+            node_eligible_for_remove = s->length - entries >= maxlen;
         } else {
             /* Read last ID. */
             streamID last_id = {0,0};
             lpGetEdgeStreamID(lp, 0, &master_id, &last_id);
 
             /* We can remove the entire node id its last ID < 'id' */
-            remove_node = streamCompareID(&last_id, id) < 0;
+            node_eligible_for_remove = streamCompareID(&last_id, id) < 0;
         }
 
-        if (delete_strategy != DELETE_STRATEGY_KEEPREF) {
-            /* With ACKED or DELREF strategy, we can't remove the whole node directly.
-             * For ACKED, we need to check each entry individually to see if it's
-             * referenced by any consumer group before deletion.
-             * For DELREF, we need to clean up all existing consumer group references
-             * for each entry before deleting it. */
-            remove_node = 0;
+        if (node_eligible_for_remove && delete_strategy == DELETE_STRATEGY_KEEPREF) {
+            /* With KEEPREF strategy, we can remove the whole node directly since we don't need
+             * to check or clean up consumer group references. */
+            remove_node = 1;
         }
 
         if (remove_node) {
@@ -844,7 +838,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             while(to_skip--) p = lpNext(lp,p); /* Skip the whole entry. */
             p = lpNext(lp,p); /* Skip the final lp-count field. */
 
-            /* Check consumer group references before marking as deleted */
+            /* Mark the entry as deleted if allowed. */
             if (!(flags & STREAM_ITEM_FLAG_DELETED)) {
                 int can_delete = 1;
                 if (delete_strategy == DELETE_STRATEGY_ACKED) {
@@ -856,6 +850,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                 }
 
                 if (can_delete) {
+                    /* Mark the entry as deleted. */
                     intptr_t delta = p - lp;
                     flags |= STREAM_ITEM_FLAG_DELETED;
                     lp = lpReplaceInteger(lp, &pcopy, flags);
@@ -886,7 +881,10 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         /* Update the listpack with the new pointer. */
         raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
 
-        if (delete_strategy != DELETE_STRATEGY_KEEPREF)
+        /* If the node is eligible for removal but we couldn't remove it due to delete strategy
+         * constraints (we need to check each entry individually), continue to the next node
+         * instead of stopping here. */
+        if (node_eligible_for_remove)
             continue;
 
         break; /* If we are here, there was enough to delete in the current
