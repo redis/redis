@@ -1754,14 +1754,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     if (o == NULL) {
         /* SCAN command - use dynamic array */
         addReplyArrayLen(c, data.scan_keys_count);
-
-        /* Prefetch heap-allocated keys for better cache performance */
-        if (data.scan_keys != keys_stack_buffer && data.scan_keys_count > 0) {
-            for (int i = 0; i < data.scan_keys_count; i++) {
-                redis_prefetch_read(data.scan_keys[i]);
-            }
-        }
-
         for (int i = 0; i < data.scan_keys_count; i++) {
             addReplyBulkCBuffer(c, data.scan_keys[i], sdslen(data.scan_keys[i]));
         }
