@@ -2525,7 +2525,6 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     return KEY_DELETED;
 }
 
-
 /* CB passed to kvstoreExpand.
  * The purpose is to skip expansion of unused dicts in cluster mode (all
  * dicts not mapped to *my* slots) */
