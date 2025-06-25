@@ -2338,6 +2338,9 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     uint16_t dirty_slots[CLUSTER_SLOTS];
     int dirty_slots_count = 0;
 
+    uint8_t asm_detect_updated_slots[CLUSTER_SLOTS];
+    memset(asm_detect_updated_slots, 0, sizeof(asm_detect_updated_slots));
+
     /* We should detect if sender is new master of our shard.
      * We will know it if all our slots were migrated to sender, and sender
      * has no slots except ours */
@@ -2377,6 +2380,14 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (isSlotUnclaimed(j) ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
+                /* After compelting slot ranges migration, the destination node
+                 * will broadcast a PONG message to all the nodes. We need to
+                 * detect that the slot was moved from us to the sender, and
+                 * send ASM_REQUEST_CONFIG_UPDATED request to ASM later. */
+                if (server.cluster->slots[j] == myself && sender != myself) {
+                    asm_detect_updated_slots[j] = 1;
+                }
+
                 /* Was this slot mine, and still contains keys? Mark it as
                  * a dirty slot. */
                 if (server.cluster->slots[j] == myself &&
@@ -2408,6 +2419,34 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             bitmapSetBit(server.cluster->owner_not_claiming_slot, j);
         }
     }
+
+    /* Transform the bitmap to a list of slot ranges, and send a request to ASM. */
+    slotRangeArray *sra = zmalloc(sizeof(*sra) + sizeof(slotRange) * CLUSTER_SLOTS);
+    sra->num_ranges = 0;
+    int start = -1;
+    for (int i = 0; i < CLUSTER_SLOTS; i++) {
+        if (asm_detect_updated_slots[i]) {
+            if (start == -1) {
+                start = i;
+            }
+        } else {
+            if (start != -1) {
+                sra->ranges[sra->num_ranges].start = start;
+                sra->ranges[sra->num_ranges].end = i - 1;
+                sra->num_ranges++;
+                start = -1;
+            }
+        }
+    }
+    if (start != -1) {
+        sra->ranges[sra->num_ranges].start = start;
+        sra->ranges[sra->num_ranges].end = CLUSTER_SLOTS - 1;
+        sra->num_ranges++;
+    }
+    if (sra->num_ranges > 0) {
+        clusterAsmRequest(sra, ASM_REQUEST_CONFIG_UPDATED, NULL, NULL);
+    }
+    zfree(sra);
 
     /* After updating the slots configuration, don't do any actual change
      * in the state of the server if a module disabled Redis Cluster
@@ -4908,6 +4947,8 @@ void clusterBeforeSleep(void) {
         int fsync = flags & CLUSTER_TODO_FSYNC_CONFIG;
         clusterSaveConfigOrDie(fsync);
     }
+
+    asmSyncBufferStreamToDb();
 }
 
 void clusterDoBeforeSleep(int flags) {
@@ -6523,7 +6564,7 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
             break;
         case ASM_EVENT_MIGRATE_WAIT_PAUSE:
             clusterAsmRequest(slot_ranges, ASM_REQUEST_MIGRATE_PAUSED, NULL, NULL);
-            serverLog(LL_NOTICE, "Import paused for slot ranges: %s", str);
+            serverLog(LL_NOTICE, "Migrate paused for slot ranges: %s", str);
             break;
         case ASM_EVENT_IMPORT_WAIT_FINALIZE:
             serverLog(LL_NOTICE, "Import completed for slot ranges: %s", str);
@@ -6537,7 +6578,7 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
             }
             /* New config and Bump new config */
             clusterBumpConfigEpochWithoutConsensus();
-            clusterBroadcastPong(0);
+            clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             clusterSaveConfigOrDie(1);
             clusterAsmRequest(slot_ranges, ASM_REQUEST_CONFIG_UPDATED, NULL, NULL);
             break;

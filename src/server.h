@@ -1317,7 +1317,6 @@ typedef struct {
 } clientReqResInfo;
 #endif
 
-struct asmTask;
 typedef struct client {
     uint64_t id;            /* Client incremental unique ID. */
     uint64_t flags;         /* Client flags: CLIENT_* macros. */

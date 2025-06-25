@@ -31,6 +31,7 @@
 #include "bio.h"
 #include "functions.h"
 #include "connection.h"
+#include "cluster_asm.h"
 
 #include <memory.h>
 #include <sys/time.h>
@@ -790,8 +791,21 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     if (slave->flags & CLIENT_REPL_RDB_CHANNEL &&
         slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
     {
-        /* TODO: Start to deliver the commands stream on exporting slots. */
-        /* task->state = +ASM_SEND_BULK_AND_STREAM */
+        uint64_t id = slave->main_ch_client_id;
+        client *c = lookupClientByID(id);
+        if (c && c->replstate == SLAVE_STATE_WAIT_RDB_CHANNEL) {
+            c->replstate = SLAVE_STATE_SEND_BULK_AND_STREAM;
+            serverLog(LL_NOTICE, "Starting to deliver RDB and slots stream to replica: %s",
+                        replicationGetSlaveName(c));
+        } else {
+            serverLog(LL_WARNING, "Starting to deliver RDB to replica %s"
+                                    " but it has no associated main channel",
+                                    replicationGetSlaveName(slave));
+            /* TODO: error handler: No main channel for slots sync */
+        }
+        /* Start to deliver the commands stream on exporting slots. */
+        asmStartSendBulkAndStream(slave->task);
+
         buflen = snprintf(buf, sizeof(buf), "+SLOTSSNAPSHOT\r\n");
         if (connWrite(slave->conn, buf, buflen) != buflen) {
             freeClientAsync(slave);

@@ -58,18 +58,56 @@ start_cluster 3 3 {tags {external:skip cluster}} {
     }
 
     test "Test IMPORT not allowed if there is an overlapping import" {
-        R 1 set tag22273 tag22273 ;# slot hash is 7000
-        R 1 set tag9283 tag9283 ;# slot hash is 8000
         R 0 CLUSTER MIGRATION IMPORT 7000 8000
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 8000 9000}
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 7500 8500}
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6000 7000}
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6500 7500}
-        test "slot range 7000-8000 is imported" {
-            after 3000
-            # Now slot 7000-8000 is served by node 0
-            assert_equal {tag22273} [R 0 get tag22273]
-            assert_equal {tag9283} [R 0 get tag9283]
+        wait_for_condition 1000 50 {
+            [llength [R 0 cluster migration status]] == 0 &&
+            [llength [R 1 cluster migration status]] == 0
+        } else {
+            fail "ASM task did not complete"
         }
+    }
+
+    test "Simple slot migration" {
+        set slot0_key "06S"
+        R 0 set $slot0_key "a"
+        set slot1_key "Qi"
+        R 0 set $slot1_key "b"
+        # 2 keys cost 2s to save
+        R 0 config set rdb-key-save-delay 1000000
+    
+        # migrate slot 0-100 to R 1
+        assert_equal {OK} [R 1 CLUSTER MIGRATION IMPORT 0 100]
+        # migration is start, and in accumulating buffer stage
+        wait_for_condition 1000 50 {
+            [string match {*send-bulk-and-stream*} [R 0 cluster migration status]] &&
+            [string match {*accumulate-buffer*} [R 1 cluster migration status]]
+        } else {
+            fail "ASM task did not start"
+        }
+
+        # append 99 times during migration
+        for {set i 0} {$i < 99} {incr i} {
+            R 0 append $slot0_key "a"
+            R 0 append $slot1_key "b"
+        }
+        wait_for_condition 1000 50 {
+            [llength [R 0 cluster migration status]] == 0 &&
+            [llength [R 1 cluster migration status]] == 0
+        } else {
+            fail "ASM task did not complete"
+        }
+
+        # the appended 99 times should also be migrated
+        assert_equal [string repeat a 100] [R 1 get $slot0_key]
+        assert_equal [string repeat b 100] [R 1 get $slot1_key]
+        # the slave should also get the data
+        after 100
+        R 4 readonly
+        assert_equal [string repeat a 100] [R 4 get $slot0_key]
+        assert_equal [string repeat b 100] [R 4 get $slot1_key]
     }
 }
