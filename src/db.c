@@ -1258,9 +1258,16 @@ void keysCommand(client *c) {
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
+#define SCAN_KEYS_INITIAL_CAPACITY 64
+
 /* Data used by the dict scan callback. */
 typedef struct {
-    list *keys;   /* elements that collect from dict */
+    list *keys;   /* elements that collect from dict (for HSCAN/SSCAN/ZSCAN) */
+    /* Stack-allocated dynamic array for SCAN optimization */
+    sds *scan_keys;        /* pointer to keys array (stack or heap allocated) */
+    int scan_keys_count;   /* number of keys collected */
+    int scan_keys_capacity; /* current capacity of keys array */
+    sds *scan_stack_buffer; /* reference to original stack buffer for cleanup check */
     robj *o;      /* o must be a hash/set/zset object, NULL means current db */
     long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
@@ -1270,6 +1277,28 @@ typedef struct {
     sds typename; /* typename string, NULL means no type filter */
     redisDb *db;  /* database reference for expiration checks */
 } scanData;
+
+/* Helper function to add a key to the scan results (for SCAN command only) */
+static void scanKeysPush(scanData *data, sds key) {
+    if (data->scan_keys_count >= data->scan_keys_capacity) {
+        /* Need to grow the array */
+        int new_capacity = data->scan_keys_capacity * 2;
+        sds *new_keys = zmalloc(new_capacity * sizeof(sds));
+
+        /* Copy existing keys */
+        memcpy(new_keys, data->scan_keys, data->scan_keys_count * sizeof(sds));
+
+        /* Free old array if it was heap allocated */
+        if (data->scan_keys != data->scan_stack_buffer) {
+            zfree(data->scan_keys);
+        }
+
+        data->scan_keys = new_keys;
+        data->scan_keys_capacity = new_capacity;
+    }
+
+    data->scan_keys[data->scan_keys_count++] = key;
+}
 
 /* Helper function to compare key type in scan commands */
 int objectTypeCompare(robj *o, long long target) {
@@ -1332,7 +1361,9 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     }
 
     if (o == NULL) {
-        key = keyStr;
+        /* SCAN command - use dynamic array for optimization */
+        scanKeysPush(data, keyStr);
+        return;
     } else if (o->type == OBJ_SET) {
         key = keyStr;
     } else if (o->type == OBJ_HASH) {
@@ -1352,6 +1383,7 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         serverPanic("Type not handled in SCAN callback.");
     }
 
+    /* HSCAN/SSCAN/ZSCAN - use original list approach */
     listAddNodeTail(keys, key);
     if (val && !data->no_values) listAddNodeTail(keys, val);
 }
@@ -1429,6 +1461,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     long long type = LLONG_MAX;
     int patlen = 0, use_pattern = 0, no_values = 0;
     dict *ht;
+    scanData data;
+
+    /* Stack-allocated array for SCAN command optimization */
+    sds keys_stack_buffer[SCAN_KEYS_INITIAL_CAPACITY];
 
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
@@ -1542,17 +1578,19 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * to prevent a long hang time caused by filtering too many keys;
          * 6. data.no_values: to control whether values will be returned or
          * only keys are returned. */
-        scanData data = {
-            .keys = keys,
-            .o = o,
-            .type = type,
-            .pattern = use_pattern ? pat : NULL,
-            .sampled = 0,
-            .no_values = no_values,
-            .strlen = (isKeysHfield) ? hfieldlen : sdslen,
-            .typename = typename,
-            .db = c->db,
-        };
+        data.keys = keys;
+        data.scan_keys = o == NULL ? keys_stack_buffer : NULL;
+        data.scan_keys_count = 0;
+        data.scan_keys_capacity = o == NULL ? SCAN_KEYS_INITIAL_CAPACITY : 0;
+        data.scan_stack_buffer = keys_stack_buffer;
+        data.o = o;
+        data.type = type;
+        data.pattern = use_pattern ? pat : NULL;
+        data.sampled = 0;
+        data.no_values = no_values;
+        data.strlen = (isKeysHfield) ? hfieldlen : sdslen;
+        data.typename = typename;
+        data.db = c->db;
 
         /* A pattern may restrict all matching keys to one cluster slot. */
         int onlydidx = -1;
@@ -1713,15 +1751,29 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    unsigned long long idx = 0;
-    addReplyArrayLen(c, listLength(keys));
-    while ((node = listFirst(keys)) != NULL) {
-        void *key = listNodeValue(node);
-        /* For HSCAN, list will contain keys value pairs unless no_values arg
-         * was given. We should call mstrlen for the keys only. */
-        int hfieldkey = isKeysHfield && (no_values || (idx++ % 2 == 0));
-        addReplyBulkCBuffer(c, key, hfieldkey ? mstrlen(key) : sdslen(key));
-        listDelNode(keys, node);
+    if (o == NULL) {
+        /* SCAN command - use dynamic array */
+        addReplyArrayLen(c, data.scan_keys_count);
+        for (int i = 0; i < data.scan_keys_count; i++) {
+            addReplyBulkCBuffer(c, data.scan_keys[i], sdslen(data.scan_keys[i]));
+        }
+
+        /* Cleanup dynamic array if it grew beyond stack */
+        if (data.scan_keys != keys_stack_buffer) {
+            zfree(data.scan_keys);
+        }
+    } else {
+        /* HSCAN/SSCAN/ZSCAN - use list */
+        unsigned long long idx = 0;
+        addReplyArrayLen(c, listLength(keys));
+        while ((node = listFirst(keys)) != NULL) {
+            void *key = listNodeValue(node);
+            /* For HSCAN, list will contain keys value pairs unless no_values arg
+             * was given. We should call mstrlen for the keys only. */
+            int hfieldkey = isKeysHfield && (no_values || (idx++ % 2 == 0));
+            addReplyBulkCBuffer(c, key, hfieldkey ? mstrlen(key) : sdslen(key));
+            listDelNode(keys, node);
+        }
     }
 
     listRelease(keys);
