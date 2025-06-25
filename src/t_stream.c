@@ -2809,7 +2809,7 @@ void streamFreeCG(streamCG *cg) {
     zfree(cg);
 }
 
-void streamRemoveReferenceAndFreeCG(stream *s, streamCG *cg) {
+void streamRemoveRefAndFreeCG(stream *s, streamCG *cg) {
     /* Before removing the consumer group, we need to clean up all references
      * to this group in the cgroups_ref */
     raxIterator it;
@@ -3031,7 +3031,7 @@ NULL
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamRemoveCGroupFromSortedList(s, cg);
-            streamRemoveReferenceAndFreeCG(s, cg);
+            streamRemoveRefAndFreeCG(s, cg);
             addReply(c,shared.cone);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
