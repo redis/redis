@@ -1578,19 +1578,21 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * to prevent a long hang time caused by filtering too many keys;
          * 6. data.no_values: to control whether values will be returned or
          * only keys are returned. */
-        data.keys = keys;
-        data.scan_keys = o == NULL ? keys_stack_buffer : NULL;
-        data.scan_keys_count = 0;
-        data.scan_keys_capacity = o == NULL ? SCAN_KEYS_INITIAL_CAPACITY : 0;
-        data.scan_stack_buffer = keys_stack_buffer;
-        data.o = o;
-        data.type = type;
-        data.pattern = use_pattern ? pat : NULL;
-        data.sampled = 0;
-        data.no_values = no_values;
-        data.strlen = (isKeysHfield) ? hfieldlen : sdslen;
-        data.typename = typename;
-        data.db = c->db;
+        scanData data = {
+            .keys = keys,
+            .scan_keys = o == NULL ? keys_stack_buffer : NULL,
+            .scan_keys_count = 0,
+            .scan_keys_capacity = o == NULL ? SCAN_KEYS_INITIAL_CAPACITY : 0,
+            .scan_stack_buffer = keys_stack_buffer,
+            .o = o,
+            .type = type,
+            .pattern = use_pattern ? pat : NULL,
+            .sampled = 0,
+            .no_values = no_values,
+            .strlen = (isKeysHfield) ? hfieldlen : sdslen,
+            .typename = typename,
+            .db = c->db,
+        };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
         int onlydidx = -1;
