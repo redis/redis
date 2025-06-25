@@ -3262,15 +3262,18 @@ void xackdelCommand(client *c) {
             streamRemoveCGroupRefAndFreeNACK(s, nack, buf);
             server.dirty++;
 
-            if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsAckedByAllCGroups(s, id)) {
-                /* Skip deletion if still referenced by other groups */
-                code = XACKDEL_STILL_REFERENCED;
-                goto reply;
+            int can_delete = 1;
+            if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
+                /* Only delete if acknowledged by all consumer groups */
+                if (streamEntryIsAckedByAllCGroups(s, id)) {
+                    code = XACKDEL_STILL_REFERENCED;
+                    can_delete = 0;
+                }
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
                 streamRemoveAllCGroupRef(s, id);
             }
 
-            if (streamDeleteItem(s,id)) {
+            if (can_delete && streamDeleteItem(s,id)) {
                 /* We want to know if the first entry in the stream was deleted
                 * so we can later set the new one. */
                 if (streamCompareID(id,&s->first_id) == 0) {
@@ -3281,13 +3284,16 @@ void xackdelCommand(client *c) {
                     s->max_deleted_entry_id = *id;
                 }
                 deleted++;
-            } 
-            
-            /* Even if the entry doesn't exist, we still consider it to have been deleted. */
-            code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
-               XACKDEL_DELETED_DELREF: XACKDEL_DELETED_KEEPREF;
+            }
+
+            /* Set appropriate response code if not already set */
+            if (code == XACKDEL_NO_ID) {
+                /* If the entry was in the PEL but not found in the stream,
+                 * we still consider it successfully deleted. */
+                code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
+                   XACKDEL_DELETED_DELREF: XACKDEL_DELETED_KEEPREF;
+            }
         }
-reply:
         addReplyLongLong(c, code);
     }
 
