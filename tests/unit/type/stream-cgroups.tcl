@@ -556,10 +556,10 @@ start_server {
         # Try to delete a message with ACKED - should fail because both groups have references
         assert_equal {3 3 3 3 3} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
 
-        # Destroy one consumer group
+        # Destroy one consumer group, and then we can delete all the entries with ACKED.
         r XGROUP DESTROY mystream mygroup
-
         assert_equal {2 2 2 2 2} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
+        assert_equal 0 [r XLEN mystream] 
     }
 
     test {RENAME can unblock XREADGROUP with data} {
