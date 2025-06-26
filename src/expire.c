@@ -19,8 +19,8 @@ EbucketsType estoreBucketsType = {
     .onDeleteItem = NULL,
     .getExpireMeta = kvobjGetExpireMeta,   /* get ExpireMeta attached to each hash */
     .itemsAddrAreOdd = 0,                 /* Addresses of kvobj are even */
-    .ebp.precision = 10,
-    .ebp.keySize = EB_PRECISION2KEYSIZE(10 /*.precision*/),
+    .ebp.precision = 11,
+    .ebp.keySize = EB_PRECISION2KEYSIZE(11 /*.precision*/),
     .isEbStack = 1,
 };
 
