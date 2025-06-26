@@ -2444,7 +2444,7 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     return now > when;
 }
 
-/* Check if user configuration allows key to be expired */
+/* Check if user configuration allows key to be deleted due to expiary */
 int confAllowsExpireDel() {
     if (server.allow_arbitrary_lazyexpires)
         return 1;
