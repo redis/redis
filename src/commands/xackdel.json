@@ -107,7 +107,7 @@
                         "const": 2
                     },
                     {
-                        "description": "Entry was not deleted because it wasn't read and acknowledged by all consumer groups yet.",
+                        "description": "Entry was acknowledged but not deleted because it wasn't read and acknowledged by all consumer groups yet.",
                         "const": 2
                     }
                 ]
