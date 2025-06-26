@@ -2580,11 +2580,14 @@ cleanup: /* Cleanup. */
  * Low level implementation of consumer groups
  * ----------------------------------------------------------------------- */
 
-/* Update a consumer group's position in the sorted list when last_id changes */
+/* Update a consumer group's last_id and handle minimum last_id tracking.
+ * When a consumer group's last_id is updated, we need to check if it was
+ * previously the minimum last_id across all consumer groups. If so, we
+ * invalidate the cached minimum value to force recalculation next time. */
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID id) {
-    cg->last_id = id;
-    if (streamCompareID(&id, &s->min_cgroup_last_id) == 0)
+    if (s->min_cgroup_last_id_valid && streamCompareID(&cg->last_id, &s->min_cgroup_last_id) == 0)
         s->min_cgroup_last_id_valid = 0;
+    cg->last_id = id;
 }
 
 /* Add a consumer group to the list of groups that are processing a given stream entry.
@@ -2664,6 +2667,7 @@ int streamEntryIsAckedByAllCGroups(stream *s, streamID *id) {
     if (!s->min_cgroup_last_id_valid) {
         /* If the cached min_cgroup_last_id is invalid, we need to recalculate it
          * by iterating through all consumer groups to find the minimum last_id */
+        s->min_cgroup_last_id_valid = 1;
         s->min_cgroup_last_id.ms = UINT64_MAX;
         s->min_cgroup_last_id.seq = UINT64_MAX;
         raxIterator ri;
@@ -2675,8 +2679,6 @@ int streamEntryIsAckedByAllCGroups(stream *s, streamID *id) {
                 s->min_cgroup_last_id = cg->last_id;
         }
         raxStop(&ri);
-
-        s->min_cgroup_last_id_valid = 1;
     }
 
     /* The consume group doesn't read it. */
