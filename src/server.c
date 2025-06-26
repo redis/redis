@@ -1358,11 +1358,17 @@ void checkChildrenDone(void) {
     }
 }
 
+/* Record the max memory used since the server was started. */
+void updatePeakMemory(size_t used_memory) {
+    if (unlikely(used_memory > server.stat_peak_memory)) {
+        server.stat_peak_memory = used_memory;
+        server.stat_peak_memory_time = server.unixtime;
+    }
+}
+
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats(void) {
-    /* Record the max memory used since the server was started. */
-    if (zmalloc_used_memory() > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used_memory();
+    updatePeakMemory(zmalloc_used_memory());
 
     run_with_period(100) {
         /* Sample the RSS and other metrics here since this is a relatively slow call.
@@ -1773,9 +1779,7 @@ extern int ProcessingEventsWhileBlocked;
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used;
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Just call a subset of vital functions in case we are re-entering
      * the event loop from processEventsWhileBlocked(). Note that in this
@@ -2285,9 +2289,11 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
+    server.repl_up_since = 0;
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
+    server.repl_total_sync_attempts = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2745,6 +2751,8 @@ void resetServerStats(void) {
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
     server.stat_cluster_incompatible_ops = 0;
+    server.stat_total_prefetch_batches = 0;
+    server.stat_total_prefetch_entries = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
@@ -2892,6 +2900,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_peak_memory_time = server.unixtime;
     server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
@@ -2909,6 +2918,7 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_allocated = 0;
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
+    server.repl_current_sync_attempts = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
@@ -3913,9 +3923,7 @@ void call(client *c, int flags) {
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used;
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
@@ -4029,13 +4037,11 @@ int commandCheckExistence(client *c, sds *err) {
 
 /* Check if c->argc is valid for c->cmd, fills `err` with details in case it isn't.
  * Return 1 if valid. */
-int commandCheckArity(client *c, sds *err) {
-    if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
-        (c->argc < -c->cmd->arity))
-    {
+int commandCheckArity(struct redisCommand *cmd, int argc, sds *err) {
+    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         if (err) {
             *err = sdsnew(NULL);
-            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", c->cmd->fullname);
+            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", cmd->fullname);
         }
         return 0;
     }
@@ -4128,7 +4134,7 @@ int processCommand(client *c) {
             rejectCommandSds(c, err);
             return C_OK;
         }
-        if (!commandCheckArity(c, &err)) {
+        if (!commandCheckArity(c->cmd, c->argc, &err)) {
             rejectCommandSds(c, err);
             return C_OK;
         }
@@ -5953,8 +5959,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
          * may happen that the instantaneous value is slightly bigger than
          * the peak value. This may confuse users, so we update the peak
          * if found smaller than the current memory usage. */
-        if (zmalloc_used > server.stat_peak_memory)
-            server.stat_peak_memory = zmalloc_used;
+        updatePeakMemory(zmalloc_used);
 
         bytesToHuman(hmem,sizeof(hmem),zmalloc_used);
         bytesToHuman(peak_hmem,sizeof(peak_hmem),server.stat_peak_memory);
@@ -5973,6 +5978,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "used_memory_rss_human:%s\r\n", used_memory_rss_hmem,
             "used_memory_peak:%zu\r\n", server.stat_peak_memory,
             "used_memory_peak_human:%s\r\n", peak_hmem,
+            "used_memory_peak_time:%jd\r\n", (intmax_t)server.stat_peak_memory_time,
             "used_memory_peak_perc:%.2f%%\r\n", mh->peak_perc,
             "used_memory_overhead:%zu\r\n", mh->overhead_total,
             "used_memory_startup:%zu\r\n", mh->startup_allocated,
@@ -6223,6 +6229,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n", stat_total_writes_processed,
             "io_threaded_reads_processed:%lld\r\n", stat_io_reads_processed,
             "io_threaded_writes_processed:%lld\r\n", stat_io_writes_processed,
+            "io_threaded_total_prefetch_batches:%lld\r\n", server.stat_total_prefetch_batches,
+            "io_threaded_total_prefetch_entries:%lld\r\n", server.stat_total_prefetch_entries,
             "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
             "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
             "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,
@@ -6248,6 +6256,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (server.masterhost) {
             long long slave_repl_offset = 1;
             long long slave_read_repl_offset = 1;
+            time_t current_disconnect_time = server.repl_down_since ?
+                server.unixtime - server.repl_down_since : 0 ;
 
             if (server.master) {
                 slave_repl_offset = server.master->reploff;
@@ -6266,8 +6276,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "slave_read_repl_offset:%lld\r\n", slave_read_repl_offset,
                 "slave_repl_offset:%lld\r\n", slave_repl_offset,
                 "replica_full_sync_buffer_size:%zu\r\n", server.repl_full_sync_buffer.size,
-                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak));
-
+                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak,
+                "master_current_sync_attempts:%lld\r\n", server.repl_current_sync_attempts,
+                "master_total_sync_attempts:%lld\r\n", server.repl_total_sync_attempts));
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
                 if (server.repl_transfer_size) {
@@ -6286,7 +6297,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     "master_link_down_since_seconds:%jd\r\n",
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
+            } else {
+                info = sdscatprintf(info,
+                    "master_link_up_since_seconds:%jd\r\n",
+                    server.repl_up_since ? /* defensive code, should never be 0 when connected */
+                    (intmax_t)(server.unixtime-server.repl_up_since) : -1);
             }
+            info = sdscatprintf(info, "total_disconnect_time_sec:%jd\r\n", (intmax_t)server.repl_total_disconnect_time+(current_disconnect_time));
+
             info = sdscatprintf(info, FMTARGS(
                 "slave_priority:%d\r\n", server.slave_priority,
                 "slave_read_only:%d\r\n", server.repl_slave_ro,

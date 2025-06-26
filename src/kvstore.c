@@ -83,7 +83,7 @@ typedef struct {
 /**********************************/
 
 /* Get the dictionary pointer based on dict-index. */
-static dict *kvstoreGetDict(kvstore *kvs, int didx) {
+dict *kvstoreGetDict(kvstore *kvs, int didx) {
     return kvs->dicts[didx];
 }
 
