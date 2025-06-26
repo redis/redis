@@ -42,6 +42,7 @@ int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq)
 
 int streamEntryIsAckedByAllCGroups(stream *s, streamID *id);
 void streamRemoveAllCGroupRef(stream *s, streamID *id);
+void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
