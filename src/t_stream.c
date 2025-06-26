@@ -3246,7 +3246,7 @@ void xackdelCommand(client *c) {
     int deleted = 0;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
-        int code = XACKDEL_NO_ID;
+        int res = XACKDEL_NO_ID;
         streamID *id = &ids[j];
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
@@ -3266,7 +3266,7 @@ void xackdelCommand(client *c) {
             if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
                 /* Only delete if acknowledged by all consumer groups */
                 if (streamEntryIsAckedByAllCGroups(s, id)) {
-                    code = XACKDEL_STILL_REFERENCED;
+                    res = XACKDEL_STILL_REFERENCED;
                     can_delete = 0;
                 }
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
@@ -3287,14 +3287,14 @@ void xackdelCommand(client *c) {
             }
 
             /* Set appropriate response code if not already set */
-            if (code == XACKDEL_NO_ID) {
+            if (res == XACKDEL_NO_ID) {
                 /* If the entry was in the PEL but not found in the stream,
                  * we still consider it successfully deleted. */
-                code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
+                res = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
                    XACKDEL_DELETED_DELREF: XACKDEL_DELETED_KEEPREF;
             }
         }
-        addReplyLongLong(c, code);
+        addReplyLongLong(c, res);
     }
 
     /* Update the stream's first ID. */
@@ -4025,6 +4025,14 @@ cleanup:
     if (ids != static_ids) zfree(ids);
 }
 
+/* Used by xdelexCommand() */
+typedef enum XDelexRes {
+    XDELEX_NO_ID = -2,           /* ID not found in the stream. */
+    XDELEX_DELETED_KEEPREF = 0,  /* Message deleted from stream, consumer group references preserved. */
+    XDELEX_DELETED_DELREF = 1,   /* Message deleted from stream with all consumer group references cleaned up. */
+    XDELEX_STILL_REFERENCED = 2, /* Message not deleted because it's still referenced by consumer groups. */
+} XDelexRes;
+
 /* XDELEX <key> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
  *
  * Removes the specified entries from the stream. Returns the number
@@ -4059,20 +4067,23 @@ void xdelexCommand(client *c) {
     int deleted = 0;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
-        int code = -2;
+        int res = XDELEX_NO_ID;
         streamID *id = &ids[j];
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,id);
 
-        if ((args.delete_strategy == DELETE_STRATEGY_ACKED) && streamEntryIsAckedByAllCGroups(s, id)) {
-            /* Skip deletion if still referenced by other consumer groups */
-            code = 2;
-            goto reply;
+        int can_delete = 1;
+        if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
+            /* Only delete if acknowledged by all consumer groups */
+            if (streamEntryIsAckedByAllCGroups(s, id)) {
+                res = XACKDEL_STILL_REFERENCED;
+                can_delete = 0;
+            }
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
             streamRemoveAllCGroupRef(s, id);
         }
 
-        if (streamDeleteItem(s,id)) {
+        if (can_delete && streamDeleteItem(s,id)) {
             /* We want to know if the first entry in the stream was deleted
             * so we can later set the new one. */
             if (streamCompareID(id,&s->first_id) == 0) {
@@ -4083,12 +4094,17 @@ void xdelexCommand(client *c) {
                 s->max_deleted_entry_id = *id;
             }
             deleted++;
-            code = (args.delete_strategy == DELETE_STRATEGY_DELREF) ? 1 : 0;
-        } else {
-            code = -2; /* Item not found in stream */
         }
-reply:
-        addReplyLongLong(c, code);
+
+        /* Set appropriate response code if not already set */
+        if (res == XDELEX_NO_ID) {
+            /* If the entry was in the PEL but not found in the stream,
+                * we still consider it successfully deleted. */
+            res = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
+                XDELEX_DELETED_DELREF: XDELEX_DELETED_KEEPREF;
+        }
+
+        addReplyLongLong(c, res);
     }
 
     /* Update the stream's first ID. */
