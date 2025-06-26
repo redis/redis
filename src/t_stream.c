@@ -62,7 +62,9 @@ stream *streamNew(void) {
     s->entries_added = 0;
     s->cgroups = NULL; /* Created on demand to save memory when not used. */
     s->cgroups_ref = NULL;
-    s->cgroups_sorted_list = NULL;
+    s->min_cgroup_last_id.ms = UINT64_MAX;
+    s->min_cgroup_last_id.seq = UINT64_MAX;
+    s->min_cgroup_last_id_valid = 0;
     return s;
 }
 
@@ -2578,62 +2580,11 @@ cleanup: /* Cleanup. */
  * Low level implementation of consumer groups
  * ----------------------------------------------------------------------- */
 
-/* Add a consumer group to the sorted linked list by last_id (ascending order) */
-void streamAddCGroupToSortedList(stream *s, streamCG *cg) {
-    /* list is empty */
-    if (s->cgroups_sorted_list == NULL) {
-        s->cgroups_sorted_list = cg;
-        cg->prev = cg->next = NULL;
-        return;
-    }
-
-    /* Find the correct position to insert (maintain ascending order by last_id) */
-    streamCG *current = s->cgroups_sorted_list;
-
-    /* Case 1: Insert at the beginning (smallest last_id) */
-    if (streamCompareID(&cg->last_id, &current->last_id) < 0) {
-        cg->next = s->cgroups_sorted_list;
-        cg->prev = NULL;
-        s->cgroups_sorted_list->prev = cg;
-        s->cgroups_sorted_list = cg;
-        return;
-    }
-
-    /* Case 2: Find position in the middle or at the end */
-    while (current->next && streamCompareID(&cg->last_id, &current->next->last_id) > 0) {
-        current = current->next;
-    }
-
-    /* Insert after current */
-    cg->next = current->next;
-    cg->prev = current;
-    if (current->next)
-        current->next->prev = cg;
-    current->next = cg;
-}
-
-/* Remove a consumer group from the sorted linked list */
-void streamRemoveCGroupFromSortedList(stream *s, streamCG *cg) {
-    /* Update previous node's next pointer */
-    if (cg->prev) {
-        cg->prev->next = cg->next;
-    } else {
-        /* This was the head */
-        s->cgroups_sorted_list = cg->next;
-    }
-
-    /* Update next node's previous pointer */
-    if (cg->next)
-        cg->next->prev = cg->prev;
-}
-
 /* Update a consumer group's position in the sorted list when last_id changes */
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID id) {
     cg->last_id = id;
-
-    /* Remove from current position */
-    streamRemoveCGroupFromSortedList(s, cg);
-    streamAddCGroupToSortedList(s, cg);
+    if (streamCompareID(&id, &s->min_cgroup_last_id) == 0)
+        s->min_cgroup_last_id_valid = 0;
 }
 
 /* Add a consumer group to the list of groups that are processing a given stream entry.
@@ -2709,9 +2660,27 @@ void streamRemoveAllCGroupRef(stream *s, streamID *id) {
 /* Check if a stream item is still referenced by any consumer group.
  * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
 int streamEntryIsAckedByAllCGroups(stream *s, streamID *id) {
-    if (!s->cgroups_sorted_list) return 0;
+    if (!s->cgroups || !raxSize(s->cgroups)) return 0;
+    if (!s->min_cgroup_last_id_valid) {
+        /* If the cached min_cgroup_last_id is invalid, we need to recalculate it
+         * by iterating through all consumer groups to find the minimum last_id */
+        s->min_cgroup_last_id.ms = UINT64_MAX;
+        s->min_cgroup_last_id.seq = UINT64_MAX;
+        raxIterator ri;
+        raxStart(&ri, s->cgroups);
+        raxSeek(&ri, "^", NULL, 0);
+        while (raxNext(&ri)) {
+            streamCG *cg = ri.data;
+            if (streamCompareID(&cg->last_id, &s->min_cgroup_last_id) < 0)
+                s->min_cgroup_last_id = cg->last_id;
+        }
+        raxStop(&ri);
+
+        s->min_cgroup_last_id_valid = 1;
+    }
+
     /* The consume group doesn't read it. */
-    if (streamCompareID(&s->cgroups_sorted_list->last_id, id) < 0)
+    if (streamCompareID(&s->min_cgroup_last_id, id) < 0)
         return 1;
 
     /* Check if the message is in any consumer group's PEL */
@@ -2779,9 +2748,6 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     cg->consumers = raxNew();
     cg->last_id = *id;
     cg->entries_read = entries_read;
-    cg->prev = NULL;
-    cg->next = NULL;
-    streamAddCGroupToSortedList(s, cg);
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
     return cg;
 }
@@ -3014,7 +2980,6 @@ NULL
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
-            streamRemoveCGroupFromSortedList(s, cg);
             streamRemoveRefAndFreeCG(s, cg);
             addReply(c,shared.cone);
             server.dirty++;
