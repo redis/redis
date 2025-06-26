@@ -2372,7 +2372,7 @@ void ebGetStats(ebuckets eb, EbucketsType *type, ebucketsStats *stats) {
     if (type->isEbStack) {
         ebStack *stack = (ebStack *) eb;
         EB_STACK_EXEC_L1(type, ebGetStats(stack->l1, type, stats));        
-        EB_STACK_EXEC_L1(type, ebGetStats(stack->l2, type, stats));
+        EB_STACK_EXEC_L2(type, ebGetStats(stack->l2, type, stats));
     } else if (ebIsList(eb)) {
         eItem head = ebGetListPtr(type, eb);
         ExpireMeta *meta = type->getExpireMeta(head);

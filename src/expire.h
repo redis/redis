@@ -1,7 +1,6 @@
 #ifndef __EXPIRE_H__
 #define __EXPIRE_H__
 
-#include "server.h"
 #include "ebuckets.h"
 
 /* resolve circular dependency */
