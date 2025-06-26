@@ -728,28 +728,23 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
     sds key;
     GetFieldRes res;
     uint64_t dummy;
-    serverLog(LL_WARNING, "STAV. hashTypeGetValue. start");
 
     if (expiredAt == NULL) expiredAt = &dummy;
     if (o->encoding == OBJ_ENCODING_LISTPACK ||
         o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         *vstr = NULL;
         res = hashTypeGetFromListpack(o, field, vstr, vlen, vll, expiredAt);
-        serverLog(LL_WARNING, "STAV. hashTypeGetValue. 1");
 
         if (res == GETF_NOT_FOUND)
         {
-            serverLog(LL_WARNING, "STAV. hashTypeGetValue. GETF_NOT_FOUND");
             return GETF_NOT_FOUND;
         }
 
     } else if (o->encoding == OBJ_ENCODING_HT) {
         sds value = NULL;
         res = hashTypeGetFromHashTable(o, field, &value, expiredAt);
-        serverLog(LL_WARNING, "STAV. hashTypeGetValue. 2");
         if (res == GETF_NOT_FOUND)
         {
-            serverLog(LL_WARNING, "STAV. hashTypeGetValue. GETF_NOT_FOUND");
             return GETF_NOT_FOUND;
         }
 
@@ -772,14 +767,12 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         /* If user client, then act as if expired, but don't delete! */
         return GETF_EXPIRED;
     }
-    serverLog(LL_WARNING, "STAV. hashTypeGetValue. 3");
 
     if ((server.loading) ||
         (server.allow_access_expired) ||
         (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL) ||
         (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return GETF_EXPIRED;
-    serverLog(LL_WARNING, "STAV. hashTypeGetValue. 4");
     key = kvobjGetKey(o);
 
     /* delete the field and propagate the deletion */
@@ -791,11 +784,9 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         uint64_t l = hashTypeLength(o, 0);
         updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l+1, l);
     }
-    serverLog(LL_WARNING, "STAV. hashTypeGetValue. 5");
     /* If the field is the last one in the hash, then the hash will be deleted */
     res = GETF_EXPIRED;
     robj *keyObj = createStringObject(key, sdslen(key));
-    serverLog(LL_WARNING, "STAV. hashTypeGetValue. hfeFlags: %d HFE_LAZY_NO_NOTIFICATION : %d" , hfeFlags, HFE_LAZY_NO_NOTIFICATION);
 
     if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", keyObj, db->id);
@@ -803,13 +794,11 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, db->id);
         dbDelete(db,keyObj);
-        serverLog(LL_WARNING, "STAV. hashTypeGetValue. 6");
         res = GETF_EXPIRED_HASH;
     }
     if (!(hfeFlags & HFE_LAZY_NO_SIGNAL))
         signalModifiedKey(NULL, db, keyObj);
     decrRefCount(keyObj);
-    serverLog(LL_WARNING, "STAV. hashTypeGetValue. END. res is: %d",res);
     return res;
 }
 
@@ -1821,7 +1810,6 @@ static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
     /* If no more quota left for this callback, stop */
     if (expireCtx->fieldsToExpireQuota == 0)
         return ACT_STOP_ACTIVE_EXP;
-
     uint64_t nextExpTime = hashTypeExpire((kvobj *) item, expireCtx, 0);
 
     /* If hash has no more fields to expire or got deleted, indicate
@@ -1846,7 +1834,6 @@ static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
  * - EB_EXPIRE_TIME_INVALID if no more fields to expire
  */
 static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalHFE) {
-    serverLog(LL_WARNING, "STAV. hashTypeExpire. ");
 
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
     redisDb *db = expireCtx->db;
@@ -1917,7 +1904,6 @@ static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalH
 static int hashTypeExpireIfNeeded(redisDb *db, kvobj *o) {
     uint64_t nextExpireTime;
     uint64_t minExpire = hashTypeGetMinExpire(o, 1 /*accurate*/);
-
     /* Nothing to expire */
     if ((mstime_t) minExpire >= commandTimeSnapshot())
         return 0;
@@ -2346,7 +2332,6 @@ err_expiration:
  *   Integer reply: 1 if all the fields were set
  */
 void hsetexCommand(client *c) {
-    serverLog(LL_WARNING, "STAV. hsetexCommand. start");
     int flags = 0, first_field_pos = 0, field_count = 0, expire_time_pos = -1;
     int updated = 0, deleted = 0, set_expiry;
     long long expire_time = EB_EXPIRE_TIME_INVALID;
@@ -2371,24 +2356,36 @@ void hsetexCommand(client *c) {
         dbAddByLink(c->db, c->argv[1], &o, &link);
     }
     oldlen = (int64_t) hashTypeLength(o, 0);
-
     if (flags & (HFE_FXX | HFE_FNX)) {
-        int found = 0;
+        int expired = 0, hash_deleted = 0, found = 0;
         for (int i = 0; i < field_count; i++) {
             sds field = c->argv[first_field_pos + (i * 2)]->ptr;
+            unsigned char *vstr = NULL;
+            unsigned int vlen = UINT_MAX;
+            long long vll = LLONG_MAX;
             const int opt = HFE_LAZY_NO_NOTIFICATION |
                             HFE_LAZY_NO_SIGNAL |
                             HFE_LAZY_AVOID_HASH_DEL |
                             HFE_LAZY_NO_UPDATE_KEYSIZES;
-            int exists = hashTypeExists(c->db, o, field, opt, NULL);
+
+            GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, opt, NULL);
+            int exists = (res == GETF_OK);
+            expired += (res == GETF_EXPIRED);
+            hash_deleted += (res == GETF_EXPIRED_HASH);
             found += (exists != 0);
-            serverLog(LL_WARNING, "STAV. hsetexCommand. exists: %d ",exists);
 
             /* Check for early exit if the condition is already invalid. */
             if (((flags & HFE_FXX) && !exists) ||
                 ((flags & HFE_FNX) && exists))
                 break;
         }
+        if (expired)
+            notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
+        if (hash_deleted)
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        if (expired || hash_deleted)
+            signalModifiedKey(c, c->db, c->argv[1]);
+
 
         int all_exists = (found == field_count);
         int non_exists = (found == 0);
@@ -2396,7 +2393,6 @@ void hsetexCommand(client *c) {
         if (((flags & HFE_FNX) && !non_exists) ||
             ((flags & HFE_FXX) && !all_exists))
         {
-            serverLog(LL_WARNING, "STAV. hsetexCommand. fnx, fxx fails.");
 
             addReplyLongLong(c, 0);
             goto out;
@@ -2634,7 +2630,6 @@ void hmgetCommand(client *c) {
             addReplyNull(c);
         }
     }
-    serverLog(LL_WARNING, "STAV. hmgetCommand. expierd: %d:" , expired);
     if (expired) {
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
         if (deleted)
@@ -3674,7 +3669,6 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  *   propagated for given key.
  */
 static void hexpireGenericCommand(client *c, long long basetime, int unit) {
-    serverLog(LL_WARNING, "STAV. hexpireGenericCommand. start");
     long numFields = 0, numFieldsAt = 4;
     long long expire; /* unix time in msec */
     int fieldAt, fieldsNotSet = 0, expireSetCond = 0, updated = 0, deleted = 0;

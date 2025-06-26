@@ -8954,8 +8954,7 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
         RedisModuleKeyspaceSubscriber *sub = ln->value;
         /* Only notify subscribers on events matching the registration,
          * and avoid subscribers triggering themselves */
-        serverLog(LL_WARNING,
-              "STAV. moduleNotifyKeyspaceEvent. event : %d , type: %d ",sub->event_mask,type );
+
         if ((sub->event_mask & type) &&
             (sub->active == 0 || (sub->module->options & REDISMODULE_OPTIONS_ALLOW_NESTED_KEYSPACE_NOTIFICATIONS))) {
             RedisModuleCtx ctx;

@@ -2877,8 +2877,6 @@ static sds getConfigOOMScoreAdjValuesOption(standardConfig *config) {
 
 static int setConfigNotifyKeyspaceEventsOption(standardConfig *config, sds *argv, int argc, const char **err) {
     UNUSED(config);
-    serverLog(LL_WARNING,
-                  "STAV. setConfigNotifyKeyspaceEventsOption. CONFIG SET ");
 
     if (argc != 1) {
         *err = "wrong number of arguments";
