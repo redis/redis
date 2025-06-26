@@ -3202,7 +3202,8 @@ typedef enum XAckDelRes {
     XACKDEL_NO_ID = -2,           /* ID not found in PEL. */
     XACKDEL_DELETED_KEEPREF = 0,  /* Message acknowledged and deleted. */
     XACKDEL_DELETED_DELREF = 1,   /* Message acknowledged, deleted, and references cleaned. */
-    XACKDEL_STILL_REFERENCED = 2, /* Message acknowledged but not deleted (still referenced). */
+    XACKDEL_DELETED_ACKED = 2,    /* Message acknowledged, deleted, and no references. */
+    XACKDEL_STILL_REFERENCED = 3, /* Message acknowledged but not deleted (still referenced). */
 } XAckDelRes;
 
 /* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
@@ -3269,6 +3270,8 @@ void xackdelCommand(client *c) {
                 if (streamEntryIsAckedByAllCGroups(s, id)) {
                     res = XACKDEL_STILL_REFERENCED;
                     can_delete = 0;
+                } else {
+                    res = XACKDEL_DELETED_ACKED;
                 }
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
                 streamRemoveAllCGroupRef(s, id);
@@ -4031,7 +4034,8 @@ typedef enum XDelexRes {
     XDELEX_NO_ID = -2,           /* ID not found in the stream. */
     XDELEX_DELETED_KEEPREF = 0,  /* Message deleted from stream, consumer group references preserved. */
     XDELEX_DELETED_DELREF = 1,   /* Message deleted from stream with all consumer group references cleaned up. */
-    XDELEX_STILL_REFERENCED = 2, /* Message not deleted because it's still referenced by consumer groups. */
+    XDELEX_DELETED_ACKED = 2,    /* Message deleted from stream because it's no longer referenced by any consumer group. */
+    XDELEX_STILL_REFERENCED = 3, /* Message not deleted because it's still referenced by consumer groups. */
 } XDelexRes;
 
 /* XDELEX <key> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
@@ -4077,8 +4081,10 @@ void xdelexCommand(client *c) {
         if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
             /* Only delete if acknowledged by all consumer groups */
             if (streamEntryIsAckedByAllCGroups(s, id)) {
-                res = XACKDEL_STILL_REFERENCED;
+                res = XDELEX_STILL_REFERENCED;
                 can_delete = 0;
+            } else {
+                res = XDELEX_DELETED_ACKED;
             }
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
             streamRemoveAllCGroupRef(s, id);
@@ -4100,7 +4106,7 @@ void xdelexCommand(client *c) {
         /* Set appropriate response code if not already set */
         if (res == XDELEX_NO_ID) {
             /* If the entry was in the PEL but not found in the stream,
-                * we still consider it successfully deleted. */
+             * we still consider it successfully deleted. */
             res = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
                 XDELEX_DELETED_DELREF: XDELEX_DELETED_KEEPREF;
         }

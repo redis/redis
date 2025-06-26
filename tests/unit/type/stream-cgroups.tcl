@@ -543,6 +543,25 @@ start_server {
         assert_equal [s total_error_replies] 1
     }
 
+    test {XGROUP DESTROY removes all consumer group references} {
+        r DEL mystream
+        for {set j 0} {$j < 5} {incr j} {
+            r XADD mystream $j-1 item $j
+        }
+
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+        assert {[lindex [r XPENDING mystream mygroup] 0] == 5}
+
+        # Try to delete a message with ACKED - should fail because both groups have references
+        assert_equal {3 3 3 3 3} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
+
+        # Destroy one consumer group
+        r XGROUP DESTROY mystream mygroup
+
+        assert_equal {2 2 2 2 2} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
+    }
+
     test {RENAME can unblock XREADGROUP with data} {
         r del mystream{t}
         r XGROUP CREATE mystream{t} mygroup $ MKSTREAM
@@ -1562,13 +1581,13 @@ start_server {
 
             # The message is referenced by two groups.
             # Even after one of them is ack, it still can't be deleted.
-            assert_equal {2 2} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
+            assert_equal {3 3} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
             assert_equal 2 [r XLEN mystream]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
 
             # When these messages are dereferenced by all groups, they can be deleted.
-            assert_equal {0 0} [r XACKDEL mystream group2 ACKED IDS 2 1-0 2-0]
+            assert_equal {2 2} [r XACKDEL mystream group2 ACKED IDS 2 1-0 2-0]
             assert_equal 0 [r XLEN mystream]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {0 {} {} {}} [r XPENDING mystream group2]

@@ -1200,11 +1200,11 @@ start_server {tags {"stream"}} {
         # The message is referenced by two groups.
         # Even after one of them is ack, it still can't be deleted.
         r XACK mystream group1 1-0 2-0
-        assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal {3 3} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 2 [r XLEN mystream]
         #
         r XACK mystream group2 1-0 2-0
-        assert_equal {0 0} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 0 [r XLEN mystream]
 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
