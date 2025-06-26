@@ -12,7 +12,7 @@ typedef struct {
 								 int flags);
 
 	void (*freeMetadata)(void *metadata) ;
-	void *(*defragMetadata)(void *metadata);
+	void *(*defragMetadata)(void *metadata, void *(defragPtrMethod(void *)));
 } RedisMetadataMethods;
 
 
@@ -30,7 +30,7 @@ RedisMetadtaStatus registerInternalMetadataModule(const char *name,
 
 /* service methods to call the apprpriate function for the specific index */
 void freeModuleMetadata(void *p ,int  modle_index);
-void defragModuleMetadata(void *p ,int  modle_index);
+void *defragModuleMetadata(void *p ,int  modle_index);
 void serializeModuleMetadata(void *p ,int  modle_index, struct RedisModuleRdbStream *stream,
 							 int flags);
 void* deserilaizeModuleMetadata(int  modle_index, struct RedisModuleRdbStream *stream, int flags);

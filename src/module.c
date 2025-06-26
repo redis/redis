@@ -14225,9 +14225,10 @@ void freeModuleMetadata(void *data, int module_index) {
 		registerdModules[module_index].metadata_methods.freeMetadata(data);
 }
 
-void defragModuleMetadata(void *data, int module_index) {
+void *defragModuleMetadata(void *data, int module_index) {
 	if (registerdModules[module_index].metadata_methods.defragMetadata)
-		registerdModules[module_index].metadata_methods.defragMetadata( data);
+		return registerdModules[module_index].metadata_methods.defragMetadata(data, activeDefragAlloc);
+	else return data;
 }
 
 

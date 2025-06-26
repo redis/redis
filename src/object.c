@@ -298,17 +298,21 @@ static void ** getModulesMetadataPtr(const kvobj *val, int index) {
 /* This functions reallocate the object value. The new allocation is returned and
  * the old object's reference counter is decremented and possibly freed. Use the
  * returned object instead of 'val' after calling this function. */
-
+void registerExpireModule(void) {
+	static const char *expire_module_name="EXPIRE";
+	RedisMetadataMethods expire_methods = {NULL,NULL,NULL,NULL};
+	expire_index = registerInternalMetadataModule(expire_module_name,  &expire_methods);
+	serverAssert(expire_index >= 0);
+}
+	
 kvobj *kvobjSet(sds key, kvobj *val/*, long long expire*/) {
     long long expire = -1;
     kvobj *ret = kvobjSetInternal(key, val, expire >= 0);	
     decrRefCount(val);
     if (expire >= 0) {
     	if (expire_index == -1) {
-    		static const char *expire_module_name="EXPIRE";
-    		RedisMetadataMethods expire_methods = {NULL,NULL,NULL,NULL};
-    		expire_index = registerInternalMetadataModule(expire_module_name,  &expire_methods);
-    	}
+			registerExpireModule();
+		}
     	BIT_SET(ret->modules_bitmap, expire_index);
     	*getModulesMetadataPtr(ret, expire_index) = (void *)expire;		
     }
@@ -329,7 +333,6 @@ kvobj *kvobjSetModuleMetadata(kvobj *val, int index, void *metadata) {
     BIT_SET(kv->modules_bitmap , index);
     pushModulesMetadata(kvobjGetAllocPtr(val), val->modules_bitmap,
     					metadata, kvobjGetAllocPtr(kv), kv->modules_bitmap);
->>>>>>> theirs
     decrRefCount(val);
     return kv;
 
@@ -353,13 +356,40 @@ kvobj *kvobjSetExpire(kvobj *kv, long long expire) {
     if (expire == -1 && expire_index == -1) {
     	return kv;
     } else if (expire_index == -1) {
-    	static const char *expire_module_name="EXPIRE";
-    	RedisMetadataMethods expire_methods = {NULL,NULL,NULL,NULL};
-    	expire_index = registerInternalMetadataModule(expire_module_name,  &expire_methods);
+		registerExpireModule();
+		
     }
     return kvobjSetModuleMetadata(kv, expire_index, (void *)expire);
 
-}    	
+}
+
+kvobj *kvobjDefrag(kvobj *kv) {
+	int modules_bitsmap = kv->modules_bitmap;
+	void **ptr = kvobjGetAllocPtr(kv);
+	size_t offset = 0;
+	if (kv->encoding==OBJ_ENCODING_EMBSTR)
+		offset = (char *)kv->ptr - (char *)kv;
+	void *dfrg = activeDefragAlloc(ptr);
+	if (dfrg) {
+		ptr = dfrg;
+		kv = (kvobj *)(ptr + nBitsSet(modules_bitsmap));
+		if (kv->encoding==OBJ_ENCODING_EMBSTR)
+			kv->ptr = ((char *)kv)+offset;
+
+	}
+	if (modules_bitsmap) {
+		for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
+			if (BIT_IS_SET(kv, modules_bitsmap, i)) {
+				*ptr = defragModuleMetadata(*ptr, i);
+				ptr++;
+			}
+		}
+	}
+	return kv;
+}
+	
+		
+
 
 
 /* Create a string object with EMBSTR encoding if it is smaller than

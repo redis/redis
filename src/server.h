@@ -3078,6 +3078,7 @@ long long kvobjGetExpire(const kvobj *val);
 kvobj *dbSetModuleMetadata(redisDb *db, robj *key, int index, void *metadata);
 kvobj *kvobjSetModuleMetadata(kvobj *kv, int index, void *metadata);
 void   *kvobjGetModuleMetadata(const kvobj *kv, int index);
+kvobj *kvobjDefrag(kvobj *kvj);
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);

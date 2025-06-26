@@ -237,32 +237,23 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
  * in the reference count, otherwise defragmentation will not be performed.
  * Note that the caller is responsible for updating any other references to the robj. */
 robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
-    robj *ret = NULL;
-    if (ob->refcount!=expected_refcount)
+    if (ob->refcount!=expected_refcount) {
         return NULL;
-
-    /* try to defrag robj (only if not an EMBSTR type (handled below). */
-    if (ob->type!=OBJ_STRING || ob->encoding!=OBJ_ENCODING_EMBSTR) {
-        if ((ret = activeDefragAlloc(ob))) {
-            ob = ret;
-        }
-    }
+	}
+	/* will handle also embded val */
+    robj *ret = NULL;
+	ret = kvobjDefrag(ob);
+	if (ret)
+		ob = ret;
 
     /* try to defrag string object */
-    if (ob->type == OBJ_STRING) {
-        if(ob->encoding==OBJ_ENCODING_RAW) {
+    if (ob->type == OBJ_STRING && ob->encoding != OBJ_ENCODING_EMBSTR) {
+		if(ob->encoding==OBJ_ENCODING_RAW) {
             sds newsds = activeDefragSds((sds)ob->ptr);
             if (newsds) {
                 ob->ptr = newsds;
             }
-        } else if (ob->encoding==OBJ_ENCODING_EMBSTR) {
-            /* The sds is embedded in the object allocation, calculate the
-             * offset and update the pointer in the new allocation. */
-            long ofs = (intptr_t)ob->ptr - (intptr_t)ob;
-            if ((ret = activeDefragAlloc(ob))) {
-                ret->ptr = (void*)((intptr_t)ret + ofs);
-            }
-        } else if (ob->encoding!=OBJ_ENCODING_INT) {
+        }  else if (ob->encoding!=OBJ_ENCODING_INT) {
             serverPanic("Unknown string encoding");
         }
     }
