@@ -2444,6 +2444,14 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     return now > when;
 }
 
+/* Check if user configuration allows key to be expired */
+int confAllowsExpireDel() {
+    if (server.allow_arbitrary_lazyexpires)
+        return 1;
+
+    return !(server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS);
+}
+
 /* This function is called when we are going to perform some operation
  * in a given key, but such key may be already logically expired even if
  * it still exists in the database. The main way this function is called
@@ -2502,6 +2510,9 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
     }
+
+    if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED) && !confAllowsExpireDel())
+        return KEY_EXPIRED;
 
     /* In some cases we're explicitly instructed to return an indication of a
      * missing key without actually deleting it, even on masters. */
