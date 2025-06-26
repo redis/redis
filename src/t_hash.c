@@ -728,7 +728,6 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
     sds key;
     GetFieldRes res;
     uint64_t dummy;
-
     if (expiredAt == NULL) expiredAt = &dummy;
     if (o->encoding == OBJ_ENCODING_LISTPACK ||
         o->encoding == OBJ_ENCODING_LISTPACK_EX) {
@@ -736,18 +735,14 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         res = hashTypeGetFromListpack(o, field, vstr, vlen, vll, expiredAt);
 
         if (res == GETF_NOT_FOUND)
-        {
             return GETF_NOT_FOUND;
-        }
 
     } else if (o->encoding == OBJ_ENCODING_HT) {
         sds value = NULL;
         res = hashTypeGetFromHashTable(o, field, &value, expiredAt);
-        if (res == GETF_NOT_FOUND)
-        {
-            return GETF_NOT_FOUND;
-        }
 
+        if (res == GETF_NOT_FOUND)
+            return GETF_NOT_FOUND;
 
         *vstr = (unsigned char*) value;
         *vlen = sdslen(value);
@@ -773,6 +768,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL) ||
         (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return GETF_EXPIRED;
+
     key = kvobjGetKey(o);
 
     /* delete the field and propagate the deletion */
@@ -784,10 +780,10 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         uint64_t l = hashTypeLength(o, 0);
         updateKeysizesHist(db, getKeySlot(key), OBJ_HASH, l+1, l);
     }
+
     /* If the field is the last one in the hash, then the hash will be deleted */
     res = GETF_EXPIRED;
     robj *keyObj = createStringObject(key, sdslen(key));
-
     if (!(hfeFlags & HFE_LAZY_NO_NOTIFICATION))
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", keyObj, db->id);
     if ((hashTypeLength(o, 0) == 0) && (!(hfeFlags & HFE_LAZY_AVOID_HASH_DEL))) {
@@ -1810,6 +1806,7 @@ static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
     /* If no more quota left for this callback, stop */
     if (expireCtx->fieldsToExpireQuota == 0)
         return ACT_STOP_ACTIVE_EXP;
+
     uint64_t nextExpTime = hashTypeExpire((kvobj *) item, expireCtx, 0);
 
     /* If hash has no more fields to expire or got deleted, indicate
@@ -1834,7 +1831,6 @@ static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
  * - EB_EXPIRE_TIME_INVALID if no more fields to expire
  */
 static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalHFE) {
-
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
     redisDb *db = expireCtx->db;
     ExpireInfo info = {0};
@@ -1904,6 +1900,7 @@ static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalH
 static int hashTypeExpireIfNeeded(redisDb *db, kvobj *o) {
     uint64_t nextExpireTime;
     uint64_t minExpire = hashTypeGetMinExpire(o, 1 /*accurate*/);
+
     /* Nothing to expire */
     if ((mstime_t) minExpire >= commandTimeSnapshot())
         return 0;
@@ -2356,6 +2353,7 @@ void hsetexCommand(client *c) {
         dbAddByLink(c->db, c->argv[1], &o, &link);
     }
     oldlen = (int64_t) hashTypeLength(o, 0);
+
     if (flags & (HFE_FXX | HFE_FNX)) {
         int expired = 0, hash_deleted = 0, found = 0;
         for (int i = 0; i < field_count; i++) {
@@ -2393,7 +2391,6 @@ void hsetexCommand(client *c) {
         if (((flags & HFE_FNX) && !non_exists) ||
             ((flags & HFE_FXX) && !all_exists))
         {
-
             addReplyLongLong(c, 0);
             goto out;
         }
@@ -2630,6 +2627,7 @@ void hmgetCommand(client *c) {
             addReplyNull(c);
         }
     }
+    
     if (expired) {
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
         if (deleted)

@@ -1148,7 +1148,6 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [lsort [r hgetall myhash]] [lsort "f1 v1 f2 v2"]
             assert_range [r hpttl myhash FIELDS 1 f1] 4500 5000
             assert_range [r hpttl myhash FIELDS 1 f2] 4500 5000
-
         }
 
         test "HSETEX - Test FXX flag with lazy expire ($type)" {
