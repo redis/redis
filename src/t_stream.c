@@ -1816,7 +1816,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 /* The group's counter may be invalid, so we try to obtain it. */
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
-            group->last_id = id;
+            streamUpdateCGroupLastId(s, group, id);
             /* In the past, we would only set it when NOACK was specified. And in
              * #9127, XCLAIM did not propagate entries_read in ACK, which would
              * cause entries_read to be inconsistent between master and replicas,
@@ -2590,7 +2590,7 @@ void streamAddCGroupToSortedList(stream *s, streamCG *cg) {
     streamCG *current = s->cgroups_sorted_list;
 
     /* Case 1: Insert at the beginning (smallest last_id) */
-    if (streamCompareID(&cg->last_id, &current->last_id) <= 0) {
+    if (streamCompareID(&cg->last_id, &current->last_id) < 0) {
         cg->next = s->cgroups_sorted_list;
         cg->prev = NULL;
         s->cgroups_sorted_list->prev = cg;
@@ -2627,30 +2627,12 @@ void streamRemoveCGroupFromSortedList(stream *s, streamCG *cg) {
 }
 
 /* Update a consumer group's position in the sorted list when last_id changes */
-void streamUpdateCGroupInSortedList(stream *s, streamCG *cg, streamID id) {
+void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID id) {
     cg->last_id = id;
 
     /* Remove from current position */
     streamRemoveCGroupFromSortedList(s, cg);
-
-     /* Determine if we need to move forward or backward */
-    if (cg->prev && streamCompareID(&cg->last_id, &cg->prev->last_id) < 0) {
-        /* Need to move backward (towards head) */
-        streamAddCGroupToSortedList(s, cg);
-    } else if (cg->next && streamCompareID(&cg->last_id, &cg->next->last_id) > 0) {
-        /* Find insertion point moving forward */
-        streamCG *current = cg->next;
-        while (current && streamCompareID(&cg->last_id, &current->last_id) > 0) {
-            if (!current->next) break;
-            current = current->next;
-        }
-
-        /* Insert after current */
-        cg->next = current->next;
-        cg->prev = current;
-        if (current->next) current->next->prev = cg;
-        current->next = cg;
-    }
+    streamAddCGroupToSortedList(s, cg);
 }
 
 /* Add a consumer group to the list of groups that are processing a given stream entry.
@@ -3023,7 +3005,7 @@ NULL
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
-        streamUpdateCGroupInSortedList(s, cg, id);
+        streamUpdateCGroupLastId(s, cg, id);
         cg->entries_read = entries_read;
         addReply(c,shared.ok);
         server.dirty++;
@@ -3652,7 +3634,7 @@ void xclaimCommand(client *c) {
     }
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
-        group->last_id = last_id;
+        streamUpdateCGroupLastId(o->ptr, group, last_id);
         propagate_last_id = 1;
     }
 

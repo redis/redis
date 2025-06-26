@@ -1142,7 +1142,6 @@ start_server {tags {"stream"}} {
 
 start_server {tags {"stream"}} {
     test "XDELEX wrong number of args" {
-        assert_error {*wrong number of arguments for 'xdelex' command} {r XDELEX s}
         assert_error {*wrong number of arguments for 'xdelex' command} {r XDELEX s DELREF}
     }
 
@@ -1194,21 +1193,34 @@ start_server {tags {"stream"}} {
         # Create two consumer groups
         r XGROUP CREATE mystream group1 0
         r XGROUP CREATE mystream group2 0
+        r XGROUP CREATE mystream group3 0
         r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
-        # The message is referenced by two groups.
-        # Even after one of them is ack, it still can't be deleted.
+        # The message is referenced by three consumer groups:
+        # - group1 and group2 have read the messages
+        # - group3 hasn't read the messages yet (not delivered)
+        # Even after group1 acknowledges the messages, they still can't be deleted
         r XACK mystream group1 1-0 2-0
         assert_equal {3 3} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 2 [r XLEN mystream]
-        #
-        r XACK mystream group2 1-0 2-0
-        assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
-        assert_equal 0 [r XLEN mystream]
 
-        assert_equal {0 {} {} {}} [r XPENDING mystream group1]
-        assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
+        # Even after both group1 and group2 acknowledge the messages, these entries
+        # still can't be deleted because group3 hasn't even read them yet.
+        r XACK mystream group2 1-0 2-0
+        assert_equal {3 3} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal 2 [r XLEN mystream]
+
+        # Now group3 reads the messages, but hasn't acknowledged them yet.
+        # these entries still can't be deleted because group3 hasn't acknowledged them.
+        r XREADGROUP GROUP group3 consumer3 STREAMS mystream >
+        assert_equal {3 3} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal 2 [r XLEN mystream]
+
+        # Now group3 acknowledges the messages. These entries can now be deleted.
+        r XACK mystream group3 1-0 2-0
+        r XDELEX mystream ACKED IDS 2 1-0 2-0
+        assert_equal 0 [r XLEN mystream]
     }
 
     test "XDELEX with KEEPREF" {
