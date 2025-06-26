@@ -160,20 +160,60 @@ start_server {
 
     test {XADD with MAXLEN option and ACKED option} {
         r DEL mystream
-        for {set j 0} {$j < 1000} {incr j} {
+        for {set j 0} {$j < 100} {incr j} {
             r XADD mystream * xitem $j
         }
-        assert {[r XLEN mystream] == 1000}
+        assert {[r XLEN mystream] == 100}
 
-        # Verifying that there is still consumer group that have not consumed,
-        # we will not delete any messages.
+        # Create a consumer group but don't read any messages yet
+        # ACKED option should preserve all messages since none are acked.
         r XGROUP CREATE mystream group1 0
         r XADD mystream MAXLEN = 5 ACKED * xitem $j
+        assert {[r XLEN mystream] == 101} ;# All messages preserved + the new one
 
-        # This should trim the stream to exactly 5 entries since no consumer groups exist.
-        r XGROUP DESTROY mystream group1
+        # Read 50 messages and acknowledge them
+        # This leaves 50 messages still unacked
+        set records [r XREADGROUP GROUP group1 consumer1 COUNT 50 STREAMS mystream >]
+        set ids {}
+        foreach entry [lindex [lindex $records 0] 1] {
+            lappend ids [lindex $entry 0]
+        }
+        r XACK mystream group1 {*}$ids
+        assert {[lindex [r XPENDING mystream group1] 0] == 0}
+
+        # With 52 messages still unacked, ACKED option should preserve them
         r XADD mystream MAXLEN = 5 ACKED * xitem $j
-        assert {[r XLEN mystream] == 5}
+        assert {[r XLEN mystream] == 52} ;# 101 - 50 acked + 1 new
+
+        # Acknowledge all remaining messages
+        set records [r XREADGROUP GROUP group1 consumer1 COUNT 100 STREAMS mystream >]
+        set ids {}
+        foreach entry [lindex [lindex $records 0] 1] {
+            lappend ids [lindex $entry 0]
+        }
+        r XACK mystream group1 {*}$ids
+        assert {[lindex [r XPENDING mystream group1] 0] == 0} ;# All messages acked
+
+        # Now ACKED should trim to MAXLEN since all messages are acked
+        r XADD mystream MAXLEN = 5 ACKED * xitem $j
+        assert {[r XLEN mystream] == 5} ;# Successfully trimmed to 5 entries
+    }
+
+    test {XADD with MAXLEN option and DELREF option} {
+        r DEL mystream
+        for {set j 0} {$j < 10} {incr j} {
+            r XADD mystream * xitem $j
+        }
+
+        r XGROUP CREATE mystream group1 0
+        r XREADGROUP GROUP group1 consumer1 COUNT 5 STREAMS mystream >
+
+        # XADD with MAXLEN and DELREF should trim and remove all references
+        r XADD mystream MAXLEN = 1 DELREF * xitem $j
+        assert {[r XLEN mystream] == 1}
+
+        # All PEL entries should be cleaned up
+        assert {[lindex [r XPENDING mystream group1] 0] == 0}
     }
 
     test {XADD with MAXLEN option and the '~' argument} {

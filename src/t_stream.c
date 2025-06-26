@@ -936,6 +936,7 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx) {
 static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, int xadd) {
     /* Initialize arguments to defaults */
     memset(args, 0, sizeof(*args));
+    args->delete_strategy = DELETE_STRATEGY_NONE;
 
     /* Parse options. */
     int i = 2; /* This is the first argument position where we could
@@ -1081,7 +1082,7 @@ static int streamParseAckDelArgsOrReply(client *c, int start_pos, streamAckDelAr
     /* Initialize arguments to defaults */
     memset(args, 0, sizeof(*args));
     args->startidx = -1;
-    args->delete_strategy = DELETE_STRATEGY_NONE; /* Default delete stragery. */
+    args->delete_strategy = DELETE_STRATEGY_NONE;
 
     /* Parse command options */
     int j = start_pos;
