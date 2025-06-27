@@ -689,8 +689,8 @@ typedef struct {
 #define TRIM_STRATEGY_MINID 2
 
 typedef struct {
-    int startidx;  /* Starting index of IDs in argv */
-    long numids;    /* Number of IDs to process */
+    int startidx; /* Starting index of IDs in argv */
+    long numids; /* Number of IDs to process */
     int delete_strategy; /* DELETE_STRATEGY_* */
 } streamAckDelArgs;
 
@@ -2708,6 +2708,7 @@ streamNACK *streamCreateNACK(streamConsumer *consumer) {
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
+    nack->cgroup_ref_node = NULL;  /* Will be set when added to cgroups_ref */
     return nack;
 }
 
