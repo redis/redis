@@ -158,6 +158,53 @@ start_server {
         assert {[r XLEN mystream] == 5}
     }
 
+    test {XADD with MAXLEN option and the '~' argument} {
+        r DEL mystream
+        r config set stream-node-max-entries 100
+        for {set j 0} {$j < 1000} {incr j} {
+            if {rand() < 0.9} {
+                r XADD mystream MAXLEN ~ 555 * xitem $j
+            } else {
+                r XADD mystream MAXLEN ~ 555 * yitem $j
+            }
+        }
+        assert {[r XLEN mystream] == 600}
+    }
+
+    test {XADD with NOMKSTREAM option} {
+        r DEL mystream
+        assert_equal "" [r XADD mystream NOMKSTREAM * item 1 value a]
+        assert_equal 0 [r EXISTS mystream]
+        r XADD mystream * item 1 value a
+        r XADD mystream NOMKSTREAM * item 2 value b
+        assert_equal 2 [r XLEN mystream]
+        set items [r XRANGE mystream - +]
+        assert_equal [lindex $items 0 1] {item 1 value a}
+        assert_equal [lindex $items 1 1] {item 2 value b}
+    }
+
+    test {XADD with MINID option} {
+        r DEL mystream
+        for {set j 1} {$j < 1001} {incr j} {
+            set minid 1000
+            if {$j >= 5} {
+                set minid [expr {$j-5}]
+            }
+            if {rand() < 0.9} {
+                r XADD mystream MINID $minid $j xitem $j
+            } else {
+                r XADD mystream MINID $minid $j yitem $j
+            }
+        }
+        assert {[r xlen mystream] == 6}
+        set res [r xrange mystream - +]
+        set expected 995
+        foreach r $res {
+            assert {[lindex $r 1 1] == $expected}
+            incr expected
+        }
+    }
+
     test {XADD with MAXLEN option and ACKED option} {
         r DEL mystream
         for {set j 0} {$j < 100} {incr j} {
@@ -214,53 +261,6 @@ start_server {
 
         # All PEL entries should be cleaned up
         assert {[lindex [r XPENDING mystream group1] 0] == 0}
-    }
-
-    test {XADD with MAXLEN option and the '~' argument} {
-        r DEL mystream
-        r config set stream-node-max-entries 100
-        for {set j 0} {$j < 1000} {incr j} {
-            if {rand() < 0.9} {
-                r XADD mystream MAXLEN ~ 555 * xitem $j
-            } else {
-                r XADD mystream MAXLEN ~ 555 * yitem $j
-            }
-        }
-        assert {[r XLEN mystream] == 600}
-    }
-
-    test {XADD with NOMKSTREAM option} {
-        r DEL mystream
-        assert_equal "" [r XADD mystream NOMKSTREAM * item 1 value a]
-        assert_equal 0 [r EXISTS mystream]
-        r XADD mystream * item 1 value a
-        r XADD mystream NOMKSTREAM * item 2 value b
-        assert_equal 2 [r XLEN mystream]
-        set items [r XRANGE mystream - +]
-        assert_equal [lindex $items 0 1] {item 1 value a}
-        assert_equal [lindex $items 1 1] {item 2 value b}
-    }
-
-    test {XADD with MINID option} {
-        r DEL mystream
-        for {set j 1} {$j < 1001} {incr j} {
-            set minid 1000
-            if {$j >= 5} {
-                set minid [expr {$j-5}]
-            }
-            if {rand() < 0.9} {
-                r XADD mystream MINID $minid $j xitem $j
-            } else {
-                r XADD mystream MINID $minid $j yitem $j
-            }
-        }
-        assert {[r xlen mystream] == 6}
-        set res [r xrange mystream - +]
-        set expected 995
-        foreach r $res {
-            assert {[lindex $r 1 1] == $expected}
-            incr expected
-        }
     }
 
     test {XTRIM with MINID option} {
