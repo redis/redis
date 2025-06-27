@@ -1066,6 +1066,7 @@ REDISMODULE_API int (*RedisModule_UnlinkKey)(RedisModuleKey *key) REDISMODULE_AT
 REDISMODULE_API int (*RedisModule_StringSet)(RedisModuleKey *key, RedisModuleString *str) REDISMODULE_ATTR;
 REDISMODULE_API char * (*RedisModule_StringDMA)(RedisModuleKey *key, size_t *len, int mode) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_StringTruncate)(RedisModuleKey *key, size_t newlen) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_StringGetAsInteger)(RedisModuleKey *key, long long *integer) REDISMODULE_ATTR;
 REDISMODULE_API mstime_t (*RedisModule_GetExpire)(RedisModuleKey *key) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_SetExpire)(RedisModuleKey *key, mstime_t expire) REDISMODULE_ATTR;
 REDISMODULE_API mstime_t (*RedisModule_GetAbsExpire)(RedisModuleKey *key) REDISMODULE_ATTR;
@@ -1441,6 +1442,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(StringSet);
     REDISMODULE_GET_API(StringDMA);
     REDISMODULE_GET_API(StringTruncate);
+    REDISMODULE_GET_API(StringGetAsInteger);
     REDISMODULE_GET_API(GetExpire);
     REDISMODULE_GET_API(SetExpire);
     REDISMODULE_GET_API(GetAbsExpire);
