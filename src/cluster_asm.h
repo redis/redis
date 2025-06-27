@@ -14,8 +14,9 @@ struct asmTask;
 struct asmTaskManager;
 
 void clusterAsmInit(void);
-void asmSyncBufferStreamToDb(void);
+void asmBeforeSleep(void);
 void asmStartSendBulkAndStream(struct asmTask *task);
+void asmCallbackOnFreeClient(client *c);
 
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);

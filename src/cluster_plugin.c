@@ -163,7 +163,7 @@ void clusterInitLast(void) {
 }
 
 void clusterBeforeSleep(void) {
-    // TODO: call asmSyncBufferStreamToDb();
+    // TODO: call asmBeforeSleep();
 }
 
 int verifyClusterConfigWithData(void) {

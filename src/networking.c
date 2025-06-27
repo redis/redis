@@ -18,6 +18,7 @@
 #include "script.h"
 #include "fpconv_dtoa.h"
 #include "fmtargs.h"
+#include "cluster_asm.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -1748,6 +1749,8 @@ void freeClient(client *c) {
                               REDISMODULE_SUBEVENT_CLIENT_CHANGE_DISCONNECTED,
                               c);
     }
+
+    asmCallbackOnFreeClient(c);
 
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
