@@ -95,20 +95,12 @@
                         "const": -2
                     },
                     {
-                        "description": "Entry was acknowledged and deleted from the stream, but existing consumer group references were preserved.",
+                        "description": "Entry was acknowledged and deleted from the stream.",
                         "const": 0
                     },
                     {
-                        "description": "Entry was acknowledged and deleted from the stream, and all consumer group references were cleaned up.",
+                        "description": "Entry was acknowledged, but there are still dangling references.",
                         "const": 1
-                    },
-                    {
-                        "description": "Entry was acknowledged and deleted from the stream because it's no longer referenced by any consumer group.",
-                        "const": 2
-                    },
-                    {
-                        "description": "Entry was acknowledged but not deleted because it wasn't read and acknowledged by all consumer groups yet.",
-                        "const": 2
                     }
                 ]
             }

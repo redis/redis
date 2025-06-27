@@ -3163,10 +3163,8 @@ cleanup:
 /* Used by xackdelCommand() */
 typedef enum XAckDelRes {
     XACKDEL_NO_ID = -2,           /* ID not found in PEL. */
-    XACKDEL_DELETED_KEEPREF = 0,  /* Message acknowledged and deleted. */
-    XACKDEL_DELETED_DELREF = 1,   /* Message acknowledged, deleted, and references cleaned. */
-    XACKDEL_DELETED_ACKED = 2,    /* Message acknowledged, deleted, and no references. */
-    XACKDEL_STILL_REFERENCED = 3, /* Message acknowledged but not deleted (still referenced). */
+    XACKDEL_DELETED = 0,          /* Message acknowledged and deleted. */
+    XACKDEL_STILL_REFERENCED = 1, /* Message acknowledged, but there are still dangling references. */
 } XAckDelRes;
 
 /* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
@@ -3230,12 +3228,8 @@ void xackdelCommand(client *c) {
             int can_delete = 1;
             if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
                 /* Only delete if acknowledged by all consumer groups */
-                if (streamEntryIsReferenced(s, id)) {
-                    res = XACKDEL_STILL_REFERENCED;
+                if (streamEntryIsReferenced(s, id))
                     can_delete = 0;
-                } else {
-                    res = XACKDEL_DELETED_ACKED;
-                }
             } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
                 streamCleanupEntryCGroupRefs(s, id);
             }
@@ -3253,13 +3247,9 @@ void xackdelCommand(client *c) {
                 deleted++;
             }
 
-            /* Set appropriate response code if not already set */
-            if (res == XACKDEL_NO_ID) {
-                /* If the entry was in the PEL but not found in the stream,
-                 * we still consider it successfully deleted. */
-                res = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
-                   XACKDEL_DELETED_DELREF: XACKDEL_DELETED_KEEPREF;
-            }
+            /* If the entry was in the PEL but not found in the stream,
+             * we still consider it successfully deleted. */
+            res = can_delete ? XACKDEL_DELETED : XACKDEL_STILL_REFERENCED;
         }
         addReplyLongLong(c, res);
     }
@@ -3995,10 +3985,8 @@ cleanup:
 /* Used by xdelexCommand() */
 typedef enum XDelexRes {
     XDELEX_NO_ID = -2,           /* ID not found in the stream. */
-    XDELEX_DELETED_KEEPREF = 0,  /* Message deleted from stream, consumer group references preserved. */
-    XDELEX_DELETED_DELREF = 1,   /* Message deleted from stream with all consumer group references cleaned up. */
-    XDELEX_DELETED_ACKED = 2,    /* Message deleted from stream because it's no longer referenced by any consumer group. */
-    XDELEX_STILL_REFERENCED = 3, /* Message not deleted because it's still referenced by consumer groups. */
+    XDELEX_DELETED = 0,          /* Message deleted. */
+    XDELEX_STILL_REFERENCED = 1, /* Message not deleted but not deleted (still referenced). */
 } XDelexRes;
 
 /* XDELEX <key> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
@@ -4043,12 +4031,8 @@ void xdelexCommand(client *c) {
         int can_delete = 1;
         if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
             /* Only delete if acknowledged by all consumer groups */
-            if (streamEntryIsReferenced(s, id)) {
-                res = XDELEX_STILL_REFERENCED;
+            if (streamEntryIsReferenced(s, id))
                 can_delete = 0;
-            } else {
-                res = XDELEX_DELETED_ACKED;
-            }
         } else if (args.delete_strategy == DELETE_STRATEGY_DELREF) {
             streamCleanupEntryCGroupRefs(s, id);
         }
@@ -4066,14 +4050,9 @@ void xdelexCommand(client *c) {
             deleted++;
         }
 
-        /* Set appropriate response code if not already set */
-        if (res == XDELEX_NO_ID) {
-            /* If the entry was in the PEL but not found in the stream,
-             * we still consider it successfully deleted. */
-            res = (args.delete_strategy == DELETE_STRATEGY_DELREF) ?
-                XDELEX_DELETED_DELREF: XDELEX_DELETED_KEEPREF;
-        }
-
+        /* If the entry was in the PEL but not found in the stream,
+         * we still consider it successfully deleted. */
+        res = can_delete ? XDELEX_DELETED : XDELEX_STILL_REFERENCED;
         addReplyLongLong(c, res);
     }
 

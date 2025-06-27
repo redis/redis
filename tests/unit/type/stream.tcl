@@ -1179,7 +1179,7 @@ start_server {tags {"stream"}} {
         r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
         # Verify the message was removed from both groups' PELs when with DELREF
-        assert_equal {1 1} [r XDELEX mystream DELREF IDS 2 1-0 2-0]
+        assert_equal {0 0} [r XDELEX mystream DELREF IDS 2 1-0 2-0]
         assert_equal 0 [r XLEN mystream] 
         assert_equal {0 {} {} {}} [r XPENDING mystream group1]
         assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
@@ -1202,19 +1202,19 @@ start_server {tags {"stream"}} {
         # - group3 hasn't read the messages yet (not delivered)
         # Even after group1 acknowledges the messages, they still can't be deleted
         r XACK mystream group1 1-0 2-0
-        assert_equal {3 3} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal {1 1} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 2 [r XLEN mystream]
 
         # Even after both group1 and group2 acknowledge the messages, these entries
         # still can't be deleted because group3 hasn't even read them yet.
         r XACK mystream group2 1-0 2-0
-        assert_equal {3 3} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal {1 1} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 2 [r XLEN mystream]
 
         # Now group3 reads the messages, but hasn't acknowledged them yet.
         # these entries still can't be deleted because group3 hasn't acknowledged them.
         r XREADGROUP GROUP group3 consumer3 STREAMS mystream >
-        assert_equal {3 3} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal {1 1} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
         assert_equal 2 [r XLEN mystream]
 
         # Now group3 acknowledges the messages. These entries can now be deleted.
