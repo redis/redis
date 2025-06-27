@@ -1283,17 +1283,17 @@ static void scanKeysPush(scanData *data, sds key) {
     if (data->scan_keys_count >= data->scan_keys_capacity) {
         /* Need to grow the array */
         int new_capacity = data->scan_keys_capacity * 2;
-        sds *new_keys = zmalloc(new_capacity * sizeof(sds));
 
-        /* Copy existing keys */
-        memcpy(new_keys, data->scan_keys, data->scan_keys_count * sizeof(sds));
-
-        /* Free old array if it was heap allocated */
-        if (data->scan_keys != data->scan_stack_buffer) {
-            zfree(data->scan_keys);
+        if (data->scan_keys == data->scan_stack_buffer) {
+            /* First time growing from stack buffer - need to allocate and copy */
+            sds *new_keys = zmalloc(new_capacity * sizeof(sds));
+            memcpy(new_keys, data->scan_keys, data->scan_keys_count * sizeof(sds));
+            data->scan_keys = new_keys;
+        } else {
+            /* Already heap allocated - use zrealloc */
+            data->scan_keys = zrealloc(data->scan_keys, new_capacity * sizeof(sds));
         }
 
-        data->scan_keys = new_keys;
         data->scan_keys_capacity = new_capacity;
     }
 
