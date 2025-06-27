@@ -22,7 +22,7 @@ typedef struct stream {
     uint64_t entries_added; /* All time count of elements added. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
-    streamID min_cgroup_last_id;  /* The minimal ID of consume groupw. */
+    streamID min_cgroup_last_id;  /* The minimum ID of consume groupw. */
     unsigned int min_cgroup_last_id_valid: 1;
 } stream;
 

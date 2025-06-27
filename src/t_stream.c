@@ -33,14 +33,13 @@
  * will return NULL. */
 #define STREAM_LISTPACK_MAX_SIZE (1<<30)
 
-void streamFreeCG(streamCG *cg);
 void streamFreeCGGeneric(void *cg);
 void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
 
-int streamEntryIsAckedByAllCGroups(stream *s, streamID *id);
+int streamEntryIsReferenced(stream *s, streamID *id);
 void streamRemoveAllCGroupRef(stream *s, streamID *id);
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID id);
 
@@ -846,7 +845,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                 int can_delete = 1;
                 if (delete_strategy == DELETE_STRATEGY_ACKED) {
                     /* Only delete entry that has been acknowledged by all consumer groups. */
-                    can_delete = (streamEntryIsAckedByAllCGroups(s, &currid) == 0);
+                    can_delete = (streamEntryIsReferenced(s, &currid) == 0);
                 } else if (delete_strategy == DELETE_STRATEGY_DELREF) {
                     /* Remove all consumer group references for this entry */
                     streamRemoveAllCGroupRef(s, &currid);
@@ -2669,12 +2668,18 @@ void streamRemoveAllCGroupRef(stream *s, streamID *id) {
     listRelease(cglist);
 }
 
-/* Check if a stream item is still referenced by any consumer group.
- * return 1 if the message is referenced by at least one consumer group, 0 otherwise. */
-int streamEntryIsAckedByAllCGroups(stream *s, streamID *id) {
+/* Check if a stream entry is still referenced by any consumer group.
+ *
+ * An entry is considered referenced if:
+ * 1. Its ID is smaller than the minimum last_id of all consumer groups,
+ *    which means at least one group hasn't read it yet.
+ * 2. It exists in any consumer group's PEL.
+ *
+ * Returns 1 if the entry is referenced, 0 if it's fully acknowledged by all groups. */
+int streamEntryIsReferenced(stream *s, streamID *id) {
     if (!s->cgroups || !raxSize(s->cgroups)) return 0;
     if (!s->min_cgroup_last_id_valid) {
-        /* If the cached min_cgroup_last_id is invalid, we need to recalculate it
+        /* If the cached minimum last_id is invalid, we need to recalculate it
          * by iterating through all consumer groups to find the minimum last_id */
         s->min_cgroup_last_id_valid = 1;
         s->min_cgroup_last_id.ms = UINT64_MAX;
@@ -2765,23 +2770,23 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
 }
 
 /* Free a consumer group and all its associated data. */
-void streamFreeCG(streamCG *cg) {
+static void streamFreeCG(streamCG *cg) {
     raxFreeWithCallback(cg->pel, streamFreeNACKGeneric);
     raxFreeWithCallback(cg->consumers, streamFreeConsumerGeneric);
     zfree(cg);
 }
 
-void streamRemoveRefAndFreeCG(stream *s, streamCG *cg) {
-    /* Before removing the consumer group, we need to clean up all references
-     * to this group in the cgroups_ref */
+/* Destroy a consumer group and clean up all associated references. */
+void streamDestroyCG(stream *s, streamCG *cg) {
     raxIterator it;
     raxStart(&it, cg->pel);
     raxSeek(&it, "^", NULL, 0);
-    while(raxNext(&it)) {
+    while (raxNext(&it)) {
         streamNACK *nack = it.data;
         streamRemoveCGroupRef(s, nack, it.key);
     }
     raxStop(&it);
+
     streamFreeCG(cg);
 }
 
@@ -2992,7 +2997,7 @@ NULL
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
-            streamRemoveRefAndFreeCG(s, cg);
+            streamDestroyCG(s, cg);
             addReply(c,shared.cone);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
@@ -3227,7 +3232,7 @@ void xackdelCommand(client *c) {
             int can_delete = 1;
             if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
                 /* Only delete if acknowledged by all consumer groups */
-                if (streamEntryIsAckedByAllCGroups(s, id)) {
+                if (streamEntryIsReferenced(s, id)) {
                     res = XACKDEL_STILL_REFERENCED;
                     can_delete = 0;
                 } else {
@@ -4040,7 +4045,7 @@ void xdelexCommand(client *c) {
         int can_delete = 1;
         if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
             /* Only delete if acknowledged by all consumer groups */
-            if (streamEntryIsAckedByAllCGroups(s, id)) {
+            if (streamEntryIsReferenced(s, id)) {
                 res = XDELEX_STILL_REFERENCED;
                 can_delete = 0;
             } else {
