@@ -148,6 +148,6 @@ long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);
 
-listNode *streamAddCGroupRef(stream *s, streamCG *cg, unsigned char *key);
+listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
 #endif
