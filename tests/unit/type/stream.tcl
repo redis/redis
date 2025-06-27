@@ -1223,6 +1223,31 @@ start_server {tags {"stream"}} {
         assert_equal 0 [r XLEN mystream]
     }
 
+    test "XDELEX with ACKED option won't delete messages when new consumer groups are created" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+
+        r XGROUP CREATE mystream group1 0
+        r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+
+        # When the group1 ack message, the message can be deleted with ACK option.
+        assert_equal {3} [r XACK mystream group1 1-0 2-0 3-0]
+        assert_equal {0} [r XDELEX mystream ACKED IDS 1 1-0]
+        
+        # Create a new consumer group that hasn't read the messages yet.
+        # Even if group1 ack the message, we still can't delete the message.
+        r XGROUP CREATE mystream group2 0
+        assert_equal {1} [r XDELEX mystream ACKED IDS 1 2-0]
+
+        # Now group2 reads and acknowledges the messages,
+        # so we can be successfully deleted with the ACKED option.
+        r XREADGROUP GROUP group2 consumer1 STREAMS mystream >
+        assert_equal {2} [r XACK mystream group2 2-0 3-0]
+        assert_equal {0 0} [r XDELEX mystream ACKED IDS 2 2-0 3-0]
+    }
+
     test "XDELEX with KEEPREF" {
         r DEL mystream
         r XADD mystream 1-0 f v

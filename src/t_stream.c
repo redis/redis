@@ -41,7 +41,7 @@ int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq)
 
 int streamEntryIsReferenced(stream *s, streamID *id);
 void streamCleanupEntryCGroupRefs(stream *s, streamID *id);
-void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID id);
+void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -1827,7 +1827,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 /* The group's counter may be invalid, so we try to obtain it. */
                 group->entries_read = streamEstimateDistanceFromFirstEverEntry(s,&id);
             }
-            streamUpdateCGroupLastId(s, group, id);
+            streamUpdateCGroupLastId(s, group, &id);
             /* In the past, we would only set it when NOACK was specified. And in
              * #9127, XCLAIM did not propagate entries_read in ACK, which would
              * cause entries_read to be inconsistent between master and replicas,
@@ -2589,13 +2589,19 @@ cleanup: /* Cleanup. */
  * ----------------------------------------------------------------------- */
 
 /* Update a consumer group's last_id and handle minimum last_id tracking.
- * When a consumer group's last_id is updated, we need to check if it was
- * previously the minimum last_id across all consumer groups. If so, we
- * invalidate the cached minimum value to force recalculation next time. */
-void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID id) {
-    if (s->min_cgroup_last_id_valid && streamCompareID(&cg->last_id, &s->min_cgroup_last_id) == 0)
+ * we will recalculate the minimum last_id when needed. */
+void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
+    /* When a consumer group's last_id is updated, we need to invalidate the cached
+    * minimum last_id in two cases:
+    * 1. If the consumer group's previous last_id equals the minimum last_id.
+    * 2. If the new ID being set is smaller than the current minimum last_id. */
+    if (s->min_cgroup_last_id_valid && 
+        (streamCompareID(&cg->last_id, &s->min_cgroup_last_id) == 0 ||
+         streamCompareID(id, &s->min_cgroup_last_id) < 0)) 
+    {
         s->min_cgroup_last_id_valid = 0;
-    cg->last_id = id;
+    }
+    cg->last_id = *id;
 }
 
 /* Link a consumer group to a stream entry in the cgroups_ref index.
@@ -2761,7 +2767,7 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     streamCG *cg = zmalloc(sizeof(*cg));
     cg->pel = raxNew();
     cg->consumers = raxNew();
-    cg->last_id = *id;
+    streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
     return cg;
@@ -2987,7 +2993,7 @@ NULL
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
-        streamUpdateCGroupLastId(s, cg, id);
+        streamUpdateCGroupLastId(s, cg, &id);
         cg->entries_read = entries_read;
         addReply(c,shared.ok);
         server.dirty++;
@@ -3605,7 +3611,7 @@ void xclaimCommand(client *c) {
     }
 
     if (streamCompareID(&last_id,&group->last_id) > 0) {
-        streamUpdateCGroupLastId(o->ptr, group, last_id);
+        streamUpdateCGroupLastId(o->ptr, group, &last_id);
         propagate_last_id = 1;
     }
 
