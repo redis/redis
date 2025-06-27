@@ -864,6 +864,15 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             }
         }
         deleted += deleted_from_lp;
+        /* If this node was originally eligible for removal but we couldn't remove it upfront
+         * due to delete strategy constraints, and now we've processed and deleted all entries
+         * in the node, we can finally remove the entire node. */
+        if (node_eligible_for_remove && deleted_from_lp == entries) {
+            lpFree(lp);
+            raxRemove(s->rax,ri.key,ri.key_len,NULL);
+            raxSeek(&ri,">=",ri.key,ri.key_len);
+            continue;
+        }
 
         /* Now we update the entries/deleted counters. */
         p = lpFirst(lp);
