@@ -3992,7 +3992,7 @@ cleanup:
 typedef enum XDelexRes {
     XDELEX_NO_ID = -2,           /* ID not found in the stream. */
     XDELEX_DELETED = 0,          /* Message deleted. */
-    XDELEX_STILL_REFERENCED = 1, /* Message not deleted but not deleted (still referenced). */
+    XDELEX_STILL_REFERENCED = 1, /* Message not deleted (still referenced). */
 } XDelexRes;
 
 /* XDELEX <key> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
