@@ -4248,9 +4248,8 @@ int RM_UnlinkKey(RedisModuleKey *key) {
  * If no TTL is associated with the key or if the key is empty,
  * REDISMODULE_NO_EXPIRE is returned. */
 mstime_t RM_GetExpire(RedisModuleKey *key) {
-    mstime_t expire = kvobjGetExpire(key->kv);
-    if (expire == -1 || key->kv == NULL)
-        return REDISMODULE_NO_EXPIRE;
+    mstime_t expire = (key->kv) ? kvobjGetExpire(key->kv) : -1;
+    if (expire == -1) return REDISMODULE_NO_EXPIRE;
     expire -= commandTimeSnapshot();
     return expire >= 0 ? expire : 0;
 }
@@ -4281,9 +4280,8 @@ int RM_SetExpire(RedisModuleKey *key, mstime_t expire) {
  * If no TTL is associated with the key or if the key is empty,
  * REDISMODULE_NO_EXPIRE is returned. */
 mstime_t RM_GetAbsExpire(RedisModuleKey *key) {
-    mstime_t expire = kvobjGetExpire(key->kv);
-    if (expire == -1 || key->kv == NULL)
-        return REDISMODULE_NO_EXPIRE;
+    mstime_t expire = (key->kv) ? kvobjGetExpire(key->kv) : -1;
+    if (expire == -1) return REDISMODULE_NO_EXPIRE;
     return expire;
 }
 
