@@ -2449,7 +2449,7 @@ int confAllowsExpireDel() {
     if (server.allow_arbitrary_lazyexpires)
         return 1;
 
-    return !(server.execution_nesting > 1 && server.current_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS);
+    return !(server.execution_nesting > 1 && server.executing_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS);
 }
 
 /* This function is called when we are going to perform some operation
