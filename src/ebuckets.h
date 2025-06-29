@@ -408,7 +408,6 @@ static inline uint64_t ebGetMetaExpTime(ExpireMeta *expMeta) {
 }
 
 static inline void ebSetMetaExpTime(ExpireMeta *expMeta, uint64_t t) {
-    debugAssert(expMeta->storedIn != EB_STORED_IN_EB_L3);
     expMeta->expireTimeLo = (uint32_t)(t&0xFFFFFFFF);
     expMeta->expireTimeHi = (uint16_t)((t) >> 32);
 }
