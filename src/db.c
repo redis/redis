@@ -2445,10 +2445,13 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
 }
 
 /* Check if user configuration allows key to be deleted due to expiary */
-int confAllowsExpireDel() {
-    if (server.allow_arbitrary_lazyexpires)
+int confAllowsExpireDel(void) {
+    if (!server.avoid_arbitrary_lazyexpires)
         return 1;
 
+    /* This configuration specifically targets nested commands, to align with RE limitation -
+       transactions containing arbitrerally chosen commands will execute locally, but their
+       lazy-expiration DELs may induce CROSS-SLOT on remote proxy in mode replica-of (RED-161574) */
     return !(server.execution_nesting > 1 && server.executing_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS);
 }
 
@@ -2511,6 +2514,8 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
     }
 
+    /* Check if user configuration disables lazy-expire deletions in current state.
+       This will only apply if the server doesn't mandate key deletion to operate correctly (write commands). */
     if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED) && !confAllowsExpireDel())
         return KEY_EXPIRED;
 
