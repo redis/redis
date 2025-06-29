@@ -330,7 +330,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     if (link == NULL) link = &tmp;
     robj *val = *valref;
     int hasExpire = expire != -1;
-    kvobj *kv = kvobjSet(key->ptr, val);
+    kvobj *kv = kvobjSet(key->ptr, val, hasExpire);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
 
@@ -416,7 +416,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
         return NULL;
 
     /* prepare kvobj for insertion. Pass expire to reserve space for it */
-    kvobj *kv = kvobjSet(key, *valref);
+    kvobj *kv = kvobjSet(key, *valref, expire != -1);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
@@ -499,11 +499,10 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         val->lru = old->lru;
         /* Update expire reference if needed */
         long long expire = getExpire(db, key->ptr, old);
-		int hasExpire = keepTTL && (expire != -1);
-        //kvNew = kvobjSet(key->ptr, val, hasExpire);
-        kvNew = kvobjSet(key->ptr, val);
-    	if (keepTTL) {
-    		kvNew = kvobjSetExpire(kvNew, keepTTL ? expire : -1);
+		int hasExpire = keepTTL && (expire >= 0);
+        kvNew = kvobjSet(key->ptr, val, hasExpire);
+    	if (hasExpire) {
+    		kvNew = kvobjSetExpire(kvNew, expire);
     	}
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 

@@ -59,7 +59,7 @@ static kvobj *kvobjCreate(int type, const sds key, void *ptr, int num_modules) {
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 1;
-    o->modules_bitmap = 0;
+    o->modules_bitsmap = 0;
 
     char *data = (void *)(o + 1);
     /* Store embedded key. */
@@ -76,7 +76,7 @@ robj *createObject(int type, void *ptr) {
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 0;
-    o->modules_bitmap = 0;
+    o->modules_bitsmap = 0;
     return o;
 }
 
@@ -151,7 +151,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 1;
-    o->modules_bitmap = 0;
+    o->modules_bitsmap = 0;
 
 
     /* The memory after the struct where we embedded data. */
@@ -187,7 +187,7 @@ robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->refcount = 1;
     o->lru = 0;
-    o->modules_bitmap = 0;
+    o->modules_bitsmap = 0;
     o->iskvobj = 0;
 
     /* The memory after the struct where we embedded data. */
@@ -243,7 +243,7 @@ static void pushModulesMetadata(void **src, int src_bitmap, void *metadata,
 }
 
 static void ** kvobjGetAllocPtr(const kvobj *val) {
-    return ((void **)val) - nBitsSet(val->modules_bitmap);
+    return ((void **)val) - nBitsSet(val->modules_bitsmap);
 }
 
 /* This functions always reallocate the value with enough space to place the modules metadata.
@@ -292,7 +292,7 @@ static kvobj *kvobjSetInternal(sds key, kvobj *val, int num_modules) {
 int expire_index=-1;
 
 static void ** getModulesMetadataPtr(const kvobj *val, int index) {
-    return  kvobjGetAllocPtr(val) + nBitsSetUntil(val->modules_bitmap, index);	
+    return  kvobjGetAllocPtr(val) + nBitsSetUntil(val->modules_bitsmap, index);	
 }
 
 /* This functions reallocate the object value. The new allocation is returned and
@@ -305,22 +305,21 @@ void registerExpireModule(void) {
 	serverAssert(expire_index >= 0);
 }
 	
-kvobj *kvobjSet(sds key, kvobj *val/*, long long expire*/) {
-    long long expire = -1;
-    kvobj *ret = kvobjSetInternal(key, val, expire >= 0);	
+kvobj *kvobjSet(sds key, kvobj *val, int has_expire) {
+    kvobj *ret = kvobjSetInternal(key, val, has_expire);	
     decrRefCount(val);
-    if (expire >= 0) {
+    if (has_expire) {
     	if (expire_index == -1) {
 			registerExpireModule();
 		}
-    	BIT_SET(ret->modules_bitmap, expire_index);
-    	*getModulesMetadataPtr(ret, expire_index) = (void *)expire;		
+    	BIT_SET(ret->modules_bitsmap, expire_index);
+    	*(long long *)getModulesMetadataPtr(ret, expire_index) = -1;
     }
     return ret;
 }
 
 kvobj *kvobjSetModuleMetadata(kvobj *val, int index, void *metadata) {
-    if (BIT_IS_SET(val->modules_bitmap, index)) {
+    if (BIT_IS_SET(val->modules_bitsmap, index)) {
     	void **p = getModulesMetadataPtr(val, index);
     	freeModuleMetadata(*p , index);
     	*p = metadata;
@@ -328,18 +327,18 @@ kvobj *kvobjSetModuleMetadata(kvobj *val, int index, void *metadata) {
     } /* else */
 
 
-    kvobj *kv = kvobjSetInternal(kvobjGetKey(val), val, nBitsSet(val->modules_bitmap) +1);
-    kv->modules_bitmap = val->modules_bitmap;
-    BIT_SET(kv->modules_bitmap , index);
-    pushModulesMetadata(kvobjGetAllocPtr(val), val->modules_bitmap,
-    					metadata, kvobjGetAllocPtr(kv), kv->modules_bitmap);
+    kvobj *kv = kvobjSetInternal(kvobjGetKey(val), val, nBitsSet(val->modules_bitsmap) +1);
+    kv->modules_bitsmap = val->modules_bitsmap;
+    BIT_SET(kv->modules_bitsmap , index);
+    pushModulesMetadata(kvobjGetAllocPtr(val), val->modules_bitsmap,
+    					metadata, kvobjGetAllocPtr(kv), kv->modules_bitsmap);
     decrRefCount(val);
     return kv;
 
 }
 
 long long kvobjGetExpire(const kvobj *kv) {
-    return (expire_index == -1 || !BIT_IS_SET(kv->modules_bitmap, expire_index)) ? -1 :
+    return (expire_index == -1 || !BIT_IS_SET(kv->modules_bitsmap, expire_index)) ? -1 :
     	*(long long*)(getModulesMetadataPtr(kv, expire_index));
 
 }
@@ -364,7 +363,7 @@ kvobj *kvobjSetExpire(kvobj *kv, long long expire) {
 }
 
 kvobj *kvobjDefrag(kvobj *kv) {
-	int modules_bitsmap = kv->modules_bitmap;
+	int modules_bitsmap = kv->modules_bitsmap;
 	void **ptr = kvobjGetAllocPtr(kv);
 	size_t offset = 0;
 	if (kv->encoding==OBJ_ENCODING_EMBSTR)
@@ -379,7 +378,7 @@ kvobj *kvobjDefrag(kvobj *kv) {
 	}
 	if (modules_bitsmap) {
 		for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
-			if (BIT_IS_SET(kv, modules_bitsmap, i)) {
+			if (BIT_IS_SET(kv->modules_bitsmap, i)) {
 				*ptr = defragModuleMetadata(*ptr, i);
 				ptr++;
 			}
@@ -680,10 +679,10 @@ void decrRefCount(robj *o) {
             default: serverPanic("Unknown object type"); break;
             }
         }
-    	if (o->modules_bitmap) {
+    	if (o->modules_bitsmap) {
     		void ** p = kvobjGetAllocPtr(o);		
     		for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
-    			if (BIT_IS_SET(o->modules_bitmap, i)) {
+    			if (BIT_IS_SET(o->modules_bitsmap, i)) {
     				freeModuleMetadata(*p , i);
     				p++;
     			}

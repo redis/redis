@@ -1037,7 +1037,7 @@ struct RedisModuleDigest {
 struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
-	unsigned  modules_bitmap : 8; /* 1 bit for each module that is registered */
+	unsigned  modules_bitsmap : 8; /* 1 bit for each module that is registered */
     unsigned iskvobj : 1;   /* 1 if the key is embeded */
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
@@ -1059,7 +1059,7 @@ char *getObjectTypeName(robj*);
     _var.refcount = OBJ_STATIC_REFCOUNT; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
-    _var.modules_bitmap = 0;		  \
+    _var.modules_bitsmap = 0;		  \
     _var.iskvobj = 0; \
     _var.ptr = _ptr; \
 } while(0)
@@ -3071,7 +3071,7 @@ unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
-kvobj *kvobjSet(sds key, robj *val/*, long long expire*/);
+kvobj *kvobjSet(sds key, robj *val, int has_expire);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
