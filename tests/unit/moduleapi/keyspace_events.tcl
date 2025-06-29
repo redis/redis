@@ -88,22 +88,23 @@ tags "modules" {
         }
 
         test "Keyspace notifications: unsubscribe removes handler" {
-            r config set notify-keyspace-events Kgd
-            r del x
-            set rd1 [redis_deferring_client]
-            assert_equal {1} [psubscribe $rd1 *]
-            r keyspace.notify x
-            assert_equal {pmessage * __keyspace@9__:x notify} [$rd1 read]
+            r config set notify-keyspace-events KEA
+            set before [r keyspace.callback_count]
+            r set a 1
+            r del a
+            wait_for_condition 100 10 {
+                [r keyspace.callback_count] > $before
+            } else {
+                fail "callback did not trigger"
+            }
+            r keyspace.unsubscribe 4
+            set before_unsub [r keyspace.callback_count]
+            r set a 1
+            r del a
+            after 50
+            set after_unsub [r keyspace.callback_count]
+            assert_equal $before_unsub $after_unsub ;# כלומר לא נוספה קריאה נוספת
 
-            r keyspace.unsubscribe 4 ;# 4 = REDISMODULE_NOTIFY_GENERIC
-            r keyspace.notify y
-
-            # Try to read again, should timeout or return nothing
-            after 100
-            set res [$rd1 read_nonblock]
-            assert_equal {} $res
-
-            $rd1 close
         }
 
         test {Test expired key space event} {

@@ -45,8 +45,10 @@ static int KeySpace_NotificationLoaded(RedisModuleCtx *ctx, int type, const char
     return REDISMODULE_OK;
 }
 
+static long long callback_call_count = 0;
 static int KeySpace_NotificationGeneric(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(type);
+    callback_call_count++;
     const char *key_str = RedisModule_StringPtrLen(key, NULL);
     if (strncmp(key_str, "count_dels_", 11) == 0 && strcmp(event, "del") == 0) {
         if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_MASTER) {
@@ -317,6 +319,13 @@ static RedisModuleNotificationFunc get_callback_for_event(int event_mask) {
     }
 }
 
+int GetCallbackCountCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    RedisModule_ReplyWithLongLong(ctx, callback_call_count);
+    return REDISMODULE_OK;
+}
+
 static int CmdUnsub(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
         return RedisModule_WrongArity(ctx);
@@ -428,6 +437,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "keyspace.unsubscribe", CmdUnsub, "write", 0, 0, 0) == REDISMODULE_ERR){
         return REDISMODULE_ERR;
     }
+
+    if (RedisModule_CreateCommand(ctx, "keyspace.callback_count", GetCallbackCountCommand, "", 0, 0, 0)== REDISMODULE_ERR){
+        return REDISMODULE_ERR;
+    }
+
     if (argc == 1) {
         const char *ptr = RedisModule_StringPtrLen(argv[0], NULL);
         if (!strcasecmp(ptr, "noload")) {
