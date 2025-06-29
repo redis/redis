@@ -306,7 +306,7 @@ void registerExpireModule(void) {
 }
 	
 kvobj *kvobjSet(sds key, kvobj *val, int has_expire) {
-    kvobj *ret = kvobjSetInternal(key, val, has_expire);	
+    kvobj *ret = kvobjSetInternal(key, val, has_expire  != 0);	
     decrRefCount(val);
     if (has_expire) {
     	if (expire_index == -1) {
