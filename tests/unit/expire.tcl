@@ -900,9 +900,9 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
     } {} {needs:debug}
 }
 
-# Config avoid-arbitrary-lazyexpires test body
+# Config lazyexpire-nested-arbitrary-keys test body
 proc conf_le_test {option mode} {
-    r config set avoid-arbitrary-lazyexpires $option
+    r config set lazyexpire-nested-arbitrary-keys $option
     r debug set-active-expire 0
     r flushall
     r script LOAD {return redis.call('SCAN', 0)}
@@ -914,7 +914,7 @@ proc conf_le_test {option mode} {
     set repl [attach_to_replication_stream]
 
     # First two conditions hit lazy expire within a 'transaction', meaning
-    # DEL propagation should be blocked if 'avoid-arbitrary-lazyexpires' is set.
+    # DEL propagation should be blocked if 'lazyexpire-nested-arbitrary-keys' is set.
     if {$mode == "lua"} {
         r eval "return redis.call('SCAN', 0)" 0
     } elseif {$mode == "multi"} {
@@ -943,14 +943,14 @@ proc conf_le_test {option mode} {
 
     close_replication_stream $repl
     r script flush
-    assert_equal [r config set avoid-arbitrary-lazyexpires yes] {OK}
+    assert_equal [r config set lazyexpire-nested-arbitrary-keys yes] {OK}
     assert_equal [r debug set-active-expire 1] {OK}
 }
 
 foreach option {no yes} {
 foreach mode {direct multi lua} {
     start_server {tags {"expire"}} {
-        test "Config avoid-arbitrary-lazyexpires ($option, $mode)" {
+        test "Config lazyexpire-nested-arbitrary-keys ($option, $mode)" {
             conf_le_test $option $mode
         } {} {needs:debug repl}
     }

@@ -2449,8 +2449,8 @@ int confAllowsExpireDel(void) {
     if (!server.avoid_arbitrary_lazyexpires)
         return 1;
 
-    /* This configuration specifically targets nested commands, to align with RE limitation -
-       transactions containing arbitrerally chosen commands will execute locally, but their
+    /* This configuration specifically targets nested commands, to align with RE's feature of replication between dbs.
+       transactions (from scripts or multi-exec) containing commands like SCAN and RANDOMKEY will execute locally, but their
        lazy-expiration DELs may induce CROSS-SLOT on remote proxy in mode replica-of (RED-161574) */
     return !(server.execution_nesting > 1 && server.executing_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS);
 }
