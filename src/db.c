@@ -16,6 +16,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "redisassert.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -1303,11 +1304,9 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     if (!o) { /* If scanning keyspace */
         kvobj *kv = dictGetKV(de);
 
-        /* Expiration check first - only for database keyspace scanning */
-        robj kobj;
-        sds keyname = kvobjGetKey(kv);
-        initStaticStringObject(kobj, keyname);
-        if (expireIfNeeded(data->db, &kobj, kv, 0) != KEY_VALID)
+        /* Expiration check first - only for database keyspace scanning.
+         * Use kv obj to avoid robj creation. */
+        if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
             return;
 
         /* Type filtering - only for database keyspace scanning */
@@ -2480,11 +2479,10 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
  * You can optionally pass `kv` to save a lookup.
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
-    serverAssert(key != NULL);
-    sds keyname = key->ptr;
+    debugAssert(key != NULL || kv != NULL);
     if ((server.allow_access_expired) ||
         (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
-        (!keyIsExpired(db, keyname, kv)))
+        (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
         return KEY_VALID;
 
     /* If we are running in the context of a replica, instead of
@@ -2515,9 +2513,15 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
 
-    /* Delete the key */
-    deleteExpiredKeyAndPropagate(db,key);
-
+    /* Perform deletion */
+    if (key) {
+        deleteExpiredKeyAndPropagate(db, key);
+    } else {
+        sds keyname = kvobjGetKey(kv);
+        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
+        deleteExpiredKeyAndPropagate(db, tmpkey);
+        decrRefCount(tmpkey);
+    }
     return KEY_DELETED;
 }
 

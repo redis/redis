@@ -1615,10 +1615,12 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
         serverAssert(eptr != NULL);
         sptr = lpNext(zl,eptr);
         serverAssert(sptr != NULL);
-
+        const size_t ele_len = sdslen(ele);
+        long long cached_val = 0;
+        int cached_valid = 0;
         rank = 1;
         while(eptr != NULL) {
-            if (lpCompare(eptr,(unsigned char*)ele,sdslen(ele)))
+            if (lpCompare(eptr,(unsigned char*)ele,ele_len,&cached_val,&cached_valid))
                 break;
             rank++;
             zzlNext(zl,&eptr,&sptr);

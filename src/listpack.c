@@ -1718,7 +1718,8 @@ int lpValidateIntegrity(unsigned char *lp, size_t size, int deep,
 
 /* Compare entry pointer to by 'p' with string 's' of length 'slen'.
  * Return 1 if equal. */
-unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
+unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen,
+                       long long *cached_longval, int *cached_valid) {
     unsigned char *value;
     int64_t sz;
     if (p[0] == LP_EOF) return 0;
@@ -1727,12 +1728,25 @@ unsigned int lpCompare(unsigned char *p, unsigned char *s, uint32_t slen) {
     if (value) {
         return (slen == sz) && memcmp(value,s,slen) == 0;
     } else {
+        int64_t sval;
         /* We use lpStringToInt64() to get an integer representation of the
          * string 's' and compare it to 'sval', it's much faster than convert
          * integer to string and comparing. */
-        int64_t sval;
-        if (lpStringToInt64((const char*)s, slen, &sval))
-            return sz == sval;
+        if (cached_valid != NULL) {
+            /* Use caching */
+            if (*cached_valid == 0) {
+                if (lpStringToInt64((const char*)s, slen, (int64_t*)cached_longval)) {
+                    *cached_valid = 1;
+                } else {
+                    *cached_valid = -1;
+                }
+            }
+            return (*cached_valid == 1 && sz == *cached_longval);
+        } else {
+            /* No caching - direct conversion */
+            if (lpStringToInt64((const char*)s, slen, &sval))
+                return sz == sval;
+        }
     }
 
     return 0;
@@ -2139,7 +2153,7 @@ static int randstring(char *target, unsigned int min, unsigned int max) {
 }
 
 static void verifyEntry(unsigned char *p, unsigned char *s, size_t slen) {
-    assert(lpCompare(p, s, slen));
+    assert(lpCompare(p, s, slen, NULL, NULL));
 }
 
 static int lpValidation(unsigned char *p, unsigned int head_count, void *userdata) {
@@ -2148,7 +2162,7 @@ static int lpValidation(unsigned char *p, unsigned int head_count, void *userdat
 
     int ret;
     long *count = userdata;
-    ret = lpCompare(p, (unsigned char *)mixlist[*count], strlen(mixlist[*count]));
+    ret = lpCompare(p, (unsigned char *)mixlist[*count], strlen(mixlist[*count]), NULL, NULL);
     (*count)++;
     return ret;
 }
@@ -2539,7 +2553,7 @@ int listpackTest(int argc, char *argv[], int flags) {
         lp = createList();
         p = lpFirst(lp);
         while (p) {
-            if (lpCompare(p, (unsigned char*)"foo", 3)) {
+            if (lpCompare(p, (unsigned char*)"foo", 3, NULL, NULL)) {
                 lp = lpDelete(lp, p, &p);
             } else {
                 p = lpNext(lp, p);
@@ -2620,12 +2634,12 @@ int listpackTest(int argc, char *argv[], int flags) {
     TEST("Compare strings with listpack entries") {
         lp = createList();
         p = lpSeek(lp,0);
-        assert(lpCompare(p,(unsigned char*)"hello",5));
-        assert(!lpCompare(p,(unsigned char*)"hella",5));
+        assert(lpCompare(p,(unsigned char*)"hello",5,NULL,NULL));
+        assert(!lpCompare(p,(unsigned char*)"hella",5,NULL,NULL));
 
         p = lpSeek(lp,3);
-        assert(lpCompare(p,(unsigned char*)"1024",4));
-        assert(!lpCompare(p,(unsigned char*)"1025",4));
+        assert(lpCompare(p,(unsigned char*)"1024",4,NULL,NULL));
+        assert(!lpCompare(p,(unsigned char*)"1025",4,NULL,NULL));
         lpFree(lp);
     }
 
@@ -3252,7 +3266,7 @@ int listpackTest(int argc, char *argv[], int flags) {
             for (int i = 0; i < 2000; i++) {
                 unsigned char *eptr = lpSeek(lp,0);
                 while (eptr != NULL) {
-                    lpCompare(eptr,(unsigned char*)"nothing",7);
+                    lpCompare(eptr,(unsigned char*)"nothing",7,NULL,NULL);
                     eptr = lpNext(lp,eptr);
                 }
             }
@@ -3264,7 +3278,21 @@ int listpackTest(int argc, char *argv[], int flags) {
             for (int i = 0; i < 2000; i++) {
                 unsigned char *eptr = lpSeek(lp,0);
                 while (eptr != NULL) {
-                    lpCompare(lp, (unsigned char*)"99999", 5);
+                    lpCompare(eptr, (unsigned char*)"99999", 5, NULL, NULL);
+                    eptr = lpNext(lp,eptr);
+                }
+            }
+            printf("Done. usec=%lld\n", usec()-start);
+        }
+
+        TEST("Benchmark lpCompare with number and caching") {
+            unsigned long long start = usec();
+            for (int i = 0; i < 2000; i++) {
+                unsigned char *eptr = lpSeek(lp,0);
+                long long cached_val = 0;
+                int cached_valid = 0;
+                while (eptr != NULL) {
+                    lpCompare(eptr, (unsigned char*)"99999", 5, &cached_val, &cached_valid);
                     eptr = lpNext(lp,eptr);
                 }
             }
