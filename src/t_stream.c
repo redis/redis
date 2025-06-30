@@ -3239,7 +3239,7 @@ void xackdelCommand(client *c) {
 
             if (can_delete && streamDeleteItem(s,id)) {
                 /* We want to know if the first entry in the stream was deleted
-                * so we can later set the new one. */
+                 * so we can later set the new one. */
                 if (streamCompareID(id,&s->first_id) == 0) {
                     first_entry = 1;
                 }
@@ -4019,7 +4019,8 @@ void xdelexCommand(client *c) {
     if (args.numids > STREAMID_STATIC_VECTOR_LEN)
         ids = zmalloc(sizeof(streamID)*args.numids);
     for (int j = 0; j < args.numids; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
+        if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK)
+            goto cleanup;
     }
 
     stream *s = kv->ptr;
@@ -4044,7 +4045,7 @@ void xdelexCommand(client *c) {
         if (can_delete) { /* can_delete being true doesn't guarantee the ID exists */
             if (streamDeleteItem(s,id)) {
                 /* We want to know if the first entry in the stream was deleted
-                * so we can later set the new one. */
+                 * so we can later set the new one. */
                 if (streamCompareID(id,&s->first_id) == 0) {
                     first_entry = 1;
                 }
