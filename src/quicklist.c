@@ -1155,7 +1155,6 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
          *   - create new node and attach to quicklist */
         D("\tprovisioning new node...");
         new_node = quicklistCreateNode(quicklist);
-        quicklist->alloc_size -= zmalloc_size(new_node->entry);
         new_node->entry = lpPrepend(lpNew(0), value, sz);
         quicklist->alloc_size += zmalloc_size(new_node->entry);
         new_node->count++;
