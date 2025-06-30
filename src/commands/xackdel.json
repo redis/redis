@@ -84,7 +84,7 @@
             }
         ],
         "reply_schema": {
-            "description": "Array of results. returns an array with -1 for each requested ID if the key does not exist.",
+            "description": "Array of results. Returns an array with -1 for each requested ID if the key does not exist.",
             "type": "array",
             "minItems": 0,
             "maxItems": 4294967295,
