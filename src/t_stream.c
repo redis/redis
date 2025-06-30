@@ -3265,14 +3265,12 @@ void xackdelCommand(client *c) {
         } else if (first_entry) {
             streamGetEdgeID(s,1,1,&s->first_id);
         }
-    }
 
-    /* Propagate the write if needed. */
-    if (deleted) {
+        /* Propagate the write. */
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
-        server.dirty += deleted;
     }
+
 cleanup:
     if (ids != static_ids) zfree(ids);
 }
@@ -4065,10 +4063,8 @@ void xdelexCommand(client *c) {
         } else if (first_entry) {
             streamGetEdgeID(s,1,1,&s->first_id);
         }
-    }
 
-    /* Propagate the write if needed. */
-    if (deleted) {
+        /* Propagate the write. */
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
