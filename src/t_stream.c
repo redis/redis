@@ -3997,14 +3997,8 @@ typedef enum XDelexRes {
 
 /* XDELEX <key> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
  *
- * Removes the specified entries from the stream. Returns the number
- * of items actually deleted, that may be different from the number
- * of IDs passed in case certain IDs do not exist.
- *
- * The command accepts one of the following options (optional, defaults to KEEPREF):
- * - KEEPREF: Skip messages that are still referenced by consumer groups
- * - DELREF: Remove messages and clean up all consumer group references
- * - ACKED: Only remove messages that have no pending consumers */
+ * Removes specified entries from the stream. Returns an array of status codes for
+ * each ID, indicating whether it was deleted, still referenced, or not found. */
 void xdelexCommand(client *c) {
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
