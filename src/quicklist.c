@@ -101,7 +101,7 @@ quicklistBookmark *_quicklistBookmarkFindByNode(quicklist *ql, quicklistNode *no
 void _quicklistBookmarkDelete(quicklist *ql, quicklistBookmark *bm);
 
 REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklist *quicklist, quicklistNode *node,
-                                                int offset, int after, size_t *new_alloc_size);
+                                                int offset, int after);
 REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklistNode *center);
 
 /* Simple way to give quicklistEntry structs default values with one call. */
@@ -825,7 +825,7 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
 
         /* If the entry is not at the tail, split the node at the entry's offset. */
         if (entry->offset != node->count - 1 && entry->offset != -1)
-            split_node = _quicklistSplitNode(quicklist, node, entry->offset, 1, &quicklist->alloc_size);
+            split_node = _quicklistSplitNode(quicklist, node, entry->offset, 1);
 
         /* Create a new node and insert it after the original node.
          * If the original node was split, insert the split node after the new node. */
@@ -999,10 +999,12 @@ REDIS_STATIC quicklistNode *_quicklistMergeNodes(quicklist *quicklist, quicklist
  *
  * Returns newly created node or NULL if split not possible. */
 REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklist *quicklist, quicklistNode *node,
-                                                int offset, int after, size_t *new_alloc_size) {
+                                                int offset, int after) {
     size_t zl_sz = node->sz;
 
-    quicklistNode *new_node = quicklistCreateNode(new_alloc_size);
+    /* New node is detached on return but all callers add it back to quicklist
+     * so we account its allocation here and below directly on quicklist. */
+    quicklistNode *new_node = quicklistCreateNode(&quicklist->alloc_size);
     new_node->entry = zmalloc(zl_sz);
 
     /* Copy original listpack so we can split it */
@@ -1029,7 +1031,7 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklist *quicklist, quicklistN
     new_node->entry = lpDeleteRange(new_node->entry, new_start, new_extent);
     new_node->count = lpLength(new_node->entry);
     new_node->sz = lpBytes(new_node->entry);
-    *new_alloc_size += zmalloc_size(new_node->entry);
+    quicklist->alloc_size += zmalloc_size(new_node->entry);
 
     D("After split lengths: orig (%d), new (%d)", node->count, new_node->count);
     return new_node;
@@ -1094,7 +1096,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
             __quicklistInsertPlainNode(quicklist, node, value, sz, after);
         } else {
             quicklistDecompressNodeForUse(quicklist, node);
-            new_node = _quicklistSplitNode(quicklist, node, entry->offset, after, &quicklist->alloc_size);
+            new_node = _quicklistSplitNode(quicklist, node, entry->offset, after);
             quicklistNode *entry_node = __quicklistCreateNode(QUICKLIST_NODE_CONTAINER_PLAIN, value, sz, &quicklist->alloc_size);
             __quicklistInsertNode(quicklist, node, entry_node, after);
             __quicklistInsertNode(quicklist, entry_node, new_node, after);
@@ -1165,7 +1167,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
         /* covers both after and !after cases */
         D("\tsplitting node...");
         quicklistDecompressNodeForUse(quicklist, node);
-        new_node = _quicklistSplitNode(quicklist, node, entry->offset, after, &quicklist->alloc_size);
+        new_node = _quicklistSplitNode(quicklist, node, entry->offset, after);
         quicklist->alloc_size -= zmalloc_size(new_node->entry);
         if (after)
             new_node->entry = lpPrepend(new_node->entry, value, sz);
