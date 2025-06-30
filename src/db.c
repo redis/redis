@@ -1263,7 +1263,7 @@ void keysCommand(client *c) {
 /* Data used by the dict scan callback. */
 typedef struct {
     list *keys;   /* elements that collect from dict (for HSCAN/SSCAN/ZSCAN) */
-    /* Stack-allocated dynamic array for SCAN optimization */
+    /* Dynamic array for SCAN optimization */
     sds *scan_keys;        /* pointer to keys array (stack or heap allocated) */
     int scan_keys_count;   /* number of keys collected */
     int scan_keys_capacity; /* current capacity of keys array */
