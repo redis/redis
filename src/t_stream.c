@@ -4106,9 +4106,9 @@ cleanup:
  *
  * Consumer group reference handling (optional, defaults to KEEPREF):
  *
- * KEEPREF                  -- Preserves existing consumer group references
- * DELREF                   -- Remove messages and clean up all consumer group references
- * ACKED                    -- Only remove messages that have no pending consumers
+ * KEEPREF                  -- Keeps existing consumer group references
+ * DELREF                   -- Clean up all consumer group references
+ * ACKED                    -- Only delete messages that are acknowledged
  *
  * Other options:
  *
