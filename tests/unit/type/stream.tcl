@@ -1158,6 +1158,9 @@ start_server {tags {"stream"}} {
         # Test whether numids is equal to the number of IDs provided
         assert_error {*The `numids` parameter must match the number of arguments*} {r XDELEX s IDS 3 1-1 2-2}
         assert_error {*syntax error*} {r XDELEX s IDS 1 1-1 2-2}
+
+        # Delete non-existent ids
+        assert_equal {-2 -2} [r XDELEX s IDS 2 1-1 2-2]
     }
 
     test "XDELEX KEEPREF/DELREF/ACKED parameter validation" {

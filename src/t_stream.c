@@ -4034,22 +4034,26 @@ void xdelexCommand(client *c) {
             streamCleanupEntryCGroupRefs(s, id);
         }
 
-        if (can_delete && streamDeleteItem(s,id)) {
-            /* We want to know if the first entry in the stream was deleted
-            * so we can later set the new one. */
-            if (streamCompareID(id,&s->first_id) == 0) {
-                first_entry = 1;
+        if (can_delete) { /* can_delete being true doesn't guarantee the ID exists */
+            if (streamDeleteItem(s,id)) {
+                /* We want to know if the first entry in the stream was deleted
+                * so we can later set the new one. */
+                if (streamCompareID(id,&s->first_id) == 0) {
+                    first_entry = 1;
+                }
+                /* Update the stream's maximal tombstone if needed. */
+                if (streamCompareID(id,&s->max_deleted_entry_id) > 0) {
+                    s->max_deleted_entry_id = *id;
+                }
+                deleted++;
+                res = XDELEX_DELETED;
+            } else {
+                /* This id doesn't exist. */
             }
-            /* Update the stream's maximal tombstone if needed. */
-            if (streamCompareID(id,&s->max_deleted_entry_id) > 0) {
-                s->max_deleted_entry_id = *id;
-            }
-            deleted++;
+        } else {
+            res = XDELEX_STILL_REFERENCED;
         }
 
-        /* If the entry was in the PEL but not found in the stream,
-         * we still consider it successfully deleted. */
-        res = can_delete ? XDELEX_DELETED : XDELEX_STILL_REFERENCED;
         addReplyLongLong(c, res);
     }
 
