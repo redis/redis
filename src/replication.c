@@ -246,8 +246,10 @@ void resetReplicationBuffer(void) {
 }
 
 int canFeedReplicaReplBuffer(client *replica) {
-    /* Don't feed replicas that only want the RDB. */
-    if (replica->flags & CLIENT_REPL_RDBONLY) return 0;
+    /* Don't feed replicas that only want the RDB or main channels of migration
+     * destinations which need filtered stream for migrating slot ranges. */
+    if (replica->flags & CLIENT_REPL_RDBONLY ||
+        replica->flags & CLIENT_REPL_MIGRATION_DEST) return 0;
 
     /* Don't feed replicas that are still waiting for BGSAVE to start. */
     if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||

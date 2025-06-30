@@ -1,3 +1,31 @@
+proc migration_status {node_id slots_range field} {
+    set status [R $node_id CLUSTER MIGRATION STATUS]
+
+    # Iterate through each migration operation
+    foreach operation $status {
+        set slots_found ""
+        set field_value ""
+
+        # Parse the key-value pairs in the operation
+        for {set i 0} {$i < [llength $operation]} {incr i 2} {
+            set key [lindex $operation $i]
+            set value [lindex $operation [expr $i + 1]]
+
+            if {$key eq "slots_range"} {
+                set slots_found $value
+            } elseif {$key eq $field} {
+                set field_value $value
+            }
+        }
+        # Check if this operation matches the requested slots_range
+        if {$slots_found eq $slots_range} {
+            return $field_value
+        }
+    }
+    # Return empty string if slots_range not found or field not found
+    return ""
+}
+
 start_cluster 3 3 {tags {external:skip cluster}} {
     test "Test IMPORT input validation" {
         # Invalid slot range
@@ -64,10 +92,10 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6000 7000}
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6500 7500}
         wait_for_condition 1000 50 {
-            [llength [R 0 cluster migration status]] == 0 &&
-            [llength [R 1 cluster migration status]] == 0
+            [string match {*done*} [migration_status 0 7000-8000 state]] &&
+            [string match {*done*} [migration_status 1 7000-8000 state]]
         } else {
-            fail "ASM task did not complete"
+            fail "ASM task did not start"
         }
     }
 
@@ -76,7 +104,9 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         R 0 set $slot0_key "a"
         set slot1_key "Qi"
         R 0 set $slot1_key "b"
-        # 2 keys cost 2s to save
+        set slot101_key "1j2"
+        R 0 set $slot101_key "c"
+        # 3 keys cost 3s to save
         R 0 config set rdb-key-save-delay 1000000
     
         # migrate slot 0-100 to R 1
@@ -93,12 +123,15 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         for {set i 0} {$i < 99} {incr i} {
             R 0 append $slot0_key "a"
             R 0 append $slot1_key "b"
+            R 0 append $slot101_key "c"
         }
+
+        # wait until migration of 0-100 successful
         wait_for_condition 1000 50 {
-            [llength [R 0 cluster migration status]] == 0 &&
-            [llength [R 1 cluster migration status]] == 0
+            [string match {*done*} [migration_status 0 0-100 state]] &&
+            [string match {*done*} [migration_status 1 0-100 state]]
         } else {
-            fail "ASM task did not complete"
+            fail "ASM task did not start"
         }
 
         # the appended 99 times should also be migrated
@@ -109,5 +142,11 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         R 4 readonly
         assert_equal [string repeat a 100] [R 4 get $slot0_key]
         assert_equal [string repeat b 100] [R 4 get $slot1_key]
+
+        # verify key that was not in the slot range is not migrated
+        assert_equal [string repeat c 100] [R 0 get $slot101_key]
+        # verify changes in replica
+        R 3 readonly
+        assert_equal [string repeat c 100] [R 3 get $slot101_key]
     }
 }

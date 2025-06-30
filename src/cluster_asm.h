@@ -17,6 +17,8 @@ void clusterAsmInit(void);
 void asmBeforeSleep(void);
 void asmStartSendBulkAndStream(struct asmTask *task);
 void asmCallbackOnFreeClient(client *c);
+int asmMigrateInProgress(void);
+void asmFeedMigrationClient(robj **argv, int argc);
 
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);

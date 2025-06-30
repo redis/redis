@@ -427,6 +427,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_REPROCESSING_COMMAND (1ULL<<50) /* The client is re-processing the command. */
 #define CLIENT_REPL_RDB_CHANNEL (1ULL<<51)      /* Client which is used for rdb delivery as part of rdb channel replication */
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
+#define CLIENT_REPL_MIGRATION_DEST (1ULL<<53) /* Client is a main channel for atomic slot migration destination */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -716,6 +717,7 @@ typedef enum {
     PAUSE_BY_CLIENT_COMMAND = 0,
     PAUSE_DURING_SHUTDOWN,
     PAUSE_DURING_FAILOVER,
+    PAUSE_DURING_SLOT_HANDOFF,
     NUM_PAUSE_PURPOSES /* This value is the number of purposes above. */
 } pause_purpose;
 
@@ -3405,6 +3407,10 @@ void dismissMemoryInChild(void);
 int restartServer(int flags, mstime_t delay);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
+
+#define GETSLOT_NOKEYS     (-1)
+#define GETSLOT_CROSSSLOT  (-2)
+int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc);
 
 /* kvstore wrappers */
 int dbExpand(redisDb *db, uint64_t db_size, int try_expand);

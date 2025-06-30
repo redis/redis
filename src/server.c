@@ -27,6 +27,7 @@
 #include "fmtargs.h"
 #include "mstr.h"
 #include "ebuckets.h"
+#include "cluster_asm.h"
 
 #include <time.h>
 #include <signal.h>
@@ -3434,7 +3435,7 @@ static int shouldPropagate(int target) {
             return 1;
     }
     if (target & PROPAGATE_REPL) {
-        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0))
+        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0 || asmMigrateInProgress()))
             return 1;
     }
 
@@ -3467,8 +3468,17 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
 
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
-    if (target & PROPAGATE_REPL)
+    if (target & PROPAGATE_REPL) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
+
+        /* Normally, MULTI/EXEC transactions are used to replicate a command's
+         * effects in an atomic way to prevent partial state on the destination
+         * side. Though, it is unnecessary for ASM since keys aren't accessed on
+         * the destination until slot ownership transfer completes. Therefore,
+         * skip MULTI and EXEC commands. */
+        if (argc != 1 || (argv != &shared.multi && argv != &shared.exec))
+            asmFeedMigrationClient(argv, argc);
+    }
 }
 
 /* Used inside commands to schedule the propagation of additional commands

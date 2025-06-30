@@ -363,6 +363,33 @@ int getKeySlot(sds key) {
     return calculateKeySlot(key);
 }
 
+/* Returns the slot that the command keys belong to.
+ *
+ * Return values:
+ * - Slot number if all keys belong to the same slot
+ * - GETSLOT_CROSSSLOT if keys belong to different slots
+ * - GETSLOT_NOKEYS if the command has no keys */
+int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
+    int slot = GETSLOT_NOKEYS, numkeys;
+    getKeysResult result = GETKEYS_RESULT_INIT;
+
+    numkeys = getKeysFromCommand(cmd, argv, argc, &result);
+    for (int i = 0; i < numkeys; i++) {
+        sds key = argv[result.keys[i].pos]->ptr;
+        int current_slot = (int) keyHashSlot(key, (int) sdslen(key));
+        if (slot == GETSLOT_NOKEYS) {
+            slot = current_slot;
+            continue;
+        }
+        if (current_slot != slot) {
+            slot = GETSLOT_CROSSSLOT;
+            break;
+        }
+    }
+    getKeysFreeResult(&result);
+    return slot;
+}
+
 /* This is a special version of dbAdd() that is used only when loading
  * keys from the RDB file: the key is passed as an SDS string that is
  * copied by the function and freed by the caller.
