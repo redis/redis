@@ -3170,7 +3170,7 @@ cleanup:
 typedef enum XAckDelRes {
     XACKDEL_NO_ID = -1,           /* ID not found in PEL. */
     XACKDEL_DELETED = 0,          /* Message acknowledged and deleted. */
-    XACKDEL_STILL_REFERENCED = 1, /* Message acknowledged, but there are still dangling references. */
+    XACKDEL_STILL_REFERENCED = 1, /* Message acknowledged but not deleted (still referenced). */
 } XAckDelRes;
 
 /* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
