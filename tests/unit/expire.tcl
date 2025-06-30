@@ -928,7 +928,7 @@ proc conf_le_test {option mode} {
     # dummy command to verify nothing else gets into the replication stream.
     r set x 1
 
-    if {$option == "yes" && $mode != "direct"} {
+    if {$option == "no" && $mode != "direct"} {
         assert_replication_stream $repl {
             {select *}
             {set x 1}
@@ -947,7 +947,7 @@ proc conf_le_test {option mode} {
     assert_equal [r debug set-active-expire 1] {OK}
 }
 
-foreach option {no yes} {
+foreach option {yes no} {
 foreach mode {direct multi lua} {
     start_server {tags {"expire"}} {
         test "Config lazyexpire-nested-arbitrary-keys ($option, $mode)" {

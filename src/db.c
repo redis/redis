@@ -2446,7 +2446,7 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
 
 /* Check if user configuration allows key to be deleted due to expiary */
 int confAllowsExpireDel(void) {
-    if (!server.avoid_arbitrary_lazyexpires)
+    if (server.lazyexpire_nested_arbitrary_keys)
         return 1;
 
     /* This configuration specifically targets nested commands, to align with RE's feature of replication between dbs.

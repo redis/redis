@@ -1974,7 +1974,7 @@ struct redisServer {
     unsigned int max_new_tls_conns_per_cycle; /* The maximum number of tls connections that will be accepted during each invocation of the event loop. */
     unsigned int max_new_conns_per_cycle; /* The maximum number of tcp connections that will be accepted during each invocation of the event loop. */
     int cluster_compatibility_sample_ratio; /* Sampling ratio for cluster mode incompatible commands. */
-    int avoid_arbitrary_lazyexpires; /* If disabled, avoid lazy-expire from commands that touch arbitrary keys (SCAN/RANDOMKEY) within transactions */
+    int lazyexpire_nested_arbitrary_keys; /* If disabled, avoid lazy-expire from commands that touch arbitrary keys (SCAN/RANDOMKEY) within transactions */
 
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
