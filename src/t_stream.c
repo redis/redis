@@ -3196,12 +3196,6 @@ void xackdelCommand(client *c) {
         return;
     } 
 
-    /* No key or group? Nothing to ack. */
-    if (kv == NULL || group == NULL) {
-        addReply(c,shared.czero);
-        return;
-    }
-
     /* Start parsing the IDs, so that we abort ASAP if there is a syntax
      * error: the return value of this command cannot be an error in case
      * the client successfully acknowledged some messages, so it should be
