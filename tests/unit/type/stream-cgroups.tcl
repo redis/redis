@@ -1573,7 +1573,7 @@ start_server {
             assert_equal 0 [r XLEN mystream] 
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
-            assert_equal {-2 -2} [r XACKDEL mystream group2 DELREF IDS 2 1-0 2-0]
+            assert_equal {-1 -1} [r XACKDEL mystream group2 DELREF IDS 2 1-0 2-0]
         }
 
         test "XACKDEL with ACKED option only deletes messages acknowledged by all groups" {

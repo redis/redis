@@ -92,7 +92,7 @@
                 "oneOf": [
                     {
                         "description": "The id does not exist in the provided stream key.",
-                        "const": -2
+                        "const": -1
                     },
                     {
                         "description": "Entry was acknowledged and deleted from the stream.",

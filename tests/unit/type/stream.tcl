@@ -1165,7 +1165,7 @@ start_server {tags {"stream"}} {
         assert_error {*syntax error*} {r XDELEX s IDS 1 1-1 2-2}
 
         # Delete non-existent ids
-        assert_equal {-2 -2} [r XDELEX s IDS 2 1-1 2-2]
+        assert_equal {-1 -1} [r XDELEX s IDS 2 1-1 2-2]
     }
 
     test "XDELEX KEEPREF/DELREF/ACKED parameter validation" {
