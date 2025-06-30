@@ -3182,11 +3182,19 @@ void xackdelCommand(client *c) {
     stream *s = NULL;
     streamCG *group = NULL;
     kvobj *kv = lookupKeyRead(c->db, c->argv[1]);
-    if (kv) {
-        if (checkType(c, kv, OBJ_STREAM)) return; /* Type error. */
-        group = streamLookupCG(kv->ptr, c->argv[2]->ptr);
-        s = kv->ptr;
-    }
+    if (checkType(c, kv, OBJ_STREAM)) return; /* Type error. */
+
+    /* Parse command options */
+    streamAckDelArgs args;
+    if (!streamParseAckDelArgsOrReply(c, 3, &args)) return;
+
+    /* Reply null if the key doesn't exist or the group doesn't exist.*/
+    if (!kv || !(group = streamLookupCG(kv->ptr, c->argv[2]->ptr))) {
+        addReplyArrayLen(c, args.numids);
+        for (int i = 0; i < args.numids; i++)
+            addReplyNull(c);
+        return;
+    } 
 
     /* No key or group? Nothing to ack. */
     if (kv == NULL || group == NULL) {
@@ -3194,9 +3202,6 @@ void xackdelCommand(client *c) {
         return;
     }
 
-    /* Parse command options */
-    streamAckDelArgs args;
-    if (!streamParseAckDelArgsOrReply(c, 3, &args)) return;
 
     /* Start parsing the IDs, so that we abort ASAP if there is a syntax
      * error: the return value of this command cannot be an error in case
@@ -3208,6 +3213,7 @@ void xackdelCommand(client *c) {
         if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
+    s = kv->ptr;
     int first_entry = 0;
     int deleted = 0;
     addReplyArrayLen(c, args.numids);
@@ -3995,13 +4001,21 @@ typedef enum XDelexRes {
  * Removes specified entries from the stream. Returns an array of status codes for
  * each ID, indicating whether it was deleted, still referenced, or not found. */
 void xdelexCommand(client *c) {
-    kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
-    if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
-    stream *s = kv->ptr;
+    kvobj *kv = lookupKeyWrite(c->db, c->argv[1]); 
+    if (checkType(c, kv, OBJ_STREAM)) return;
 
     /* Parse command options */
     streamAckDelArgs args;
     if (!streamParseAckDelArgsOrReply(c, 2, &args)) return;
+
+    /* Non-existing keys and empty stream are the same thing. Reply null if the
+     * key does not exist.*/
+    if (!kv) {
+        addReplyArrayLen(c, args.numids);
+        for (int i = 0; i < args.numids; i++)
+            addReplyNull(c);
+        return;
+    }
 
     /* We need to sanity check the IDs passed to start. Even if not
      * a big issue, it is not great that the command is only partially
@@ -4014,6 +4028,7 @@ void xdelexCommand(client *c) {
         if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
     }
 
+    stream *s = kv->ptr;
     int first_entry = 0;
     int deleted = 0;
     addReplyArrayLen(c, args.numids);

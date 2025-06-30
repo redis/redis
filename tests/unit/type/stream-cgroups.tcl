@@ -1527,6 +1527,14 @@ start_server {
             assert_error {*wrong number of arguments for 'xackdel' command} {r XACKDEL s g}
         }
 
+        test "XACKDEL should return empty array when key doesn't exist or group doesn't exist" {
+            r DEL s
+            assert_equal {{} {}} [r XACKDEL s g IDS 2 1-1 2-2] ;# the key doesn't exist
+
+            r XADD s 1-0 f v
+            assert_equal {{} {}} [r XACKDEL s g IDS 2 1-1 2-2] ;# the key exists but the group doesn't exist
+        }
+
         test "XACKDEL IDS parameter validation" {
             r DEL s
             r XADD s 1-0 f v
