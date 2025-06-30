@@ -2593,9 +2593,9 @@ cleanup: /* Cleanup. */
  * we will recalculate the minimum last_id when needed. */
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
     /* When a consumer group's last_id is updated, we need to invalidate the cached
-    * minimum last_id in two cases:
-    * 1. If the consumer group's previous last_id equals the minimum last_id.
-    * 2. If the new ID being set is smaller than the current minimum last_id. */
+     * minimum last_id in two cases:
+     * 1. If the consumer group's previous last_id equals the minimum last_id.
+     * 2. If the new ID being set is smaller than the current minimum last_id. */
     if (s->min_cgroup_last_id_valid && 
         (streamCompareID(&cg->last_id, &s->min_cgroup_last_id) == 0 ||
          streamCompareID(id, &s->min_cgroup_last_id) < 0)) 
