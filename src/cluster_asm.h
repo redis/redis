@@ -11,7 +11,6 @@
 #define CLUSTER_ASM_H
 
 struct asmTask;
-struct asmTaskManager;
 
 void clusterAsmInit(void);
 void asmBeforeSleep(void);

@@ -1411,6 +1411,7 @@ int clusterAsmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
     if (task->operation == ASM_IMPORT && task->state == ASM_SLOTS_HANDOFF) {
         task->state = ASM_DONE;
         task->done_time = server.mstime;
+        asmManager->total_done_tasks++;
         asmManager->sync_buffer_peak = max(asmManager->sync_buffer_peak, task->sync_buffer.peak);
         replDataBufClear(&task->sync_buffer); /* To save memory */
 
@@ -1423,6 +1424,7 @@ int clusterAsmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
     } else if (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_DONE) {
         task->state = ASM_DONE;
         task->done_time = server.mstime;
+        asmManager->total_done_tasks++;
 
         /* TODO: for plugin, we need to clean up the data of slot ranges
          * such as slotsflush */

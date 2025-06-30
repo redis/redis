@@ -2443,7 +2443,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         sra->ranges[sra->num_ranges].end = CLUSTER_SLOTS - 1;
         sra->num_ranges++;
     }
-    if (sra->num_ranges > 0) {
+    if (sra->num_ranges > 0 && server.masterhost == NULL) {
         clusterAsmRequest(sra, ASM_REQUEST_CONFIG_UPDATED, NULL, NULL);
     }
     zfree(sra);
@@ -6568,8 +6568,8 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
             for (int i = 0; i < slot_ranges->num_ranges; i++) {
                 slotRange *sr = &slot_ranges->ranges[i];
                 for (int j = sr->start; j <= sr->end; j++) {
-                    server.cluster->slots[j] = myself;
-                    clusterNodeSetSlotBit(myself, j);
+                    clusterDelSlot(j);
+                    clusterAddSlot(myself, j);
                 }
             }
             /* New config and Bump new config */
