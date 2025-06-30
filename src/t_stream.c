@@ -3192,7 +3192,7 @@ void xackdelCommand(client *c) {
     if (!kv || !(group = streamLookupCG(kv->ptr, c->argv[2]->ptr))) {
         addReplyArrayLen(c, args.numids);
         for (int i = 0; i < args.numids; i++)
-            addReplyNull(c);
+            addReplyLongLong(c, XACKDEL_NO_ID);
         return;
     } 
 
@@ -4012,7 +4012,7 @@ void xdelexCommand(client *c) {
     if (!kv) {
         addReplyArrayLen(c, args.numids);
         for (int i = 0; i < args.numids; i++)
-            addReplyNull(c);
+            addReplyLongLong(c, XDELEX_NO_ID);
         return;
     }
 

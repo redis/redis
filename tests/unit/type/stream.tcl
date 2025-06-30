@@ -1147,7 +1147,7 @@ start_server {tags {"stream"}} {
 
     test "XDELEX should return empty array when key doesn't exist" {
         r DEL nonexist
-        assert_equal {{} {}} [r XDELEX nonexist IDS 2 1-1 2-2]
+        assert_equal {-1 -1} [r XDELEX nonexist IDS 2 1-1 2-2]
     }
 
     test "XDELEX IDS parameter validation" {
