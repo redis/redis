@@ -3176,11 +3176,8 @@ typedef enum XAckDelRes {
 /* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
  * Acknowledges messages as processed and deletes them from the stream.
  * 
- * This command combines the functionality of XACK and XDEL:
- * - It acknowledges messages in the Pending Entries List (PEL) like XACK
- * - It also deletes the acknowledged messages from the stream like XDEL
- * 
- * Return value is the number of messages successfully acknowledged. */
+ * Returns an array of status codes for each ID, indicating whether it
+ * was deleted, still referenced, or not found. */
 void xackdelCommand(client *c) {
     stream *s = NULL;
     streamCG *group = NULL;
