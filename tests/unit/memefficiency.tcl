@@ -732,15 +732,15 @@ run_solo {defrag} {
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 2mb
             r config set maxmemory 0
-            r config set list-max-ziplist-size 5 ;# list of 500k items will have 100k quicklist nodes
+            r config set list-max-ziplist-size 1 ;# list of 100k items will have 100k quicklist nodes
 
             # create big keys with 10k items
             set rd [redis_deferring_client]
 
             set expected_frag 1.5
             # add a mass of list nodes to two lists (allocations are interlaced)
-            set val [string repeat A 100] ;# 5 items of 100 bytes puts us in the 640 bytes bin, which has 32 regs, so high potential for fragmentation
-            set elements 500000
+            set val [string repeat A 500] ;# 1 item of 500 bytes puts us in the 640 bytes bin, which has 32 regs, so high potential for fragmentation
+            set elements 100000
             for {set j 0} {$j < $elements} {incr j} {
                 $rd lpush biglist1 $val
                 $rd lpush biglist2 $val
@@ -811,9 +811,9 @@ run_solo {defrag} {
                     assert {$max_latency <= 30}
                 }
 
-                # in extreme cases of stagnation, we see over 20m misses before the tests aborts with "defrag didn't stop",
-                # in normal cases we only see 100k misses out of 500k elements
-                assert {$misses < $elements}
+                # in extreme cases of stagnation, we see over 5m misses before the tests aborts with "defrag didn't stop",
+                # in normal cases we only see 100k misses out of 100k elements
+                assert {$misses < $elements * 2}
             }
             # verify the data isn't corrupted or changed
             set newdigest [debug_digest]
