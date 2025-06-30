@@ -99,7 +99,7 @@
                         "const": 0
                     },
                     {
-                        "description": "Entry was acknowledged, but there are still dangling references.",
+                        "description": "Entry was acknowledged but not deleted, there are still dangling references.",
                         "const": 1
                     }
                 ]
