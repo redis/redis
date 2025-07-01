@@ -2768,6 +2768,8 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     streamCG *cg = zmalloc(sizeof(*cg));
     cg->pel = raxNew();
     cg->consumers = raxNew();
+    cg->last_id.ms = 0;
+    cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
