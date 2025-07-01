@@ -46,6 +46,11 @@ start_server {
     test {XREADGROUP will return only new elements} {
         r XADD mystream * a 1
         r XADD mystream * b 2
+
+        # Verify XPENDING returns empty results when no messages are in the PEL.
+        assert_equal {0 {} {} {}} [r XPENDING mystream mygroup]
+        assert_equal {} [r XPENDING mystream mygroup - + 10] 
+
         # XREADGROUP should return only the new elements "a 1" "b 1"
         # and not the element "foo bar" which was pre existing in the
         # stream (see previous test)

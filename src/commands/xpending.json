@@ -120,6 +120,27 @@
                             
                         }
                     ]
+                },
+                {
+                    "description": "Summary form, in case `start` was not given and there are no pending messages.",
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": [
+                        {
+                            "description": "Total number of pending messages",
+                            "const": 0
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 }
             ]
         },
