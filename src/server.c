@@ -952,16 +952,19 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
 #define CLIENTS_PEAK_MEM_USAGE_SLOTS 8
 size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
+int CurrentPeakMemUsageSlot = 0;
 
-int clientsCronTrackExpansiveClients(client *c, int time_idx) {
+int clientsCronTrackExpansiveClients(client *c) {
     size_t qb_size = c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     size_t argv_size = c->argv ? zmalloc_size(c->argv) : 0;
     size_t in_usage = qb_size + c->argv_len_sum + argv_size;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
 
     /* Track the biggest values observed so far in this slot. */
-    if (in_usage > ClientsPeakMemInput[time_idx]) ClientsPeakMemInput[time_idx] = in_usage;
-    if (out_usage > ClientsPeakMemOutput[time_idx]) ClientsPeakMemOutput[time_idx] = out_usage;
+    if (in_usage > ClientsPeakMemInput[CurrentPeakMemUsageSlot])
+        ClientsPeakMemInput[CurrentPeakMemUsageSlot] = in_usage;
+    if (out_usage > ClientsPeakMemOutput[CurrentPeakMemUsageSlot])
+        ClientsPeakMemOutput[CurrentPeakMemUsageSlot] = out_usage;
 
     return 0; /* This function never terminates the client. */
 }
@@ -1088,6 +1091,33 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
     *out_usage = o;
 }
 
+/* Run cron tasks for a single client. Return 1 if the client should
+ * be terminated, 0 otherwise. */
+int clientsCronRunClient(client *c) {
+    mstime_t now = server.mstime;
+    /* The following functions do different service checks on the client.
+     * The protocol is that they return non-zero if the client was
+     * terminated. */
+    if (clientsCronHandleTimeout(c,now)) return 1;
+    if (clientsCronResizeQueryBuffer(c)) return 1;
+    if (clientsCronFreeArgvIfIdle(c)) return 1;
+    if (clientsCronResizeOutputBuffer(c,now)) return 1;
+
+    if (clientsCronTrackExpansiveClients(c)) return 1;
+
+    /* Iterating all the clients in getMemoryOverheadData() is too slow and
+     * in turn would make the INFO command too slow. So we perform this
+     * computation incrementally and track the (not instantaneous but updated
+     * to the second) total memory used by clients using clientsCron() in
+     * a more incremental way (depending on server.hz).
+     * If client eviction is enabled, update the bucket as well. */
+    if (!updateClientMemUsageAndBucket(c))
+        updateClientMemoryUsage(c);
+
+    if (closeClientOnOutputBufferLimitReached(c, 0)) return 1;
+    return 0;
+}
+
 /* This function is called by serverCron() and is used in order to perform
  * operations on clients that are important to perform constantly. For instance
  * we use this function in order to disconnect clients after a timeout, including
@@ -1103,8 +1133,6 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
  * default server.hz value is 10, so sometimes here we need to process thousands
  * of clients per second, turning this function into a source of latency.
  */
-#define CLIENTS_CRON_PAUSE_IOTHREAD 8
-#define CLIENTS_CRON_MIN_ITERATIONS 5
 void clientsCron(void) {
     /* Try to process at least numclients/server.hz of clients
      * per call. Since normally (if there are no big latency events) this
@@ -1112,7 +1140,6 @@ void clientsCron(void) {
      * process all the clients in 1 second. */
     int numclients = listLength(server.clients);
     int iterations = numclients/server.hz;
-    mstime_t now = mstime();
 
     /* Process at least a few clients while we are at it, even if we need
      * to process less than CLIENTS_CRON_MIN_ITERATIONS to meet our contract
@@ -1122,7 +1149,7 @@ void clientsCron(void) {
                      numclients : CLIENTS_CRON_MIN_ITERATIONS;
 
 
-    int curr_peak_mem_usage_slot = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    CurrentPeakMemUsageSlot = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
     /* Always zero the next sample, so that when we switch to that second, we'll
      * only register samples that are greater in that second without considering
      * the history of such slot.
@@ -1134,19 +1161,9 @@ void clientsCron(void) {
      * than CLIENTS_PEAK_MEM_USAGE_SLOTS seconds: however this is not a problem
      * since here we want just to track if "recently" there were very expansive
      * clients from the POV of memory usage. */
-    int zeroidx = (curr_peak_mem_usage_slot+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    int zeroidx = (CurrentPeakMemUsageSlot+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
     ClientsPeakMemInput[zeroidx] = 0;
     ClientsPeakMemOutput[zeroidx] = 0;
-
-    /* Pause the IO threads that are processing clients, to let us access clients
-     * safely. In order to avoid increasing CPU usage by pausing all threads when
-     * there are too many io threads, we pause io threads in multiple batches. */
-    static int start = 1, end = 0;
-    if (server.io_threads_num >= 1 && listLength(server.clients) > 0) {
-        end = start + CLIENTS_CRON_PAUSE_IOTHREAD - 1;
-        if (end >= server.io_threads_num) end = server.io_threads_num - 1;
-        pauseIOThreadsRange(start, end);
-    }
 
     while(listLength(server.clients) && iterations--) {
         client *c;
@@ -1158,42 +1175,10 @@ void clientsCron(void) {
         c = listNodeValue(head);
         listRotateHeadToTail(server.clients);
 
-        if (c->running_tid != IOTHREAD_MAIN_THREAD_ID &&
-            !(c->running_tid >= start && c->running_tid <= end))
-        {
-            /* Skip clients that are being processed by the IO threads that
-             * are not paused. */
-            continue;
-        }
+        /* Clients handled by IO threads will be processed by IOThreadClientsCron. */
+        if (c->tid != IOTHREAD_MAIN_THREAD_ID) continue;
 
-        /* The following functions do different service checks on the client.
-         * The protocol is that they return non-zero if the client was
-         * terminated. */
-        if (clientsCronHandleTimeout(c,now)) continue;
-        if (clientsCronResizeQueryBuffer(c)) continue;
-        if (clientsCronFreeArgvIfIdle(c)) continue;
-        if (clientsCronResizeOutputBuffer(c,now)) continue;
-
-        if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
-
-        /* Iterating all the clients in getMemoryOverheadData() is too slow and
-         * in turn would make the INFO command too slow. So we perform this
-         * computation incrementally and track the (not instantaneous but updated
-         * to the second) total memory used by clients using clientsCron() in
-         * a more incremental way (depending on server.hz).
-         * If client eviction is enabled, update the bucket as well. */
-        if (!updateClientMemUsageAndBucket(c))
-            updateClientMemoryUsage(c);
-
-        if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
-    }
-
-    /* Resume the IO threads that were paused */
-    if (end) {
-        resumeIOThreadsRange(start, end);
-        start = end + 1;
-        if (start >= server.io_threads_num) start = 1;
-        end = 0;
+        clientsCronRunClient(c);
     }
 }
 
@@ -1358,11 +1343,17 @@ void checkChildrenDone(void) {
     }
 }
 
+/* Record the max memory used since the server was started. */
+void updatePeakMemory(size_t used_memory) {
+    if (unlikely(used_memory > server.stat_peak_memory)) {
+        server.stat_peak_memory = used_memory;
+        server.stat_peak_memory_time = server.unixtime;
+    }
+}
+
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats(void) {
-    /* Record the max memory used since the server was started. */
-    if (zmalloc_used_memory() > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used_memory();
+    updatePeakMemory(zmalloc_used_memory());
 
     run_with_period(100) {
         /* Sample the RSS and other metrics here since this is a relatively slow call.
@@ -1773,9 +1764,7 @@ extern int ProcessingEventsWhileBlocked;
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used;
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Just call a subset of vital functions in case we are re-entering
      * the event loop from processEventsWhileBlocked(). Note that in this
@@ -2285,9 +2274,11 @@ void initServerConfig(void) {
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
+    server.repl_up_since = 0;
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
+    server.repl_total_sync_attempts = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2894,6 +2885,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_peak_memory_time = server.unixtime;
     server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
@@ -2911,6 +2903,7 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_allocated = 0;
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
+    server.repl_current_sync_attempts = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
@@ -3915,9 +3908,7 @@ void call(client *c, int flags) {
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used;
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
@@ -4031,13 +4022,11 @@ int commandCheckExistence(client *c, sds *err) {
 
 /* Check if c->argc is valid for c->cmd, fills `err` with details in case it isn't.
  * Return 1 if valid. */
-int commandCheckArity(client *c, sds *err) {
-    if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
-        (c->argc < -c->cmd->arity))
-    {
+int commandCheckArity(struct redisCommand *cmd, int argc, sds *err) {
+    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         if (err) {
             *err = sdsnew(NULL);
-            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", c->cmd->fullname);
+            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", cmd->fullname);
         }
         return 0;
     }
@@ -4130,7 +4119,7 @@ int processCommand(client *c) {
             rejectCommandSds(c, err);
             return C_OK;
         }
-        if (!commandCheckArity(c, &err)) {
+        if (!commandCheckArity(c->cmd, c->argc, &err)) {
             rejectCommandSds(c, err);
             return C_OK;
         }
@@ -5955,8 +5944,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
          * may happen that the instantaneous value is slightly bigger than
          * the peak value. This may confuse users, so we update the peak
          * if found smaller than the current memory usage. */
-        if (zmalloc_used > server.stat_peak_memory)
-            server.stat_peak_memory = zmalloc_used;
+        updatePeakMemory(zmalloc_used);
 
         bytesToHuman(hmem,sizeof(hmem),zmalloc_used);
         bytesToHuman(peak_hmem,sizeof(peak_hmem),server.stat_peak_memory);
@@ -5975,6 +5963,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "used_memory_rss_human:%s\r\n", used_memory_rss_hmem,
             "used_memory_peak:%zu\r\n", server.stat_peak_memory,
             "used_memory_peak_human:%s\r\n", peak_hmem,
+            "used_memory_peak_time:%jd\r\n", (intmax_t)server.stat_peak_memory_time,
             "used_memory_peak_perc:%.2f%%\r\n", mh->peak_perc,
             "used_memory_overhead:%zu\r\n", mh->overhead_total,
             "used_memory_startup:%zu\r\n", mh->startup_allocated,
@@ -6252,6 +6241,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (server.masterhost) {
             long long slave_repl_offset = 1;
             long long slave_read_repl_offset = 1;
+            time_t current_disconnect_time = server.repl_down_since ?
+                server.unixtime - server.repl_down_since : 0 ;
 
             if (server.master) {
                 slave_repl_offset = server.master->reploff;
@@ -6270,8 +6261,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "slave_read_repl_offset:%lld\r\n", slave_read_repl_offset,
                 "slave_repl_offset:%lld\r\n", slave_repl_offset,
                 "replica_full_sync_buffer_size:%zu\r\n", server.repl_full_sync_buffer.size,
-                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak));
-
+                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak,
+                "master_current_sync_attempts:%lld\r\n", server.repl_current_sync_attempts,
+                "master_total_sync_attempts:%lld\r\n", server.repl_total_sync_attempts));
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
                 if (server.repl_transfer_size) {
@@ -6290,7 +6282,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     "master_link_down_since_seconds:%jd\r\n",
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
+            } else {
+                info = sdscatprintf(info,
+                    "master_link_up_since_seconds:%jd\r\n",
+                    server.repl_up_since ? /* defensive code, should never be 0 when connected */
+                    (intmax_t)(server.unixtime-server.repl_up_since) : -1);
             }
+            info = sdscatprintf(info, "total_disconnect_time_sec:%jd\r\n", (intmax_t)server.repl_total_disconnect_time+(current_disconnect_time));
+
             info = sdscatprintf(info, FMTARGS(
                 "slave_priority:%d\r\n", server.slave_priority,
                 "slave_read_only:%d\r\n", server.repl_slave_ro,

@@ -149,6 +149,7 @@ struct hdr_histogram;
 #define CONFIG_MIN_RESERVED_FDS 32
 #define CONFIG_DEFAULT_PROC_TITLE_TEMPLATE "{title} {listen-addr} {server-mode}"
 #define INCREMENTAL_REHASHING_THRESHOLD_US 1000
+#define CLIENTS_CRON_MIN_ITERATIONS 5
 
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
@@ -441,6 +442,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_IO_PENDING_COMMAND (1ULL<<2) /* Similar to CLIENT_PENDING_COMMAND. */
 #define CLIENT_IO_REUSABLE_QUERYBUFFER (1ULL<<3) /* The client is using the reusable query buffer. */
 #define CLIENT_IO_CLOSE_ASAP (1ULL<<4) /* Close this client ASAP in IO thread. */
+#define CLIENT_IO_PENDING_CRON (1ULL<<5)  /* The client is pending cron job, to be processed in main thread. */
 
 /* Definitions for client read errors. These error codes are used to indicate
  * various issues that can occur while reading or parsing data from a client. */
@@ -1368,6 +1370,7 @@ typedef struct client {
     dictEntry *cur_script;  /* Cached pointer to the dictEntry of the script being executed. */
     time_t lastinteraction; /* Time of the last interaction, used for timeout */
     time_t obuf_soft_limit_reached_time;
+    mstime_t last_cron_check_time;    /* The last client check time in cron */
     int authenticated;      /* Needed when the default user requires auth. */
     int replstate;          /* Replication state if this is a slave. */
     int repl_start_cmd_stream_on_ack; /* Install slave write handler on first ACK. */
@@ -1877,6 +1880,7 @@ struct redisServer {
     long long stat_total_active_defrag_time; /* Total time memory fragmentation over the limit, unit us */
     monotime stat_last_active_defrag_time; /* Timestamp of current active defrag start */
     size_t stat_peak_memory;        /* Max used memory record */
+    time_t stat_peak_memory_time;   /* Time when stat_peak_memory was recorded */
     long long stat_aof_rewrites;    /* number of aof file rewrites performed */
     long long stat_aofrw_consecutive_failures; /* The number of consecutive failures of aofrw */
     long long stat_rdb_saves;       /* number of rdb saves performed */
@@ -2131,6 +2135,7 @@ struct redisServer {
     int repl_slave_ro;          /* Slave is read only? */
     int repl_slave_ignore_maxmemory;    /* If true slaves do not evict. */
     time_t repl_down_since; /* Unix time at which link with master went down */
+    time_t repl_up_since;   /* Unix time that master link is fully up and healthy */
     int repl_disable_tcp_nodelay;   /* Disable TCP_NODELAY after SYNC? */
     int slave_priority;             /* Reported in INFO and used by Sentinel. */
     int replica_announced;          /* If true, replica is announced by Sentinel */
@@ -2149,6 +2154,10 @@ struct redisServer {
     /* Synchronous replication. */
     list *clients_waiting_acks;         /* Clients waiting in WAIT or WAITAOF. */
     int get_ack_from_slaves;            /* If true we send REPLCONF GETACK. */
+    long long repl_current_sync_attempts;    /* Number of times in current configuration, the replica attempted to sync since the last success. */
+    long long repl_total_sync_attempts;      /* Number of times in current configuration, the replica attempted to sync to a master  */
+    time_t repl_disconnect_start_time;       /* Unix time that master disconnection start */
+    time_t repl_total_disconnect_time;       /* The total cumulative time we've been disconnected as a replica, visible when the link is up too. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
@@ -2980,7 +2989,8 @@ robj *listTypeGet(listTypeEntry *entry);
 unsigned char *listTypeGetValue(listTypeEntry *entry, size_t *vlen, long long *lval);
 void listTypeInsert(listTypeEntry *entry, robj *value, int where);
 void listTypeReplace(listTypeEntry *entry, robj *value);
-int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len);
+int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len,
+                  long long *cached_longval, int *cached_valid);
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 robj *listTypeDup(robj *o);
 void listTypeDelRange(robj *o, long start, long stop);
@@ -3065,8 +3075,8 @@ unsigned long long estimateObjectIdleTime(robj *o);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
 #define sdsEncodedObject(objptr) (objptr->encoding == OBJ_ENCODING_RAW || objptr->encoding == OBJ_ENCODING_EMBSTR)
 
-kvobj *kvobjCreate(int type, const sds key, void *ptr, long long expire);
-kvobj *kvobjSet(sds key, robj *val, long long expire);
+kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire);
+kvobj *kvobjSet(sds key, robj *val, int hasExpire);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
@@ -3308,6 +3318,7 @@ int zslLexValueLteMax(sds value, zlexrangespec *spec);
 
 /* Core functions */
 int getMaxmemoryState(size_t *total, size_t *logical, size_t *tofree, float *level);
+void updatePeakMemory(size_t used_memory);
 size_t freeMemoryGetNotCountedMemory(void);
 int overMaxmemoryAfterAlloc(size_t moremem);
 uint64_t getCommandFlags(client *c);
@@ -3329,7 +3340,7 @@ struct redisCommand *lookupCommandByCStringLogic(dict *commands, const char *s);
 struct redisCommand *lookupCommandByCString(const char *s);
 struct redisCommand *lookupCommandOrOriginal(robj **argv, int argc);
 int commandCheckExistence(client *c, sds *err);
-int commandCheckArity(client *c, sds *err);
+int commandCheckArity(struct redisCommand *cmd, int argc, sds *err);
 void startCommandExecution(void);
 int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
@@ -3387,6 +3398,7 @@ robj *activeDefragStringOb(robj* ob);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
 void dismissMemoryInChild(void);
+int clientsCronRunClient(client *c);
 
 #define RESTART_SERVER_NONE 0
 #define RESTART_SERVER_GRACEFULLY (1<<0)     /* Do proper shutdown. */
@@ -3636,6 +3648,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
+kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire);
 kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);

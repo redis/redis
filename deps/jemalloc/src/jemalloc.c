@@ -2697,7 +2697,7 @@ imalloc(static_opts_t *sopts, dynamic_opts_t *dopts) {
 
 JEMALLOC_NOINLINE
 void *
-malloc_default(size_t size) {
+malloc_default(size_t size, size_t *usize) {
 	void *ret;
 	static_opts_t sopts;
 	dynamic_opts_t dopts;
@@ -2731,6 +2731,7 @@ malloc_default(size_t size) {
 
 	LOG("core.malloc.exit", "result: %p", ret);
 
+	if (usize) *usize = dopts.usize;
 	return ret;
 }
 
@@ -2739,11 +2740,15 @@ malloc_default(size_t size) {
  * Begin malloc(3)-compatible functions.
  */
 
+static inline void *je_malloc_internal(size_t size, size_t *usize) {
+	return imalloc_fastpath(size, &malloc_default, usize);
+}
+
 JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
 void JEMALLOC_NOTHROW *
 JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
 je_malloc(size_t size) {
-	return imalloc_fastpath(size, &malloc_default);
+	return je_malloc_internal(size, NULL);
 }
 
 JEMALLOC_EXPORT int JEMALLOC_NOTHROW
@@ -2826,10 +2831,7 @@ je_aligned_alloc(size_t alignment, size_t size) {
 	return ret;
 }
 
-JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
-void JEMALLOC_NOTHROW *
-JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
-je_calloc(size_t num, size_t size) {
+static void *je_calloc_internal(size_t num, size_t size, size_t *usize) {
 	void *ret;
 	static_opts_t sopts;
 	dynamic_opts_t dopts;
@@ -2857,11 +2859,19 @@ je_calloc(size_t num, size_t size) {
 
 	LOG("core.calloc.exit", "result: %p", ret);
 
+	if (usize) *usize = dopts.usize;
 	return ret;
 }
 
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
+je_calloc(size_t num, size_t size) {
+	return je_calloc_internal(num, size, NULL);
+}
+
 JEMALLOC_ALWAYS_INLINE void
-ifree(tsd_t *tsd, void *ptr, tcache_t *tcache, bool slow_path) {
+ifree(tsd_t *tsd, void *ptr, tcache_t *tcache, bool slow_path, size_t *usable) {
 	if (!slow_path) {
 		tsd_assert_fast(tsd);
 	}
@@ -2894,6 +2904,7 @@ ifree(tsd_t *tsd, void *ptr, tcache_t *tcache, bool slow_path) {
 		    true);
 	}
 	thread_dalloc_event(tsd, usize);
+	if (usable) *usable = usize;
 }
 
 JEMALLOC_ALWAYS_INLINE bool
@@ -2993,7 +3004,7 @@ isfree(tsd_t *tsd, void *ptr, size_t usize, tcache_t *tcache, bool slow_path) {
 
 JEMALLOC_NOINLINE
 void
-free_default(void *ptr) {
+free_default(void *ptr, size_t *usize) {
 	UTRACE(ptr, 0, 0);
 	if (likely(ptr != NULL)) {
 		/*
@@ -3011,14 +3022,14 @@ free_default(void *ptr) {
 			tcache_t *tcache = tcache_get_from_ind(tsd,
 			    TCACHE_IND_AUTOMATIC, /* slow */ false,
 			    /* is_alloc */ false);
-			ifree(tsd, ptr, tcache, /* slow */ false);
+			ifree(tsd, ptr, tcache, /* slow */ false, usize);
 		} else {
 			tcache_t *tcache = tcache_get_from_ind(tsd,
 			    TCACHE_IND_AUTOMATIC, /* slow */ true,
 			    /* is_alloc */ false);
 			uintptr_t args_raw[3] = {(uintptr_t)ptr};
 			hook_invoke_dalloc(hook_dalloc_free, ptr, args_raw);
-			ifree(tsd, ptr, tcache, /* slow */ true);
+			ifree(tsd, ptr, tcache, /* slow */ true, usize);
 		}
 
 		check_entry_exit_locking(tsd_tsdn(tsd));
@@ -3062,7 +3073,7 @@ free_fastpath_nonfast_aligned(void *ptr, bool check_prof) {
 
 /* Returns whether or not the free attempt was successful. */
 JEMALLOC_ALWAYS_INLINE
-bool free_fastpath(void *ptr, size_t size, bool size_hint) {
+bool free_fastpath(void *ptr, size_t size, bool size_hint, size_t *usable_size) {
 	tsd_t *tsd = tsd_get(false);
 	/* The branch gets optimized away unless tsd_get_allocates(). */
 	if (unlikely(tsd == NULL)) {
@@ -3131,6 +3142,7 @@ bool free_fastpath(void *ptr, size_t size, bool size_hint) {
 	bool fail = maybe_check_alloc_ctx(tsd, ptr, &alloc_ctx);
 	if (fail) {
 		/* See the comment in isfree. */
+		if (usable_size) *usable_size = usize;
 		return true;
 	}
 
@@ -3151,18 +3163,23 @@ bool free_fastpath(void *ptr, size_t size, bool size_hint) {
 
 	*tsd_thread_deallocatedp_get(tsd) = deallocated_after;
 
+	if (usable_size) *usable_size = usize;
 	return true;
+}
+
+static inline void je_free_internal(void *ptr, size_t *usize) {
+	LOG("core.free.entry", "ptr: %p", ptr);
+
+	if (!free_fastpath(ptr, 0, false, usize)) {
+		free_default(ptr, usize);
+	}
+
+	LOG("core.free.exit", "");
 }
 
 JEMALLOC_EXPORT void JEMALLOC_NOTHROW
 je_free(void *ptr) {
-	LOG("core.free.entry", "ptr: %p", ptr);
-
-	if (!free_fastpath(ptr, 0, false)) {
-		free_default(ptr);
-	}
-
-	LOG("core.free.exit", "");
+	je_free_internal(ptr, NULL);
 }
 
 /*
@@ -3490,7 +3507,7 @@ irallocx_prof(tsd_t *tsd, void *old_ptr, size_t old_usize, size_t size,
 }
 
 static void *
-do_rallocx(void *ptr, size_t size, int flags, bool is_realloc) {
+do_rallocx(void *ptr, size_t size, int flags, bool is_realloc, size_t *old_usable_size, size_t *new_usable_size) {
 	void *p;
 	tsd_t *tsd;
 	size_t usize;
@@ -3555,6 +3572,8 @@ do_rallocx(void *ptr, size_t size, int flags, bool is_realloc) {
 		junk_alloc_callback(excess_start, excess_len);
 	}
 
+	if (old_usable_size) *old_usable_size = old_usize;
+	if (new_usable_size) *new_usable_size = usize;
 	return p;
 label_oom:
 	if (config_xmalloc && unlikely(opt_xmalloc)) {
@@ -3573,13 +3592,13 @@ JEMALLOC_ALLOC_SIZE(2)
 je_rallocx(void *ptr, size_t size, int flags) {
 	LOG("core.rallocx.entry", "ptr: %p, size: %zu, flags: %d", ptr,
 	    size, flags);
-	void *ret = do_rallocx(ptr, size, flags, false);
+	void *ret = do_rallocx(ptr, size, flags, false, NULL, NULL);
 	LOG("core.rallocx.exit", "result: %p", ret);
 	return ret;
 }
 
 static void *
-do_realloc_nonnull_zero(void *ptr) {
+do_realloc_nonnull_zero(void *ptr, size_t *old_usize, size_t *new_usize) {
 	if (config_stats) {
 		atomic_fetch_add_zu(&zero_realloc_count, 1, ATOMIC_RELAXED);
 	}
@@ -3590,7 +3609,7 @@ do_realloc_nonnull_zero(void *ptr) {
 		 * reduce the harm, and turn off the tcache while allocating, so
 		 * that we'll get a true first fit.
 		 */
-		return do_rallocx(ptr, 1, MALLOCX_TCACHE_NONE, true);
+		return do_rallocx(ptr, 1, MALLOCX_TCACHE_NONE, true, old_usize, new_usize);
 	} else if (opt_zero_realloc_action == zero_realloc_action_free) {
 		UTRACE(ptr, 0, 0);
 		tsd_t *tsd = tsd_fetch();
@@ -3601,7 +3620,10 @@ do_realloc_nonnull_zero(void *ptr) {
 		    /* is_alloc */ false);
 		uintptr_t args[3] = {(uintptr_t)ptr, 0};
 		hook_invoke_dalloc(hook_dalloc_realloc, ptr, args);
-		ifree(tsd, ptr, tcache, true);
+		size_t usize;
+		ifree(tsd, ptr, tcache, true, &usize);
+		if (old_usize) *old_usize = usize;
+		if (new_usize) *new_usize = 0;
 
 		check_entry_exit_locking(tsd_tsdn(tsd));
 		return NULL;
@@ -3617,18 +3639,15 @@ do_realloc_nonnull_zero(void *ptr) {
 	}
 }
 
-JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
-void JEMALLOC_NOTHROW *
-JEMALLOC_ALLOC_SIZE(2)
-je_realloc(void *ptr, size_t size) {
+static inline void *je_realloc_internal(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
 	LOG("core.realloc.entry", "ptr: %p, size: %zu\n", ptr, size);
 
 	if (likely(ptr != NULL && size != 0)) {
-		void *ret = do_rallocx(ptr, size, 0, true);
+		void *ret = do_rallocx(ptr, size, 0, true, old_usize, new_usize);
 		LOG("core.realloc.exit", "result: %p", ret);
 		return ret;
 	} else if (ptr != NULL && size == 0) {
-		void *ret = do_realloc_nonnull_zero(ptr);
+		void *ret = do_realloc_nonnull_zero(ptr, old_usize, new_usize);
 		LOG("core.realloc.exit", "result: %p", ret);
 		return ret;
 	} else {
@@ -3657,8 +3676,17 @@ je_realloc(void *ptr, size_t size) {
 			    (uintptr_t)ret, args);
 		}
 		LOG("core.realloc.exit", "result: %p", ret);
+		if (old_usize) *old_usize = 0;
+		if (new_usize) *new_usize = dopts.usize;
 		return ret;
 	}
+}
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ALLOC_SIZE(2)
+je_realloc(void *ptr, size_t size) {
+	return je_realloc_internal(ptr, size, NULL, NULL);
 }
 
 JEMALLOC_ALWAYS_INLINE size_t
@@ -3883,11 +3911,11 @@ je_dallocx(void *ptr, int flags) {
 	UTRACE(ptr, 0, 0);
 	if (likely(fast)) {
 		tsd_assert_fast(tsd);
-		ifree(tsd, ptr, tcache, false);
+		ifree(tsd, ptr, tcache, false, NULL);
 	} else {
 		uintptr_t args_raw[3] = {(uintptr_t)ptr, flags};
 		hook_invoke_dalloc(hook_dalloc_dallocx, ptr, args_raw);
-		ifree(tsd, ptr, tcache, true);
+		ifree(tsd, ptr, tcache, true, NULL);
 	}
 	check_entry_exit_locking(tsd_tsdn(tsd));
 
@@ -3935,7 +3963,7 @@ je_sdallocx(void *ptr, size_t size, int flags) {
 	LOG("core.sdallocx.entry", "ptr: %p, size: %zu, flags: %d", ptr,
 		size, flags);
 
-	if (flags != 0 || !free_fastpath(ptr, size, true)) {
+	if (flags != 0 || !free_fastpath(ptr, size, true, NULL)) {
 		sdallocx_default(ptr, size, flags);
 	}
 
@@ -3947,7 +3975,7 @@ je_sdallocx_noflags(void *ptr, size_t size) {
 	LOG("core.sdallocx.entry", "ptr: %p, size: %zu, flags: 0", ptr,
 		size);
 
-	if (!free_fastpath(ptr, size, true)) {
+	if (!free_fastpath(ptr, size, true, NULL)) {
 		sdallocx_default(ptr, size, 0);
 	}
 
@@ -4482,4 +4510,30 @@ JEMALLOC_EXPORT int JEMALLOC_NOTHROW
 get_defrag_hint(void* ptr) {
 	assert(ptr != NULL);
 	return iget_defrag_hint(TSDN_NULL, ptr);
+}
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE(1)
+malloc_with_usize(size_t size, size_t *usize) {
+	return je_malloc_internal(size, usize);
+}
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ATTR(malloc) JEMALLOC_ALLOC_SIZE2(1, 2)
+calloc_with_usize(size_t num, size_t size, size_t *usize) {
+	return je_calloc_internal(num, size, usize);
+}
+
+JEMALLOC_EXPORT JEMALLOC_ALLOCATOR JEMALLOC_RESTRICT_RETURN
+void JEMALLOC_NOTHROW *
+JEMALLOC_ALLOC_SIZE(2)
+realloc_with_usize(void *ptr, size_t size, size_t *old_usize, size_t *new_usize) {
+	return je_realloc_internal(ptr, size, old_usize, new_usize);
+}
+
+JEMALLOC_EXPORT void JEMALLOC_NOTHROW
+free_with_usize(void *ptr, size_t *usize) {
+	je_free_internal(ptr, usize);
 }

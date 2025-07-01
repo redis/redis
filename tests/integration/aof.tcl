@@ -239,7 +239,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes}}} {
+    start_server {overrides {appendonly {yes} appendfsync always}} {
         test {GETEX should not append to AOF} {
             set aof [get_last_incr_aof_path r]
             r set foo bar
