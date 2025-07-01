@@ -748,7 +748,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         if (limit && (deleted + entries) > limit)
             break;
 
-        /* Check if we can remove the whole node at once */
+        /* Check if we can remove the whole node */
         int remove_node = 0; /* Final decision flag for node removal */
         int node_eligible_for_remove = 0; /* Whether node meets the basic criteria for removal */
         streamID master_id = {0};
@@ -3206,7 +3206,8 @@ void xackdelCommand(client *c) {
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
     for (int j = 0; j < args.numids; j++) {
-        if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK) goto cleanup;
+        if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK)
+            goto cleanup;
     }
 
     s = kv->ptr;
