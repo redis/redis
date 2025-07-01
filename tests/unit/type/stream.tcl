@@ -256,7 +256,7 @@ start_server {
         r XREADGROUP GROUP mygroup consumer1 COUNT 1 STREAMS mystream >
 
         # XADD with MAXLEN and DELREF should trim and remove all references
-        r XADD mystream MAXLEN = 1 DELREF * xitem $j
+        r XADD mystream MAXLEN = 1 DELREF * f v
         assert {[r XLEN mystream] == 1}
 
         # All PEL entries should be cleaned up
