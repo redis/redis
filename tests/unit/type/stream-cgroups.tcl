@@ -554,11 +554,11 @@ start_server {
         assert {[lindex [r XPENDING mystream mygroup] 0] == 5}
 
         # Try to delete a message with ACKED - should fail because both groups have references
-        assert_equal {1 1 1 1 1} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
+        assert_equal {2 2 2 2 2} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
 
         # Destroy one consumer group, and then we can delete all the entries with ACKED.
         r XGROUP DESTROY mystream mygroup
-        assert_equal {0 0 0 0 0} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
+        assert_equal {1 1 1 1 1} [r XDELEX mystream ACKED IDS 5 0-1 1-1 2-1 3-1 4-1]
         assert_equal 0 [r XLEN mystream] 
     }
 
@@ -1569,7 +1569,7 @@ start_server {
             r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
 
             # Verify the message was removed from both groups' PELs when with DELREF
-            assert_equal {0 0} [r XACKDEL mystream group1 DELREF IDS 2 1-0 2-0]
+            assert_equal {1 1} [r XACKDEL mystream group1 DELREF IDS 2 1-0 2-0]
             assert_equal 0 [r XLEN mystream] 
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
@@ -1589,13 +1589,13 @@ start_server {
 
             # The message is referenced by two groups.
             # Even after one of them is ack, it still can't be deleted.
-            assert_equal {1 1} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
+            assert_equal {2 2} [r XACKDEL mystream group1 ACKED IDS 2 1-0 2-0]
             assert_equal 2 [r XLEN mystream]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
 
             # When these messages are dereferenced by all groups, they can be deleted.
-            assert_equal {0 0} [r XACKDEL mystream group2 ACKED IDS 2 1-0 2-0]
+            assert_equal {1 1} [r XACKDEL mystream group2 ACKED IDS 2 1-0 2-0]
             assert_equal 0 [r XLEN mystream]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {0 {} {} {}} [r XPENDING mystream group2]
@@ -1615,13 +1615,13 @@ start_server {
             # Test XACKDEL with KEEPREF
             # XACKDEL only deletes the message from the stream
             # but does not clean up references in consumer groups' PELs
-            assert_equal {0 0} [r XACKDEL mystream group1 KEEPREF IDS 2 1-0 2-0]
+            assert_equal {1 1} [r XACKDEL mystream group1 KEEPREF IDS 2 1-0 2-0]
             assert_equal 0 [r XLEN mystream]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
 
             # Acknowledge remaining messages in group2
-            assert_equal {0 0} [r XACKDEL mystream group2 KEEPREF IDS 2 1-0 2-0]
+            assert_equal {1 1} [r XACKDEL mystream group2 KEEPREF IDS 2 1-0 2-0]
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {0 {} {} {}} [r XPENDING mystream group2]
         }

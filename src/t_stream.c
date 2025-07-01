@@ -3170,8 +3170,8 @@ cleanup:
 /* Used by xackdelCommand() */
 typedef enum XAckDelRes {
     XACKDEL_NO_ID = -1,           /* ID not found in PEL. */
-    XACKDEL_DELETED = 0,          /* Message acknowledged and deleted. */
-    XACKDEL_STILL_REFERENCED = 1, /* Message acknowledged but not deleted (still referenced). */
+    XACKDEL_DELETED = 1,          /* Message acknowledged and deleted. */
+    XACKDEL_STILL_REFERENCED = 2, /* Message acknowledged but not deleted (still referenced). */
 } XAckDelRes;
 
 /* XACKDEL <key> <group> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]
@@ -3986,8 +3986,8 @@ cleanup:
 /* Used by xdelexCommand() */
 typedef enum XDelexRes {
     XDELEX_NO_ID = -1,           /* ID not found in the stream. */
-    XDELEX_DELETED = 0,          /* Message deleted. */
-    XDELEX_STILL_REFERENCED = 1, /* Message not deleted (still referenced). */
+    XDELEX_DELETED = 1,          /* Message deleted. */
+    XDELEX_STILL_REFERENCED = 2, /* Message not deleted (still referenced). */
 } XDelexRes;
 
 /* XDELEX <key> [KEEPREF|DELREF|ACKED] [IDS <numids> <id ...>]

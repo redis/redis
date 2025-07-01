@@ -91,11 +91,11 @@
                     },
                     {
                         "description": "Entry was deleted from the stream.",
-                        "const": 0
+                        "const": 1
                     },
                     {
                         "description": "Entry was not deleted, but there are still dangling references.",
-                        "const": 1
+                        "const": 2
                     }
                 ]
             }

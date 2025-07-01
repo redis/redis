@@ -96,11 +96,11 @@
                     },
                     {
                         "description": "Entry was acknowledged and deleted from the stream.",
-                        "const": 0
+                        "const": 1
                     },
                     {
                         "description": "Entry was acknowledged but not deleted, there are still dangling references.",
-                        "const": 1
+                        "const": 2
                     }
                 ]
             }
