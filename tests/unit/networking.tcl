@@ -212,7 +212,7 @@ start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-deb
 
             # Send set commands for all clients except the first
             for {set i 1} {$i < 16} {incr i} {
-                [set rd$i] set a $i
+                [set rd$i] set $i $i
                 [set rd$i] flush
             }
 
@@ -221,7 +221,13 @@ start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-deb
 
             # Read the results
             assert_equal {1} [$rd0 read]
-            catch {$rd4 read} err
+            catch {$rd4 read} res
+            if {$res eq "OK"} {
+                # maybe OK then err, we can not control the order of execution
+                catch {$rd4 read} err
+            } else {
+                set err $res
+            }
             assert_match {I/O error reading reply} $err
 
             # verify the prefetch stats are as expected
@@ -231,10 +237,14 @@ start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-deb
             set prefetch_batches [getInfoProperty $info io_threaded_total_prefetch_batches]
             assert_range $prefetch_batches 1 7; # With slower machines, the number of batches can be higher
 
-            # Verify the final state
-            $rd15 get a
-            assert_equal {OK} [$rd15 read]
-            assert_equal {15} [$rd15 read]
+            # verify other clients are working as expected
+            for {set i 1} {$i < 16} {incr i} {
+                if {$i != 4} { ;# 4th client was killed
+                    [set rd$i] get $i
+                    assert_equal {OK} [[set rd$i] read]
+                    assert_equal $i [[set rd$i] read]
+                }
+            }
         }
 
         test {prefetch works as expected when changing the batch size while executing the commands batch} {
@@ -322,5 +332,46 @@ start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-deb
             # With slower machines, the number of prefetch entries can be lower
             assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 16}]
         }
+    }
+}
+
+start_server {tags {"timeout external:skip"}} {
+    test {Multiple clients idle timeout test} {
+        # set client timeout to 1 second
+        r config set timeout 1
+
+        # create multiple client connections
+        set clients {}
+        set num_clients 10
+
+        for {set i 0} {$i < $num_clients} {incr i} {
+            set client [redis_deferring_client]
+            $client ping
+            assert_equal "PONG" [$client read]
+            lappend clients $client
+        }
+        assert_equal [llength $clients] $num_clients
+
+        # wait for 2.5 seconds
+        after 2500
+
+        # try to send commands to all clients - they should all fail due to timeout
+        set disconnected_count 0
+        foreach client $clients {
+            $client ping
+            if {[catch {$client read} err]} {
+                incr disconnected_count
+                # expected error patterns for connection timeout
+                assert_match {*I/O error*} $err
+            }
+            catch {$client close}
+        }
+
+        # all clients should have been disconnected due to timeout
+        assert_equal $disconnected_count $num_clients
+
+        # redis server still works well
+        reconnect
+        assert_equal "PONG" [r ping]
     }
 }
