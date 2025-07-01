@@ -220,8 +220,8 @@ start_server {
         r XADD mystream MAXLEN = 1 ACKED 6-0 f v
         assert {[r XLEN mystream] == 6} ;# All messages preserved + the new one
 
-        # Read 50 messages and acknowledge them
-        # This leaves 50 messages still unacked
+        # Read 1 messages and acknowledge them
+        # This leaves 5 messages still unacked
         set records [r XREADGROUP GROUP mygroup consumer1 COUNT 1 STREAMS mystream >]
         r XACK mystream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
         assert {[lindex [r XPENDING mystream mygroup] 0] == 0}
