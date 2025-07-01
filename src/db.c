@@ -2444,6 +2444,17 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     return now > when;
 }
 
+/* Check if user configuration allows key to be deleted due to expiary */
+int confAllowsExpireDel(void) {
+    if (server.lazyexpire_nested_arbitrary_keys)
+        return 1;
+
+    /* This configuration specifically targets nested commands, to align with RE's feature of replication between dbs.
+     * transactions (from scripts or multi-exec) containing commands like SCAN and RANDOMKEY will execute locally, but their
+     * lazy-expiration DELs may induce CROSS-SLOT on remote proxy in mode replica-of (RED-161574) */
+    return !(server.execution_nesting > 1 && server.executing_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS);
+}
+
 /* This function is called when we are going to perform some operation
  * in a given key, but such key may be already logically expired even if
  * it still exists in the database. The main way this function is called
@@ -2502,6 +2513,11 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
     }
+
+    /* Check if user configuration disables lazy-expire deletions in current state.
+     * This will only apply if the server doesn't mandate key deletion to operate correctly (write commands). */
+    if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED) && !confAllowsExpireDel())
+        return KEY_EXPIRED;
 
     /* In some cases we're explicitly instructed to return an indication of a
      * missing key without actually deleting it, even on masters. */

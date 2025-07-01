@@ -899,3 +899,59 @@ start_cluster 1 0 {tags {"expire external:skip cluster"}} {
         assert_equal 0 [s 0 expired_time_cap_reached_count]
     } {} {needs:debug}
 }
+
+# Config lazyexpire-nested-arbitrary-keys test body
+proc conf_le_test {option mode} {
+    r config set lazyexpire-nested-arbitrary-keys $option
+    r debug set-active-expire 0
+    r flushall
+    r script LOAD {return redis.call('SCAN', 0)}
+
+    r set foo bar
+    r pexpire foo 1
+    after 2
+
+    set repl [attach_to_replication_stream]
+
+    # First two conditions hit lazy expire within a 'transaction', meaning
+    # DEL propagation should be blocked if 'lazyexpire-nested-arbitrary-keys' is set.
+    if {$mode == "lua"} {
+        r eval "return redis.call('SCAN', 0)" 0
+    } elseif {$mode == "multi"} {
+        r multi
+        r scan 0
+        r exec
+    } else {
+        r scan 0
+    }
+
+    # dummy command to verify nothing else gets into the replication stream.
+    r set x 1
+
+    if {$option == "no" && $mode != "direct"} {
+        assert_replication_stream $repl {
+            {select *}
+            {set x 1}
+        }
+    } else {
+        assert_replication_stream $repl {
+            {select *}
+            {del foo}
+            {set x 1}
+        }
+    }
+
+    close_replication_stream $repl
+    r script flush
+    assert_equal [r config set lazyexpire-nested-arbitrary-keys yes] {OK}
+    assert_equal [r debug set-active-expire 1] {OK}
+}
+
+foreach option {yes no} {
+foreach mode {direct multi lua} {
+    start_server {tags {"expire"}} {
+        test "Config lazyexpire-nested-arbitrary-keys ($option, $mode)" {
+            conf_le_test $option $mode
+        } {} {needs:debug repl}
+    }
+}}
