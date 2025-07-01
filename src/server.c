@@ -15,6 +15,7 @@
 #include "server.h"
 #include "monotonic.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 #include "slowlog.h"
 #include "bio.h"
 #include "latency.h"
@@ -3821,13 +3822,14 @@ void call(client *c, int flags) {
     if (!(c->flags & CLIENT_BLOCKED))
         freeClientOriginalArgv(c);
 
-    /* populate the per-command statistics that we show in INFO commandstats.
-     * If the client is blocked we will handle latency stats and duration when it is unblocked. */
+    /* Populate the per-command and per-slot statistics that we show in INFO commandstats and CLUSTER SLOT-STATS,
+     * respectively. If the client is blocked we will handle latency stats and duration when it is unblocked. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED)) {
         real_cmd->calls++;
         real_cmd->microseconds += c->duration;
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
+        clusterSlotStatsAddCpuDuration(c, c->duration);
     }
 
     /* The duration needs to be reset after each call except for a blocked command,
@@ -3977,6 +3979,8 @@ void afterCommand(client *c) {
 
     /* Flush pending tracking invalidations. */
     trackingHandlePendingKeyInvalidations();
+
+    clusterSlotStatsAddNetworkBytesOutForUserClient(c);
 
     /* Flush other pending push messages. only when we are not in nested call.
      * So the messages are not interleaved with transaction response. */
