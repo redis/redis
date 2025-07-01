@@ -1719,7 +1719,7 @@ uxeof: /* Unexpected AOF end of file. */
 
 fmterr: /* Format error. */
     /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
-    * is less than a specified size, try to recover it automatically */
+     * is less than a specified size, try to recover it automatically */
     if (server.aof_load_broken) {
         if (valid_up_to == -1) {
             serverLog(LL_WARNING,"Last valid command offset is invalid");

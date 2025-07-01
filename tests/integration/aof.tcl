@@ -703,7 +703,7 @@ tags {"aof external:skip"} {
     }
 
     # Check AOF load broken behavior
-    # Corrupted base AOF, no incr AOF present
+    # Corrupted base AOF, existing AOF files
     create_aof $aof_dirpath $aof_base_file {
         append_to_aof [formatCommand set param ok]
         append_to_aof "corruption"
@@ -717,6 +717,7 @@ tags {"aof external:skip"} {
             } 0 10 1000
         }
     }
+
     # Remove all incr AOF files to make the base file being the last file
     exec rm -f $aof_dirpath/appendonly.aof.*
     start_server_aof [list dir $server_path aof-load-broken yes] {
@@ -731,14 +732,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    # Check AOF load broken behavior
-    start_server_aof [list dir $server_path aof-load-broken yes] {
-        test "Unfinished MULTI: Server should start if aof-load-broken is yes" {
-            assert_equal 1 [is_alive [srv pid]]
-        }
-    }
-
-    # Should also start with broken incer AOF.
+    # Should also start with broken incr AOF.
     create_aof $aof_dirpath $aof_file {
         append_to_aof [formatCommand set foo 1]
         append_to_aof [formatCommand incr foo]
@@ -789,35 +783,56 @@ tags {"aof external:skip"} {
     # so the AOF file will not be reloaded.
     start_server_aof_ex [list dir $server_path aof-load-broken yes aof-load-broken-max-size 2] [list wait_ready false] {
         test "Bad format: Server should have logged an error" {
-
             wait_for_log_messages 0 {"*AOF was not loaded because the size*"} 0 10 1000
         }
     }
-    # Create base and incr files
-    create_aof $aof_dirpath $aof_base_file {
-        append_to_aof [formatCommand set foo base]
+
+    create_aof_manifest $aof_dirpath $aof_manifest_file {
+        append_to_manifest "file appendonly.aof.1.base.aof seq 1 type b\n"
+        append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        append_to_manifest "file appendonly.aof.2.incr.aof seq 2 type i\n"
+    }
+    # Create base AOF file
+    set base_aof_file "$aof_dirpath/appendonly.aof.1.base.aof"
+    create_aof $aof_dirpath $base_aof_file {
+        append_to_aof [formatCommand set fo base]
     }
 
-    # Create first incr AOF (not last)
-    set mid_aof_file $aof_dirpath/appendonly.aof.1
+    # Create middle incr AOF file with corruption
+    set mid_aof_file "$aof_dirpath/appendonly.aof.1.incr.aof"
     create_aof $aof_dirpath $mid_aof_file {
-        append_to_aof [formatCommand set foo mid]
+        append_to_aof [formatCommand set fo mid]
         append_to_aof "CORRUPTION"
     }
 
-    # Create second incr AOF (last and correct)
-    set last_aof_file $aof_dirpath/appendonly.aof.2
+    # Create last incr AOF file (valid)
+    set last_aof_file "$aof_dirpath/appendonly.aof.2.incr.aof"
     create_aof $aof_dirpath $last_aof_file {
-        append_to_aof [formatCommand set foo last]
+        append_to_aof [formatCommand set fo last]
     }
 
-    # Start Redis with broken intermediate file
+    # Check that Redis fails to load because corruption is in the middle file
     start_server_aof_ex [list dir $server_path aof-load-broken yes] [list wait_ready false] {
-        test "Intermediate AOF is broken: should load last and recover" {
+        test "Intermediate AOF is broken: should log fatal and not start" {
             wait_for_log_messages 0 {
-                {*AOF loaded anyway because aof-load-broken is enabled*}
                 {*Fatal error: the truncated file is not the last file*}
             } 0 10 1000
+        }
+    }
+
+    # Swap mid and last files
+    set tmp_file "$aof_dirpath/temp.aof"
+    file rename -force $mid_aof_file $tmp_file
+    file rename -force $last_aof_file $mid_aof_file
+    file rename -force $tmp_file $last_aof_file
+
+    # Should now start successfully since corruption is in last AOF file
+    start_server_aof [list dir $server_path aof-load-broken yes] {
+        test "Corrupted last AOF file: Server should still start and recover" {
+            assert_equal 1 [is_alive [srv pid]]
+            set client [redis [srv host] [srv port]]
+            wait_done_loading $client
+            assert {[$client get fo] eq "mid"}
         }
     }
 }
