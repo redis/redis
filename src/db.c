@@ -18,6 +18,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "redisassert.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -1283,6 +1284,8 @@ typedef struct {
     long sampled; /* cumulative number of keys sampled */
     int no_values; /* set to 1 means to return keys only */
     size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
+    sds typename; /* typename string, NULL means no type filter */
+    redisDb *db;  /* database reference for expiration checks */
 } scanData;
 
 /* Helper function to compare key type in scan commands */
@@ -1317,10 +1320,22 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
 
     if (!o) { /* If scanning keyspace */
         kvobj *kv = dictGetKV(de);
-        /* scan filter an element if it isn't the type we want. */
-        /* TODO: uncomment in redis 8.0
-        if (data->type != LLONG_MAX)
-            if (!objectTypeCompare(kv, data->type)) return;*/
+
+        /* Expiration check first - only for database keyspace scanning.
+         * Use kv obj to avoid robj creation. */
+        if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
+            return;
+
+        /* Type filtering - only for database keyspace scanning */
+        if (data->typename) {
+            /* For unknown types (LLONG_MAX), skip all keys */
+            if (data->type == LLONG_MAX)
+                return;
+            /* For known types, skip keys that don't match */
+            if (!objectTypeCompare(kv, data->type))
+                return;
+        }
+
         keyStr = kvobjGetKey(kv);
     } else {
         keyStr = dictGetKey(de);
@@ -1552,6 +1567,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .sampled = 0,
             .no_values = no_values,
             .strlen = (isKeysHfield) ? hfieldlen : sdslen,
+            .typename = typename,
+            .db = c->db,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
@@ -1709,31 +1726,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter the expired keys */
-    if (o == NULL && listLength(keys)) {
-        robj kobj;
-        listIter li;
-        listNode *ln;
-        listRewind(keys, &li);
-        while ((ln = listNext(&li))) {
-            sds key = listNodeValue(ln);
-            initStaticStringObject(kobj, key);
-            /* Filter an element if it isn't the type we want. */
-            /* TODO: remove this in redis 8.0 */
-            if (typename) {
-                kvobj* kv = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
-                if (!kv || !objectTypeCompare(kv, type)) {
-                    listDelNode(keys, ln);
-                }
-                continue;
-            }
-            if (expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
-                listDelNode(keys, ln);
-            }
-        }
-    }
-
-    /* Step 4: Reply to the client. */
+    /* Step 3: Reply to the client. */
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
@@ -2468,6 +2461,17 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     return now > when;
 }
 
+/* Check if user configuration allows key to be deleted due to expiary */
+int confAllowsExpireDel(void) {
+    if (server.lazyexpire_nested_arbitrary_keys)
+        return 1;
+
+    /* This configuration specifically targets nested commands, to align with RE's feature of replication between dbs.
+     * transactions (from scripts or multi-exec) containing commands like SCAN and RANDOMKEY will execute locally, but their
+     * lazy-expiration DELs may induce CROSS-SLOT on remote proxy in mode replica-of (RED-161574) */
+    return !(server.execution_nesting > 1 && server.executing_client->cmd->flags & CMD_TOUCHES_ARBITRARY_KEYS);
+}
+
 /* This function is called when we are going to perform some operation
  * in a given key, but such key may be already logically expired even if
  * it still exists in the database. The main way this function is called
@@ -2503,11 +2507,10 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
  * You can optionally pass `kv` to save a lookup.
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
-    serverAssert(key != NULL);
-    sds keyname = key->ptr;
+    debugAssert(key != NULL || kv != NULL);
     if ((server.allow_access_expired) ||
         (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
-        (!keyIsExpired(db, keyname, kv)))
+        (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
         return KEY_VALID;
 
     /* If we are running in the context of a replica, instead of
@@ -2528,6 +2531,11 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
         if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
     }
 
+    /* Check if user configuration disables lazy-expire deletions in current state.
+     * This will only apply if the server doesn't mandate key deletion to operate correctly (write commands). */
+    if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED) && !confAllowsExpireDel())
+        return KEY_EXPIRED;
+
     /* In some cases we're explicitly instructed to return an indication of a
      * missing key without actually deleting it, even on masters. */
     if (flags & EXPIRE_AVOID_DELETE_EXPIRED)
@@ -2538,9 +2546,15 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
 
-    /* Delete the key */
-    deleteExpiredKeyAndPropagate(db,key);
-
+    /* Perform deletion */
+    if (key) {
+        deleteExpiredKeyAndPropagate(db, key);
+    } else {
+        sds keyname = kvobjGetKey(kv);
+        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
+        deleteExpiredKeyAndPropagate(db, tmpkey);
+        decrRefCount(tmpkey);
+    }
     return KEY_DELETED;
 }
 

@@ -365,6 +365,18 @@ JSON attributes are converted in this way:
 
 Any other type is ignored, and accessig it will make the expression evaluate to false.
 
+### The IN operator
+
+The `IN` operator works in two ways, it can test for membership in an array, like in:
+
+    5 in [1, 2, 3]
+    "foo" in [1, "foo", "bar"]
+
+But can also check for substrings, in case the A and B operators are both strings.
+
+    "foo" in "barfoobar" # Will evaluate to true
+    "zap" in "foobar" # Will evaluate to false
+
 ### Examples
 
 ```

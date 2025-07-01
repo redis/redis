@@ -10,6 +10,10 @@
             [
                 "6.2.0",
                 "Added the `MINID` trimming strategy and the `LIMIT` option."
+            ],
+            [
+                "8.2.0",
+                "Added the `KEEPREF`, `DELREF` and `ACKED` options."
             ]
         ],
         "command_flags": [
@@ -95,6 +99,28 @@
                         "type": "integer",
                         "optional": true,
                         "since": "6.2.0"
+                    },
+                    {
+                        "name": "condition",
+                        "type": "oneof",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "keepref",
+                                "type": "pure-token",
+                                "token": "KEEPREF"
+                            },
+                            {
+                                "name": "delref",
+                                "type": "pure-token",
+                                "token": "DELREF"
+                            },
+                            {
+                                "name": "acked",
+                                "type": "pure-token",
+                                "token": "ACKED"
+                            }
+                        ]
                     }
                 ]
             }
