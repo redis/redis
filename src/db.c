@@ -1262,12 +1262,12 @@ void keysCommand(client *c) {
 
 /* Data used by the dict scan callback. */
 typedef struct {
-    list *keys;   /* elements that collect from dict (for HSCAN/SSCAN/ZSCAN) */
-    /* Dynamic array for SCAN optimization */
-    sds *scan_keys;        /* pointer to keys array (stack or heap allocated) */
-    int scan_keys_count;   /* number of keys collected */
-    int scan_keys_capacity; /* current capacity of keys array */
-    sds *scan_stack_buffer; /* reference to original stack buffer for cleanup check */
+    /* Dynamic array for all scan optimizations */
+    void **array_items;      /* pointer to items array (stack or heap allocated) */
+    int array_count;         /* number of items collected */
+    int array_capacity;      /* current capacity of items array */
+    void **array_stack_buffer; /* reference to original stack buffer for cleanup check */
+    int array_stores_pairs;  /* 1 if storing key-value pairs, 0 if single items */
     robj *o;      /* o must be a hash/set/zset object, NULL means current db */
     long long type; /* the particular type when scan the db */
     sds pattern;  /* pattern string, NULL means no pattern */
@@ -1278,26 +1278,26 @@ typedef struct {
     redisDb *db;  /* database reference for expiration checks */
 } scanData;
 
-/* Helper function to add a key to the scan results (for SCAN command only) */
-static void scanKeysPush(scanData *data, sds key) {
-    if (data->scan_keys_count >= data->scan_keys_capacity) {
+/* Helper function to add an item to the scan results (for all scan commands) */
+static void scanItemsPush(scanData *data, void *item) {
+    if (data->array_count >= data->array_capacity) {
         /* Need to grow the array */
-        int new_capacity = data->scan_keys_capacity * 2;
+        int new_capacity = data->array_capacity * 2;
 
-        if (data->scan_keys == data->scan_stack_buffer) {
+        if (data->array_items == data->array_stack_buffer) {
             /* First time growing from stack buffer - need to allocate and copy */
-            sds *new_keys = zmalloc(new_capacity * sizeof(sds));
-            memcpy(new_keys, data->scan_keys, data->scan_keys_count * sizeof(sds));
-            data->scan_keys = new_keys;
+            void **new_items = zmalloc(new_capacity * sizeof(void*));
+            memcpy(new_items, data->array_items, data->array_count * sizeof(void*));
+            data->array_items = new_items;
         } else {
             /* Already heap allocated - use zrealloc */
-            data->scan_keys = zrealloc(data->scan_keys, new_capacity * sizeof(sds));
+            data->array_items = zrealloc(data->array_items, new_capacity * sizeof(void*));
         }
 
-        data->scan_keys_capacity = new_capacity;
+        data->array_capacity = new_capacity;
     }
 
-    data->scan_keys[data->scan_keys_count++] = key;
+    data->array_items[data->array_count++] = item;
 }
 
 /* Helper function to compare key type in scan commands */
@@ -1320,7 +1320,6 @@ int objectTypeCompare(robj *o, long long target) {
 void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     scanData *data = (scanData *)privdata;
-    list *keys = data->keys;
     robj *o = data->o;
     sds val = NULL;
     void *key = NULL;  /* if OBJ_HASH then key is of type `hfield`. Otherwise, `sds` */
@@ -1361,31 +1360,47 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     }
 
     if (o == NULL) {
-        /* SCAN command - use dynamic array for optimization */
-        scanKeysPush(data, keyStr);
+        /* SCAN command - single keys */
+        data->array_stores_pairs = 0;
+        scanItemsPush(data, keyStr);
         return;
     } else if (o->type == OBJ_SET) {
-        key = keyStr;
+        /* SSCAN command - single members */
+        data->array_stores_pairs = 0;
+        scanItemsPush(data, keyStr);
+        return;
     } else if (o->type == OBJ_HASH) {
+        /* HSCAN command - field-value pairs */
+        if (hfieldIsExpired(keyStr))
+            return;
+
         key = keyStr;
         val = dictGetVal(de);
 
-        /* If field is expired, then ignore */
-        if (hfieldIsExpired(key))
-            return;
-
+        if (data->no_values) {
+            data->array_stores_pairs = 0;
+            scanItemsPush(data, key);
+        } else {
+            data->array_stores_pairs = 1;
+            scanItemsPush(data, key);
+            scanItemsPush(data, val);
+        }
+        return;
     } else if (o->type == OBJ_ZSET) {
+        /* ZSCAN command - member-score pairs */
         char buf[MAX_LONG_DOUBLE_CHARS];
         int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);
+
         key = sdsdup(keyStr);
         val = sdsnewlen(buf, len);
+
+        data->array_stores_pairs = 1;
+        scanItemsPush(data, key);
+        scanItemsPush(data, val);
+        return;
     } else {
         serverPanic("Type not handled in SCAN callback.");
     }
-
-    /* HSCAN/SSCAN/ZSCAN - use original list approach */
-    listAddNodeTail(keys, key);
-    if (val && !data->no_values) listAddNodeTail(keys, val);
 }
 
 /* Try to parse a SCAN cursor stored at object 'o':
@@ -1454,7 +1469,6 @@ char *getObjectTypeName(robj *o) {
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     int isKeysHfield = 0;
     int i, j;
-    listNode *node;
     long count = 10;
     sds pat = NULL;
     sds typename = NULL;
@@ -1463,8 +1477,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     dict *ht;
     scanData data = {0};
 
-    /* Stack-allocated array for SCAN command optimization */
-    sds keys_stack_buffer[SCAN_KEYS_INITIAL_CAPACITY];
+    /* Stack-allocated array for all scan optimizations */
+    void *items_stack_buffer[SCAN_KEYS_INITIAL_CAPACITY];
 
     /* Object must be NULL (to iterate keys names), or the type of the object
      * must be Set, Sorted Set, or Hash. */
@@ -1544,18 +1558,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         ht = zs->dict;
     }
 
-    list *keys = listCreate();
-    /* Set a free callback for the contents of the collected keys list.
-     * For the main keyspace dict, and when we scan a key that's dict encoded
-     * (we have 'ht'), we don't need to define free method because the strings
-     * in the list are just a shallow copy from the pointer in the dictEntry.
-     * When scanning a key with other encodings (e.g. listpack), we need to
-     * free the temporary strings we add to that list.
-     * The exception to the above is ZSET, where we do allocate temporary
-     * strings even when scanning a dict. */
-    if (o && (!ht || o->type == OBJ_ZSET)) {
-        listSetFreeMethod(keys, sdsfreegeneric);
-    }
+
 
     /* For main dictionary scan or data structure using hashtable. */
     if (!o || ht) {
@@ -1565,8 +1568,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * of returning no or very few elements. */
         long maxiterations = count*10;
 
-        /* We pass scanData which have three pointers to the callback:
-         * 1. data.keys: the list to which it will add new elements;
+        /* We pass scanData to the callback with:
+         * 1. data.array_items: the dynamic array to collect scan results;
          * 2. data.o: the object containing the dictionary so that
          * it is possible to fetch more data in a type-dependent way;
          * 3. data.type: the specified type scan in the db, LLONG_MAX means
@@ -1578,10 +1581,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * to prevent a long hang time caused by filtering too many keys;
          * 6. data.no_values: to control whether values will be returned or
          * only keys are returned. */
-        data.keys = keys;
-        data.scan_keys = o == NULL ? keys_stack_buffer : NULL;
-        data.scan_keys_capacity = o == NULL ? SCAN_KEYS_INITIAL_CAPACITY : 0;
-        data.scan_stack_buffer = keys_stack_buffer;
+        data.array_items = items_stack_buffer;
+        data.array_capacity = SCAN_KEYS_INITIAL_CAPACITY;
+        data.array_stack_buffer = items_stack_buffer;
+        data.array_count = 0;
+        data.array_stores_pairs = 0;  /* Will be set by scanCallback */
         data.o = o;
         data.type = type;
         data.pattern = use_pattern ? pat : NULL;
@@ -1607,7 +1611,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     } else if (o->type == OBJ_SET) {
         unsigned long array_reply_len = 0;
         void *replylen = NULL;
-        listRelease(keys);
         char *str;
         char buf[LONG_STR_SIZE];
         size_t len;
@@ -1652,7 +1655,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned long array_reply_len = 0;
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
-        listRelease(keys);
 
         /* Reply to the client. */
         addReplyArrayLen(c, 2);
@@ -1702,8 +1704,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         unsigned char *str, *val;
         unsigned char intbuf[LP_INTBUF_SIZE];
         void *replylen = NULL;
-
-        listRelease(keys);
         /* Reply to the client. */
         addReplyArrayLen(c, 2);
         /* Cursor is always 0 given we iterate over all set */
@@ -1749,32 +1749,35 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    if (o == NULL) {
-        /* SCAN command - use dynamic array */
-        addReplyArrayLen(c, data.scan_keys_count);
-        for (int i = 0; i < data.scan_keys_count; i++) {
-            addReplyBulkCBuffer(c, data.scan_keys[i], sdslen(data.scan_keys[i]));
-        }
+    /* Generate response from array (unified for all scan commands) */
+    addReplyArrayLen(c, data.array_count);
 
-        /* Cleanup dynamic array if it grew beyond stack */
-        if (data.scan_keys != keys_stack_buffer) {
-            zfree(data.scan_keys);
-        }
-    } else {
-        /* HSCAN/SSCAN/ZSCAN - use list */
-        unsigned long long idx = 0;
-        addReplyArrayLen(c, listLength(keys));
-        while ((node = listFirst(keys)) != NULL) {
-            void *key = listNodeValue(node);
-            /* For HSCAN, list will contain keys value pairs unless no_values arg
-             * was given. We should call mstrlen for the keys only. */
-            int hfieldkey = isKeysHfield && (no_values || (idx++ % 2 == 0));
-            addReplyBulkCBuffer(c, key, hfieldkey ? mstrlen(key) : sdslen(key));
-            listDelNode(keys, node);
+    for (int i = 0; i < data.array_count; i++) {
+        void *item = data.array_items[i];
+
+        /* Special case: HSCAN fields need mstrlen, everything else uses sdslen */
+        if (o && o->type == OBJ_HASH &&
+            (!data.array_stores_pairs || (i % 2 == 0))) {
+            /* HSCAN field or single field (NOVALUES) */
+            addReplyBulkCBuffer(c, item, mstrlen((char*)item));
+        } else {
+            /* Everything else: SCAN keys, SSCAN members, ZSCAN members/scores, HSCAN values */
+            addReplyBulkCBuffer(c, item, sdslen((sds)item));
         }
     }
 
-    listRelease(keys);
+    /* Cleanup: free allocated values for ZSCAN */
+    if (o && o->type == OBJ_ZSET) {
+        for (int i = 0; i < data.array_count; i++) {
+            sdsfree((sds)data.array_items[i]);
+        }
+    }
+
+    /* Cleanup: free heap-allocated array if needed */
+    if (data.array_items != items_stack_buffer) {
+        zfree(data.array_items);
+    }
+
 }
 
 /* The SCAN command completely relies on scanGenericCommand. */
