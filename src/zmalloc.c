@@ -67,6 +67,16 @@ void zlibc_free(void *ptr) {
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define rallocx(ptr,size,flags) je_rallocx(ptr,size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
+#if defined(HAVE_ALLOC_WITH_USIZE)
+void *je_malloc_with_usize(size_t size, size_t *usize);
+void *je_calloc_with_usize(size_t num, size_t size, size_t *usize);
+void *je_realloc_with_usize(void *ptr, size_t size, size_t *old_usize, size_t *new_usize);
+void je_free_with_usize(void *ptr, size_t *usize);
+#define malloc_with_usize(size,usize) je_malloc_with_usize(size,usize)
+#define calloc_with_usize(num,size,usize) je_calloc_with_usize(num,size,usize)
+#define realloc_with_usize(ptr,size,old_usize,new_usize) je_realloc_with_usize(ptr,size,old_usize,new_usize)
+#define free_with_usize(ptr,usize) je_free_with_usize(ptr,usize)
+#endif
 #endif
 
 #define MAX_THREADS 16 /* Keep it a power of 2 so we can use '&' instead of '%'. */
@@ -119,10 +129,17 @@ void *extend_to_usable(void *ptr, size_t size) {
 static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
+#ifdef HAVE_ALLOC_WITH_USIZE
+    void *ptr = malloc_with_usize(MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+#else
     void *ptr = malloc(MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
-
+#endif
     if (!ptr) return NULL;
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_ALLOC_WITH_USIZE
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return ptr;
+#elif HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
     if (usable) *usable = size;
@@ -243,10 +260,18 @@ void zfree_no_tcache(void *ptr) {
 static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
+#ifdef HAVE_ALLOC_WITH_USIZE
+    void *ptr = calloc_with_usize(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+#else
     void *ptr = calloc(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
+#endif
     if (ptr == NULL) return NULL;
 
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_ALLOC_WITH_USIZE
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return ptr;
+#elif HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
     if (usable) *usable = size;
@@ -335,8 +360,17 @@ static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *
         if (usable) *usable = 0;
         return NULL;
     }
-
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_ALLOC_WITH_USIZE
+    newptr = realloc_with_usize(ptr, size, &oldsize, &size);
+    if (newptr == NULL) {
+        if (usable) *usable = 0;
+        return NULL;
+    }
+    update_zmalloc_stat_free(oldsize);
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return newptr;
+#elif HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
     newptr = realloc(ptr,size);
     if (newptr == NULL) {
@@ -417,17 +451,18 @@ size_t zmalloc_usable_size(void *ptr) {
 #endif
 
 void zfree(void *ptr) {
-#ifndef HAVE_MALLOC_SIZE
-    void *realptr;
-    size_t oldsize;
-#endif
-
     if (ptr == NULL) return;
-#ifdef HAVE_MALLOC_SIZE
+
+#ifdef HAVE_ALLOC_WITH_USIZE
+    size_t oldsize;
+    free_with_usize(ptr, &oldsize);
+    update_zmalloc_stat_free(oldsize);
+#elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
 #else
-    realptr = (char*)ptr-PREFIX_SIZE;
+    size_t oldsize;
+    void *realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     free(realptr);
@@ -442,7 +477,11 @@ void zfree_usable(void *ptr, size_t *usable) {
 #endif
 
     if (ptr == NULL) return;
-#ifdef HAVE_MALLOC_SIZE
+
+#ifdef HAVE_ALLOC_WITH_USIZE
+    free_with_usize(ptr, usable);
+    update_zmalloc_stat_free(*usable);
+#elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
     free(ptr);
 #else

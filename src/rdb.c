@@ -2283,7 +2283,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (rdbtype == RDB_TYPE_HASH_METADATA) {
             minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
             if (rioGetReadError(rdb)) {
-                rdbReportCorruptRDB("Hash failed loading minExpire");
+                rdbReportReadError("Hash failed loading minExpire");
                 return NULL;
             }
             if (minExpire > EB_EXPIRE_TIME_INVALID) {
@@ -2529,7 +2529,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
              * directly to FLASH (while keeping in mem its next expiration time) */
             UNUSED(minExpire);
             if (rioGetReadError(rdb)) {
-                rdbReportCorruptRDB( "Hash listpackex integrity check failed.");
+                rdbReportReadError( "Short read of listpackex min expiration time.");
                 return NULL;
             }
         }
@@ -3208,15 +3208,13 @@ void startLoadingFile(size_t size, char* filename, int rdbflags) {
 /* Refresh the absolute loading progress info */
 void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
-    if (server.stat_peak_memory < zmalloc_used_memory())
-        server.stat_peak_memory = zmalloc_used_memory();
+    updatePeakMemory(zmalloc_used_memory());
 }
 
 /* Refresh the incremental loading progress info */
 void loadingIncrProgress(off_t size) {
     server.loading_loaded_bytes += size;
-    if (server.stat_peak_memory < zmalloc_used_memory())
-        server.stat_peak_memory = zmalloc_used_memory();
+    updatePeakMemory(zmalloc_used_memory());
 }
 
 /* Update the file name currently being loaded */

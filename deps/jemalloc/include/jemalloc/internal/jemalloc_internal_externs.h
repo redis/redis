@@ -70,6 +70,6 @@ void jemalloc_prefork(void);
 void jemalloc_postfork_parent(void);
 void jemalloc_postfork_child(void);
 void je_sdallocx_noflags(void *ptr, size_t size);
-void *malloc_default(size_t size);
+void *malloc_default(size_t size, size_t *usize);
 
 #endif /* JEMALLOC_INTERNAL_EXTERNS_H */

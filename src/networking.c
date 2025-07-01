@@ -212,6 +212,7 @@ client *createClient(connection *conn) {
     c->postponed_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
+    c->last_cron_check_time = 0;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->module_blocked_client = NULL;
@@ -2877,6 +2878,11 @@ int processInputBuffer(client *c) {
             if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
                 c->io_flags |= CLIENT_IO_PENDING_COMMAND;
                 c->iolookedcmd = lookupCommand(c->argv, c->argc);
+                if (c->iolookedcmd && !commandCheckArity(c->iolookedcmd, c->argc, NULL)) {
+                    /* The command was found, but the arity is invalid, reset it and let main
+                     * thread handle. To avoid memory prefetching on an invalid command. */
+                    c->iolookedcmd = NULL;
+                }
                 c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
                 enqueuePendingClientsToMainThread(c, 0);
                 break;
