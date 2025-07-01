@@ -2515,7 +2515,7 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     }
 
     /* Check if user configuration disables lazy-expire deletions in current state.
-       This will only apply if the server doesn't mandate key deletion to operate correctly (write commands). */
+     * This will only apply if the server doesn't mandate key deletion to operate correctly (write commands). */
     if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED) && !confAllowsExpireDel())
         return KEY_EXPIRED;
 
