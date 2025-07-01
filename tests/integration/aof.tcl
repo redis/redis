@@ -708,7 +708,9 @@ tags {"aof external:skip"} {
         append_to_aof [formatCommand set param ok]
         append_to_aof "corruption"
     }
-
+    create_aof $aof_dirpath $aof_file {
+        append_to_aof [formatCommand set foo hello]
+    }
     start_server_aof_ex [list dir $server_path aof-load-broken yes] [list wait_ready false] {
         test "Log should mention truncated file is not last" {
             wait_for_log_messages 0 {
