@@ -335,6 +335,15 @@ start_server {tags {"info" "external:skip"}} {
 
         test {stats: instantaneous metrics} {
             r config resetstat
+
+            set multiplier 1
+            if {[r config get io-threads] > 1} {
+                # the IO threads also have clients cron job now, and default hz is 10,
+                # so the IO thread that have the current client will trigger the main
+                # thread to run clients cron job, that will also count as a cron tick
+                set multiplier 2
+            }
+
             set retries 0
             for {set retries 1} {$retries < 4} {incr retries} {
                 after 1600 ;# hz is 10, wait for 16 cron tick so that sample array is fulfilled
@@ -345,7 +354,7 @@ start_server {tags {"info" "external:skip"}} {
             assert_lessthan $retries 4
             if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_cycles_per_sec: $value" }
             assert_morethan $value 0
-            assert_lessthan $value [expr $retries*15] ;# default hz is 10
+            assert_lessthan $value [expr $retries*15*$multiplier] ;# default hz is 10
             set value [s instantaneous_eventloop_duration_usec]
             if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_duration_usec: $value" }
             assert_morethan $value 0
@@ -545,6 +554,21 @@ start_server {tags {"info" "external:skip"}} {
         assert_equal [dict get $mem_stats overhead.db.hashtable.lut] [expr ($ht0_size + $ht1_size) * $ptr_size]
         assert_equal [dict get $mem_stats overhead.db.hashtable.rehashing] [expr $ht0_size * $ptr_size]
         assert_equal [dict get $mem_stats db.dict.rehashing.count] {1}
+    }
+
+    test {memory: used_memory_peak_time is updated when used_memory_peak is updated} {
+        r flushall
+
+        # Add a large string to trigger memory peak tracking
+        set time_before_add_large_str [clock seconds]
+        r set large_str [string repeat "a" 1000000]
+        assert {[s used_memory_peak_time] >= $time_before_add_large_str}
+        set peak_value [s used_memory_peak]
+
+        r del large_str
+        # Add a small string, which cannot exceed the previous peak value
+        r set small_str [string repeat "a" 1000]
+        assert {[s used_memory_peak] == $peak_value}
     }
 }
 

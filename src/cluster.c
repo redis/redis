@@ -239,7 +239,7 @@ void restoreCommand(client *c) {
     }
 
     /* Create the key and set the TTL if any */
-    kvobj *kv = dbAdd(c->db, key, &obj);
+    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, ttl ? ttl : -1);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
@@ -250,7 +250,6 @@ void restoreCommand(client *c) {
     }
 
     if (ttl) {
-        kv = setExpire(c,c->db,key,ttl); /* might realloc kvobj */
         if (!absttl) {
             /* Propagate TTL as absolute timestamp */
             robj *ttl_obj = createStringObjectFromLongLong(ttl);

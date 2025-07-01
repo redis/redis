@@ -16,6 +16,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "redisassert.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -321,13 +322,22 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  *
  * link - Optional link to bucket where the key should be added.
  *          On return, get updated, by need, to the inserted key.
+ *          
+ * expire - Set expiry of the key. -1 for no expiry.
  */
-kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
+kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire) {
     int slot = getKeySlot(key->ptr);
+    dictEntryLink tmp = NULL;
+    if (link == NULL) link = &tmp;
     robj *val = *valref;
-    kvobj *kv = kvobjSet(key->ptr, val, -1);
+    int hasExpire = expire != -1;
+    kvobj *kv = kvobjSet(key->ptr, val, hasExpire);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, link, 1);
+
+    /* Add to expires. Leverage setExpireByLink() to reuse the key link. */
+    if (hasExpire) kv = setExpireByLink(NULL, db, key->ptr, expire, *link);
+
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
@@ -335,9 +345,13 @@ kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
     return kv;
 }
 
-/* Read dbAddByLink() comment */
+/* Read dbAddInternal() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    return dbAddByLink(db, key, valref, NULL);
+    return dbAddInternal(db, key, valref, NULL, -1);
+}
+
+kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
+    return dbAddInternal(db, key, valref, link, -1);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.
@@ -403,7 +417,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
         return NULL;
 
     /* prepare kvobj for insertion. Pass expire to reserve space for it */
-    kvobj *kv = kvobjSet(key, *valref, -1);
+    kvobj *kv = kvobjSet(key, *valref, expire != -1);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
@@ -486,12 +500,14 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         val->lru = old->lru;
         /* Update expire reference if needed */
         long long expire = getExpire(db, key->ptr, old);
-        kvNew = kvobjSet(key->ptr, val, keepTTL ? expire : -1);
+        int hasExpire = keepTTL && (expire != -1);
+        kvNew = kvobjSet(key->ptr, val, hasExpire);
         kvstoreDictSetAtLink(db->keys, slot, kvNew, &link, 0);
 
         /* Replace the old value at its location in the expire space. */
         if (expire >= 0) {
             if (keepTTL) {
+                kvobjSetExpire(kvNew, expire); /* kvNew not reallocated here */
                 dictEntryLink exLink = kvstoreDictFindLink(db->expires, slot,
                                                            key->ptr, NULL);
                 serverAssertWithInfo(NULL, key, exLink != NULL);
@@ -643,32 +659,35 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
     link = kvstoreDictTwoPhaseUnlinkFind(db->keys, slot, key->ptr, &table);
 
     if (link) {
-        kvobj *val = dictGetKV(*link);
+        kvobj *kv = dictGetKV(*link);
 
-        int64_t oldlen = (int64_t) getObjectLength(val);
-        int type = val->type;
+        int64_t oldlen = (int64_t) getObjectLength(kv);
+        int type = kv->type;
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (type == OBJ_HASH)
-            hashTypeRemoveFromExpires(&db->hexpires, val);
+            hashTypeRemoveFromExpires(&db->hexpires, kv);
 
-        /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
-         * need to incr to retain val */
-        incrRefCount(val); /* refcnt=1->2 */
+        /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
+         * need to incr to retain kv */
+        incrRefCount(kv); /* refcnt=1->2 */
         /* Tells the module that the key has been unlinked from the database. */
-        moduleNotifyKeyUnlink(key,val,db->id,flags);
+        moduleNotifyKeyUnlink(key, kv, db->id, flags);
         /* We want to try to unblock any module clients or clients using a blocking XREADGROUP */
         signalDeletedKeyAsReady(db,key,type);
         /* We should call decr before freeObjAsync. If not, the refcount may be
          * greater than 1, so freeObjAsync doesn't work */
-        decrRefCount(val);
+        decrRefCount(kv);
 
-        /* Delete an entry from the expires dict is not decrRefCount of kvobj */
-        kvstoreDictDelete(db->expires, slot, key->ptr);
+        /* Because of dbUnshareStringValue, the val in db may change. */
+        kv = dictGetKV(*link);
+        
+        /* if expirable, delete an entry from the expires dict is not decrRefCount of kvobj */
+        if (kvobjGetExpire(kv) != -1)
+            kvstoreDictDelete(db->expires, slot, key->ptr);
 
         if (async) {
-            /* Because of dbUnshareStringValue, the val in db may change. */
-            freeObjAsync(key, dictGetKV(*link), db->id);
+            freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
         }
@@ -1248,6 +1267,8 @@ typedef struct {
     long sampled; /* cumulative number of keys sampled */
     int no_values; /* set to 1 means to return keys only */
     size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
+    sds typename; /* typename string, NULL means no type filter */
+    redisDb *db;  /* database reference for expiration checks */
 } scanData;
 
 /* Helper function to compare key type in scan commands */
@@ -1282,10 +1303,22 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
 
     if (!o) { /* If scanning keyspace */
         kvobj *kv = dictGetKV(de);
-        /* scan filter an element if it isn't the type we want. */
-        /* TODO: uncomment in redis 8.0
-        if (data->type != LLONG_MAX)
-            if (!objectTypeCompare(kv, data->type)) return;*/
+
+        /* Expiration check first - only for database keyspace scanning.
+         * Use kv obj to avoid robj creation. */
+        if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
+            return;
+
+        /* Type filtering - only for database keyspace scanning */
+        if (data->typename) {
+            /* For unknown types (LLONG_MAX), skip all keys */
+            if (data->type == LLONG_MAX)
+                return;
+            /* For known types, skip keys that don't match */
+            if (!objectTypeCompare(kv, data->type))
+                return;
+        }
+
         keyStr = kvobjGetKey(kv);
     } else {
         keyStr = dictGetKey(de);
@@ -1517,6 +1550,8 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .sampled = 0,
             .no_values = no_values,
             .strlen = (isKeysHfield) ? hfieldlen : sdslen,
+            .typename = typename,
+            .db = c->db,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
@@ -1674,31 +1709,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         serverPanic("Not handled encoding in SCAN.");
     }
 
-    /* Step 3: Filter the expired keys */
-    if (o == NULL && listLength(keys)) {
-        robj kobj;
-        listIter li;
-        listNode *ln;
-        listRewind(keys, &li);
-        while ((ln = listNext(&li))) {
-            sds key = listNodeValue(ln);
-            initStaticStringObject(kobj, key);
-            /* Filter an element if it isn't the type we want. */
-            /* TODO: remove this in redis 8.0 */
-            if (typename) {
-                kvobj* kv = lookupKeyReadWithFlags(c->db, &kobj, LOOKUP_NOTOUCH|LOOKUP_NONOTIFY);
-                if (!kv || !objectTypeCompare(kv, type)) {
-                    listDelNode(keys, ln);
-                }
-                continue;
-            }
-            if (expireIfNeeded(c->db, &kobj, NULL, 0) != KEY_VALID) {
-                listDelNode(keys, ln);
-            }
-        }
-    }
-
-    /* Step 4: Reply to the client. */
+    /* Step 3: Reply to the client. */
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
@@ -1835,8 +1846,7 @@ void renameGenericCommand(client *c, int nx) {
         minHashExpireTime = hashTypeRemoveFromExpires(&c->db->hexpires, o);
 
     dbDelete(c->db,c->argv[1]);
-    dbAdd(c->db, c->argv[2], &o);
-    if (expire != -1) o = setExpire(c, c->db, c->argv[2], expire);
+    dbAddInternal(c->db, c->argv[2], &o, NULL, expire);
 
     /* If hash with HFEs, register in db->hexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
@@ -2035,11 +2045,7 @@ void copyCommand(client *c) {
         dbDelete(dst,newkey);
     }
 
-    kvobj *kvCopy = dbAdd(dst, newkey, &newobj);
-
-    /* if key with expiration then set it */
-    if (expire != -1)
-        newobj = setExpire(c, dst, newkey, expire);
+    kvobj *kvCopy = dbAddInternal(dst, newkey, &newobj, NULL, expire);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
@@ -2473,11 +2479,10 @@ int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
  * You can optionally pass `kv` to save a lookup.
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
-    serverAssert(key != NULL);
-    sds keyname = key->ptr;
+    debugAssert(key != NULL || kv != NULL);
     if ((server.allow_access_expired) ||
         (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
-        (!keyIsExpired(db, keyname, kv)))
+        (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
         return KEY_VALID;
 
     /* If we are running in the context of a replica, instead of
@@ -2508,9 +2513,15 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * will have failed over and the new primary will send us the expire. */
     if (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)) return KEY_EXPIRED;
 
-    /* Delete the key */
-    deleteExpiredKeyAndPropagate(db,key);
-
+    /* Perform deletion */
+    if (key) {
+        deleteExpiredKeyAndPropagate(db, key);
+    } else {
+        sds keyname = kvobjGetKey(kv);
+        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
+        deleteExpiredKeyAndPropagate(db, tmpkey);
+        decrRefCount(tmpkey);
+    }
     return KEY_DELETED;
 }
 
