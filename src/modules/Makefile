@@ -20,7 +20,7 @@ endif
 
 .SUFFIXES: .c .so .xo .o
 
-all: helloworld.so hellotype.so helloblock.so hellocluster.so hellotimer.so hellodict.so hellohook.so helloacl.so
+all: helloworld.so hellotype.so helloblock.so hellocluster.so hellotimer.so hellodict.so hellohook.so helloacl.so metadata_example-1.so metadata_example-2.so metadata_example-3.so
 
 .c.xo:
 	$(CC) -I. $(CFLAGS) $(SHOBJ_CFLAGS) -fPIC -c $< -o $@
@@ -64,6 +64,26 @@ helloacl.xo: ../redismodule.h
 
 helloacl.so: helloacl.xo
 	$(LD) -o $@ $^ $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+metadata_example-1.xo: ../redismodule.h metadata_example.c
+	cc -I. -D MODULE_ID=1 -W -Wall -fno-common -g -ggdb -std=c99 -O0 -fPIC -c metadata_example.c -o metadata_example-1.xo
+
+metadata_example-2.xo: ../redismodule.h metadata_example.c
+	cc -I. -D MODULE_ID=2 -W -Wall -fno-common -g -ggdb -std=c99 -O0 -fPIC -c metadata_example.c -o metadata_example-2.xo
+
+metadata_example-3.xo: ../redismodule.h metadata_example.c
+	cc -I. -D MODULE_ID=3 -W -Wall -fno-common -g -ggdb -std=c99 -O0 -fPIC -c metadata_example.c -o metadata_example-3.xo
+
+
+metadata_example-1.so: metadata_example-1.xo
+	$(LD)  -o $@ $^ $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+metadata_example-2.so: metadata_example-2.xo
+	$(LD) -o $@ $^ $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
+metadata_example-3.so: metadata_example-3.xo
+	$(LD)  -o $@ $^ $(SHOBJ_LDFLAGS) $(LIBS) -lc
+
 
 clean:
 	rm -rf *.xo *.so

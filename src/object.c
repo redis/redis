@@ -224,7 +224,7 @@ static size_t nBitsSet(unsigned int x) {
 
 
 static size_t nBitsSetUntil(unsigned int x, int index) {
-    return nBitsSet(x & ~(0xffffffff >> index));
+    return nBitsSet(x & ~(0xffffffff << index));
 }
 
 static void pushModulesMetadata(void **src, int src_bitmap, void *metadata,
@@ -306,7 +306,7 @@ void registerExpireModule(void) {
 }
 	
 kvobj *kvobjSet(sds key, kvobj *val, int has_expire) {
-    kvobj *ret = kvobjSetInternal(key, val, has_expire  != 0);	
+    kvobj *ret = kvobjSetInternal(key, val, has_expire != 0);	
     decrRefCount(val);
     if (has_expire) {
     	if (expire_index == -1) {
