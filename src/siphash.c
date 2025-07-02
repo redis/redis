@@ -68,7 +68,7 @@ int siptlw(int c) {
  * Two interesting conditions to speedup the function that happen to be
  * in most of x86 servers. */
 #if defined(__X86_64__) || defined(__x86_64__) || defined (__i386__) \
-	|| defined (__aarch64__) || defined (__arm64__)
+	|| defined (__aarch64__) || defined (__arm64__) || defined (__riscv)
 #define UNALIGNED_LE_CPU
 #endif
 
