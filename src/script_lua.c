@@ -2,9 +2,14 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "script_lua.h"
@@ -1600,6 +1605,11 @@ void luaExtractErrorInformation(lua_State *lua, errorInfo *err_info) {
         err_info->ignore_err_stats_update = lua_toboolean(lua, -1);
     }
     lua_pop(lua, 1);
+
+    if (err_info->msg == NULL) {
+        /* Ensure we never return a NULL msg. */
+        err_info->msg = sdsnew("ERR unknown error");
+    }
 }
 
 void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t nkeys, robj** args, size_t nargs, int debug_enabled) {
