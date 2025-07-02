@@ -1370,12 +1370,12 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         scanItemsPush(data, keyStr);
         return;
     } else if (o->type == OBJ_HASH) {
+        key = keyStr;
+        val = dictGetVal(de);
+
         /* HSCAN command - field-value pairs */
         if (hfieldIsExpired(keyStr))
             return;
-
-        key = keyStr;
-        val = dictGetVal(de);
 
         if (data->no_values) {
             data->array_stores_pairs = 0;
@@ -1475,7 +1475,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     long long type = LLONG_MAX;
     int patlen = 0, use_pattern = 0, no_values = 0;
     dict *ht;
-    scanData data = {0};
+    scanData data;
 
     /* Stack-allocated array for all scan optimizations */
     void *items_stack_buffer[SCAN_KEYS_INITIAL_CAPACITY];
@@ -1581,18 +1581,21 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * to prevent a long hang time caused by filtering too many keys;
          * 6. data.no_values: to control whether values will be returned or
          * only keys are returned. */
-        data.array_items = items_stack_buffer;
-        data.array_capacity = SCAN_KEYS_INITIAL_CAPACITY;
-        data.array_stack_buffer = items_stack_buffer;
-        data.array_count = 0;
-        data.array_stores_pairs = 0;  /* Will be set by scanCallback */
-        data.o = o;
-        data.type = type;
-        data.pattern = use_pattern ? pat : NULL;
-        data.no_values = no_values;
-        data.strlen = (isKeysHfield) ? hfieldlen : sdslen;
-        data.typename = typename;
-        data.db = c->db;
+        data = (scanData) {
+            .array_items = items_stack_buffer,
+            .array_capacity = SCAN_KEYS_INITIAL_CAPACITY,
+            .array_stack_buffer = items_stack_buffer,
+            .array_count = 0,
+            .array_stores_pairs = 0,  /* Will be set by scanCallback */
+            .o = o,
+            .type = type,
+            .pattern = use_pattern ? pat : NULL,
+            .sampled = 0,
+            .no_values = no_values,
+            .strlen = (isKeysHfield) ? hfieldlen : sdslen,
+            .typename = typename,
+            .db = c->db,
+        };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
         int onlydidx = -1;
