@@ -426,7 +426,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
                                                     auth had been authenticated from the Module. */
 #define CLIENT_MODULE_PREVENT_AOF_PROP (1ULL<<48) /* Module client do not want to propagate to AOF */
 #define CLIENT_MODULE_PREVENT_REPL_PROP (1ULL<<49) /* Module client do not want to propagate to replica */
-#define CLIENT_REPROCESSING_COMMAND (1ULL<<50) /* The client is re-processing the command. */
+#define CLIENT_REEXECUTING_COMMAND (1ULL<<50) /* The client is re-executing the command. */
 #define CLIENT_REPL_RDB_CHANNEL (1ULL<<51)      /* Client which is used for rdb delivery as part of rdb channel replication */
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
 
@@ -686,8 +686,7 @@ typedef enum {
 #define CMD_CALL_NONE 0
 #define CMD_CALL_PROPAGATE_AOF (1<<0)
 #define CMD_CALL_PROPAGATE_REPL (1<<1)
-#define CMD_CALL_REPROCESSING (1<<2)
-#define CMD_CALL_FROM_MODULE (1<<3)  /* From RM_Call */
+#define CMD_CALL_FROM_MODULE (1<<2)  /* From RM_Call */
 #define CMD_CALL_PROPAGATE (CMD_CALL_PROPAGATE_AOF|CMD_CALL_PROPAGATE_REPL)
 #define CMD_CALL_FULL (CMD_CALL_PROPAGATE)
 
