@@ -2441,8 +2441,7 @@ void hsetexCommand(client *c) {
 
 out:
     /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
-    if (fields_set || expired)
-    {
+    if (fields_set || expired || hash_deleted) {
         signalModifiedKey(c, c->db, c->argv[1]);
         if (expired)
             notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
@@ -2451,6 +2450,8 @@ out:
             if (deleted || updated)
                 notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire", c->argv[1], c->db->id);
         }
+        if (hash_deleted)
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     }
     /* Key may become empty due to lazy expiry in hashTypeExists()
      * or the new expiration time is in the past.*/
