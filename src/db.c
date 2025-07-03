@@ -1316,8 +1316,9 @@ int objectTypeCompare(robj *o, long long target) {
         return 1;
 }
 
-/* Forward declaration */
+/* Forward declarations */
 long long getObjectTypeByName(char *name);
+void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink);
 
 /* Parse SCAN command options (COUNT, MATCH, TYPE, NOVALUES).
  * Does NOT parse cursor - that should be done separately.
