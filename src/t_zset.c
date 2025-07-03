@@ -57,11 +57,14 @@ zskiplistNode *zslGetElementByRank(zskiplist *zsl, unsigned long rank);
 
 /* Create a skiplist node with the specified number of levels.
  * The SDS string 'ele' is referenced by the node after the call. */
-zskiplistNode *zslCreateNode(int level, double score, sds ele) {
+zskiplistNode *zslCreateNode(zskiplist *zsl, int level, double score, sds ele) {
+    size_t usable;
     zskiplistNode *zn =
-        zmalloc(sizeof(*zn)+level*sizeof(struct zskiplistLevel));
+        zmalloc_usable(sizeof(*zn)+level*sizeof(struct zskiplistLevel), &usable);
     zn->score = score;
     zn->ele = ele;
+    zsl->alloc_size += usable;
+    if (ele) zsl->alloc_size += sdsAllocSize(ele);
     return zn;
 }
 
@@ -69,11 +72,13 @@ zskiplistNode *zslCreateNode(int level, double score, sds ele) {
 zskiplist *zslCreate(void) {
     int j;
     zskiplist *zsl;
+    size_t zsl_size;
 
-    zsl = zmalloc(sizeof(*zsl));
+    zsl = zmalloc_usable(sizeof(*zsl), &zsl_size);
     zsl->level = 1;
     zsl->length = 0;
-    zsl->header = zslCreateNode(ZSKIPLIST_MAXLEVEL,0,NULL);
+    zsl->alloc_size = zsl_size;
+    zsl->header = zslCreateNode(zsl,ZSKIPLIST_MAXLEVEL,0,NULL);
     for (j = 0; j < ZSKIPLIST_MAXLEVEL; j++) {
         zsl->header->level[j].forward = NULL;
         zsl->header->level[j].span = 0;
@@ -86,9 +91,12 @@ zskiplist *zslCreate(void) {
 /* Free the specified skiplist node. The referenced SDS string representation
  * of the element is freed too, unless node->ele is set to NULL before calling
  * this function. */
-void zslFreeNode(zskiplistNode *node) {
-    sdsfree(node->ele);
-    zfree(node);
+void zslFreeNode(zskiplist *zsl, zskiplistNode *node) {
+    size_t usable;
+    sdsfreeusable(node->ele, &usable);
+    zsl->alloc_size -= usable;
+    zfree_usable(node, &usable);
+    zsl->alloc_size -= usable;
 }
 
 /* Free a whole skiplist. */
@@ -98,11 +106,14 @@ void zslFree(zskiplist *zsl) {
     zfree(zsl->header);
     while(node) {
         next = node->level[0].forward;
-        zslFreeNode(node);
+        zslFreeNode(zsl, node);
         node = next;
     }
     zfree(zsl);
 }
+
+/* Return cached total memory used (in bytes) */
+size_t zslAllocSize(const zskiplist *zsl) { return zsl->alloc_size; }
 
 /* Returns a random level for the new skiplist node we are going to create.
  * The return value of this function is between 1 and ZSKIPLIST_MAXLEVEL
@@ -152,7 +163,7 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
         }
         zsl->level = level;
     }
-    x = zslCreateNode(level,score,ele);
+    x = zslCreateNode(zsl,level,score,ele);
     for (i = 0; i < level; i++) {
         x->level[i].forward = update[i]->level[i].forward;
         update[i]->level[i].forward = x;
@@ -227,7 +238,7 @@ int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     if (x && score == x->score && sdscmp(x->ele,ele) == 0) {
         zslDeleteNode(zsl, x, update);
         if (!node)
-            zslFreeNode(x);
+            zslFreeNode(zsl, x);
         else
             *node = x;
         return 1;
@@ -286,7 +297,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     /* We reused the old node x->ele SDS string, free the node now
      * since zslInsert created a new one. */
     x->ele = NULL;
-    zslFreeNode(x);
+    zslFreeNode(zsl, x);
     return newnode;
 }
 
@@ -420,7 +431,7 @@ unsigned long zslDeleteRangeByScore(zskiplist *zsl, zrangespec *range, dict *dic
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->ele);
-        zslFreeNode(x); /* Here is where x->ele is actually released. */
+        zslFreeNode(zsl, x); /* Here is where x->ele is actually released. */
         removed++;
         x = next;
     }
@@ -449,7 +460,7 @@ unsigned long zslDeleteRangeByLex(zskiplist *zsl, zlexrangespec *range, dict *di
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->ele);
-        zslFreeNode(x); /* Here is where x->ele is actually released. */
+        zslFreeNode(zsl, x); /* Here is where x->ele is actually released. */
         removed++;
         x = next;
     }
@@ -478,7 +489,7 @@ unsigned long zslDeleteRangeByRank(zskiplist *zsl, unsigned int start, unsigned 
         zskiplistNode *next = x->level[0].forward;
         zslDeleteNode(zsl,x,update);
         dictDelete(dict,x->ele);
-        zslFreeNode(x);
+        zslFreeNode(zsl, x);
         removed++;
         traversed++;
         x = next;
@@ -1310,15 +1321,15 @@ void zsetConvertAndExpand(robj *zobj, int encoding, unsigned long cap) {
         dictRelease(zs->dict);
         node = zs->zsl->header->level[0].forward;
         zfree(zs->zsl->header);
-        zfree(zs->zsl);
 
         while (node) {
             zl = zzlInsertAt(zl,NULL,node->ele,node->score);
             next = node->level[0].forward;
-            zslFreeNode(node);
+            zslFreeNode(zs->zsl, node);
             node = next;
         }
 
+        zfree(zs->zsl);
         zfree(zs);
         zobj->ptr = zl;
         zobj->encoding = OBJ_ENCODING_LISTPACK;

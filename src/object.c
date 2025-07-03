@@ -1267,17 +1267,8 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             d = ((zset*)o->ptr)->dict;
             zskiplist *zsl = ((zset*)o->ptr)->zsl;
-            zskiplistNode *znode = zsl->header->level[0].forward;
-            asize += sizeof(zset) + sizeof(zskiplist) + sizeof(dict) +
-                    (sizeof(struct dictEntry*)*dictBuckets(d))+
-                    zmalloc_size(zsl->header);
-            while(znode != NULL && samples < sample_size) {
-                elesize += sdsZmallocSize(znode->ele);
-                elesize += dictEntryMemUsage(1)+zmalloc_size(znode);
-                samples++;
-                znode = znode->level[0].forward;
-            }
-            if (samples) asize += (double)elesize/samples*dictSize(d);
+            asize += sizeof(zset) + zslAllocSize(zsl) +
+                sizeof(dict) + dictMemUsage(d);
         } else {
             serverPanic("Unknown sorted set encoding");
         }

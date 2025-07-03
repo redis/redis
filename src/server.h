@@ -1559,6 +1559,7 @@ typedef struct zskiplist {
     struct zskiplistNode *header, *tail;
     unsigned long length;
     int level;
+    size_t alloc_size;
 } zskiplist;
 
 typedef struct zset {
@@ -3299,6 +3300,7 @@ typedef struct {
 
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
+size_t zslAllocSize(const zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);
 unsigned char *zzlInsert(unsigned char *zl, sds ele, double score);
 int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node);
