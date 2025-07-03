@@ -216,7 +216,9 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
      * the fact that our caller has already updated the mask in the eventLoop.
      */
 
-    fullmask = eventLoop->events[fd].mask;
+    /* We always remove the specified events from the current mask,
+     * regardless of whether eventLoop->events[fd].mask has been updated yet. */
+    fullmask = eventLoop->events[fd].mask & ~mask;
     if (fullmask == AE_NONE) {
         /*
          * We're removing *all* events, so use port_dissociate to remove the
