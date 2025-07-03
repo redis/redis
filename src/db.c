@@ -1315,6 +1315,71 @@ int objectTypeCompare(robj *o, long long target) {
     else 
         return 1;
 }
+
+/* Forward declaration */
+long long getObjectTypeByName(char *name);
+
+/* Parse SCAN command options (COUNT, MATCH, TYPE, NOVALUES).
+ * Does NOT parse cursor - that should be done separately.
+ * Returns C_OK on success, C_ERR on error (reply already sent). */
+int parseScanOptionsOrReply(client *c, robj *o, int start_argc, scanOptions *opts) {
+    int i = start_argc;
+    int j;
+
+    /* Initialize option defaults (cursor should already be set) */
+    opts->count = 10;
+    opts->pattern = NULL;
+    opts->patlen = 0;
+    opts->use_pattern = 0;
+    opts->type = LLONG_MAX;
+    opts->typename = NULL;
+    opts->no_values = 0;
+
+    /* Parse options starting from start_argc */
+    while (i < c->argc) {
+        j = c->argc - i;
+        if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
+            if (getLongFromObjectOrReply(c, c->argv[i+1], &opts->count, NULL) != C_OK) {
+                return C_ERR;
+            }
+            if (opts->count < 1) {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return C_ERR;
+            }
+            i += 2;
+        } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
+            opts->pattern = c->argv[i+1]->ptr;
+            opts->patlen = sdslen(opts->pattern);
+            /* The pattern always matches if it is exactly "*", so it is
+             * equivalent to disabling it. */
+            opts->use_pattern = !(opts->patlen == 1 && opts->pattern[0] == '*');
+            i += 2;
+        } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
+            /* SCAN for a particular type only applies to the db dict */
+            opts->typename = c->argv[i+1]->ptr;
+            opts->type = getObjectTypeByName(opts->typename);
+            if (opts->type == LLONG_MAX) {
+                /* TODO: uncomment in redis 8.0
+                addReplyErrorFormat(c, "unknown type name '%s'", opts->typename);
+                return C_ERR; */
+            }
+            i += 2;
+        } else if (!strcasecmp(c->argv[i]->ptr, "novalues")) {
+            if (!o || o->type != OBJ_HASH) {
+                addReplyError(c, "NOVALUES option can only be used in HSCAN");
+                return C_ERR;
+            }
+            opts->no_values = 1;
+            i++;
+        } else {
+            addReplyErrorObject(c, shared.syntaxerr);
+            return C_ERR;
+        }
+    }
+
+    return C_OK;
+}
+
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
@@ -1466,14 +1531,8 @@ char *getObjectTypeName(robj *o) {
  *
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
-void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
+void scanGenericCommand(client *c, robj *o, scanOptions *opts) {
     int isKeysHfield = 0;
-    int i, j;
-    long count = 10;
-    sds pat = NULL;
-    sds typename = NULL;
-    long long type = LLONG_MAX;
-    int patlen = 0, use_pattern = 0, no_values = 0;
     dict *ht;
     scanData data;
 
@@ -1484,57 +1543,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
      * must be Set, Sorted Set, or Hash. */
     serverAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
                 o->type == OBJ_ZSET);
-
-    /* Set i to the first option argument. The previous one is the cursor. */
-    i = (o == NULL) ? 2 : 3; /* Skip the key argument if needed. */
-
-    /* Step 1: Parse options. */
-    while (i < c->argc) {
-        j = c->argc - i;
-        if (!strcasecmp(c->argv[i]->ptr, "count") && j >= 2) {
-            if (getLongFromObjectOrReply(c, c->argv[i+1], &count, NULL)
-                != C_OK)
-            {
-                return;
-            }
-
-            if (count < 1) {
-                addReplyErrorObject(c,shared.syntaxerr);
-                return;
-            }
-
-            i += 2;
-        } else if (!strcasecmp(c->argv[i]->ptr, "match") && j >= 2) {
-            pat = c->argv[i+1]->ptr;
-            patlen = sdslen(pat);
-
-            /* The pattern always matches if it is exactly "*", so it is
-             * equivalent to disabling it. */
-            use_pattern = !(patlen == 1 && pat[0] == '*');
-
-            i += 2;
-        } else if (!strcasecmp(c->argv[i]->ptr, "type") && o == NULL && j >= 2) {
-            /* SCAN for a particular type only applies to the db dict */
-            typename = c->argv[i+1]->ptr;
-            type = getObjectTypeByName(typename);
-            if (type == LLONG_MAX) {
-                /* TODO: uncomment in redis 8.0
-                addReplyErrorFormat(c, "unknown type name '%s'", typename);
-                return; */
-            }
-            i+= 2;
-        } else if (!strcasecmp(c->argv[i]->ptr, "novalues")) {
-            if (!o || o->type != OBJ_HASH) {
-                addReplyError(c, "NOVALUES option can only be used in HSCAN");
-                return;
-            }
-            no_values = 1;
-            i++;
-        } else {
-            addReplyErrorObject(c,shared.syntaxerr);
-            return;
-        }
-    }
 
     /* Step 2: Iterate the collection.
      *
@@ -1566,7 +1574,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
          * COUNT, so if the hash table is in a pathological state (very
          * sparsely populated) we avoid to block too much time at the cost
          * of returning no or very few elements. */
-        long maxiterations = count*10;
+        long maxiterations = opts->count*10;
 
         /* We pass scanData to the callback with:
          * 1. data.array_items: the dynamic array to collect scan results;
@@ -1588,29 +1596,29 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .array_count = 0,
             .array_stores_pairs = 0,  /* Will be set by scanCallback */
             .o = o,
-            .type = type,
-            .pattern = use_pattern ? pat : NULL,
+            .type = opts->type,
+            .pattern = opts->use_pattern ? opts->pattern : NULL,
             .sampled = 0,
-            .no_values = no_values,
+            .no_values = opts->no_values,
             .strlen = (isKeysHfield) ? hfieldlen : sdslen,
-            .typename = typename,
+            .typename = opts->typename,
             .db = c->db,
         };
 
         /* A pattern may restrict all matching keys to one cluster slot. */
         int onlydidx = -1;
-        if (o == NULL && use_pattern && server.cluster_enabled) {
-            onlydidx = patternHashSlot(pat, patlen);
+        if (o == NULL && opts->use_pattern && server.cluster_enabled) {
+            onlydidx = patternHashSlot(opts->pattern, opts->patlen);
         }
         do {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL) {
-                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, scanCallback, NULL, &data);
+                opts->cursor = kvstoreScan(c->db->keys, opts->cursor, onlydidx, scanCallback, NULL, &data);
             } else {
-                cursor = dictScan(ht, cursor, scanCallback, &data);
+                opts->cursor = dictScan(ht, opts->cursor, scanCallback, &data);
             }
-        } while (cursor && maxiterations-- && data.sampled < count);
+        } while (opts->cursor && maxiterations-- && data.sampled < opts->count);
     } else if (o->type == OBJ_SET) {
         unsigned long array_reply_len = 0;
         void *replylen = NULL;
@@ -1623,7 +1631,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         /* Cursor is always 0 given we iterate over all set */
         addReplyBulkLongLong(c,0);
         /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
-        if (use_pattern)
+        if (opts->use_pattern)
             replylen = addReplyDeferredLen(c);
         else {
             array_reply_len = setTypeSize(o);
@@ -1637,14 +1645,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
                 len = ll2string(buf, sizeof(buf), llele);
             }
             char *key = str ? str : buf;
-            if (use_pattern && !stringmatchlen(pat, patlen, key, len, 0)) {
+            if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, key, len, 0)) {
                 continue;
             }
             addReplyBulkCBuffer(c, key, len);
             cur_length++;
         }
         setTypeReleaseIterator(si);
-        if (use_pattern)
+        if (opts->use_pattern)
             setDeferredArrayLen(c,replylen,cur_length);
         else
             serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
@@ -1664,11 +1672,11 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
         /* Cursor is always 0 given we iterate over all set */
         addReplyBulkLongLong(c,0);
         /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
-        if (use_pattern)
+        if (opts->use_pattern)
             replylen = addReplyDeferredLen(c);
         else {
             array_reply_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
-            if (!no_values) {
+            if (!opts->no_values) {
                 array_reply_len *= 2;
             }
             addReplyArrayLen(c, array_reply_len);
@@ -1678,7 +1686,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             str = lpGet(p, &len, intbuf);
             /* point to the value */
             p = lpNext(o->ptr, p);
-            if (use_pattern && !stringmatchlen(pat, patlen, (char *)str, len, 0)) {
+            if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, (char *)str, len, 0)) {
                 /* jump to the next key/val pair */
                 p = lpNext(o->ptr, p);
                 continue;
@@ -1687,14 +1695,14 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             addReplyBulkCBuffer(c, str, len);
             cur_length++;
             /* add value object */
-            if (!no_values) {
+            if (!opts->no_values) {
                 str = lpGet(p, &len, intbuf);
                 addReplyBulkCBuffer(c, str, len);
                 cur_length++;
             }
             p = lpNext(o->ptr, p);
         }
-        if (use_pattern)
+        if (opts->use_pattern)
             setDeferredArrayLen(c,replylen,cur_length);
         else
             serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
@@ -1724,7 +1732,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             serverAssert(p && lpGetIntegerValue(p, &expire_at));
 
             if (hashTypeIsExpired(o, expire_at) ||
-               (use_pattern && !stringmatchlen(pat, patlen, (char *)str, len, 0)))
+               (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, (char *)str, len, 0)))
             {
                 /* jump to the next key/val pair */
                 p = lpNext(lp, p);
@@ -1735,7 +1743,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             addReplyBulkCBuffer(c, str, len);
             cur_length++;
             /* add value object */
-            if (!no_values) {
+            if (!opts->no_values) {
                 str = lpGet(val, &len, intbuf);
                 addReplyBulkCBuffer(c, str, len);
                 cur_length++;
@@ -1750,7 +1758,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 
     /* Step 3: Reply to the client. */
     addReplyArrayLen(c, 2);
-    addReplyBulkLongLong(c,cursor);
+    addReplyBulkLongLong(c,opts->cursor);
 
     /* Generate response from array (unified for all scan commands) */
     addReplyArrayLen(c, data.array_count);
@@ -1785,9 +1793,13 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
 
 /* The SCAN command completely relies on scanGenericCommand. */
 void scanCommand(client *c) {
-    unsigned long long cursor;
-    if (parseScanCursorOrReply(c,c->argv[1],&cursor) == C_ERR) return;
-    scanGenericCommand(c,NULL,cursor);
+    scanOptions opts;
+
+    if (parseScanCursorOrReply(c, c->argv[1], &opts.cursor) == C_ERR) return;
+
+    if (parseScanOptionsOrReply(c, NULL, 2, &opts) == C_ERR) return;
+
+    scanGenericCommand(c, NULL, &opts);
 }
 
 void dbsizeCommand(client *c) {

@@ -3693,11 +3693,24 @@ redisDb *initTempDb(void);
 void discardTempDb(redisDb *tempDb);
 
 
+/* Options for SCAN commands (SCAN, HSCAN, SSCAN, ZSCAN) */
+typedef struct {
+    unsigned long long cursor;  /* Cursor position */
+    long count;                 /* COUNT option value */
+    sds pattern;                /* MATCH pattern string */
+    int patlen;                 /* Pattern length */
+    int use_pattern;            /* Whether to use pattern matching */
+    long long type;             /* TYPE filter for SCAN command */
+    sds typename;               /* TYPE name string */
+    int no_values;              /* NOVALUES option for HSCAN */
+} scanOptions;
+
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid, int async);
-void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
+void scanGenericCommand(client *c, robj *o, scanOptions *opts);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
+int parseScanOptionsOrReply(client *c, robj *o, int start_argc, scanOptions *opts);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
 size_t lazyfreeGetPendingObjectsCount(void);

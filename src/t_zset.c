@@ -3900,13 +3900,16 @@ void zrevrankCommand(client *c) {
 }
 
 void zscanCommand(client *c) {
-    kvobj *o;
-    unsigned long long cursor;
+    robj *o;
+    scanOptions opts;
 
-    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,o,OBJ_ZSET)) return;
-    scanGenericCommand(c,o,cursor);
+    if (parseScanCursorOrReply(c, c->argv[2], &opts.cursor) == C_ERR) return;
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyscan)) == NULL ||
+        checkType(c, o, OBJ_ZSET)) return;
+
+    if (parseScanOptionsOrReply(c, o, 3, &opts) == C_ERR) return;
+
+    scanGenericCommand(c, o, &opts);
 }
 
 /* This command implements the generic zpop operation, used by:

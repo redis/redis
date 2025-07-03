@@ -3033,14 +3033,16 @@ void hexistsCommand(client *c) {
 }
 
 void hscanCommand(client *c) {
-    kvobj *o;
-    unsigned long long cursor;
+    robj *o;
+    scanOptions opts;
 
-    if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
-    if ((o = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
-        checkType(c,o,OBJ_HASH)) return;
+    if (parseScanCursorOrReply(c, c->argv[2], &opts.cursor) == C_ERR) return;
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.emptyscan)) == NULL ||
+        checkType(c, o, OBJ_HASH)) return;
 
-    scanGenericCommand(c,o,cursor);
+    if (parseScanOptionsOrReply(c, o, 3, &opts) == C_ERR) return;
+
+    scanGenericCommand(c, o, &opts);
 }
 
 static void hrandfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
