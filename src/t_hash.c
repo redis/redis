@@ -2331,7 +2331,7 @@ err_expiration:
 void hsetexCommand(client *c) {
     int flags = 0, first_field_pos = 0, field_count = 0, expire_time_pos = -1;
     int updated = 0, deleted = 0, set_expiry;
-    int expired = 0, hash_deleted = 0, fields_set = 0;;
+    int expired = 0, hash_deleted = 0, fields_set = 0;
     long long expire_time = EB_EXPIRE_TIME_INVALID;
     int64_t oldlen, newlen;
     HashTypeSetEx setex;
