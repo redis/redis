@@ -998,6 +998,11 @@ void clusterSyncSlotsCommand(client *c) {
         if (c->node_id) memcpy(task->dest, c->node_id, CLUSTER_NAMELEN);
         c->task = task;
 
+        clusterNode *dst = clusterLookupNode(task->dest, CLUSTER_NAMELEN);
+        if (dst) {
+            int port = server.tls_replication ? dst->tls_port : dst->tcp_port;
+            c->slave_listening_port = port;
+        }
         /* Add the task to the list of active tasks */
         listAddNodeTail(asmManager->tasks, task);
 

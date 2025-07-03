@@ -108,7 +108,7 @@ test "DELSLOTSRANGE command with several boundary conditions test suite" {
 }
 } cluster_allocate_with_continuous_slots_local
 
-start_cluster 2 0 {tags {external:skip cluster experimental}} {
+start_cluster 2 0 {tags {external:skip cluster}} {
 
 set master1 [srv 0 "client"]
 set master2 [srv -1 "client"]
@@ -133,20 +133,20 @@ test "SFLUSH - Errors and output validation" {
     assert_error {ERR wrong number of arguments*}           {$master1 SFLUSH 0 999 2001 8191 ASYNCX}
 
     # Test SFLUSH output validation
-    assert_match "" [$master1 SFLUSH 2 4]
-    assert_match "" [$master1 SFLUSH 0 4]
+    assert_match "{2 4}" [$master1 SFLUSH 2 4]
+    assert_match "{0 4}" [$master1 SFLUSH 0 4]
     assert_match "" [$master2 SFLUSH 0 4]
-    assert_match "" [$master1 SFLUSH 1 8191]
-    assert_match "" [$master1 SFLUSH 0 8190]
-    assert_match "" [$master1 SFLUSH 0 998 2001 8191]
-    assert_match "" [$master1 SFLUSH 1 999 2001 8191]
-    assert_match "" [$master1 SFLUSH 0 999 2001 8190]
-    assert_match "" [$master1 SFLUSH 0 999 2002 8191]
+    assert_match "{1 999} {2001 8191}" [$master1 SFLUSH 1 8191]
+    assert_match "{0 999} {2001 8190}" [$master1 SFLUSH 0 8190]
+    assert_match "{0 998} {2001 8191}" [$master1 SFLUSH 0 998 2001 8191]
+    assert_match "{1 999} {2001 8191}" [$master1 SFLUSH 1 999 2001 8191]
+    assert_match "{0 999} {2001 8190}" [$master1 SFLUSH 0 999 2001 8190]
+    assert_match "{0 999} {2002 8191}" [$master1 SFLUSH 0 999 2002 8191]
     assert_match "{0 999} {2001 8191}" [$master1 SFLUSH 0 999 2001 8191]
     assert_match "{0 999} {2001 8191}" [$master1 SFLUSH 0 8191]
     assert_match "{0 999} {2001 8191}" [$master1 SFLUSH 0 4000 4001 8191]
-    assert_match "" [$master2 SFLUSH 8193 16383]
-    assert_match "" [$master2 SFLUSH 8192 16382]
+    assert_match "{8193 16383}" [$master2 SFLUSH 8193 16383]
+    assert_match "{8192 16382}" [$master2 SFLUSH 8192 16382]
     assert_match "{8192 16383}" [$master2 SFLUSH 8192 16383]
     assert_match "{8192 16383}" [$master2 SFLUSH 8192 16383 SYNC]
     assert_match "{8192 16383}" [$master2 SFLUSH 8192 16383 ASYNC]

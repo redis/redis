@@ -1003,13 +1003,13 @@ void flushAllDataAndResetRDB(int flags) {
  *
  * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
  */
-void flushallSyncBgDone(uint64_t client_id, void *sflush) {
-    slotRangeArray *slotsFlush = sflush;
+void flushallSyncBgDone(uint64_t client_id, void *userdata) {
+    slotRangeArray *sra = userdata;
     client *c = lookupClientByID(client_id);
 
     /* Verify that client still exists and being blocked. */
     if (!(c && c->flags & CLIENT_BLOCKED)) {
-        zfree(sflush);
+        zfree(sra);
         return;
     }
 
@@ -1020,9 +1020,9 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     /* Don't update blocked_us since command was processed in bg by lazy_free thread */
     updateStatsOnUnblock(c, 0 /*blocked_us*/, elapsedUs(c->bstate.lazyfreeStartTime), 0);
 
-    /* Only SFLUSH command pass pointer to `SlotsFlush` */
-    if (slotsFlush)
-        replySlotsFlushAndFree(c, slotsFlush);
+    /* Only SFLUSH command pass userdata pointer. */
+    if (sra)
+        replySlotsFlushAndFree(c, sra);
     else
         addReply(c, shared.ok);
 
@@ -1044,16 +1044,16 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     server.current_client = old_client;
 }
 
-/* Common flush command implementation for FLUSHALL and FLUSHDB.
+/* Common flush command implementation for FLUSHALL, FLUSHDB and SFLUSH.
  *
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
  *
- * sflush - provided only by SFLUSH command, otherwise NULL. Will be used on 
- *          completion to reply with the slots flush result. Ownership is passed
- *          to the completion job in case of `blocking_async`.
+ * sra - provided only by SFLUSH command, otherwise NULL. Will be used on
+ *       completion to reply with the slots flush result. Ownership is passed
+ *       to the completion job in case of `blocking_async`.
  */
-int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sflush) {
+int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sra) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1063,10 +1063,17 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sflush) {
         blocking_async = 1;
     }
 
-    if (type == FLUSH_TYPE_ALL)
+    if (type == FLUSH_TYPE_ALL) {
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
-    else
-        server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
+    } else if (type == FLUSH_TYPE_DB) {
+        server.dirty += emptyData(c->db->id, flags | EMPTYDB_NOFUNCTIONS, NULL);
+    } else {
+        serverAssert(type == FLUSH_TYPE_SLOTS);
+        int delkeys_flags = CLUSTER_DELKEYS_BY_COMMAND;
+        if (flags & EMPTYDB_ASYNC)
+            delkeys_flags |= CLUSTER_DELKEYS_ASYNC;
+        clusterDelKeysInSlotRangeArray(sra, delkeys_flags);
+    }
 
     /* Without the forceCommandPropagation, when DB(s) was already empty,
      * FLUSHALL\FLUSHDB will not be replicated nor put into the AOF. */
@@ -1085,7 +1092,7 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sflush) {
          * avoid command from being reset during unblock. */
         c->flags |= CLIENT_PENDING_COMMAND;
         blockClient(c,BLOCKED_LAZYFREE);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, sflush);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, sra);
     }
 
 #if defined(USE_JEMALLOC)

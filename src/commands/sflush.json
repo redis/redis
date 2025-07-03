@@ -7,8 +7,7 @@
         "arity": -3,
         "function": "sflushCommand",
         "command_flags": [
-            "WRITE",
-            "EXPERIMENTAL"
+            "WRITE"
         ],
         "acl_categories": [
             "KEYSPACE",

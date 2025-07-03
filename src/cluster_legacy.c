@@ -76,7 +76,7 @@ const char *clusterGetMessageTypeString(int type);
 void removeChannelsInSlot(unsigned int slot);
 unsigned int countKeysInSlot(unsigned int hashslot);
 unsigned int countChannelsInSlot(unsigned int hashslot);
-unsigned int delKeysInSlot(unsigned int hashslot);
+unsigned int clusterDelKeysInSlot(unsigned int hashslot, int flags);
 void clusterAddNodeToShard(const char *shard_id, clusterNode *node);
 list *clusterLookupNodeListByShardId(const char *shard_id);
 void clusterRemoveNodeFromShard(clusterNode *node);
@@ -2497,7 +2497,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
          * In order to maintain a consistent state between keys and slots
          * we need to remove all the keys from the slots we lost. */
         for (j = 0; j < dirty_slots_count; j++)
-            delKeysInSlot(dirty_slots[j]);
+            clusterDelKeysInSlot(dirty_slots[j], 0);
     }
 }
 
@@ -5823,39 +5823,6 @@ void removeChannelsInSlot(unsigned int slot) {
     if (countChannelsInSlot(slot) == 0) return;
 
     pubsubShardUnsubscribeAllChannelsInSlot(slot);
-}
-
-/* Remove all the keys in the specified hash slot.
- * The number of removed items is returned. */
-unsigned int delKeysInSlot(unsigned int hashslot) {
-    if (!kvstoreDictSize(server.db->keys, hashslot))
-        return 0;
-
-    unsigned int j = 0;
-
-    kvstoreDictIterator *kvs_di = NULL;
-    dictEntry *de = NULL;
-    kvs_di = kvstoreGetDictSafeIterator(server.db->keys, hashslot);
-    while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
-        enterExecutionUnit(1, 0);
-        sds sdskey = kvobjGetKey(dictGetKV(de));
-        robj *key = createStringObject(sdskey, sdslen(sdskey));
-        dbDelete(&server.db[0], key);
-        propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
-        signalModifiedKey(NULL, &server.db[0], key);
-        /* The keys are not actually logically deleted from the database, just moved to another node.
-         * The modules needs to know that these keys are no longer available locally, so just send the
-         * keyspace notification to the modules, but not to clients. */
-        moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
-        exitExecutionUnit();
-        postExecutionUnitOperations();
-        decrRefCount(key);
-        j++;
-        server.dirty++;
-    }
-    kvstoreReleaseDictIterator(kvs_di);
-
-    return j;
 }
 
 /* Get the count of the channels for a given slot. */

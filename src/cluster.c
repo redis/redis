@@ -1572,6 +1572,61 @@ void readonlyCommand(client *c) {
     addReply(c,shared.ok);
 }
 
+/* Remove all the keys in the specified hash slot.
+ * The number of removed items is returned. */
+unsigned int clusterDelKeysInSlot(unsigned int hashslot, int flags) {
+    unsigned int j = 0;
+
+    if (!kvstoreDictSize(server.db->keys, (int) hashslot))
+        return 0;
+
+    kvstoreDictIterator *kvs_di = NULL;
+    dictEntry *de = NULL;
+    kvs_di = kvstoreGetDictSafeIterator(server.db->keys, (int) hashslot);
+    while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+        enterExecutionUnit(1, 0);
+        sds sdskey = kvobjGetKey(dictGetKV(de));
+        robj *key = createStringObject(sdskey, sdslen(sdskey));
+
+        if (flags & CLUSTER_DELKEYS_ASYNC) dbAsyncDelete(&server.db[0], key);
+        else dbSyncDelete(&server.db[0], key);
+
+        signalModifiedKey(NULL, &server.db[0], key);
+        if (flags & CLUSTER_DELKEYS_BY_COMMAND) {
+            /* Keys are not migrated but actually deleted. Command (sflush)
+             * will be propagated, so there is no need to propagate each
+             * deletion of the key. */
+            notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+        } else {
+            /* Propagate the DEL command */
+            propagateDeletion(&server.db[0], key, server.lazyfree_lazy_server_del);
+            /* The keys are not actually logically deleted from the database,
+             * just moved to another node. The modules needs to know that these
+             * keys are no longer available locally, so just send the keyspace
+             * notification to the modules, but not to clients. */
+            moduleNotifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
+        }
+        exitExecutionUnit();
+        postExecutionUnitOperations();
+        decrRefCount(key);
+        j++;
+        server.dirty++;
+    }
+    kvstoreReleaseDictIterator(kvs_di);
+    return j;
+}
+
+/* Delete the keys in the slot ranges. Returns the number of deleted items */
+unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *sra, int flags) {
+    unsigned int j = 0;
+    for (int i = 0; i < sra->num_ranges; i++) {
+        for (int slot = sra->ranges[i].start; slot <= sra->ranges[i].end; slot++) {
+            j += clusterDelKeysInSlot(slot, flags);
+        }
+    }
+    return j;
+}
+
 void replySlotsFlushAndFree(client *c, slotRangeArray *sra) {
     addReplyArrayLen(c, sra->num_ranges);
     for (int i = 0 ; i < sra->num_ranges ; i++) {
@@ -1682,59 +1737,54 @@ void sflushCommand(client *c) {
         return;
     }
 
+    /* Parse slot ranges from the command arguments. */
     slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, argc, 1);
     if (!slot_ranges) return;
 
-    /* Mark the slots in slotsToFlushRq[] */
-    unsigned char slotsToFlushRq[CLUSTER_SLOTS] = {0};
+    /* Iterate and find the slot ranges that belong to this node. Save them in
+     * a new slotRangeArray. It is allocated on heap since there is a chance
+     * that FLUSH SYNC will be running as blocking ASYNC and only later reply
+     * with slot ranges */
+    int in_slot_range = 0;
+    int capacity = 32; /* Initial capacity */
+
+    slotRangeArray *myslots = zmalloc(sizeof(*myslots) + sizeof(slotRange) * capacity);
+    myslots->num_ranges = 0;
 
     for (int i = 0; i < slot_ranges->num_ranges; i++) {
         slotRange *sr = &slot_ranges->ranges[i];
-        for (int j = sr->start; j <= sr->end; j++)
-            slotsToFlushRq[j] = 1;
-    }
-    zfree(slot_ranges);
-
-    /* Verify slotsToFlushRq[] covers ALL slots of myNode. */
-    clusterNode *myNode = getMyClusterNode();
-    /* During iteration trace also the slot range pairs and save in SlotsFlush.
-     * It is allocated on heap since there is a chance that FLUSH SYNC will be
-     * running as blocking ASYNC and only later reply with slot ranges */
-    int capacity = 32; /* Initial capacity */
-    slotRangeArray *sflush = zmalloc(sizeof(*sflush) + sizeof(slotRange) * capacity);
-    sflush->num_ranges = 0;
-    int inSlotRange = 0;
-    for (int i = 0; i < CLUSTER_SLOTS; i++) {
-        if (myNode == getNodeBySlot(i)) {
-            if (!slotsToFlushRq[i]) {
-                addReplySetLen(c, 0); /* Not all slots of mynode got covered. See sflushCommand() comment. */
-                zfree(sflush);
-                return;
+        for (int slot = sr->start; slot <= sr->end; slot++) {
+            if (myslots->num_ranges >= capacity) {
+                capacity *= 2;
+                myslots = zrealloc(myslots, sizeof(*myslots) + sizeof(slotRange) * capacity);
             }
+            /* Check if this slot belongs to this node */
+            int myslot = (getNodeBySlot(slot) == getMyClusterNode());
 
-            if (!inSlotRange) { /* If start another slot range */
-                sflush->ranges[sflush->num_ranges].start = i;
-                inSlotRange = 1;
+            /* Start range on first owned slot, end range on first unowned slot */
+            if (myslot && !in_slot_range) {
+                in_slot_range = 1;
+                myslots->ranges[myslots->num_ranges].start = slot;
+            } else if (!myslot && in_slot_range) {
+                in_slot_range = 0;
+                myslots->ranges[myslots->num_ranges++].end = slot - 1;
             }
-        } else {
-            if (inSlotRange) { /* If end another slot range */
-                sflush->ranges[sflush->num_ranges++].end = i - 1;
-                inSlotRange = 0;
-                /* If reached 'sflush' capacity, double the capacity */
-                if (sflush->num_ranges >= capacity) {
-                    capacity *= 2;
-                    sflush = zrealloc(sflush, sizeof(*sflush) + sizeof(slotRange) * capacity);
-                }
+        }
+        if (in_slot_range) {
+            /* End the current slot range if this is the last range or if
+             * there's a gap before the next range starts. */
+            int last_range = (i == slot_ranges->num_ranges - 1);
+            if (last_range || slot_ranges->ranges[i + 1].start != sr->end + 1) {
+                myslots->ranges[myslots->num_ranges++].end = sr->end;
+                in_slot_range = 0;
             }
         }
     }
-
-    /* Update last pair if last cluster slot is also end of last range */
-    if (inSlotRange) sflush->ranges[sflush->num_ranges++].end = CLUSTER_SLOTS - 1;
+    zfree(slot_ranges);
 
     /* Flush selected slots. If not flush as blocking async, then reply immediately */
-    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, sflush) == 0)
-        replySlotsFlushAndFree(c, sflush);
+    if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0)
+        replySlotsFlushAndFree(c, myslots);
 }
 
 /* The READWRITE command just clears the READONLY command state. */
