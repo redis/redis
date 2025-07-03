@@ -32,7 +32,7 @@ clean_environment: uninstall-rust
 # Keep all of the Rust stuff in one place
 install-rust:
 ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
-	@RUST_VERSION=1.87.0; \
+	@RUST_VERSION=1.88.0; \
 	ARCH="$$(uname -m)"; \
 	if ldd --version 2>&1 | grep -q musl; then LIBC_TYPE="musl"; else LIBC_TYPE="gnu"; fi; \
 	echo "Detected architecture: $${ARCH} and libc: $${LIBC_TYPE}"; \
