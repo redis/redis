@@ -830,6 +830,13 @@ typedef enum {
     REDISMODULE_ACL_LOG_CHANNEL /* Channel authorization failure */
 } RedisModuleACLLogEntryReason;
 
+typedef enum {
+    REDISMODULE_CONFIG_TYPE_STRING = 0,
+    REDISMODULE_CONFIG_TYPE_ENUM,
+    REDISMODULE_CONFIG_TYPE_NUMERIC,
+    REDISMODULE_CONFIG_TYPE_BOOL,
+} RedisModuleConfigType;
+
 /* Incomplete structures needed by both the core and modules. */
 typedef struct RedisModuleIO RedisModuleIO;
 typedef struct RedisModuleDigest RedisModuleDigest;
@@ -891,6 +898,7 @@ typedef struct RedisModuleScanCursor RedisModuleScanCursor;
 typedef struct RedisModuleUser RedisModuleUser;
 typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
 typedef struct RedisModuleRdbStream RedisModuleRdbStream;
+typedef struct RedisModuleConfigIterator RedisModuleConfigIterator;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -1333,6 +1341,18 @@ REDISMODULE_API void (*RedisModule_RdbStreamFree)(RedisModuleRdbStream *stream) 
 REDISMODULE_API int (*RedisModule_RdbLoad)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_RdbSave)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_GetInternalSecret)(RedisModuleCtx *ctx, size_t *len) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleConfigIterator * (*RedisModule_ConfigIteratorCreate)(RedisModuleCtx *ctx, const char *pattern) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ConfigIteratorRelease)(RedisModuleCtx *ctx, RedisModuleConfigIterator *iter) REDISMODULE_ATTR;
+REDISMODULE_API const char * (*RedisModule_ConfigIteratorNext)(RedisModuleConfigIterator *iter) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetType)(const char *name, RedisModuleConfigType *res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGet)(RedisModuleCtx *ctx, const char *name, RedisModuleString **res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetBool)(RedisModuleCtx *ctx, const char *name, int *res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetEnum)(RedisModuleCtx *ctx, const char *name, RedisModuleString **res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigGetNumeric)(RedisModuleCtx *ctx, const char *name, long long *res) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSet)(RedisModuleCtx *ctx, const char *name, RedisModuleString *value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSetBool)(RedisModuleCtx *ctx, const char *name, int value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSetEnum)(RedisModuleCtx *ctx, const char *name, RedisModuleString *value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ConfigSetNumeric)(RedisModuleCtx *ctx, const char *name, long long value, RedisModuleString **err) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1708,6 +1728,18 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(RdbLoad);
     REDISMODULE_GET_API(RdbSave);
     REDISMODULE_GET_API(GetInternalSecret);
+    REDISMODULE_GET_API(ConfigIteratorCreate);
+    REDISMODULE_GET_API(ConfigIteratorRelease);
+    REDISMODULE_GET_API(ConfigIteratorNext);
+    REDISMODULE_GET_API(ConfigGetType);
+    REDISMODULE_GET_API(ConfigGet);
+    REDISMODULE_GET_API(ConfigGetBool);
+    REDISMODULE_GET_API(ConfigGetEnum);
+    REDISMODULE_GET_API(ConfigGetNumeric);
+    REDISMODULE_GET_API(ConfigSet);
+    REDISMODULE_GET_API(ConfigSetBool);
+    REDISMODULE_GET_API(ConfigSetEnum);
+    REDISMODULE_GET_API(ConfigSetNumeric);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

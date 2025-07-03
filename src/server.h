@@ -3609,7 +3609,9 @@ void addModuleStringConfig(sds name, sds alias, int flags, void *privdata, sds d
 void addModuleEnumConfig(sds name, sds alias, int flags, void *privdata, int default_val, configEnum *enum_vals, int num_enum_vals);
 void addModuleNumericConfig(sds name, sds alias, int flags, void *privdata, long long default_val, int conf_flags, long long lower, long long upper);
 void addModuleConfigApply(list *module_configs, ModuleConfig *module_config);
+int moduleConfigApply(ModuleConfig *module_config, const char **err);
 int moduleConfigApplyConfig(list *module_configs, const char **err, const char **err_arg_name);
+int moduleConfigNeedsApply(ModuleConfig *config);
 int getModuleBoolConfig(ModuleConfig *module_config);
 int setModuleBoolConfig(ModuleConfig *config, int val, const char **err);
 sds getModuleStringConfig(ModuleConfig *module_config);
@@ -3618,6 +3620,19 @@ int getModuleEnumConfig(ModuleConfig *module_config);
 int setModuleEnumConfig(ModuleConfig *config, int val, const char **err);
 long long getModuleNumericConfig(ModuleConfig *module_config);
 int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err);
+
+/* API for modules to access config values. */
+dictIterator *moduleGetConfigIterator(void);
+const char *moduleConfigIteratorNext(dictIterator **iter, sds pattern, int is_glob, configType *typehint);
+int moduleGetConfigType(sds name, configType *res);
+int moduleGetBoolConfig(sds name, int *res);
+int moduleGetStringConfig(sds name, sds *res);
+int moduleGetEnumConfig(sds name, sds *res);
+int moduleGetNumericConfig(sds name, long long *res);
+int moduleSetBoolConfig(client *c, sds name, int val, const char **err);
+int moduleSetStringConfig(client *c, sds name, const char *val, const char **err);
+int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char **err);
+int moduleSetNumericConfig(client *c, sds name, long long val, const char **err);
 
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
