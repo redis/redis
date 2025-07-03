@@ -1380,6 +1380,239 @@ int parseScanOptionsOrReply(client *c, robj *o, int start_argc, scanOptions *opt
     return C_OK;
 }
 
+/* Scan hash table (used by SCAN, SSCAN, HSCAN, ZSCAN with hash table encodings) */
+void scanHashTable(client *c, robj *o, dict *ht, scanOptions *opts, int isKeysHfield) {
+    scanData data;
+    void *items_stack_buffer[SCAN_KEYS_INITIAL_CAPACITY];
+
+    /* We set the max number of iterations to ten times the specified
+     * COUNT, so if the hash table is in a pathological state (very
+     * sparsely populated) we avoid to block too much time at the cost
+     * of returning no or very few elements. */
+    long maxiterations = opts->count * 10;
+
+    /* We pass scanData to the callback with:
+     * 1. data.array_items: the dynamic array to collect scan results;
+     * 2. data.o: the object containing the dictionary so that
+     * it is possible to fetch more data in a type-dependent way;
+     * 3. data.type: the specified type scan in the db, LLONG_MAX means
+     * type matching is no needed;
+     * 4. data.pattern: the pattern string;
+     * 5. data.sampled: the maxiteration limit is there in case we're
+     * working on an empty dict, one with a lot of empty buckets, and
+     * for the buckets are not empty, we need to limit the spampled number
+     * to prevent a long hang time caused by filtering too many keys;
+     * 6. data.no_values: to control whether values will be returned or
+     * only keys are returned. */
+    data = (scanData) {
+        .array_items = items_stack_buffer,
+        .array_capacity = SCAN_KEYS_INITIAL_CAPACITY,
+        .array_stack_buffer = items_stack_buffer,
+        .array_count = 0,
+        .array_stores_pairs = 0,  /* Will be set by scanCallback */
+        .o = o,
+        .type = opts->type,
+        .pattern = opts->use_pattern ? opts->pattern : NULL,
+        .sampled = 0,
+        .no_values = opts->no_values,
+        .strlen = (isKeysHfield) ? hfieldlen : sdslen,
+        .typename = opts->typename,
+        .db = c->db,
+    };
+
+    /* A pattern may restrict all matching keys to one cluster slot. */
+    int onlydidx = -1;
+    if (o == NULL && opts->use_pattern && server.cluster_enabled) {
+        onlydidx = patternHashSlot(opts->pattern, opts->patlen);
+    }
+
+    /* Scan the hash table */
+    do {
+        if (o == NULL) {
+            opts->cursor = kvstoreScan(c->db->keys, opts->cursor, onlydidx, scanCallback, NULL, &data);
+        } else {
+            opts->cursor = dictScan(ht, opts->cursor, scanCallback, &data);
+        }
+    } while (opts->cursor && maxiterations-- && data.sampled < opts->count);
+
+    /* Reply to the client. */
+    addReplyArrayLen(c, 2);
+    addReplyBulkLongLong(c, opts->cursor);
+
+    /* Generate response from array (unified for all scan commands) */
+    addReplyArrayLen(c, data.array_count);
+
+    for (int i = 0; i < data.array_count; i++) {
+        void *item = data.array_items[i];
+
+        /* Special case: HSCAN fields need mstrlen, everything else uses sdslen */
+        if (o && o->type == OBJ_HASH &&
+            (!data.array_stores_pairs || (i % 2 == 0))) {
+            /* HSCAN field or single field (NOVALUES) */
+            addReplyBulkCBuffer(c, item, mstrlen((char*)item));
+        } else {
+            /* Everything else: SCAN keys, SSCAN members, ZSCAN members/scores, HSCAN values */
+            addReplyBulkCBuffer(c, item, sdslen((sds)item));
+        }
+    }
+
+    /* Cleanup: free allocated values for ZSCAN */
+    if (o && o->type == OBJ_ZSET) {
+        for (int i = 0; i < data.array_count; i++) {
+            sdsfree((sds)data.array_items[i]);
+        }
+    }
+
+    /* Cleanup: free heap-allocated array if needed */
+    if (data.array_items != items_stack_buffer) {
+        zfree(data.array_items);
+    }
+}
+
+/* Scan listpack (used by HSCAN, ZSCAN with listpack encodings) */
+void scanListpack(client *c, robj *o, scanOptions *opts) {
+    unsigned char *p = lpFirst(o->ptr);
+    unsigned char *str;
+    int64_t len;
+    unsigned long array_reply_len = 0;
+    unsigned char intbuf[LP_INTBUF_SIZE];
+    void *replylen = NULL;
+
+    /* Reply to the client. */
+    addReplyArrayLen(c, 2);
+    /* Cursor is always 0 given we iterate over all listpack */
+    addReplyBulkLongLong(c, 0);
+
+    /* If there is no pattern the length is the entire collection size, otherwise we defer the reply size */
+    if (opts->use_pattern)
+        replylen = addReplyDeferredLen(c);
+    else {
+        array_reply_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
+        if (!opts->no_values) {
+            array_reply_len *= 2;
+        }
+        addReplyArrayLen(c, array_reply_len);
+    }
+
+    unsigned long cur_length = 0;
+    while(p) {
+        str = lpGet(p, &len, intbuf);
+        /* point to the value */
+        p = lpNext(o->ptr, p);
+        if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, (char *)str, len, 0)) {
+            /* jump to the next key/val pair */
+            p = lpNext(o->ptr, p);
+            continue;
+        }
+        /* add key object */
+        addReplyBulkCBuffer(c, str, len);
+        cur_length++;
+        /* add value object */
+        if (!opts->no_values) {
+            str = lpGet(p, &len, intbuf);
+            addReplyBulkCBuffer(c, str, len);
+            cur_length++;
+        }
+        p = lpNext(o->ptr, p);
+    }
+
+    if (opts->use_pattern)
+        setDeferredArrayLen(c, replylen, cur_length);
+    else
+        serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
+}
+
+/* Scan listpack with expiration (used by HSCAN with listpack_ex encoding) */
+void scanListpackEx(client *c, robj *o, scanOptions *opts) {
+    int64_t len;
+    long long expire_at;
+    unsigned char *lp = hashTypeListpackGetLp(o);
+    unsigned char *p = lpFirst(lp);
+    unsigned char *str, *val;
+    unsigned char intbuf[LP_INTBUF_SIZE];
+    void *replylen = NULL;
+
+    /* Reply to the client. */
+    addReplyArrayLen(c, 2);
+    /* Cursor is always 0 given we iterate over all listpack */
+    addReplyBulkLongLong(c, 0);
+    /* In the case of OBJ_ENCODING_LISTPACK_EX we always defer the reply size given some fields might be expired */
+    replylen = addReplyDeferredLen(c);
+    unsigned long cur_length = 0;
+
+    while (p) {
+        str = lpGet(p, &len, intbuf);
+        p = lpNext(lp, p);
+        val = p; /* Keep pointer to value */
+
+        p = lpNext(lp, p);
+        serverAssert(p && lpGetIntegerValue(p, &expire_at));
+
+        if (hashTypeIsExpired(o, expire_at) ||
+           (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, (char *)str, len, 0)))
+        {
+            /* jump to the next key/val pair */
+            p = lpNext(lp, p);
+            continue;
+        }
+
+        /* add key object */
+        addReplyBulkCBuffer(c, str, len);
+        cur_length++;
+        /* add value object */
+        if (!opts->no_values) {
+            str = lpGet(val, &len, intbuf);
+            addReplyBulkCBuffer(c, str, len);
+            cur_length++;
+        }
+        p = lpNext(lp, p);
+    }
+    setDeferredArrayLen(c, replylen, cur_length);
+}
+
+/* Scan set (used by SSCAN with intset encoding) */
+void scanSet(client *c, robj *o, scanOptions *opts) {
+    unsigned long array_reply_len = 0;
+    void *replylen = NULL;
+    char *str;
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    int64_t llele;
+
+    /* Reply to the client. */
+    addReplyArrayLen(c, 2);
+    /* Cursor is always 0 given we iterate over all set */
+    addReplyBulkLongLong(c, 0);
+
+    /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
+    if (opts->use_pattern)
+        replylen = addReplyDeferredLen(c);
+    else {
+        array_reply_len = setTypeSize(o);
+        addReplyArrayLen(c, array_reply_len);
+    }
+
+    setTypeIterator *si = setTypeInitIterator(o);
+    unsigned long cur_length = 0;
+    while (setTypeNext(si, &str, &len, &llele) != -1) {
+        if (str == NULL) {
+            len = ll2string(buf, sizeof(buf), llele);
+        }
+        char *key = str ? str : buf;
+        if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, key, len, 0)) {
+            continue;
+        }
+        addReplyBulkCBuffer(c, key, len);
+        cur_length++;
+    }
+    setTypeReleaseIterator(si);
+
+    if (opts->use_pattern)
+        setDeferredArrayLen(c, replylen, cur_length);
+    else
+        serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
+}
+
 /* This callback is used by scanGenericCommand in order to collect elements
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
@@ -1520,278 +1753,9 @@ char *getObjectTypeName(robj *o) {
     }
 }
 
-/* This command implements SCAN, HSCAN and SSCAN commands.
- * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
- * if 'o' is NULL the command will operate on the dictionary associated with
- * the current database.
- *
- * When 'o' is not NULL the function assumes that the first argument in
- * the client arguments vector is a key so it skips it before iterating
- * in order to parse options.
- *
- * In the case of a Hash object the function returns both the field and value
- * of every element on the Hash. */
-void scanGenericCommand(client *c, robj *o, scanOptions *opts) {
-    int isKeysHfield = 0;
-    dict *ht;
-    scanData data;
-
-    /* Stack-allocated array for all scan optimizations */
-    void *items_stack_buffer[SCAN_KEYS_INITIAL_CAPACITY];
-
-    /* Object must be NULL (to iterate keys names), or the type of the object
-     * must be Set, Sorted Set, or Hash. */
-    serverAssert(o == NULL || o->type == OBJ_SET || o->type == OBJ_HASH ||
-                o->type == OBJ_ZSET);
-
-    /* Step 2: Iterate the collection.
-     *
-     * Note that if the object is encoded with a listpack, intset, or any other
-     * representation that is not a hash table, we are sure that it is also
-     * composed of a small number of elements. So to avoid taking state we
-     * just return everything inside the object in a single call, setting the
-     * cursor to zero to signal the end of the iteration. */
-
-    /* Handle the case of a hash table. */
-    ht = NULL;
-    if (o == NULL) {
-        ht = NULL;
-    } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
-        ht = o->ptr;
-    } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
-        isKeysHfield = 1;
-        ht = o->ptr;
-    } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
-        zset *zs = o->ptr;
-        ht = zs->dict;
-    }
 
 
-
-    /* For main dictionary scan or data structure using hashtable. */
-    if (!o || ht) {
-        /* We set the max number of iterations to ten times the specified
-         * COUNT, so if the hash table is in a pathological state (very
-         * sparsely populated) we avoid to block too much time at the cost
-         * of returning no or very few elements. */
-        long maxiterations = opts->count*10;
-
-        /* We pass scanData to the callback with:
-         * 1. data.array_items: the dynamic array to collect scan results;
-         * 2. data.o: the object containing the dictionary so that
-         * it is possible to fetch more data in a type-dependent way;
-         * 3. data.type: the specified type scan in the db, LLONG_MAX means
-         * type matching is no needed;
-         * 4. data.pattern: the pattern string;
-         * 5. data.sampled: the maxiteration limit is there in case we're
-         * working on an empty dict, one with a lot of empty buckets, and
-         * for the buckets are not empty, we need to limit the spampled number
-         * to prevent a long hang time caused by filtering too many keys;
-         * 6. data.no_values: to control whether values will be returned or
-         * only keys are returned. */
-        data = (scanData) {
-            .array_items = items_stack_buffer,
-            .array_capacity = SCAN_KEYS_INITIAL_CAPACITY,
-            .array_stack_buffer = items_stack_buffer,
-            .array_count = 0,
-            .array_stores_pairs = 0,  /* Will be set by scanCallback */
-            .o = o,
-            .type = opts->type,
-            .pattern = opts->use_pattern ? opts->pattern : NULL,
-            .sampled = 0,
-            .no_values = opts->no_values,
-            .strlen = (isKeysHfield) ? hfieldlen : sdslen,
-            .typename = opts->typename,
-            .db = c->db,
-        };
-
-        /* A pattern may restrict all matching keys to one cluster slot. */
-        int onlydidx = -1;
-        if (o == NULL && opts->use_pattern && server.cluster_enabled) {
-            onlydidx = patternHashSlot(opts->pattern, opts->patlen);
-        }
-        do {
-            /* In cluster mode there is a separate dictionary for each slot.
-             * If cursor is empty, we should try exploring next non-empty slot. */
-            if (o == NULL) {
-                opts->cursor = kvstoreScan(c->db->keys, opts->cursor, onlydidx, scanCallback, NULL, &data);
-            } else {
-                opts->cursor = dictScan(ht, opts->cursor, scanCallback, &data);
-            }
-        } while (opts->cursor && maxiterations-- && data.sampled < opts->count);
-    } else if (o->type == OBJ_SET) {
-        unsigned long array_reply_len = 0;
-        void *replylen = NULL;
-        char *str;
-        char buf[LONG_STR_SIZE];
-        size_t len;
-        int64_t llele;
-        /* Reply to the client. */
-        addReplyArrayLen(c, 2);
-        /* Cursor is always 0 given we iterate over all set */
-        addReplyBulkLongLong(c,0);
-        /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
-        if (opts->use_pattern)
-            replylen = addReplyDeferredLen(c);
-        else {
-            array_reply_len = setTypeSize(o);
-            addReplyArrayLen(c, array_reply_len);
-        }
-
-        setTypeIterator *si = setTypeInitIterator(o);
-        unsigned long cur_length = 0;
-        while (setTypeNext(si, &str, &len, &llele) != -1) {
-            if (str == NULL) {
-                len = ll2string(buf, sizeof(buf), llele);
-            }
-            char *key = str ? str : buf;
-            if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, key, len, 0)) {
-                continue;
-            }
-            addReplyBulkCBuffer(c, key, len);
-            cur_length++;
-        }
-        setTypeReleaseIterator(si);
-        if (opts->use_pattern)
-            setDeferredArrayLen(c,replylen,cur_length);
-        else
-            serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
-        return;
-    } else if ((o->type == OBJ_HASH || o->type == OBJ_ZSET) &&
-               o->encoding == OBJ_ENCODING_LISTPACK)
-    {
-        unsigned char *p = lpFirst(o->ptr);
-        unsigned char *str;
-        int64_t len;
-        unsigned long array_reply_len = 0;
-        unsigned char intbuf[LP_INTBUF_SIZE];
-        void *replylen = NULL;
-
-        /* Reply to the client. */
-        addReplyArrayLen(c, 2);
-        /* Cursor is always 0 given we iterate over all set */
-        addReplyBulkLongLong(c,0);
-        /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
-        if (opts->use_pattern)
-            replylen = addReplyDeferredLen(c);
-        else {
-            array_reply_len = o->type == OBJ_HASH ? hashTypeLength(o, 0) : zsetLength(o);
-            if (!opts->no_values) {
-                array_reply_len *= 2;
-            }
-            addReplyArrayLen(c, array_reply_len);
-        }
-        unsigned long cur_length = 0;
-        while(p) {
-            str = lpGet(p, &len, intbuf);
-            /* point to the value */
-            p = lpNext(o->ptr, p);
-            if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, (char *)str, len, 0)) {
-                /* jump to the next key/val pair */
-                p = lpNext(o->ptr, p);
-                continue;
-            }
-            /* add key object */
-            addReplyBulkCBuffer(c, str, len);
-            cur_length++;
-            /* add value object */
-            if (!opts->no_values) {
-                str = lpGet(p, &len, intbuf);
-                addReplyBulkCBuffer(c, str, len);
-                cur_length++;
-            }
-            p = lpNext(o->ptr, p);
-        }
-        if (opts->use_pattern)
-            setDeferredArrayLen(c,replylen,cur_length);
-        else
-            serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
-        return;
-    } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        int64_t len;
-        long long expire_at;
-        unsigned char *lp = hashTypeListpackGetLp(o);
-        unsigned char *p = lpFirst(lp);
-        unsigned char *str, *val;
-        unsigned char intbuf[LP_INTBUF_SIZE];
-        void *replylen = NULL;
-        /* Reply to the client. */
-        addReplyArrayLen(c, 2);
-        /* Cursor is always 0 given we iterate over all set */
-        addReplyBulkLongLong(c,0);
-        /* In the case of OBJ_ENCODING_LISTPACK_EX we always defer the reply size given some fields might be expired */
-        replylen = addReplyDeferredLen(c);
-        unsigned long cur_length = 0;
-
-        while (p) {
-            str = lpGet(p, &len, intbuf);
-            p = lpNext(lp, p);
-            val = p; /* Keep pointer to value */
-
-            p = lpNext(lp, p);
-            serverAssert(p && lpGetIntegerValue(p, &expire_at));
-
-            if (hashTypeIsExpired(o, expire_at) ||
-               (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, (char *)str, len, 0)))
-            {
-                /* jump to the next key/val pair */
-                p = lpNext(lp, p);
-                continue;
-            }
-
-            /* add key object */
-            addReplyBulkCBuffer(c, str, len);
-            cur_length++;
-            /* add value object */
-            if (!opts->no_values) {
-                str = lpGet(val, &len, intbuf);
-                addReplyBulkCBuffer(c, str, len);
-                cur_length++;
-            }
-            p = lpNext(lp, p);
-        }
-        setDeferredArrayLen(c,replylen,cur_length);
-        return;
-    } else {
-        serverPanic("Not handled encoding in SCAN.");
-    }
-
-    /* Step 3: Reply to the client. */
-    addReplyArrayLen(c, 2);
-    addReplyBulkLongLong(c,opts->cursor);
-
-    /* Generate response from array (unified for all scan commands) */
-    addReplyArrayLen(c, data.array_count);
-
-    for (int i = 0; i < data.array_count; i++) {
-        void *item = data.array_items[i];
-
-        /* Special case: HSCAN fields need mstrlen, everything else uses sdslen */
-        if (o && o->type == OBJ_HASH &&
-            (!data.array_stores_pairs || (i % 2 == 0))) {
-            /* HSCAN field or single field (NOVALUES) */
-            addReplyBulkCBuffer(c, item, mstrlen((char*)item));
-        } else {
-            /* Everything else: SCAN keys, SSCAN members, ZSCAN members/scores, HSCAN values */
-            addReplyBulkCBuffer(c, item, sdslen((sds)item));
-        }
-    }
-
-    /* Cleanup: free allocated values for ZSCAN */
-    if (o && o->type == OBJ_ZSET) {
-        for (int i = 0; i < data.array_count; i++) {
-            sdsfree((sds)data.array_items[i]);
-        }
-    }
-
-    /* Cleanup: free heap-allocated array if needed */
-    if (data.array_items != items_stack_buffer) {
-        zfree(data.array_items);
-    }
-
-}
-
-/* The SCAN command completely relies on scanGenericCommand. */
+/* The SCAN command directly uses scanHashTable for database keys. */
 void scanCommand(client *c) {
     scanOptions opts;
 
@@ -1799,7 +1763,7 @@ void scanCommand(client *c) {
 
     if (parseScanOptionsOrReply(c, NULL, 2, &opts) == C_ERR) return;
 
-    scanGenericCommand(c, NULL, &opts);
+    scanHashTable(c, NULL, NULL, &opts, 0);
 }
 
 void dbsizeCommand(client *c) {

@@ -3909,7 +3909,12 @@ void zscanCommand(client *c) {
 
     if (parseScanOptionsOrReply(c, o, 3, &opts) == C_ERR) return;
 
-    scanGenericCommand(c, o, &opts);
+    if(o->encoding == OBJ_ENCODING_SKIPLIST) {
+        zset *zs = o->ptr;
+        scanHashTable(c, o, zs->dict, &opts, 0);
+    } else {
+        scanListpack(c, o, &opts);
+    }
 }
 
 /* This command implements the generic zpop operation, used by:

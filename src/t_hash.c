@@ -3042,7 +3042,16 @@ void hscanCommand(client *c) {
 
     if (parseScanOptionsOrReply(c, o, 3, &opts) == C_ERR) return;
 
-    scanGenericCommand(c, o, &opts);
+    /* Handle hash encoding-specific scanning */
+    if (o->encoding == OBJ_ENCODING_HT) {
+        scanHashTable(c, o, o->ptr, &opts, 1);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        scanListpack(c, o, &opts);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
+        scanListpackEx(c, o, &opts);
+    } else {
+        serverPanic("Not handled encoding in HSCAN.");
+    }
 }
 
 static void hrandfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {

@@ -1740,5 +1740,9 @@ void sscanCommand(client *c) {
 
     if (parseScanOptionsOrReply(c, set, 3, &opts) == C_ERR) return;
 
-    scanGenericCommand(c, set, &opts);
+    if(set->encoding == OBJ_ENCODING_HT) {
+        scanHashTable(c, set, set->ptr, &opts, 0);
+    } else {
+        scanSet(c,set, &opts);
+    }
 }

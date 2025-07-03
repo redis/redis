@@ -3708,7 +3708,10 @@ typedef struct {
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
 void signalFlushedDb(int dbid, int async);
-void scanGenericCommand(client *c, robj *o, scanOptions *opts);
+void scanHashTable(client *c, robj *o, dict *ht, scanOptions *opts, int isKeysHfield);
+void scanListpack(client *c, robj *o, scanOptions *opts);
+void scanListpackEx(client *c, robj *o, scanOptions *opts);
+void scanSet(client *c, robj *o, scanOptions *opts);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int parseScanOptionsOrReply(client *c, robj *o, int start_argc, scanOptions *opts);
 int dbAsyncDelete(redisDb *db, robj *key);
