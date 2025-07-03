@@ -1447,6 +1447,11 @@ typedef struct client {
 
     /* list node in clients_pending_write list */
     listNode clients_pending_write_node;
+    /* Statistics and metrics */
+    size_t net_input_bytes_curr_cmd; /* Total network input bytes read for the
+                                      * execution of this client's current command. */
+    size_t net_output_bytes_curr_cmd; /* Total network output bytes sent to this
+                                       * client, by the current command. */
     /* Response buffer */
     size_t buf_peak; /* Peak used size of buffer in last 5 sec interval. */
     mstime_t buf_peak_last_reset_time; /* keeps the last time the buffer peak value was reset */
@@ -2250,6 +2255,7 @@ struct redisServer {
     unsigned long long cluster_link_msg_queue_limit_bytes;  /* Memory usage limit on individual link msg queue */
     int cluster_drop_packet_filter; /* Debug config that allows tactically
                                    * dropping packets of a specific type */
+    int cluster_slot_stats_enabled; /* Cluster slot usage statistics tracking enabled. */
     /* Scripting */
     unsigned int lua_arena;         /* eval lua arena used in jemalloc. */
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
@@ -4053,6 +4059,7 @@ void sunsubscribeCommand(client *c);
 void watchCommand(client *c);
 void unwatchCommand(client *c);
 void clusterCommand(client *c);
+void clusterSlotStatsCommand(client *c);
 void restoreCommand(client *c);
 void migrateCommand(client *c);
 void askingCommand(client *c);

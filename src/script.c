@@ -2,14 +2,20 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
 #include "script.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -664,6 +670,7 @@ void scriptCall(scriptRunCtx *run_ctx, sds *err) {
     }
     call(c, call_flags);
     serverAssert((c->flags & CLIENT_BLOCKED) == 0);
+    clusterSlotStatsInvalidateSlotIfApplicable(run_ctx);
     return;
 
 error:

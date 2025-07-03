@@ -28,6 +28,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 #include "bio.h"
 #include "functions.h"
 #include "connection.h"
@@ -392,6 +393,8 @@ void feedReplicationBuffer(char *s, size_t len) {
 
     if (server.repl_backlog == NULL) return;
 
+    clusterSlotStatsIncrNetworkBytesOutForReplication(len);
+
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
         listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
@@ -546,6 +549,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         feedReplicationBufferWithObject(selectcmd);
+
+        /* Although the SELECT command is not associated with any slot,
+         * its per-slot network-bytes-out accumulation is made by the above function call.
+         * To cancel-out this accumulation, below adjustment is made. */
+        clusterSlotStatsDecrNetworkBytesOutForReplication(sdslen(selectcmd->ptr));
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
@@ -4149,6 +4157,9 @@ void replicationSendAck(void) {
             addReplyBulkLongLong(c,server.fsynced_reploff);
         }
         c->flags &= ~CLIENT_MASTER_FORCE_REPLY;
+        /* Accumulation from above replies must be reset back to 0 manually,
+         * as this subroutine does not invoke resetClient(). */
+        c->net_output_bytes_curr_cmd = 0;
     }
 }
 

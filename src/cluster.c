@@ -2,6 +2,9 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
@@ -17,6 +20,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 
 #include <ctype.h>
 
@@ -929,6 +933,8 @@ void clusterCommandHelp(client *c) {
             "SLOTS",
             "    Return information about slots range mappings. Each range is made of:",
             "    start, end, master and replicas IP addresses, ports and ids",
+            "SLOT-STATS",
+            "    Return an array of slot usage statistics for slots assigned to the current node.",
             "SHARDS",
             "    Return information about slot range mappings and the nodes associated with them.",
             NULL
@@ -1686,4 +1692,13 @@ void readwriteCommand(client *c) {
     }
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
+}
+
+/* Resets transient cluster stats that we expose via INFO or other means that we want
+ * to reset via CONFIG RESETSTAT. The function is also used in order to
+ * initialize these fields in clusterInit() at server startup. */
+void resetClusterStats(void) {
+    if (!server.cluster_enabled) return;
+
+    clusterSlotStatResetAll();
 }

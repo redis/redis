@@ -8,6 +8,8 @@
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "server.h"
@@ -364,17 +366,32 @@ int calculateKeySlot(sds key) {
 
 /* Return slot-specific dictionary for key based on key's hash slot when cluster mode is enabled, else 0.*/
 int getKeySlot(sds key) {
+    if (!server.cluster_enabled) return 0;
     /* This is performance optimization that uses pre-set slot id from the current command,
      * in order to avoid calculation of the key hash.
+     *
      * This optimization is only used when current_client flag `CLIENT_EXECUTING_COMMAND` is set.
      * It only gets set during the execution of command under `call` method. Other flows requesting
      * the key slot would fallback to calculateKeySlot.
+     *
+     * Modules and scripts executed on the primary may get replicated as multi-execs that operate on multiple slots,
+     * so we must always recompute the slot for commands coming from the primary.
      */
-    if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
-        debugServerAssertWithInfo(server.current_client, NULL, calculateKeySlot(key)==server.current_client->slot);
+    if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND &&
+        !(server.current_client->flags & CLIENT_MASTER))
+    {
+        debugServerAssertWithInfo(server.current_client, NULL,
+                                  (int)keyHashSlot(key, (int)sdslen(key)) == server.current_client->slot);
         return server.current_client->slot;
     }
-    return calculateKeySlot(key);
+    int slot = keyHashSlot(key, (int)sdslen(key));
+    /* For the case of replicated commands from primary, getNodeByQuery() never gets called,
+     * and thus c->slot never gets populated. That said, if this command ends up accessing a key,
+     * we are able to backfill c->slot here, where the key's hash calculation is made. */
+    if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) {
+        server.current_client->slot = slot;
+    }
+    return slot;
 }
 
 /* Return the slot of the key in the command. IO threads use this function
