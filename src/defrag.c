@@ -474,7 +474,6 @@ void activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
     quicklistNode *newnode, *node = *node_ref;
     unsigned char *newzl;
     ql->alloc_size -= zmalloc_usable_size(node);
-    ql->alloc_size -= zmalloc_usable_size(node->entry);
     if ((newnode = activeDefragAlloc(node))) {
         if (newnode->prev)
             newnode->prev->next = newnode;
@@ -486,10 +485,9 @@ void activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
             ql->tail = newnode;
         *node_ref = node = newnode;
     }
+    ql->alloc_size += zmalloc_usable_size(node);
     if ((newzl = activeDefragAlloc(node->entry)))
         node->entry = newzl;
-    ql->alloc_size += zmalloc_usable_size(node);
-    ql->alloc_size += zmalloc_usable_size(node->entry);
 }
 
 void activeDefragQuickListNodes(quicklist *ql) {
