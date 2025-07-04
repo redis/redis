@@ -1755,7 +1755,6 @@ char *getObjectTypeName(robj *o) {
 }
 
 
-
 /* The SCAN command directly uses scanHashTable for database keys. */
 void scanCommand(client *c) {
     scanOptions opts;

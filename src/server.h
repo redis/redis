@@ -3692,7 +3692,6 @@ long long dbTotalServerKeyCount(void);
 redisDb *initTempDb(void);
 void discardTempDb(redisDb *tempDb);
 
-
 /* Options for SCAN commands (SCAN, HSCAN, SSCAN, ZSCAN) */
 typedef struct {
     unsigned long long cursor;  /* Cursor position */
