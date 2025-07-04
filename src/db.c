@@ -1280,7 +1280,7 @@ typedef struct {
 
 /* Helper function to add an item to the scan results (for all scan commands) */
 static void scanItemsPush(scanData *data, void *item) {
-    if (data->array_count >= data->array_capacity) {
+    if (unlikely(data->array_count >= data->array_capacity)) {
         /* Need to grow the array */
         int new_capacity = data->array_capacity * 2;
 
