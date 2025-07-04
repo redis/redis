@@ -1480,7 +1480,7 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
 /* Context for streaming replDataBuf to database */
 typedef struct replDataBufToDbCtx {
     client *client;                     /* Client to process commands */
-    size_t total_offset;                /* Total offset processed */
+    size_t applied_offset;              /* Offset applied to the database */
     int  (*should_continue)(void *ctx); /* Check if should continue */
     void (*yield_callback)(void *ctx);  /* Yield to event loop */
 } replDataBufToDbCtx;
@@ -2884,6 +2884,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
+size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);

@@ -14,10 +14,13 @@ struct asmTask;
 
 void clusterAsmInit(void);
 void asmBeforeSleep(void);
+void asmCron(void);
 void asmStartSendBulkAndStream(struct asmTask *task);
 void asmCallbackOnFreeClient(client *c);
 int asmMigrateInProgress(void);
 void asmFeedMigrationClient(robj **argv, int argc);
+int asmDebugSetFailPoint(char * channel, char *state);
+void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);

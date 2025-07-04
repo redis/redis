@@ -23,6 +23,7 @@
 #include "cluster.h"
 #include "threads_mngr.h"
 #include "script.h"
+#include "cluster_asm.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -498,6 +499,8 @@ void debugCommand(client *c) {
 "    Output SHA and content of all scripts or of a specific script with its SHA.",
 "MARK-INTERNAL-CLIENT [UNMARK]",
 "    Promote the current connection to an internal connection.",
+"ASM-FAILPOINT <channel> <state>",
+"    Set a fail point for the specified channel and state for cluster atomic slot migration.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1096,6 +1099,12 @@ NULL
         } else {
             addReplySubcommandSyntaxError(c);
             return;
+        }
+    } else if(!strcasecmp(c->argv[1]->ptr,"asm-failpoint") && c->argc == 4) {
+        if (asmDebugSetFailPoint(c->argv[2]->ptr, c->argv[3]->ptr) != C_OK) {
+            addReplyError(c, "Failed to set ASM fail point");
+        } else {
+            addReply(c, shared.ok);
         }
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);

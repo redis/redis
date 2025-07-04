@@ -148,5 +148,107 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         # verify changes in replica
         R 3 readonly
         assert_equal [string repeat c 100] [R 3 get $slot101_key]
+
+        R 0 config set rdb-key-save-delay 1000000
+    }
+
+    global send_migration_import_0_100
+    set send_migration_import_0_100 0
+    proc asm_basic_error_handling_test {operation channel all_states} {
+        global send_migration_import_0_100
+
+        foreach state $all_states {
+            if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
+
+            # for streaming-buffer state, we need to set a longer delay to write
+            # incremental data to the main channel
+            if {$state eq "streaming-buffer"} { R 1 config set rdb-key-save-delay 1000000 }
+
+            # Start the slot 0 write load on the R 1
+            if {$::tls} { set port [lindex [R 1 config get tls-port] 1]
+            } else { set port [lindex [R 1 config get port] 1] }
+            set load_handle [start_write_load "127.0.0.1" $port 100 "06S"]
+
+            # Set the fail point for the main channel
+            if {$operation eq "import"} {
+                assert_equal {OK} [R 0 debug asm-failpoint "import-$channel-channel" $state]
+                assert_equal {OK} [R 1 debug asm-failpoint "" ""] ;# Clear migrate node fail point
+            } elseif {$operation eq "migrate"} {
+                assert_equal {OK} [R 0 debug asm-failpoint "" ""] ;# Clear import node fail point
+                assert_equal {OK} [R 1 debug asm-failpoint "migrate-$channel-channel" $state]
+            } else {
+                fail "Unknown operation: $operation"
+            }
+
+            # Migrate slot 0-100 to R 0 if this is the first time,
+            # otherwise, import will retry automatically
+            if {$send_migration_import_0_100 == 0} {
+                assert_equal {OK} [R 0 CLUSTER MIGRATION IMPORT 0 100]
+                set send_migration_import_0_100 1
+            }
+
+            # The task should be failed due to the fail point
+            wait_for_condition 1000 50 {
+                [string match "*$channel*${state}*" [migration_status 0 0-100 error]] ||
+                [string match "*$channel*${state}*" [migration_status 1 0-100 error]]
+            } else {
+                fail "ASM task did not fail with expected error"
+            }
+            R 1 config set rdb-key-save-delay 0
+            stop_write_load $load_handle
+        }
+    }
+
+    test "Destination node main channel basic error-handling tests " {
+        set all_states [list "connecting" "auth-reply" "handshake-reply" "syncslots-reply" "accumulate-buffer" "streaming-buffer" "wait-stream-eof"]
+        asm_basic_error_handling_test "import" "main" $all_states
+    }
+
+    test "Destination node rdb channel basic error-handling tests" {
+        set all_states [list "connecting" "auth-reply" "rdbchannel-reply" "rdbchannel-transfer"]
+        asm_basic_error_handling_test "import" "rdb" $all_states
+    }
+
+    test "Source node main channel basic error-handling tests " {
+        set all_states [list "wait-rdbchannel" "send-bulk-and-stream" "paused-write"]
+        asm_basic_error_handling_test "migrate" "main" $all_states
+    }
+
+    test "Source node rdb channel basic error-handling tests" {
+        set all_states [list "wait-bgsave-start" "send-bulk-and-stream"]
+        asm_basic_error_handling_test "migrate" "rdb" $all_states
+    }
+
+    test "Migration will be successful after fail points are cleared" {
+        # we set a delay to write incremental data
+        R 1 config set rdb-key-save-delay 1000000
+
+        # Start the slot 0 write load on the R 1
+        if {$::tls} { set port [lindex [R 1 config get tls-port] 1]
+        } else { set port [lindex [R 1 config get port] 1] }
+        set load_handle [start_write_load "127.0.0.1" $port 100 "06S"]
+
+        # Clear all fail points
+        assert_equal {OK} [R 0 debug asm-failpoint "" ""]
+        assert_equal {OK} [R 1 debug asm-failpoint "" ""]
+
+        # Wait for the migration to complete
+        wait_for_condition 1000 50 {
+            [string match {*done*} [migration_status 0 0-100 state]] &&
+            [string match {*done*} [migration_status 1 0-100 state]]
+        } else {
+            fail "ASM task did not complete successfully"
+        }
+
+        stop_write_load $load_handle
+
+        # Verify the data is migrated, slot 0 and 1 should belong to R 1
+        # slot 0 key should be changed by the write load
+        assert_not_equal [string repeat a 100] [R 0 get "06S"]
+        assert_equal [string repeat b 100] [R 0 get "Qi"]
+        # Slave should also get the data
+        after 100
+        R 3 readonly
+        assert_equal [string repeat b 100] [R 3 get "Qi"]
     }
 }
