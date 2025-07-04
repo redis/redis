@@ -1743,6 +1743,6 @@ void sscanCommand(client *c) {
     if(set->encoding == OBJ_ENCODING_HT) {
         scanHashTable(c, set, set->ptr, &opts, 0);
     } else {
-        scanSet(c,set, &opts);
+        scanIntSet(c,set, &opts);
     }
 }

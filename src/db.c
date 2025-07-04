@@ -1487,6 +1487,49 @@ void scanHashTable(client *c, robj *o, dict *ht, scanOptions *opts, int isKeysHf
     }
 }
 
+/* Scan set (used by SSCAN with intset encoding) */
+void scanIntSet(client *c, robj *o, scanOptions *opts) {
+    unsigned long array_reply_len = 0;
+    void *replylen = NULL;
+    char *str;
+    char buf[LONG_STR_SIZE];
+    size_t len;
+    int64_t llele;
+
+    /* Reply to the client. */
+    addReplyArrayLen(c, 2);
+    /* Cursor is always 0 given we iterate over all set */
+    addReplyBulkLongLong(c, 0);
+
+    /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
+    if (opts->use_pattern)
+        replylen = addReplyDeferredLen(c);
+    else {
+        array_reply_len = setTypeSize(o);
+        addReplyArrayLen(c, array_reply_len);
+    }
+
+    setTypeIterator *si = setTypeInitIterator(o);
+    unsigned long cur_length = 0;
+    while (setTypeNext(si, &str, &len, &llele) != -1) {
+        if (str == NULL) {
+            len = ll2string(buf, sizeof(buf), llele);
+        }
+        char *key = str ? str : buf;
+        if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, key, len, 0)) {
+            continue;
+        }
+        addReplyBulkCBuffer(c, key, len);
+        cur_length++;
+    }
+    setTypeReleaseIterator(si);
+
+    if (opts->use_pattern)
+        setDeferredArrayLen(c, replylen, cur_length);
+    else
+        serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
+}
+
 /* Scan listpack (used by HSCAN, ZSCAN with listpack encodings) */
 void scanListpack(client *c, robj *o, scanOptions *opts) {
     unsigned char *p = lpFirst(o->ptr);
@@ -1586,49 +1629,6 @@ void scanListpackEx(client *c, robj *o, scanOptions *opts) {
         p = lpNext(lp, p);
     }
     setDeferredArrayLen(c, replylen, cur_length);
-}
-
-/* Scan set (used by SSCAN with intset encoding) */
-void scanSet(client *c, robj *o, scanOptions *opts) {
-    unsigned long array_reply_len = 0;
-    void *replylen = NULL;
-    char *str;
-    char buf[LONG_STR_SIZE];
-    size_t len;
-    int64_t llele;
-
-    /* Reply to the client. */
-    addReplyArrayLen(c, 2);
-    /* Cursor is always 0 given we iterate over all set */
-    addReplyBulkLongLong(c, 0);
-
-    /* If there is no pattern the length is the entire set size, otherwise we defer the reply size */
-    if (opts->use_pattern)
-        replylen = addReplyDeferredLen(c);
-    else {
-        array_reply_len = setTypeSize(o);
-        addReplyArrayLen(c, array_reply_len);
-    }
-
-    setTypeIterator *si = setTypeInitIterator(o);
-    unsigned long cur_length = 0;
-    while (setTypeNext(si, &str, &len, &llele) != -1) {
-        if (str == NULL) {
-            len = ll2string(buf, sizeof(buf), llele);
-        }
-        char *key = str ? str : buf;
-        if (opts->use_pattern && !stringmatchlen(opts->pattern, opts->patlen, key, len, 0)) {
-            continue;
-        }
-        addReplyBulkCBuffer(c, key, len);
-        cur_length++;
-    }
-    setTypeReleaseIterator(si);
-
-    if (opts->use_pattern)
-        setDeferredArrayLen(c, replylen, cur_length);
-    else
-        serverAssert(cur_length == array_reply_len); /* fail on corrupt data */
 }
 
 /* This callback is used by scanGenericCommand in order to collect elements
