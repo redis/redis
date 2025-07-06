@@ -12,6 +12,19 @@ SECURITY: There are security fixes in the release.
 --------------------------------------------------------------------------------
 
 ================================================================================
+Redis 6.2.19    Released Sun 6 Jul 2025 12:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+
+### Security fixes
+
+* (CVE-2025-32023) Fix out-of-bounds write in `HyperLogLog` commands
+* (CVE-2025-48367) Retry accepting other connections even if the accepted connection reports an error
+
+
+================================================================================
 Redis 6.2.18    Released Wed 23 Apr 2025 12:00:00 IST
 ================================================================================
 
