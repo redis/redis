@@ -19,6 +19,26 @@ Starting with v8.0.1, the release notes contain PRs from multiple repositories:
 #TSn = Time Series (https://github.com/RedisTimeSeries/RedisTimeSeries)
 #PRn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
 
+================================================================================
+Redis 8.0.3    Released Sun 6 Jul 2025 12:00:00 IST
+================================================================================
+
+Update urgency: `SECURITY`: There are security fixes in the release.
+
+### Security fixes
+
+* (CVE-2025-32023) Fix out-of-bounds write in `HyperLogLog` commands
+* (CVE-2025-48367) Retry accepting other connections even if the accepted connection reports an error
+
+### New Features
+
+- #14065 `VSIM`: Add new `WITHATTRIBS` to return the JSON attribute associated with an element
+
+### Bug fixes
+
+- #14085 A short read may lead to an exit() on a replica
+- #14092 db->expires is not defragmented
+
 
 ================================================================================
 Redis 8.0.2     Released Tue 27 May 2025 12:00:00 IST
@@ -128,6 +148,8 @@ For more details, see the release notes of 8.0-M01, 8.0-M02, 8.0-M03,8.0-M04, an
 - #13966, #13932 `CLUSTER SLOTS` - TLS port update not reflected in CLUSTER SLOTS
 - #13958 `XTRIM`, `XADD` - incorrect lag due to trimming stream
 - #13931 `HGETEX` - wrong order of keyspace notifications
+- #JS1337 - JSON - `JSON.DEL` emits no `DEL` notification when removing the entire value (MOD-9117)
+- #TS1742 - Time Series - `TS.INFO` - `duplicatePolicy` is `nil` when set to the default value (MOD-5423) (edited)
 
 
 ==========================================================
