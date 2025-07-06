@@ -4,9 +4,11 @@ on:
   push:
     paths:
       - 'modules/Makefile'
+      - '.github/workflows/validate-rust-checksums.yml'
   pull_request:
     paths:
       - 'modules/Makefile'
+      - '.github/workflows/validate-rust-checksums.yml'
 
 jobs:
   validate-rust-checksums:
