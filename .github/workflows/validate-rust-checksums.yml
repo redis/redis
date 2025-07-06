@@ -10,6 +10,10 @@ on:
       - 'modules/Makefile'
       - '.github/workflows/validate-rust-checksums.yml'
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   validate-rust-checksums:
     runs-on: ubuntu-latest
