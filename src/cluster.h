@@ -174,15 +174,15 @@ int clusterNodeTlsPort(clusterNode *node);
 
 /* API for implementation/plugin
  *
- * - On destination side, implementation calls clusterAsmRequest(ASM_REQUEST_IMPORT_START)
+ * - On destination side, implementation calls clusterAsmProcess(ASM_OP_IMPORT_START)
  *   to start the import operation
  * - Redis calls clusterAsmOnEvent() when an event occurs.
  * - On the source side, Redis will call clusterAsmOnEvent(ASM_EVENT_MIGRATE_WAIT_PAUSE)
  *   when the write pause is needed.
- * - Implementation stops the traffic to the slots and calls clusterAsmRequest(ASM_REQUEST_MIGRATE_PAUSED)
+ * - Implementation stops the traffic to the slots and calls clusterAsmProcess(ASM_OP_NOTIFY_PAUSED)
  * - On the destination side, Redis calls clusterAsmOnEvent(ASM_EVENT_IMPORT_WAIT_FINALIZE)
  *   when the import is completed.
- * - Plugin updates the config and calls clusterAsmRequest(ASM_REQUEST_CONFIG_UPDATED)
+ * - Plugin updates the config and calls clusterAsmProcess(ASM_OP_NOTIFY_CONFIG_UPDATED)
  *   to notify Redis that the config is updated.
  *
  * Sequence diagram for import:
@@ -193,7 +193,7 @@ int clusterNodeTlsPort(clusterNode *node);
  * │ Cluster plugin│              │ Master        │         │    Master     │             │ Cluster plugin│
  * └───────┬───────┘              └───────┬───────┘         └───────┬───────┘             └───────┬───────┘
  *         │                              │                         │                             │
- *         │ ASM_REQUEST_IMPORT_START     │                         │                             │
+ *         │ ASM_OP_IMPORT_START          │                         │                             │
  *         ├─────────────────────────────►│                         │                             │
  *         │                              │CLUSTER SYNCSLOTS <arg>  │                             │
  *         │                              ├────────────────────────►│                             │
@@ -204,26 +204,26 @@ int clusterNodeTlsPort(clusterNode *node);
  *         │                              │◄────────────────────────┤                             │
  *         │                              │                         │ASM_EVENT_MIGRATE_WAIT_PAUSE │
  *         │                              │                         ├────────────────────────────►│
- *         │                              │                         │ ASM_REQUEST_MIGRATE_PAUSED  │
+ *         │                              │                         │     ASM_OP_NOTIFY_PAUSED    │
  *         │                              │                         │◄────────────────────────────┤
  *         │                              │ Drain repl stream       │                             │
  *         │                              │◄────────────────────────┤                             │
  *         │ASM_EVENT_IMPORT_WAIT_FINALIZE│                         │                             │
  *         │◄─────────────────────────────┤                         │                             │
  *         │                              │                         │                             │
- *         │ ASM_REQUEST_CONFIG_UPDATED   │                         │                             │
- *         ├─────────────────────────────►│                         │ ASM_REQUEST_CONFIG_UPDATED  │
+ *         │ ASM_OP_NOTIFY_CONFIG_UPDATED │                         │                             │
+ *         ├─────────────────────────────►│                         │ASM_OP_NOTIFY_CONFIG_UPDATED │
  *         │                              │                         │◄────────────────────────────┤
  *         │                              │                         │                             │
  */
 
-#define ASM_REQUEST_IMPORT_START        1  /* Start a new import operation (destination side) */
-#define ASM_REQUEST_IMPORT_CANCEL       2  /* Cancel an ongoing import operation (destination side) */
-#define ASM_REQUEST_MIGRATE_PAUSED      3  /* Notify that slot writes are paused (source side) */
-#define ASM_REQUEST_CONFIG_UPDATED      4  /* Notify that config is updated (source and destination side) */
+#define ASM_OP_IMPORT_START          1  /* Start a new import operation (destination side) */
+#define ASM_OP_IMPORT_CANCEL         2  /* Cancel an ongoing import operation (destination side) */
+#define ASM_OP_NOTIFY_PAUSED         3  /* Notify that slot writes are paused (source side) */
+#define ASM_OP_NOTIFY_CONFIG_UPDATED 4  /* Notify that config is updated (source and destination side) */
 
 /* Called by implementation to request an ASM operation. */
-int clusterAsmRequest(slotRangeArray *slot_ranges, int request, void *arg, sds *err);
+int clusterAsmProcess(slotRangeArray *slot_ranges, int op, void *arg, sds *err);
 
 #define ASM_EVENT_IMPORT_STARTED        1 /* Import started */
 #define ASM_EVENT_IMPORT_FAILED         2 /* Import failed */

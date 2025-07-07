@@ -1641,6 +1641,11 @@ void replySlotsFlushAndFree(client *c, slotRangeArray *sra) {
 int validateSlotRanges(slotRangeArray *sra, sds *err) {
     unsigned char slots[CLUSTER_SLOTS] = {0};
 
+    if (sra->num_ranges <= 0 || sra->num_ranges >= CLUSTER_SLOTS) {
+        *err = sdscatprintf(sdsempty(), "invalid number of slot ranges: %d", sra->num_ranges);
+        return C_ERR;
+    }
+
     for (int i = 0; i < sra->num_ranges; i++) {
         if (sra->ranges[i].start >= CLUSTER_SLOTS ||
             sra->ranges[i].end >= CLUSTER_SLOTS)
