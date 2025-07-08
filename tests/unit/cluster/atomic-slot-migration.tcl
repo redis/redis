@@ -213,7 +213,7 @@ start_cluster 3 3 {tags {external:skip cluster}} {
     }
 
     test "Source node main channel basic error-handling tests " {
-        set all_states [list "wait-rdbchannel" "send-bulk-and-stream" "paused-write"]
+        set all_states [list "wait-rdbchannel" "send-bulk-and-stream" "handoff"]
         asm_basic_error_handling_test "migrate" "main" $all_states
     }
 

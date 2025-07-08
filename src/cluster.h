@@ -174,15 +174,15 @@ int clusterNodeTlsPort(clusterNode *node);
 
 /* API for implementation/plugin
  *
- * - On destination side, implementation calls clusterAsmProcess(ASM_OP_IMPORT_START)
- *   to start the import operation
+ * - On destination side, implementation calls clusterAsmProcess(ASM_EVENT_IMPORT_START)
+ *   to start the import operation.
  * - Redis calls clusterAsmOnEvent() when an event occurs.
- * - On the source side, Redis will call clusterAsmOnEvent(ASM_EVENT_MIGRATE_WAIT_PAUSE)
- *   when the write pause is needed.
- * - Implementation stops the traffic to the slots and calls clusterAsmProcess(ASM_OP_NOTIFY_PAUSED)
- * - On the destination side, Redis calls clusterAsmOnEvent(ASM_EVENT_IMPORT_WAIT_FINALIZE)
- *   when the import is completed.
- * - Plugin updates the config and calls clusterAsmProcess(ASM_OP_NOTIFY_CONFIG_UPDATED)
+ * - On the source side, Redis will call clusterAsmOnEvent(ASM_EVENT_HANDOFF_PREP)
+ *   when slots are ready to be handed off  and the write pause is needed.
+ * - Implementation stops the traffic to the slots and calls clusterAsmProcess(ASM_EVENT_HANDOFF)
+ * - On the destination side, Redis calls clusterAsmOnEvent(ASM_EVENT_TAKEOVER)
+ *   when destination node is ready to take over the slot, waiting for config change.
+ * - Plugin updates the config and calls clusterAsmProcess(ASM_EVENT_DONE)
  *   to notify Redis that the config is updated.
  *
  * Sequence diagram for import:
@@ -193,51 +193,57 @@ int clusterNodeTlsPort(clusterNode *node);
  * │ Cluster plugin│              │ Master        │         │    Master     │             │ Cluster plugin│
  * └───────┬───────┘              └───────┬───────┘         └───────┬───────┘             └───────┬───────┘
  *         │                              │                         │                             │
- *         │ ASM_OP_IMPORT_START          │                         │                             │
+ *         │     ASM_EVENT_IMPORT_START   │                         │                             │
  *         ├─────────────────────────────►│                         │                             │
- *         │                              │CLUSTER SYNCSLOTS <arg>  │                             │
+ *         │                              │ CLUSTER SYNCSLOTS <arg> │                             │
  *         │                              ├────────────────────────►│                             │
  *         │                              │                         │                             │
  *         │                              │  SNAPSHOT(restore cmds) │                             │
  *         │                              │◄────────────────────────┤                             │
  *         │                              │  Repl stream            │                             │
  *         │                              │◄────────────────────────┤                             │
- *         │                              │                         │ASM_EVENT_MIGRATE_WAIT_PAUSE │
+ *         │                              │                         │   ASM_EVENT_HANDOFF_PREP    │
  *         │                              │                         ├────────────────────────────►│
- *         │                              │                         │     ASM_OP_NOTIFY_PAUSED    │
+ *         │                              │                         │     ASM_EVENT_HANDOFF       │
  *         │                              │                         │◄────────────────────────────┤
  *         │                              │ Drain repl stream       │                             │
  *         │                              │◄────────────────────────┤                             │
- *         │ASM_EVENT_IMPORT_WAIT_FINALIZE│                         │                             │
+ *         │     ASM_EVENT_TAKEOVER       │                         │                             │
  *         │◄─────────────────────────────┤                         │                             │
  *         │                              │                         │                             │
- *         │ ASM_OP_NOTIFY_CONFIG_UPDATED │                         │                             │
- *         ├─────────────────────────────►│                         │ASM_OP_NOTIFY_CONFIG_UPDATED │
+ *         │       ASM_EVENT_DONE         │                         │                             │
+ *         ├─────────────────────────────►│                         │       ASM_EVENT_DONE        │
  *         │                              │                         │◄────────────────────────────┤
  *         │                              │                         │                             │
  */
 
-#define ASM_OP_IMPORT_START          1  /* Start a new import operation (destination side) */
-#define ASM_OP_IMPORT_CANCEL         2  /* Cancel an ongoing import operation (destination side) */
-#define ASM_OP_NOTIFY_PAUSED         3  /* Notify that slot writes are paused (source side) */
-#define ASM_OP_NOTIFY_CONFIG_UPDATED 4  /* Notify that config is updated (source and destination side) */
+#define ASM_EVENT_IMPORT_START      1  /* Start a new import operation (destination side) */
+#define ASM_EVENT_IMPORT_CANCEL     2  /* Cancel an ongoing import operation (source side) */
+#define ASM_EVENT_MIGRATE_CANCEL    3  /* Cancel an ongoing migrate operation (destination side) */
+#define ASM_EVENT_HANDOFF_PREP      4  /* Slot is ready to be handed off to the destination shard (source side) */
+#define ASM_EVENT_HANDOFF           5  /* Notify that the slot can be handed off (source side) */
+#define ASM_EVENT_TAKEOVER          6  /* Ready to take over the slot, waiting for config change (destination side) */
+#define ASM_EVENT_DONE              7  /* Notify that config is updated (source and destination side) */
 
-/* Called by implementation to request an ASM operation. */
-int clusterAsmProcess(slotRangeArray *slot_ranges, int op, void *arg, sds *err);
-
-#define ASM_EVENT_IMPORT_STARTED        1 /* Import started */
-#define ASM_EVENT_IMPORT_FAILED         2 /* Import failed */
-#define ASM_EVENT_IMPORT_WAIT_FINALIZE  3 /* Import completed, waiting for config change */
-#define ASM_EVENT_IMPORT_FINALIZED      4 /* TODO: decide if we need this to trigger when config is updated */
-
-#define ASM_EVENT_MIGRATE_STARTED       5 /* Migration started */
-#define ASM_EVENT_MIGRATE_FAILED        6 /* Migration failed */
-#define ASM_EVENT_MIGRATE_WAIT_PAUSE    7 /* Migrate operation waiting for slot writes to be paused */
-#define ASM_EVENT_MIGRATE_WAIT_FINALIZE 8 /* Migration completed */
-#define ASM_EVENT_MIGRATE_FINALIZED     9 /* TODO: decide if we need this to trigger when config is updated */
+#define ASM_EVENT_IMPORT_STARTED    8  /* Import started */
+#define ASM_EVENT_IMPORT_FAILED     9  /* Import failed */
+#define ASM_EVENT_IMPORT_COMPLETED  10 /* Import completed (config updated) */
+#define ASM_EVENT_MIGRATE_STARTED   11 /* Migration started */
+#define ASM_EVENT_MIGRATE_FAILED    12 /* Migration failed */
+#define ASM_EVENT_MIGRATE_COMPLETED 13 /* Migrate completed (config updated) */
 
 
-/* Called when an ASM event occurs to notify implementation/plugin. */
+/* Called by plugin/implementation to request an ASM operation. (plugin --> redis)
+ * Valid values for 'event':
+ *   ASM_EVENT_IMPORT_START
+ *   ASM_EVENT_IMPORT_CANCEL
+ *   ASM_EVENT_MIGRATE_CANCEL
+ *   ASM_EVENT_HANDOFF
+ *   ASM_EVENT_DONE
+ **/
+int clusterAsmProcess(slotRangeArray *slot_ranges, int event, void *arg, sds *err);
+
+/* Called when an ASM event occurs to notify implementation/plugin. (redis --> plugin) */
 int clusterAsmOnEvent(slotRangeArray *slot_ranges, int event, void *arg);
 
 #endif /* __CLUSTER_H */

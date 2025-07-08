@@ -70,14 +70,14 @@ enum asmState {
     ASM_ACCUMULATE_BUF,
     ASM_STREAMING_BUF,
     ASM_WAIT_STREAM_EOF,
-    ASM_SLOTS_HANDOFF,
+    ASM_TAKEOVER,
 
     /* Migrate state */
     ASM_WAIT_RDBCHANNEL,
     ASM_WAIT_BGSAVE_START,
     ASM_SEND_BULK_AND_STREAM,
-    ASM_WAIT_PAUSE_WRITE,
-    ASM_PAUSED_WRITE,
+    ASM_HANDOFF_PREP,
+    ASM_HANDOFF,
     ASM_STREAM_DONE,
 
     /* RDB channel state */
@@ -137,14 +137,14 @@ char *asmTaskStateToString(int state) {
         case ASM_ACCUMULATE_BUF: return "accumulate-buffer";
         case ASM_STREAMING_BUF: return "streaming-buffer";
         case ASM_WAIT_STREAM_EOF: return "wait-stream-eof";
-        case ASM_SLOTS_HANDOFF: return "slots-handoff";
+        case ASM_TAKEOVER: return "takeover";
     
         /* Migrate state */
         case ASM_WAIT_RDBCHANNEL: return "wait-rdbchannel";
         case ASM_WAIT_BGSAVE_START: return "wait-bgsave-start";
         case ASM_SEND_BULK_AND_STREAM: return "send-bulk-and-stream";
-        case ASM_WAIT_PAUSE_WRITE: return "wait-pause-write";
-        case ASM_PAUSED_WRITE: return "paused-write";
+        case ASM_HANDOFF_PREP: return "handoff-prep";
+        case ASM_HANDOFF: return "handoff";
         case ASM_STREAM_DONE: return "stream-done";
 
         /* RDB channel state */
@@ -187,7 +187,7 @@ int asmDebugSetFailPoint(char * channel, char *state) {
     else if (!strcasecmp(state, "wait-rdbchannel")) asmManager->debug_failed_state = ASM_WAIT_RDBCHANNEL;
     else if (!strcasecmp(state, "wait-bgsave-start")) asmManager->debug_failed_state = ASM_WAIT_BGSAVE_START;
     else if (!strcasecmp(state, "send-bulk-and-stream")) asmManager->debug_failed_state = ASM_SEND_BULK_AND_STREAM;
-    else if (!strcasecmp(state, "paused-write")) asmManager->debug_failed_state = ASM_PAUSED_WRITE;
+    else if (!strcasecmp(state, "handoff")) asmManager->debug_failed_state = ASM_HANDOFF;
     else if (!strcasecmp(state, "rdbchannel-reply")) asmManager->debug_failed_state = ASM_RDBCHANNEL_REPLY;
     else if (!strcasecmp(state, "rdbchannel-transfer")) asmManager->debug_failed_state = ASM_RDBCHANNEL_TRANSFER;
     else return C_ERR;
@@ -419,7 +419,7 @@ int asmMigrateInProgress(void) {
 int asmCanFeedMigrationClient(asmTask *task) {
     return task->operation == ASM_MIGRATE &&
              (task->state == ASM_SEND_BULK_AND_STREAM ||
-              task->state == ASM_WAIT_PAUSE_WRITE);
+              task->state == ASM_HANDOFF_PREP);
 }
 
 /* Feed the migration client with the replication stream for the slot range. */
@@ -1192,8 +1192,8 @@ void clusterSyncSlotsStreamEOF(client *c) {
     c->flags &= ~CLIENT_MASTER;
     freeClientAsync(c);
 
-    task->state = ASM_SLOTS_HANDOFF;
-    clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_IMPORT_WAIT_FINALIZE, NULL);
+    task->state = ASM_TAKEOVER;
+    clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_TAKEOVER, NULL);
 }
 
 /* Start the import task. */
@@ -1409,8 +1409,8 @@ void clusterSyncSlotsCommand(client *c) {
                                          "pausing writes for slot handoff",
                                          task->source_offset - task->dest_offset,
                                          (int)ASM_PAUSE_WRITE_MAX_GAP_BYTES);
-                    task->state = ASM_WAIT_PAUSE_WRITE;
-                    clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_MIGRATE_WAIT_PAUSE, NULL);
+                    task->state = ASM_HANDOFF_PREP;
+                    clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_HANDOFF_PREP, NULL);
                 }
             }
         }
@@ -1661,7 +1661,7 @@ void asmBeforeSleep(void) {
     }
 
     if (task->operation == ASM_MIGRATE) {
-        if (task->state == ASM_PAUSED_WRITE) {
+        if (task->state == ASM_HANDOFF) {
             client *c = task->main_channel_client;
             /* The command streams for slot ranges have been drained. */
             if (!clientHasPendingReplies(c)) {
@@ -1687,8 +1687,6 @@ void asmBeforeSleep(void) {
                 task->main_channel_client = NULL;
 
                 task->state = ASM_STREAM_DONE;
-                /* Notify plugin that migrate is completed */
-                clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_MIGRATE_WAIT_FINALIZE, NULL);
             }
         }
     }
@@ -1738,14 +1736,14 @@ int clusterAsmCancel(slotRangeArray *slot_ranges, sds *err) {
     return num_cancelled;
 }
 
-int clusterAsmSlotWritesPaused(slotRangeArray *slot_ranges, sds *err) {
+int clusterAsmHandoff(slotRangeArray *slot_ranges, sds *err) {
     UNUSED(slot_ranges);
     UNUSED(err);
     /* find task matching slot ranges */
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
-    if (!task || task->state != ASM_WAIT_PAUSE_WRITE) return C_ERR;
+    if (!task || task->state != ASM_HANDOFF_PREP) return C_ERR;
 
-    task->state = ASM_PAUSED_WRITE;
+    task->state = ASM_HANDOFF;
     task->paused_time = server.mstime;
 
     return C_OK;
@@ -1763,7 +1761,7 @@ int clusterAsmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
         return C_ERR;
     }
 
-    if (task->operation == ASM_IMPORT && task->state == ASM_SLOTS_HANDOFF) {
+    if (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER) {
         task->state = ASM_DONE;
         task->done_time = server.mstime;
         asmManager->total_done_tasks++;
@@ -1772,7 +1770,7 @@ int clusterAsmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
 
         /* Move the task to completed tasks */
         asmTaskComplete(task);
-        clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_IMPORT_FINALIZED, NULL);
+        clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_IMPORT_COMPLETED, NULL);
         return C_OK;
     } else if (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_DONE) {
         task->state = ASM_DONE;
@@ -1784,7 +1782,7 @@ int clusterAsmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
 
         /* Migrate task is done, move it to the completed tasks list */
         asmTaskComplete(task);
-        clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_MIGRATE_FINALIZED, NULL);
+        clusterAsmOnEvent(task->slot_ranges, ASM_EVENT_MIGRATE_COMPLETED, NULL);
         return C_OK;
     } else {
         serverLog(LL_WARNING, "ASM task is not in the correct state for config update: %s",
@@ -1795,20 +1793,21 @@ int clusterAsmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
     serverAssert(0); /* Unreachable */
 }
 
-int clusterAsmProcess(slotRangeArray *slot_ranges, int op, void *arg, sds *err) {
+int clusterAsmProcess(slotRangeArray *slot_ranges, int event, void *arg, sds *err) {
     UNUSED(arg);
 
-    switch (op) {
-        case ASM_OP_IMPORT_START:
+    switch (event) {
+        case ASM_EVENT_IMPORT_START:
             return clusterAsmImport(slot_ranges, err);
-        case ASM_OP_IMPORT_CANCEL:
+        case ASM_EVENT_IMPORT_CANCEL:
+        case ASM_EVENT_MIGRATE_CANCEL:
             return clusterAsmCancel(slot_ranges, err);
-        case ASM_OP_NOTIFY_PAUSED:
-            return clusterAsmSlotWritesPaused(slot_ranges, err);
-        case ASM_OP_NOTIFY_CONFIG_UPDATED:
+        case ASM_EVENT_HANDOFF:
+            return clusterAsmHandoff(slot_ranges, err);
+        case ASM_EVENT_DONE:
             return clusterAsmNotifyConfigUpdated(slot_ranges, err);
         default:
-            *err = sdscatprintf(sdsempty(), "Unknown operation: %d", op);
+            *err = sdscatprintf(sdsempty(), "Unknown operation: %d", event);
             return C_ERR;
     }
 }

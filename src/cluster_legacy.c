@@ -2444,7 +2444,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         sra->num_ranges++;
     }
     if (sra->num_ranges > 0 && server.masterhost == NULL) {
-        clusterAsmProcess(sra, ASM_OP_NOTIFY_CONFIG_UPDATED, NULL, NULL);
+        clusterAsmProcess(sra, ASM_EVENT_DONE, NULL, NULL);
     }
     zfree(sra);
 
@@ -6532,8 +6532,8 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
         case ASM_EVENT_IMPORT_FAILED:
             serverLog(LL_NOTICE, "Import task failed for slots: %s", str);
             break;
-        case ASM_EVENT_IMPORT_WAIT_FINALIZE:
-            serverLog(LL_NOTICE, "Import task is waiting to be finalized for slots: %s", str);
+        case ASM_EVENT_TAKEOVER:
+            serverLog(LL_NOTICE, "Import task is ready to takeover slots: %s", str);
 
             for (int i = 0; i < slot_ranges->num_ranges; i++) {
                 slotRange *sr = &slot_ranges->ranges[i];
@@ -6546,10 +6546,10 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
             clusterBumpConfigEpochWithoutConsensus();
             clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             clusterSaveConfigOrDie(1);
-            clusterAsmProcess(slot_ranges, ASM_OP_NOTIFY_CONFIG_UPDATED, NULL, NULL);
+            clusterAsmProcess(slot_ranges, ASM_EVENT_DONE, NULL, NULL);
             break;
-        case ASM_EVENT_IMPORT_FINALIZED:
-            serverLog(LL_NOTICE, "Import task finalized for slots: %s", str);
+        case ASM_EVENT_IMPORT_COMPLETED:
+            serverLog(LL_NOTICE, "Import task completed for slots: %s", str);
             break;
         case ASM_EVENT_MIGRATE_STARTED:
             serverLog(LL_NOTICE, "Migrate task started for slots: %s", str);
@@ -6558,18 +6558,15 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
             serverLog(LL_NOTICE, "Migrate task failed for slots: %s", str);
             unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
             break;
-        case ASM_EVENT_MIGRATE_WAIT_PAUSE:
-            serverLog(LL_NOTICE, "Migrate task is pausing writes for slots: %s", str);
+        case ASM_EVENT_HANDOFF_PREP:
+            serverLog(LL_NOTICE, "Migrate task preparing to handoff for slots: %s", str);
             pauseActions(PAUSE_DURING_SLOT_HANDOFF,
                          LLONG_MAX,
                          PAUSE_ACTIONS_CLIENT_WRITE_SET);
-            clusterAsmProcess(slot_ranges, ASM_OP_NOTIFY_PAUSED, NULL, NULL);
+            clusterAsmProcess(slot_ranges, ASM_EVENT_HANDOFF, NULL, NULL);
             break;
-        case ASM_EVENT_MIGRATE_WAIT_FINALIZE:
-            serverLog(LL_NOTICE, "Migrate task is waiting to be finalized for slots: %s", str);
-            break;
-        case ASM_EVENT_MIGRATE_FINALIZED:
-            serverLog(LL_NOTICE, "Migrate task finalized for slots: %s", str);
+        case ASM_EVENT_MIGRATE_COMPLETED:
+            serverLog(LL_NOTICE, "Migrate task completed for slots: %s", str);
             unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
             break;
         default:
