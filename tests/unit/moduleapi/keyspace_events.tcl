@@ -97,13 +97,12 @@ tags "modules" {
             } else {
                 fail "callback did not trigger"
             }
-            r keyspace.unsubscribe 4
             set before_unsub [r keyspace.callback_count]
+            r keyspace.unsubscribe 4  ;# REDISMODULE_NOTIFY_GENERIC
             r set a 1
             r del a
-            after 50
             set after_unsub [r keyspace.callback_count]
-            assert_equal $before_unsub $after_unsub ;# כלומר לא נוספה קריאה נוספת
+            assert_equal $before_unsub $after_unsub ;
 
         }
 
