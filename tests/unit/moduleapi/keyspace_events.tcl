@@ -102,8 +102,7 @@ tags "modules" {
             r set a 1
             r del a
             set after_unsub [r keyspace.callback_count]
-            assert_equal $before_unsub $after_unsub ;
-
+            assert_equal $before_unsub $after_unsub
         }
 
         test {Test expired key space event} {
