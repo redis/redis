@@ -1332,10 +1332,145 @@ int objectTypeCompare(robj *o, long long target) {
     else 
         return 1;
 }
+/* This callback is used by scanGenericCommand in order to collect elements
+ * returned by the dictionary iterator into a list. */
+void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    scanData *data = (scanData *)privdata;
+    robj *o = data->o;
+    sds val = NULL;
+    void *key = NULL;  /* if OBJ_HASH then key is of type `hfield`. Otherwise, `sds` */
+    void *keyStr;
+    data->sampled++;
 
-/* Forward declarations */
-long long getObjectTypeByName(char *name);
-void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink);
+    /* o and typename can not have values at the same time. */
+    serverAssert(!((data->type != LLONG_MAX) && o));
+
+    if (!o) { /* If scanning keyspace */
+        kvobj *kv = dictGetKV(de);
+
+        /* Expiration check first - only for database keyspace scanning.
+         * Use kv obj to avoid robj creation. */
+        if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
+            return;
+
+        /* Type filtering - only for database keyspace scanning */
+        if (data->typename) {
+            /* For unknown types (LLONG_MAX), skip all keys */
+            if (data->type == LLONG_MAX)
+                return;
+            /* For known types, skip keys that don't match */
+            if (!objectTypeCompare(kv, data->type))
+                return;
+        }
+
+        keyStr = kvobjGetKey(kv);
+    } else {
+        keyStr = dictGetKey(de);
+    }
+
+    /* Filter element if it does not match the pattern. */
+    if (data->pattern) {
+        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, data->strlen(keyStr), 0)) {
+            return;
+        }
+    }
+
+    if (o == NULL) {
+        /* SCAN command - single keys */
+        data->array_stores_pairs = 0;
+        scanItemsPush(data, keyStr);
+        return;
+    } else if (o->type == OBJ_SET) {
+        /* SSCAN command - single members */
+        data->array_stores_pairs = 0;
+        scanItemsPush(data, keyStr);
+        return;
+    } else if (o->type == OBJ_HASH) {
+        key = keyStr;
+        val = dictGetVal(de);
+
+        /* HSCAN command - field-value pairs */
+        if (hfieldIsExpired(keyStr))
+            return;
+
+        if (data->no_values) {
+            data->array_stores_pairs = 0;
+            scanItemsPush(data, key);
+        } else {
+            data->array_stores_pairs = 1;
+            scanItemsPush(data, key);
+            scanItemsPush(data, val);
+        }
+        return;
+    } else if (o->type == OBJ_ZSET) {
+        /* ZSCAN command - member-score pairs */
+        char buf[MAX_LONG_DOUBLE_CHARS];
+        int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);
+
+        key = sdsdup(keyStr);
+        val = sdsnewlen(buf, len);
+
+        data->array_stores_pairs = 1;
+        scanItemsPush(data, key);
+        scanItemsPush(data, val);
+        return;
+    } else {
+        serverPanic("Type not handled in SCAN callback.");
+    }
+}
+
+/* Try to parse a SCAN cursor stored at object 'o':
+ * if the cursor is valid, store it as unsigned integer into *cursor and
+ * returns C_OK. Otherwise return C_ERR and send an error to the
+ * client. */
+int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
+    if (!string2ull(o->ptr, cursor)) {
+        addReplyError(c, "invalid cursor");
+        return C_ERR;
+    }
+    return C_OK;
+}
+
+char *obj_type_name[OBJ_TYPE_MAX] = {
+    "string",
+    "list",
+    "set",
+    "zset",
+    "hash",
+    NULL, /* module type is special */
+    "stream"
+};
+
+/* Helper function to get type from a string in scan commands */
+long long getObjectTypeByName(char *name) {
+
+    for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
+        if (obj_type_name[i] && !strcasecmp(name, obj_type_name[i])) {
+            return i;
+        }
+    }
+
+    moduleType *mt = moduleTypeLookupModuleByNameIgnoreCase(name);
+    if (mt != NULL) return -(REDISMODULE_TYPE_SIGN(mt->id));
+
+    return LLONG_MAX;
+}
+
+char *getObjectTypeName(robj *o) {
+    if (o == NULL) {
+        return "none";
+    }
+
+    serverAssert(o->type >= 0 && o->type < OBJ_TYPE_MAX);
+
+    if (o->type == OBJ_MODULE) {
+        moduleValue *mv = o->ptr;
+        return mv->type->name;
+    } else {
+        return obj_type_name[o->type];
+    }
+}
 
 /* Parse SCAN command options (COUNT, MATCH, TYPE, NOVALUES).
  * Does NOT parse cursor - that should be done separately.
@@ -1630,147 +1765,6 @@ void scanListpackEx(client *c, robj *o, scanOptions *opts) {
     }
     setDeferredArrayLen(c, replylen, cur_length);
 }
-
-/* This callback is used by scanGenericCommand in order to collect elements
- * returned by the dictionary iterator into a list. */
-void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
-    UNUSED(plink);
-    scanData *data = (scanData *)privdata;
-    robj *o = data->o;
-    sds val = NULL;
-    void *key = NULL;  /* if OBJ_HASH then key is of type `hfield`. Otherwise, `sds` */
-    void *keyStr;
-    data->sampled++;
-
-    /* o and typename can not have values at the same time. */
-    serverAssert(!((data->type != LLONG_MAX) && o));
-
-    if (!o) { /* If scanning keyspace */
-        kvobj *kv = dictGetKV(de);
-
-        /* Expiration check first - only for database keyspace scanning.
-         * Use kv obj to avoid robj creation. */
-        if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
-            return;
-
-        /* Type filtering - only for database keyspace scanning */
-        if (data->typename) {
-            /* For unknown types (LLONG_MAX), skip all keys */
-            if (data->type == LLONG_MAX)
-                return;
-            /* For known types, skip keys that don't match */
-            if (!objectTypeCompare(kv, data->type))
-                return;
-        }
-
-        keyStr = kvobjGetKey(kv);
-    } else {
-        keyStr = dictGetKey(de);
-    }
-
-    /* Filter element if it does not match the pattern. */
-    if (data->pattern) {
-        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, data->strlen(keyStr), 0)) {
-            return;
-        }
-    }
-
-    if (o == NULL) {
-        /* SCAN command - single keys */
-        data->array_stores_pairs = 0;
-        scanItemsPush(data, keyStr);
-        return;
-    } else if (o->type == OBJ_SET) {
-        /* SSCAN command - single members */
-        data->array_stores_pairs = 0;
-        scanItemsPush(data, keyStr);
-        return;
-    } else if (o->type == OBJ_HASH) {
-        key = keyStr;
-        val = dictGetVal(de);
-
-        /* HSCAN command - field-value pairs */
-        if (hfieldIsExpired(keyStr))
-            return;
-
-        if (data->no_values) {
-            data->array_stores_pairs = 0;
-            scanItemsPush(data, key);
-        } else {
-            data->array_stores_pairs = 1;
-            scanItemsPush(data, key);
-            scanItemsPush(data, val);
-        }
-        return;
-    } else if (o->type == OBJ_ZSET) {
-        /* ZSCAN command - member-score pairs */
-        char buf[MAX_LONG_DOUBLE_CHARS];
-        int len = ld2string(buf, sizeof(buf), *(double *)dictGetVal(de), LD_STR_AUTO);
-
-        key = sdsdup(keyStr);
-        val = sdsnewlen(buf, len);
-
-        data->array_stores_pairs = 1;
-        scanItemsPush(data, key);
-        scanItemsPush(data, val);
-        return;
-    } else {
-        serverPanic("Type not handled in SCAN callback.");
-    }
-}
-
-/* Try to parse a SCAN cursor stored at object 'o':
- * if the cursor is valid, store it as unsigned integer into *cursor and
- * returns C_OK. Otherwise return C_ERR and send an error to the
- * client. */
-int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
-    if (!string2ull(o->ptr, cursor)) {
-        addReplyError(c, "invalid cursor");
-        return C_ERR;
-    }
-    return C_OK;
-}
-
-char *obj_type_name[OBJ_TYPE_MAX] = {
-    "string", 
-    "list", 
-    "set", 
-    "zset", 
-    "hash", 
-    NULL, /* module type is special */
-    "stream"
-};
-
-/* Helper function to get type from a string in scan commands */
-long long getObjectTypeByName(char *name) {
-
-    for (long long i = 0; i < OBJ_TYPE_MAX; i++) {
-        if (obj_type_name[i] && !strcasecmp(name, obj_type_name[i])) {
-            return i;
-        }
-    }
-
-    moduleType *mt = moduleTypeLookupModuleByNameIgnoreCase(name);
-    if (mt != NULL) return -(REDISMODULE_TYPE_SIGN(mt->id));
-
-    return LLONG_MAX;
-}
-
-char *getObjectTypeName(robj *o) {
-    if (o == NULL) {
-        return "none";
-    }
-
-    serverAssert(o->type >= 0 && o->type < OBJ_TYPE_MAX);
-
-    if (o->type == OBJ_MODULE) {
-        moduleValue *mv = o->ptr;
-        return mv->type->name;
-    } else {
-        return obj_type_name[o->type];
-    }
-}
-
 
 /* The SCAN command directly uses scanHashTable for database keys. */
 void scanCommand(client *c) {
