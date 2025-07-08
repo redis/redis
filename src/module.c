@@ -8883,7 +8883,7 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
     listNode *ln;
     listRewind(moduleKeyspaceSubscribers,&li);
     while ((ln = listNext(&li))) {
-        RedisModuleKeyspaceSubscriber* sub = ln->value;
+        RedisModuleKeyspaceSubscriber *sub = ln->value;
         if (sub->event_mask == types && sub->notify_callback == callback && sub->module == ctx->module) {
             zfree(sub);
             listDelNode(moduleKeyspaceSubscribers, ln);
