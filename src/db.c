@@ -1433,11 +1433,11 @@ int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor) {
 }
 
 char *obj_type_name[OBJ_TYPE_MAX] = {
-    "string",
-    "list",
-    "set",
-    "zset",
-    "hash",
+    "string", 
+    "list", 
+    "set", 
+    "zset", 
+    "hash", 
     NULL, /* module type is special */
     "stream"
 };
