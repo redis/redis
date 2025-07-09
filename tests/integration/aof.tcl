@@ -728,8 +728,7 @@ tags {"aof external:skip"} {
         }
 
         test "param should be 'ok'" {
-            set client [redis [srv host] [srv port]]
-            # set client [redis [srv host] [srv port] $::tls]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
             assert {[$client get param] eq "ok"}
         }
@@ -833,8 +832,7 @@ tags {"aof external:skip"} {
     start_server_aof [list dir $server_path aof-load-broken yes] {
         test "Corrupted last AOF file: Server should still start and recover" {
             assert_equal 1 [is_alive [srv pid]]
-            # set client [redis [srv host] [srv port] $::tls]
-            set client [redis [srv host] [srv port]]
+            set client [redis [srv host] [srv port] 0 $::tls]
             wait_done_loading $client
             assert {[$client get fo] eq "mid"}
         }
