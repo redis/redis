@@ -110,7 +110,7 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         R 0 config set rdb-key-save-delay 1000000
     
         # migrate slot 0-100 to R 1
-        assert_equal {OK} [R 1 CLUSTER MIGRATION IMPORT 0 100]
+        R 1 CLUSTER MIGRATION IMPORT 0 100
         # migration is start, and in accumulating buffer stage
         wait_for_condition 1000 50 {
             [string match {*send-bulk-and-stream*} [R 0 cluster migration status]] &&
@@ -183,7 +183,7 @@ start_cluster 3 3 {tags {external:skip cluster}} {
             # Migrate slot 0-100 to R 0 if this is the first time,
             # otherwise, import will retry automatically
             if {$send_migration_import_0_100 == 0} {
-                assert_equal {OK} [R 0 CLUSTER MIGRATION IMPORT 0 100]
+                R 0 CLUSTER MIGRATION IMPORT 0 100
                 set send_migration_import_0_100 1
             }
 

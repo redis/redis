@@ -64,7 +64,7 @@ typedef int (*clusterNodeTlsPortFunc)(clusterNode *node);
 
 typedef const char *(*clusterGetSecretFunc)(size_t *len);
 
-typedef int (*clusterAsmOnEventFunc)(slotRangeArray *slot_ranges, int event, void *arg);
+typedef int (*clusterAsmOnEventFunc)(sds task_id, int event, void *arg);
 
 typedef struct {
     clusterAllowFailoverCmdFunc clusterAllowFailoverCmd;

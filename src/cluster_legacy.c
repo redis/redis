@@ -2444,7 +2444,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         sra->num_ranges++;
     }
     if (sra->num_ranges > 0 && server.masterhost == NULL) {
-        clusterAsmProcess(sra, ASM_EVENT_DONE, NULL, NULL);
+        asmNotifyConfigUpdated(sra, NULL);
     }
     zfree(sra);
 
@@ -6520,12 +6520,13 @@ void clusterPromoteSelfToMaster(void) {
     replicationUnsetMaster();
 }
 
-int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
+int clusterAsmOnEvent(sds task_id, int event, void *arg) {
     UNUSED(arg);
 
-    sds str = createSlotRangesStr(slot_ranges);
+    slotRangeArray *slots = asmTaskGetSlotRanges(task_id);
+    sds str = createSlotRangesStr(slots);
 
-    switch (state) {
+    switch (event) {
         case ASM_EVENT_IMPORT_STARTED:
             serverLog(LL_NOTICE, "Import task started for slots: %s", str);
             break;
@@ -6535,8 +6536,8 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
         case ASM_EVENT_TAKEOVER:
             serverLog(LL_NOTICE, "Import task is ready to takeover slots: %s", str);
 
-            for (int i = 0; i < slot_ranges->num_ranges; i++) {
-                slotRange *sr = &slot_ranges->ranges[i];
+            for (int i = 0; i < slots->num_ranges; i++) {
+                slotRange *sr = &slots->ranges[i];
                 for (int j = sr->start; j <= sr->end; j++) {
                     clusterDelSlot(j);
                     clusterAddSlot(myself, j);
@@ -6546,7 +6547,7 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
             clusterBumpConfigEpochWithoutConsensus();
             clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             clusterSaveConfigOrDie(1);
-            clusterAsmProcess(slot_ranges, ASM_EVENT_DONE, NULL, NULL);
+            clusterAsmProcess(&task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
             serverLog(LL_NOTICE, "Import task completed for slots: %s", str);
@@ -6563,7 +6564,7 @@ int clusterAsmOnEvent(slotRangeArray *slot_ranges, int state, void *arg) {
             pauseActions(PAUSE_DURING_SLOT_HANDOFF,
                          LLONG_MAX,
                          PAUSE_ACTIONS_CLIENT_WRITE_SET);
-            clusterAsmProcess(slot_ranges, ASM_EVENT_HANDOFF, NULL, NULL);
+            clusterAsmProcess(&task_id, ASM_EVENT_HANDOFF, NULL, NULL);
             break;
         case ASM_EVENT_MIGRATE_COMPLETED:
             serverLog(LL_NOTICE, "Migrate task completed for slots: %s", str);
