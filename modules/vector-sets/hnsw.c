@@ -1975,6 +1975,13 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
     double logN = log2(index->node_count + 1);
     uint32_t num_walks = (uint32_t)(logN * c);
 
+    /* Avoid the ping-pong effect: imagine there are just two nodes and
+     * the number of walks selected is even. We will select always the
+     * first element of the graph; conversely, if it is odd, we will always
+     * select the other element. One way to add more selection randomness is
+     * to randomly add '1' or '0' to the number of walks to perform. */
+    num_walks += rand() & 1;
+
     // Perform random walk at level 0.
     for (uint32_t i = 0; i < num_walks; i++) {
         if (current->layers[0].num_links == 0) return current;
