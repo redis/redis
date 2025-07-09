@@ -47,6 +47,7 @@ int connTypeRegister(ConnectionType *ct) {
         }
     }
 
+    serverAssert(type < CONN_TYPE_MAX);
     serverLog(LL_VERBOSE, "Connection type %s registered", typename);
     connTypes[type] = ct;
 
