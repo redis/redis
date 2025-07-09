@@ -247,7 +247,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklist *quicklist, quicklistNode *no
         zfree(lzf);
         return 0;
     }
-    size_t old_entry_size, new_entry_size;
+    size_t new_entry_size, old_entry_size;
     lzf = zrealloc_usable(lzf, sizeof(*lzf) + lzf->sz, &new_entry_size);
     zfree_usable(node->entry, &old_entry_size);
     node->entry = (unsigned char *)lzf;
@@ -272,7 +272,7 @@ REDIS_STATIC int __quicklistDecompressNode(quicklist *quicklist, quicklistNode *
 #endif
     node->recompress = 0;
 
-    size_t old_entry_size, new_entry_size;
+    size_t new_entry_size, old_entry_size;
     void *decompressed = zmalloc_usable(node->sz, &new_entry_size);
     quicklistLZF *lzf = (quicklistLZF *)node->entry;
     if (lzf_decompress(lzf->compressed, lzf->sz, decompressed, node->sz) == 0) {
@@ -721,7 +721,7 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
     quicklist->len--;
     quicklist->count -= node->count;
 
-    size_t node_size, entry_size = 0;
+    size_t node_size, entry_size;
     zfree_usable(node->entry, &entry_size);
     zfree_usable(node, &node_size);
 
@@ -1820,9 +1820,9 @@ int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode 
         bm->node = node;
         return 1;
     }
-    size_t old_size, new_size;
-    old_size = zmalloc_usable_size(ql);
-    ql = zrealloc_usable(ql, sizeof(quicklist) + (ql->bookmark_count+1) * sizeof(quicklistBookmark), &new_size);
+    size_t new_size, old_size;
+    ql = zrealloc_usable2(ql, sizeof(quicklist) + (ql->bookmark_count+1) * sizeof(quicklistBookmark),
+                          &new_size, &old_size);
     *ql_ref = ql;
     ql->bookmarks[ql->bookmark_count].node = node;
     size_t name_sz;
