@@ -218,6 +218,7 @@ sds sdsnewplacement(char *buf, size_t bufsize, char type, const char *init, size
 sds sdsempty(void);
 sds sdsdup(const sds s);
 void sdsfree(sds s);
+void sdsfreeusable(sds s, size_t *usable);
 void sdsfreegeneric(void *s);
 sds sdsgrowzero(sds s, size_t len);
 sds sdscatlen(sds s, const void *t, size_t len);

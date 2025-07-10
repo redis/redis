@@ -216,6 +216,16 @@ void sdsfree(sds s) {
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
 
+/* Free an sds string. No operation is performed if 's' is NULL.
+ * '*usable' is set to the usable size if non NULL */
+void sdsfreeusable(sds s, size_t *usable) {
+    if (s == NULL) {
+        if (usable) *usable = 0;
+        return;
+    }
+    s_free_usable((char*)s-sdsHdrSize(s[-1]), usable);
+}
+
 /* Generic version of sdsfree. */
 void sdsfreegeneric(void *s) {
     sdsfree((sds)s);
