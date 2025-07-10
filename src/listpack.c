@@ -1245,7 +1245,8 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
 
 /* This is just a wrapper for lpInsert() to directly use a string. */
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
-                              unsigned char *p, int where, unsigned char **newp) {
+                              unsigned char *p, int where, unsigned char **newp)
+{
     return lpInsertStringUsable(lp,s,slen,p,where,newp,NULL,NULL);
 }
 
