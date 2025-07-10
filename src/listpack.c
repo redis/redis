@@ -1029,12 +1029,13 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     unsigned char *dst = lp + poff; /* May be updated after reallocation. */
 
     /* Realloc before: we need more room. */
+    size_t usable_size = lp_malloc_size(lp);
     if (new_listpack_bytes > old_listpack_bytes &&
-        new_listpack_bytes > lp_malloc_size(lp)) {
+        new_listpack_bytes > usable_size) {
         if ((lp = lp_realloc2(lp,new_listpack_bytes,&newsize,&oldsize)) == NULL) return NULL;
         dst = lp + poff;
     } else {
-        oldsize = newsize = lp_malloc_size(lp);
+        oldsize = newsize = usable_size;
     }
 
     /* Setup the listpack relocating the elements to make the exact room
