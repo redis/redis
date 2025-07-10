@@ -4620,6 +4620,7 @@ int isReadyToShutdown(void) {
     listRewind(server.slaves, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *replica = listNodeValue(ln);
+        if (replica->flags & CLIENT_REPL_MIGRATION_DEST) continue;
         if (replica->repl_ack_off != server.master_repl_offset) return 0;
     }
     return 1;

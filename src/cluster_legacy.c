@@ -5777,6 +5777,7 @@ sds genClusterInfoString(void) {
         "cluster_size:%d\r\n"
         "cluster_current_epoch:%llu\r\n"
         "cluster_my_epoch:%llu\r\n"
+        "cluster_slot_migration_sync_buffer_peak:%zu\r\n"
         , statestr[server.cluster->state],
         slots_assigned,
         slots_ok,
@@ -5785,7 +5786,8 @@ sds genClusterInfoString(void) {
         dictSize(server.cluster->nodes),
         server.cluster->size,
         (unsigned long long) server.cluster->currentEpoch,
-        (unsigned long long) myepoch
+        (unsigned long long) myepoch,
+        asmGetPeakSyncBufferSize()
     );
 
     /* Show stats about messages sent and received. */
