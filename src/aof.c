@@ -1414,13 +1414,11 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
     if (server.aof_state == AOF_ON ||
         (server.aof_state == AOF_WAIT_REWRITE && server.child_type == CHILD_TYPE_AOF))
     {
-        sds buf = server.aof_buf;
-
         /* Feed timestamp if needed */
         if (server.aof_timestamp_enabled) {
             sds ts = genAofTimestampAnnotationIfNeeded(0);
             if (ts != NULL) {
-                buf = sdscatsds(buf, ts);
+                server.aof_buf = sdscatsds(server.aof_buf, ts);
                 sdsfree(ts);
             }
         }
@@ -1431,16 +1429,14 @@ void feedAppendOnlyFile(int dictid, robj **argv, int argc) {
             char seldb[64];
 
             snprintf(seldb,sizeof(seldb),"%d",dictid);
-            buf = sdscatprintf(buf,"*2\r\n$6\r\nSELECT\r\n$%lu\r\n%s\r\n",
+            server.aof_buf = sdscatprintf(server.aof_buf,"*2\r\n$6\r\nSELECT\r\n$%lu\r\n%s\r\n",
                 (unsigned long)strlen(seldb),seldb);
             server.aof_selected_db = dictid;
         }
 
         /* All commands should be propagated the same way in AOF as in replication.
          * No need for AOF-specific translation. */
-        buf = catAppendOnlyGenericCommand(buf,argc,argv);
-
-        server.aof_buf = buf;
+        server.aof_buf = catAppendOnlyGenericCommand(server.aof_buf,argc,argv);
     } else {
         if (dictid != -1 && dictid != server.aof_selected_db) {
             server.aof_selected_db = dictid;
