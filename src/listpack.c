@@ -1273,7 +1273,8 @@ unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
 }
 
 unsigned char *lpPrependUsable(unsigned char *lp, unsigned char *s, uint32_t slen,
-                               size_t *usable, size_t *old_usable) {
+                               size_t *usable, size_t *old_usable)
+{
     unsigned char *p = lpFirst(lp);
     if (!p) return lpAppendUsable(lp, s, slen, usable, old_usable);
     return lpInsert(lp, s, NULL, slen, p, LP_BEFORE, NULL, usable, old_usable);
