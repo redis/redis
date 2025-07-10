@@ -1294,7 +1294,8 @@ unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
 }
 
 unsigned char *lpAppendUsable(unsigned char *lp, unsigned char *ele, uint32_t size,
-                              size_t *usable, size_t *old_usable) {
+                              size_t *usable, size_t *old_usable)
+{
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
     return lpInsert(lp,ele,NULL,size,eofptr,LP_BEFORE,NULL,usable,old_usable);
