@@ -1252,7 +1252,8 @@ unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen
 
 unsigned char *lpInsertStringUsable(unsigned char *lp, unsigned char *s, uint32_t slen,
                                     unsigned char *p, int where, unsigned char **newp,
-                                    size_t *usable, size_t *old_usable) {
+                                    size_t *usable, size_t *old_usable)
+{
     return lpInsert(lp, s, NULL, slen, p, where, newp, usable, old_usable);
 }
 
