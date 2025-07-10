@@ -349,7 +349,7 @@ static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *
     if (size == 0 && ptr != NULL) {
         zfree_usable(ptr, &oldsize);
         if (usable) *usable = 0;
-        if (old_usable) *usable = oldsize;
+        if (old_usable) *old_usable = oldsize;
         return NULL;
     }
     /* Not freeing anything, just redirect to malloc. */
