@@ -217,6 +217,7 @@ void trackingRememberKeys(client *tracking, client *executing) {
      * library to rely on `COMMAND` command to discover the node
      * to connect to. These channels doesn't need to be tracked. */
     if (executing->cmd->flags & CMD_PUBSUB) {
+        getKeysFreeResult(&result);
         return;
     }
 
