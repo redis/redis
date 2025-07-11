@@ -89,7 +89,7 @@ typedef struct raxNode {
      *
      * [header iscompr=0][abc][a-ptr][b-ptr][c-ptr](value-ptr?)
      *
-     * if node is compressed (iscompr bit is 1) the node has 1 children.
+     * if node is compressed (iscompr bit is 1) the node has 1 child.
      * In that case the 'size' bytes of the string stored immediately at
      * the start of the data section, represent a sequence of successive
      * nodes linked one after the other, for which only the last one in
@@ -110,9 +110,17 @@ typedef struct raxNode {
     unsigned char data[];
 } raxNode;
 
+/* Bit flags used by rax */
+#define RAX_FLAGS_BITS 1               /* Number of flags bits */
+#define RAX_ACCOUNT_ALLOC_SIZE (1U<<0) /* If set, total allocation size is
+                                        * stored in the first sizeof(size_t)
+                                        * bytes of the metadata */
+#define RAX_FLAGS_MASK ((1U<<RAX_FLAGS_BITS)-1)
+
 typedef struct rax {
     raxNode *head;
-    uint64_t numele;
+    uint8_t flags:RAX_FLAGS_BITS;
+    uint64_t numele:64-RAX_FLAGS_BITS;
     uint64_t numnodes;
     void *metadata[];
 } rax;
@@ -169,7 +177,7 @@ typedef struct raxIterator {
 
 /* Exported API. */
 rax *raxNew(void);
-rax *raxNewWithMetadata(int metaSize);
+rax *raxNewWithMetadata(int flags, int metaSize);
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
@@ -189,11 +197,16 @@ void raxStop(raxIterator *it);
 int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 uint64_t raxSize(rax *rax);
+size_t raxAllocSize(rax *rax);
 unsigned long raxTouch(raxNode *n);
 void raxSetDebugMsg(int onoff);
 
 /* Internal API. May be used by the node callback in order to access rax nodes
  * in a low level way, so this function is exported as well. */
 void raxSetData(raxNode *n, void *data);
+
+#ifdef REDIS_TEST
+int raxTest(int argc, char *argv[], int flags);
+#endif
 
 #endif

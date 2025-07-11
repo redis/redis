@@ -227,6 +227,11 @@ unsigned char *lpNew(size_t capacity) {
     return lp;
 }
 
+/* Similar to lpFree, '*usable' is set to the usable size being freed. */
+void lpFreeUsable(unsigned char *lp, size_t *usable) {
+    lp_free_usable(lp, usable);
+}
+
 /* Free the specified listpack. */
 void lpFree(unsigned char *lp) {
     lp_free(lp);

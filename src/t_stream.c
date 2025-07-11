@@ -33,8 +33,8 @@
  * will return NULL. */
 #define STREAM_LISTPACK_MAX_SIZE (1<<30)
 
-void streamFreeCGGeneric(void *cg);
-void streamFreeNACK(streamNACK *na);
+void streamFreeCGGeneric(void *cg, void *s);
+void streamFreeNACK(stream *s, streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
@@ -50,8 +50,11 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 
 /* Create a new stream data structure. */
 stream *streamNew(void) {
-    stream *s = zmalloc(sizeof(*s));
-    s->rax = raxNew();
+    size_t usable;
+    stream *s = zmalloc_usable(sizeof(*s), &usable);
+    s->alloc_size = usable;
+    s->rax = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    s->alloc_size += raxAllocSize(s->rax);
     s->length = 0;
     s->first_id.ms = 0;
     s->first_id.seq = 0;
@@ -72,7 +75,7 @@ stream *streamNew(void) {
 void freeStream(stream *s) {
     raxFreeWithCallback(s->rax, lpFreeGeneric);
     if (s->cgroups)
-        raxFreeWithCallback(s->cgroups, streamFreeCGGeneric);
+        raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
     zfree(s);
@@ -169,15 +172,19 @@ robj *streamDup(robj *o) {
     size_t lp_bytes = 0;      /* Total bytes in the listpack. */
     unsigned char *lp = NULL; /* listpack pointer. */
     /* Get a reference to the listpack node. */
+    new_s->alloc_size -= raxAllocSize(new_s->rax);
     while (raxNext(&ri)) {
         serverAssert(ri.key_len == sizeof(streamID));
         lp = ri.data;
         lp_bytes = lpBytes(lp);
-        unsigned char *new_lp = zmalloc(lp_bytes);
+        size_t usable;
+        unsigned char *new_lp = zmalloc_usable(lp_bytes,&usable);
+        new_s->alloc_size += usable;
         memcpy(new_lp, lp, lp_bytes);
         raxInsert(new_s->rax, ri.key, ri.key_len,
                   new_lp, NULL);
     }
+    new_s->alloc_size += raxAllocSize(new_s->rax);
     new_s->length = s->length;
     new_s->first_id = s->first_id;
     new_s->last_id = s->last_id;
@@ -203,9 +210,10 @@ robj *streamDup(robj *o) {
         raxIterator ri_cg_pel;
         raxStart(&ri_cg_pel,cg->pel);
         raxSeek(&ri_cg_pel,"^",NULL,0);
+        new_s->alloc_size -= raxAllocSize(new_cg->pel);
         while(raxNext(&ri_cg_pel)){
             streamNACK *nack = ri_cg_pel.data;
-            streamNACK *new_nack = streamCreateNACK(NULL);
+            streamNACK *new_nack = streamCreateNACK(new_s, NULL);
             new_nack->delivery_time = nack->delivery_time;
             new_nack->delivery_count = nack->delivery_count;
             new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, ri_cg_pel.key);
@@ -215,18 +223,23 @@ robj *streamDup(robj *o) {
             streamDecodeID(ri_cg_pel.key, &id);
             raxInsertPelByTime(new_cg->pel_by_time, new_nack->delivery_time, &id);
         }
+        new_s->alloc_size += raxAllocSize(new_cg->pel);
         raxStop(&ri_cg_pel);
 
         /* Consumers */
         raxIterator ri_consumers;
         raxStart(&ri_consumers, cg->consumers);
         raxSeek(&ri_consumers, "^", NULL, 0);
+        new_s->alloc_size -= raxAllocSize(new_cg->consumers);
         while (raxNext(&ri_consumers)) {
             streamConsumer *consumer = ri_consumers.data;
             streamConsumer *new_consumer;
-            new_consumer = zmalloc(sizeof(*new_consumer));
+            size_t usable;
+            new_consumer = zmalloc_usable(sizeof(*new_consumer), &usable);
+            new_s->alloc_size += usable;
             new_consumer->name = sdsdup(consumer->name);
-            new_consumer->pel = raxNew();
+            new_s->alloc_size += sdsAllocSize(new_consumer->name);
+            new_consumer->pel = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
             raxInsert(new_cg->consumers,(unsigned char *)new_consumer->name,
                         sdslen(new_consumer->name), new_consumer, NULL);
             new_consumer->seen_time = consumer->seen_time;
@@ -246,8 +259,10 @@ robj *streamDup(robj *o) {
                 new_nack->consumer = new_consumer;
                 raxInsert(new_consumer->pel,ri_cpel.key,sizeof(streamID),new_nack,NULL);
             }
+            new_s->alloc_size += raxAllocSize(new_consumer->pel);
             raxStop(&ri_cpel);
         }
+        new_s->alloc_size += raxAllocSize(new_cg->consumers);
         raxStop(&ri_consumers);
     }
     raxStop(&ri_cgroups);
@@ -542,7 +557,10 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
         if (new_node) {
             /* Shrink extra pre-allocated memory */
-            lp = lpShrinkToFit(lp);
+            size_t usable, old_usable;
+            lp = lpShrinkToFitUsable(lp, &usable, &old_usable);
+            s->alloc_size -= old_usable;
+            s->alloc_size += usable;
             if (ri.data != lp)
                 raxSetData(ri.node, lp);
             lp = NULL;
@@ -551,6 +569,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     int flags = STREAM_ITEM_FLAG_NONE;
     if (lp == NULL) {
+        size_t usable;
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields.
@@ -571,8 +590,11 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             sds field = argv[i*2]->ptr;
             lp = lpAppend(lp,(unsigned char*)field,sdslen(field));
         }
-        lp = lpAppendInteger(lp,0); /* Master entry zero terminator. */
+        lp = lpAppendIntegerUsable(lp,0,&usable,NULL); /* Master entry zero terminator. */
+        s->alloc_size += usable;
+        s->alloc_size -= raxAllocSize(s->rax);
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
+        s->alloc_size += raxAllocSize(s->rax);
         /* The first entry we insert, has obviously the same fields of the
          * master entry. */
         flags |= STREAM_ITEM_FLAG_SAMEFIELDS;
@@ -634,7 +656,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * in reverse order: we can just start from the end of the listpack, read
      * the entry, and jump back N times to seek the "flags" field to read
      * the stream full entry. */
-    lp = lpAppendInteger(lp,flags);
+    size_t usable, old_usable;
+    lp = lpAppendIntegerUsable(lp,flags, NULL, &old_usable);
     lp = lpAppendInteger(lp,id.ms - master_id.ms);
     lp = lpAppendInteger(lp,id.seq - master_id.seq);
     if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS))
@@ -653,7 +676,9 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
          * the values, and an additional num-fields field. */
         lp_count += numfields+1;
     }
-    lp = lpAppendInteger(lp,lp_count);
+    lp = lpAppendIntegerUsable(lp,lp_count,&usable,NULL);
+    s->alloc_size += usable;
+    s->alloc_size -= old_usable;
 
     /* Insert back into the tree in order to update the listpack pointer. */
     if (ri.data != lp)
@@ -776,8 +801,12 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         if (remove_node) {
-            lpFree(lp);
+            size_t usable;
+            lpFreeUsable(lp, &usable);
+            s->alloc_size -= usable;
+            s->alloc_size -= raxAllocSize(s->rax);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
+            s->alloc_size += raxAllocSize(s->rax);
             raxSeek(&ri,">=",ri.key,ri.key_len);
             s->length -= entries;
             deleted += entries;
@@ -789,6 +818,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         if (approx) break;
 
         /* Now we have to trim entries from within 'lp' */
+        size_t old_usable = zmalloc_usable_size(lp);
         int64_t deleted_from_lp = 0;
 
         p = lpNext(lp, p); /* Skip deleted field. */
@@ -871,8 +901,12 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
          * due to delete strategy constraints, and now we've processed and deleted all entries
          * in the node, we can finally remove the entire node. */
         if (node_eligible_for_remove && deleted_from_lp == entries) {
-            lpFree(lp);
+            size_t usable;
+            lpFreeUsable(lp, &usable);
+            s->alloc_size -= usable;
+            s->alloc_size -= raxAllocSize(s->rax);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
+            s->alloc_size += raxAllocSize(s->rax);
             raxSeek(&ri,">=",ri.key,ri.key_len);
             continue;
         }
@@ -882,8 +916,11 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         lp = lpReplaceInteger(lp,&p,entries-deleted_from_lp);
         p = lpNext(lp,p); /* Skip deleted field. */
         int64_t marked_deleted = lpGetInteger(p);
-        lp = lpReplaceInteger(lp,&p,marked_deleted+deleted_from_lp);
+        size_t usable;
+        lp = lpReplaceIntegerUsable(lp,&p,marked_deleted+deleted_from_lp,&usable,NULL);
         p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
+        s->alloc_size += usable;
+        s->alloc_size -= old_usable;
 
         /* Here we should perform garbage collection in case at this point
          * there are too many entries deleted inside the listpack. */
@@ -1391,8 +1428,10 @@ void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsign
  * automatically re-seek to the next entry, so the caller should continue
  * with GetID(). */
 void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
+    stream *s = si->stream;
     unsigned char *lp = si->lp;
     int64_t aux;
+    size_t usable, old_usable;
 
     /* We do not really delete the entry here. Instead we mark it as
      * deleted by flagging it, and also incrementing the count of the
@@ -1401,7 +1440,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
      * We start flagging: */
     int64_t flags = lpGetInteger(si->lp_flags);
     flags |= STREAM_ITEM_FLAG_DELETED;
-    lp = lpReplaceInteger(lp,&si->lp_flags,flags);
+    lp = lpReplaceIntegerUsable(lp,&si->lp_flags,flags,NULL,&old_usable);
 
     /* Change the valid/deleted entries count in the master entry. */
     unsigned char *p = lpFirst(lp);
@@ -1410,22 +1449,27 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     if (aux == 1) {
         /* If this is the last element in the listpack, we can remove the whole
          * node. */
-        lpFree(lp);
-        raxRemove(si->stream->rax,si->ri.key,si->ri.key_len,NULL);
+        lpFreeUsable(lp, &usable);
+        s->alloc_size -= usable;
+        s->alloc_size -= raxAllocSize(s->rax);
+        raxRemove(s->rax,si->ri.key,si->ri.key_len,NULL);
+        s->alloc_size += raxAllocSize(s->rax);
     } else {
         /* In the base case we alter the counters of valid/deleted entries. */
         lp = lpReplaceInteger(lp,&p,aux-1);
         p = lpNext(lp,p); /* Seek deleted field. */
         aux = lpGetInteger(p);
-        lp = lpReplaceInteger(lp,&p,aux+1);
+        lp = lpReplaceIntegerUsable(lp,&p,aux+1,&usable,NULL);
+        s->alloc_size += usable;
+        s->alloc_size -= old_usable;
 
         /* Update the listpack with the new pointer. */
         if (si->lp != lp)
-            raxInsert(si->stream->rax,si->ri.key,si->ri.key_len,lp,NULL);
+            raxInsert(s->rax,si->ri.key,si->ri.key_len,lp,NULL);
     }
 
     /* Update the number of entries counter. */
-    si->stream->length--;
+    s->length--;
 
     /* Re-seek the iterator to fix the now messed up state. */
     streamID start, end;
@@ -1437,7 +1481,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         streamDecodeID(si->end_key,&end);
     }
     streamIteratorStop(si);
-    streamIteratorStart(si,si->stream,&start,&end,si->rev);
+    streamIteratorStart(si,s,&start,&end,si->rev);
 
     /* TODO: perform a garbage collection here if the ratio between
      * deleted and valid goes over a certain limit. */
@@ -2018,22 +2062,28 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             /* Try to add a new NACK. Most of the time this will work and
              * will not require extra lookups. We'll fix the problem later
              * if we find that there is already an entry for this ID. */
-            streamNACK *nack = streamCreateNACK(consumer);
+            streamNACK *nack = streamCreateNACK(s, consumer);
+            s->alloc_size -= raxAllocSize(group->pel);
             int group_inserted =
                 raxTryInsert(group->pel,buf,sizeof(buf),nack,NULL);
+            s->alloc_size += raxAllocSize(group->pel);
+            s->alloc_size -= raxAllocSize(consumer->pel);
             int consumer_inserted =
                 raxTryInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+            s->alloc_size += raxAllocSize(consumer->pel);
 
             /* Now we can check if the entry was already busy, and
              * in that case reassign the entry to the new consumer,
              * or update it if the consumer is the same as before. */
             if (group_inserted == 0) {
-                streamFreeNACK(nack);
+                streamFreeNACK(s,nack);
                 void *result;
                 int found = raxFind(group->pel,buf,sizeof(buf),&result);
                 serverAssert(found);
                 nack = result;
+                s->alloc_size -= raxAllocSize(nack->consumer->pel);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                s->alloc_size += raxAllocSize(nack->consumer->pel);
                 /* Remove old entry from the PEL by time. */
                 raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
                 /* Update the consumer and NACK metadata. */
@@ -2041,7 +2091,9 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 nack->delivery_time = commandTimeSnapshot();
                 nack->delivery_count = 1;
                 /* Add the entry in the new consumer local PEL. */
+                s->alloc_size -= raxAllocSize(consumer->pel);
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                s->alloc_size += raxAllocSize(consumer->pel);
             } else if (group_inserted == 1 && consumer_inserted == 1) {
                 nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
             } else if (group_inserted == 1 && consumer_inserted == 0) {
@@ -2698,7 +2750,7 @@ void xreadCommand(client *c) {
             }
             consumer = streamLookupConsumer(groups[i],consumername->ptr);
             if (consumer == NULL) {
-                consumer = streamCreateConsumer(groups[i],consumername->ptr,
+                consumer = streamCreateConsumer(s,groups[i],consumername->ptr,
                                                 c->argv[streams_arg+i],
                                                 c->db->id,SCC_DEFAULT);
                 if (noack)
@@ -2838,13 +2890,17 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id) {
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
 
-    if (!s->cgroups_ref)
-        s->cgroups_ref = raxNew();
+    if (!s->cgroups_ref) {
+        s->cgroups_ref = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+        s->alloc_size += raxAllocSize(s->cgroups_ref);
+    }
     
     /* Try to find the list for this stream ID, create it if it doesn't exist */
     if (!raxFind(s->cgroups_ref, key, sizeof(streamID), (void**)&cglist)) {
         cglist = listCreate();
+        s->alloc_size -= raxAllocSize(s->cgroups_ref);
         serverAssert(raxInsert(s->cgroups_ref, key, sizeof(streamID), cglist, NULL));
+        s->alloc_size += raxAllocSize(s->cgroups_ref);
     }
     
     /* Add the consumer group to the list and return the list node */
@@ -2862,7 +2918,9 @@ void streamUnlinkEntryFromCGroupRef(stream *s, streamNACK *na, unsigned char *ke
         
         /* If the list is now empty, remove it from the index. */
         if (listLength(cglist) == 0) {
+            s->alloc_size -= raxAllocSize(s->cgroups_ref);
             raxRemove(s->cgroups_ref, key, sizeof(streamID), NULL);
+            s->alloc_size += raxAllocSize(s->cgroups_ref);
             listRelease(cglist);
         }
     }
@@ -2890,15 +2948,21 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         serverAssert(raxFind(group->pel, buf, sizeof(buf), (void **)&nack));
         
         /* Remove from group and consumer PELs */
+        s->alloc_size -= raxAllocSize(group->pel);
         raxRemove(group->pel, buf, sizeof(buf), NULL);
+        s->alloc_size += raxAllocSize(group->pel);
         raxRemovePelByTime(group->pel_by_time, nack->delivery_time, id);
+        s->alloc_size -= raxAllocSize(nack->consumer->pel);
         raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
+        s->alloc_size += raxAllocSize(nack->consumer->pel);
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
-        streamFreeNACK(nack);
+        streamFreeNACK(s, nack);
     }
 
+    s->alloc_size -= raxAllocSize(s->cgroups_ref);
     raxRemove(s->cgroups_ref, buf, sizeof(streamID), NULL);
+    s->alloc_size += raxAllocSize(s->cgroups_ref);
     listRelease(cglist);
 }
 
@@ -2943,8 +3007,10 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
 /* Create a NACK entry setting the delivery count to 1 and the delivery
  * time to the current time. The NACK consumer will be set to the one
  * specified as argument of the function. */
-streamNACK *streamCreateNACK(streamConsumer *consumer) {
-    streamNACK *nack = zmalloc(sizeof(*nack));
+streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer) {
+    size_t usable;
+    streamNACK *nack = zmalloc_usable(sizeof(*nack), &usable);
+    s->alloc_size += usable;
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
@@ -2953,20 +3019,24 @@ streamNACK *streamCreateNACK(streamConsumer *consumer) {
 }
 
 /* Free a NACK entry. */
-void streamFreeNACK(streamNACK *na) {
-    zfree(na);
+void streamFreeNACK(stream *s, streamNACK *na) {
+    size_t usable;
+    zfree_usable(na, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Free a NACK entry and remove its reference from the cgroups_ref.
  * This ensures proper cleanup of the consumer group list associated with the message ID. */
 void streamDestroyNACK(stream *s, streamNACK *na, unsigned char *key) {
+    size_t usable;
     streamUnlinkEntryFromCGroupRef(s, na, key);
-    zfree(na);
+    zfree_usable(na, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Generic version of streamFreeNACK. */
-void streamFreeNACKGeneric(void *na) {
-    streamFreeNACK((streamNACK *)na);
+void streamFreeNACKGeneric(void *na, void *s) {
+    streamFreeNACK((stream *)s, (streamNACK *)na);
 }
 
 /* Free a consumer and associated data structures. Note that this function
@@ -2974,16 +3044,20 @@ void streamFreeNACKGeneric(void *na) {
  * nor will delete them from the stream, so when this function is called
  * to delete a consumer, and not when the whole stream is destroyed, the caller
  * should do some work before. */
-void streamFreeConsumer(streamConsumer *sc) {
+void streamFreeConsumer(stream *s, streamConsumer *sc) {
+    size_t usable;
+    s->alloc_size -= raxAllocSize(sc->pel);
     raxFree(sc->pel); /* No value free callback: the PEL entries are shared
                          between the consumer and the main stream PEL. */
-    sdsfree(sc->name);
-    zfree(sc);
+    sdsfreeusable(sc->name, &usable);
+    s->alloc_size -= usable;
+    zfree_usable(sc, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Generic version of streamFreeConsumer. */
-void streamFreeConsumerGeneric(void *sc) {
-    streamFreeConsumer((streamConsumer *)sc);
+void streamFreeConsumerGeneric(void *sc, void *s) {
+    streamFreeConsumer((stream *)s, (streamConsumer *)sc);
 }
 
 /* Create a new consumer group in the context of the stream 's', having the
@@ -2991,28 +3065,41 @@ void streamFreeConsumerGeneric(void *sc) {
  * the same name already exists NULL is returned, otherwise the pointer to the
  * consumer group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
-    if (s->cgroups == NULL) s->cgroups = raxNew();
+    if (s->cgroups == NULL) {
+        s->cgroups = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+        s->alloc_size += raxAllocSize(s->cgroups);
+    }
     if (raxFind(s->cgroups,(unsigned char*)name,namelen,NULL))
         return NULL;
 
-    streamCG *cg = zmalloc(sizeof(*cg));
-    cg->pel = raxNew();
-    cg->pel_by_time = raxNew();
-    cg->consumers = raxNew();
+    size_t usable;
+    streamCG *cg = zmalloc_usable(sizeof(*cg), &usable);
+    s->alloc_size += usable;
+    cg->pel = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    s->alloc_size += raxAllocSize(cg->pel);
+    cg->pel_by_time = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    cg->consumers = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    s->alloc_size += raxAllocSize(cg->consumers);
     cg->last_id.ms = 0;
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
     cg->entries_read = entries_read;
+    s->alloc_size -= raxAllocSize(s->cgroups);
     raxInsert(s->cgroups,(unsigned char*)name,namelen,cg,NULL);
+    s->alloc_size += raxAllocSize(s->cgroups);
     return cg;
 }
 
 /* Free a consumer group and all its associated data. */
-static void streamFreeCG(streamCG *cg) {
-    raxFreeWithCallback(cg->pel, streamFreeNACKGeneric);
+static void streamFreeCG(stream *s, streamCG *cg) {
+    s->alloc_size -= raxAllocSize(cg->pel);
+    raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, s);
     raxFree(cg->pel_by_time);
-    raxFreeWithCallback(cg->consumers, streamFreeConsumerGeneric);
-    zfree(cg);
+    s->alloc_size -= raxAllocSize(cg->consumers);
+    raxFreeWithCbAndContext(cg->consumers, streamFreeConsumerGeneric, s);
+    size_t usable;
+    zfree_usable(cg, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Destroy a consumer group and clean up all associated references. */
@@ -3026,12 +3113,12 @@ void streamDestroyCG(stream *s, streamCG *cg) {
     }
     raxStop(&it);
 
-    streamFreeCG(cg);
+    streamFreeCG(s, cg);
 }
 
 /* Generic version of streamFreeCG. */
-void streamFreeCGGeneric(void *cg) {
-    streamFreeCG((streamCG *)cg);
+void streamFreeCGGeneric(void *cg, void *s) {
+    streamFreeCG((stream *)s, (streamCG *)cg);
 }
 
 /* Lookup the consumer group in the specified stream and returns its
@@ -3047,19 +3134,26 @@ streamCG *streamLookupCG(stream *s, sds groupname) {
  * If the consumer exists, return NULL. As a side effect, when the consumer
  * is successfully created, the key space will be notified and dirty++ unless
  * the SCC_NO_NOTIFY or SCC_NO_DIRTIFY flags is specified. */
-streamConsumer *streamCreateConsumer(streamCG *cg, sds name, robj *key, int dbid, int flags) {
+streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *key, int dbid, int flags) {
     if (cg == NULL) return NULL;
     int notify = !(flags & SCC_NO_NOTIFY);
     int dirty = !(flags & SCC_NO_DIRTIFY);
-    streamConsumer *consumer = zmalloc(sizeof(*consumer));
+    size_t usable;
+    streamConsumer *consumer = zmalloc_usable(sizeof(*consumer), &usable);
+    size_t old_consumers_size = raxAllocSize(cg->consumers);
     int success = raxTryInsert(cg->consumers,(unsigned char*)name,
                                sdslen(name),consumer,NULL);
     if (!success) {
         zfree(consumer);
         return NULL;
     }
+    s->alloc_size += usable;
+    s->alloc_size -= old_consumers_size;
+    s->alloc_size += raxAllocSize(cg->consumers);
     consumer->name = sdsdup(name);
-    consumer->pel = raxNew();
+    s->alloc_size += sdsAllocSize(consumer->name);
+    consumer->pel = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    s->alloc_size += raxAllocSize(consumer->pel);
     consumer->active_time = -1;
     consumer->seen_time = commandTimeSnapshot();
     if (dirty) server.dirty++;
@@ -3092,14 +3186,16 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
         raxRemovePelByTime(cg->pel_by_time, nack->delivery_time, &id);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
 
-        streamFreeNACK(nack);
+        streamFreeNACK(s, nack);
     }
     raxStop(&ri);
 
     /* Deallocate the consumer. */
+    s->alloc_size -= raxAllocSize(cg->consumers);
     raxRemove(cg->consumers,(unsigned char*)consumer->name,
               sdslen(consumer->name),NULL);
-    streamFreeConsumer(consumer);
+    s->alloc_size += raxAllocSize(cg->consumers);
+    streamFreeConsumer(s,consumer);
 }
 
 /* -----------------------------------------------------------------------
@@ -3250,7 +3346,9 @@ NULL
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
+            s->alloc_size -= raxAllocSize(s->cgroups);
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
+            s->alloc_size += raxAllocSize(s->cgroups);
             streamDestroyCG(s, cg);
             addReply(c,shared.cone);
             server.dirty++;
@@ -3262,7 +3360,7 @@ NULL
             addReply(c,shared.czero);
         }
     } else if (!strcasecmp(opt,"CREATECONSUMER") && c->argc == 5) {
-        streamConsumer *created = streamCreateConsumer(cg,c->argv[4]->ptr,c->argv[2],
+        streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
         addReplyLongLong(c,created ? 1 : 0);
     } else if (!strcasecmp(opt,"DELCONSUMER") && c->argc == 5) {
@@ -3394,6 +3492,7 @@ void xackCommand(client *c) {
     }
 
     int acknowledged = 0;
+    stream *s = kv->ptr;
     for (int j = 3; j < c->argc; j++) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j-3]);
@@ -3405,8 +3504,12 @@ void xackCommand(client *c) {
         if (raxFind(group->pel,buf,sizeof(buf),&result)) {
             streamNACK *nack = result;
             raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &ids[j-3]);
+            s->alloc_size -= raxAllocSize(group->pel);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
+            s->alloc_size += raxAllocSize(group->pel);
+            s->alloc_size -= raxAllocSize(nack->consumer->pel);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            s->alloc_size += raxAllocSize(nack->consumer->pel);
             streamDestroyNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
@@ -3475,8 +3578,12 @@ void xackdelCommand(client *c) {
         if (raxFind(group->pel,buf,sizeof(buf),&result)) {
             streamNACK *nack = result;
             raxRemovePelByTime(group->pel_by_time, nack->delivery_time, id);
+            s->alloc_size -= raxAllocSize(group->pel);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
+            s->alloc_size += raxAllocSize(group->pel);
+            s->alloc_size -= raxAllocSize(nack->consumer->pel);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+            s->alloc_size += raxAllocSize(nack->consumer->pel);
             streamDestroyNACK(s, nack, buf);
             server.dirty++;
 
@@ -3881,10 +3988,11 @@ void xclaimCommand(client *c) {
     /* Do the actual claiming. */
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
-        consumer = streamCreateConsumer(group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
     }
     consumer->seen_time = commandTimeSnapshot();
 
+    stream *s = o->ptr;
     void *arraylenptr = addReplyDeferredLen(c);
     size_t arraylen = 0;
     for (int j = 5; j <= last_id_arg; j++) {
@@ -3898,7 +4006,7 @@ void xclaimCommand(client *c) {
         streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(o->ptr,&id)) {
+        if (!streamEntryExists(s,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
             if (nack != NULL) {
                 /* Propagate this change (we are going to delete the NACK). */
@@ -3907,9 +4015,13 @@ void xclaimCommand(client *c) {
                 server.dirty++;
                 /* Release the NACK */
                 raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
-                raxRemove(group->pel, buf,sizeof(buf),NULL);
+                s->alloc_size -= raxAllocSize(group->pel);
+                raxRemove(group->pel,buf,sizeof(buf),NULL);
+                s->alloc_size += raxAllocSize(group->pel);
+                s->alloc_size -= raxAllocSize(nack->consumer->pel);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                streamDestroyNACK(o->ptr, nack, buf);
+                s->alloc_size += raxAllocSize(nack->consumer->pel);
+                streamDestroyNACK(s, nack, buf);
             }
             continue;
         }
@@ -3921,10 +4033,12 @@ void xclaimCommand(client *c) {
          * and replication of consumer groups. */
         if (force && nack == NULL) {
             /* Create the NACK. */
-            nack = streamCreateNACK(NULL);
+            nack = streamCreateNACK(s,NULL);
+            s->alloc_size -= raxAllocSize(group->pel);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
+            s->alloc_size += raxAllocSize(group->pel);
             raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &id);
-            nack->cgroup_ref_node = streamLinkCGroupToEntry(o->ptr, group, buf);
+            nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
         }
 
         if (nack != NULL) {
@@ -3943,8 +4057,11 @@ void xclaimCommand(client *c) {
                 /* Remove the entry from the old consumer.
                  * Note that nack->consumer is NULL if we created the
                  * NACK above because of the FORCE option. */
-                if (nack->consumer)
+                if (nack->consumer) {
+                    s->alloc_size -= raxAllocSize(nack->consumer->pel);
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    s->alloc_size += raxAllocSize(nack->consumer->pel);
+                }
             }
 
             raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
@@ -3960,7 +4077,9 @@ void xclaimCommand(client *c) {
             }
             if (nack->consumer != consumer) {
                 /* Add the entry in the new consumer local PEL. */
+                s->alloc_size -= raxAllocSize(consumer->pel);
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                s->alloc_size += raxAllocSize(consumer->pel);
                 nack->consumer = consumer;
             }
             /* Send the reply for this entry. */
@@ -4070,7 +4189,7 @@ void xautoclaimCommand(client *c) {
     /* Do the actual claiming. */
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
-        consumer = streamCreateConsumer(group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
     }
     consumer->seen_time = commandTimeSnapshot();
 
@@ -4080,6 +4199,7 @@ void xautoclaimCommand(client *c) {
     void *endidptr = addReplyDeferredLen(c); /* reply[0] */
     void *arraylenptr = addReplyDeferredLen(c); /* reply[1] */
 
+    stream *s = o->ptr;
     unsigned char startkey[sizeof(streamID)];
     streamEncodeID(startkey,&startid);
     raxIterator ri;
@@ -4095,7 +4215,7 @@ void xautoclaimCommand(client *c) {
         streamDecodeID(ri.key, &id);
 
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(o->ptr,&id)) {
+        if (!streamEntryExists(s,&id)) {
             /* Propagate this change (we are going to delete the NACK). */
             robj *idstr = createObjectFromStreamID(&id);
             streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
@@ -4103,9 +4223,13 @@ void xautoclaimCommand(client *c) {
             server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
             raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
+            s->alloc_size -= raxAllocSize(group->pel);
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
+            s->alloc_size += raxAllocSize(group->pel);
+            s->alloc_size -= raxAllocSize(nack->consumer->pel);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
-            streamDestroyNACK(o->ptr, nack, ri.key);
+            s->alloc_size += raxAllocSize(nack->consumer->pel);
+            streamDestroyNACK(s, nack, ri.key);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
             raxSeek(&ri,">=",ri.key,ri.key_len);
@@ -4123,8 +4247,11 @@ void xautoclaimCommand(client *c) {
             /* Remove the entry from the old consumer.
              * Note that nack->consumer is NULL if we created the
              * NACK above because of the FORCE option. */
-            if (nack->consumer)
+            if (nack->consumer) {
+                s->alloc_size -= raxAllocSize(nack->consumer->pel);
                 raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
+                s->alloc_size += raxAllocSize(nack->consumer->pel);
+            }
         }
 
         /* Update the consumer and idle time. */
@@ -4138,7 +4265,9 @@ void xautoclaimCommand(client *c) {
 
         if (nack->consumer != consumer) {
             /* Add the entry in the new consumer local PEL. */
+            s->alloc_size -= raxAllocSize(consumer->pel);
             raxInsert(consumer->pel,ri.key,ri.key_len,nack,NULL);
+            s->alloc_size += raxAllocSize(consumer->pel);
             nack->consumer = consumer;
         }
 
