@@ -947,7 +947,10 @@ static void cliInitHelp(void) {
         cliLegacyIntegrateHelp();
         return;
     };
-    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
+    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) {
+        freeReplyObject(commandTable);
+        return;
+    }
 
     /* Scan the array reported by COMMAND DOCS and fill in the entries */
     helpEntriesLen = cliCountCommands(commandTable);
