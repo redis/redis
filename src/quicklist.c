@@ -721,15 +721,15 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
     quicklist->len--;
     quicklist->count -= node->count;
 
-    size_t node_size, entry_size;
-    zfree_usable(node->entry, &entry_size);
-    zfree_usable(node, &node_size);
-
-    quicklist->alloc_size -= node_size + entry_size;
-
     /* If we deleted a node within our compress depth, we
      * now have compressed nodes needing to be decompressed. */
     __quicklistCompress(quicklist, NULL);
+
+    size_t usable;
+    zfree_usable(node->entry, &usable);
+    quicklist->alloc_size -= usable;
+    zfree_usable(node, &usable);
+    quicklist->alloc_size -= usable;
 }
 
 /* Delete one entry from list given the node for the entry and a pointer
