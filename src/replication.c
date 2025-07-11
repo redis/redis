@@ -1470,6 +1470,10 @@ int replicaPutOnline(client *slave) {
                   replicationGetSlaveName(slave));
         return 0;
     }
+
+    /* Don't put migration destination client online. */
+    if (slave->flags & CLIENT_REPL_MIGRATION_DEST) return 0;
+
     slave->replstate = SLAVE_STATE_ONLINE;
     slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */
 

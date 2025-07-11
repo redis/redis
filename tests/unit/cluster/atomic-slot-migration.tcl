@@ -165,16 +165,16 @@ start_cluster 3 3 {tags {external:skip cluster}} {
         foreach state $all_states {
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
 
-            # for `streaming-buffer` and `send-bulk-and-stream` state, we need to set
-            # a longer delay to write incremental data to the main channel
-            if {$state eq "streaming-buffer" || $state eq "send-bulk-and-stream"} {
+            # For states that need incremental data streaming, set a longer delay
+            set streaming_states [list "streaming-buffer" "accumulate-buffer" "send-bulk-and-stream"]
+            if {$state in $streaming_states} {
                 R 1 config set rdb-key-save-delay 1000000
             }
 
             # Start the slot 0 write load on the R 1
             if {$::tls} { set port [lindex [R 1 config get tls-port] 1]
             } else { set port [lindex [R 1 config get port] 1] }
-            set load_handle [start_write_load "127.0.0.1" $port 100 "06S"]
+            set load_handle [start_write_load "127.0.0.1" $port 500 "06S"]
 
             # clear old fail points and set the new fail point
             assert_equal {OK} [R 0 debug asm-failpoint "" ""]
@@ -210,23 +210,42 @@ start_cluster 3 3 {tags {external:skip cluster}} {
     }
 
     test "Destination node main channel basic error-handling tests " {
-        set all_states [list "connecting" "auth-reply" "handshake-reply" "syncslots-reply" \
-                             "accumulate-buffer" "streaming-buffer" "wait-stream-eof"]
+        set all_states [list \
+            "connecting" \
+            "auth-reply" \
+            "handshake-reply" \
+            "syncslots-reply" \
+            "accumulate-buffer" \
+            "streaming-buffer" \
+            "wait-stream-eof" \
+        ]
         asm_basic_error_handling_test "import" "main" $all_states
     }
 
     test "Destination node rdb channel basic error-handling tests" {
-        set all_states [list "connecting" "auth-reply" "rdbchannel-reply" "rdbchannel-transfer"]
+        set all_states [list \
+            "connecting" \
+            "auth-reply" \
+            "rdbchannel-reply" \
+            "rdbchannel-transfer" \
+        ]
         asm_basic_error_handling_test "import" "rdb" $all_states
     }
 
     test "Source node main channel basic error-handling tests " {
-        set all_states [list "wait-rdbchannel" "send-bulk-and-stream" "handoff"]
+        set all_states [list \
+            "wait-rdbchannel" \
+            "send-bulk-and-stream" \
+            "handoff" \
+        ]
         asm_basic_error_handling_test "migrate" "main" $all_states
     }
 
     test "Source node rdb channel basic error-handling tests" {
-        set all_states [list "wait-bgsave-start" "send-bulk-and-stream"]
+        set all_states [list \
+            "wait-bgsave-start" \
+            "send-bulk-and-stream" \
+        ]
         asm_basic_error_handling_test "migrate" "rdb" $all_states
     }
 

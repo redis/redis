@@ -2162,8 +2162,8 @@ int writeToClient(client *c, int handler_installed) {
         atomicIncr(server.stat_net_repl_output_bytes, totwritten);
     } else {
         /* If we reach this block and client is marked with CLIENT_SLAVE flag
-         * it's because it's a MONITOR client, which are marked as replicas,
-         * but exposed as normal clients */
+         * it's because it's a MONITOR/slot-migration client, which are marked
+         * as replicas, but exposed as normal clients */
         const int is_normal_client = !(c->flags & CLIENT_SLAVE);
         while (_clientHasPendingRepliesNonSlave(c)) {
             int ret = _writeToClientNonSlave(c, &nwritten);

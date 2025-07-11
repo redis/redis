@@ -31,6 +31,7 @@ typedef struct asmTask {
     int rdb_channel_state;              /* State of the RDB channel */
     unsigned long long dest_offset;     /* Destination offset */
     unsigned long long source_offset;   /* Source offset */
+    int stream_eof_during_streaming;    /* If STREAM-EOF is received during streaming buffer */
     replDataBuf sync_buffer;            /* Buffer for the stream */
     client *main_channel_client;        /* Client for the main channel on the source side */
     client *rdb_channel_client;         /* Client for the RDB channel on the source side */
@@ -223,6 +224,7 @@ void asmTaskReset(asmTask *task) {
     task->rdb_channel_conn = NULL;
     task->dest_offset = 0;
     task->source_offset = 0;
+    task->stream_eof_during_streaming = 0;
     replDataBufInit(&task->sync_buffer);
     sdsfree(task->error);
     task->error = sdsempty();
@@ -798,6 +800,22 @@ void asmTaskCancel(asmTask *task) {
     asmTaskComplete(task);
 }
 
+void asmImportTakeover(asmTask *task) {
+    serverAssert(task->state == ASM_WAIT_STREAM_EOF ||
+                 task->state == ASM_STREAMING_BUF);
+
+    /* Free the main channel connection since it is no longer needed. */
+    serverAssert(task->main_channel_conn != NULL);
+    client *c = connGetPrivateData(task->main_channel_conn);
+    c->task = NULL;
+    c->flags &= ~CLIENT_MASTER;
+    freeClientAsync(c);
+    task->main_channel_conn = NULL;
+
+    task->state = ASM_TAKEOVER;
+    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, NULL);
+}
+
 void asmCallbackOnFreeClient(client *c) {
     asmTask *task = c->task;
     if (!task) return;
@@ -1205,11 +1223,6 @@ void clusterSyncSlotsSnapshotEOF(client *c) {
         freeClientAsync(c); /* Simulate a failure */
         return;
     }
-    /* Main channel state: ASM_ACCUMULATE_BUF */
-    if (unlikely(asmDebugIsFailPointActive(ASM_IMPORT_MAIN_CHANNEL, task->state))) {
-        connShutdown(task->main_channel_conn); /* Simulate a failure */
-        return;
-    }
 
     /* Clear the RDB channel connection */
     task->rdb_channel_conn = NULL;
@@ -1235,21 +1248,25 @@ void clusterSyncSlotsSnapshotEOF(client *c) {
  * that the slot sync stream has ended and the slots can be handed off. */
 void clusterSyncSlotsStreamEOF(client *c) {
     asmTask *task = c->task;
+
+    if (task->state == ASM_STREAMING_BUF) {
+        /* We are still streaming the buffer to DB, mark the EOF received, and we
+         * can takeover after streaming is done. Since we may release the context
+         * in asmImportTakeover, this breaks the context for streaming buffer. */
+        task->stream_eof_during_streaming = 1;
+        serverLog(LL_NOTICE, "CLUSTER SYNCSLOTS STREAM-EOF received during streaming buffer");
+        return;
+    }
+
     if (task->state != ASM_WAIT_STREAM_EOF) {
         serverLog(LL_WARNING, "Unexpected CLUSTER SYNCSLOTS STREAM-EOF state: %s",
                                asmTaskStateToString(task->state));
         return;
     }
-    serverLog(LL_NOTICE, "CLUSTER SYNCSLOTS STREAM-EOF received");
+    serverLog(LL_NOTICE, "CLUSTER SYNCSLOTS STREAM-EOF received when waiting for STREAM-EOF");
 
-    /* Free the main channel connection. */
-    task->main_channel_conn = NULL;
-    c->task = NULL;
-    c->flags &= ~CLIENT_MASTER;
-    freeClientAsync(c);
-
-    task->state = ASM_TAKEOVER;
-    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, NULL);
+    /* STREAM-EOF received, the source is ready to handoff, takeover now. */
+    asmImportTakeover(task);
 }
 
 /* Start the import task. */
@@ -1618,16 +1635,40 @@ werr:
 
 /* Read error handler for sync buffer */
 static void asmReadSyncBufferErrorHandler(connection *conn) {
-    asmTask *task = connGetPrivateData(conn);
-    asmTaskSetFailed(task, "Main channel - Read error: %s", connGetLastError(conn));
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    serverAssert(task->main_channel_conn == conn);
+
+    if (task->state == ASM_STREAMING_BUF) {
+        /* Since the client is protected, just mark the connection as closed.
+         * Actual failure will be detected in the asmSyncBufferStreamToDb. */
+        freeClientAsync(connGetPrivateData(conn));
+    } else {
+        asmTaskSetFailed(task, "Main channel - Read error: %s", connGetLastError(conn));
+    }
 }
 
 /* Read data from connection into sync buffer. */
 static void asmSyncBufferReadFromConn(connection *conn) {
-    asmTask *task = connGetPrivateData(conn);
-    serverAssert(task->state == ASM_ACCUMULATE_BUF);
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    serverAssert(task->main_channel_conn == conn);
 
-    replDataBufReadFromConn(conn, &task->sync_buffer, asmReadSyncBufferErrorHandler);
+    /* ASM_ACCUMULATE_BUF and ASM_STREAMING_BUF fail points are handled here */
+    if (unlikely(asmDebugIsFailPointActive(ASM_IMPORT_MAIN_CHANNEL, task->state)))
+        connShutdown(conn);
+
+    replDataBuf *buf = &task->sync_buffer;
+    if (task->state == ASM_STREAMING_BUF) {
+        /* While streaming accumulated buffers, we continue reading from the
+         * source to prevent accumulation on source side as much as possible.
+         * However, we aim to drain buffer eventually. To ensure we consume more
+         * than we read, we'll read at most one block after two blocks of
+         * buffers are consumed. */
+        if (listLength(buf->blocks) + 1 >= buf->last_num_blocks)
+            return;
+        buf->last_num_blocks = listLength(buf->blocks);
+    }
+
+    replDataBufReadFromConn(conn, buf, asmReadSyncBufferErrorHandler);
 }
 
 static void asmSyncBufferStreamYieldCallback(void *ctx) {
@@ -1644,23 +1685,18 @@ static void asmSyncBufferStreamYieldCallback(void *ctx) {
         /* Since this client is protected, freeClient just masks it as closed */
         freeClientAsync(c);
     }
+    serverLog(LL_NOTICE, "Yielding sending ACK during streaming buffer, applied offset: %zu",
+                         context->applied_offset);
 }
 
 static int asmSyncBufferStreamShouldContinue(void *ctx) {
     replDataBufToDbCtx *context = ctx;
     client *c = context->client;
-    asmTask *task = c->task;
 
-    if (unlikely(asmDebugIsFailPointActive(ASM_IMPORT_MAIN_CHANNEL, task->state))) {
-        /* Since the client is protected, freeClient will become async */
-        freeClient(c);
-    }
-
-    /* Check if the client is still valid, maybe killed by `client kill`,
-     * or the task is no longer in the streaming state, maybe the task is
-     * failed. */
-    if (c->flags & CLIENT_CLOSE_ASAP || task->state != ASM_STREAMING_BUF)
-        return 0;
+    /* Check if the client is still valid, maybe killed by `client kill`, or an
+     * error happened during accumulating buffer. Since the client is protected,
+     * won't be freed, here we check if the connection is marked as closed. */
+    if (c->flags & CLIENT_CLOSE_ASAP) return 0;
 
     return 1;
 }
@@ -1679,7 +1715,10 @@ void asmSyncBufferStreamToDb(asmTask *task) {
     c->authenticated = 1;
     c->user = NULL;
     c->task = task;
-    connSetReadHandler(c->conn, NULL);
+
+    /* Mark the peek buffer block count. We'll use it to verify we consume
+     * faster than we read from the source side. */
+    task->sync_buffer.last_num_blocks = listLength(task->sync_buffer.blocks);
 
     replDataBufToDbCtx ctx = {
         .client = c,
@@ -1690,10 +1729,20 @@ void asmSyncBufferStreamToDb(asmTask *task) {
 
     /* Protect the client from being killed by `client kill` */
     protectClient(c);
+    /* protectClient will set read handler to NULL to prevent it from being freed,
+     * but now we want to continue accumulating during streaming, so set it back
+     * and guarantee the client won't be freed in the read handler. */
+    connSetReadHandler(c->conn, asmSyncBufferReadFromConn);
     int ret = replDataBufStreamToDb(&task->sync_buffer, &ctx);
     unprotectClient(c);
 
     if (ret == C_OK) {
+        if (task->stream_eof_during_streaming) {
+            /* STREAM-EOF received during streaming, we can takeover now. */
+            asmImportTakeover(task);
+            return;
+        }
+
         /* Update the dest offset according to applied bytes. */
         task->dest_offset = ctx.applied_offset;
         /* Wait STREAM-EOF from the source node. */
