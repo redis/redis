@@ -248,7 +248,7 @@ REDIS_STATIC int __quicklistCompressNode(quicklist *quicklist, quicklistNode *no
         return 0;
     }
     size_t new_entry_size, old_entry_size;
-    lzf = zrealloc_usable(lzf, sizeof(*lzf) + lzf->sz, &new_entry_size);
+    lzf = zrealloc_usable(lzf, sizeof(*lzf) + lzf->sz, &new_entry_size, NULL);
     zfree_usable(node->entry, &old_entry_size);
     node->entry = (unsigned char *)lzf;
     node->encoding = QUICKLIST_NODE_ENCODING_LZF;
@@ -1814,7 +1814,7 @@ int quicklistBookmarkCreate(quicklist **ql_ref, const char *name, quicklistNode 
         return 1;
     }
     size_t new_size, old_size;
-    ql = zrealloc_usable2(ql, sizeof(quicklist) + (ql->bookmark_count+1) * sizeof(quicklistBookmark),
+    ql = zrealloc_usable(ql, sizeof(quicklist) + (ql->bookmark_count+1) * sizeof(quicklistBookmark),
                           &new_size, &old_size);
     *ql_ref = ql;
     ql->bookmarks[ql->bookmark_count].node = node;

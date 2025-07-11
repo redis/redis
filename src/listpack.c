@@ -248,7 +248,7 @@ unsigned char* lpShrinkToFitUsable(unsigned char *lp, size_t *usable, size_t *ol
     if (usable) *usable = usable_size;
     if (old_usable) *old_usable = usable_size;
     if (size < usable_size) {
-        return lp_realloc2(lp, size, usable, old_usable);
+        return lp_realloc_usable(lp, size, usable, old_usable);
     } else {
         return lp;
     }
@@ -1032,7 +1032,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     size_t usable_size = lp_malloc_size(lp);
     if (new_listpack_bytes > old_listpack_bytes &&
         new_listpack_bytes > usable_size) {
-        if ((lp = lp_realloc2(lp,new_listpack_bytes,&newsize,&oldsize)) == NULL) return NULL;
+        if ((lp = lp_realloc_usable(lp,new_listpack_bytes,&newsize,&oldsize)) == NULL) return NULL;
         dst = lp + poff;
     } else {
         oldsize = newsize = usable_size;
@@ -1050,7 +1050,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
 
     /* Realloc after: we need to free space. */
     if (new_listpack_bytes < old_listpack_bytes) {
-        if ((lp = lp_realloc2(lp,new_listpack_bytes, &newsize, NULL)) == NULL) return NULL;
+        if ((lp = lp_realloc_usable(lp,new_listpack_bytes, &newsize, NULL)) == NULL) return NULL;
         dst = lp + poff;
     }
 
@@ -1549,7 +1549,7 @@ unsigned char *lpMergeUsable(unsigned char **first, unsigned char **second,
 
     /* Extend target to new lpbytes then append or prepend source. */
     size_t newsize, oldsize, oldsize2;
-    target = lp_realloc2(target, lpbytes, &newsize, &oldsize);
+    target = lp_realloc_usable(target, lpbytes, &newsize, &oldsize);
     if (append) {
         /* append == appending to target */
         /* Copy source after target (copying over original [END]):

@@ -732,7 +732,7 @@ void trimReplyUnusedTailSpace(client *c) {
     {
         size_t usable_size;
         size_t old_size = tail->size;
-        tail = zrealloc_usable(tail, tail->used + sizeof(clientReplyBlock), &usable_size);
+        tail = zrealloc_usable(tail, tail->used + sizeof(clientReplyBlock), &usable_size, NULL);
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
         tail->size = usable_size - sizeof(clientReplyBlock);
