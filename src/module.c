@@ -557,13 +557,13 @@ void *RM_TryCalloc(size_t nmemb, size_t size) {
 
 /* Use like realloc() for memory obtained with RedisModule_Alloc(). */
 void* RM_Realloc(void *ptr, size_t bytes) {
-    return zrealloc_usable(ptr,bytes,NULL);
+    return zrealloc_usable(ptr,bytes,NULL,NULL);
 }
 
 /* Similar to RM_Realloc, but returns NULL in case of allocation failure,
  * instead of panicking. */
 void *RM_TryRealloc(void *ptr, size_t bytes) {
-    return ztryrealloc_usable(ptr,bytes,NULL);
+    return ztryrealloc_usable(ptr,bytes,NULL,NULL);
 }
 
 /* Use like free() for memory obtained by RedisModule_Alloc() and
