@@ -385,5 +385,26 @@
         "optional": true
       }
     ]
+  },
+  "VISMEMBER": {
+    "summary": "Check if an element exists in a vector set",
+    "complexity": "O(1)",
+    "group": "vector_set",
+    "since": "8.0.0",
+    "arity": 3,
+    "function": "vismemberCommand",
+    "command_flags": [
+      "READONLY"
+    ],
+    "arguments": [
+      {
+        "name": "key",
+        "type": "key"
+      },
+      {
+        "name": "element",
+        "type": "string"
+      }
+    ]
   }
 }
