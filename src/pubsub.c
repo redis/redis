@@ -325,9 +325,11 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
         robj *channel = dictGetKey(de);
         dict *clients = dictGetVal(de);
         /* For each client subscribed to the channel, unsubscribe it. */
-        dictIterator *iter = dictGetIterator(clients);
+        dictIterator iter;
         dictEntry *entry;
-        while ((entry = dictNext(iter)) != NULL) {
+
+        dictInitIterator(&iter, clients);
+        while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
             int retval = dictDelete(c->pubsubshard_channels, channel);
             serverAssertWithInfo(c,channel,retval == DICT_OK);
@@ -338,7 +340,7 @@ void pubsubShardUnsubscribeAllChannelsInSlot(unsigned int slot) {
                 unmarkClientAsPubSub(c);
             }
         }
-        dictReleaseIterator(iter);
+        dictResetIterator(&iter);
         kvstoreDictDelete(server.pubsubshard_channels, slot, channel);
     }
     kvstoreReleaseDictIterator(kvs_di);
@@ -401,15 +403,16 @@ int pubsubUnsubscribePattern(client *c, robj *pattern, int notify) {
 int pubsubUnsubscribeAllChannelsInternal(client *c, int notify, pubsubtype type) {
     int count = 0;
     if (dictSize(type.clientPubSubChannels(c)) > 0) {
-        dictIterator *di = dictGetSafeIterator(type.clientPubSubChannels(c));
+        dictIterator di;
         dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
+        dictInitSafeIterator(&di, type.clientPubSubChannels(c));
+        while((de = dictNext(&di)) != NULL) {
             robj *channel = dictGetKey(de);
 
             count += pubsubUnsubscribeChannel(c,channel,notify,type);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     /* We were subscribed to nothing? Still reply to the client. */
     if (notify && count == 0) {
@@ -440,14 +443,15 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     int count = 0;
 
     if (dictSize(c->pubsub_patterns) > 0) {
-        dictIterator *di = dictGetSafeIterator(c->pubsub_patterns);
+        dictIterator di;
         dictEntry *de;
 
-        while ((de = dictNext(di)) != NULL) {
+        dictInitSafeIterator(&di, c->pubsub_patterns);
+        while ((de = dictNext(&di)) != NULL) {
             robj *pattern = dictGetKey(de);
             count += pubsubUnsubscribePattern(c, pattern, notify);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
 
     /* We were subscribed to nothing? Still reply to the client. */
@@ -461,7 +465,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
 int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) {
     int receivers = 0;
     dictEntry *de;
-    dictIterator *di;
+    dictIterator di;
     unsigned int slot = 0;
 
     /* Send to clients listening for that channel */
@@ -472,8 +476,10 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     if (de) {
         dict *clients = dictGetVal(de);
         dictEntry *entry;
-        dictIterator *iter = dictGetIterator(clients);
-        while ((entry = dictNext(iter)) != NULL) {
+        dictIterator iter;
+
+        dictInitIterator(&iter, clients);
+        while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
             addReplyPubsubMessage(c,channel,message,*type.messageBulk);
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
@@ -481,7 +487,7 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
             updateClientMemUsageAndBucket(c);
             receivers++;
         }
-        dictReleaseIterator(iter);
+        dictResetIterator(&iter);
     }
 
     if (type.shard) {
@@ -490,10 +496,10 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
     }
 
     /* Send to clients listening to matching channels */
-    di = dictGetIterator(server.pubsub_patterns);
-    if (di) {
+    if (dictSize(server.pubsub_patterns) > 0) {
         channel = getDecodedObject(channel);
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, server.pubsub_patterns);
+        while((de = dictNext(&di)) != NULL) {
             robj *pattern = dictGetKey(de);
             dict *clients = dictGetVal(de);
             if (!stringmatchlen((char*)pattern->ptr,
@@ -502,17 +508,19 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
                                 sdslen(channel->ptr),0)) continue;
 
             dictEntry *entry;
-            dictIterator *iter = dictGetIterator(clients);
-            while ((entry = dictNext(iter)) != NULL) {
+            dictIterator iter;
+
+            dictInitIterator(&iter, clients);
+            while ((entry = dictNext(&iter)) != NULL) {
                 client *c = dictGetKey(entry);
                 addReplyPubsubPatMessage(c,pattern,channel,message);
                 updateClientMemUsageAndBucket(c);
                 receivers++;
             }
-            dictReleaseIterator(iter);
+            dictResetIterator(&iter);
         }
         decrRefCount(channel);
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     return receivers;
 }

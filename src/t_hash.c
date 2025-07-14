@@ -3208,7 +3208,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
         /* Hashtable encoding (generic implementation) */
         dict *ht = hash->ptr;
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de;
         unsigned long idx = 0;
 
@@ -3220,10 +3220,10 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         } *pairs = zmalloc(sizeof(struct FieldValPair) * size);
 
         /* Add all the elements into the temporary array. */
-        di = dictGetIterator(ht);
-        while((de = dictNext(di)) != NULL)
+        dictInitIterator(&di, ht);
+        while((de = dictNext(&di)) != NULL)
               pairs[idx++] = (struct FieldValPair) {dictGetKey(de), dictGetVal(de)};
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
 
         /* Remove random elements to reach the right count. */
         while (size > count) {

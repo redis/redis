@@ -423,17 +423,17 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
  * Internal function for unblockClient() */
 static void unblockClientWaitingData(client *c) {
     dictEntry *de;
-    dictIterator *di;
+    dictIterator di;
 
     if (dictSize(c->bstate.keys) == 0)
         return;
 
-    di = dictGetIterator(c->bstate.keys);
+    dictInitIterator(&di, c->bstate.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    while((de = dictNext(di)) != NULL) {
+    while((de = dictNext(&di)) != NULL) {
         releaseBlockedEntry(c, de, 0);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     dictEmpty(c->bstate.keys, NULL);
 }
 
