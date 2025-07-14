@@ -14,6 +14,7 @@
 
 #include "server.h"
 #include "lolwut.h"
+#include "rand.h"
 #include <math.h>
 
 /* Draw a tree branch using line drawing */
@@ -49,9 +50,9 @@ void generateFractalForest(lwCanvas *canvas, int num_trees, int max_depth) {
     for (int i = 0; i < num_trees; i++) {
         int x = tree_spacing * (i + 1);
         int y = canvas->height - 1;  /* Start from bottom */
-        int initial_length = canvas->height / 4 + (rand() % (canvas->height / 6));
+        int initial_length = canvas->height / 4 + (redisLrand48() % (canvas->height / 6));
         double angle = -M_PI / 2;  /* Point upward */
-        int depth = max_depth - (rand() % 2); /* Slight variation in depth */
+        int depth = max_depth - (redisLrand48() % 2); /* Slight variation in depth */
         
         drawTree(canvas, x, y, initial_length, angle, depth, 1);
     }
