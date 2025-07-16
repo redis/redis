@@ -172,7 +172,7 @@ void lolwut8Command(client *c) {
         "https://www.youtube.com/watch?v=8i7uFCK7G0o (English subs)\n\n"
         "Use: LOLWUT IT for the original Italian output. Redis ver. ");
     combined = sdscat(combined,REDIS_VERSION);
-    combined = sdscat(combined,"\n\n");
+    combined = sdscatlen(rendered,"\n",1);
 
     addReplyVerbatim(c,combined,sdslen(combined),"txt");
     sdsfree(combined);
