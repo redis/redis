@@ -343,6 +343,7 @@ static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *
             if (!replace) {
                 /* library already exists, failed the restore. */
                 *err = sdscatfmt(sdsempty(), "Library %s already exists", li->name);
+                dictResetIterator(&iter);
                 goto done;
             } else {
                 if (!old_libraries_list) {
