@@ -96,7 +96,15 @@
     "command_flags": [
       "WRITE",
       "DENYOOM"
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RW", "INSERT"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VREM": {
     "summary": "Remove one or more elements from a vector set",
@@ -118,7 +126,15 @@
         "type": "string",
         "multiple": true
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RW", "DELETE"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VSIM": {
     "summary": "Return elements by vector similarity",
@@ -208,7 +224,15 @@
         "type": "pure-token",
         "optional": true
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VDIM": {
     "summary": "Return the dimension of vectors in the vector set",
@@ -226,7 +250,15 @@
         "name": "key",
         "type": "key"
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VCARD": {
     "summary": "Return the number of elements in a vector set",
@@ -244,7 +276,15 @@
         "name": "key",
         "type": "key"
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VEMB": {
     "summary": "Return the vector associated with an element",
@@ -271,7 +311,15 @@
         "type": "pure-token",
         "optional": true
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VLINKS": {
     "summary": "Return the neighbors of an element at each layer in the HNSW graph",
@@ -298,7 +346,15 @@
         "type": "pure-token",
         "optional": true
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VINFO": {
     "summary": "Return information about a vector set",
@@ -316,7 +372,15 @@
         "name": "key",
         "type": "key"
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VSETATTR": {
     "summary": "Associate or remove the JSON attributes of elements",
@@ -341,7 +405,15 @@
         "name": "json",
         "type": "string"
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RW", "UPDATE"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VGETATTR": {
     "summary": "Retrieve the JSON attributes of elements",
@@ -362,7 +434,15 @@
         "name": "element",
         "type": "string"
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   },
   "VRANDMEMBER": {
     "summary": "Return one or multiple random members from a vector set",
@@ -384,6 +464,14 @@
         "type": "integer",
         "optional": true
       }
-    ]
+    ],
+    "key_specs": [
+      {
+        "flags": ["RO", "ACCESS"],
+        "begin_search": { "index": { "pos": 1 } },
+        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
+      }
+    ],
+    "acl_categories": ["VECTORSET"]
   }
 }
