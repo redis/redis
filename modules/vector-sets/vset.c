@@ -2039,6 +2039,17 @@ int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
+/* Create the command and associate it with the 'vectorset' acl category  */
+int VectorSets_CreateCommandWithAcls(RedisModuleCtx * ctx, char * name, RedisModuleCmdFunc func, const char * strflags, int firstkey, int lastkey, int keystep) {
+    if (RedisModule_CreateCommand(ctx, name, func, strflags, firstkey, lastkey, keystep) == REDISMODULE_ERR) 
+        return REDISMODULE_ERR; 
+    RedisModuleCommand *cmd = RedisModule_GetCommand(ctx, name); 
+    if (cmd) {
+        RedisModule_SetCommandACLCategories(cmd, "vectorset"); 
+    }
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order to
  * register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -2047,6 +2058,11 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_Init(ctx,"vectorset",1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    if (RedisModule_AddACLCategory(ctx, "vectorset") == REDISMODULE_ERR) {
+        RedisModule_Log(ctx, "warning", "Could not create ACL category 'vectorset'");
+        return REDISMODULE_ERR;
+    }
 
     if (VectorSets_InitModuleConfig(ctx) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
@@ -2067,51 +2083,40 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     VectorSetType = RedisModule_CreateDataType(ctx,"vectorset",0,&tm);
     if (VectorSetType == NULL) return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx,"VADD",
-        VADD_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
+    if (VectorSets_CreateCommandWithAcls(ctx, "VADD", 
+        VADD_RedisCommand, "write deny-oom", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx,"VREM",
-        VREM_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
+    if (VectorSets_CreateCommandWithAcls(ctx, "VREM", 
+        VREM_RedisCommand, "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx,"VSIM",
-        VSIM_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
+    if (VectorSets_CreateCommandWithAcls(ctx, "VSIM", 
+        VSIM_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VDIM",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VDIM", 
         VDIM_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VCARD",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VCARD", 
         VCARD_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VEMB",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VEMB", 
         VEMB_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VLINKS",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VLINKS", 
         VLINKS_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VINFO",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VINFO", 
         VINFO_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VSETATTR",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VSETATTR", 
         VSETATTR_RedisCommand, "write fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VGETATTR",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VGETATTR", 
         VGETATTR_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VRANDMEMBER",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VRANDMEMBER", 
         VRANDMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "VISMEMBER",
+    if (VectorSets_CreateCommandWithAcls(ctx, "VISMEMBER", 
         VISMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
