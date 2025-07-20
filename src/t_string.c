@@ -772,51 +772,53 @@ void lcsCommand(client *c) {
         goto cleanup;
     }
 
-    /*
-     * If user only requests the LCS length (getlen == 1)
-     * and does NOT specify IDX (getidx == 0), we can use a rolling array
-     * approach to reduce memory usage from O(M*N) to O(min(M,N)).
-     */
+    /* If the user only requests the LCS length, without any index
+     * information, we can use a space-optimized dynamic programming
+     * approach that uses O(min(M,N)) memory instead of O(M*N).
+     * This avoids allocating a large 2D matrix when it's not needed. */
     if (getlen && !getidx) {
         uint32_t alen = sdslen(a);
         uint32_t blen = sdslen(b);
+        uint32_t *prev, *curr;
 
-        if (alen == 0 || blen == 0) {
-            addReplyLongLong(c, 0);
-            goto cleanup; /* Must ensure we decrRefCount below. */
-        }
-
-        if (alen > blen) {
-            sds tmp = a; a = b; b = tmp;
+        /* To minimize memory usage, we iterate over the longer string
+         * and allocate memory based on the shorter string's length. */
+        if (alen < blen) {
+            sds s = a; a = b; b = s;
             uint32_t tlen = alen; alen = blen; blen = tlen;
         }
 
-        uint32_t *prev = zmalloc((alen+1)*sizeof(uint32_t));
-        uint32_t *curr = zmalloc((alen+1)*sizeof(uint32_t));
-        memset(prev, 0, (alen+1)*sizeof(uint32_t));
-        memset(curr, 0, (alen+1)*sizeof(uint32_t));
-
-        for (uint32_t col = 1; col <= blen; col++) {
-            for (uint32_t row = 1; row <= alen; row++) {
-                if (a[row-1] == b[col-1]) {
-                    curr[row] = prev[row-1] + 1;
-                } else {
-                    curr[row] = (prev[row] > curr[row-1]) ? prev[row] : curr[row-1];
-                }
-            }
-            /* Swap rolling arrays */
-            uint32_t *temp = prev;
-            prev = curr;
-            curr = temp;
+        /* zcalloc is used for 'prev' to get zero-initialized memory.
+         * zmalloc is used for 'curr' as it's overwritten in each iteration.
+         * We must check for OOM conditions. */
+        prev = zcalloc((blen + 1) * sizeof(uint32_t));
+        curr = zmalloc((blen + 1) * sizeof(uint32_t));
+        if (!prev || !curr) {
+            addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
+            zfree(prev); /* zfree(NULL) is safe. */
+            zfree(curr);
+            goto cleanup;
         }
 
-        uint32_t lcs_len = prev[alen];
+        for (i = 1; i <= alen; i++) {
+            curr[0] = 0; /* Base case for the inner loop. */
+            for (j = 1; j <= blen; j++) {
+                if (a[i-1] == b[j-1]) {
+                    curr[j] = prev[j-1] + 1;
+                } else {
+                    curr[j] = (prev[j] > curr[j-1]) ? prev[j] : curr[j-1];
+                }
+            }
+            /* Swap buffers for the next iteration. */
+            uint32_t *swap_tmp = prev;
+            prev = curr;
+            curr = swap_tmp;
+        }
+
+        addReplyLongLong(c, prev[blen]);
         zfree(prev);
         zfree(curr);
-
-        /* Return the length of the LCS. */
-        addReplyLongLong(c, lcs_len);
-        goto cleanup;
+        goto cleanup; /* We are done, skip the original implementation. */
     }
 
     /* Compute the LCS using the vanilla dynamic programming technique of
