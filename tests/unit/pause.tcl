@@ -409,7 +409,7 @@ start_server {tags {"pause network"}} {
 
         # This used to trigger a panic.
         assert_equal 0 [r client unblock $client_id1 timeout]
-        # THis used to return a UNBLOCKED error.
+        # This used to return a UNBLOCKED error.
         assert_equal 0 [r client unblock $client_id2 error]
 
         # After the unpause, it must be able to unblock the client.
