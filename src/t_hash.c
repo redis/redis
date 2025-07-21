@@ -2626,6 +2626,7 @@ void hmgetCommand(client *c) {
             addReplyNull(c);
         }
     }
+    
     if (expired) {
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
         if (deleted)
