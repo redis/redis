@@ -82,5 +82,5 @@ class HNSWPersistence(TestCase):
                 f"Projected vectors: Score mismatch for {key}: " + \
                 f"before={initial_projected[key]:.6f}, after={reloaded_projected[key]:.6f}"
 
-        self.redis.del(f"{self.test_key}:normal")
-        self.redis.del(f"{self.test_key}:projected")
+        self.redis.delete(f"{self.test_key}:normal")
+        self.redis.delete(f"{self.test_key}:projected")

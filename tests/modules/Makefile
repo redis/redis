@@ -82,7 +82,8 @@ TEST_MODULES = \
     moduleauthtwo.so \
     rdbloadsave.so \
     crash.so \
-    internalsecret.so
+    internalsecret.so \
+    configaccess.so
 
 .PHONY: all
 

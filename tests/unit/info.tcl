@@ -563,9 +563,14 @@ start_server {tags {"info" "external:skip"}} {
         set time_before_add_large_str [clock seconds]
         r set large_str [string repeat "a" 1000000]
         assert {[s used_memory_peak_time] >= $time_before_add_large_str}
-        set peak_value [s used_memory_peak]
 
         r del large_str
+
+        # Note: this info command must be called after the del operation to ensure
+        # the peak memory measurement isn't affected by the info command itself
+        # potentially increasing peak memory.
+        set peak_value [s used_memory_peak]
+
         # Add a small string, which cannot exceed the previous peak value
         r set small_str [string repeat "a" 1000]
         assert {[s used_memory_peak] == $peak_value}

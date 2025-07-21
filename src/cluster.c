@@ -195,7 +195,9 @@ void restoreCommand(client *c) {
 
     /* Make sure this key does not already exist here... */
     robj *key = c->argv[1];
-    if (!replace && lookupKeyWrite(c->db,key) != NULL) {
+    kvobj *oldval = lookupKeyWrite(c->db,key);
+    int oldtype = oldval ? oldval->type : -1;
+    if (!replace && oldval) {
         addReplyErrorObject(c,shared.busykeyerr);
         return;
     }
@@ -265,6 +267,15 @@ void restoreCommand(client *c) {
     objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
     signalModifiedKey(c,c->db,key);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
+ 
+    /* If we deleted a key that means REPLACE parameter was passed and the
+     * destination key existed. */
+    if (deleted) {
+        notifyKeyspaceEvent(NOTIFY_OVERWRITTEN, "overwritten", key, c->db->id);
+        if (oldtype != kv->type) {
+            notifyKeyspaceEvent(NOTIFY_TYPE_CHANGED, "type_changed", key, c->db->id);
+        }
+    }
     addReply(c,shared.ok);
     server.dirty++;
 }

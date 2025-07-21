@@ -764,7 +764,12 @@ int performModuleConfigSetDefaultFromName(sds name, const char **err) {
     return 0;
 }
 
-static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count, apply_fn *apply_fns, list *module_configs) {
+static int configNeedsApply(standardConfig *config) {
+    return ((config->flags & MODULE_CONFIG) && moduleConfigNeedsApply(config->privdata)) ||
+           config->interface.apply;
+}
+
+static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, int count) {
     int i;
     const char *errstr = "unknown error";
     /* Set all backup values */
@@ -773,16 +778,19 @@ static void restoreBackupConfig(standardConfig **set_configs, sds *old_values, i
             serverLog(LL_WARNING, "Failed restoring failed CONFIG SET command. Error setting %s to '%s': %s",
                       set_configs[i]->name, old_values[i], errstr);
     }
-    /* Apply backup */
-    if (apply_fns) {
-        for (i = 0; i < count && apply_fns[i] != NULL; i++) {
-            if (!apply_fns[i](&errstr))
-                serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
-        }
-    }
-    if (module_configs) {
-        if (!moduleConfigApplyConfig(module_configs, &errstr, NULL))
-            serverLog(LL_WARNING, "Failed applying restored failed CONFIG SET command: %s", errstr);
+ 
+    for (i = 0; i < count; i++) {
+        if (!configNeedsApply(set_configs[i])) continue;
+
+        int applyres = 0;
+        if (set_configs[i]->flags & MODULE_CONFIG)
+            applyres = moduleConfigApply(set_configs[i]->privdata, &errstr);
+        else
+            applyres = set_configs[i]->interface.apply(&errstr);
+        
+        if (!applyres)
+            serverLog(LL_WARNING, "Failed applying restored CONFIG SET command. Error applying %s: %s",
+                      set_configs[i]->name, errstr);
     }
 }
 
@@ -795,14 +803,12 @@ void configSetCommand(client *c) {
     const char *invalid_arg_name = NULL;
     const char *err_arg_name = NULL;
     standardConfig **set_configs; /* TODO: make this a dict for better performance */
-    list *module_configs_apply;
     const char **config_names;
     sds *new_values;
     sds *old_values = NULL;
-    apply_fn *apply_fns; /* TODO: make this a set for better performance */
     int config_count, i, j;
     int invalid_args = 0, deny_loading_error = 0;
-    int *config_map_fns;
+    int *config_changed;
 
     /* Make sure we have an even number of arguments: conf-val pairs */
     if (c->argc & 1) {
@@ -811,13 +817,11 @@ void configSetCommand(client *c) {
     }
     config_count = (c->argc - 2) / 2;
 
-    module_configs_apply = listCreate();
     set_configs = zcalloc(sizeof(standardConfig*)*config_count);
     config_names = zcalloc(sizeof(char*)*config_count);
     new_values = zmalloc(sizeof(sds*)*config_count);
     old_values = zcalloc(sizeof(sds*)*config_count);
-    apply_fns = zcalloc(sizeof(apply_fn)*config_count);
-    config_map_fns = zmalloc(sizeof(int)*config_count);
+    config_changed = zmalloc(sizeof(int)*config_count);
 
     /* Find all relevant configs */
     for (i = 0; i < config_count; i++) {
@@ -883,45 +887,33 @@ void configSetCommand(client *c) {
     for (i = 0; i < config_count; i++) {
         int res = performInterfaceSet(set_configs[i], new_values[i], &errstr);
         if (!res) {
-            restoreBackupConfig(set_configs, old_values, i+1, NULL, NULL);
+            restoreBackupConfig(set_configs, old_values, i+1);
             err_arg_name = set_configs[i]->name;
             goto err;
-        } else if (res == 1) {
-            /* A new value was set, if this config has an apply function then store it for execution later */
-            if (set_configs[i]->flags & MODULE_CONFIG) {
-                addModuleConfigApply(module_configs_apply, set_configs[i]->privdata);
-            } else if (set_configs[i]->interface.apply) {
-                /* Check if this apply function is already stored */
-                int exists = 0;
-                for (j = 0; apply_fns[j] != NULL && j <= i; j++) {
-                    if (apply_fns[j] == set_configs[i]->interface.apply) {
-                        exists = 1;
-                        break;
-                    }
-                }
-                /* Apply function not stored, store it */
-                if (!exists) {
-                    apply_fns[j] = set_configs[i]->interface.apply;
-                    config_map_fns[j] = i;
-                }
-            }
         }
+        if (res == 1) config_changed[i] = 1;
+        else config_changed[i] = 0;
     }
 
-    /* Apply all configs after being set */
-    for (i = 0; i < config_count && apply_fns[i] != NULL; i++) {
-        if (!apply_fns[i](&errstr)) {
-            serverLog(LL_WARNING, "Failed applying new configuration. Possibly related to new %s setting. Restoring previous settings.", set_configs[config_map_fns[i]]->name);
-            restoreBackupConfig(set_configs, old_values, config_count, apply_fns, NULL);
-            err_arg_name = set_configs[config_map_fns[i]]->name;
+    /* Apply all configs that need it */
+    for (i = 0; i < config_count; i++) {
+        if (!config_changed[i]) continue;
+
+        /* A new value was set, if this config has an apply function try to apply
+         * it and restore if apply fails. */
+        if (!configNeedsApply(set_configs[i])) continue;
+
+        int res = 0;
+        if (set_configs[i]->flags & MODULE_CONFIG)
+            res = moduleConfigApply(set_configs[i]->privdata, &errstr);
+        else
+            res = set_configs[i]->interface.apply(&errstr);
+        
+        if (!res) {
+            restoreBackupConfig(set_configs, old_values, config_count);
+            err_arg_name = set_configs[i]->name;
             goto err;
         }
-    }
-    /* Apply all module configs that were set. */
-    if (!moduleConfigApplyConfig(module_configs_apply, &errstr, &err_arg_name)) {
-        serverLogRaw(LL_WARNING, "Failed applying new module configuration. Restoring previous settings.");
-        restoreBackupConfig(set_configs, old_values, config_count, apply_fns, module_configs_apply);
-        goto err;
     }
 
     RedisModuleConfigChangeV1 cc = {.num_changes = config_count, .config_names = config_names};
@@ -947,9 +939,7 @@ end:
     for (i = 0; i < config_count; i++)
         sdsfree(old_values[i]);
     zfree(old_values);
-    zfree(apply_fns);
-    zfree(config_map_fns);
-    listRelease(module_configs_apply);
+    zfree(config_changed);
 }
 
 /*-----------------------------------------------------------------------------
@@ -1826,9 +1816,7 @@ static void boolConfigInit(standardConfig *config) {
     *config->data.yesno.config = config->data.yesno.default_value;
 }
 
-static int boolConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
-    UNUSED(argc);
-    int yn = yesnotoi(argv[0]);
+static int boolConfigSetInternal(standardConfig *config, int yn, const char **err) {
     if (yn == -1) {
         *err = "argument must be 'yes' or 'no'";
         return 0;
@@ -1844,6 +1832,13 @@ static int boolConfigSet(standardConfig *config, sds *argv, int argc, const char
         return 1;
     }
     return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
+
+}
+
+static int boolConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
+    UNUSED(argc);
+    int yn = yesnotoi(argv[0]);
+    return boolConfigSetInternal(config, yn, err);
 }
 
 static sds boolConfigGet(standardConfig *config) {
@@ -1874,18 +1869,22 @@ static void stringConfigInit(standardConfig *config) {
     *config->data.string.config = (config->data.string.convert_empty_to_null && !config->data.string.default_value) ? NULL : zstrdup(config->data.string.default_value);
 }
 
-static int stringConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
-    UNUSED(argc);
-    if (config->data.string.is_valid_fn && !config->data.string.is_valid_fn(argv[0], err))
+static int stringConfigSetInternal(standardConfig *config, char *str, const char **err) {
+    if (config->data.string.is_valid_fn && !config->data.string.is_valid_fn(str, err))
         return 0;
     char *prev = *config->data.string.config;
-    char *new = (config->data.string.convert_empty_to_null && !argv[0][0]) ? NULL : argv[0];
+    char *new = (config->data.string.convert_empty_to_null && !str[0]) ? NULL : str;
     if (new != prev && (new == NULL || prev == NULL || strcmp(prev, new))) {
         *config->data.string.config = new != NULL ? zstrdup(new) : NULL;
         zfree(prev);
         return 1;
     }
     return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
+}
+
+static int stringConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
+    UNUSED(argc);
+    return stringConfigSetInternal(config, argv[0], err);
 }
 
 static sds stringConfigGet(standardConfig *config) {
@@ -2096,6 +2095,10 @@ static int numericBoundaryCheck(standardConfig *config, long long ll, const char
         config->data.numeric.numeric_type == NUMERIC_TYPE_UINT ||
         config->data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
         /* Boundary check for unsigned types */
+        if (ll < 0) {
+            *err = "argument must be greater or equal to 0";
+            return 0;
+        }
         unsigned long long ull = ll;
         unsigned long long upper_bound = config->data.numeric.upper_bound;
         unsigned long long lower_bound = config->data.numeric.lower_bound;
@@ -2183,25 +2186,30 @@ static int numericParseString(standardConfig *config, sds value, const char **er
     return 0;
 }
 
-static int numericConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
-    UNUSED(argc);
-    long long ll, prev = 0;
-
-    if (!numericParseString(config, argv[0], err, &ll))
-        return 0;
-
+static int numericConfigSetInternal(standardConfig *config, long long ll, const char **err) {
     if (!numericBoundaryCheck(config, ll, err))
         return 0;
 
     if (config->data.numeric.is_valid_fn && !config->data.numeric.is_valid_fn(ll, err))
         return 0;
 
+    long long prev = 0;
     GET_NUMERIC_TYPE(prev)
     if (prev != ll) {
         return setNumericType(config, ll, err);
     }
 
     return (config->flags & VOLATILE_CONFIG) ? 1 : 2;
+}
+
+static int numericConfigSet(standardConfig *config, sds *argv, int argc, const char **err) {
+    UNUSED(argc);
+    long long ll;
+
+    if (!numericParseString(config, argv[0], err, &ll))
+        return 0;
+
+    return numericConfigSetInternal(config, ll, err);
 }
 
 static sds numericConfigGet(standardConfig *config) {
@@ -3440,6 +3448,238 @@ void addModuleNumericConfig(sds name, sds alias, int flags, void *privdata, long
         sc.alias = sdsdup(alias);
         registerConfigValue(sc.alias, &sc, 1);
     }
+}
+
+/*-----------------------------------------------------------------------------
+ * API for modules to access the config
+ *----------------------------------------------------------------------------*/
+
+/* If a config with the given `name` does not exist or is not mutable, return
+ * NULL, else return the config. */
+static standardConfig *getMutableConfig(client *c, const sds name, const char **errstr) {
+    standardConfig *config = lookupConfig(name);
+
+    if (!config) {
+        if (errstr) *errstr = "Config name not found";
+        return NULL;
+    }
+
+    if (config->flags & IMMUTABLE_CONFIG ||
+        (config->flags & PROTECTED_CONFIG &&
+         !allowProtectedAction(server.enable_protected_configs, c))) {
+        if (errstr) *errstr = config->flags & IMMUTABLE_CONFIG ? "Config is immutable" : "Config is protected";
+        return NULL;
+    }
+
+    if (server.loading && config->flags & DENY_LOADING_CONFIG) {
+        if (errstr) *errstr = "Config is not allowed during loading";
+        return NULL;
+    }
+
+    return config;
+}
+
+dictIterator *moduleGetConfigIterator(void) {
+    return dictGetIterator(configs);
+}
+
+const char *moduleConfigIteratorNext(dictIterator **iter, sds pattern, int is_glob, configType *typehint) {
+    if (*iter == NULL) return NULL;
+
+    standardConfig *config = NULL;
+
+    /* Special case for non-glob patterns - we only need to check if the config
+     * exists and return it. That save us iteration cycles. */
+    if (pattern && !is_glob) {
+        /* Release the iterator so we stop the iteration at this point */
+        dictReleaseIterator(*iter);
+        *iter = NULL;
+
+        dictEntry *de = dictFind(configs, pattern);
+        if (!de) return NULL;
+        config = dictGetVal(de);
+        if (typehint) *typehint = config->type;
+        return config->name;
+    }
+
+    dictEntry *de = NULL;
+    while ((de = dictNext(*iter)) != NULL) {
+        config = dictGetVal(de);
+
+        /* Note that hidden configs require an exact match (not a pattern) */
+        if (config->flags & HIDDEN_CONFIG) continue;
+
+        if (!pattern || stringmatch(pattern, config->name, 1))
+            break;
+    }
+    if (!de) return NULL;
+    if (typehint) *typehint = config->type;
+    return config->name;
+}
+
+int moduleGetConfigType(sds name, configType *res) {
+    standardConfig *config = lookupConfig(name);
+    if (!config) return 0;
+    if (res) *res = config->type;
+    return 1;
+}
+
+int moduleGetBoolConfig(sds name, int *res) {
+    standardConfig *config = lookupConfig(name);
+    if (!config) return 0;
+    if (config->type != BOOL_CONFIG) return 0;
+
+    if (res == NULL) return 1;
+
+    if (config->flags & MODULE_CONFIG) 
+        *res = getModuleBoolConfig(config->privdata);
+    else
+        *res = *config->data.yesno.config;
+
+    return 1;
+}
+
+int moduleGetStringConfig(sds name, sds *res) {
+    standardConfig *config = lookupConfig(name);
+    if (!config) return 0;
+
+    if (res == NULL) return 1;
+
+    *res = config->interface.get(config);
+
+    return 1;
+}
+
+int moduleGetEnumConfig(sds name, sds *res) {
+    standardConfig *config = lookupConfig(name);
+    if (!config) return 0;
+    if (config->type != ENUM_CONFIG) return 0;
+
+    if (res != NULL) *res = enumConfigGet(config);
+
+    return 1;
+}
+
+int moduleGetNumericConfig(sds name, long long *res) {
+    standardConfig *config = lookupConfig(name);
+    if (!config) return 0;
+    if (config->type != NUMERIC_CONFIG) return 0;
+
+    if (res == NULL) return 1;
+
+    if (config->flags & MODULE_CONFIG) 
+        *res = getModuleNumericConfig(config->privdata);
+    else
+        GET_NUMERIC_TYPE(*res);
+
+    return 1;
+}
+
+static int configApply(standardConfig *config, sds old_value, const char **err) {
+    if (!configNeedsApply(config)) return 1;
+
+    int res = 0;
+    if (config->flags & MODULE_CONFIG) 
+        res = moduleConfigApply(config->privdata, err);
+    else
+        res = config->interface.apply(err);
+
+    if (res) return res;
+
+    /* Apply failed - restore old value and apply it again since we don't know
+     * the side effects of the failed apply. */
+    restoreBackupConfig(&config, &old_value, 1);
+
+    return res;
+}
+
+int moduleSetBoolConfig(client *c, sds name, int val, const char **err) {
+    standardConfig *config = getMutableConfig(c, name, err);
+    if (!config) return 0;
+    if (config->type != BOOL_CONFIG) return 0;
+
+    /* Sanitize input */
+    if (val != 0 && val != 1) val = -1;
+
+    sds old_value = config->interface.get(config);
+    int res = boolConfigSetInternal(config, val, err);
+
+    /* We can't be sure if value was changed but setting still failed so we need
+     * to restore the old value */
+    if (!res)
+        restoreBackupConfig(&config, &old_value, 1);
+    else
+        res = configApply(config, old_value, err);
+
+    if (old_value) sdsfree(old_value);
+
+    return res;
+}
+
+int moduleSetStringConfig(client *c, sds name, const char *val, const char **err) {
+    standardConfig *config = getMutableConfig(c, name, err);
+    if (!config) return 0;
+
+    sds old_value = config->interface.get(config);
+
+    int res = 0;
+    if (config->type == STRING_CONFIG)
+        res = stringConfigSetInternal(config, (char *)val, err);
+    else {
+        sds sdsval = sdsnew(val);
+        res = performInterfaceSet(config, sdsval, err);
+        sdsfree(sdsval);
+    }
+
+    /* We can't be sure if value was changed but setting still failed so we need
+     * to restore the old value */
+    if (!res)
+        restoreBackupConfig(&config, &old_value, 1);
+    else
+        res = configApply(config, old_value, err);
+ 
+    if (old_value) sdsfree(old_value);
+
+    return res;
+}
+
+int moduleSetEnumConfig(client *c, sds name, sds *vals, int vals_cnt, const char **err) {
+    standardConfig *config = getMutableConfig(c, name, err);
+    if (!config) return 0;
+    if (config->type != ENUM_CONFIG) return 0;
+
+    sds old_value = config->interface.get(config);
+    int res = enumConfigSet(config, vals, vals_cnt, err);
+
+    /* We can't be sure if value was changed but setting still failed so we need
+     * to restore the old value */
+    if (!res)
+        restoreBackupConfig(&config, &old_value, 1);
+    else
+        res = configApply(config, old_value, err);
+
+    if (old_value) sdsfree(old_value);
+
+    return res;
+}
+
+int moduleSetNumericConfig(client *c, sds name, long long val, const char **err) {
+    standardConfig *config = getMutableConfig(c, name, err);
+    if (config->type != NUMERIC_CONFIG) return 0;
+
+    sds old_value = config->interface.get(config);
+    int res = numericConfigSetInternal(config, val, err);
+
+    /* We can't be sure if value was changed but setting still failed so we need
+     * to restore the old value */
+    if (!res)
+        restoreBackupConfig(&config, &old_value, 1);
+    else
+        res = configApply(config, old_value, err);
+
+    if (old_value) sdsfree(old_value);
+
+    return res;
 }
 
 /*-----------------------------------------------------------------------------
