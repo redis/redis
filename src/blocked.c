@@ -224,7 +224,8 @@ int blockedClientMayTimeout(client *c) {
     if (c->bstate.btype == BLOCKED_LIST ||
         c->bstate.btype == BLOCKED_ZSET ||
         c->bstate.btype == BLOCKED_STREAM ||
-        c->bstate.btype == BLOCKED_WAIT)
+        c->bstate.btype == BLOCKED_WAIT ||
+        c->bstate.btype == BLOCKED_WAITAOF)
     {
         return 1;
     }
