@@ -97,13 +97,6 @@
       "WRITE",
       "DENYOOM"
     ],
-    "key_specs": [
-      {
-        "flags": ["RW", "INSERT"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
-      }
-    ],
     "acl_categories": ["VECTORSET"]
   },
   "VREM": {
@@ -125,13 +118,6 @@
         "name": "element",
         "type": "string",
         "multiple": true
-      }
-    ],
-    "key_specs": [
-      {
-        "flags": ["RW", "DELETE"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
       }
     ],
     "acl_categories": ["VECTORSET"]
@@ -225,13 +211,6 @@
         "optional": true
       }
     ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
-      }
-    ],
     "acl_categories": ["VECTORSET"]
   },
   "VDIM": {
@@ -251,13 +230,6 @@
         "type": "key"
       }
     ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
-      }
-    ],
     "acl_categories": ["VECTORSET"]
   },
   "VCARD": {
@@ -275,13 +247,6 @@
       {
         "name": "key",
         "type": "key"
-      }
-    ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
       }
     ],
     "acl_categories": ["VECTORSET"]
@@ -312,13 +277,6 @@
         "optional": true
       }
     ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
-      }
-    ],
     "acl_categories": ["VECTORSET"]
   },
   "VLINKS": {
@@ -347,13 +305,6 @@
         "optional": true
       }
     ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
-      }
-    ],
     "acl_categories": ["VECTORSET"]
   },
   "VINFO": {
@@ -371,13 +322,6 @@
       {
         "name": "key",
         "type": "key"
-      }
-    ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
       }
     ],
     "acl_categories": ["VECTORSET"]
@@ -406,13 +350,6 @@
         "type": "string"
       }
     ],
-    "key_specs": [
-      {
-        "flags": ["RW", "UPDATE"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
-      }
-    ],
     "acl_categories": ["VECTORSET"]
   },
   "VGETATTR": {
@@ -433,13 +370,6 @@
       {
         "name": "element",
         "type": "string"
-      }
-    ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
       }
     ],
     "acl_categories": ["VECTORSET"]
@@ -463,13 +393,6 @@
         "name": "count",
         "type": "integer",
         "optional": true
-      }
-    ],
-    "key_specs": [
-      {
-        "flags": ["RO", "ACCESS"],
-        "begin_search": { "index": { "pos": 1 } },
-        "find_keys": { "range": { "lastkey": 0, "step": 1, "limit": 0 } }
       }
     ],
     "acl_categories": ["VECTORSET"]
