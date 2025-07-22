@@ -192,16 +192,117 @@ float pq_max_distance(pqueue *pq) {
 
 /* ============================ HNSW algorithm ============================== */
 
-/* Dot product: our vectors are already normalized.
+#ifdef __AVX512F__
+#include <immintrin.h>
+
+/* AVX512 optimized dot product for float vectors */
+float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim) {
+    __m512 sum = _mm512_setzero_ps();
+    uint32_t i;
+    
+    /* Process 16 floats at a time with AVX512 */
+    for (i = 0; i + 15 < dim; i += 16) {
+        __m512 vx = _mm512_loadu_ps(&x[i]);
+        __m512 vy = _mm512_loadu_ps(&y[i]);
+        sum = _mm512_fmadd_ps(vx, vy, sum);
+    }
+    
+    /* Horizontal sum of the 16 elements in sum */
+    float dot = _mm512_reduce_add_ps(sum);
+    
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += x[i] * y[i];
+    }
+    
+    return 1.0f - dot;
+}
+#endif
+
+#ifdef __AVX2__
+#include <immintrin.h>
+
+/* AVX2 optimized dot product for float vectors */
+float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) {
+    __m256 sum1 = _mm256_setzero_ps();
+    __m256 sum2 = _mm256_setzero_ps();
+    uint32_t i;
+    
+    /* Process 16 floats at a time with two AVX2 registers */
+    for (i = 0; i + 15 < dim; i += 16) {
+        __m256 vx1 = _mm256_loadu_ps(&x[i]);
+        __m256 vy1 = _mm256_loadu_ps(&y[i]);
+        __m256 vx2 = _mm256_loadu_ps(&x[i + 8]);
+        __m256 vy2 = _mm256_loadu_ps(&y[i + 8]);
+        
+        sum1 = _mm256_fmadd_ps(vx1, vy1, sum1);
+        sum2 = _mm256_fmadd_ps(vx2, vy2, sum2);
+    }
+    
+    /* Combine the two sums */
+    __m256 combined = _mm256_add_ps(sum1, sum2);
+    
+    /* Horizontal sum of the 8 elements */
+    __m128 sum_high = _mm256_extractf128_ps(combined, 1);
+    __m128 sum_low = _mm256_castps256_ps128(combined);
+    __m128 sum_128 = _mm_add_ps(sum_high, sum_low);
+    
+    sum_128 = _mm_hadd_ps(sum_128, sum_128);
+    sum_128 = _mm_hadd_ps(sum_128, sum_128);
+    
+    float dot = _mm_cvtss_f32(sum_128);
+    
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += x[i] * y[i];
+    }
+    
+    return 1.0f - dot;
+}
+#endif
+
+/* Optimized dot product: automatically selects best available implementation 
+ * Dot product: our vectors are already normalized.
  * Version for not quantized vectors of floats. */
 float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
-    /* Use two accumulators to reduce dependencies among multiplications.
-     * This provides a clear speed boost in Apple silicon, but should be
-     * help in general. */
+#ifdef __AVX512F__
+    /* Check if runtime supports AVX512F */
+    static int avx512_checked = 0;
+    static int has_avx512 = 0;
+    
+    if (!avx512_checked) {
+        /* Simple runtime check - in production you might want to use CPUID */
+        has_avx512 = __builtin_cpu_supports("avx512f");
+        avx512_checked = 1;
+    }
+    
+    if (has_avx512 && dim >= 16) {
+        return vectors_distance_float_avx512(x, y, dim);
+    }
+#endif
+
+#ifdef __AVX2__
+    /* Check if runtime supports AVX2 */
+    static int avx2_checked = 0;
+    static int has_avx2 = 0;
+    
+    if (!avx2_checked) {
+        has_avx2 = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
+        avx2_checked = 1;
+    }
+    
+    if (has_avx2 && dim >= 16) {
+        return vectors_distance_float_avx2(x, y, dim);
+    }
+#endif
+
+    /* Fallback to original scalar implementation */
     float dot0 = 0.0f, dot1 = 0.0f;
     uint32_t i;
 
-    // Process 8 elements per iteration, 50/50 with the two accumulators.
+    /* Use two accumulators to reduce dependencies among multiplications.
+     * This provides a clear speed boost in Apple silicon, but should be
+     * help in general. */
     for (i = 0; i + 7 < dim; i += 8) {
         dot0 += x[i] * y[i] +
                 x[i+1] * y[i+1] +
@@ -214,8 +315,7 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
                 x[i+7] * y[i+7];
     }
 
-    /* Handle the remaining elements. These are a minority in the case
-     * of a small vector, don't optimize this part. */
+    /* Handle the remaining elements */
     for (; i < dim; i++) dot0 += x[i] * y[i];
 
     /* The following line may be counter intuitive. The dot product of
