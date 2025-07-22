@@ -2014,7 +2014,7 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
 
                 if (!rioWriteBulkCount(r,'*',2+cmd_items*2) ||
                     !rioWriteBulkString(r,"ZADD",4) ||
-                    !rioWriteBulkObject(r,key))
+                    !rioWriteBulkObject(r,key)) 
                 {
                     dictResetIterator(&di);
                     return 0;
