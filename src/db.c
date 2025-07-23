@@ -512,6 +512,15 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         /* Set new to old to keep the old object. Set old to val to be freed below. */
         kvNew = old;
         old = val;
+
+        /* Handle TTL in the optimization path */
+        if (!keepTTL) {
+            long long expire = getExpire(db, key->ptr, kvNew);
+            if (expire >= 0) {
+                kvobjSetExpire(kvNew, -1);
+                kvstoreDictDelete(db->expires, slot, key->ptr);
+            }
+        }
     } else {
         /* Replace the old value at its location in the key space. */
         val->lru = old->lru;
