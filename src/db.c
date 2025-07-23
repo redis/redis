@@ -514,13 +514,8 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         old = val;
 
         /* Handle TTL in the optimization path */
-        if (!keepTTL) {
-            long long expire = getExpire(db, key->ptr, kvNew);
-            if (expire >= 0) {
-                kvobjSetExpire(kvNew, -1);
-                kvstoreDictDelete(db->expires, slot, key->ptr);
-            }
-        }
+    if ((!keepTTL) && (getExpire(db, key->ptr, kvNew) >= 0))
+        removeExpire(db, key);
     } else {
         /* Replace the old value at its location in the key space. */
         val->lru = old->lru;
