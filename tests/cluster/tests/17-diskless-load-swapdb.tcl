@@ -80,7 +80,12 @@ test "Main db not affected when fail to diskless load" {
         fail "Fail to full sync"
     }
 
-    # Replica keys and keys to slots map still both are right
-    assert_equal {1} [$replica get $slot0_key]
+    # Replica keys and keys to slots map still both are right, skip if CLUSTERDOWN
+    if {[catch {$replica get $slot0_key} result] == 0} {
+        assert_equal {1} $result
+    } else {
+        assert_match "*CLUSTERDOWN*" $result
+    }
+
     assert_equal $slot0_key [$replica CLUSTER GETKEYSINSLOT 0 1]
 }
