@@ -97,8 +97,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
         return;
     }
 
-    /* Only keep TTL when explicitly requested with KEEPTTL flag */
-    setkey_flags |= (flags & OBJ_KEEPTTL) ? SETKEY_KEEPTTL : 0;
+    /* When expire is not NULL, we avoid deleting the TTL so it can be updated later instead of being deleted and then created again. */
+    setkey_flags |= ((flags & OBJ_KEEPTTL) || expire) ? SETKEY_KEEPTTL : 0;
     setkey_flags |= found ? SETKEY_ALREADY_EXIST : SETKEY_DOESNT_EXIST;
 
     setKeyByLink(c, c->db, key, valref, setkey_flags, &link);

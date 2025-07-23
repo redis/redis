@@ -1685,7 +1685,7 @@ readerr: /* Read error. If feof(fp) is true, fall through to unexpected EOF. */
         ret = AOF_FAILED;
         goto cleanup;
     }
-    
+
 uxeof: /* Unexpected AOF end of file. */
     if (server.aof_load_truncated) {
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
