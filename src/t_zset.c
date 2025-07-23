@@ -2432,25 +2432,6 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
     }
 }
 
-static size_t zsetDictGetMaxElementLength(dict *d, size_t *totallen) {
-    dictIterator *di;
-    dictEntry *de;
-    size_t maxelelen = 0;
-
-    di = dictGetIterator(d);
-
-    while((de = dictNext(di)) != NULL) {
-        sds ele = dictGetKey(de);
-        if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
-        if (totallen)
-            (*totallen) += sdslen(ele);
-    }
-
-    dictReleaseIterator(di);
-
-    return maxelelen;
-}
-
 static void zdiffAlgorithm1(zsetopsrc *src, long setnum, zset *dstzset, size_t *maxelelen, size_t *totelelen) {
     /* DIFF Algorithm 1:
      *
@@ -2512,41 +2493,56 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
      * Add all the elements of the first set to the auxiliary set.
      * Then remove all the elements of all the next sets from it.
      *
-
-     * This is O(L + (N-K)log(N)) where L is the sum of all the elements in every
-     * set, N is the size of the first set, and K is the size of the result set.
+     * This is O(L + Klog(K)) where L is the sum of all the elements in every
+     * set, K is the size of the result set.
      *
-     * Note that from the (L-N) dict searches, (N-K) got to the zsetRemoveFromSkiplist
-     * which costs log(N)
-     *
-     * There is also a O(K) cost at the end for finding the largest element
-     * size, but this doesn't change the algorithm complexity since K < L, and
-     * O(2L) is the same as O(L). */
+     * Inserting elements into skiplist costs O(Klog(K)) and finding the largest element
+     * costs O(K), but this finding phase doesn't change the algorithm complexity since
+     * K < L, and O(2L) is the same as O(L). */
     int j;
     int cardinality = 0;
     zsetopval zval;
     zskiplistNode *znode;
     sds tmp;
+    dictIterator *di;
+    dictEntry *de, *existing;
+    serverAssert(maxelelen != NULL && totelelen != NULL);
+    if (zuiLength(&src[0]) == 0) {
+        *maxelelen = *totelelen = 0;
+        return;
+    }
+    /* Insert every element from src[0] into dict of dstzset, but we will NOT
+     * insert it into the skiplist until we can ensure it does not occur in
+     * the later sets */
+    memset(&zval, 0, sizeof(zval));
+    zuiInitIterator(&src[0]);
+    while (zuiNext(&src[0], &zval)) {
+        tmp = zuiNewSdsFromValue(&zval);
+        de = dictAddRaw(dstzset->dict, tmp, &existing);
+        serverAssert(!existing);
+        /* Later we will update score to the pointer shared in skiplist */
+        dictSetDoubleVal(de, zval.score);
+        cardinality++;
+    }
+    zuiClearIterator(&src[0]);
 
-    for (j = 0; j < setnum; j++) {
+    /* Traverse the rest of the sets, removing every item from dstzset->dict if it exists.
+     * Temporarily set the keyDestructor of dstzset->dict so that we can release the memory
+     * of sds if necessary. */
+    serverAssert(dstzset->dict->type->keyDestructor == NULL);
+    dstzset->dict->type->keyDestructor = dictSdsDestructor;
+    for (j = 1; j < setnum; j++) {
         if (zuiLength(&src[j]) == 0) continue;
 
         memset(&zval, 0, sizeof(zval));
         zuiInitIterator(&src[j]);
         while (zuiNext(&src[j],&zval)) {
-            if (j == 0) {
-                tmp = zuiNewSdsFromValue(&zval);
-                znode = zslInsert(dstzset->zsl,zval.score,tmp);
-                dictAdd(dstzset->dict,tmp,&znode->score);
-                cardinality++;
-            } else {
-                dictPauseAutoResize(dstzset->dict);
-                tmp = zuiSdsFromValue(&zval);
-                if (zsetRemoveFromSkiplist(dstzset, tmp)) {
-                    cardinality--;
-                }
-                dictResumeAutoResize(dstzset->dict);
+            dictPauseAutoResize(dstzset->dict);
+            tmp = zuiSdsFromValue(&zval);
+            if (dictDelete(dstzset->dict, tmp) == DICT_OK) {
+                cardinality--;
             }
+            dictResumeAutoResize(dstzset->dict);
 
             /* Exit if result set is empty as any additional removal
                 * of elements will have no effect. */
@@ -2556,13 +2552,27 @@ static void zdiffAlgorithm2(zsetopsrc *src, long setnum, zset *dstzset, size_t *
 
         if (cardinality == 0) break;
     }
+    dstzset->dict->type->keyDestructor = NULL;
 
     /* Resize dict if needed after removing multiple elements */
     dictShrinkIfNeeded(dstzset->dict);
 
-    /* Using this algorithm, we can't calculate the max element as we go,
-     * we have to iterate through all elements to find the max one after. */
-    *maxelelen = zsetDictGetMaxElementLength(dstzset->dict, totelelen);
+    /* Now, every element in dstzset->dict occurred in src[0] but did not appear
+     * in the other sets. We traverse them to calculate maxelelen and totelelen,
+     * then insert them into the skiplist and update the value in dstzset->dict */
+    *maxelelen = *totelelen = 0;
+    di = dictGetIterator(dstzset->dict);
+    
+    while ((de = dictNext(di)) != NULL) {
+        sds ele = dictGetKey(de);
+        if (sdslen(ele) > *maxelelen) *maxelelen = sdslen(ele);
+        *totelelen += sdslen(ele);
+        double score = dictGetDoubleVal(de);
+        znode = zslInsert(dstzset->zsl, score, ele);
+        /* Update to the score address shared in skiplist */
+        dictSetVal(dstzset->dict, de, &znode->score);
+    }
+    dictReleaseIterator(di);
 }
 
 static int zsetChooseDiffAlgorithm(zsetopsrc *src, long setnum) {
