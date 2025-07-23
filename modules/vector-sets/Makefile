@@ -17,8 +17,7 @@ endif
 endif
 endif
 
-#CFLAGS = -O2 -Wall -Wextra -g $(SAN) -std=c11 -mavx512f -mavx2 -mfma -march=native
-CFLAGS = -O2 -Wall -Wextra -g $(SAN) -std=c11 
+CFLAGS = -O2 -Wall -Wextra -g $(SAN) -std=c11 -mavx512f -mavx2 -mfma -march=native 
 LDFLAGS = -lm $(SAN)
 
 # Detect OS

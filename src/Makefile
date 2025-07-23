@@ -334,6 +334,8 @@ ifneq ($(SKIP_VEC_SETS),yes)
 	vpath %.c ../modules/vector-sets
 	REDIS_VEC_SETS_OBJ=hnsw.o vset.o vset_config.o
 	FINAL_CFLAGS+=-DINCLUDE_VEC_SETS=1
+	# Special compilation flags for vector-sets with AVX optimizations
+	VEC_SETS_CFLAGS=$(FINAL_CFLAGS) -mavx512f -mavx2 -mfma -march=native
 endif
 
 ifndef V
@@ -462,6 +464,19 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
 # building it should complete before building any other object. Instead of
 # depending on a single artifact, build all dependencies first.
+
+# Special compilation rules for vector-sets files with AVX optimizations
+ifneq ($(SKIP_VEC_SETS),yes)
+hnsw.o: ../modules/vector-sets/hnsw.c .make-prerequisites
+	$(QUIET_CC)$(CC) $(VEC_SETS_CFLAGS) -MMD -o $@ -c $<
+
+vset.o: ../modules/vector-sets/vset.c .make-prerequisites
+	$(QUIET_CC)$(CC) $(VEC_SETS_CFLAGS) -MMD -o $@ -c $<
+
+vset_config.o: ../modules/vector-sets/vset_config.c .make-prerequisites
+	$(QUIET_CC)$(CC) $(VEC_SETS_CFLAGS) -MMD -o $@ -c $<
+endif
+
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
 

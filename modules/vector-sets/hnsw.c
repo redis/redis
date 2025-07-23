@@ -46,6 +46,7 @@
 #include <assert.h>
 #include "hnsw.h"
 #include "mixer.h"
+#include <immintrin.h>
 
 #if 0
 #define debugmsg printf
@@ -193,7 +194,6 @@ float pq_max_distance(pqueue *pq) {
 /* ============================ HNSW algorithm ============================== */
 
 #ifdef __AVX512F__
-#include <immintrin.h>
 
 /* AVX512 optimized dot product for float vectors */
 float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim) {
@@ -220,7 +220,6 @@ float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim
 #endif
 
 #ifdef __AVX2__
-#include <immintrin.h>
 
 /* AVX2 optimized dot product for float vectors */
 float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) {
@@ -260,6 +259,7 @@ float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) 
     return 1.0f - dot;
 }
 #endif
+
 
 /* Optimized dot product: automatically selects best available implementation 
  * Dot product: our vectors are already normalized.
