@@ -2049,7 +2049,7 @@ int VectorSets_CreateCommandWithAcls(RedisModuleCtx *ctx, char *name, RedisModul
         return REDISMODULE_ERR;
     sds acl_categories = sdsnew("vectorset");
     if(acls && strlen(acls) > 0)
-       acl_categories = sdscatfmt(sdsnew("vectorset"), " %s", acls);
+       acl_categories = sdscatfmt(acl_categories, " %s", acls);
     if (RedisModule_SetCommandACLCategories(cmd, acl_categories) == REDISMODULE_ERR) {
         sdsfree(acl_categories);
         return REDISMODULE_ERR;
