@@ -80,7 +80,9 @@ test "Main db not affected when fail to diskless load" {
         fail "Fail to full sync"
     }
 
-    # Replica keys and keys to slots map still both are right, skip if CLUSTERDOWN
+    # Replica keys and keys to slots map still both are right.
+    # CLUSTERDOWN errors are acceptable here because the cluster may be in a transient state
+    # due to the timing relationship with cluster-node-timeout.
     if {[catch {$replica get $slot0_key} result] == 0} {
         assert_equal {1} $result
     } else {
