@@ -97,7 +97,7 @@
       "WRITE",
       "DENYOOM"
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "WRITE"]
   },
   "VREM": {
     "summary": "Remove one or more elements from a vector set",
@@ -120,7 +120,7 @@
         "multiple": true
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "WRITE"]
   },
   "VSIM": {
     "summary": "Return elements by vector similarity",
@@ -211,7 +211,7 @@
         "optional": true
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ"]
   },
   "VDIM": {
     "summary": "Return the dimension of vectors in the vector set",
@@ -230,7 +230,7 @@
         "type": "key"
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ", "FAST"]
   },
   "VCARD": {
     "summary": "Return the number of elements in a vector set",
@@ -249,7 +249,7 @@
         "type": "key"
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ", "FAST"]
   },
   "VEMB": {
     "summary": "Return the vector associated with an element",
@@ -277,7 +277,7 @@
         "optional": true
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ", "FAST"]
   },
   "VLINKS": {
     "summary": "Return the neighbors of an element at each layer in the HNSW graph",
@@ -305,7 +305,7 @@
         "optional": true
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ", "FAST"]
   },
   "VINFO": {
     "summary": "Return information about a vector set",
@@ -324,7 +324,7 @@
         "type": "key"
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ", "FAST"]
   },
   "VSETATTR": {
     "summary": "Associate or remove the JSON attributes of elements",
@@ -350,7 +350,7 @@
         "type": "string"
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "WRITE", "FAST"]
   },
   "VGETATTR": {
     "summary": "Retrieve the JSON attributes of elements",
@@ -372,7 +372,7 @@
         "type": "string"
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ", "FAST"]
   },
   "VRANDMEMBER": {
     "summary": "Return one or multiple random members from a vector set",
@@ -395,6 +395,6 @@
         "optional": true
       }
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": ["VECTORSET", "READ"]
   }
 }
