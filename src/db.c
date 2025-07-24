@@ -513,7 +513,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         kvNew = old;
         old = val;
 
-        /* Handle TTL in the optimization path */
+    /* Handle TTL in the optimization path */
     if ((!keepTTL) && (getExpire(db, key->ptr, kvNew) >= 0))
         removeExpire(db, key);
     } else {
