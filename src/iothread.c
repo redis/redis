@@ -434,7 +434,7 @@ int processClientsFromIOThread(IOThread *t) {
         listUnlinkNode(mainThreadProcessingClients[t->id], node);
         client *c = listNodeValue(node);
 
-        /* Make sure the client is readable or writable in io thread to
+        /* Make sure the client is neither readable nor writable in io thread to
          * avoid data race. */
         serverAssert(!(c->io_flags & (CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED)));
         serverAssert(!(c->flags & CLIENT_CLOSE_ASAP));

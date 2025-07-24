@@ -234,11 +234,13 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_LOADED (1<<12)     /* module only key space notification, indicate a key loaded from rdb */
 #define REDISMODULE_NOTIFY_MODULE (1<<13)     /* d, module key space notification */
 #define REDISMODULE_NOTIFY_NEW (1<<14)        /* n, new key notification */
+#define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
+#define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetKeyspaceNotificationFlagsAll instead. */
-#define _REDISMODULE_NOTIFY_NEXT (1<<15)
+#define _REDISMODULE_NOTIFY_NEXT (1<<17)
 
 #define REDISMODULE_NOTIFY_ALL (REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST | REDISMODULE_NOTIFY_SET | REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED | REDISMODULE_NOTIFY_STREAM | REDISMODULE_NOTIFY_MODULE)      /* A */
 

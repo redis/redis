@@ -8805,7 +8805,13 @@ void moduleReleaseGIL(void) {
  *                                this notification is wrong and discourage. It will
  *                                cause the read command that trigger the event to be
  *                                replicated to the AOF/Replica.
- *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS)
+ *
+ *  - REDISMODULE_NOTIFY_NEW: New key notification
+ *  - REDISMODULE_NOTIFY_OVERWRITTEN: Overwritten events
+ *  - REDISMODULE_NOTIFY_TYPE_CHANGED: Type-changed events
+ *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS,
+ *                            REDISMODULE_NOTIFY_NEW, REDISMODULE_NOTIFY_OVERWRITTEN
+ *                            and REDISMODULE_NOTIFY_TYPE_CHANGED)
  *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
  *                               indicates that the key was loaded from persistence.
  *                               Notice, when this event fires, the given key
@@ -13607,9 +13613,11 @@ RedisModuleConfigIterator *RM_ConfigIteratorCreate(RedisModuleCtx *ctx, const ch
     if (pattern != NULL) {
         iter->pattern = sdsnew(pattern);
         iter->is_glob = (strpbrk(pattern, "*?[") != NULL);
-    } else
+    } else {
         iter->pattern = NULL;
- 
+        iter->is_glob = false;
+    }
+
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_CONFIG, iter);
     return iter;
 }
