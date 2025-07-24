@@ -2077,8 +2077,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleCommandArg vadd_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
-        { .name = "reduce", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "REDUCE", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
-        { .name = "dim", .type = REDISMODULE_ARG_TYPE_INTEGER, .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "dim", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "REDUCE", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { .name = "format", .type = REDISMODULE_ARG_TYPE_ONEOF, .subargs = (RedisModuleCommandArg[]) {
                 { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
                 { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
@@ -2104,7 +2103,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .summary = "Add one or more elements to a vector set, or update its vector if it already exists",
         .since = "8.0.0",
-        .arity = -1,
+        .arity = -5,
         .args = vadd_args,
     };
     if (RedisModule_SetCommandInfo(vadd_cmd, &vadd_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
@@ -2119,14 +2118,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleCommandArg vrem_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
-        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING, .flags = REDISMODULE_CMD_ARG_MULTIPLE },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
         { NULL }
     };
     RedisModuleCommandInfo vrem_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
-        .summary = "Remove one or more elements from a vector set",
+        .summary = "Remove an element from a vector set",
         .since = "8.0.0",
-        .arity = -2,
+        .arity = 3,
         .args = vrem_args,
     };
     if (RedisModule_SetCommandInfo(vrem_cmd, &vrem_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
@@ -2157,13 +2156,14 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         { .name = "expression", .type = REDISMODULE_ARG_TYPE_STRING, .token = "FILTER", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { .name = "max-filtering-effort", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "FILTER-EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { .name = "truth", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "TRUTH", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "nothread", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "NOTHREAD", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { NULL }
     };
     RedisModuleCommandInfo vsim_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .summary = "Return elements by vector similarity",
         .since = "8.0.0",
-        .arity = -3,
+        .arity = -4,
         .args = vsim_args,
     };
     if (RedisModule_SetCommandInfo(vsim_cmd, &vsim_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
