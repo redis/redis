@@ -1732,7 +1732,7 @@ void sdiffstoreCommand(client *c) {
 
 void sscanCommand(client *c) {
     robj *set;
-    scanOptions opts;
+    scanOptions opts = {0};
 
     if (parseScanCursorOrReply(c, c->argv[2], &opts.cursor) == C_ERR) return;
     if ((set = lookupKeyReadOrReply(c, c->argv[1], shared.emptyscan)) == NULL ||

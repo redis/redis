@@ -1479,7 +1479,7 @@ int parseScanOptionsOrReply(client *c, robj *o, int start_argc, scanOptions *opt
     int i = start_argc;
     int j;
 
-    /* Initialize option defaults (cursor should already be set) */
+    /* Initialize option defaults (cursor is already set by parseScanCursorOrReply) */
     opts->count = 10;
     opts->pattern = NULL;
     opts->patlen = 0;
@@ -1768,7 +1768,7 @@ void scanListpackEx(client *c, robj *o, scanOptions *opts) {
 
 /* The SCAN command directly uses scanHashTable for database keys. */
 void scanCommand(client *c) {
-    scanOptions opts;
+    scanOptions opts = {0};
 
     if (parseScanCursorOrReply(c, c->argv[1], &opts.cursor) == C_ERR) return;
 
