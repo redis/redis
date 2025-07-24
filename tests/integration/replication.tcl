@@ -1724,9 +1724,8 @@ start_server {tags {"repl external:skip"}} {
             assert {$link_down_since > 0}
             assert {$total_disconnect_time > $link_down_since}
 
-            #  total_disconnect_time did not change after reconnect to real master
-            set total_disconnect_time_reconnect [status $slave total_disconnect_time_sec]
-            assert {$total_disconnect_time == $total_disconnect_time_reconnect}
+            #  total_disconnect_time_reconnect can be up to 5 seconds more than total_disconnect_time due to reconnection time
+            assert {$total_disconnect_time_reconnect >= $total_disconnect_time && $total_disconnect_time_reconnect <= $total_disconnect_time + 5}
 
         }
     }
