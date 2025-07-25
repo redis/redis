@@ -29,8 +29,6 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
         set value [string repeat "x" $size]
     }
 
-    set pipeline 16
-    set sent 0
     while 1 {
         if {$size == 0} {
             set value [expr rand()]
@@ -41,12 +39,6 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
         } else {
             $r set $key $value
         }
-
-        incr sent
-        if {$sent > $pipeline} {
-            $r read
-        }
-
         if {[clock seconds]-$start_time > $seconds} {
             exit 0
         }
