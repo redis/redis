@@ -2360,7 +2360,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandInfo vismember_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .summary = "Check if an element exists in a vector set",
-        .since = "8.0.0",
+        .since = "8.2.0",
         .arity = 3,
         .args = vismember_args,
     };
