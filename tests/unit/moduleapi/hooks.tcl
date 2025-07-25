@@ -291,16 +291,6 @@ tags "modules" {
             }
             # get the replica stdout, to be used by the next test
             set replica_stdout [srv 0 stdout]
-
-            # Manually kill the replica to avoid potential log interference
-            # from forced process termination in slow environments, which could
-            # cause the subsequent log checking test to fail.
-            exec kill [srv pid]
-            wait_for_condition 100 50 {
-                ! [is_alive [srv pid]]
-            } else {
-                fail "Replica server process didn't terminate"
-            }
         }
 
         test {Test swapdb hooks} {
