@@ -828,7 +828,7 @@ Please consult the [TLS.md](TLS.md) file for more information on how to use Redi
 
 ## Code contributions
 
-By contributing code to the Redis project in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md. Open Source Redis releases are subject to the following licenses:
+By contributing code to the Redis project in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md and the description of the ability of users to backport security patches under Redis Open Source 7.4+ under BSDv3. Open Source Redis releases are subject to the following licenses:
 
 1. Version 7.2.x and prior releases are subject to BSDv3. These contributions to the original Redis core project are owned by their contributors and licensed under the 3BSDv3 license as referenced in the REDISCONTRIBUTIONS.txt file. Any copy of that license in this repository applies only to those contributions;
 

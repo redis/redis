@@ -2331,6 +2331,7 @@ err_expiration:
 void hsetexCommand(client *c) {
     int flags = 0, first_field_pos = 0, field_count = 0, expire_time_pos = -1;
     int updated = 0, deleted = 0, set_expiry;
+    int expired = 0, fields_set = 0;
     long long expire_time = EB_EXPIRE_TIME_INVALID;
     int64_t oldlen, newlen;
     HashTypeSetEx setex;
@@ -2358,12 +2359,18 @@ void hsetexCommand(client *c) {
         int found = 0;
         for (int i = 0; i < field_count; i++) {
             sds field = c->argv[first_field_pos + (i * 2)]->ptr;
+            unsigned char *vstr = NULL;
+            unsigned int vlen = UINT_MAX;
+            long long vll = LLONG_MAX;
             const int opt = HFE_LAZY_NO_NOTIFICATION |
                             HFE_LAZY_NO_SIGNAL |
                             HFE_LAZY_AVOID_HASH_DEL |
                             HFE_LAZY_NO_UPDATE_KEYSIZES;
-            int exists = hashTypeExists(c->db, o, field, opt, NULL);
-            found += (exists != 0);
+
+            GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, opt, NULL);
+            int exists = (res == GETF_OK);
+            expired += (res == GETF_EXPIRED);
+            found += exists;
 
             /* Check for early exit if the condition is already invalid. */
             if (((flags & HFE_FXX) && !exists) ||
@@ -2400,7 +2407,7 @@ void hsetexCommand(client *c) {
             opt |= HASH_SET_KEEP_TTL;
 
         hashTypeSet(c->db, o, field, value, opt);
-
+        fields_set = 1;
         /* Update the expiration time. */
         if (set_expiry) {
             int ret = hashTypeSetEx(o, field, expire_time, &setex);
@@ -2413,11 +2420,6 @@ void hsetexCommand(client *c) {
         hashTypeSetExDone(&setex);
 
     server.dirty += field_count;
-    signalModifiedKey(c, c->db, c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
-    if (deleted || updated)
-        notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel": "hexpire",
-                            c->argv[1], c->db->id);
 
     if (deleted) {
         /* If fields are deleted due to timestamp is being in the past, hdel's
@@ -2437,6 +2439,17 @@ void hsetexCommand(client *c) {
     addReplyLongLong(c, 1);
 
 out:
+    /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
+    if (fields_set || expired) {
+        signalModifiedKey(c, c->db, c->argv[1]);
+        if (expired)
+            notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
+        if (fields_set) {
+            notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
+            if (deleted || updated)
+                notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire", c->argv[1], c->db->id);
+        }
+    }
     /* Key may become empty due to lazy expiry in hashTypeExists()
      * or the new expiration time is in the past.*/
     newlen = (int64_t) hashTypeLength(o, 0);
