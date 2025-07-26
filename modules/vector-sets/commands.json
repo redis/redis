@@ -13,9 +13,15 @@
       },
       {
         "token": "REDUCE",
-        "name": "dim",
-        "type": "integer",
-        "optional": true
+        "name": "reduce",
+        "type": "block",
+        "optional": true,
+        "arguments": [
+          {
+            "name": "dim",
+            "type": "integer"
+          }
+        ]
       },
       {
         "name": "format",

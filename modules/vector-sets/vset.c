@@ -2077,7 +2077,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleCommandArg vadd_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
-        { .name = "dim", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "REDUCE", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "reduce", .type = REDISMODULE_ARG_TYPE_BLOCK, .token = "REDUCE", .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+            .subargs = (RedisModuleCommandArg[]) {
+                { .name = "dim", .type = REDISMODULE_ARG_TYPE_INTEGER },
+                { NULL }
+            }
+        },
         { .name = "format", .type = REDISMODULE_ARG_TYPE_ONEOF, .subargs = (RedisModuleCommandArg[]) {
                 { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
                 { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
