@@ -16,6 +16,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "cluster_asm.h"
 
 #include <signal.h>
 #include <ctype.h>
@@ -606,6 +607,29 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         signalModifiedKey(c,db,key);
 }
 
+/* In cluster mode, check whether the slot is served by the current node
+ * or its master, and skip dicts that aren't.
+ *
+ * This function now is used by:
+ * - dbRandomKey
+ * - keysCommand
+ * - scanCommand
+ */
+static int accessKeysShouldSkipDictIndex(int didx) {
+    if (!server.cluster_enabled) return 0;
+
+    clusterNode *myself = getMyClusterNode();
+
+    /* Check if this node or its master covers the slot */
+    if (clusterNodeCoversSlot(myself, didx)) return 0;
+    if (clusterNodeIsSlave(myself)) {
+        clusterNode *master = clusterNodeGetMaster(myself);
+        if (master && clusterNodeCoversSlot(master, didx)) return 0;
+    }
+
+    return 1;
+}
+
 /* Return a random key, in form of a Redis object.
  * If there are no keys, NULL is returned.
  *
@@ -617,7 +641,8 @@ robj *dbRandomKey(redisDb *db) {
 
     while(1) {
         robj *keyobj;
-        int randomSlot = kvstoreGetFairRandomDictIndex(db->keys);
+        int randomSlot = kvstoreGetFairRandomDictIndex(db->keys, accessKeysShouldSkipDictIndex, 16, 1);
+        if (randomSlot == -1) return NULL;
         de = kvstoreDictGetFairRandomKey(db->keys, randomSlot);
         if (de == NULL) return NULL;
 
@@ -1225,7 +1250,7 @@ void keysCommand(client *c) {
     kvstoreDictIterator *kvs_di = NULL;
     kvstoreIterator *kvs_it = NULL;
     if (pslot != -1) {
-        if (!kvstoreDictSize(c->db->keys, pslot)) {
+        if (!kvstoreDictSize(c->db->keys, pslot) || accessKeysShouldSkipDictIndex(pslot)) {
             /* Requested slot is empty */
             setDeferredArrayLen(c,replylen,0);
             return;
@@ -1236,6 +1261,10 @@ void keysCommand(client *c) {
     }
 
     while ((de = kvs_di ? kvstoreDictIteratorNext(kvs_di) : kvstoreIteratorNext(kvs_it)) != NULL) {
+        if (kvs_it && accessKeysShouldSkipDictIndex(kvstoreIteratorGetCurrentDictIndex(kvs_it))) {
+            continue;
+        }
+
         kvobj *kv = dictGetKV(de);
         sds key = kvobjGetKey(kv);
 
@@ -1391,6 +1420,11 @@ char *getObjectTypeName(robj *o) {
     }
 }
 
+static int scanShouldSkipDict(dict *d, int didx) {
+    UNUSED(d);
+    return accessKeysShouldSkipDictIndex(didx);
+}
+
 /* This command implements SCAN, HSCAN and SSCAN commands.
  * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
@@ -1544,7 +1578,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL) {
-                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, scanCallback, NULL, &data);
+                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, scanCallback, scanShouldSkipDict, &data);
             } else {
                 cursor = dictScan(ht, cursor, scanCallback, &data);
             }
@@ -2503,15 +2537,20 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * exception is when write operations are performed on writable
      * replicas.
      *
+     * In cluster mode, we also return ASAP if we are importing data
+     * from the source, to avoid deleting keys that are still in use.
+     * We create a fake master client for data import, which can be
+     * identified using the CLIENT_MASTER flag.
+     *
      * Still we try to return the right information to the caller,
      * that is, KEY_VALID if we think the key should still be valid,
      * KEY_EXPIRED if we think the key is expired but don't want to delete it at this time.
      *
      * When replicating commands from the master, keys are never considered
      * expired. */
-    if (server.masterhost != NULL) {
+    if (server.masterhost != NULL || server.cluster_enabled) {
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
-        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
+        if (server.masterhost != NULL && !(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
     }
 
     /* In some cases we're explicitly instructed to return an indication of a
@@ -2609,7 +2648,7 @@ unsigned long long dbSize(redisDb *db) {
 }
 
 unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata) {
-    return kvstoreScan(db->keys, cursor, -1, scan_cb, NULL, privdata);
+    return kvstoreScan(db->keys, cursor, -1, scan_cb, scanShouldSkipDict, privdata);
 }
 
 /* -----------------------------------------------------------------------------

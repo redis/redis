@@ -423,7 +423,7 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
 
     dict *d = kvstoreGetDict(kvs, didx);
 
-    int skip = !d || (skip_cb && skip_cb(d));
+    int skip = !d || (skip_cb && skip_cb(d, didx));
     if (!skip) {
         _cursor = dictScan(d, cursor, scan_cb, privdata);
         /* In dictScan, scan_cb may delete entries (e.g., in active expire case). */
@@ -465,12 +465,56 @@ int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandS
     return 1;
 }
 
-/* Returns fair random dict index, probability of each dict being returned is proportional to the number of elements that dictionary holds.
- * This function guarantees that it returns a dict-index of a non-empty dict, unless the entire kvstore is empty.
- * Time complexity of this function is O(log(kvs->num_dicts)). */
-int kvstoreGetFairRandomDictIndex(kvstore *kvs) {
-    unsigned long target = kvstoreSize(kvs) ? (randomULong() % kvstoreSize(kvs)) + 1 : 0;
-    return kvstoreFindDictIndexByKeyIndex(kvs, target);
+/* Returns fair random dict index, probability of each dict being returned is
+ * proportional to the number of elements that dictionary holds.
+ * This function guarantees that it returns a dict-index of a non-empty dict,
+ * unless the entire kvstore is empty or all dicts are skipped.
+ *
+ * Parameters:
+ * - kvs: the kvstore instance
+ * - skip_cb: callback to determine if a dict should be skipped (NULL means no skipping)
+ * - fair_attempts: number of fair selection attempts before falling back
+ * - slow_fallback: if 1, uses systematic search when fair attempts fail
+ *
+ * Returns:
+ * - Valid dict index (>= 0) on success
+ * - -1 if no valid dict found (either slow_fallback is 0 or all dicts are skipped)
+ *
+ * Time complexity: O(fair_attempts * log(kvs->num_dicts)) for fair attempts,
+ * plus O(kvs->num_dicts) for systematic fallback if enabled.
+ */
+int kvstoreGetFairRandomDictIndex(kvstore *kvs, kvstoreRandomShouldSkipDictIndex *skip_cb,
+                                  int fair_attempts, int slow_fallback)
+{
+    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
+        return 0;
+
+    unsigned long long total_size = kvstoreSize(kvs);
+
+    /* Try fair attempts first. If skip_cb is not applicable, execute only once. */
+    for (int attempt = 0; attempt < fair_attempts; attempt++) {
+        unsigned long target = (randomULong() % total_size) + 1;
+        int didx = kvstoreFindDictIndexByKeyIndex(kvs, target);
+        if (!skip_cb || !skip_cb(didx)) {
+            return didx;
+        }
+    }
+
+    /* If fair attempts failed and slow fallback is allowed */
+    if (slow_fallback) {
+        /* systematic check from random start */
+        int start = randomULong() % kvs->num_dicts;
+        for (int i = 0; i < kvs->num_dicts; i++) {
+            int didx = (start + i) % kvs->num_dicts;
+            dict *d = kvstoreGetDict(kvs, didx);
+            if (d && (!skip_cb || !skip_cb(didx))) {
+                return didx;
+            }
+        }
+    }
+
+    /* Failed to find valid dict that has elements */
+    return -1;
 }
 
 void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full) {

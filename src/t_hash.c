@@ -9,6 +9,7 @@
 
 #include "server.h"
 #include "ebuckets.h"
+#include "cluster_asm.h"
 #include <math.h>
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
@@ -754,8 +755,13 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
         return GETF_OK;
 
-    if (server.masterhost) {
-        /* If CLIENT_MASTER, assume valid as long as it didn't get delete */
+    if (server.masterhost || server.cluster_enabled) {
+        /* If CLIENT_MASTER, assume valid as long as it didn't get delete.
+         *
+         * In cluster mode, we also assume valid if we are importing data
+         * from the source, to avoid deleting fields that are still in use.
+         * We create a fake master client for data import, which can be
+         * identified using the CLIENT_MASTER flag. */
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER))
             return GETF_OK;
 
@@ -1803,6 +1809,14 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
 static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
     ExpireCtx *expireCtx = ctx;
 
+    /* It may block the expiration of subsequent keys if current hash key is in
+     * importing.
+     * TODO: does it support skipping keys that belong to specific slots?
+     * and is it inefficient to skip a bunch of keys every time?
+     * maybe one hexpire per slot seems better. */
+    if (!asmKeyBelongsToCurrentNode((kvobj *) item))
+        return ACT_STOP_ACTIVE_EXP;
+
     /* If no more quota left for this callback, stop */
     if (expireCtx->fieldsToExpireQuota == 0)
         return ACT_STOP_ACTIVE_EXP;
@@ -1893,6 +1907,10 @@ static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalH
 }
 
 /* Delete all expired fields in hash if needed (Currently used only by HRANDFIELD)
+ *
+ * NOTICE: If we call this function in other places, we should consider the slot
+ * migration scenario, where we don't want to delete expired fields. See also
+ * expireIfNeeded().
  *
  * Return 1 if the entire hash was deleted, 0 otherwise.
  * This function might be pricy in case there are many expired fields.

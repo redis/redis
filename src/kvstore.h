@@ -37,8 +37,9 @@ typedef struct _kvstore kvstore;
 typedef struct _kvstoreIterator kvstoreIterator;
 typedef struct _kvstoreDictIterator kvstoreDictIterator;
 
-typedef int (kvstoreScanShouldSkipDict)(dict *d);
+typedef int (kvstoreScanShouldSkipDict)(dict *d, int didx);
 typedef int (kvstoreExpandShouldSkipDictIndex)(int didx);
+typedef int (kvstoreRandomShouldSkipDictIndex)(int didx);
 
 #define KVSTORE_ALLOCATE_DICTS_ON_DEMAND (1<<0)
 #define KVSTORE_FREE_EMPTY_DICTS (1<<1)
@@ -54,7 +55,8 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
                                kvstoreScanShouldSkipDict *skip_cb,
                                void *privdata);
 int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandShouldSkipDictIndex *skip_cb);
-int kvstoreGetFairRandomDictIndex(kvstore *kvs);
+int kvstoreGetFairRandomDictIndex(kvstore *kvs, kvstoreExpandShouldSkipDictIndex *skip_cb,
+                                  int fair_attempts, int slow_fallback);
 void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full);
 
 int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target);

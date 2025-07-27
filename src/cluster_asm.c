@@ -272,6 +272,34 @@ size_t asmGetPeakSyncBufferSize(void) {
     return peak;
 }
 
+static inline int asmIsSlotImporting(void) {
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
+
+    /* Only support a single task at a time now, so only check the first task */
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    /* We only check the destination side, the source side `pauseActions` will
+     * pause the write traffic (including expire/evict). */
+    if ((task->operation == ASM_IMPORT && task->state != ASM_NONE)) {
+        return 1;
+    }
+
+    return 0;
+}
+
+/* Returns 1 if the key belongs to the current node, 0 otherwise.
+ * Check if there is a s lot import task in progress, and if so,
+ * check if the key belongs to the current node, to avoid the
+ * overhead of calculating the key’s hash slot. */
+int asmKeyBelongsToCurrentNode(kvobj *kv) {
+    if (asmIsSlotImporting()) {
+        sds key = kvobjGetKey(kv);
+        int slot = keyHashSlot((char*)key, sdslen(key));
+        return clusterNodeCoversSlot(getMyClusterNode(), slot);
+    }
+    /* Not importing, all keys belong to the current node. TODO: make sure? */
+    return 1;
+}
+
 static int compareSlotRange(const void *a, const void *b) {
     const slotRange *sa = a;
     const slotRange *sb = b;
@@ -704,6 +732,8 @@ void asmImportSetFailed(asmTask *task) {
     /* Close the connections */
     if (task->rdb_channel_conn) connClose(task->rdb_channel_conn);
     if (task->main_channel_conn) connClose(task->main_channel_conn);
+    task->rdb_channel_conn = NULL;
+    task->main_channel_conn = NULL;
 
     /* Clear the replication data buffer */
     asmManager->sync_buffer_peak = max(asmManager->sync_buffer_peak, task->sync_buffer.peak);
@@ -1609,8 +1639,10 @@ int slotRangesSnapshotSaveRio(int req, rio *rdb, int *error) {
                     if (rioWriteBulkString(rdb, "ABSTTL", 6) == 0) goto werr;
 
                     /* Delay return if required (for testing) */
-                    if (unlikely(server.rdb_key_save_delay))
+                    if (unlikely(server.rdb_key_save_delay)) {
+                        rioFlush(rdb); /* Send buffer to the destination ASAP. */
                         debugDelay(server.rdb_key_save_delay);
+                    }
                 }
                 kvstoreReleaseDictIterator(kvs_di);
                 kvs_di = NULL;
