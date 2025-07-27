@@ -66,7 +66,7 @@ performed in the background, while the command is executed in the main thread.
 
 **VSIM: return elements by vector similarity**
 
-    VSIM key [ELE|FP32|VALUES] <vector or element> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD]
+    VSIM key [ELE|FP32|VALUES] <vector or element> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EPSILON delta] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD]
 
 The command returns similar vectors, for simplicity (and verbosity) in the following example, instead of providing a vector using FP32 or VALUES (like in `VADD`), we will ask for elements having a vector similar to a given element already in the sorted set:
 
@@ -91,6 +91,8 @@ It is possible to specify a `COUNT` and also to get the similarity score (from 1
     4) "0.8598527610301971"
     5) "pear"
     6) "0.8226882219314575"
+
+It is also possible to specify a `EPSILON`, that is a floating point number between 0 and 1 in order to only return elements that have a distance that is no further than the specified one. In vector sets, the returned elements have a similarity score (when compared to the query vector) that is between 1 and 0, where 1 means identical, 0 opposite vectors. If for instance the `EPSILON` option is specified with an argument of 0.2, it means that we will get only elements that have a similarity of 0.8 or better (a distance < 0.2). This is useful when a large `COUNT` is specified, yet we don't want elements that are too far away our query vector.
 
 The `EF` argument is the exploration factor: the higher it is, the slower the command becomes, but the better the index is explored to find nodes that are near to our query. Sensible values are from 50 to 1000.
 
