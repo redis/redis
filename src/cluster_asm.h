@@ -11,6 +11,7 @@
 #define CLUSTER_ASM_H
 
 struct asmTask;
+struct slotRangeArray;
 
 void clusterAsmInit(void);
 void asmBeforeSleep(void);
@@ -21,8 +22,8 @@ int asmMigrateInProgress(void);
 void asmFeedMigrationClient(robj **argv, int argc);
 int asmDebugSetFailPoint(char * channel, char *state);
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
-slotRangeArray *asmTaskGetSlotRanges(sds task_id);
-int asmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err);
+struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
+int asmNotifyConfigUpdated(struct slotRangeArray *slot_ranges, sds *err);
 size_t asmGetPeakSyncBufferSize(void);
 int asmKeyBelongsToCurrentNode(kvobj *kv);
 

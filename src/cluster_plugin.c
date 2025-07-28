@@ -340,7 +340,7 @@ const char *clusterGetSecret(size_t *len) {
     return clusterPlugin->clusterGetSecret(len);
 }
 
-int clusterAsmOnEvent(sds task_id, int event, void *arg) {
+int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
     return clusterPlugin->clusterAsmOnEvent(task_id, event, arg);
 }
 

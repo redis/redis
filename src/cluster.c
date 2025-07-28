@@ -1672,6 +1672,45 @@ int validateSlotRanges(slotRangeArray *sra, sds *err) {
     return C_OK;
 }
 
+/* Create a slot range array with the specified number of ranges. */
+slotRangeArray *slotRangeArrayCreate(int num_ranges) {
+    slotRangeArray *sra = zcalloc(sizeof(slotRangeArray) + num_ranges * sizeof(slotRange));
+    sra->num_ranges = num_ranges;
+    return sra;
+}
+
+/* Duplicate the slot range array. */
+slotRangeArray *slotRangeArrayDup(slotRangeArray *sra) {
+    slotRangeArray *dup = slotRangeArrayCreate(sra->num_ranges);
+    memcpy(dup->ranges, sra->ranges, sizeof(slotRange) * sra->num_ranges);
+    return dup;
+}
+
+/* Set the slot range at the specified index. */
+void slotRangeArraySet(slotRangeArray *sra, int idx, int start, int end) {
+    sra->ranges[idx].start = start;
+    sra->ranges[idx].end = end;
+}
+
+/* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
+sds slotRangeArrayToString(slotRangeArray *sra) {
+    sds s = sdsempty();
+
+    for (int i = 0; i < sra->num_ranges; i++) {
+        slotRange *sr = &sra->ranges[i];
+        s = sdscatprintf(s, "%d-%d ", sr->start, sr->end);
+    }
+    sdssetlen(s, sdslen(s) - 1);
+    s[sdslen(s)] = '\0';
+
+    return s;
+}
+
+/* Free the slot range array. */
+void slotRangeArrayFree(slotRangeArray *sra) {
+    zfree(sra);
+}
+
 /* Parse slot ranges from the command arguments. Returns NULL on error. */
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     int start, end, count;
@@ -1681,25 +1720,24 @@ slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     serverAssert((argc - pos) % 2 == 0);
 
     count = (argc - pos) / 2;
-    sra = zcalloc(sizeof(*sra) + count * sizeof(slotRange));
+    sra = slotRangeArrayCreate(count);
     sra->num_ranges = 0;
 
     for (int j = pos; j < argc; j += 2) {
         if ((start = getSlotOrReply(c, c->argv[j])) == -1 ||
             (end = getSlotOrReply(c, c->argv[j + 1])) == -1)
         {
-            zfree(sra);
+            slotRangeArrayFree(sra);
             return NULL;
         }
-        sra->ranges[sra->num_ranges].start = start;
-        sra->ranges[sra->num_ranges].end = end;
+        slotRangeArraySet(sra, sra->num_ranges, start, end);
         sra->num_ranges++;
     }
 
     sds err = NULL;
     if (validateSlotRanges(sra, &err) != C_OK) {
         addReplyErrorSds(c, err);
-        zfree(sra);
+        slotRangeArrayFree(sra);
         return NULL;
     }
     return sra;
@@ -1805,18 +1843,3 @@ void readwriteCommand(client *c) {
 void clusterCommonInit(void) {
     clusterAsmInit();
 }
-
-/* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
-sds createSlotRangesStr(slotRangeArray *slot_ranges) {
-    sds s = sdsempty();
-
-    for (int i = 0; i < slot_ranges->num_ranges; i++) {
-        slotRange *sr = &slot_ranges->ranges[i];
-        s = sdscatprintf(s, "%d-%d ", sr->start, sr->end);
-    }
-    sdssetlen(s, sdslen(s) - 1);
-    s[sdslen(s)] = '\0';
-
-    return s;
-}
-

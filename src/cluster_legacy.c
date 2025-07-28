@@ -2444,7 +2444,11 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         sra->num_ranges++;
     }
     if (sra->num_ranges > 0 && server.masterhost == NULL) {
-        asmNotifyConfigUpdated(sra, NULL);
+        sds err = NULL;
+        if (asmNotifyConfigUpdated(sra, &err) != C_OK) {
+            serverLog(LL_WARNING, "ASM config update failed: %s", err);
+            sdsfree(err);
+        }
     }
     zfree(sra);
 
@@ -6522,11 +6526,11 @@ void clusterPromoteSelfToMaster(void) {
     replicationUnsetMaster();
 }
 
-int clusterAsmOnEvent(sds task_id, int event, void *arg) {
+int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
     UNUSED(arg);
 
     slotRangeArray *slots = asmTaskGetSlotRanges(task_id);
-    sds str = createSlotRangesStr(slots);
+    sds str = slotRangeArrayToString(slots);
 
     switch (event) {
         case ASM_EVENT_IMPORT_STARTED:
@@ -6549,7 +6553,7 @@ int clusterAsmOnEvent(sds task_id, int event, void *arg) {
             clusterBumpConfigEpochWithoutConsensus();
             clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             clusterSaveConfigOrDie(1);
-            clusterAsmProcess(&task_id, ASM_EVENT_DONE, NULL, NULL);
+            clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
             serverLog(LL_NOTICE, "Import task completed for slots: %s", str);
@@ -6566,7 +6570,7 @@ int clusterAsmOnEvent(sds task_id, int event, void *arg) {
             pauseActions(PAUSE_DURING_SLOT_HANDOFF,
                          LLONG_MAX,
                          PAUSE_ACTIONS_CLIENT_WRITE_SET);
-            clusterAsmProcess(&task_id, ASM_EVENT_HANDOFF, NULL, NULL);
+            clusterAsmProcess(task_id, ASM_EVENT_HANDOFF, NULL, NULL);
             break;
         case ASM_EVENT_MIGRATE_COMPLETED:
             serverLog(LL_NOTICE, "Migrate task completed for slots: %s", str);
