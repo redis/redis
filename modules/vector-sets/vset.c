@@ -2040,7 +2040,7 @@ int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
     return REDISMODULE_OK;
 }
 
-/* Create the command and set it's acl categories  */
+/* Create the command and set its acl categories  */
 int VectorSets_CreateCommandWithAcls(RedisModuleCtx *ctx, char *name, RedisModuleCmdFunc func, const char *strflags, int firstkey, int lastkey, int keystep, const char *acls) {
     if (RedisModule_CreateCommand(ctx, name, func, strflags, firstkey, lastkey, keystep) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
@@ -2048,7 +2048,7 @@ int VectorSets_CreateCommandWithAcls(RedisModuleCtx *ctx, char *name, RedisModul
     if (cmd == NULL)
         return REDISMODULE_ERR;
     sds acl_categories = sdsnew("vectorset");
-    if(acls && strlen(acls) > 0)
+    if (acls && strlen(acls) > 0)
        acl_categories = sdscatfmt(acl_categories, " %s", acls);
     if (RedisModule_SetCommandACLCategories(cmd, acl_categories) == REDISMODULE_ERR) {
         sdsfree(acl_categories);
