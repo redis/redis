@@ -34,7 +34,6 @@ class EpsilonOption(TestCase):
         # Result is a flat list: [elem1, score1, elem2, score2, ...]
         elements_all = [result[i].decode() for i in range(0, len(result), 2)]
         scores_all = [float(result[i]) for i in range(1, len(result), 2)]
-        print(elements_all)
 
         assert len(elements_all) == 5, f"Should return 5 elements without EPSILON, got {len(elements_all)}"
         assert elements_all[0] == 'a', "First element should be 'a' (most similar)"
