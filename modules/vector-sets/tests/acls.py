@@ -1,6 +1,4 @@
 from test import TestCase
-
-
 class AclCategories(TestCase):
     VECTOR_SET_COMMANDS = {
         b"VADD",
