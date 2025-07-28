@@ -214,6 +214,24 @@ void unblockClient(client *c, int queue_for_reprocessing) {
     if (queue_for_reprocessing) queueClientForReprocessing(c);
 }
 
+/* Check if the specified client can be safely timed out using
+ * unblockClientOnTimeout(). */
+int blockedClientMayTimeout(client *c) {
+    if (c->bstate.btype == BLOCKED_MODULE) {
+        return moduleBlockedClientMayTimeout(c);
+    }
+
+    if (c->bstate.btype == BLOCKED_LIST ||
+        c->bstate.btype == BLOCKED_ZSET ||
+        c->bstate.btype == BLOCKED_STREAM ||
+        c->bstate.btype == BLOCKED_WAIT ||
+        c->bstate.btype == BLOCKED_WAITAOF)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 /* This function gets called when a blocked client timed out in order to
  * send it a reply of some kind. After this function is called,
  * unblockClient() will be called with the same client as argument. */
@@ -423,17 +441,17 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
  * Internal function for unblockClient() */
 static void unblockClientWaitingData(client *c) {
     dictEntry *de;
-    dictIterator *di;
+    dictIterator di;
 
     if (dictSize(c->bstate.keys) == 0)
         return;
 
-    di = dictGetIterator(c->bstate.keys);
+    dictInitIterator(&di, c->bstate.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    while((de = dictNext(di)) != NULL) {
+    while((de = dictNext(&di)) != NULL) {
         releaseBlockedEntry(c, de, 0);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     dictEmpty(c->bstate.keys, NULL);
 }
 

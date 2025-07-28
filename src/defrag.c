@@ -664,11 +664,12 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
     if (dictSize(zs->dict) > server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
     else {
-        dictIterator *di = dictGetIterator(zs->dict);
-        while((de = dictNext(di)) != NULL) {
+        dictIterator di;
+        dictInitIterator(&di, zs->dict);
+        while((de = dictNext(&di)) != NULL) {
             activeDefragZsetEntry(zs, de);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     /* defrag the dict struct and tables */
     if ((newdict = dictDefragTables(zs->dict)))
@@ -1029,16 +1030,17 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
         /* The channel name is shared by the client's pubsub(shard) and server's
          * pubsub(shard), after defraging the channel name, we need to update
          * the reference in the clients' dictionary. */
-        dictIterator *di = dictGetIterator(clients);
+        dictIterator di;
         dictEntry *clientde;
-        while((clientde = dictNext(di)) != NULL) {
+        dictInitIterator(&di, clients);
+        while((clientde = dictNext(&di)) != NULL) {
             client *c = dictGetKey(clientde);
             dict *client_channels = ctx->getPubSubChannels(c);
             dictEntry *pubsub_channel = dictFind(client_channels, newchannel);
             serverAssert(pubsub_channel);
             dictSetKey(ctx->getPubSubChannels(c), pubsub_channel, newchannel);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
 
     /* Try to defrag the dictionary of clients that is stored as the value part. */
@@ -1654,9 +1656,10 @@ static void beginDefragCycle(void) {
     addDefragStage(defragLuaScripts, NULL, NULL);
 
     /* Add stages for modules. */
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         if (module->defrag_cb || module->defrag_cb_2) {
             defragModuleCtx *ctx = zmalloc(sizeof(defragModuleCtx));
@@ -1665,7 +1668,7 @@ static void beginDefragCycle(void) {
             addDefragStage(defragModuleGlobals, freeDefragModelContext, ctx);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     defrag.current_stage = NULL;
     defrag.start_cycle = getMonotonicUs();

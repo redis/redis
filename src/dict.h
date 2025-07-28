@@ -278,15 +278,16 @@ uint64_t dictIncrUnsignedIntegerVal(dictEntry *de, uint64_t val);
 uint64_t dictGetUnsignedIntegerVal(const dictEntry *de);
 
 #define dictForEach(d, ty, m, ...) do { \
-    dictIterator *di = dictGetIterator(d); \
+    dictIterator di; \
     dictEntry *de; \
-    while ((de = dictNext(di)) != NULL) { \
+    dictInitIterator(&di, d); \
+    while ((de = dictNext(&di)) != NULL) { \
         ty *m = dictGetVal(de); \
         do { \
             __VA_ARGS__ \
         } while(0); \
     } \
-    dictReleaseIterator(di); \
+    dictResetIterator(&di); \
 } while(0);
 
 #ifdef REDIS_TEST

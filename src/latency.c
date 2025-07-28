@@ -98,12 +98,12 @@ void latencyAddSample(const char *event, mstime_t latency) {
  * Note: this is O(N) even when event_to_reset is not NULL because makes
  * the code simpler and we have a small fixed max number of events. */
 int latencyResetEvent(char *event_to_reset) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int resets = 0;
 
-    di = dictGetSafeIterator(server.latency_events);
-    while((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, server.latency_events);
+    while((de = dictNext(&di)) != NULL) {
         char *event = dictGetKey(de);
 
         if (event_to_reset == NULL || strcasecmp(event,event_to_reset) == 0) {
@@ -111,7 +111,7 @@ int latencyResetEvent(char *event_to_reset) {
             resets++;
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return resets;
 }
 
@@ -210,12 +210,12 @@ sds createLatencyReport(void) {
 
     /* Show all the events stats and add for each event some event-related
      * comment depending on the values. */
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int eventnum = 0;
 
-    di = dictGetSafeIterator(server.latency_events);
-    while((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, server.latency_events);
+    while((de = dictNext(&di)) != NULL) {
         char *event = dictGetKey(de);
         struct latencyTimeSeries *ts = dictGetVal(de);
         struct latencyStats ls;
@@ -343,7 +343,7 @@ sds createLatencyReport(void) {
 
         report = sdscatlen(report,"\n",1);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* Add non event based advices. */
     if (THPGetAnonHugePagesSize() > 0) {
@@ -471,11 +471,12 @@ void fillCommandCDF(client *c, struct hdr_histogram* histogram) {
 /* latencyCommand() helper to produce for all commands,
  * a per command cumulative distribution of latencies. */
 void latencyAllCommandsFillCDF(client *c, dict *commands, int *command_with_data) {
-    dictIterator *di = dictGetSafeIterator(commands);
+    dictIterator di;
     dictEntry *de;
     struct redisCommand *cmd;
 
-    while((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, commands);
+    while((de = dictNext(&di)) != NULL) {
         cmd = (struct redisCommand *) dictGetVal(de);
         if (cmd->latency_histogram) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
@@ -487,7 +488,7 @@ void latencyAllCommandsFillCDF(client *c, dict *commands, int *command_with_data
             latencyAllCommandsFillCDF(c, cmd->subcommands_dict, command_with_data);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* latencyCommand() helper to produce for a specific command set,
@@ -510,9 +511,10 @@ void latencySpecificCommandsFillCDF(client *c) {
 
         if (cmd->subcommands_dict) {
             dictEntry *de;
-            dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
+            dictIterator di;
 
-            while ((de = dictNext(di)) != NULL) {
+            dictInitSafeIterator(&di, cmd->subcommands_dict);
+            while ((de = dictNext(&di)) != NULL) {
                 struct redisCommand *sub = dictGetVal(de);
                 if (sub->latency_histogram) {
                     addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
@@ -520,7 +522,7 @@ void latencySpecificCommandsFillCDF(client *c) {
                     command_with_data++;
                 }
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         }
     }
     setDeferredMapLen(c,replylen,command_with_data);
@@ -547,12 +549,12 @@ void latencyCommandReplyWithSamples(client *c, struct latencyTimeSeries *ts) {
 /* latencyCommand() helper to produce the reply for the LATEST subcommand,
  * listing the last latency sample for every event type registered so far. */
 void latencyCommandReplyWithLatestEvents(client *c) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 
     addReplyArrayLen(c,dictSize(server.latency_events));
-    di = dictGetIterator(server.latency_events);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, server.latency_events);
+    while((de = dictNext(&di)) != NULL) {
         char *event = dictGetKey(de);
         struct latencyTimeSeries *ts = dictGetVal(de);
         int last = (ts->idx + LATENCY_TS_LEN - 1) % LATENCY_TS_LEN;
@@ -563,7 +565,7 @@ void latencyCommandReplyWithLatestEvents(client *c) {
         addReplyLongLong(c,ts->samples[last].latency);
         addReplyLongLong(c,ts->max);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 #define LATENCY_GRAPH_COLS 80

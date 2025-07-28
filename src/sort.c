@@ -467,18 +467,19 @@ void sortCommandGeneric(client *c, int readonly) {
         start = 0;
     } else if (sortval->type == OBJ_ZSET) {
         dict *set = ((zset*)sortval->ptr)->dict;
-        dictIterator *di;
+        dictIterator di;
         dictEntry *setele;
         sds sdsele;
-        di = dictGetIterator(set);
-        while((setele = dictNext(di)) != NULL) {
+
+        dictInitIterator(&di, set);
+        while((setele = dictNext(&di)) != NULL) {
             sdsele =  dictGetKey(setele);
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     } else {
         serverPanic("Unknown type");
     }

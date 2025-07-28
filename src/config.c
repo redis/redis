@@ -949,7 +949,7 @@ end:
 void configGetCommand(client *c) {
     int i;
     dictEntry *de;
-    dictIterator *di;
+    dictIterator di;
     /* Create a dictionary to store the matched configs */
     dict *matches = dictCreate(&externalStringType);
     for (i = 0; i < c->argc - 2; i++) {
@@ -969,9 +969,8 @@ void configGetCommand(client *c) {
         }
 
         /* Otherwise, do a match against all items in the dictionary. */
-        di = dictGetIterator(configs);
-        
-        while ((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, configs);
+        while ((de = dictNext(&di)) != NULL) {
             standardConfig *config = dictGetVal(de);
             /* Note that hidden configs require an exact match (not a pattern) */
             if (config->flags & HIDDEN_CONFIG) continue;
@@ -980,17 +979,17 @@ void configGetCommand(client *c) {
                 dictAdd(matches, dictGetKey(de), config);
             }
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
-    
-    di = dictGetIterator(matches);
+
+    dictInitIterator(&di, matches);
     addReplyMapLen(c, dictSize(matches));
-    while ((de = dictNext(di)) != NULL) {
+    while ((de = dictNext(&di)) != NULL) {
         standardConfig *config = (standardConfig *) dictGetVal(de);
         addReplyBulkCString(c, dictGetKey(de));
         addReplyBulkSds(c, config->interface.get(config));
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     dictRelease(matches);
 }
 
@@ -1564,10 +1563,10 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
 /* Rewrite the loadmodule option. */
 void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
     sds line;
-
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         /* Internal modules doesn't have path and are not part of the configuration file */
         if (sdslen(module->loadmod->path) == 0) continue;
@@ -1580,7 +1579,7 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
         }
         rewriteConfigRewriteLine(state,"loadmodule",line,1);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     /* Mark "loadmodule" as processed in case modules is empty. */
     rewriteConfigMarkAsProcessed(state,"loadmodule");
 }
@@ -1614,10 +1613,11 @@ sds rewriteConfigGetContentFromState(struct rewriteConfigState *state) {
  * This function does just this, iterating all the option names and
  * blanking all the lines still associated. */
 void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
-    dictIterator *di = dictGetIterator(state->option_to_line);
+    dictIterator di;
     dictEntry *de;
 
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, state->option_to_line);
+    while((de = dictNext(&di)) != NULL) {
         list *l = dictGetVal(de);
         sds option = dictGetKey(de);
 
@@ -1637,7 +1637,7 @@ void rewriteConfigRemoveOrphaned(struct rewriteConfigState *state) {
             listDelNode(l,ln);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* This function returns a string representation of all the config options
@@ -1647,16 +1647,17 @@ sds getConfigDebugInfo(void) {
     state->force_write = 1; /* Force the output */
     state->needs_signature = 0; /* Omit the rewrite signature */
 
-    /* Iterate the configs and "rewrite" the ones that have 
+    /* Iterate the configs and "rewrite" the ones that have
      * the debug flag. */
-    dictIterator *di = dictGetIterator(configs);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, configs);
+    while ((de = dictNext(&di)) != NULL) {
         standardConfig *config = dictGetVal(de);
         if (!(config->flags & DEBUG_CONFIG)) continue;
         config->interface.rewrite(config, config->name, state);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     sds info = rewriteConfigGetContentFromState(state);
     rewriteConfigReleaseState(state);
     return info;
@@ -1749,15 +1750,16 @@ int rewriteConfig(char *path, int force_write) {
      * the rewrite state. */
 
     /* Iterate the configs that are standard */
-    dictIterator *di = dictGetIterator(configs);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, configs);
+    while ((de = dictNext(&di)) != NULL) {
         standardConfig *config = dictGetVal(de);
         /* Only rewrite the primary names */
         if (config->flags & ALIAS_CONFIG) continue;
         if (config->interface.rewrite) config->interface.rewrite(config, dictGetKey(de), state);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     rewriteConfigUserOption(state);
     rewriteConfigLoadmoduleOption(state);

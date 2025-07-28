@@ -2116,14 +2116,15 @@ void copyCommand(client *c) {
  * where the function is used for more info. */
 void scanDatabaseForReadyKeys(redisDb *db) {
     dictEntry *de;
-    dictIterator *di = dictGetSafeIterator(db->blocking_keys);
-    while((de = dictNext(di)) != NULL) {
+    dictIterator di;
+    dictInitSafeIterator(&di, db->blocking_keys);
+    while((de = dictNext(&di)) != NULL) {
         robj *key = dictGetKey(de);
         kvobj *kv = dbFind(db, key->ptr);
         if (kv)
             signalKeyAsReady(db, key, kv->type);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* Since we are unblocking XREADGROUP clients in the event the
@@ -2131,8 +2132,10 @@ void scanDatabaseForReadyKeys(redisDb *db) {
  * database was flushed/swapped. */
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
     dictEntry *de;
-    dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
-    while((de = dictNext(di)) != NULL) {
+    dictIterator di;
+
+    dictInitSafeIterator(&di, emptied->blocking_keys);
+    while((de = dictNext(&di)) != NULL) {
         robj *key = dictGetKey(de);
         int existed = 0, exists = 0;
         int original_type = -1, curr_type = -1;
@@ -2154,7 +2157,7 @@ void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
         if ((existed && !exists) || original_type != curr_type)
             signalDeletedKeyAsReady(emptied, key, original_type);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* Swap two databases at runtime so that all clients will magically see

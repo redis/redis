@@ -334,31 +334,46 @@ run_solo {defrag} {
             set expected_frag 1.49
             if {$::accurate} {
                 # scale the hash to 1m fields in order to have a measurable the latency
+                set count 0
                 for {set j 10000} {$j < 1000000} {incr j} {
                     $rd hset bighash $j [concat "asdfasdfasdf" $j]
-                }
-                for {set j 10000} {$j < 1000000} {incr j} {
-                    $rd read ; # Discard replies
+
+                    incr count
+                    if {$count % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
                 }
                 # creating that big hash, increased used_memory, so the relative frag goes down
                 set expected_frag 1.3
             }
 
             # add a mass of string keys
+            set count 0
             for {set j 0} {$j < 500000} {incr j} {
                 $rd setrange $j 150 a
-            }
-            for {set j 0} {$j < 500000} {incr j} {
-                $rd read ; # Discard replies
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                    }
+                }
             }
             assert_equal [r dbsize] 500016
 
             # create some fragmentation
+            set count 0
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd del $j
-            }
-            for {set j 0} {$j < 500000} {incr j 2} {
-                $rd read ; # Discard replies
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                    }
+                }
             }
             assert_equal [r dbsize] 250016
 

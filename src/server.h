@@ -3816,6 +3816,7 @@ void unblockClient(client *c, int queue_for_reprocessing);
 void unblockClientOnTimeout(client *c);
 void unblockClientOnError(client *c, const char *err_str);
 void queueClientForReprocessing(client *c);
+int blockedClientMayTimeout(client *c);
 void replyToBlockedClientTimedOut(client *c);
 int getTimeoutFromObjectOrReply(client *c, robj *object, mstime_t *timeout, int unit);
 void disconnectAllBlockedClients(void);

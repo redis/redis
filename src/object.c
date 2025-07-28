@@ -658,11 +658,12 @@ void dismissSetObject(robj *o, size_t size_hint) {
          * page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / dictSize(set) >= server.page_size) {
             dictEntry *de;
-            dictIterator *di = dictGetIterator(set);
-            while ((de = dictNext(di)) != NULL) {
+            dictIterator di;
+            dictInitIterator(&di, set);
+            while ((de = dictNext(&di)) != NULL) {
                 dismissSds(dictGetKey(de));
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         }
 
         /* Dismiss hash table memory. */
@@ -713,13 +714,14 @@ void dismissHashObject(robj *o, size_t size_hint) {
          * a page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / dictSize(d) >= server.page_size) {
             dictEntry *de;
-            dictIterator *di = dictGetIterator(d);
-            while ((de = dictNext(di)) != NULL) {
+            dictIterator di;
+            dictInitIterator(&di, d);
+            while ((de = dictNext(&di)) != NULL) {
                 /* Only dismiss values memory since the field size
                  * usually is small. */
                 dismissSds(dictGetVal(de));
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         }
 
         /* Dismiss hash table memory. */
@@ -1207,7 +1209,7 @@ size_t streamRadixTreeMemoryUsage(rax *rax) {
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
 size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
     dict *d;
-    dictIterator *di;
+    dictIterator di;
     struct dictEntry *de;
     size_t asize = 0, elesize = 0, elecount = 0, samples = 0;
 
@@ -1240,14 +1242,14 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
     } else if (o->type == OBJ_SET) {
         if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
-            di = dictGetIterator(d);
+            dictInitIterator(&di, d);
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictBuckets(d));
-            while((de = dictNext(di)) != NULL && samples < sample_size) {
+            while((de = dictNext(&di)) != NULL && samples < sample_size) {
                 sds ele = dictGetKey(de);
                 elesize += dictEntryMemUsage(0) + sdsZmallocSize(ele);
                 samples++;
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
             if (samples) asize += (double)elesize/samples*dictSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             asize = sizeof(*o)+zmalloc_size(o->ptr);
@@ -1284,16 +1286,16 @@ size_t objectComputeSize(robj *key, robj *o, size_t sample_size, int dbid) {
             asize = sizeof(*o) + zmalloc_size(lpt) + zmalloc_size(lpt->lp);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
-            di = dictGetIterator(d);
+            dictInitIterator(&di, d);
             asize = sizeof(*o)+sizeof(dict)+(sizeof(struct dictEntry*)*dictBuckets(d));
-            while((de = dictNext(di)) != NULL && samples < sample_size) {
+            while((de = dictNext(&di)) != NULL && samples < sample_size) {
                 hfield ele = dictGetKey(de);
                 sds ele2 = dictGetVal(de);
                 elesize += hfieldZmallocSize(ele) + sdsZmallocSize(ele2);
                 elesize += dictEntryMemUsage(0);
                 samples++;
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
             if (samples) asize += (double)elesize/samples*dictSize(d);
         } else {
             serverPanic("Unknown hash encoding");
