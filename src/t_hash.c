@@ -2240,7 +2240,7 @@ void hincrbyfloatCommand(client *c) {
     unsigned char *vstr;
     unsigned int vlen;
     int has_expiration = 0;
-    uint64_t exipreat = EB_EXPIRE_TIME_INVALID;
+    uint64_t expireat = EB_EXPIRE_TIME_INVALID;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if (isnan(incr) || isinf(incr)) {
@@ -2249,7 +2249,7 @@ void hincrbyfloatCommand(client *c) {
     }
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     GetFieldRes res = hashTypeGetValue(c->db, o,c->argv[2]->ptr,&vstr,&vlen,&ll,
-                                       HFE_LAZY_EXPIRE, &exipreat);
+                                       HFE_LAZY_EXPIRE, &expireat);
     if (res == GETF_OK) {
         if (vstr) {
             if (string2ld((char*)vstr,vlen,&value) == 0) {
@@ -2260,7 +2260,7 @@ void hincrbyfloatCommand(client *c) {
             value = (long double)ll;
         }
         /* Field has expiration time. */
-        if (exipreat != EB_EXPIRE_TIME_INVALID) has_expiration = 1;
+        if (expireat != EB_EXPIRE_TIME_INVALID) has_expiration = 1;
     } else if ((res == GETF_NOT_FOUND) || (res == GETF_EXPIRED)) {
         value = 0;
     } else {
@@ -2305,7 +2305,7 @@ void hincrbyfloatCommand(client *c) {
         robj *argv[6];
         argv[0] = shared.hpexpireat;
         argv[1] = c->argv[1];
-        argv[2] = createStringObjectFromLongLong(exipreat);
+        argv[2] = createStringObjectFromLongLong(expireat);
         argv[3] = shared.fields;
         argv[4] = shared.integers[1];
         argv[5] = c->argv[2];
