@@ -706,24 +706,29 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value, uint64_t *e
  *                If *vll is populated *vstr is set to NULL, so the caller can
  *                always check the function return by checking the return value
  *                for GETF_OK and checking if vll (or vstr) is NULL.
+ * expiredAt    - if the field has an expiration time, it will be set to the expiration
+ *                time of the field. Otherwise, will be set to EB_EXPIRE_TIME_INVALID.
  *
  */
 GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vstr,
-                             unsigned int *vlen, long long *vll, int hfeFlags) {
-    uint64_t expiredAt;
+             unsigned int *vlen, long long *vll, int hfeFlags, uint64_t *expiredAt)
+{
     sds key;
     GetFieldRes res;
+    uint64_t dummy;
+    if (expiredAt == NULL) expiredAt = &dummy;
+
     if (o->encoding == OBJ_ENCODING_LISTPACK ||
         o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         *vstr = NULL;
-        res = hashTypeGetFromListpack(o, field, vstr, vlen, vll, &expiredAt);
+        res = hashTypeGetFromListpack(o, field, vstr, vlen, vll, expiredAt);
 
         if (res == GETF_NOT_FOUND)
             return GETF_NOT_FOUND;
 
     } else if (o->encoding == OBJ_ENCODING_HT) {
         sds value = NULL;
-        res = hashTypeGetFromHashTable(o, field, &value, &expiredAt);
+        res = hashTypeGetFromHashTable(o, field, &value, expiredAt);
 
         if (res == GETF_NOT_FOUND)
             return GETF_NOT_FOUND;
@@ -734,7 +739,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, robj *o, sds field, unsigned char **vs
         serverPanic("Unknown hash encoding");
     }
 
-    if (expiredAt >= (uint64_t) commandTimeSnapshot())
+    if (*expiredAt >= (uint64_t) commandTimeSnapshot())
         return GETF_OK;
 
     if (server.masterhost) {
@@ -794,7 +799,7 @@ robj *hashTypeGetValueObject(redisDb *db, robj *o, sds field, int hfeFlags, int 
     long long vll;
 
     if (isHashDeleted) *isHashDeleted = 0;
-    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll, hfeFlags);
+    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll, hfeFlags, NULL);
 
     if (res == GETF_OK) {
         if (vstr) return createStringObject((char*)vstr,vlen);
@@ -823,7 +828,7 @@ int hashTypeExists(redisDb *db, robj *o, sds field, int hfeFlags, int *isHashDel
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll, hfeFlags);
+    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll, hfeFlags, NULL);
     if (isHashDeleted)
         *isHashDeleted = (res == GETF_EXPIRED_HASH) ? 1 : 0;
     return (res == GETF_OK) ? 1 : 0;
@@ -2195,7 +2200,7 @@ void hincrbyCommand(client *c) {
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
 
     GetFieldRes res = hashTypeGetValue(c->db,o,c->argv[2]->ptr,&vstr,&vlen,&value,
-                                       HFE_LAZY_EXPIRE);
+                                       HFE_LAZY_EXPIRE, NULL);
     if (res == GETF_OK) {
         if (vstr) {
             if (string2ll((char*)vstr,vlen,&value) == 0) {
@@ -2234,6 +2239,8 @@ void hincrbyfloatCommand(client *c) {
     sds new;
     unsigned char *vstr;
     unsigned int vlen;
+    int has_expiration = 0;
+    uint64_t exipreat = EB_EXPIRE_TIME_INVALID;
 
     if (getLongDoubleFromObjectOrReply(c,c->argv[3],&incr,NULL) != C_OK) return;
     if (isnan(incr) || isinf(incr)) {
@@ -2242,7 +2249,7 @@ void hincrbyfloatCommand(client *c) {
     }
     if ((o = hashTypeLookupWriteOrCreate(c,c->argv[1])) == NULL) return;
     GetFieldRes res = hashTypeGetValue(c->db, o,c->argv[2]->ptr,&vstr,&vlen,&ll,
-                                       HFE_LAZY_EXPIRE);
+                                       HFE_LAZY_EXPIRE, &exipreat);
     if (res == GETF_OK) {
         if (vstr) {
             if (string2ld((char*)vstr,vlen,&value) == 0) {
@@ -2252,6 +2259,8 @@ void hincrbyfloatCommand(client *c) {
         } else {
             value = (long double)ll;
         }
+        /* Field has expiration time. */
+        if (exipreat != EB_EXPIRE_TIME_INVALID) has_expiration = 1;
     } else if ((res == GETF_NOT_FOUND) || (res == GETF_EXPIRED)) {
         value = 0;
     } else {
@@ -2284,6 +2293,26 @@ void hincrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,0,shared.hset);
     rewriteClientCommandArgument(c,3,newobj);
     decrRefCount(newobj);
+
+    if (has_expiration) {
+        /* To make sure that the HSET command is propagated before the HPEXPIREAT,
+         * we need to prevent the HSET command from being propagated, and then
+         * propagate both commands manually in the correct order. */
+        preventCommandPropagation(c);
+        /* Propagate HSET */
+        alsoPropagate(c->db->id, c->argv, c->argc, PROPAGATE_AOF|PROPAGATE_REPL);
+        /* Propagate HPEXPIREAT */
+        robj *argv[6];
+        argv[0] = shared.hpexpireat;
+        argv[1] = c->argv[1];
+        argv[2] = createStringObjectFromLongLong(exipreat);
+        argv[3] = createStringObject("FIELDS", 6);
+        argv[4] = shared.integers[1];
+        argv[5] = c->argv[2];
+        alsoPropagate(c->db->id, argv, 6, PROPAGATE_AOF|PROPAGATE_REPL);
+        decrRefCount(argv[2]);
+        decrRefCount(argv[3]);
+    }
 }
 
 static GetFieldRes addHashFieldToReply(client *c, robj *o, sds field, int hfeFlags) {
@@ -2296,7 +2325,7 @@ static GetFieldRes addHashFieldToReply(client *c, robj *o, sds field, int hfeFla
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, hfeFlags);
+    GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, hfeFlags, NULL);
     if (res == GETF_OK) {
         if (vstr) {
             addReplyBulkCBuffer(c, vstr, vlen);
@@ -2408,7 +2437,7 @@ void hstrlenCommand(client *c) {
         checkType(c,o,OBJ_HASH)) return;
 
     GetFieldRes res = hashTypeGetValue(c->db, o, c->argv[2]->ptr, &vstr, &vlen, &vll,
-                                       HFE_LAZY_EXPIRE);
+                                       HFE_LAZY_EXPIRE, NULL);
 
     if (res == GETF_NOT_FOUND || res == GETF_EXPIRED || res == GETF_EXPIRED_HASH) {
         addReply(c, shared.czero);

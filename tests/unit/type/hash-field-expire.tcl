@@ -1266,5 +1266,57 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert_equal [dumpAllHashes $primary] [dumpAllHashes $replica]
             }
         }
+
+        test "HINCRBYFLOAT command won't remove field expiration on replica ($type)" {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            r hset h1 f1 1
+            r hset h1 f2 1
+            r hexpire h1 100 FIELDS 1 f1
+            r hincrbyfloat h1 f1 1.1
+            r hincrbyfloat h1 f2 1.1
+
+            # HINCRBYFLOAT will be replicated as HSET if no expiration time is set.
+            # Otherwise it will be replicated as HSET+HPEXPIREAT multi command.
+            assert_replication_stream $repl {
+                {select *}
+                {hset h1 f1 1}
+                {hset h1 f2 1}
+                {hpexpireat h1 * FIELDS 1 f1}
+                {multi}
+                {hset h1 f1 *}
+                {hpexpireat h1 * FIELDS 1 f1}
+                {exec}
+                {hset h1 f2 *}
+            }
+            close_replication_stream $repl
+
+            start_server {tags {external:skip}} {
+                r -1 flushall
+                r slaveof [srv -1 host] [srv -1 port]
+                wait_for_sync r
+
+                r -1 hset h1 f1 1
+                r -1 hset h1 f2 1
+                r -1 hexpire h1 100 FIELDS 1 f1
+                wait_for_ofs_sync  [srv -1 client]  [srv 0 client]
+                assert_range [r httl h1 FIELDS 1 f1] 90 100
+                assert_equal {-1} [r httl h1 FIELDS 1 f2]
+
+                r -1 hincrbyfloat h1 f1 1.1
+                r -1 hincrbyfloat h1 f2 1.1
+
+                # Expiration time should not be removed on replica and the value
+                # should be equal to the master.
+                wait_for_ofs_sync  [srv -1 client]  [srv 0 client]
+                assert_range [r httl h1 FIELDS 1 f1] 90 100
+                assert_equal [r -1 hget h1 f1] [r hget h1 f1]
+
+                # The field f2 should not have any expiration time on replica either.
+                assert_equal {-1} [r httl h1 FIELDS 1 f2]
+                assert_equal [r -1 hget h1 f2] [r hget h1 f2]
+            }
+        } {} {needs:repl external:skip}
     }
 }
