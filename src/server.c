@@ -1987,6 +1987,7 @@ void createSharedObjects(void) {
     shared.special_asterick = createStringObject("*",1);
     shared.special_equals = createStringObject("=",1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
+    shared.fields = createStringObject("FIELDS",6);
 
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =

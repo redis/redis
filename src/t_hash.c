@@ -2306,12 +2306,11 @@ void hincrbyfloatCommand(client *c) {
         argv[0] = shared.hpexpireat;
         argv[1] = c->argv[1];
         argv[2] = createStringObjectFromLongLong(exipreat);
-        argv[3] = createStringObject("FIELDS", 6);
+        argv[3] = shared.fields;
         argv[4] = shared.integers[1];
         argv[5] = c->argv[2];
         alsoPropagate(c->db->id, argv, 6, PROPAGATE_AOF|PROPAGATE_REPL);
         decrRefCount(argv[2]);
-        decrRefCount(argv[3]);
     }
 }
 
