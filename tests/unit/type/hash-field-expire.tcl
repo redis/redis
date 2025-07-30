@@ -616,6 +616,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r select 9
             r flushall
             r hset myhash field1 value1
+            r expireat myhash 2000000000000 ;# Force kvobj reallocation during move command
             r hpexpire myhash 100 NX FIELDS 1 field1
             r move myhash 10
             assert_equal [r exists myhash] 0
