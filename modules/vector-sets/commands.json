@@ -97,7 +97,9 @@
       "WRITE",
       "DENYOOM"
     ],
-    "acl_categories": ["VECTORSET"]
+    "acl_categories": [
+        "VECTORSET"
+    ]
   },
   "VREM": {
     "summary": "Remove one or more elements from a vector set",
