@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/commandfilter.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule log-key 0
 
     test {Retain a command filter argument} {

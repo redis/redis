@@ -12,7 +12,7 @@ proc verify_list_edit_reply {reply argv} {
     }
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {Module list set, get, insert, delete} {

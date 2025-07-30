@@ -2,7 +2,7 @@ set testmodule [file normalize tests/modules/propagate.so]
 set miscmodule [file normalize tests/modules/misc.so]
 set keyspace_events [file normalize tests/modules/keyspace_events.so]
 
-tags "modules" {
+tags "modules external:skip" {
     test {Modules can propagate in async and threaded contexts} {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             set replica [srv 0 client]
@@ -677,7 +677,7 @@ tags "modules" {
 }
 
 
-tags "modules aof" {
+tags "modules aof external:skip" {
     foreach aofload_type {debug_cmd startup} {
     test "Modules RM_Replicate replicates MULTI/EXEC correctly: AOF-load type $aofload_type" {
         start_server [list overrides [list loadmodule "$testmodule"]] {
