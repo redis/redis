@@ -106,7 +106,6 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include "../../src/redismodule.h"
-#include "../../src/sds.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -2042,19 +2041,20 @@ int VectorSets_InitModuleConfig(RedisModuleCtx *ctx) {
 
 /* Create the command and set its acl categories  */
 int VectorSets_CreateCommandWithAcls(RedisModuleCtx *ctx, char *name, RedisModuleCmdFunc func, const char *strflags, int firstkey, int lastkey, int keystep, const char *acls) {
+    RedisModule_AutoMemory(ctx);
+
     if (RedisModule_CreateCommand(ctx, name, func, strflags, firstkey, lastkey, keystep) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
     RedisModuleCommand *cmd = RedisModule_GetCommand(ctx, name);
     if (cmd == NULL)
         return REDISMODULE_ERR;
-    sds acl_categories = sdsnew("vectorset");
-    if (acls && strlen(acls) > 0)
-       acl_categories = sdscatfmt(acl_categories, " %s", acls);
-    if (RedisModule_SetCommandACLCategories(cmd, acl_categories) == REDISMODULE_ERR) {
-        sdsfree(acl_categories);
+    RedisModuleString *acl_categories =
+        acls && strlen(acls) > 0
+        ? RedisModule_CreateStringPrintf(ctx, "vectorset %s", acls)
+        : RedisModule_CreateString(ctx, "vectorset", 9);
+    if (RedisModule_SetCommandACLCategories(cmd, RedisModule_StringPtrLen(acl_categories, NULL)) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    sdsfree(acl_categories);
     return REDISMODULE_OK;
 }
 
