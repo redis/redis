@@ -98,20 +98,6 @@ void defragAllExtensions(size_t bitsmap, void *kv) {
 	}
 }
 
-void serializeAllExtensions(size_t bitsmap, void *kv, struct RedisModuleRdbStream *stream,
-							int flags) {
-	if (bitsmap == 0)
-		return;
-	char *data = ExtensionGetAllocPtr(bitsmap, kv);
-	for (int i = 0; i < NUM_EXTENSIONS_SUPPORTED; i++) {
-		if (BIT_IS_SET(bitsmap, i)) {
-			if (registerdExtensions[i].metadata_methods.serializeMetadata) {				
-				registerdExtensions[i].metadata_methods.serializeMetadata(data, stream, flags);
-			}
-			data += registerdExtensions[i].metadata_methods.metadata_size_bytes;
-		}
-	}
-}
 
 void deserilaizeAllExtensions(size_t bitsmap, void *kv, struct RedisModuleRdbStream *stream, int flags) {
 	if (bitsmap == 0)
@@ -205,7 +191,48 @@ void ExtensionPush(size_t src_bitsmap, int index, const void *kv, void *dstkv, c
 void *ExtensionGetAllocPtr(size_t bitsmap, void *kv) {
 	return ((char *)kv) - ExtensionAllocSize(bitsmap);
 }
+
+
+void ExtensionsSerializeToList(const size_t bitsmap, void *kv , list *extensions_list)
+{
+	char *p = ExtensionGetAllocPtr(bitsmap, kv);
+	for (int i =0; i < NUM_EXTENSIONS_SUPPORTED;  i++) {
+		if (BIT_IS_SET(bitsmap, i)) {
+			if (registerdExtensions[i].metadata_methods.serializeMetadata) {
+				sds buffer;
+				registerdExtensions[i].metadata_methods.serializeMetadata(p , buffer, 0);
+				ExtentionDefragValue *extVal = newExtentionDefragValue(
+					registerdExtensions[i].name, buffer);
+				listAddNodeTail(extensions_list, extVal);
+			}
+			p += registerdExtensions[i].metadata_methods.metadata_size_bytes; 	   	
+		}
+	}			
+}
+
+void ExtensionsDesrialize(const size_t bitsmap, void *kv , list *extensions_list)
+{
+	char *p = ExtensionGetAllocPtr(bitsmap, kv);
+	for(listNode *ln = listFirst(extensions_list); ln; ln = listNextNode(ln)) {
+		ExtentionDefragValue *extVal = ln->value;
+		int index = ExtensionName2Index(extVal->name);
+		serverAssert(index >= 0 && BIT_IS_SET(bitsmap, index));
+		char *pp = p + ExtensionOffset(bitsmap, index);
+		if (registerdExtensions[index].metadata_methods.deserializeMetadata) {				
+			registerdExtensions[index].metadata_methods.deserializeMetadata(extVal->value, pp, 0);
+		}
+	}
+}
 		
+		
+		
+ExtentionDefragValue *newExtentionDefragValue(const char *name, sds value) {
+	ExtentionDefragValue *ret = zmalloc(sizeof(ExtentionDefragValue));
+	ret->name = name;
+	ret->value = value;
+	return ret;
+}
+
 
 
 

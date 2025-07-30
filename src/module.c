@@ -45,7 +45,7 @@
 #include "call_reply.h"
 #include "hdr_histogram.h"
 #include "crc16_slottable.h"
-#include "module_metadata.h"
+#include "kvobj_extensions.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -14182,68 +14182,31 @@ int RM_GetDbIdFromDefragCtx(RedisModuleDefragCtx *ctx) {
 }
 
 
-struct {
-	const char *name;
-	RedisMetadataMethods metadata_methods;
-} registerdModules[NUM_MODULES_SUPPORTED] ;
 
 
 /* register to metadata services  */
 RedisMetadtaStatus RM_RegisterMetadataMethods(RedisModuleCtx *ctx, RedisMetadataMethods *metadata_methods) {
 	const char *name = ctx->module->name;
-	return registerInternalMetadataModule(name,  metadata_methods);
-}
-
-RedisMetadtaStatus registerInternalMetadataModule(const char *name,
-												   RedisMetadataMethods *metadata_methods)
-{
-	for(int i = 0;  i < NUM_MODULES_SUPPORTED; i++) {
-		if (registerdModules[i].name == 0) {
-			registerdModules[i].name = name;
-			registerdModules[i].metadata_methods = *metadata_methods;
-			return METADATA_MODULE_OK;
-		} else if (strcmp(registerdModules[i].name , name) == 0) {
-			return METADATA_MODULE_ALREADY_EXISTS;
-		}
-	}
-	return METADATA_NO_MORE_MODULES;
-}
-
-static int moduleName2Index(const char *name) {
-	for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
-		if (registerdModules[i].name &&
-			strcmp(registerdModules[i].name, name) == 0) {
-			return i;
-		}
-	}
-	return -1;
+	return registerExtension(name,  metadata_methods);
 }
 
 
-void freeModuleMetadata(void *data, int module_index) {
-	if (registerdModules[module_index].metadata_methods.freeMetadata)
-		registerdModules[module_index].metadata_methods.freeMetadata(data);
-}
-
-void *defragModuleMetadata(void *data, int module_index) {
-	if (registerdModules[module_index].metadata_methods.defragMetadata)
-		return registerdModules[module_index].metadata_methods.defragMetadata(data, activeDefragAlloc);
-	else return data;
-}
-
-
-
-void * RM_GetModuleMetadata(RedisModuleCtx *ctx, robj *keyname) {
+int RM_GetModuleMetadata(RedisModuleCtx *ctx, robj *keyname, void **data) {
 	
 	kvobj *kv = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
-	int index = moduleName2Index(ctx->module->name);
-	return kv ? kvobjGetModuleMetadata(kv, index) : NULL;
+	int index = ExtensionName2Index(ctx->module->name);
+	if (!kv || index < 0)
+		return REDISMODULE_ERR;
+	return kvobjGetExtension(kv, index, data) == 1 ?
+		REDISMODULE_OK : REDISMODULE_ERR;	
 }
 
-void RM_SetModuleMetadata(RedisModuleCtx *ctx, robj *keyname, void *newMetadata) {
-	int index = moduleName2Index(ctx->module->name);
-	serverAssert(index>=0);
-	dbSetModuleMetadata(ctx->client->db, keyname, index, newMetadata);
+int RM_SetModuleMetadata(RedisModuleCtx *ctx, robj *keyname, void *newMetadata) {
+	int index = ExtensionName2Index(ctx->module->name);
+	if (index < 0)
+		return REDISMODULE_ERR;	
+	return dbSetModuleMetadata(ctx->client->db, keyname, index, newMetadata) == NULL ?
+		REDISMODULE_ERR : REDISMODULE_OK;
 }		
 
 

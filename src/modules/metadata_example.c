@@ -21,23 +21,23 @@
 #ifndef MODULE_ID
 #define MODULE_ID 0
 #endif
-static int module_id=MODULE_ID;
-
-#define CMD_GET( module_id ) CMD_GET ## module_id
+static size_t module_id=MODULE_ID;
 
 
-/* meta-id.GET <key>
+
+/* m-id.GET <key>
  *
  * Return the value of the specified key, or a null reply if the key
  * is not defined. */
 
-static int CMD_GET( MODULE_ID ) (RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+static int CMD_get (RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
-    int obj_id = (size_t) RedisModule_GetModuleMetadata(ctx,argv[1]);
+	size_t obj_id;
+    int status = (size_t) RedisModule_GetModuleMetadata(ctx,argv[1], (void **)&obj_id);
 	char rep[64];
-	sprintf(rep, "%s 0x%x",
-			(obj_id & 0x7) == module_id ? "OK" : "FAIL",
-			obj_id);
+	sprintf(rep, "%s 0x%lx %d",
+			status == REDISMODULE_OK && (obj_id & 0x7) == module_id ? "OK" : "FAIL",
+			obj_id, status);
 	return RedisModule_ReplyWithCString(ctx, rep);
 										
 }
@@ -63,10 +63,12 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 	
 	if (module_id > 7)
 		return REDISMODULE_ERR;
-	sprintf(module_name, "m-%1.1d", module_id);
+	sprintf(module_name, "m-%1.1lu", module_id);
     if (RedisModule_Init(ctx,module_name,1,REDISMODULE_APIVER_1)
         == REDISMODULE_ERR) return REDISMODULE_ERR;	
-	RedisMetadataMethods metadata_methods = {		
+	RedisMetadataMethods metadata_methods = {
+		.
+		.default_value = -1,
         .serializeMetadata = NULL, 
         .deserializeMetadata = NULL,
 		.freeMetadata = NULL,
@@ -76,7 +78,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 	static char cmd[64];
 	
 	sprintf(cmd, "%s.get", module_name);
-    if (RedisModule_CreateCommand(ctx,cmd, CMD_GET( MODULE_ID ),"readonly",1,1,0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx,cmd, CMD_get,"readonly",1,1,0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;	
 
     if (RedisModule_SubscribeToKeyspaceEvents(ctx,REDISMODULE_NOTIFY_ALL, setVal) == REDISMODULE_ERR)

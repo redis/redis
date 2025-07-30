@@ -16,7 +16,8 @@
    After that the extension can call set/get of metadata in the appropriate size.
    The extension may provide also serializaton / deserializion defrag etc.. 
  */
-
+#include "sds.h"
+#include "adlist.h"
 #ifndef __REDIS_KVOBJ_EXTENSION_H
 #define __REDIS_KVOBJ_EXTENSION_H
 
@@ -33,10 +34,10 @@ struct RedisModuleRdbStream;
 typedef struct {
     size_t metadata_size_bytes; 
 	size_t default_value;	
-	void (*serializeMetadata)(void *metadata,
-							  struct RedisModuleRdbStream *stream, int flags);
-	void (*deserializeMetadata)(void *data,
-								struct RedisModuleRdbStream *stream,
+	void (*serializeMetadata)(const void *metadata,
+							  sds serilized_to, int flags);
+	void (*deserializeMetadata)(const void *serializedData,
+								void *deserializedData,
 								int flags);
 	void (*freeMetadata)(void *metadata) ;
 	void *(*defragMetadata)(void *metadata, void *((*defragRealloc)(void *)));
@@ -62,9 +63,6 @@ void freeExtension(void *p ,int  modle_index);
 void freeAllExtensions(size_t bitmaps, void *kvobj);
 void defragAllExtensions(size_t bitmaps, void *kvobj);
 
-void  serializeAllExtensions(size_t bitmaps, void *kvobj, struct RedisModuleRdbStream *stream,
-						   int flags);
-void  deserilaizeAllExtensions(size_t bitmaps, void *kvobj, struct RedisModuleRdbStream *stream, int flags);
 
 size_t ExtensionDefaultVal(int index);
 int    ExtensionGet(size_t bitmaps, int index, const void *kvobj, size_t *retval);
@@ -73,4 +71,15 @@ void   *ExtensionGetAllocPtr(size_t bitmaps, void *kvobj);
 void   ExtensionPush(size_t src_bitmaps, int index, const void *kvobj, void *dstkvobj, const size_t *val);
 size_t ExtensionAllocSize(const size_t bitmaps);
 int    ExtensionName2Index(const char *name);
+
+typedef struct {
+	const char *name;
+	sds        value;
+} 	ExtentionDefragValue ;
+
+
+ExtentionDefragValue *newExtentionDefragValue(const char *name, sds value);
+
+void ExtensionsDesrialize(const size_t bitsmap, void *kvobj, list *extensions_list);
+void ExtensionsSerializeToList(const size_t bitsmap, void *val, list *extensions_list);
 #endif

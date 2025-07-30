@@ -1028,8 +1028,8 @@ struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
-#define NUM_MODULES_SUPPORTED 8
-#define OBJ_REFCOUNT_BITS (32-1-NUM_MODULES_SUPPORTED) /*1 for iskvobj few more for modules bitmap */
+#define NUM_EXTENSIONS_SUPPORTED 8
+#define OBJ_REFCOUNT_BITS (32-1-NUM_EXTENSIONS_SUPPORTED) /*1 for iskvobj few more for modules bitmap */
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
@@ -1037,7 +1037,7 @@ struct RedisModuleDigest {
 struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
-	unsigned  modules_bitsmap : 8; /* 1 bit for each module that is registered */
+	unsigned  extentions_bitsmap : 8; /* 1 bit for each module that is registered */
     unsigned iskvobj : 1;   /* 1 if the key is embeded */
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
@@ -1059,7 +1059,7 @@ char *getObjectTypeName(robj*);
     _var.refcount = OBJ_STATIC_REFCOUNT; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
-    _var.modules_bitsmap = 0;		  \
+    _var. extentions_bitsmap = 0;		  \
     _var.iskvobj = 0; \
     _var.ptr = _ptr; \
 } while(0)
@@ -3076,9 +3076,11 @@ kvobj *kvobjSetExpire(kvobj *kv, long long expire);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
 kvobj *dbSetModuleMetadata(redisDb *db, robj *key, int index, void *metadata);
-kvobj *kvobjSetModuleMetadata(kvobj *kv, int index, void *metadata);
-void   *kvobjGetModuleMetadata(const kvobj *kv, int index);
+kvobj *kvobjSetExtension(kvobj *kv, int index, const void *new_val);
+int kvobjGetExtension(const kvobj *kv, int index, void *val);
+kvobj *kvobjSetExtensionsFromList(sds key, robj *val, list *extensions_list, int has_expire);
 kvobj *kvobjDefrag(kvobj *kvj);
+
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);
 ssize_t syncRead(int fd, char *ptr, ssize_t size, long long timeout);
@@ -3646,7 +3648,7 @@ static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref);
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link);
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire);
-kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire);
+kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire, list *extensions_val);
 void dbReplaceValue(redisDb *db, robj *key, kvobj **ioKeyVal, int updateKeySizes);
 void dbReplaceValueWithLink(redisDb *db, robj *key, robj **val, dictEntryLink link);
 

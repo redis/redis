@@ -16,7 +16,7 @@
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 #include <ctype.h>
-#include "module_metadata.h"
+#include "kvobj_extensions.h"
 #ifdef __CYGWIN__
 #define strtold(a,b) ((long double)strtod((a),(b)))
 #endif
@@ -36,7 +36,7 @@
  *    | expirity(8) | robj (16) |  key-hdr-size (1) | sdshdr5 "mykey" \0 (7) |
  *    +---------------+------------+------------------------+------------------------+
  */
-static kvobj *kvobjCreate(int type, const sds key, void *ptr, int num_modules) {
+static kvobj *kvobjCreate(int type, const sds key, void *ptr, size_t extra_alloc_size) {
     /* Determine embedded key and expiration flags */
     serverAssert(key != NULL);
 
@@ -47,19 +47,19 @@ static kvobj *kvobjCreate(int type, const sds key, void *ptr, int num_modules) {
 
     /* Compute the base object size */
     size_t min_size = sizeof(robj);
-    min_size += num_modules * sizeof(void *);
+    min_size += extra_alloc_size;
     min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
 
     /* Allocate object memory */
-    size_t *alloc = zmalloc(min_size);
-    kvobj *o = (kvobj *) (alloc + num_modules);
+    char *alloc = zmalloc(min_size);
+    kvobj *o = (kvobj *) (alloc + extra_alloc_size);
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 1;
-    o->modules_bitsmap = 0;
+    o->extentions_bitsmap = 0;
 
     char *data = (void *)(o + 1);
     /* Store embedded key. */
@@ -76,7 +76,7 @@ robj *createObject(int type, void *ptr) {
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 0;
-    o->modules_bitsmap = 0;
+    o->extentions_bitsmap = 0;
     return o;
 }
 
@@ -125,7 +125,7 @@ robj *createRawStringObject(const char *ptr, size_t len) {
  *    +-----------+------------------+------------------------+----------------------------+
  */
 static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
-                                     const sds key, size_t num_modules)
+                                     const sds key, size_t extra_alloc_size)
 
 {
     serverAssert(key != NULL);
@@ -140,18 +140,18 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
 
     /* Compute base object size */
     size_t min_size = sizeof(robj) + val_sds_size;
-    min_size += num_modules * sizeof(void *);
+    min_size += extra_alloc_size;
     min_size += 1 + key_sds_size; /* 1 byte for SDS header size */
 
     /* Allocate object memory */
-    size_t *alloc = zmalloc (min_size);
-    kvobj *o = (kvobj *) (alloc+num_modules);
+    char *alloc = zmalloc (min_size);
+    kvobj *o = (kvobj *) (alloc+extra_alloc_size);
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 1;
-    o->modules_bitsmap = 0;
+    o->extentions_bitsmap = 0;
 
 
     /* The memory after the struct where we embedded data. */
@@ -187,7 +187,7 @@ robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->refcount = 1;
     o->lru = 0;
-    o->modules_bitsmap = 0;
+    o->extentions_bitsmap = 0;
     o->iskvobj = 0;
 
     /* The memory after the struct where we embedded data. */
@@ -210,46 +210,13 @@ sds kvobjGetKey(const kvobj *kv) {
     return NULL;
 }
 
-#define BIT_IS_SET(o,index) (((o) & (1 << (index))) != 0)
-#define BIT_SET(o,index) ((o) |= (1 <<(index)))
-/* count number of bits that are set in x (x & x-1 always clear 1 bit)  */
-static size_t nBitsSet(unsigned int x) {
-    int c = 0;
-    while (x) {
-    	c++;
-    	x &= (x-1);
-    }
-    return c;
-}
 
 
-static size_t nBitsSetUntil(unsigned int x, int index) {
-    return nBitsSet(x & ~(0xffffffff << index));
-}
-
-static void pushModulesMetadata(void **src, int src_bitmap, void *metadata,
-    							void **trg, int trg_bitmap) {
-     for (int i =0; i < NUM_MODULES_SUPPORTED;  i++) {
-    	 if (BIT_IS_SET(src_bitmap, i)) {
-    		 *trg = *src;
-    		 src++;
-    		 trg++;
-    	 } else  if (BIT_IS_SET(trg_bitmap, i)) {
-    		 *trg = metadata;
-    		 trg++;
-    	 }
-     }
-
-}
-
-static void ** kvobjGetAllocPtr(const kvobj *val) {
-    return ((void **)val) - nBitsSet(val->modules_bitsmap);
-}
 
 /* This functions always reallocate the value with enough space to place the modules metadata.
  * The new allocation is returned and  the old object's reference counter is decremented and possibly freed.
  * Use the returned object instead of 'val' after calling this function. */
-static kvobj *kvobjSetInternal(sds key, kvobj *val, int num_modules) {
+static kvobj *kvobjSetInternal(sds key, kvobj *val, size_t extra_alloc_size) {
 
     kvobj *kv;
     if (val->type == OBJ_STRING && val->encoding == OBJ_ENCODING_EMBSTR) {
@@ -260,9 +227,9 @@ static kvobj *kvobjSetInternal(sds key, kvobj *val, int num_modules) {
         size += (key != NULL) * (sdslen(key) + 3); /* hdr size (1) + hdr (1) + nullterm (1) */
         size += 4 + len; /* embstr header (3) + nullterm (1) */
         if (size <= CACHE_LINE_SIZE) {
-            kv = kvobjCreateEmbedString(val->ptr, len, key, num_modules);
+            kv = kvobjCreateEmbedString(val->ptr, len, key, extra_alloc_size);
         } else {
-            kv = kvobjCreate(OBJ_STRING, key, sdsnewlen(val->ptr, len), num_modules);
+            kv = kvobjCreate(OBJ_STRING, key, sdsnewlen(val->ptr, len), extra_alloc_size);
         }
     	serverAssert(sdscmp(key, kvobjGetKey(kv)) == 0 && sdscmp((sds)val->ptr, (sds)kv->ptr) == 0);
     } else {		
@@ -281,8 +248,9 @@ static kvobj *kvobjSetInternal(sds key, kvobj *val, int num_modules) {
     	} else {
     		/* There are multiple references to this non-string object. Most types
     		 * can be duplicated, but for a module type is not always possible. */
-    		serverPanic("Not implemented");		}\
-    	kv = kvobjCreate(val->type, key, valptr, num_modules);
+    		serverPanic("Not implemented");
+		}
+    	kv = kvobjCreate(val->type, key, valptr, extra_alloc_size);
     	kv->encoding = val->encoding;
     }	
     kv->lru = val->lru;
@@ -291,60 +259,88 @@ static kvobj *kvobjSetInternal(sds key, kvobj *val, int num_modules) {
 
 int expire_index=-1;
 
-static void ** getModulesMetadataPtr(const kvobj *val, int index) {
-    return  kvobjGetAllocPtr(val) + nBitsSetUntil(val->modules_bitsmap, index);	
-}
 
 /* This functions reallocate the object value. The new allocation is returned and
  * the old object's reference counter is decremented and possibly freed. Use the
  * returned object instead of 'val' after calling this function. */
 void registerExpireModule(void) {
 	static const char *expire_module_name="EXPIRE";
-	RedisMetadataMethods expire_methods = {NULL,NULL,NULL,NULL};
-	expire_index = registerInternalMetadataModule(expire_module_name,  &expire_methods);
+	RedisMetadataMethods expire_methods = {8, -1, NULL,NULL,NULL,NULL};
+	expire_index = registerExtension(expire_module_name,  &expire_methods);
 	serverAssert(expire_index >= 0);
 }
 	
 kvobj *kvobjSet(sds key, kvobj *val, int has_expire) {
-    kvobj *ret = kvobjSetInternal(key, val, has_expire != 0);	
-    decrRefCount(val);
+	size_t bitsmap = 0;
+	size_t extra_size = 0;
     if (has_expire) {
     	if (expire_index == -1) {
 			registerExpireModule();
 		}
-    	BIT_SET(ret->modules_bitsmap, expire_index);
-    	*(long long *)getModulesMetadataPtr(ret, expire_index) = -1;
+    	ExtensionSetBit(bitsmap, expire_index);
+		extra_size = ExtensionAllocSize(bitsmap);
+	}
+		
+    kvobj *ret = kvobjSetInternal(key, val, extra_size);	
+    decrRefCount(val);
+	ret->extentions_bitsmap = bitsmap;
+	if (has_expire) {
+		size_t default_expire_time = ExtensionDefaultVal(expire_index);
+		ExtensionSet(bitsmap, expire_index , ret, &default_expire_time);
     }
     return ret;
 }
 
-kvobj *kvobjSetModuleMetadata(kvobj *val, int index, void *metadata) {
-    if (BIT_IS_SET(val->modules_bitsmap, index)) {
-    	void **p = getModulesMetadataPtr(val, index);
-    	freeModuleMetadata(*p , index);
-    	*p = metadata;
-    	return val;
+kvobj *kvobjSetExtension(kvobj *kv, int index, const void *new_val) {
+	size_t old_val[16]; // hope this is enough can 
+    if (ExtensionGet(kv->extentions_bitsmap, index, kv, old_val))	{
+		ExtensionSet(kv->extentions_bitsmap, index, kv, new_val);
+    	freeExtension(old_val , index);
+    	return kv;
     } /* else */
-
-
-    kvobj *kv = kvobjSetInternal(kvobjGetKey(val), val, nBitsSet(val->modules_bitsmap) +1);
-    kv->modules_bitsmap = val->modules_bitsmap;
-    BIT_SET(kv->modules_bitsmap , index);
-    pushModulesMetadata(kvobjGetAllocPtr(val), val->modules_bitsmap,
-    					metadata, kvobjGetAllocPtr(kv), kv->modules_bitsmap);
-    decrRefCount(val);
-    return kv;
-
+	size_t bitsmap = kv->extentions_bitsmap;
+	ExtensionSetBit(bitsmap, index); 
+    kvobj *newkv = kvobjSetInternal(kvobjGetKey(kv), kv, ExtensionAllocSize(bitsmap));
+	
+    ExtensionPush(kv->extentions_bitsmap, index, kv, newkv, new_val);
+    decrRefCount(kv);
+	newkv->extentions_bitsmap = bitsmap; 
+    return newkv;
 }
+
+kvobj *kvobjSetExtensionsFromList(sds key, robj *val, list *extensions_list, int has_expire) {
+	size_t bitsmap;
+	if (extensions_list == NULL || listLength(extensions_list) == 0)
+		return kvobjSet(key, val, has_expire);
+	/* else */
+	for(listNode *ln = listFirst(extensions_list); ln; ln = listNextNode(ln)) {
+		ExtentionDefragValue *extVal = ln->value;
+		BIT_SET(bitsmap, ExtensionName2Index(extVal->name));
+	}
+	if (has_expire) {
+		if (expire_index == -1) registerExpireModule();
+		BIT_SET(bitsmap, expire_index);
+	}
+    kvobj *newkv = kvobjSetInternal(key, val, ExtensionAllocSize(bitsmap));
+	newkv->extentions_bitsmap = bitsmap;
+	ExtensionsDesrialize(bitsmap, newkv, extensions_list);
+	return newkv;
+}
+	
+	
 
 long long kvobjGetExpire(const kvobj *kv) {
-    return (expire_index == -1 || !BIT_IS_SET(kv->modules_bitsmap, expire_index)) ? -1 :
-    	*(long long*)(getModulesMetadataPtr(kv, expire_index));
-
+	
+    if (expire_index == -1)
+		return -1;
+	long long ret;	
+	if (ExtensionGet(kv->extentions_bitsmap, expire_index, kv, (size_t *)&ret))
+		return ret;
+	else return -1;
 }
 
-void *kvobjGetModuleMetadata(const kvobj *kv, int index) {
-    return   *(getModulesMetadataPtr(kv, index));
+int kvobjGetExtension(const kvobj *kv, int index, void *val) {
+    return   ExtensionGet(kv->extentions_bitsmap, index, kv, val);
 
 }
 
@@ -355,35 +351,26 @@ kvobj *kvobjSetExpire(kvobj *kv, long long expire) {
     if (expire == -1 && expire_index == -1) {
     	return kv;
     } else if (expire_index == -1) {
-		registerExpireModule();
-		
+		registerExpireModule();		
     }
-    return kvobjSetModuleMetadata(kv, expire_index, (void *)expire);
+	
+    return kvobjSetExtension(kv, expire_index, (void *)&expire);
 
 }
 
 kvobj *kvobjDefrag(kvobj *kv) {
-	int modules_bitsmap = kv->modules_bitsmap;
-	void **ptr = kvobjGetAllocPtr(kv);
+	size_t bitsmap = kv->extentions_bitsmap;
+	char *ptr = ExtensionGetAllocPtr(bitsmap, kv);
 	size_t offset = 0;
 	if (kv->encoding==OBJ_ENCODING_EMBSTR)
 		offset = (char *)kv->ptr - (char *)kv;
-	void *dfrg = activeDefragAlloc(ptr);
-	if (dfrg) {
-		ptr = dfrg;
-		kv = (kvobj *)(ptr + nBitsSet(modules_bitsmap));
+	ptr = activeDefragAlloc(ptr);	
+	if (ptr) {
+		kv = (kvobj *) (ptr + ExtensionAllocSize(bitsmap));
 		if (kv->encoding==OBJ_ENCODING_EMBSTR)
 			kv->ptr = ((char *)kv)+offset;
-
 	}
-	if (modules_bitsmap) {
-		for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
-			if (BIT_IS_SET(kv->modules_bitsmap, i)) {
-				*ptr = defragModuleMetadata(*ptr, i);
-				ptr++;
-			}
-		}
-	}
+	defragAllExtensions(bitsmap, kv);
 	return kv;
 }
 	
@@ -679,16 +666,8 @@ void decrRefCount(robj *o) {
             default: serverPanic("Unknown object type"); break;
             }
         }
-    	if (o->modules_bitsmap) {
-    		void ** p = kvobjGetAllocPtr(o);		
-    		for(int i = 0; i < NUM_MODULES_SUPPORTED; i++) {
-    			if (BIT_IS_SET(o->modules_bitsmap, i)) {
-    				freeModuleMetadata(*p , i);
-    				p++;
-    			}
-    		}
-    	}
-    	zfree(kvobjGetAllocPtr(o));
+		freeAllExtensions(o->extentions_bitsmap, o);	   
+    	zfree(ExtensionGetAllocPtr(o->extentions_bitsmap, o));
     }
 }
 

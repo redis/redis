@@ -21,7 +21,7 @@
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
 #include "bio.h"
-
+#include "kvobj_extensions.h"
 #include <math.h>
 #include <fcntl.h>
 #include <sys/types.h>
@@ -1197,6 +1197,7 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
     int savelru = server.maxmemory_policy & MAXMEMORY_FLAG_LRU;
     int savelfu = server.maxmemory_policy & MAXMEMORY_FLAG_LFU;
 
+
     /* Save the expire time */
     if (expiretime != -1) {
         if (rdbSaveType(rdb,RDB_OPCODE_EXPIRETIME_MS) == -1) return -1;
@@ -1222,7 +1223,26 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
         if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) return -1;
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
     }
-
+	if (val->extentions_bitsmap)
+	{
+		list *extensions_list = listCreate();
+		ExtensionsSerializeToList(val->extentions_bitsmap, val, extensions_list);
+		if (listLength(extensions_list)) {
+			if (rdbSaveType(rdb,RDB_OPCODE_EXTENTIONS) == -1) return -1;
+			for(listNode *ln = listFirst(extensions_list); ln; ln = listNextNode(ln)) {
+				ExtentionDefragValue *extVal = ln->value;
+				moduleType *mt = moduleTypeLookupModuleByNameIgnoreCase(extVal->name);
+				if (!mt) return -1;
+				if (rdbSaveLen(rdb, mt->id) < 0) return -1;
+				if (rdbSaveRawString(rdb, (unsigned char *)extVal->value, sdslen(extVal->value))  < 0) return -1;
+				sdsfree(extVal->value);
+				zfree(extVal);
+			}
+			if (rdbSaveLen(rdb, -1ul) < 0) return -1;
+		}
+		listRelease(extensions_list);
+		
+	}
     /* Save type, key, value */
     if (rdbSaveObjectType(rdb,val) == -1) return -1;
     if (rdbSaveStringObject(rdb,key) == -1) return -1;
@@ -3331,6 +3351,29 @@ int rdbLoadRio(rio *rdb, int rdbflags, rdbSaveInfo *rsi) {
     return retval;
 }
 
+static int 	rdbLoadExtensions(rio *rdb, list **extensions) {
+	*extensions = listCreate();   
+	while (1) {
+		long id;
+		id = rdbLoadLen(rdb, NULL);
+		if (id < 0)
+			break;
+		
+		sds value;
+		moduleType *mt = moduleTypeLookupModuleByID(id);
+		value = rdbLoadStringObject(rdb)->ptr;
+		if (!mt) {
+			serverLog(LL_WARNING,"Cannot find module for id %lu", id);
+			sdsfree(value);			
+		} else {
+			ExtentionDefragValue *extVal = newExtentionDefragValue(mt->name, value);
+			listAddNodeTail(*extensions, extVal);
+		}
+	}
+	return 0;
+		
+}
+
 /* Load an RDB file from the rio stream 'rdb'. On success C_OK is returned,
  * otherwise C_ERR is returned.
  * The rdb_loading_ctx argument holds objects to which the rdb will be loaded to,
@@ -3364,6 +3407,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
 
+	list *extensions = NULL; /* pre load extensions to add to the next kvobj */
     while(1) {
         sds key;
         robj *val;
@@ -3564,7 +3608,19 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 goto eoferr;
             }
             continue;
-        }
+        } else if (type == RDB_OPCODE_EXTENTIONS) {
+			if (extensions) {
+                serverLog(LL_WARNING,"error loading extensions");
+                goto eoferr;
+			}
+				
+			if (rdbLoadExtensions(rdb, &extensions) == -1) {
+                serverLog(LL_WARNING,"Failed loading extensions");
+                goto eoferr;
+			}
+			continue;
+		}
+		
 
         /* If there is no slot info, it means that it's either not cluster mode or we are trying to load legacy RDB file.
          * In this case we want to estimate number of keys per slot and resize accordingly. */
@@ -3625,7 +3681,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
-            kvobj *kv = dbAddRDBLoad(db, key, &val, expiretime);
+            kvobj *kv = dbAddRDBLoad(db, key, &val, expiretime, extensions);
             server.rdb_last_load_keys_loaded++;
             if (!kv) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -3633,7 +3689,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    kv = dbAddRDBLoad(db, key, &val, expiretime);
+                    kv = dbAddRDBLoad(db, key, &val, expiretime, extensions);
                     serverAssert(kv != NULL);
                 } else {
                     serverLog(LL_WARNING,
@@ -3641,6 +3697,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                     serverPanic("Duplicated key found in RDB file");
                 }
             }
+			extensions = NULL;
 
             /* If minExpiredField was set, then the object is hash with expiration
              * on fields and need to register it in global HFE DS */

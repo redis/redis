@@ -82,8 +82,11 @@
 
 /* Test if a type is an object type. */
 #define rdbIsObjectType(t) (((t) >= 0 && (t) <= 7) || ((t) >= 9 && (t) <= 25))
+/* KVOBJ extension opcodes */
+
 
 /* Special RDB opcodes (saved/loaded with rdbSaveType/rdbLoadType). */
+#define RDB_OPCODE_EXTENTIONS 243   /* extentions data for each code */ 
 #define RDB_OPCODE_SLOT_INFO  244   /* Individual slot info, such as slot id and size (cluster mode only). */
 #define RDB_OPCODE_FUNCTION2  245   /* function library data */
 #define RDB_OPCODE_FUNCTION_PRE_GA   246   /* old function library data for 7.0 rc1 and rc2 */

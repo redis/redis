@@ -404,7 +404,7 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
  *
  * If added to db, returns pointer to the object, Otherwise NULL is returned.
  */
-kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
+kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire, list *extensions) {
     /* Add new kvobj to the db. */
     int slot = getKeySlot(key);
 
@@ -415,8 +415,9 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
     if (link != NULL)
         return NULL;
 
-    /* prepare kvobj for insertion. Pass expire to reserve space for it */
-    kvobj *kv = kvobjSet(key, *valref, expire != -1);
+
+    /* prepare kvobj for insertion. size of extensions will be set based on bitsmap */
+    kvobj *kv = kvobjSetExtensionsFromList(key, *valref, extensions, expire != -1);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
@@ -2327,7 +2328,7 @@ kvobj *dbSetModuleMetadata(redisDb *db, robj *key, int index, void *metadata) {
     	return NULL;
     }
     kvobj *kv = dictGetKV(*keyLink);
-    kvobj *kvnew = kvobjSetModuleMetadata(kv, index, metadata);
+    kvobj *kvnew = kvobjSetExtension(kv, index, metadata);
     /* if kvobj was reallocated, update dict */
     if (kv != kvnew) {
     	kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);

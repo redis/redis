@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-
+#include "kvobj_extensions.h"
 
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleKey RedisModuleKey;
@@ -1334,27 +1334,14 @@ REDISMODULE_API int (*RedisModule_RdbLoad)(RedisModuleCtx *ctx, RedisModuleRdbSt
 REDISMODULE_API int (*RedisModule_RdbSave)(RedisModuleCtx *ctx, RedisModuleRdbStream *stream, int flags) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_GetInternalSecret)(RedisModuleCtx *ctx, size_t *len) REDISMODULE_ATTR;
 
-typedef struct {
-	void (*serializeMetadata)(void *metadata,
-							  RedisModuleRdbStream *stream, int flags);
-	void *(*deserializeMetadata)(RedisModuleRdbStream *stream, int flags);
+REDISMODULE_API  RedisMetadtaStatus
+(*RedisModule_RegisterMetadataMethods)(RedisModuleCtx *ctx,
+									   RedisMetadataMethods *metadata_methods) REDISMODULE_ATTR;
 
-	void (*freeMetadata)( void *metadata) ;
-	void *(*defragMetadata)(void *metadata);
-} RedisMetadataMethods;
-
-
-typedef enum {
-    METADATA_MODULE_OK = 0,
-	METADATA_NO_MORE_MODULES,
-	METADATA_MODULE_ALREADY_EXISTS
-} RedisMetadtaStatus;
-
-REDISMODULE_API  RedisMetadtaStatus (*RedisModule_RegisterMetadataMethods)(RedisModuleCtx *ctx, RedisMetadataMethods *metadata_methods) REDISMODULE_ATTR;
-
-REDISMODULE_API  void * (*RedisModule_GetModuleMetadata)(RedisModuleCtx *ctx,
-														 RedisModuleString *keyname) REDISMODULE_ATTR;
-REDISMODULE_API  void  (*RedisModule_SetModuleMetadata)(RedisModuleCtx *ctx,
+REDISMODULE_API  int (*RedisModule_GetModuleMetadata)(RedisModuleCtx *ctx,
+													  RedisModuleString *keyname,
+													  void **ret_val) REDISMODULE_ATTR;
+REDISMODULE_API  int  (*RedisModule_SetModuleMetadata)(RedisModuleCtx *ctx,
 														RedisModuleString *keyname,
 														void *newMetadata) REDISMODULE_ATTR;
 
