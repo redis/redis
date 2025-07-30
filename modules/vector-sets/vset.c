@@ -2048,10 +2048,9 @@ int VectorSets_CreateCommandWithAcls(RedisModuleCtx *ctx, char *name, RedisModul
     RedisModuleCommand *cmd = RedisModule_GetCommand(ctx, name);
     if (cmd == NULL)
         return REDISMODULE_ERR;
-    RedisModuleString *acl_categories =
-        acls && strlen(acls) > 0
-        ? RedisModule_CreateStringPrintf(ctx, "vectorset %s", acls)
-        : RedisModule_CreateString(ctx, "vectorset", 9);
+    RedisModuleString *acl_categories = (acls && strlen(acls) > 0) ?
+        RedisModule_CreateStringPrintf(ctx, "vectorset %s", acls) :
+        RedisModule_CreateString(ctx, "vectorset", 9);
     if (RedisModule_SetCommandACLCategories(cmd, RedisModule_StringPtrLen(acl_categories, NULL)) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
