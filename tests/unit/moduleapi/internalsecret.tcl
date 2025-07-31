@@ -1,7 +1,7 @@
 tags {modules external:skip} {
 set testmodule [file normalize tests/modules/internalsecret.so]
 
-set modules [list loadmodule $testmodule]
+set modules [list "loadmodule $testmodule"]
 start_cluster 1 0 [list config_lines $modules] {
     set r [srv 0 client]
 
