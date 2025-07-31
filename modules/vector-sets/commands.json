@@ -5,7 +5,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": -1,
-    "function": "vaddCommand",
     "arguments": [
       {
         "name": "key",
@@ -104,7 +103,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": -2,
-    "function": "vremCommand",
     "command_flags": [
       "WRITE"
     ],
@@ -126,7 +124,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": -3,
-    "function": "vsimCommand",
     "command_flags": [
       "READONLY"
     ],
@@ -216,7 +213,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": 2,
-    "function": "vdimCommand",
     "command_flags": [
       "READONLY",
       "FAST"
@@ -234,7 +230,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": 2,
-    "function": "vcardCommand",
     "command_flags": [
       "READONLY",
       "FAST"
@@ -252,7 +247,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": -3,
-    "function": "vembCommand",
     "command_flags": [
       "READONLY"
     ],
@@ -279,7 +273,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": -3,
-    "function": "vlinksCommand",
     "command_flags": [
       "READONLY"
     ],
@@ -306,7 +299,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": 2,
-    "function": "vinfoCommand",
     "command_flags": [
       "READONLY",
       "FAST"
@@ -324,7 +316,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": 4,
-    "function": "vsetattrCommand",
     "command_flags": [
       "WRITE"
     ],
@@ -349,7 +340,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": 3,
-    "function": "vgetattrCommand",
     "command_flags": [
       "READONLY"
     ],
@@ -370,7 +360,6 @@
     "group": "vector_set",
     "since": "8.0.0",
     "arity": -2,
-    "function": "vrandmemberCommand",
     "command_flags": [
       "READONLY"
     ],
