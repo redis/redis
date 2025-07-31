@@ -208,12 +208,14 @@ start_cluster 2 2 [list config_lines [list loadmodule $testmodule enable-debug-c
     
             for {set i 0} {$i < 50} {incr i} {
                 for {set j 0} {$j < 4} {incr j} {
-                    catch {$instance list.insert "list:$i" $j "item:$j"}
+                    catch {$instance list.insert "list:$i" $j "item:$j"} e
+                    if {![string match "OK" $e]} {assert_match "*MOVED*" $e}
                 }
             }
             for {set i 0} {$i < 50} {incr i} {
                 for {set j 0} {$j < 4} {incr j} {
-                    catch {$instance list.delete "list:$i" 0}
+                    catch {$instance list.delete "list:$i" 0} e
+                    if {![string match "OK" $e]} {assert_match "*MOVED*" $e}
                 }
             }
             # Verify also that instance is responsive and didn't crash on assert
