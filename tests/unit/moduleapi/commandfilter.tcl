@@ -164,7 +164,7 @@ test {Filtering based on client id} {
     }
 }
 
-start_server {} {
+start_server {tags {"external:skip"}} {
     test {OnLoad failure will handle un-registration} {
         catch {r module load $testmodule log-key 0 noload}
         r set mykey @log

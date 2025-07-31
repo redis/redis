@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/hooks.so]
 
 tags "modules external:skip" {
-    start_server [list overrides [list loadmodule "$testmodule" appendonly yes]] {
+    start_server [list overrides [list loadmodule "$testmodule" appendonly yes] tags {"external:skip"}] {
         test {Test module aof save on server start from empty} {
             assert {[r hooks.event_count persistence-syncaof-start] == 1}
         }
@@ -232,7 +232,7 @@ tags "modules external:skip" {
         set master [srv 0 client]
         set master_host [srv 0 host]
         set master_port [srv 0 port]
-        start_server {} {
+        start_server {tags {"external:skip"}} {
             r module load $testmodule
             set replica [srv 0 client]
             set replica_host [srv 0 host]
@@ -311,7 +311,7 @@ tags "modules external:skip" {
         }
     }
 
-    start_server {} {
+    start_server {tags {"external:skip"}} {
         test {OnLoad failure will handle un-registration} {
             catch {r module load $testmodule noload}
             r flushall
