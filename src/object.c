@@ -245,12 +245,9 @@ sds kvobjGetKey(const kvobj *kv) {
 }
 
 long long kvobjGetExpire(const kvobj *kv) {
-    unsigned char *data = (void *)(kv + 1);
-    if (kv->expirable) {
-        return *(long long *)data;
-    } else {
-        return -1;
-    }
+    if (!kv->expirable) return -1;
+    const long long *expire_ptr = (const long long *)(kv + 1);
+    return *expire_ptr;
 }
 
 /* This functions may reallocate the value. The new allocation is returned and
