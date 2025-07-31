@@ -5897,9 +5897,9 @@ int clusterNodeIsMaster(clusterNode *n) {
 }
 
 int handleDebugClusterCommand(client *c) {
-    if (strcasecmp(c->argv[1]->ptr, "CLUSTERLINK") ||
-        strcasecmp(c->argv[2]->ptr, "KILL") ||
-        c->argc != 5) {
+    if (c->argc != 5 ||
+        strcasecmp(c->argv[1]->ptr, "CLUSTERLINK") ||
+        strcasecmp(c->argv[2]->ptr, "KILL")) {
         return 0;
     }
 
