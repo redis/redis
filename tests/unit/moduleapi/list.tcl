@@ -193,13 +193,16 @@ start_server {tags {"modules"}} {
     }
 }
 
+# A basic test that exercises a module's list commands under cluster mode.
+# Currently, many module commands are never run even once in a clustered setup.
+# This test helps ensure that basic module functionality works correctly and that
+# the KEYSIZES histogram remains accurate and that insert & delete was tested.
 set testmodule [file normalize tests/modules/list.so]
 set modules [list loadmodule $testmodule]
 start_cluster 2 2 [list config_lines [list loadmodule $testmodule enable-debug-command yes]] {
     test "Module list - KEYSIZES is updated correctly in cluster mode" {
         for {set srvid -2} {$srvid <= 0} {incr srvid} {
             set instance [srv $srvid client]
-            puts "Instance port: [srv $srvid port]"
             # Assert consistency after each command
             $instance DEBUG KEYSIZES-HIST-ASSERT 1
     
