@@ -3482,7 +3482,7 @@ static standardConfig *getMutableConfig(client *c, const sds name, const char **
 }
 
 dictIterator *moduleGetConfigIterator(void) {
-    return dictGetIterator(configs);
+    return dictGetSafeIterator(configs);
 }
 
 const char *moduleConfigIteratorNext(dictIterator **iter, sds pattern, int is_glob, configType *typehint) {
