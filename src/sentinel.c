@@ -710,15 +710,15 @@ void sentinelEvent(int level, char *type, sentinelRedisInstance *ri,
  * generated when a master to monitor is added at runtime via the
  * SENTINEL MONITOR command. */
 void sentinelGenerateInitialMonitorEvents(void) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 
-    di = dictGetIterator(sentinel.masters);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, sentinel.masters);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         sentinelEvent(LL_WARNING,"+monitor",ri,"%@ quorum %d",ri->quorum);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* ============================ script execution ============================ */
@@ -1088,14 +1088,14 @@ instanceLink *releaseInstanceLink(instanceLink *link, sentinelRedisInstance *ri)
  * is returned. */
 int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
     serverAssert(ri->flags & SRI_SENTINEL);
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 
     if (ri->runid == NULL) return C_ERR; /* No way to identify it. */
     if (ri->link->refcount > 1) return C_ERR; /* Already shared. */
 
-    di = dictGetIterator(sentinel.masters);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, sentinel.masters);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *master = dictGetVal(de), *match;
         /* We want to share with the same physical Sentinel referenced
          * in other masters, so skip our master. */
@@ -1110,10 +1110,10 @@ int sentinelTryConnectionSharing(sentinelRedisInstance *ri) {
         releaseInstanceLink(ri->link,NULL);
         ri->link = match->link;
         match->link->refcount++;
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         return C_OK;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return C_ERR;
 }
 
@@ -1126,33 +1126,34 @@ void dropInstanceConnections(sentinelRedisInstance *ri) {
     instanceLinkCloseConnection(ri->link, ri->link->pc);
     
     /* Disconnect with all replicas. */
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     sentinelRedisInstance *repl_ri;
-    di = dictGetIterator(ri->slaves);
-    while ((de = dictNext(di)) != NULL) {
+
+    dictInitIterator(&di, ri->slaves);
+    while ((de = dictNext(&di)) != NULL) {
         repl_ri = dictGetVal(de);
         instanceLinkCloseConnection(repl_ri->link, repl_ri->link->cc);
         instanceLinkCloseConnection(repl_ri->link, repl_ri->link->pc);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* Drop all connections to other sentinels. Returns the number of connections
  * dropped.*/
 int sentinelDropConnections(void) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int dropped = 0;
 
-    di = dictGetIterator(sentinel.masters);
-    while ((de = dictNext(di)) != NULL) {
-        dictIterator *sdi;
+    dictInitIterator(&di, sentinel.masters);
+    while ((de = dictNext(&di)) != NULL) {
+        dictIterator sdi;
         dictEntry *sde;
 
         sentinelRedisInstance *ri = dictGetVal(de);
-        sdi = dictGetIterator(ri->sentinels);
-        while ((sde = dictNext(sdi)) != NULL) {
+        dictInitIterator(&sdi, ri->sentinels);
+        while ((sde = dictNext(&sdi)) != NULL) {
             sentinelRedisInstance *si = dictGetVal(sde);
             if (!si->link->disconnected) {
                 instanceLinkCloseConnection(si->link, si->link->pc);
@@ -1160,9 +1161,9 @@ int sentinelDropConnections(void) {
                 dropped++;
             }
         }
-        dictReleaseIterator(sdi);
+        dictResetIterator(&sdi);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return dropped;
 }
@@ -1175,12 +1176,12 @@ int sentinelDropConnections(void) {
  * Return the number of updated Sentinel addresses. */
 int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
     serverAssert(ri->flags & SRI_SENTINEL);
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int reconfigured = 0;
 
-    di = dictGetIterator(sentinel.masters);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, sentinel.masters);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *master = dictGetVal(de), *match;
         match = getSentinelRedisInstanceByAddrAndRunID(master->sentinels,
                                                        NULL,0,ri->runid);
@@ -1202,7 +1203,7 @@ int sentinelUpdateSentinelAddressInAllMasters(sentinelRedisInstance *ri) {
         match->addr = dupSentinelAddr(ri->addr);
         reconfigured++;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     if (reconfigured)
         sentinelEvent(LL_NOTICE,"+sentinel-address-update", ri,
                     "%@ %d additional matching instances", reconfigured);
@@ -1432,14 +1433,14 @@ const char *sentinelRedisInstanceTypeStr(sentinelRedisInstance *ri) {
  * The function returns 1 if the matching Sentinel was removed, otherwise
  * 0 if there was no Sentinel with this ID. */
 int removeMatchingSentinelFromMaster(sentinelRedisInstance *master, char *runid) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int removed = 0;
 
     if (runid == NULL) return 0;
 
-    di = dictGetSafeIterator(master->sentinels);
-    while((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, master->sentinels);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         if (ri->runid && strcmp(ri->runid,runid) == 0) {
@@ -1447,7 +1448,7 @@ int removeMatchingSentinelFromMaster(sentinelRedisInstance *master, char *runid)
             removed++;
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return removed;
 }
 
@@ -1458,7 +1459,7 @@ int removeMatchingSentinelFromMaster(sentinelRedisInstance *master, char *runid)
  * runid or addr can be NULL. In such a case the search is performed only
  * by the non-NULL field. */
 sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, char *addr, int port, char *runid) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     sentinelRedisInstance *instance = NULL;
     sentinelAddr *ri_addr = NULL;
@@ -1471,8 +1472,8 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
         ri_addr = createSentinelAddr(addr,port,1);
         if (!ri_addr) return NULL;
     }
-    di = dictGetIterator(instances);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, instances);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         if (runid && !ri->runid) continue;
@@ -1483,7 +1484,7 @@ sentinelRedisInstance *getSentinelRedisInstanceByAddrAndRunID(dict *instances, c
             break;
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     if (ri_addr != NULL)
         releaseSentinelAddr(ri_addr);
 
@@ -1548,12 +1549,12 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
 /* Call sentinelResetMaster() on every master with a name matching the specified
  * pattern. */
 int sentinelResetMastersByPattern(char *pattern, int flags) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int reset = 0;
 
-    di = dictGetIterator(sentinel.masters);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, sentinel.masters);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         if (ri->name) {
@@ -1563,7 +1564,7 @@ int sentinelResetMastersByPattern(char *pattern, int flags) {
             }
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return reset;
 }
 
@@ -1578,7 +1579,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     sentinelAddr *oldaddr, *newaddr;
     sentinelAddr **slaves = NULL;
     int numslaves = 0, j;
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 
     newaddr = createSentinelAddr(hostname,port,0);
@@ -1590,14 +1591,14 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     slaves = zmalloc(sizeof(sentinelAddr*)*(dictSize(master->slaves) + 1));
     
     /* Don't include the one having the address we are switching to. */
-    di = dictGetIterator(master->slaves);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, master->slaves);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
 
         if (sentinelAddrOrHostnameEqual(slave->addr,newaddr)) continue;
         slaves[numslaves++] = dupSentinelAddr(slave->addr);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* If we are switching to a different address, include the old address
      * as a slave as well, so that we'll be able to sense / reconfigure
@@ -1663,18 +1664,18 @@ sentinelAddr *sentinelGetCurrentMasterAddress(sentinelRedisInstance *master) {
 /* This function sets the down_after_period field value in 'master' to all
  * the slaves and sentinel instances connected to this master. */
 void sentinelPropagateDownAfterPeriod(sentinelRedisInstance *master) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int j;
     dict *d[] = {master->slaves, master->sentinels, NULL};
 
     for (j = 0; d[j]; j++) {
-        di = dictGetIterator(d[j]);
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, d[j]);
+        while((de = dictNext(&di)) != NULL) {
             sentinelRedisInstance *ri = dictGetVal(de);
             ri->down_after_period = master->down_after_period;
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
 }
 
@@ -2009,7 +2010,7 @@ const char *sentinelHandleConfiguration(char **argv, int argc) {
  * Sentinel across restarts: config epoch of masters, associated slaves
  * and sentinel instances, and so forth. */
 void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
-    dictIterator *di, *di2;
+    dictIterator di, di2;
     dictEntry *de;
     sds line;
 
@@ -2039,8 +2040,8 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
                              sentinel.announce_hostnames != SENTINEL_DEFAULT_ANNOUNCE_HOSTNAMES);
 
     /* For every master emit a "sentinel monitor" config entry. */
-    di = dictGetIterator(sentinel.masters);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, sentinel.masters);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *master, *ri;
         sentinelAddr *master_addr;
 
@@ -2141,8 +2142,8 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         /* rewriteConfigMarkAsProcessed is handled after the loop */
 
         /* sentinel known-slave */
-        di2 = dictGetIterator(master->slaves);
-        while((de = dictNext(di2)) != NULL) {
+        dictInitIterator(&di2, master->slaves);
+        while((de = dictNext(&di2)) != NULL) {
             sentinelAddr *slave_addr;
 
             ri = dictGetVal(de);
@@ -2166,11 +2167,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             }
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
-        dictReleaseIterator(di2);
+        dictResetIterator(&di2);
 
         /* sentinel known-sentinel */
-        di2 = dictGetIterator(master->sentinels);
-        while((de = dictNext(di2)) != NULL) {
+        dictInitIterator(&di2, master->sentinels);
+        while((de = dictNext(&di2)) != NULL) {
             ri = dictGetVal(de);
             if (ri->runid == NULL) continue;
             line = sdscatprintf(sdsempty(),
@@ -2179,11 +2180,11 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             rewriteConfigRewriteLine(state,"sentinel known-sentinel",line,1);
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
-        dictReleaseIterator(di2);
+        dictResetIterator(&di2);
 
         /* sentinel rename-command */
-        di2 = dictGetIterator(master->renamed_commands);
-        while((de = dictNext(di2)) != NULL) {
+        dictInitIterator(&di2, master->renamed_commands);
+        while((de = dictNext(&di2)) != NULL) {
             sds oldname = dictGetKey(de);
             sds newname = dictGetVal(de);
             line = sdscatprintf(sdsempty(),
@@ -2192,7 +2193,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
             rewriteConfigRewriteLine(state,"sentinel rename-command",line,1);
             /* rewriteConfigMarkAsProcessed is handled after the loop */
         }
-        dictReleaseIterator(di2);
+        dictResetIterator(&di2);
     }
 
     /* sentinel current-epoch is a global state valid for all the masters. */
@@ -2234,7 +2235,7 @@ void rewriteConfigSentinelOption(struct rewriteConfigState *state) {
         rewriteConfigMarkAsProcessed(state,"sentinel sentinel-pass");  
     }
 
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* NOTE: the purpose here is in case due to the state change, the config rewrite 
      does not handle the configs, however, previously the config was set in the config file, 
@@ -2880,18 +2881,18 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
                     /* If there is already other sentinel with same address (but
                      * different runid) then remove the old one across all masters */
                     sentinelEvent(LL_NOTICE,"+sentinel-invalid-addr",other,"%@");
-                    dictIterator *di;
+                    dictIterator di;
                     dictEntry *de;
 
                     /* Keep a copy of runid. 'other' about to be deleted in loop. */
                     sds runid_obsolete = sdsnew(other->runid);
 
-                    di = dictGetIterator(sentinel.masters);
-                    while((de = dictNext(di)) != NULL) {
+                    dictInitIterator(&di, sentinel.masters);
+                    while((de = dictNext(&di)) != NULL) {
                         sentinelRedisInstance *master = dictGetVal(de);
                         removeMatchingSentinelFromMaster(master, runid_obsolete);
                     }
-                    dictReleaseIterator(di);
+                    dictResetIterator(&di);
                     sdsfree(runid_obsolete);
                 }
             }
@@ -3041,16 +3042,16 @@ int sentinelSendHello(sentinelRedisInstance *ri) {
 /* Reset last_pub_time in all the instances in the specified dictionary
  * in order to force the delivery of a Hello update ASAP. */
 void sentinelForceHelloUpdateDictOfRedisInstances(dict *instances) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 
-    di = dictGetSafeIterator(instances);
-    while((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, instances);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         if (ri->last_pub_time >= (sentinel_publish_period+1))
             ri->last_pub_time -= (sentinel_publish_period+1);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* This function forces the delivery of a "Hello" message (see
@@ -3785,13 +3786,13 @@ void addReplySentinelDebugInfo(client *c) {
 /* Output a number of instances contained inside a dictionary as
  * Redis protocol. */
 void addReplyDictOfRedisInstances(client *c, dict *instances) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     long slaves = 0;
     void *replylen = addReplyDeferredLen(c);
 
-    di = dictGetIterator(instances);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, instances);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         /* don't announce unannounced replicas */
@@ -3799,7 +3800,7 @@ void addReplyDictOfRedisInstances(client *c, dict *instances) {
         addReplySentinelRedisInstance(c,ri);
         slaves++;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     setDeferredArrayLen(c, replylen, slaves);
 }
 
@@ -3823,20 +3824,20 @@ sentinelRedisInstance *sentinelGetMasterByNameOrReplyError(client *c,
 #define SENTINEL_ISQR_NOQUORUM (1<<0)
 #define SENTINEL_ISQR_NOAUTH (1<<1)
 int sentinelIsQuorumReachable(sentinelRedisInstance *master, int *usableptr) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int usable = 1; /* Number of usable Sentinels. Init to 1 to count myself. */
     int result = SENTINEL_ISQR_OK;
     int voters = dictSize(master->sentinels)+1; /* Known Sentinels + myself. */
 
-    di = dictGetIterator(master->sentinels);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, master->sentinels);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         if (ri->flags & (SRI_S_DOWN|SRI_O_DOWN)) continue;
         usable++;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     if (usable < (int)master->quorum) result |= SENTINEL_ISQR_NOQUORUM;
     if (usable < voters/2+1) result |= SENTINEL_ISQR_NOAUTH;
@@ -4147,10 +4148,11 @@ NULL
          */
         addReplyArrayLen(c,dictSize(masters_local) * 2);
 
-        dictIterator  *di;
+        dictIterator  di;
         dictEntry *de;
-        di = dictGetIterator(masters_local);
-        while ((de = dictNext(di)) != NULL) {
+
+        dictInitIterator(&di, masters_local);
+        while ((de = dictNext(&di)) != NULL) {
             sentinelRedisInstance *ri = dictGetVal(de);
             addReplyBulkCBuffer(c,ri->name,strlen(ri->name));
             addReplyArrayLen(c,dictSize(ri->slaves) + 1); /* +1 for self */
@@ -4162,10 +4164,11 @@ NULL
             else
                 addReplyNull(c);
 
-            dictIterator *sdi;
+            dictIterator sdi;
             dictEntry *sde;
-            sdi = dictGetIterator(ri->slaves);
-            while ((sde = dictNext(sdi)) != NULL) {
+
+            dictInitIterator(&sdi, ri->slaves);
+            while ((sde = dictNext(&sdi)) != NULL) {
                 sentinelRedisInstance *sri = dictGetVal(sde);
                 addReplyArrayLen(c,2);
                 addReplyLongLong(c,
@@ -4175,9 +4178,9 @@ NULL
                 else
                     addReplyNull(c);
             }
-            dictReleaseIterator(sdi);
+            dictResetIterator(&sdi);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         if (masters_local != sentinel.masters) dictRelease(masters_local);
     } else if (!strcasecmp(c->argv[1]->ptr,"simulate-failure")) {
         /* SENTINEL SIMULATE-FAILURE [CRASH-AFTER-ELECTION] [CRASH-AFTER-PROMOTION] [HELP] */
@@ -4235,8 +4238,10 @@ void sentinelInfoCommand(client *c) {
 
     /* Purge unsupported sections from the requested ones. */
     dictEntry *de;
-    dictIterator *di = dictGetSafeIterator(sections_dict);
-    while((de = dictNext(di)) != NULL) {
+    dictIterator di;
+
+    dictInitSafeIterator(&di, sections_dict);
+    while((de = dictNext(&di)) != NULL) {
         int i;
         sds sec = dictGetKey(de);
         for (i=0; sentinel_sections[i]; i++)
@@ -4246,7 +4251,7 @@ void sentinelInfoCommand(client *c) {
         if (!sentinel_sections[i])
             dictDelete(sections_dict, sec);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* Insert explicit all sections (don't pass these vars to genRedisInfoString) */
     if (sec_all || sec_everything) {
@@ -4261,7 +4266,7 @@ void sentinelInfoCommand(client *c) {
 
     sds info = genRedisInfoString(sections_dict, 0, 0);
     if (sec_all || (dictFind(sections_dict, "sentinel") != NULL)) {
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de;
         int master_id = 0;
 
@@ -4284,8 +4289,8 @@ void sentinelInfoCommand(client *c) {
             listLength(sentinel.scripts_queue),
             sentinel.simfailure_flags);
 
-        di = dictGetIterator(sentinel.masters);
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, sentinel.masters);
+        while((de = dictNext(&di)) != NULL) {
             sentinelRedisInstance *ri = dictGetVal(de);
             char *status = "ok";
 
@@ -4299,7 +4304,7 @@ void sentinelInfoCommand(client *c) {
                 dictSize(ri->slaves),
                 dictSize(ri->sentinels)+1);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     if (sections_dict != cached_all_info_sections)
         releaseInfoSectionDict(sections_dict);
@@ -4309,20 +4314,20 @@ void sentinelInfoCommand(client *c) {
 /* Implements Sentinel version of the ROLE command. The output is
  * "sentinel" and the list of currently monitored master names. */
 void sentinelRoleCommand(client *c) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 
     addReplyArrayLen(c,2);
     addReplyBulkCBuffer(c,"sentinel",8);
     addReplyArrayLen(c,dictSize(sentinel.masters));
 
-    di = dictGetIterator(sentinel.masters);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, sentinel.masters);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         addReplyBulkCString(c,ri->name);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* SENTINEL SET <mastername> [<option> <value> ...] */
@@ -4593,7 +4598,7 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
  * However messages can be delayed so there are no strong guarantees about
  * N instances agreeing at the same time about the down state. */
 void sentinelCheckObjectivelyDown(sentinelRedisInstance *master) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     unsigned int quorum = 0, odown = 0;
 
@@ -4601,13 +4606,13 @@ void sentinelCheckObjectivelyDown(sentinelRedisInstance *master) {
         /* Is down for enough sentinels? */
         quorum = 1; /* the current sentinel. */
         /* Count all the other sentinels. */
-        di = dictGetIterator(master->sentinels);
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, master->sentinels);
+        while((de = dictNext(&di)) != NULL) {
             sentinelRedisInstance *ri = dictGetVal(de);
 
             if (ri->flags & SRI_MASTER_DOWN) quorum++;
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         if (quorum >= master->quorum) odown = 1;
     }
 
@@ -4673,11 +4678,11 @@ void sentinelReceiveIsMasterDownReply(redisAsyncContext *c, void *reply, void *p
  * needed to mark the master in ODOWN state and trigger a failover. */
 #define SENTINEL_ASK_FORCED (1<<0)
 void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int flags) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 
-    di = dictGetIterator(master->sentinels);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, master->sentinels);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         mstime_t elapsed = mstime() - ri->last_master_down_reply_time;
         char port[32];
@@ -4713,7 +4718,7 @@ void sentinelAskMasterStateToOtherSentinels(sentinelRedisInstance *master, int f
                     sentinel.myid : "*");
         if (retval == C_OK) ri->link->pending_commands++;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* =============================== FAILOVER ================================= */
@@ -4788,7 +4793,7 @@ int sentinelLeaderIncr(dict *counters, char *runid) {
  * reported the same instance as leader for the same epoch. */
 char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     dict *counters;
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     unsigned int voters = 0, voters_quorum;
     char *myvote;
@@ -4802,19 +4807,19 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
     voters = dictSize(master->sentinels)+1; /* All the other sentinels and me.*/
 
     /* Count other sentinels votes */
-    di = dictGetIterator(master->sentinels);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, master->sentinels);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
         if (ri->leader != NULL && ri->leader_epoch == sentinel.current_epoch)
             sentinelLeaderIncr(counters,ri->leader);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* Check what's the winner. For the winner to win, it needs two conditions:
      * 1) Absolute majority between voters (50% + 1).
      * 2) And anyway at least master->quorum votes. */
-    di = dictGetIterator(counters);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, counters);
+    while((de = dictNext(&di)) != NULL) {
         uint64_t votes = dictGetUnsignedIntegerVal(de);
 
         if (votes > max_votes) {
@@ -4822,7 +4827,7 @@ char *sentinelGetLeader(sentinelRedisInstance *master, uint64_t epoch) {
             winner = dictGetKey(de);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* Count this Sentinel vote:
      * if this Sentinel did not voted yet, either vote for the most
@@ -5048,7 +5053,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         zmalloc(sizeof(instance[0])*dictSize(master->slaves));
     sentinelRedisInstance *selected = NULL;
     int instances = 0;
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     mstime_t max_master_down_time = 0;
 
@@ -5056,9 +5061,9 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         max_master_down_time += mstime() - master->s_down_since_time;
     max_master_down_time += master->down_after_period * 10;
 
-    di = dictGetIterator(master->slaves);
+    dictInitIterator(&di, master->slaves);
 
-    while((de = dictNext(di)) != NULL) {
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
         mstime_t info_validity_time;
 
@@ -5078,7 +5083,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         if (slave->master_link_down_time > max_master_down_time) continue;
         instance[instances++] = slave;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     if (instances) {
         qsort(instance,instances,sizeof(sentinelRedisInstance*),
             compareSlavesForPromotion);
@@ -5180,7 +5185,7 @@ void sentinelFailoverWaitPromotion(sentinelRedisInstance *ri) {
 
 void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
     int not_reconfigured = 0, timeout = 0;
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     mstime_t elapsed = mstime() - master->failover_state_change_time;
 
@@ -5191,15 +5196,15 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
 
     /* The failover terminates once all the reachable slaves are properly
      * configured. */
-    di = dictGetIterator(master->slaves);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, master->slaves);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
 
         if (slave->flags & (SRI_PROMOTED|SRI_RECONF_DONE)) continue;
         if (slave->flags & SRI_S_DOWN) continue;
         not_reconfigured++;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* Force end of failover on timeout. */
     if (elapsed > master->failover_timeout) {
@@ -5218,11 +5223,11 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
      * command to all the slaves still not reconfigured to replicate with
      * the new master. */
     if (timeout) {
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de;
 
-        di = dictGetIterator(master->slaves);
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, master->slaves);
+        while((de = dictNext(&di)) != NULL) {
             sentinelRedisInstance *slave = dictGetVal(de);
             int retval;
 
@@ -5235,29 +5240,29 @@ void sentinelFailoverDetectEnd(sentinelRedisInstance *master) {
                 slave->flags |= SRI_RECONF_SENT;
             }
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
 }
 
 /* Send SLAVE OF <new master address> to all the remaining slaves that
  * still don't appear to have the configuration updated. */
 void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int in_progress = 0;
 
-    di = dictGetIterator(master->slaves);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, master->slaves);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *slave = dictGetVal(de);
 
         if (slave->flags & (SRI_RECONF_SENT|SRI_RECONF_INPROG))
             in_progress++;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
-    di = dictGetIterator(master->slaves);
+    dictInitIterator(&di, master->slaves);
     while(in_progress < master->parallel_syncs &&
-          (de = dictNext(di)) != NULL)
+          (de = dictNext(&di)) != NULL)
     {
         sentinelRedisInstance *slave = dictGetVal(de);
         int retval;
@@ -5292,7 +5297,7 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
             in_progress++;
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* Check if all the slaves are reconfigured and handle timeout. */
     sentinelFailoverDetectEnd(master);
@@ -5397,13 +5402,13 @@ void sentinelHandleRedisInstance(sentinelRedisInstance *ri) {
 /* Perform scheduled operations for all the instances in the dictionary.
  * Recursively call the function against dictionaries of slaves. */
 void sentinelHandleDictOfRedisInstances(dict *instances) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     sentinelRedisInstance *switch_to_promoted = NULL;
 
     /* There are a number of things we need to perform against every master. */
-    di = dictGetIterator(instances);
-    while((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, instances);
+    while((de = dictNext(&di)) != NULL) {
         sentinelRedisInstance *ri = dictGetVal(de);
 
         sentinelHandleRedisInstance(ri);
@@ -5417,7 +5422,7 @@ void sentinelHandleDictOfRedisInstances(dict *instances) {
     }
     if (switch_to_promoted)
         sentinelFailoverSwitchToPromotedSlave(switch_to_promoted);
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* This function checks if we need to enter the TILT mode.

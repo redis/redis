@@ -221,9 +221,10 @@ proc is_alive pid {
 }
 
 proc stop_instance pid {
-    catch {exec kill $pid}
     # Node might have been stopped in the test
+    # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
     catch {exec kill -SIGCONT $pid}
+    catch {exec kill $pid}
     if {$::valgrind} {
         set max_wait 120000
     } else {

@@ -214,6 +214,24 @@ void unblockClient(client *c, int queue_for_reprocessing) {
     if (queue_for_reprocessing) queueClientForReprocessing(c);
 }
 
+/* Check if the specified client can be safely timed out using
+ * unblockClientOnTimeout(). */
+int blockedClientMayTimeout(client *c) {
+    if (c->bstate.btype == BLOCKED_MODULE) {
+        return moduleBlockedClientMayTimeout(c);
+    }
+
+    if (c->bstate.btype == BLOCKED_LIST ||
+        c->bstate.btype == BLOCKED_ZSET ||
+        c->bstate.btype == BLOCKED_STREAM ||
+        c->bstate.btype == BLOCKED_WAIT ||
+        c->bstate.btype == BLOCKED_WAITAOF)
+    {
+        return 1;
+    }
+    return 0;
+}
+
 /* This function gets called when a blocked client timed out in order to
  * send it a reply of some kind. After this function is called,
  * unblockClient() will be called with the same client as argument. */
@@ -371,7 +389,7 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
     list *l;
     int j;
 
-    if (!(c->flags & CLIENT_REPROCESSING_COMMAND)) {
+    if (!(c->flags & CLIENT_REEXECUTING_COMMAND)) {
         /* If the client is re-processing the command, we do not set the timeout
          * because we need to retain the client's original timeout. */
         c->bstate.timeout = timeout;
@@ -423,17 +441,17 @@ void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeo
  * Internal function for unblockClient() */
 static void unblockClientWaitingData(client *c) {
     dictEntry *de;
-    dictIterator *di;
+    dictIterator di;
 
     if (dictSize(c->bstate.keys) == 0)
         return;
 
-    di = dictGetIterator(c->bstate.keys);
+    dictInitIterator(&di, c->bstate.keys);
     /* The client may wait for multiple keys, so unblock it for every key. */
-    while((de = dictNext(di)) != NULL) {
+    while((de = dictNext(&di)) != NULL) {
         releaseBlockedEntry(c, de, 0);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     dictEmpty(c->bstate.keys, NULL);
 }
 
@@ -657,6 +675,7 @@ static void unblockClientOnKey(client *c, robj *key) {
      * we need to re process the command again */
     if (c->flags & CLIENT_PENDING_COMMAND) {
         c->flags &= ~CLIENT_PENDING_COMMAND;
+        c->flags |= CLIENT_REEXECUTING_COMMAND;
         /* We want the command processing and the unblock handler (see RM_Call 'K' option)
          * to run atomically, this is why we must enter the execution unit here before
          * running the command, and exit the execution unit after calling the unblock handler (if exists).
@@ -675,6 +694,8 @@ static void unblockClientOnKey(client *c, robj *key) {
         }
         exitExecutionUnit();
         afterCommand(c);
+        /* Clear the CLIENT_REEXECUTING_COMMAND flag after the proc is executed. */
+        c->flags &= ~CLIENT_REEXECUTING_COMMAND;
         server.current_client = old_client;
     }
 }

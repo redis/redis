@@ -598,6 +598,21 @@ start_server {tags {"expire"}} {
         r ttl foo
     } {-1}
 
+    test {SET command will remove expire with large string (optimization path)} {
+        # This test specifically targets the dbSetValue optimization path
+        # that was missing TTL handling for large strings
+        set large_value [string repeat "A" 1000]
+        r set foo $large_value EX 100
+        r set foo $large_value KEEPTTL
+        set ttl1 [r ttl foo]
+        assert {$ttl1 <= 100 && $ttl1 > 90}
+
+        # Plain SET should remove TTL even with large strings
+        r set foo $large_value
+        set ttl2 [r ttl foo]
+        assert_equal $ttl2 -1
+    }
+
     test {SET - use KEEPTTL option, TTL should not be removed} {
         r set foo bar EX 100
         r set foo bar KEEPTTL

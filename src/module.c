@@ -4743,7 +4743,7 @@ int RM_ListDelete(RedisModuleKey *key, long index) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeDelete(key->iter, &key->u.list.entry);
         int64_t l = (int64_t) listTypeLength(key->kv);
-        updateKeysizesHist(key->db, getKeySlot(key->kv->ptr), OBJ_LIST, l+1, l);
+        updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l+1, l);
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
         listTypeTryConversion(key->kv, LIST_CONV_SHRINKING, moduleFreeListIterator, key);
         if (!key->iter) return REDISMODULE_OK; /* Return ASAP if iterator has been freed */
@@ -4872,7 +4872,7 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
     }
     if (out_flags & ZADD_OUT_ADDED) {
         int64_t l = (int64_t) zsetLength(key->kv);
-        updateKeysizesHist(key->db, getKeySlot(key->kv->ptr), OBJ_ZSET, l-1, l);
+        updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l-1, l);
     }
     if (flagsptr) *flagsptr = moduleZsetAddFlagsFromCoreFlags(out_flags);
     return REDISMODULE_OK;
@@ -4902,7 +4902,7 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
     if (key->kv != NULL && zsetDel(key->kv,ele->ptr)) {
         if (deleted) *deleted = 1;
         int64_t l = (int64_t) zsetLength(key->kv);
-        updateKeysizesHist(key->db, getKeySlot(key->kv->ptr), OBJ_ZSET, l+1, l);
+        updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l+1, l);
         moduleDelKeyIfEmpty(key);
     } else {
         if (deleted) *deleted = 0;
@@ -6806,10 +6806,11 @@ uint64_t moduleTypeEncodeId(const char *name, int encver) {
  * a type with the same name as the one given. Returns the moduleType
  * structure pointer if such a module is found, or NULL otherwise. */
 moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_case) {
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         listIter li;
         listNode *ln;
@@ -6820,12 +6821,12 @@ moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_ca
             if ((!ignore_case && memcmp(name,mt->name,sizeof(mt->name)) == 0)
                 || (ignore_case && !strcasecmp(name, mt->name)))
             {
-                dictReleaseIterator(di);
+                dictResetIterator(&di);
                 return mt;
             }
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return NULL;
 }
 /* Search all registered modules by name, and name is case sensitive */
@@ -6856,10 +6857,11 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
 
     /* Slow module by module lookup. */
     moduleType *mt = NULL;
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL && mt == NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL && mt == NULL) {
         struct RedisModule *module = dictGetVal(de);
         listIter li;
         listNode *ln;
@@ -6875,7 +6877,7 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
             }
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     /* Add to cache if possible. */
     if (mt && j < MODULE_LOOKUP_CACHE_SIZE) {
@@ -7202,19 +7204,20 @@ void moduleRDBLoadError(RedisModuleIO *io) {
  * REDISMODULE_OPTIONS_HANDLE_IO_ERRORS, in which case diskless loading should
  * be avoided since it could cause data loss. */
 int moduleAllDatatypesHandleErrors(void) {
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         if (listLength(module->types) &&
             !(module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS))
         {
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
             return 0;
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return 1;
 }
 
@@ -7222,17 +7225,18 @@ int moduleAllDatatypesHandleErrors(void) {
  * diskless async loading should be avoided because module doesn't know there can be traffic during
  * database full resynchronization. */
 int moduleAllModulesHandleReplAsyncLoad(void) {
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         if (!(module->options & REDISMODULE_OPTIONS_HANDLE_REPL_ASYNC_LOAD)) {
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
             return 0;
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return 1;
 }
 
@@ -7489,10 +7493,11 @@ long double RM_LoadLongDouble(RedisModuleIO *io) {
  * who asked for it. */
 ssize_t rdbSaveModulesAux(rio *rdb, int when) {
     size_t total_written = 0;
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         listIter li;
         listNode *ln;
@@ -7504,14 +7509,14 @@ ssize_t rdbSaveModulesAux(rio *rdb, int when) {
                 continue;
             ssize_t ret = rdbSaveSingleModuleAux(rdb, when, mt);
             if (ret==-1) {
-                dictReleaseIterator(di);
+                dictResetIterator(&di);
                 return -1;
             }
             total_written += ret;
         }
     }
 
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return total_written;
 }
 
@@ -8859,6 +8864,38 @@ int RM_SubscribeToKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNoti
 
     listAddNodeTail(moduleKeyspaceSubscribers, sub);
     return REDISMODULE_OK;
+}
+
+/*
+ * RM_UnsubscribeFromKeyspaceEvents - Unregister a module's callback from keyspace notifications for specific event types.
+ *
+ * This function removes a previously registered subscription identified by both the event mask and the callback function.
+ * It is useful to reduce performance overhead when the module no longer requires notifications for certain events.
+ *
+ * Parameters:
+ *  - ctx: The RedisModuleCtx associated with the calling module.
+ *  - types: The event mask representing the keyspace notification types to unsubscribe from.
+ *  - callback: The callback function pointer that was originally registered for these events.
+ *
+ * Returns:
+ *  - REDISMODULE_OK on successful removal of the subscription.
+ *  - REDISMODULE_ERR if no matching subscription was found or if invalid parameters were provided.
+ */
+int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModuleNotificationFunc callback) {
+    if (!ctx || !callback) return REDISMODULE_ERR;
+    int removed = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(moduleKeyspaceSubscribers,&li);
+    while ((ln = listNext(&li))) {
+        RedisModuleKeyspaceSubscriber *sub = ln->value;
+        if (sub->event_mask == types && sub->notify_callback == callback && sub->module == ctx->module) {
+            zfree(sub);
+            listDelNode(moduleKeyspaceSubscribers, ln);
+            removed++;
+        }
+    }
+    return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
 void firePostExecutionUnitJobs(void) {
@@ -10582,10 +10619,11 @@ int RM_RegisterInfoFunc(RedisModuleCtx *ctx, RedisModuleInfoFunc cb) {
 }
 
 sds modulesCollectInfo(sds info, dict *sections_dict, int for_crash_report, int sections) {
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         if (!module->info_cb)
             continue;
@@ -10597,7 +10635,7 @@ sds modulesCollectInfo(sds info, dict *sections_dict, int for_crash_report, int 
         info = info_ctx.info;
         sections = info_ctx.sections;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return info;
 }
 
@@ -10821,9 +10859,10 @@ void *RM_GetSharedAPI(RedisModuleCtx *ctx, const char *apiname) {
  * The number of unregistered APIs is returned. */
 int moduleUnregisterSharedAPI(RedisModule *module) {
     int count = 0;
-    dictIterator *di = dictGetSafeIterator(server.sharedapi);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, server.sharedapi);
+    while ((de = dictNext(&di)) != NULL) {
         const char *apiname = dictGetKey(de);
         RedisModuleSharedAPI *sapi = dictGetVal(de);
         if (sapi->module == module) {
@@ -10832,7 +10871,7 @@ int moduleUnregisterSharedAPI(RedisModule *module) {
             count++;
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return count;
 }
 
@@ -12324,12 +12363,14 @@ void moduleLoadFromQueue(void) {
         listDelNode(server.loadmodule_queue, ln);
     }
     if (dictSize(server.module_configs_queue)) {
-        serverLog(LL_WARNING, "Unresolved Configuration(s) Detected:");        
-        dictIterator *di = dictGetIterator(server.module_configs_queue);
+        serverLog(LL_WARNING, "Unresolved Configuration(s) Detected:");
+        dictIterator di;
         dictEntry *de;
-        while ((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, server.module_configs_queue);
+        while ((de = dictNext(&di)) != NULL) {
             serverLog(LL_WARNING, ">>> '%s %s'", (char *)dictGetKey(de), (char *)dictGetVal(de));
         }
+        dictResetIterator(&di);
         serverLog(LL_WARNING, "Module Configuration detected without loadmodule directive or no ApplyConfig call: aborting");
         exit(1);
     }
@@ -12405,8 +12446,9 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
 
     if (cmd->subcommands_dict) {
         dictEntry *de;
-        dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
-        while ((de = dictNext(di)) != NULL) {
+        dictIterator di;
+        dictInitSafeIterator(&di, cmd->subcommands_dict);
+        while ((de = dictNext(&di)) != NULL) {
             struct redisCommand *sub = dictGetVal(de);
             if (moduleFreeCommand(module, sub) != C_OK) continue;
 
@@ -12415,7 +12457,7 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
             sdsfree(sub->fullname);
             zfree(sub);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         dictRelease(cmd->subcommands_dict);
     }
 
@@ -12425,9 +12467,10 @@ int moduleFreeCommand(struct RedisModule *module, struct redisCommand *cmd) {
 void moduleUnregisterCommands(struct RedisModule *module) {
     pauseAllIOThreads();
     /* Unregister all the commands registered by this module. */
-    dictIterator *di = dictGetSafeIterator(server.commands);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, server.commands);
+    while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (moduleFreeCommand(module, cmd) != C_OK) continue;
 
@@ -12437,7 +12480,7 @@ void moduleUnregisterCommands(struct RedisModule *module) {
         sdsfree(cmd->fullname);
         zfree(cmd);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     resumeAllIOThreads();
 }
 
@@ -12689,10 +12732,11 @@ void addReplyLoadedModules(client *c) {
     if (ln == 0) {
         return;
     }
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         sds name = dictGetKey(de);
         struct RedisModule *module = dictGetVal(de);
         sds path = module->loadmod->path;
@@ -12709,7 +12753,7 @@ void addReplyLoadedModules(client *c) {
             addReplyBulk(c,module->loadmod->argv[i]);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* Helper for genModulesInfoString(): given a list of modules, return
@@ -12750,10 +12794,11 @@ sds genModulesInfoStringRenderModuleOptions(struct RedisModule *module) {
  * After the call, the passed sds info string is no longer valid and all the
  * references must be substituted with the new pointer returned by the call. */
 sds genModulesInfoString(sds info) {
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         sds name = dictGetKey(de);
         struct RedisModule *module = dictGetVal(de);
 
@@ -12769,7 +12814,7 @@ sds genModulesInfoString(sds info) {
         sdsfree(using);
         sdsfree(options);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     return info;
 }
 
@@ -14717,6 +14762,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(NotifyKeyspaceEvent);
     REGISTER_API(GetNotifyKeyspaceEvents);
     REGISTER_API(SubscribeToKeyspaceEvents);
+    REGISTER_API(UnsubscribeFromKeyspaceEvents);
     REGISTER_API(AddPostNotificationJob);
     REGISTER_API(RegisterClusterMessageReceiver);
     REGISTER_API(SendClusterMessage);

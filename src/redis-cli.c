@@ -453,7 +453,11 @@ static void cliLegacyIntegrateHelp(void) {
     if (cliConnect(CC_QUIET) == REDIS_ERR) return;
 
     redisReply *reply = redisCommand(context, "COMMAND");
-    if(reply == NULL || reply->type != REDIS_REPLY_ARRAY) return;
+    if (reply == NULL) return;
+    if (reply->type != REDIS_REPLY_ARRAY) {
+        freeReplyObject(reply);
+        return;
+    }
 
     /* Scan the array reported by COMMAND and fill only the entries that
      * don't already match what we have. */
@@ -704,7 +708,7 @@ int helpEntryCompare(const void *entry1, const void *entry2) {
  * Extends the help table with new entries for the command groups.
  */
 void cliInitGroupHelpEntries(dict *groups) {
-    dictIterator *iter = dictGetIterator(groups);
+    dictIterator iter;
     dictEntry *entry;
     helpEntry tmp;
 
@@ -713,7 +717,8 @@ void cliInitGroupHelpEntries(dict *groups) {
     helpEntriesLen += numGroups;
     helpEntries = zrealloc(helpEntries, sizeof(helpEntry)*helpEntriesLen);
 
-    for (entry = dictNext(iter); entry != NULL; entry = dictNext(iter)) {
+    dictInitIterator(&iter, groups);
+    for (entry = dictNext(&iter); entry != NULL; entry = dictNext(&iter)) {
         tmp.argc = 1;
         tmp.argv = zmalloc(sizeof(sds));
         tmp.argv[0] = sdscatprintf(sdsempty(),"@%s",(char *)dictGetKey(entry));
@@ -728,7 +733,7 @@ void cliInitGroupHelpEntries(dict *groups) {
         tmp.docs.group = NULL;
         helpEntries[pos++] = tmp;
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
 }
 
 /* Initializes help entries for all commands in the COMMAND DOCS reply. */
@@ -943,7 +948,10 @@ static void cliInitHelp(void) {
         cliLegacyIntegrateHelp();
         return;
     };
-    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) return;
+    if (commandTable->type != REDIS_REPLY_MAP && commandTable->type != REDIS_REPLY_ARRAY) {
+        freeReplyObject(commandTable);
+        return;
+    }
 
     /* Scan the array reported by COMMAND DOCS and fill in the entries */
     helpEntriesLen = cliCountCommands(commandTable);
@@ -4396,9 +4404,11 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
         }
         /* Now it's trivial to check, for each related group having the
          * same host, what is their local score. */
-        dictIterator *iter = dictGetIterator(related);
+        dictIterator iter;
         dictEntry *entry;
-        while ((entry = dictNext(iter)) != NULL) {
+
+        dictInitIterator(&iter, related);
+        while ((entry = dictNext(&iter)) != NULL) {
             sds types = (sds) dictGetVal(entry);
             sds name = (sds) dictGetKey(entry);
             int typeslen = sdslen(types);
@@ -4421,7 +4431,7 @@ static int clusterManagerGetAntiAffinityScore(clusterManagerNodeArray *ipnodes,
             }
         }
         //if (offending_len != NULL) *offending_len = offending_p - *offending;
-        dictReleaseIterator(iter);
+        dictResetIterator(&iter);
         dictRelease(related);
     }
     return score;
@@ -5398,14 +5408,14 @@ static void clusterManagerWaitForClusterJoin(void) {
         sleep(1);
         if (++counter > check_after) {
             dict *status = clusterManagerGetLinkStatus();
-            dictIterator *iter = NULL;
             if (status != NULL && dictSize(status) > 0) {
                 printf("\n");
                 clusterManagerLogErr("Warning: %d node(s) may "
                                      "be unreachable\n", dictSize(status));
-                iter = dictGetIterator(status);
+                dictIterator iter;
                 dictEntry *entry;
-                while ((entry = dictNext(iter)) != NULL) {
+                dictInitIterator(&iter, status);
+                while ((entry = dictNext(&iter)) != NULL) {
                     sds nodeaddr = (sds) dictGetKey(entry);
                     char *node_ip = NULL;
                     int node_port = 0, node_bus_port = 0;
@@ -5433,8 +5443,8 @@ static void clusterManagerWaitForClusterJoin(void) {
                                          "from standard instance ports.\n");
                     listEmpty(from);
                 }
+                dictResetIterator(&iter);
             }
-            if (iter != NULL) dictReleaseIterator(iter);
             if (status != NULL) dictRelease(status);
             counter = 0;
         }
@@ -6109,9 +6119,11 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
     none = listCreate();
     single = listCreate();
     multi = listCreate();
-    dictIterator *iter = dictGetIterator(clusterManagerUncoveredSlots);
+    dictIterator iter;
     dictEntry *entry;
-    while ((entry = dictNext(iter)) != NULL) {
+
+    dictInitIterator(&iter, clusterManagerUncoveredSlots);
+    while ((entry = dictNext(&iter)) != NULL) {
         sds slot = (sds) dictGetKey(entry);
         list *nodes = (list *) dictGetVal(entry);
         switch (listLength(nodes)){
@@ -6120,7 +6132,7 @@ static int clusterManagerFixSlotsCoverage(char *all_slots) {
         default: listAddNodeTail(multi, slot); break;
         }
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
 
     /* we want explicit manual confirmation from users for all the fix cases */
     int ignore_force = 1;
@@ -6692,28 +6704,30 @@ static int clusterManagerCheckCluster(int quiet) {
     }
     if (open_slots != NULL) {
         result = 0;
-        dictIterator *iter = dictGetIterator(open_slots);
+        dictIterator iter;
         dictEntry *entry;
         sds errstr = sdsnew("[WARNING] The following slots are open: ");
         i = 0;
-        while ((entry = dictNext(iter)) != NULL) {
+
+        dictInitIterator(&iter, open_slots);
+        while ((entry = dictNext(&iter)) != NULL) {
             sds slot = (sds) dictGetKey(entry);
             char *fmt = (i++ > 0 ? ",%S" : "%S");
             errstr = sdscatfmt(errstr, fmt, slot);
         }
+        dictResetIterator(&iter);
         clusterManagerLogErr("%s.\n", (char *) errstr);
         sdsfree(errstr);
         if (do_fix) {
             /* Fix open slots. */
-            dictReleaseIterator(iter);
-            iter = dictGetIterator(open_slots);
-            while ((entry = dictNext(iter)) != NULL) {
+            dictInitIterator(&iter, open_slots);
+            while ((entry = dictNext(&iter)) != NULL) {
                 sds slot = (sds) dictGetKey(entry);
                 result = clusterManagerFixOpenSlot(atoi(slot));
                 if (!result) break;
             }
+            dictResetIterator(&iter);
         }
-        dictReleaseIterator(iter);
         dictRelease(open_slots);
     }
     clusterManagerLogInfo(">>> Check slots coverage...\n");
@@ -9222,7 +9236,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
     unsigned long long sampled = 0, total_keys, totlen=0, *sizes=NULL, it=0, scan_loops = 0;
     redisReply *reply, *keys;
     unsigned int arrsize=0, i;
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     typeinfo **types = NULL;
     double pct;
@@ -9322,8 +9336,8 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                 line_count = displayKeyStatsProgressbar(sampled, total_keys);
                 line_count += cleanPrintfln("");
 
-                di = dictGetIterator(types_dict);
-                while ((de = dictNext(di))) {
+                dictInitIterator(&di, types_dict);
+                while ((de = dictNext(&di))) {
                     typeinfo *current_type = dictGetVal(de);
                     if (current_type->biggest > 0) {
                         line_count += cleanPrintfln("Biggest %-9s found so far %s with %llu %s",
@@ -9331,7 +9345,7 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
                             !memkeys? current_type->sizeunit: "bytes");
                     }
                 }
-                dictReleaseIterator(di);
+                dictResetIterator(&di);
 
                 printf("\033[%dA\r", line_count);
             }
@@ -9351,10 +9365,10 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
 
         /* Clean the types info shown during the progress bar */
         int line_count = 0;
-        di = dictGetIterator(types_dict);
-        while ((de = dictNext(di)))
+        dictInitIterator(&di, types_dict);
+        while ((de = dictNext(&di)))
             line_count += cleanPrintfln("");
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         printf("\033[%dA\r", line_count);
     }
 
@@ -9374,27 +9388,27 @@ static void findBigKeys(int memkeys, long long memkeys_samples) {
        totlen, totlen ? (double)totlen/sampled : 0);
 
     /* Output the biggest keys we found, for types we did find */
-    di = dictGetIterator(types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         if(type->biggest_key) {
             printf("Biggest %6s found %s has %llu %s\n", type->name, type->biggest_key,
                type->biggest, !memkeys? type->sizeunit: "bytes");
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     printf("\n");
 
-    di = dictGetIterator(types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         printf("%llu %ss with %llu %s (%05.2f%% of keys, avg size %.2f)\n",
            type->count, type->name, type->totalsize, !memkeys? type->sizeunit: "bytes",
            sampled ? 100 * (double)type->count/sampled : 0,
            type->count ? (double)type->totalsize/type->count : 0);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     dictRelease(types_dict);
 
@@ -10132,14 +10146,14 @@ static int displayKeyStatsProgressbar(unsigned long long sampled,
 }
 
 static int displayKeyStatsSizeType(dict *memkeys_types_dict) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int line_count = 0;
     char buf[256];
 
     line_count += cleanPrintfln("--- Top size per type ---");
-    di = dictGetIterator(memkeys_types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, memkeys_types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         if (type->biggest_key) {
             line_count += cleanPrintfln("%-10s %s is %s",
@@ -10147,20 +10161,20 @@ static int displayKeyStatsSizeType(dict *memkeys_types_dict) {
                 bytesToHuman(buf, sizeof(buf),type->biggest));
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return line_count;
 }
 
 static int displayKeyStatsLengthType(dict *bigkeys_types_dict) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int line_count = 0;
     char buf[256];
 
     line_count += cleanPrintfln("--- Top length and cardinality per type ---");
-    di = dictGetIterator(bigkeys_types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, bigkeys_types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *type = dictGetVal(de);
         if (type->biggest_key) {
             if (!strcmp(type->sizeunit, "bytes")) {
@@ -10171,7 +10185,7 @@ static int displayKeyStatsLengthType(dict *bigkeys_types_dict) {
             line_count += cleanPrintfln("%-10s %s has %s", type->name, type->biggest_key, buf);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return line_count;
 }
@@ -10226,7 +10240,7 @@ static int displayKeyStatsType(unsigned long long sampled,
                                dict *memkeys_types_dict,
                                dict *bigkeys_types_dict)
 {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     int line_count = 0;
     char total_size[64], size_avg[64], total_length[64], length_avg[64];
@@ -10234,8 +10248,8 @@ static int displayKeyStatsType(unsigned long long sampled,
     line_count += cleanPrintfln("Type        Total keys  Keys %% Tot size Avg size  Total length/card Avg ln/card");
     line_count += cleanPrintfln("--------- ------------ ------- -------- -------- ------------------ -----------");
 
-    di = dictGetIterator(memkeys_types_dict);
-    while ((de = dictNext(di))) {
+    dictInitIterator(&di, memkeys_types_dict);
+    while ((de = dictNext(&di))) {
         typeinfo *memkey_type = dictGetVal(de);
         if (memkey_type->count) {
             /* Key count, percentage, memkeys info */
@@ -10267,7 +10281,7 @@ static int displayKeyStatsType(unsigned long long sampled,
                 total_size, size_avg, total_length, length_avg);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return line_count;
 }
@@ -10283,14 +10297,14 @@ static int displayKeyStatsTopSizes(list *top_key_sizes, unsigned long top_sizes_
 
     line_count += cleanPrintfln("--- Top %llu key sizes ---", top_sizes_limit);
     char buffer[32];
-    listIter *iter = listGetIterator(top_key_sizes, AL_START_HEAD);
+    listIter iter;
     listNode *node;
-    while ((node = listNext(iter)) != NULL) {
+    listRewind(top_key_sizes, &iter);
+    while ((node = listNext(&iter)) != NULL) {
         key_info *key = (key_info*) listNodeValue(node);
         line_count += cleanPrintfln("%3d %8s %-10s %s", ++i, bytesToHuman(buffer, sizeof(buffer), key->size),
                                     key->type_name, key->key_name);
     }
-    listReleaseIterator(iter);
 
     return line_count;
 }
@@ -10315,7 +10329,7 @@ static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long lon
                           char *type_name, list *topkeys, unsigned long top_sizes_limit)
 {
     listNode *node;
-    listIter *iter;
+    listIter iter;
     key_info *new_node;
 
     /* Check if we do not need to add to the list */
@@ -10326,11 +10340,10 @@ static int updateTopSizes(char *key_name, size_t key_name_len, unsigned long lon
     }
 
     /* Find where to insert the new key size */
-    iter = listGetIterator(topkeys, AL_START_HEAD);
+    listRewind(topkeys, &iter);
     do {
-        node = listNext(iter);
+        node = listNext(&iter);
     } while (node != NULL && key_size <= ((key_info*)node->value)->size);
-    listReleaseIterator(iter);
 
     new_node = createKeySizeInfo(key_name, key_name_len, type_name, key_size);
     if (node) {
@@ -10562,13 +10575,13 @@ static void keyStats(long long memkeys_samples, unsigned long long cursor, unsig
     hdr_close(keysize_histogram);
 
     /* sdsfree before listRelease */
-    listIter *iter = listGetIterator(top_sizes, AL_START_HEAD);
+    listIter iter;
     listNode *node;
-    while ((node = listNext(iter)) != NULL) {
+    listRewind(top_sizes, &iter);
+    while ((node = listNext(&iter)) != NULL) {
         key_info *key = (key_info*) listNodeValue(node);
         sdsfree(key->key_name);
     }
-    listReleaseIterator(iter);
     listRelease(top_sizes); /* list->free is set */
 
     exit(0);

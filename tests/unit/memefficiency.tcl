@@ -334,31 +334,46 @@ run_solo {defrag} {
             set expected_frag 1.49
             if {$::accurate} {
                 # scale the hash to 1m fields in order to have a measurable the latency
+                set count 0
                 for {set j 10000} {$j < 1000000} {incr j} {
                     $rd hset bighash $j [concat "asdfasdfasdf" $j]
-                }
-                for {set j 10000} {$j < 1000000} {incr j} {
-                    $rd read ; # Discard replies
+
+                    incr count
+                    if {$count % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
                 }
                 # creating that big hash, increased used_memory, so the relative frag goes down
                 set expected_frag 1.3
             }
 
             # add a mass of string keys
+            set count 0
             for {set j 0} {$j < 500000} {incr j} {
                 $rd setrange $j 150 a
-            }
-            for {set j 0} {$j < 500000} {incr j} {
-                $rd read ; # Discard replies
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                    }
+                }
             }
             assert_equal [r dbsize] 500016
 
             # create some fragmentation
+            set count 0
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd del $j
-            }
-            for {set j 0} {$j < 500000} {incr j 2} {
-                $rd read ; # Discard replies
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                    }
+                }
             }
             assert_equal [r dbsize] 250016
 
@@ -748,13 +763,18 @@ run_solo {defrag} {
             # add a mass of list nodes to two lists (allocations are interlaced)
             set val [string repeat A 500] ;# 1 item of 500 bytes puts us in the 640 bytes bin, which has 32 regs, so high potential for fragmentation
             set elements 100000
+            set count 0
             for {set j 0} {$j < $elements} {incr j} {
                 $rd lpush biglist1 $val
                 $rd lpush biglist2 $val
-            }
-            for {set j 0} {$j < $elements} {incr j} {
-                $rd read ; # Discard replies
-                $rd read ; # Discard replies
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                        $rd read ; # Discard replies
+                    }
+                }
             }
 
             # create some fragmentation
@@ -859,11 +879,16 @@ run_solo {defrag} {
                 # add a mass of keys with 600 bytes values, fill the bin of 640 bytes which has 32 regs per slab.
                 set rd [redis_deferring_client]
                 set keys 640000
+                set count 0
                 for {set j 0} {$j < $keys} {incr j} {
                     $rd setrange $j 600 x
-                }
-                for {set j 0} {$j < $keys} {incr j} {
-                    $rd read ; # Discard replies
+
+                    incr count
+                    if {$count % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
                 }
 
                 # create some fragmentation of 50%
@@ -872,9 +897,12 @@ run_solo {defrag} {
                     $rd del $j
                     incr sent
                     incr j 1
-                }
-                for {set j 0} {$j < $sent} {incr j} {
-                    $rd read ; # Discard replies
+
+                    if {$sent % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
                 }
 
                 # create higher fragmentation in the first slab

@@ -2000,10 +2000,11 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         }
     } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
-        dictIterator *di = dictGetIterator(zs->dict);
+        dictIterator di;
         dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, zs->dict);
+        while((de = dictNext(&di)) != NULL) {
             sds ele = dictGetKey(de);
             double *score = dictGetVal(de);
 
@@ -2015,20 +2016,20 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                     !rioWriteBulkString(r,"ZADD",4) ||
                     !rioWriteBulkObject(r,key)) 
                 {
-                    dictReleaseIterator(di);
+                    dictResetIterator(&di);
                     return 0;
                 }
             }
             if (!rioWriteBulkDouble(r,*score) ||
                 !rioWriteBulkString(r,ele,sdslen(ele)))
             {
-                dictReleaseIterator(di);
+                dictResetIterator(&di);
                 return 0;
             }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     } else {
         serverPanic("Unknown sorted zset encoding");
     }
@@ -2332,20 +2333,21 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
 
 static int rewriteFunctions(rio *aof) {
     dict *functions = functionsLibGet();
-    dictIterator *iter = dictGetIterator(functions);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, functions);
+    while ((entry = dictNext(&iter))) {
         functionLibInfo *li = dictGetVal(entry);
         if (rioWrite(aof, "*3\r\n", 4) == 0) goto werr;
         char function_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
         if (rioWrite(aof, function_load, sizeof(function_load) - 1) == 0) goto werr;
         if (rioWriteBulkString(aof, li->code, sdslen(li->code)) == 0) goto werr;
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     return 1;
 
 werr:
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     return 0;
 }
 

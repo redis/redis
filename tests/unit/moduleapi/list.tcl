@@ -192,3 +192,34 @@ start_server {tags {"modules"}} {
         assert_equal {OK} [r module unload list]
     }
 }
+
+# A basic test that exercises a module's list commands under cluster mode.
+# Currently, many module commands are never run even once in a clustered setup.
+# This test helps ensure that basic module functionality works correctly and that
+# the KEYSIZES histogram remains accurate and that insert & delete was tested.
+set testmodule [file normalize tests/modules/list.so]
+set modules [list loadmodule $testmodule]
+start_cluster 2 2 [list config_lines [list loadmodule $testmodule enable-debug-command yes]] {
+    test "Module list - KEYSIZES is updated correctly in cluster mode" {
+        for {set srvid -2} {$srvid <= 0} {incr srvid} {
+            set instance [srv $srvid client]
+            # Assert consistency after each command
+            $instance DEBUG KEYSIZES-HIST-ASSERT 1
+    
+            for {set i 0} {$i < 50} {incr i} {
+                for {set j 0} {$j < 4} {incr j} {
+                    catch {$instance list.insert "list:$i" $j "item:$j"} e
+                    if {![string match "OK" $e]} {assert_match "*MOVED*" $e}
+                }
+            }
+            for {set i 0} {$i < 50} {incr i} {
+                for {set j 0} {$j < 4} {incr j} {
+                    catch {$instance list.delete "list:$i" 0} e
+                    if {![string match "OK" $e]} {assert_match "*MOVED*" $e}
+                }
+            }
+            # Verify also that instance is responsive and didn't crash on assert
+            assert_equal [$instance dbsize] 0
+        }
+    }
+}
