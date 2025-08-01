@@ -14176,6 +14176,7 @@ int *RM_GetCommandKeysWithFlags(RedisModuleCtx *ctx, RedisModuleString **argv, i
             (*out_flags)[i] = moduleConvertKeySpecsFlags(result.keys[i].flags, 0);
     }
 
+    getKeysFreeResult(&result);
     return res;
 }
 
