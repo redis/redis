@@ -473,8 +473,6 @@ void activeDefragHfieldDict(dict *d) {
 void activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
     quicklistNode *newnode, *node = *node_ref;
     unsigned char *newzl;
-    ql->alloc_size -= zmalloc_usable_size(node);
-    ql->alloc_size -= zmalloc_usable_size(node->entry);
     if ((newnode = activeDefragAlloc(node))) {
         if (newnode->prev)
             newnode->prev->next = newnode;
@@ -488,8 +486,6 @@ void activeDefragQuickListNode(quicklist *ql, quicklistNode **node_ref) {
     }
     if ((newzl = activeDefragAlloc(node->entry)))
         node->entry = newzl;
-    ql->alloc_size += zmalloc_usable_size(node);
-    ql->alloc_size += zmalloc_usable_size(node->entry);
 }
 
 void activeDefragQuickListNodes(quicklist *ql) {
@@ -643,10 +639,8 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
 void defragQuicklist(defragKeysCtx *ctx, kvobj *kv) {
     quicklist *ql = kv->ptr, *newql;
     serverAssert(kv->type == OBJ_LIST && kv->encoding == OBJ_ENCODING_QUICKLIST);
-    ql->alloc_size -= zmalloc_usable_size(ql);
     if ((newql = activeDefragAlloc(ql)))
         kv->ptr = ql = newql;
-    ql->alloc_size += zmalloc_usable_size(ql);
     if (ql->len > server.active_defrag_max_scan_fields)
         defragLater(ctx, kv);
     else
