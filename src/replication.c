@@ -1583,10 +1583,10 @@ void sendBulkToSlave(connection *conn) {
 
     /* If the preamble was already transferred, send the RDB bulk data. */
     if (lseek(slave->repldbfd,slave->repldboff,SEEK_SET) == -1) {
-	serverLog(LL_WARNING,"Failed to lseek the RDB file to offset %lld for replica %s: %s",
-	    (long long)slave->repldboff, replicationGetSlaveName(slave), strerror(errno));
-	freeClient(slave);
-	return;
+    serverLog(LL_WARNING,"Failed to lseek the RDB file to offset %lld for replica %s: %s",
+        (long long)slave->repldboff, replicationGetSlaveName(slave), strerror(errno));
+    freeClient(slave);
+    return;
     }
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
@@ -3308,6 +3308,10 @@ void replicationSetMaster(char *ip, int port) {
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_current_sync_attempts = 0;
     server.repl_total_sync_attempts = 0;
+    /* Force event loop wakeup to avoid hang after role change. */
+    if (server.el && server.el->stop == 0 && server.el->beforesleep) {
+        server.el->beforesleep(server.el);
+    }
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
     connectWithMaster();
@@ -3344,11 +3348,11 @@ void replicationUnsetMaster(void) {
     /* Reset the attempts number. */
     server.repl_current_sync_attempts = 0;
     server.repl_total_sync_attempts = 0;
-    /* We need to make sure the new master will start the replication stream
-     * with a SELECT statement. This is forced after a full resync, but
-     * with PSYNC version 2, there is no need for full resync after a
-     * master switch. */
     server.slaveseldb = -1;
+    /* Force event loop wakeup to avoid hang after role change. */
+    if (server.el && server.el->stop == 0 && server.el->beforesleep) {
+        server.el->beforesleep(server.el);
+    }
 
     /* Update oom_score_adj */
     setOOMScoreAdj(-1);
