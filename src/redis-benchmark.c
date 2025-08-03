@@ -105,6 +105,7 @@ static struct config {
     pthread_mutex_t liveclients_mutex;
     pthread_mutex_t is_updating_slots_mutex;
     int resp3; /* use RESP3 */
+    char *wait_command; /* optional wait command to append after SET */
 } config;
 
 typedef struct _client {
@@ -124,6 +125,7 @@ typedef struct _client {
                                such as auth and select are prefixed to the pipeline of
                                benchmark commands and discarded after the first send. */
     int prefixlen;          /* Size in bytes of the pending prefix commands */
+    int suffix_pending;     /* If non-zero, number of pending suffix commands like WAIT */
     int thread_id;
     struct clusterNode *cluster_node;
     int slots_last_update;
@@ -521,6 +523,14 @@ static void readHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
                     }
                     continue;
                 }
+                
+                /* Check if this is a suffix command response (like WAIT) */
+                if (c->suffix_pending > 0 && c->pending <= c->suffix_pending) {
+                    c->suffix_pending--;
+                    c->pending--;
+                    continue;
+                }
+                
                 int requests_finished = 0;
                 atomicGetIncr(config.requests_finished, requests_finished, 1);
                 if (requests_finished < config.requests){
@@ -677,6 +687,7 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
      * These commands are discarded after the first response, so if the client is
      * reused the commands will not be used again. */
     c->prefix_pending = 0;
+    c->suffix_pending = 0;
     if (config.conn_info.auth) {
         char *buf = NULL;
         int len;
@@ -723,12 +734,50 @@ static client createClient(char *cmd, size_t len, client from, int thread_id) {
             from->obuf+from->prefixlen,
             sdslen(from->obuf)-from->prefixlen);
     } else {
-        for (j = 0; j < config.pipeline; j++)
+        for (j = 0; j < config.pipeline; j++) {
             c->obuf = sdscatlen(c->obuf,cmd,len);
+            /* Append wait command after SET commands if configured */
+            if (config.wait_command && cmd && len >= 11 && 
+                strncmp(cmd, "*3\r\n$3\r\nSET", 11) == 0) {
+                char *wait_cmd;
+                int wait_len;
+                
+                /* Validate that wait command starts with "WAIT " (case insensitive) */
+                if (strlen(config.wait_command) < 5 || 
+                    strncasecmp(config.wait_command, "WAIT ", 5) != 0) {
+                    /* Invalid wait command format, skip, print warning message */
+                    printf("WARNING: Invalid wait command format, skip: %s\n", config.wait_command);
+                    continue;
+                }
+                
+                /* Parse the wait command into separate components */
+                char *wait_copy = strdup(config.wait_command);
+                char *cmd_name = strtok(wait_copy, " ");
+                char *replicas = strtok(NULL, " ");
+                char *timeout = strtok(NULL, " ");
+                
+                if (cmd_name && replicas && timeout) {
+                    /* WAIT with both replicas and timeout */
+                    wait_len = redisFormatCommand(&wait_cmd, "WAIT %s %s", replicas, timeout);
+                } else if (cmd_name && replicas) {
+                    /* WAIT with only replicas (for kvrocks compatibility) */
+                    wait_len = redisFormatCommand(&wait_cmd, "WAIT %s", replicas);
+                } else {
+                    /* Invalid format, skip */
+                    free(wait_copy);
+                    continue;
+                }
+                
+                c->obuf = sdscatlen(c->obuf, wait_cmd, wait_len);
+                free(wait_cmd);
+                free(wait_copy);
+                c->suffix_pending++;
+            }
+        }
     }
 
     c->written = 0;
-    c->pending = config.pipeline+c->prefix_pending;
+    c->pending = config.pipeline+c->prefix_pending+c->suffix_pending;
     c->randptr = NULL;
     c->randlen = 0;
     c->stagptr = NULL;
@@ -1494,6 +1543,9 @@ int parseOptions(int argc, char **argv) {
             config.cluster_mode = 1;
         } else if (!strcmp(argv[i],"--enable-tracking")) {
             config.enable_tracking = 1;
+        } else if (!strcmp(argv[i],"-w")) {
+            if (lastarg) goto invalid;
+            config.wait_command = strdup(argv[++i]);
         } else if (!strcmp(argv[i],"--help")) {
             exit_status = 0;
             goto usage;
@@ -1590,6 +1642,7 @@ usage:
 "                    mode, the key must contain \"{tag}\". Otherwise, the\n"
 "                    command will not be sent to the right cluster node.\n"
 " --enable-tracking  Send CLIENT TRACKING on before starting benchmark.\n"
+" -w <command>       Append a command after SET operations (e.g., \"WAIT 1 100\"). It's optional.\n"
 " -k <boolean>       1=keep alive 0=reconnect (default 1)\n"
 " -r <keyspacelen>   Use random keys for SET/GET/INCR, random values for SADD,\n"
 "                    random members and scores for ZADD.\n"
@@ -1629,6 +1682,10 @@ tls_usage,
 "   $ redis-benchmark -r 10000 -n 10000 eval 'return redis.call(\"ping\")' 0\n\n"
 " Fill a list with 10000 random elements:\n"
 "   $ redis-benchmark -r 10000 -n 10000 lpush mylist __rand_int__\n\n"
+" Benchmark SET with replication wait:\n"
+"   $ redis-benchmark -t set -w \"WAIT 1 100\"\n\n"
+"   # for Apache kvrocks, only 1 parameter, no second parameter(timeout ms).\n"
+"   $ redis-benchmark -t set -w \"WAIT 1\"\n\n" 
 " On user specified command lines __rand_int__ is replaced with a random integer\n"
 " with a range of values selected by the -r option.\n"
     );
@@ -1740,6 +1797,7 @@ int main(int argc, char **argv) {
     config.slots_last_update = 0;
     config.enable_tracking = 0;
     config.resp3 = 0;
+    config.wait_command = NULL;
 
     i = parseOptions(argc,argv);
     argc -= i;
