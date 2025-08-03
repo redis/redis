@@ -383,7 +383,7 @@ proc run_external_server_test {code overrides} {
     }
 
     r flushall
-    r function flush
+    catch {r function flush}
     r script flush
     r config resetstat
 
@@ -395,6 +395,15 @@ proc run_external_server_test {code overrides} {
 
     # apply overrides
     foreach {param val} $overrides {
+        # Skip immutable configs that can't be changed on external servers
+        if {$param == "cluster-enabled" || $param == "cluster-ping-interval" ||
+            $param == "cluster-node-timeout" || $param == "cluster-slot-stats-enabled"} {
+            if {$::verbose} {
+                puts "Skipping immutable config $param on external server"
+            }
+            continue
+        }
+
         r config set $param $val
 
         # If we enable appendonly, wait for for rewrite to complete. This is

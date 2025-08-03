@@ -121,13 +121,6 @@ proc cluster_setup {masters node_count slot_allocator code} {
 proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation}} {
     set node_count [expr $masters + $replicas]
 
-    # Check if we should skip this test due to tags before trying to configure cluster
-    if {![tags_acceptable $::tags err]} {
-        incr ::num_aborted
-        send_data_packet $::test_server_fd ignore $err
-        return
-    }
-
     # Set the final code to be the tests + cluster setup
     set code [list cluster_setup $masters $node_count $slot_allocator $code]
 
