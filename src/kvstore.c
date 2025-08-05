@@ -787,7 +787,7 @@ unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, uns
 
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size)
 {
-    dict *d = kvstoreGetDict(kvs, didx);
+    dict *d = createDictIfNeeded(kvs, didx);
     if (!d)
         return DICT_ERR;
     return dictExpand(d, size);
