@@ -121,23 +121,16 @@ proc cluster_setup {masters node_count slot_allocator code} {
 proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation}} {
     set node_count [expr $masters + $replicas]
 
-    # Check if we should skip this test due to tags before trying to configure cluster
-    if {![tags_acceptable $::tags err]} {
-        incr ::num_aborted
-        send_data_packet $::test_server_fd ignore $err
-        return
-    }
-
     # Set the final code to be the tests + cluster setup
     set code [list cluster_setup $masters $node_count $slot_allocator $code]
 
     # Configure the starting of multiple servers. Set cluster node timeout
-    # aggressively since many tests depend on ping/pong messages.
+    # aggressively since many tests depend on ping/pong messages. 
     set cluster_options [list overrides [list cluster-enabled yes cluster-ping-interval 100 cluster-node-timeout 3000 cluster-slot-stats-enabled yes]]
     set options [concat $cluster_options $options]
 
     # Cluster mode only supports a single database, so before executing the tests
-    # it needs to be configured correctly and needs to be reset after the tests.
+    # it needs to be configured correctly and needs to be reset after the tests. 
     set old_singledb $::singledb
     set ::singledb 1
     start_multiple_servers $node_count $options $code
