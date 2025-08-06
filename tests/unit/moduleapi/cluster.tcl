@@ -213,7 +213,7 @@ start_cluster 2 2 [list config_lines $modules] {
 
 set testmodule [file normalize tests/modules/basics.so]
 set modules [list loadmodule $testmodule]
-start_cluster 3 0 {tags {tls:skip external:skip cluster modules} config_lines $modules} {
+start_cluster 3 0 [list tags {tls:skip external:skip cluster modules} config_lines $modules] {
     set node1 [srv 0 client]
     set node2 [srv -1 client]
     set node3 [srv -2 client]
