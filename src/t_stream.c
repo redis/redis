@@ -2981,8 +2981,7 @@ NULL
         }
         
         if (entries_read != SCG_INVALID_ENTRIES_READ && (uint64_t)entries_read > s->entries_added) {
-            addReplyError(c, "The ENTRIESREAD counter cannot be greater than the total number of entries in the stream.");
-            return;
+            entries_read = s->entries_added;
         }
 
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
@@ -3003,8 +3002,7 @@ NULL
         }
 
         if (entries_read != SCG_INVALID_ENTRIES_READ && (uint64_t)entries_read > s->entries_added) {
-            addReplyError(c, "The ENTRIESREAD counter cannot be greater than the total number of entries in the stream.");
-            return;
+            entries_read = s->entries_added;
         }
         
         streamUpdateCGroupLastId(s, cg, &id);
