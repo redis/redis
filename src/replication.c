@@ -511,6 +511,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
      * master replication history and has the same backlog and offsets). */
     if (server.masterhost != NULL) return;
 
+    /* If current client is marked as master, we will proxy the command stream
+     * to our slaves instead of replicating them, that also happens when being
+     * in atomic slot migration. */
+    if (server.current_client && server.current_client->flags & CLIENT_MASTER) return;
+
     /* If there aren't slaves, and there is no backlog buffer to populate,
      * we can return ASAP. */
     if (server.repl_backlog == NULL && listLength(slaves) == 0) {
@@ -619,16 +624,9 @@ void showLatestBacklog(void) {
 }
 
 /* This function is used in order to proxy what we receive from our master
- * to our sub-slaves. */
-#include <ctype.h>
+ * to our sub-slaves. Besides, we also proxy the replication stream from
+ * the source node when being in atomic slot migration. */
 void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
-    /* For atomic slot migration, we will create a fake master client to
-     * apply command stream from the source node. Instead of proxying
-     * the command stream from the source node, we want the destination
-     * node to propagate the commands after executing them.
-     *
-     * TODO: maybe proxy the command stream in the future. */
-    if (server.master == NULL) return;
     /* There must be replication backlog if having attached slaves. */
     if (listLength(server.slaves)) serverAssert(server.repl_backlog != NULL);
     if (server.repl_backlog) {
@@ -636,6 +634,14 @@ void replicationFeedStreamFromMasterStream(char *buf, size_t buflen) {
          * replication stream. */
         prepareReplicasToWrite();
         feedReplicationBuffer(buf,buflen);
+    } else if (server.masterhost == NULL && server.aof_enabled) {
+        /* We increment the repl_offset anyway, since we use that for tracking
+         * AOF fsyncs even when there's no replication active. This code will
+         * not be reached if AOF is also disabled.
+         *
+         * As we skip feeding the replication buffer in atomic slot migration,
+         * so here we need to update the replication offset manually. */
+        server.master_repl_offset += 1;
     }
 }
 
