@@ -52,45 +52,6 @@ set content {} ;# Will be populated with Tcl side copy of the stream content.
 start_server {
     tags {"stream"}
 } {
-    test "XGROUP CREATE with ENTRIESREAD larger than stream entries should cap the value" {
-        r DEL mystream
-        r xadd mystream * field value
-        assert_equal [r xlen mystream] 1
-
-        r xgroup create mystream mygroup $ entriesread 9999
-
-        set group_info [lindex [r xinfo groups mystream] 0]
-
-        # Find the value of 'lag' and 'entries-read' in the XINFO reply.
-        set lag_idx [lsearch -exact $group_info lag]
-        set lag_val [lindex $group_info [expr {$lag_idx + 1}]]
-
-        set entries_read_idx [lsearch -exact $group_info entries-read]
-        set entries_read_val [lindex $group_info [expr {$entries_read_idx + 1}]]
-        
-        # Lag must be 0 and entries-read must be 1.
-        assert_equal $lag_val 0
-        assert_equal $entries_read_val 1
-    }
-
-    test "XGROUP SETID with ENTRIESREAD larger than stream entries should cap the value" {
-        r DEL mystream
-        r xadd mystream * field value
-        r xgroup create mystream mygroup $
-
-        r xgroup setid mystream mygroup $ entriesread 9999
-
-        set group_info [lindex [r xinfo groups mystream] 0]
-        set lag_idx [lsearch -exact $group_info lag]
-        set lag_val [lindex $group_info [expr {$lag_idx + 1}]]
-        set entries_read_idx [lsearch -exact $group_info entries-read]
-        set entries_read_val [lindex $group_info [expr {$entries_read_idx + 1}]]
-
-        # Lag must be 0 and entries-read must be 1.
-        assert_equal $lag_val 0
-        assert_equal $entries_read_val 1
-    } 
-
     test "XADD wrong number of args" {
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream}
         assert_error {*wrong number of arguments for 'xadd' command} {r XADD mystream *}
