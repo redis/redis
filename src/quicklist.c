@@ -496,9 +496,9 @@ void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     }
 }
 
-/* Determine whether the quicklist node has reached its limit before performing
- * insertions, merges, or other operations that would increase the node size.
- * Return 1 if exceeds the limit, otherwise 0. */
+/* Check if the limit of the quicklist node has been reached to determine if
+ * insertions, merges or other operations that would increase the size of
+ * the node can be performed.
 int quicklistNodeExceedsLimit(const quicklist *ql, size_t new_sz, unsigned int new_count) {
     if (ql->limit_type == QUICKLIST_NODE_LIMIT_SIZE) {
         return new_sz > ql->limit;
