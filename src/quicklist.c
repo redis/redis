@@ -496,34 +496,20 @@ void quicklistNodeLimit(int fill, size_t *size, unsigned int *count) {
     }
 }
 
-static inline int _quicklistNodeCountOrSizeExceedsLimit(size_t new_sz, unsigned int new_count,
-                                                        size_t sz_limit, unsigned int count_limit)
-{
-    if (likely(sz_limit != SIZE_MAX)) {
-        return new_sz > sz_limit;
-    } else if (count_limit != UINT_MAX) {
-        /* when we reach here we know that the limit is a size limit (which is
-         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
-        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
-        return new_count > count_limit;
-    }
-
-    redis_unreachable();
-}
-
 /* Determine whether the quicklist node has reached its limit before performing
  * insertions, merges, or other operations that would increase the node size.
  * Return 1 if exceeds the limit, otherwise 0. */
-REDIS_STATIC int quicklistNodeExceedsLimit(const quicklist *ql, size_t new_sz, unsigned int new_count) {
-    size_t sz_limit = SIZE_MAX;
-    unsigned int count_limit = UINT_MAX;
+int quicklistNodeExceedsLimit(const quicklist *ql, size_t new_sz, unsigned int new_count) {
+    if (ql->limit_type == QUICKLIST_NODE_LIMIT_SIZE) {
+        return new_sz > ql->limit;
+    } else {
+        /* when we reach here we know that the limit is a size limit (which is
+         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
+        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
+        return new_count > ql->limit;
+    }
 
-    if (ql->limit_type == QUICKLIST_NODE_LIMIT_COUNT)
-        count_limit = ql->limit;
-    else
-        sz_limit = ql->limit;
-
-    return _quicklistNodeCountOrSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
+    redis_unreachable();
 }
 
 /* Determine whether the quicklist node has reached its limit based on the
@@ -534,7 +520,17 @@ int quicklistNodeExceedsFillLimit(int fill, size_t new_sz, unsigned int new_coun
     size_t sz_limit;
     unsigned int count_limit;
     quicklistNodeLimit(fill, &sz_limit, &count_limit);
-    return _quicklistNodeCountOrSizeExceedsLimit(new_sz, new_count, sz_limit, count_limit);
+
+    if (likely(sz_limit != SIZE_MAX)) {
+        return new_sz > sz_limit;
+    } else if (count_limit != UINT_MAX) {
+        /* when we reach here we know that the limit is a size limit (which is
+         * safe, see comments next to optimization_level and SIZE_SAFETY_LIMIT) */
+        if (!sizeMeetsSafetyLimit(new_sz)) return 1;
+        return new_count > count_limit;
+    }
+
+    redis_unreachable();
 }
 
 /* Determines whether a given size qualifies as a large element based on the 'limit' and
