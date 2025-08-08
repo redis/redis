@@ -6,8 +6,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -27,6 +28,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 #include "bio.h"
 #include "functions.h"
 #include "connection.h"
@@ -45,10 +47,11 @@ int replicaPutOnline(client *slave);
 void replicaStartCommandStream(client *slave);
 int cancelReplicationHandshake(int reconnect);
 static void rdbChannelFullSyncWithMaster(connection *conn);
-static int rdbChannelAbortRdbTransfer(void);
+static int rdbChannelAbort(void);
 static void rdbChannelBufferReplData(connection *conn);
 static void rdbChannelReplDataBufInit(void);
-static void rdbChannelSuccess(void);
+static void rdbChannelStreamReplDataToDb(void);
+static void rdbChannelCleanup(void);
 
 /* We take a global flag to remember if this instance generated an RDB
  * because of replication, so that we can remove the RDB file in case
@@ -390,6 +393,8 @@ void feedReplicationBuffer(char *s, size_t len) {
 
     if (server.repl_backlog == NULL) return;
 
+    clusterSlotStatsIncrNetworkBytesOutForReplication(len);
+
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
         listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
@@ -544,6 +549,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         feedReplicationBufferWithObject(selectcmd);
+
+        /* Although the SELECT command is not associated with any slot,
+         * its per-slot network-bytes-out accumulation is made by the above function call.
+         * To cancel-out this accumulation, below adjustment is made. */
+        clusterSlotStatsDecrNetworkBytesOutForReplication(sdslen(selectcmd->ptr));
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
@@ -780,7 +790,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
-        if (slave->slave_req & SLAVE_REQ_RDB_CHANNEL) {
+        if (slave->flags & CLIENT_REPL_RDB_CHANNEL) {
             /* This slave is rdbchannel. Find its associated main channel and
              * change its state so we can deliver replication stream from now
              * on, in parallel to rdb. */
@@ -1123,9 +1133,7 @@ void syncCommand(client *c) {
                           "Full sync will continue with dedicated rdb channel.",
                           replicationGetSlaveName(c));
 
-                /* Send +RDBCHANNELSYNC with client id. Rdbchannel of replica
-                 * will call 'replconf set-main-ch-id <client-id>' so we can
-                 * associate replica connections on master.*/
+                /* Send +RDBCHANNELSYNC with client id so we can associate replica connections on master.*/
                 len = snprintf(buf, sizeof(buf), "+RDBCHANNELSYNC %llu\r\n",
                                (unsigned long long) c->id);
                 if (connWrite(c->conn, buf, strlen(buf)) != len)
@@ -1336,6 +1344,10 @@ void replconfCommand(client *c) {
                 checkChildrenDone();
             if (c->repl_start_cmd_stream_on_ack && c->replstate == SLAVE_STATE_ONLINE)
                 replicaStartCommandStream(c);
+            /* If state is send_bulk_and_stream, it means this is the main
+             * channel of the slave in rdbchannel replication. Normally, slave
+             * will be put online after rdb fork is completed. There is chance
+             * that 'ack' might be received before we detect bgsave is done. */
             if (c->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM)
                 replicaPutOnline(c);
             /* Note: this command does not reply anything! */
@@ -1352,8 +1364,16 @@ void replconfCommand(client *c) {
             if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
                     0,1,&rdb_only,NULL) != C_OK)
                 return;
-            if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
-            else c->flags &= ~CLIENT_REPL_RDBONLY;
+            if (rdb_only == 1) {
+                c->flags |= CLIENT_REPL_RDBONLY;
+                /* If replicas ask for RDB only, We can apply the background
+                 * RDB transfer optimization based on the configurations. */
+                if (server.repl_rdb_channel && server.repl_diskless_sync)
+                    c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
+            } else {
+                c->flags &= ~CLIENT_REPL_RDBONLY;
+                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
+            }
         } else if (!strcasecmp(c->argv[j]->ptr,"rdb-filter-only")) {
             /* REPLCONFG RDB-FILTER-ONLY is used to define "include" filters
              * for the RDB snapshot. Currently we only support a single
@@ -1387,10 +1407,8 @@ void replconfCommand(client *c) {
                 return;
             if (rdb_channel == 1) {
                 c->flags |= CLIENT_REPL_RDB_CHANNEL;
-                c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
             } else {
                 c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
-                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr, "main-ch-client-id")) {
             /* REPLCONF main-ch-client-id <client-id> is used to identify
@@ -1564,7 +1582,12 @@ void sendBulkToSlave(connection *conn) {
     }
 
     /* If the preamble was already transferred, send the RDB bulk data. */
-    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
+    if (lseek(slave->repldbfd,slave->repldboff,SEEK_SET) == -1) {
+	serverLog(LL_WARNING,"Failed to lseek the RDB file to offset %lld for replica %s: %s",
+	    (long long)slave->repldboff, replicationGetSlaveName(slave), strerror(errno));
+	freeClient(slave);
+	return;
+    }
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
         serverLog(LL_WARNING,"Read error sending DB to replica: %s",
@@ -1754,7 +1777,14 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         /* We can get here via freeClient()->killRDBChild()->checkChildrenDone(). skip disconnected slaves. */
         if (!slave->conn) continue;
 
-        if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
+        if (slave->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) {
+            /* This is the main channel of the slave that received the RDB.
+             * Put it online if RDB delivery is successful. */
+            if (bgsaveerr == C_OK)
+                replicaPutOnline(slave);
+            else
+                freeClientAsync(slave);
+        } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
@@ -2014,8 +2044,6 @@ void readSyncBulkPayload(connection *conn) {
     char buf[PROTO_IOBUF_LEN];
     ssize_t nread, readlen, nwritten;
     int use_diskless_load = useDisklessLoad();
-    redisDb *diskless_load_tempDb = NULL;
-    functionsLibCtx* temp_functions_lib_ctx = NULL;
     int rdbchannel = (conn == server.repl_rdb_transfer_s);
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
@@ -2208,17 +2236,9 @@ void readSyncBulkPayload(connection *conn) {
         killRDBChild();
     }
 
-    if (use_diskless_load && server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
-        /* Initialize empty tempDb dictionaries. */
-        diskless_load_tempDb = disklessLoadInitTempDb();
-        temp_functions_lib_ctx = functionsLibCtxCreate();
-
-        moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
-                              REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED,
-                              NULL);
-    } else {
+    /* Attach to the new master immediately if we are not using swapdb. */
+    if (!use_diskless_load || server.repl_diskless_load != REPL_DISKLESS_LOAD_SWAPDB)
         replicationAttachToNewMaster();
-    }
 
     /* Before loading the DB into memory we need to delete the readable
      * handler, otherwise it will get called recursively since
@@ -2235,6 +2255,9 @@ void readSyncBulkPayload(connection *conn) {
         int asyncLoading = 0;
 
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+            moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
+                                  REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_STARTED,
+                                  NULL);
             /* Async loading means we continue serving read commands during full resync, and
              * "swap" the new db with the old db only when loading is done.
              * It is enabled only on SWAPDB diskless replication when master replication ID hasn't changed,
@@ -2243,15 +2266,14 @@ void readSyncBulkPayload(connection *conn) {
             if (memcmp(server.replid, server.master_replid, CONFIG_RUN_ID_SIZE) == 0) {
                 asyncLoading = 1;
             }
-            dbarray = diskless_load_tempDb;
-            functions_lib_ctx = temp_functions_lib_ctx;
-        } else {
-            dbarray = server.db;
-            functions_lib_ctx = functionsLibCtxGetCurrent();
-            functionsLibCtxClear(functions_lib_ctx);
         }
 
+        /* Set disklessLoadingRio before calling emptyData() which may yield
+         * back to networking. */
+        rioInitWithConn(&rdb,conn,server.repl_transfer_size);
         disklessLoadingRio = &rdb;
+
+        /* Empty db */
         loadingSetFlags(NULL, server.repl_transfer_size, asyncLoading);
         if (server.repl_diskless_load != REPL_DISKLESS_LOAD_SWAPDB) {
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
@@ -2262,7 +2284,14 @@ void readSyncBulkPayload(connection *conn) {
         }
         loadingFireEvent(RDBFLAGS_REPLICATION);
 
-        rioInitWithConn(&rdb,conn,server.repl_transfer_size);
+        if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+            dbarray = disklessLoadInitTempDb();
+            functions_lib_ctx = functionsLibCtxCreate();
+        } else {
+            dbarray = server.db;
+            functions_lib_ctx = functionsLibCtxGetCurrent();
+            functionsLibCtxClear(functions_lib_ctx);
+        }
 
         /* Put the socket in blocking mode to simplify RDB transfer.
          * We'll restore it when the RDB is received. */
@@ -2297,8 +2326,8 @@ void readSyncBulkPayload(connection *conn) {
                                       REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_ABORTED,
                                       NULL);
 
-                disklessLoadDiscardTempDb(diskless_load_tempDb);
-                functionsLibCtxFree(temp_functions_lib_ctx);
+                disklessLoadDiscardTempDb(dbarray);
+                functionsLibCtxFree(functions_lib_ctx);
                 serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding temporary DB in background");
             } else {
                 /* Remove the half-loaded data in case we started with an empty replica. */
@@ -2328,17 +2357,17 @@ void readSyncBulkPayload(connection *conn) {
             replicationAttachToNewMaster();
 
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Swapping active DB with loaded DB");
-            swapMainDbWithTempDb(diskless_load_tempDb);
+            swapMainDbWithTempDb(dbarray);
 
             /* swap existing functions ctx with the temporary one */
-            functionsLibCtxSwapWithCurrent(temp_functions_lib_ctx);
+            functionsLibCtxSwapWithCurrent(functions_lib_ctx);
 
             moduleFireServerEvent(REDISMODULE_EVENT_REPL_ASYNC_LOAD,
                         REDISMODULE_SUBEVENT_REPL_ASYNC_LOAD_COMPLETED,
                         NULL);
 
             /* Delete the old db as it's useless now. */
-            disklessLoadDiscardTempDb(diskless_load_tempDb);
+            disklessLoadDiscardTempDb(dbarray);
             serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Discarding old DB in background");
         }
 
@@ -2424,7 +2453,12 @@ void readSyncBulkPayload(connection *conn) {
     replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
+    server.repl_up_since = server.unixtime;
 
+    if (server.repl_disconnect_start_time != 0) {
+        server.repl_total_disconnect_time += server.unixtime - server.repl_disconnect_start_time;
+        server.repl_disconnect_start_time = 0;
+    }
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
                           REDISMODULE_SUBEVENT_MASTER_LINK_UP,
@@ -2459,25 +2493,13 @@ void readSyncBulkPayload(connection *conn) {
         startAppendOnlyWithRetry();
     }
 
+    /* Stream accumulated replication buffer to the db and finalize fullsync */
     if (rdbchannel) {
-        int close_asap;
-
         if (server.repl_rdb_transfer_s) {
             connClose(server.repl_rdb_transfer_s);
             server.repl_rdb_transfer_s = NULL;
         }
-        /* At this point, RDB is loaded. If state is REPL_RDB_CH_STATE_CLOSE_ASAP,
-         * it means main channel faced a problem while RDB is being loaded. It
-         * stopped replication stream buffering. It's okay though. We'll stream
-         * whatever we have into the db, then replica will try psync from the
-         * index that it has. */
-        close_asap = (server.repl_rdb_ch_state == REPL_RDB_CH_STATE_CLOSE_ASAP);
-        /* Finalize fullsync */
-        rdbChannelSuccess();
-
-        /* Main channel connection was broken. Let's trigger a psync with master. */
-        if (close_asap && server.master)
-            freeClientAsync(server.master);
+        rdbChannelStreamReplDataToDb();
     }
 
     return;
@@ -2732,6 +2754,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         if (!client_id) {
             serverLog(LL_WARNING,
                       "Master replied with wrong +RDBCHANNELSYNC syntax: %s", reply);
+            sdsfree(reply);
             return PSYNC_NOT_SUPPORTED;
         }
         server.repl_main_ch_client_id = strtoll(client_id, NULL, 10);;
@@ -3025,7 +3048,7 @@ void syncWithMaster(connection *conn) {
     /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY. */
     if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
-                             "state should be RECEIVE_PSYNC but is %d",
+                             "state should be RECEIVE_PSYNC_REPLY but is %d",
                              server.repl_state);
         goto error;
     }
@@ -3156,6 +3179,8 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
+    server.repl_current_sync_attempts++;
+    server.repl_total_sync_attempts++;
     server.repl_transfer_s = connCreate(server.el, connTypeOfReplication());
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
@@ -3188,6 +3213,8 @@ void undoConnectWithMaster(void) {
 void replicationAbortSyncTransfer(void) {
     serverAssert(server.repl_state == REPL_STATE_TRANSFER);
     undoConnectWithMaster();
+    if (server.repl_disconnect_start_time == 0)
+        server.repl_disconnect_start_time = server.unixtime;
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
         bg_unlink(server.repl_transfer_tmpfile);
@@ -3206,7 +3233,7 @@ void replicationAbortSyncTransfer(void) {
  *
  * Otherwise zero is returned and no operation is performed at all. */
 int cancelReplicationHandshake(int reconnect) {
-    if (rdbChannelAbortRdbTransfer() != C_OK)
+    if (rdbChannelAbort() != C_OK)
         return 1;
 
     if (server.repl_state == REPL_STATE_TRANSFER) {
@@ -3279,6 +3306,8 @@ void replicationSetMaster(char *ip, int port) {
                               NULL);
 
     server.repl_state = REPL_STATE_CONNECT;
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
     connectWithMaster();
@@ -3312,7 +3341,9 @@ void replicationUnsetMaster(void) {
      * a very fast reconnection. */
     disconnectSlaves();
     server.repl_state = REPL_STATE_NONE;
-
+    /* Reset the attempts number. */
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     /* We need to make sure the new master will start the replication stream
      * with a SELECT statement. This is forced after a full resync, but
      * with PSYNC version 2, there is no need for full resync after a
@@ -3328,9 +3359,9 @@ void replicationUnsetMaster(void) {
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
     
-    /* Reset down time so it'll be ready for when we turn into replica again. */
+    /* Reset up and down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
-
+    server.repl_up_since = 0;
     /* Fire the role change modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
                           REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER,
@@ -3354,8 +3385,22 @@ void replicationHandleMasterDisconnection(void) {
                               NULL);
 
     server.master = NULL;
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        server.repl_current_sync_attempts = 0;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;
+    server.repl_up_since = 0;
+    server.repl_num_master_disconnection++;
+
+    /* If we are in the loop of streaming accumulated buffers, discard the
+     * buffer and clean up the rdbchannel state. The outer loop will abort once
+     * it detects that the master client has been disconnected. For details,
+     * see rdbChannelStreamReplDataToDb() */
+    if (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF)
+        rdbChannelCleanup();
+
+    if (server.repl_disconnect_start_time == 0)
+        server.repl_disconnect_start_time = server.unixtime;
     /* We lost connection with our master, don't disconnect slaves yet,
      * maybe we'll be able to PSYNC with our master later. We'll disconnect
      * the slaves only if we'll have to do a full resync with our master. */
@@ -3585,7 +3630,8 @@ static int rdbChannelHandleFullresyncReply(connection *conn, sds *err) {
 
     serverLog(LL_NOTICE, "Starting to receive RDB and replication stream in parallel.");
 
-    /* RDB is still loading. Setup connection to accumulate repl data.  */
+    /* Setup connection to accumulate repl data.  */
+    server.repl_main_ch_state = REPL_MAIN_CH_ACCUMULATE_BUF;
     if (connSetReadHandler(server.repl_transfer_s,
                            rdbChannelBufferReplData) != C_OK)
     {
@@ -3669,7 +3715,7 @@ error:
         server.repl_transfer_s = NULL;
     }
     server.repl_state = REPL_STATE_CONNECT;
-    rdbChannelAbortRdbTransfer();
+    rdbChannelAbort();
 }
 
 /* Replication: Replica side.
@@ -3679,6 +3725,7 @@ static void rdbChannelReplDataBufInit(void) {
     serverAssert(server.repl_full_sync_buffer.blocks == NULL);
     server.repl_full_sync_buffer.size = 0;
     server.repl_full_sync_buffer.used = 0;
+    server.repl_full_sync_buffer.last_num_blocks = 0;
     server.repl_full_sync_buffer.mem_used = 0;
     server.repl_full_sync_buffer.blocks = listCreate();
     server.repl_full_sync_buffer.blocks->free = zfree;
@@ -3691,6 +3738,7 @@ static void rdbChannelReplDataBufFree(void) {
     server.repl_full_sync_buffer.blocks = NULL;
     server.repl_full_sync_buffer.size = 0;
     server.repl_full_sync_buffer.used = 0;
+    server.repl_full_sync_buffer.last_num_blocks = 0;
     server.repl_full_sync_buffer.mem_used = 0;
 }
 
@@ -3726,6 +3774,18 @@ void rdbChannelBufferReplData(connection *conn) {
 
     listNode *ln = listLast(server.repl_full_sync_buffer.blocks);
     replDataBufBlock *tail = ln ? listNodeValue(ln) : NULL;
+
+    if (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF) {
+        /* While streaming accumulated buffers, we continue reading from the
+         * master to prevent accumulation on master side as much as possible.
+         * However, we aim to drain buffer eventually. To ensure we consume more
+         * than we read, we'll read at most one block after two blocks of
+         * buffers are consumed. */
+        replDataBuf *buf = &server.repl_full_sync_buffer;
+        if (listLength(buf->blocks) + 1 >= buf->last_num_blocks)
+            return;
+        buf->last_num_blocks = listLength(buf->blocks);
+    }
 
     /* Try to append last node. */
     if (tail && tail->size > tail->used) {
@@ -3774,81 +3834,150 @@ void rdbChannelBufferReplData(connection *conn) {
 
 /* Replication: Replica side.
  * Streams accumulated replication data into the database. */
-int rdbChannelStreamReplDataToDb(client *c) {
-    int ret = C_OK;
-    size_t size, used, offset = 0;
+static void rdbChannelStreamReplDataToDb(void) {
+    int ret = C_OK, master_disconnected = 0, close_asap = 0;
+    size_t offset = 0;
     listNode *n = NULL;
-    replDataBufBlock *o;
+    replDataBufBlock *o = NULL;
+    client *c = server.master;
 
-    serverAssert(c->flags & CLIENT_MASTER);
+    /* Save repl_num_master_disconnection to figure out if master gets
+     * disconnected when we yield back to processEventsWhileBlocked() */
+    uint64_t seq = server.repl_num_master_disconnection;
 
+    server.repl_main_ch_state |= REPL_MAIN_CH_STREAMING_BUF;
+    serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Starting to stream replication buffer into the db"
+                         " (%zu bytes).", server.repl_full_sync_buffer.used);
     if (!server.repl_full_sync_buffer.blocks)
-        return C_OK;
+        goto out;
+
+    /* Mark the peek buffer block count. We'll use it to verify we consume
+     * faster than we read from the master. */
+    server.repl_full_sync_buffer.last_num_blocks = listLength(server.repl_full_sync_buffer.blocks);
+    /* Set read handler to continue accumulating during streaming */
+    connSetReadHandler(c->conn, rdbChannelBufferReplData);
 
     blockingOperationStarts();
-    protectClient(c);
     while ((n = listFirst(server.repl_full_sync_buffer.blocks))) {
         o = listNodeValue(n);
-        size = o->size;
-        used = o->used;
-        c->querybuf = sdscatlen(c->querybuf, o->buf, used);
-        c->read_reploff += (long long int) used;
-        listDelNode(server.repl_full_sync_buffer.blocks, n);
+        listUnlinkNode(server.repl_full_sync_buffer.blocks, n);
+        zfree(n);
 
-        /* We don't expect error return value but just in case. */
-        ret = processInputBuffer(c);
+        size_t processed = 0;
+        while (processed < o->used) {
+            size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
+            c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
+            c->read_reploff += (long long int) bytes;
+
+            /* We don't expect error return value but just in case. */
+            ret = processInputBuffer(c);
+            if (ret != C_OK)
+                break;
+
+            processed += bytes;
+            server.repl_full_sync_buffer.used -= bytes;
+
+            if (server.repl_debug_pause & REPL_DEBUG_ON_STREAMING_REPL_BUF)
+                debugPauseProcess();
+
+            /* Check if we should yield back to the event loop */
+            if (server.loading_process_events_interval_bytes &&
+                ((offset + bytes) / server.loading_process_events_interval_bytes >
+                  offset / server.loading_process_events_interval_bytes))
+            {
+                replicationSendNewlineToMaster();
+                processEventsWhileBlocked();
+            }
+
+            offset += bytes;
+            /* Check if master client was freed in processEventsWhileBlocked().
+             * It can happen if we receive 'replicaof' command or 'client kill'
+             * command for the master. */
+            master_disconnected = (seq != server.repl_num_master_disconnection);
+            if (master_disconnected ||
+                !server.repl_full_sync_buffer.blocks ||
+                c->flags & CLIENT_CLOSE_ASAP)
+            {
+                ret = C_ERR;
+                break;
+            }
+        }
+        size_t size = o->size;
+        zfree(o);
+
+        /* Break the loop if there is an error. */
         if (ret != C_OK)
             break;
-
-        server.repl_full_sync_buffer.used -= used;
+        /* Update stats */
         server.repl_full_sync_buffer.size -= size;
         server.repl_full_sync_buffer.mem_used -= (size + sizeof(listNode) +
-                                                    sizeof(replDataBufBlock));
-        if (server.repl_debug_pause & REPL_DEBUG_ON_STREAMING_REPL_BUF)
-            debugPauseProcess();
-
-        /* Check if we should yield back to the event loop */
-        if (server.loading_process_events_interval_bytes &&
-            ((offset + used) / server.loading_process_events_interval_bytes >
-             offset / server.loading_process_events_interval_bytes))
-        {
-            replicationSendNewlineToMaster();
-            processEventsWhileBlocked();
-        }
-
-        offset += used;
-        /* Check if master client was freed in processEventsWhileBlocked().
-         * It can happen if we receive 'replicaof' command or 'client kill'
-         * command for the master. */
-        if (c->flags & CLIENT_CLOSE_ASAP || !server.repl_full_sync_buffer.blocks) {
-            ret = C_ERR;
-            break;
-        }
+                                                  sizeof(replDataBufBlock));
     }
-    unprotectClient(c);
     blockingOperationEnds();
 
-    if (ret != C_OK) {
+out:
+    /* If main channel state is CLOSE_ASAP, it means main channel faced a
+     * problem while RDB is being loaded or while we are applying the
+     * accumulated buffer. It stopped replication stream buffering. It's okay
+     * though. We streamed whatever we have into the db, now we can free master
+     * client and replica can try psync. */
+    close_asap = (server.repl_main_ch_state & REPL_MAIN_CH_CLOSE_ASAP);
+
+    if (ret == C_OK) {
+        serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Successfully streamed replication buffer into the db (%zu bytes in total)", offset);
+        /* Revert the read handler */
+        if (!close_asap && connSetReadHandler(c->conn, readQueryFromClient) != C_OK) {
+            serverLog(LL_WARNING,
+                      "Can't create readable event for master client: %s",
+                      strerror(errno));
+            close_asap = 1;
+        }
+    } else {
         serverLog(LL_WARNING, "Master client was freed while streaming accumulated replication data to db.");
-        return C_ERR;
+        close_asap = 1;
     }
 
-    return C_OK;
+    /* If master_disconnected is set, state should have been cleaned up
+     * already. Otherwise, we do it here. */
+    if (!master_disconnected) {
+        rdbChannelCleanup();
+        if (server.master && close_asap)
+            freeClient(server.master);
+    }
+}
+
+static void rdbChannelCleanup(void) {
+    server.repl_rdb_ch_state = REPL_RDB_CH_STATE_NONE;
+    server.repl_main_ch_state = REPL_MAIN_CH_NONE;
+    rdbChannelReplDataBufFree();
 }
 
 /* Replication: Replica side.
  * On rdb channel failure, close rdb-connection and reset state.
  * Return C_OK if cleanup is done. Otherwise, returns C_ERR which means cleanup
  * will be done asynchronously. */
-static int rdbChannelAbortRdbTransfer(void) {
+static int rdbChannelAbort(void) {
     if (server.repl_rdb_ch_state == REPL_RDB_CH_STATE_NONE)
         return C_OK;
 
-    if (server.repl_rdb_transfer_s) {
-        if (server.loading) {
-            /* If loading flag is set, we want to handle cleanup asynchronously.
-             * We set REPL_RDB_CH_STATE_CLOSE_ASAP so it will be handled just
-             * outside loading loop.*/
+    /* This function may also be called if a problem is detected on the main
+     * channel. In this case, we handle the situation differently based on
+     * the current state:
+     * - If we started loading the RDB file and the RDB is disk-based, we mark
+     *   the main channel's state as CLOSE_ASAP and defer the failure handling
+     *   until after the RDB has been loaded. This way we allow the replica to
+     *   retry psync after the RDB is loaded.
+     * - For diskless loading, we cannot safely free the rdb channel connection
+     *   object. Instead, we mark the RIO object as aborted so the next
+     *   rioRead() will fail safely.
+     * - If the RDB has already been loaded, and we are streaming the
+     *   accumulated buffer to the database, we mark the main connection
+     *   as CLOSE_ASAP and wait until the accumulated buffer is drained.
+     *   Once done, the replica can attempt psync with the offset it has. */
+    int async_cleanup = (server.repl_rdb_transfer_s && server.loading) ||
+                        (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF);
+    if (async_cleanup) {
+        if (server.repl_rdb_transfer_s && server.loading) {
             serverLog(LL_NOTICE, "Aborting rdb channel sync while loading the RDB.");
 
             if (disklessLoadingRio)
@@ -3860,19 +3989,21 @@ static int rdbChannelAbortRdbTransfer(void) {
                  * later.*/
                 serverLog(LL_NOTICE, "After loading RDB, replica will try psync with master.");
             }
-
-            if (server.repl_transfer_s)
-                connSetReadHandler(server.repl_transfer_s, NULL);
-
-            server.repl_rdb_ch_state = REPL_RDB_CH_STATE_CLOSE_ASAP;
-            return C_ERR;
         }
-        connClose(server.repl_rdb_transfer_s);
-        server.repl_rdb_transfer_s = NULL;
+
+        if (server.repl_transfer_s)
+            connSetReadHandler(server.repl_transfer_s, NULL);
+
+        server.repl_main_ch_state |= REPL_MAIN_CH_CLOSE_ASAP;
+        return C_ERR;
     }
 
     serverLog(LL_NOTICE, "Aborting rdb channel sync");
 
+    if (server.repl_rdb_transfer_s) {
+        connClose(server.repl_rdb_transfer_s);
+        server.repl_rdb_transfer_s = NULL;
+    }
     if (server.repl_transfer_fd != -1) {
         close(server.repl_transfer_fd);
         server.repl_transfer_fd = -1;
@@ -3882,28 +4013,8 @@ static int rdbChannelAbortRdbTransfer(void) {
         zfree(server.repl_transfer_tmpfile);
         server.repl_transfer_tmpfile = NULL;
     }
-    rdbChannelReplDataBufFree();
-    server.repl_rdb_ch_state = REPL_RDB_CH_STATE_NONE;
+    rdbChannelCleanup();
     return C_OK;
-}
-
-/* Replica side. After loading the rdb, stream replication buffer to the db. */
-static void rdbChannelSuccess(void) {
-    serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Starting to stream replication buffer into the db"
-                         " (%zu bytes).", server.repl_full_sync_buffer.used);
-
-    if (rdbChannelStreamReplDataToDb(server.master) == C_ERR) {
-        serverLog(LL_WARNING, "Failed to stream local replication buffer into the db");
-
-        rdbChannelAbortRdbTransfer();
-        if (server.master)
-            freeClientAsync(server.master);
-        return;
-    }
-
-    serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Successfully streamed replication buffer into the db");
-    rdbChannelReplDataBufFree();
-    server.repl_rdb_ch_state = REPL_RDB_CH_STATE_NONE;
 }
 
 void replicaofCommand(client *c) {
@@ -4046,6 +4157,9 @@ void replicationSendAck(void) {
             addReplyBulkLongLong(c,server.fsynced_reploff);
         }
         c->flags &= ~CLIENT_MASTER_FORCE_REPLY;
+        /* Accumulation from above replies must be reset back to 0 manually,
+         * as this subroutine does not invoke resetClient(). */
+        c->net_output_bytes_curr_cmd = 0;
     }
 }
 
@@ -4173,7 +4287,11 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.master->lastinteraction = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
-
+    server.repl_up_since = server.unixtime;
+    if (server.repl_disconnect_start_time != 0) {
+        server.repl_total_disconnect_time += server.unixtime - server.repl_disconnect_start_time;
+        server.repl_disconnect_start_time = 0;
+    }
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
                           REDISMODULE_SUBEVENT_MASTER_LINK_UP,

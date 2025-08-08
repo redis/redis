@@ -5,8 +5,9 @@
 # Copyright (c) 2024-present, Valkey contributors.
 # All rights reserved.
 #
-# Licensed under your choice of the Redis Source Available License 2.0
-# (RSALv2) or the Server Side Public License v1 (SSPLv1).
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
 #
 # Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
 #
@@ -45,8 +46,11 @@ start_server {tags {"repl network external:skip"}} {
         }
 
         test {Slave enters wait_bgsave} {
+            # Wait until the rdbchannel is connected to prevent the following
+            # 'debug sleep' occurring during the rdbchannel handshake.
             wait_for_condition 50 1000 {
-                [string match *state=wait_bgsave* [$master info replication]]
+                [string match *state=wait_bgsave* [$master info replication]] &&
+                [llength [split [string trim [$master client list type slave]] "\r\n"]] == 2
             } else {
                 fail "Replica does not enter wait_bgsave state"
             }
@@ -752,6 +756,8 @@ test {diskless loading short read} {
                 redis.register_function('test', function() return 'hello1' end)
             }
 
+            set has_vector_sets [server_has_command vadd]
+
             for {set k 0} {$k < 3} {incr k} {
                 for {set i 0} {$i < 10} {incr i} {
                     r set "$k int_$i" [expr {int(rand()*10000)}]
@@ -759,12 +765,19 @@ test {diskless loading short read} {
                     r set "$k string_$i" [string repeat A [expr {int(rand()*1000000)}]]
                     r hset "$k hash_small" [string repeat A [expr {int(rand()*10)}]]  0[string repeat A [expr {int(rand()*10)}]]
                     r hset "$k hash_large" [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
+                    r hsetex "$k hfe_small" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10)}]] 0[string repeat A [expr {int(rand()*10)}]]
+                    r hsetex "$k hfe_large" EX [expr {int(rand()*100)}] FIELDS 1 [string repeat A [expr {int(rand()*10000)}]] [string repeat A [expr {int(rand()*1000000)}]]
                     r sadd "$k set_small" [string repeat A [expr {int(rand()*10)}]]
                     r sadd "$k set_large" [string repeat A [expr {int(rand()*1000000)}]]
                     r zadd "$k zset_small" [expr {rand()}] [string repeat A [expr {int(rand()*10)}]]
                     r zadd "$k zset_large" [expr {rand()}] [string repeat A [expr {int(rand()*1000000)}]]
                     r lpush "$k list_small" [string repeat A [expr {int(rand()*10)}]]
                     r lpush "$k list_large" [string repeat A [expr {int(rand()*1000000)}]]
+
+                    if {$has_vector_sets} {
+                        r vadd "$k vector_set" VALUES 3 [expr {rand()}] [expr {rand()}] [expr {rand()}] [string repeat A [expr {int(rand()*1000)}]]
+                    }
+
                     for {set j 0} {$j < 10} {incr j} {
                         r xadd "$k stream" * foo "asdf" bar "1234"
                     }
@@ -869,7 +882,7 @@ proc compute_cpu_usage {start end} {
 
 
 # test diskless rdb pipe with multiple replicas, which may drop half way
-start_server {tags {"repl external:skip"} overrides {save ""}} {
+start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
     set master [srv 0 client]
     $master config set repl-diskless-sync yes
     $master config set repl-diskless-sync-delay 5
@@ -1141,7 +1154,7 @@ test "diskless replication read pipe cleanup" {
             $master ping
         }
     }
-} {} {external:skip}
+} {} {external:skip tsan:skip}
 
 test {replicaof right after disconnection} {
     # this is a rare race condition that was reproduced sporadically by the psync2 unit.
@@ -1616,6 +1629,202 @@ start_server {tags {"repl external:skip"}} {
             } else {
                 fail "Replica did not free db lazily"
             }
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set replica [srv 0 client]
+    start_server {} {
+        set master [srv 0 client]
+        set master_host [srv 0 host]
+        set master_port [srv 0 port]
+
+        test "Test replication with functions when repl-diskless-load is set to on-empty-db" {
+            $replica config set repl-diskless-load on-empty-db
+
+            populate 10 master 10
+            $master function load {#!lua name=test
+                redis.register_function{function_name='func1', callback=function() return 'hello' end, flags={'no-writes'}}
+            }
+
+            $replica replicaof $master_host $master_port
+
+            # Wait until replication is completed
+            wait_for_sync $replica
+            wait_for_ofs_sync $master $replica
+
+            # Sanity check
+            assert_equal [$replica fcall func1 0] "hello"
+            assert_morethan [$replica dbsize] 0
+            assert_equal [$master debug digest] [$replica debug digest]
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    start_server {} {
+        set slave [srv 0 client]
+        $slave slaveof $master_host $master_port
+
+        test "Accumulate repl_total_disconnect_time with delayed reconnection" {
+            wait_for_condition 50 100 {
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Initial replica setup failed"
+            }
+
+            # Simulate disconnect by pointing to invalid master
+            $slave slaveof $master_host 0
+            after 1000
+
+            $slave slaveof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Initial replica setup failed"
+            }
+            assert {[status $slave total_disconnect_time_sec] >= 1}
+        }
+
+        test "Test the total_disconnect_time_sec incr after slaveof no one" {
+            $slave slaveof no one
+            after 1000
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+            assert {[status $slave total_disconnect_time_sec] >= 2}
+        }
+
+        test "Test correct replication disconnection time counters behavior" {
+            # Simulate disconnection
+            $slave slaveof $master_host 0
+
+            after 1000
+
+            set total_disconnect_time [status $slave total_disconnect_time_sec]
+            set link_down_since [status $slave master_link_down_since_seconds]
+
+            # Restore real master
+            $slave slaveof $master_host $master_port
+            wait_for_condition 50 100 {
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Replication did not reconnect"
+            }
+            #  total_disconnect_time and link_down_since incer
+            assert {$total_disconnect_time >= 3}
+            assert {$link_down_since > 0}
+            assert {$total_disconnect_time > $link_down_since}
+
+            #  total_disconnect_time_reconnect can be up to 5 seconds more than total_disconnect_time due to reconnection time
+            set total_disconnect_time_reconnect [status $slave total_disconnect_time_sec]
+            assert {$total_disconnect_time_reconnect >= $total_disconnect_time && $total_disconnect_time_reconnect <= $total_disconnect_time + 5}
+        }
+    }
+}
+
+start_server {tags {"repl external:skip"}} {
+    set master [srv 0 client]
+    set master_host [srv 0 host]
+    set master_port [srv 0 port]
+
+    start_server {} {
+        set slave [srv 0 client]
+        $slave slaveof $master_host $master_port
+
+        # Test: Normal establishment of the master link
+        test "Test normal establishment process of the master link" {
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal 1 [status $slave master_current_sync_attempts]
+            assert_equal 1 [status $slave master_total_sync_attempts]
+        }
+
+        # Test: Sync attempts reset after 'slaveof no one'
+        test "Test sync attempts reset after slaveof no one" {
+            $slave slaveof no one
+            $slave slaveof $master_host $master_port
+
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal 1 [status $slave master_current_sync_attempts]
+            assert_equal 1 [status $slave master_total_sync_attempts]
+        }
+
+        # Test: Sync attempts reset on master reconnect
+        test "Test sync attempts reset on master reconnect" {
+            $slave client kill type master
+
+            wait_for_condition 50 100 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "Can't turn the instance into a replica"
+            }
+
+            assert_equal 1 [status $slave master_current_sync_attempts]
+            assert_equal 2 [status $slave master_total_sync_attempts]
+        }
+
+        # Test: Sync attempts reset on master switch
+        test "Test sync attempts reset on master switch" {
+            start_server {} {
+                set new_master_host [srv 0 host]
+                set new_master_port [srv 0 port]
+                $slave slaveof $new_master_host $new_master_port
+
+                wait_for_condition 50 100 {
+                    [lindex [$slave role] 0] eq {slave} &&
+                    [string match {*master_link_status:up*} [$slave info replication]]
+                } else {
+                    fail "Can't turn the instance into a replica"
+                }
+
+                assert_equal 1 [status $slave master_current_sync_attempts]
+                assert_equal 1 [status $slave master_total_sync_attempts]
+            }
+        }
+
+        # Test: Replication current attempts counter behavior
+        test "Replication current attempts counter behavior" {
+            $slave slaveof $master_host $master_port
+
+            # Wait until replica state becomes "connected"
+            wait_for_condition 1000 50 {
+                [lindex [$slave role] 0] eq {slave} &&
+                [string match {*master_link_status:up*} [$slave info replication]]
+            } else {
+                fail "slave did not connect to master."
+            }
+
+            assert_equal 1 [status $slave master_current_sync_attempts]
+
+            # Connect to an invalid master
+            $slave slaveof $master_host 0
+            after 1000
+
+            # Expect current sync attempts to increase
+            assert {[status $slave master_current_sync_attempts] >= 2}
         }
     }
 }

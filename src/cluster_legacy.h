@@ -5,8 +5,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -67,6 +68,7 @@ typedef struct clusterLink {
 #define CLUSTER_NODE_EXTENSIONS_SUPPORTED 1024 /* This node supports extensions. */
 #define CLUSTER_NODE_NULL_NAME "\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000\000"
 
+#define nodeIsMaster(n) ((n)->flags & CLUSTER_NODE_MASTER)
 #define nodeIsSlave(n) ((n)->flags & CLUSTER_NODE_SLAVE)
 #define nodeInHandshake(n) ((n)->flags & CLUSTER_NODE_HANDSHAKE)
 #define nodeHasAddr(n) (!((n)->flags & CLUSTER_NODE_NOADDR))
@@ -231,7 +233,7 @@ typedef struct {
     uint16_t ver;       /* Protocol version, currently set to 1. */
     uint16_t port;      /* Primary port number (TCP or TLS). */
     uint16_t type;      /* Message type */
-    uint16_t count;     /* Only used for some kind of messages. */
+    uint16_t count;     /* Only used for some kinds of messages. */
     uint64_t currentEpoch;  /* The epoch accordingly to the sending node. */
     uint64_t configEpoch;   /* The config epoch if it's a master, or the last
                                epoch advertised by its master if it is a
@@ -258,8 +260,8 @@ typedef struct {
  * especially during cluster rolling upgrades.
  *
  * Therefore, fields in this struct should remain at the same offset from
- * release to release. The static asserts below ensures that incompatible
- * changes in clusterMsg be caught at compile time.
+ * release to release. The static asserts below ensure that incompatible
+ * changes in clusterMsg are caught at compile time.
  */
 
 static_assert(offsetof(clusterMsg, sig) == 0, "unexpected field offset");
@@ -329,6 +331,13 @@ struct _clusterNode {
     list *fail_reports;         /* List of nodes signaling this as failing */
 };
 
+/* Struct used for storing slot statistics. */
+typedef struct slotStat {
+    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
+    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
+    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
+} slotStat;
+
 struct clusterState {
     clusterNode *myself;  /* This node */
     uint64_t currentEpoch;
@@ -376,6 +385,8 @@ struct clusterState {
      * stops claiming the slot. This prevents spreading incorrect information (that
      * source still owns the slot) using UPDATE messages. */
     unsigned char owner_not_claiming_slot[CLUSTER_SLOTS / 8];
+    /* Struct used for storing slot statistics, for all slots owned by the current shard. */
+    slotStat slot_stats[CLUSTER_SLOTS];
 };
 
 

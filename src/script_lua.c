@@ -2,8 +2,14 @@
  * Copyright (c) 2009-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #include "script_lua.h"
@@ -1579,6 +1585,9 @@ void luaExtractErrorInformation(lua_State *lua, errorInfo *err_info) {
     lua_getfield(lua, -1, "err");
     if (lua_isstring(lua, -1)) {
         err_info->msg = sdsnew(lua_tostring(lua, -1));
+    } else {
+        /* Ensure we never return a NULL msg. */
+        err_info->msg = sdsnew("ERR unknown error");
     }
     lua_pop(lua, 1);
 

@@ -1,0 +1,3 @@
+wget http://ann-benchmarks.com/glove-100-angular.hdf5
+python insert.py
+python recall.py (use --k <count> optionally, default top-10)

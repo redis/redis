@@ -140,6 +140,29 @@ tags {"wait aof network external:skip"} {
             assert_error {ERR WAITAOF cannot be used when numlocal is set but appendonly is disabled.} {$master waitaof 1 0 0}
         }
 
+        test {WAITAOF local client unblock with timeout and error} {
+            r config set appendonly yes
+            r config set appendfsync no
+            set rd [redis_deferring_client]
+            $rd client id
+            set client_id [$rd read]
+
+            # Test unblock with timeout
+            $rd incr foo
+            $rd read
+            $rd waitaof 1 0 0
+            wait_for_blocked_client
+            assert_equal 1 [r client unblock $client_id timeout]
+
+            # Test unblock with error
+            $rd incr foo
+            $rd read
+            $rd waitaof 1 0 0
+            wait_for_blocked_client
+            assert_equal 1 [r client unblock $client_id error]
+            $rd close
+        }
+
         test {WAITAOF local if AOFRW was postponed} {
             r config set appendfsync everysec
 

@@ -54,6 +54,7 @@ static int defragGlobalStrings(RedisModuleDefragCtx *ctx)
     unsigned long cursor = 0;
     RedisModule_DefragCursorGet(ctx, &cursor);
 
+    if (!global_strings_len) return 0; /* strings is empty. */
     RedisModule_Assert(cursor < global_strings_len);
     for (; cursor < global_strings_len; cursor++) {
         RedisModuleString *str = global_strings[cursor];
@@ -191,8 +192,9 @@ static int defragGlobalDicts(RedisModuleDefragCtx *ctx) {
         global_dicts_resumes++;
     }
 
+    if (!global_dicts_len) return 0; /* dicts is empty. */
     RedisModule_Assert(dict_index < global_dicts_len);
-    for (; dict_index < global_strings_len; dict_index++) {
+    for (; dict_index < global_dicts_len; dict_index++) {
         RedisModuleDict *dict = global_dicts[dict_index];
         if (!dict) continue;
         RedisModuleDict *new = RedisModule_DefragRedisModuleDict(ctx, dict, defragGlobalDictValueCB, &seekTo);
@@ -336,12 +338,19 @@ static int fragCreateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-/* FRAG.create_frag_global */
+/* FRAG.create_frag_global len */
 static int fragCreateGlobalCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     UNUSED(argv);
-    if (argc != 1)
+    if (argc != 2)
         return RedisModule_WrongArity(ctx);
 
+    long long glen;
+    if ((RedisModule_StringToLongLong(argv[1], &glen) != REDISMODULE_OK)) {
+        return RedisModule_ReplyWithError(ctx, "ERR invalid len");
+    }
+
+    createGlobalStrings(ctx, glen);
+    createGlobalDicts(ctx, glen);
     createFragGlobalStrings(ctx);
     createFragGlobalDicts(ctx);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -435,14 +444,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_GetTypeMethodVersion() < REDISMODULE_TYPE_METHOD_VERSION) {
         return REDISMODULE_ERR;
     }
-
-    long long glen;
-    if (argc != 1 || RedisModule_StringToLongLong(argv[0], &glen) == REDISMODULE_ERR) {
-        return REDISMODULE_ERR;
-    }
-
-    createGlobalStrings(ctx, glen);
-    createGlobalDicts(ctx, glen);
 
     RedisModuleTypeMethods tm = {
             .version = REDISMODULE_TYPE_METHOD_VERSION,

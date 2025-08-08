@@ -525,7 +525,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
     int storedist = 0; /* 0 for STORE, 1 for STOREDIST. */
 
     /* Look up the requested zset */
-    robj *zobj = lookupKeyRead(c->db, c->argv[srcKeyIndex]);
+    kvobj *zobj = lookupKeyRead(c->db, c->argv[srcKeyIndex]);
     if (checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Find long/lat to use for radius or box search based on inquiry type */
@@ -828,8 +828,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
 
         if (returned_items) {
             zsetConvertToListpackIfNeeded(zobj,maxelelen,totelelen);
-            setKey(c,c->db,storekey,zobj,0);
-            decrRefCount(zobj);
+            setKey(c,c->db,storekey,&zobj,0);
             notifyKeyspaceEvent(NOTIFY_ZSET,flags & GEOSEARCH ? "geosearchstore" : "georadiusstore",storekey,
                                 c->db->id);
             server.dirty += returned_items;
@@ -880,7 +879,7 @@ void geohashCommand(client *c) {
     int j;
 
     /* Look up the requested zset */
-    robj *zobj = lookupKeyRead(c->db, c->argv[1]);
+    kvobj *zobj = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c, zobj, OBJ_ZSET)) return;
 
     /* Geohash elements one after the other, using a null bulk reply for
@@ -983,7 +982,7 @@ void geodistCommand(client *c) {
     }
 
     /* Look up the requested zset */
-    robj *zobj = NULL;
+    kvobj *zobj = NULL;
     if ((zobj = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp]))
         == NULL || checkType(c, zobj, OBJ_ZSET)) return;
 

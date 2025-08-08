@@ -208,7 +208,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes} appendfsync always}} {
+    start_server {tags {"tsan:skip"} overrides {appendonly {yes} appendfsync always}} {
         test {AOF fsync always barrier issue} {
             set rd [redis_deferring_client]
             # Set a sleep when aof is flushed, so that we have a chance to look
@@ -239,7 +239,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server {overrides {appendonly {yes}}} {
+    start_server {overrides {appendonly {yes} appendfsync always}} {
         test {GETEX should not append to AOF} {
             set aof [get_last_incr_aof_path r]
             r set foo bar

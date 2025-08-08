@@ -5,8 +5,9 @@
  * Copyright (c) 2024-present, Valkey contributors.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  *
  * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
@@ -14,6 +15,7 @@
 #include "server.h"
 #include "monotonic.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 #include "slowlog.h"
 #include "bio.h"
 #include "latency.h"
@@ -106,6 +108,12 @@ static inline int isCommandReusable(struct redisCommand *cmd, robj *commandArg) 
 /* We use a private localtime implementation which is fork-safe. The logging
  * function of Redis may be called from other threads. */
 void nolocks_localtime(struct tm *tmp, time_t t, time_t tz, int dst);
+
+static inline int shouldShutdownAsap(void) {
+    int shutdown_asap;
+    atomicGet(server.shutdown_asap, shutdown_asap);
+    return shutdown_asap;
+}
 
 /* Low level logging. To use only for very big messages, otherwise
  * serverLog() is to prefer. */
@@ -256,11 +264,19 @@ mstime_t commandTimeSnapshot(void) {
 /* After an RDB dump or AOF rewrite we exit from children using _exit() instead of
  * exit(), because the latter may interact with the same file objects used by
  * the parent process. However if we are testing the coverage normal exit() is
- * used in order to obtain the right coverage information. */
-void exitFromChild(int retcode) {
+ * used in order to obtain the right coverage information. 
+ * There is a caveat for when we exit due to a signal.
+ * In this case we want the function to be async signal safe, so we can't use exit()
+ */
+void exitFromChild(int retcode, int from_signal) {
 #ifdef COVERAGE_TEST
-    exit(retcode);
+    if (!from_signal) {
+        exit(retcode);
+    } else {
+        _exit(retcode);
+    }
 #else
+    UNUSED(from_signal);
     _exit(retcode);
 #endif
 }
@@ -294,19 +310,53 @@ size_t dictSdsKeyLen(dict *d, const void *key) {
     return sdslen((sds)key);
 }
 
-int dictSdsKeyCompareWithLen(dict *d, const void *key1, const size_t l1,
-                                      const void *key2, const size_t l2)
-{
-    UNUSED(d);
+static uint64_t dictHashKV(const void *kv) {
+    sds sdsKey = kvobjGetKey((kvobj *) kv);
+    return dictGenHashFunction(sdsKey, sdslen(sdsKey));
+}
+
+int dictCompareKV(dictCmpCache *cache, const void *kv1, const void *kv2) {
+    /* Use caching to avoid compute key&len for each comparison on given lookup */
+    if (cache->useCache == 0) {
+        cache->useCache = 1;
+        cache->data[0].p = kvobjGetKey((kvobj *) kv1);
+        cache->data[1].sz = sdslen((sds) cache->data[0].p); 
+    }
+        
+    sds key1 = cache->data[0].p;
+    sds key2 = kvobjGetKey((kvobj *) kv2);
+    int l1 = (int) cache->data[1].sz; 
+    int l2 = sdslen((sds)key2);
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
 
-int dictSdsKeyCompare(dict *d, const void *key1,
+int dictSdsCompareKV(dictCmpCache *cache, const void *sdsLookup, const void *kv)
+{
+    /* is first cmp call of a new lookup */
+    if (cache->useCache == 0) {
+        cache->useCache = 1;
+        cache->data[0].sz = sdslen((sds) sdsLookup);
+    }
+
+    sds key2 = kvobjGetKey((kvobj *)kv);
+    size_t l1 = cache->data[0].sz;
+    size_t l2 = sdslen((sds)key2);
+    if (l1 != l2) return 0;
+    return memcmp(sdsLookup, key2, l1) == 0;
+}
+
+static void dictDestructorKV(dict *d, void *kv) {
+    UNUSED(d);
+    if (kv == NULL) return;
+    decrRefCount(kv);
+}
+
+int dictSdsKeyCompare(dictCmpCache *cache, const void *key1,
         const void *key2)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = sdslen((sds)key1);
     l2 = sdslen((sds)key2);
@@ -314,10 +364,10 @@ int dictSdsKeyCompare(dict *d, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored)
+int dictSdsMstrKeyCompare(dictCmpCache *cache, const void *sdsLookup, const void *mstrStored)
 {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = sdslen((sds)sdsLookup);
     l2 = hfieldlen((hfield)mstrStored);
@@ -328,10 +378,10 @@ int dictSdsMstrKeyCompare(dict *d, const void *sdsLookup, const void *mstrStored
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
-int dictSdsKeyCaseCompare(dict *d, const void *key1,
+int dictSdsKeyCaseCompare(dictCmpCache *cache, const void *key1,
         const void *key2)
 {
-    UNUSED(d);
+    UNUSED(cache);
     return strcasecmp(key1, key2) == 0;
 }
 
@@ -353,11 +403,11 @@ void *dictSdsDup(dict *d, const void *key) {
     return sdsdup((const sds) key);
 }
 
-int dictObjKeyCompare(dict *d, const void *key1,
+int dictObjKeyCompare(dictCmpCache *cache, const void *key1,
         const void *key2)
 {
     const robj *o1 = key1, *o2 = key2;
-    return dictSdsKeyCompare(d, o1->ptr,o2->ptr);
+    return dictSdsKeyCompare(cache, o1->ptr,o2->ptr);
 }
 
 uint64_t dictObjHash(const void *key) {
@@ -393,15 +443,15 @@ uint64_t dictClientHash(const void *key) {
 }
 
 /* Dict compare function for client */
-int dictClientKeyCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
+int dictClientKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    UNUSED(cache);
     return ((client *)key1)->id == ((client *)key2)->id;
 }
 
 /* Dict compare function for null terminated string */
-int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
+int dictCStrKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
     int l1,l2;
-    UNUSED(d);
+    UNUSED(cache);
 
     l1 = strlen((char*)key1);
     l2 = strlen((char*)key2);
@@ -410,12 +460,12 @@ int dictCStrKeyCompare(dict *d, const void *key1, const void *key2) {
 }
 
 /* Dict case insensitive compare function for null terminated string */
-int dictCStrKeyCaseCompare(dict *d, const void *key1, const void *key2) {
-    UNUSED(d);
+int dictCStrKeyCaseCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    UNUSED(cache);
     return strcasecmp(key1, key2) == 0;
 }
 
-int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
+int dictEncObjKeyCompare(dictCmpCache *cache, const void *key1, const void *key2)
 {
     robj *o1 = (robj*) key1, *o2 = (robj*) key2;
     int cmp;
@@ -430,7 +480,7 @@ int dictEncObjKeyCompare(dict *d, const void *key1, const void *key2)
      * objects as well. */
     if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
-    cmp = dictSdsKeyCompare(d,o1->ptr,o2->ptr);
+    cmp = dictSdsKeyCompare(cache,o1->ptr,o2->ptr);
     if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
     if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;
@@ -517,17 +567,19 @@ dictType zsetDictType = {
     NULL,                      /* allow to expand */
 };
 
-/* Db->dict, keys are sds strings, vals are Redis objects. */
+/* Db->dict, keys are of type kvobj, unification of key and value */
 dictType dbDictType = {
-    dictSdsHash,                /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
-    dictSdsDestructor,          /* key destructor */
-    dictObjectDestructor,       /* val destructor */
-    dictResizeAllowed,          /* allow to resize */
-    .keyLen = dictSdsKeyLen,    /* key length */
-    .keyCompareWithLen = dictSdsKeyCompareWithLen /* key compare with length */
+    dictSdsHash,            /* hash function */
+    NULL,                   /* key dup */
+    NULL,                   /* val dup */
+    dictSdsCompareKV,       /* lookup key compare */
+    dictDestructorKV,       /* key destructor */
+    NULL,                   /* val destructor */
+    dictResizeAllowed,      /* allow to resize */
+    .no_value = 1,          /* keys and values are unified (kvobj) */
+    .keys_are_odd = 0,      /* simple kvobj (robj) struct */
+    .storedHashFunction = dictHashKV,  /* stored hash function */
+    .storedKeyCompare = dictCompareKV, /* stored key compare */
 };
 
 /* Db->expires */
@@ -535,10 +587,14 @@ dictType dbExpiresDictType = {
     dictSdsHash,                /* hash function */
     NULL,                       /* key dup */
     NULL,                       /* val dup */
-    dictSdsKeyCompare,          /* key compare */
+    dictSdsCompareKV,           /* key compare */
     NULL,                       /* key destructor */
     NULL,                       /* val destructor */
     dictResizeAllowed,          /* allow to resize */
+    .no_value = 1,              /* keys and values are unified (kvobj) */
+    .keys_are_odd = 0,          /* simple kvobj (robj) struct */
+    .storedHashFunction = dictHashKV,  /* stored hash function */
+    .storedKeyCompare = dictCompareKV, /* stored key compare */
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -897,16 +953,19 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
 #define CLIENTS_PEAK_MEM_USAGE_SLOTS 8
 size_t ClientsPeakMemInput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
 size_t ClientsPeakMemOutput[CLIENTS_PEAK_MEM_USAGE_SLOTS] = {0};
+int CurrentPeakMemUsageSlot = 0;
 
-int clientsCronTrackExpansiveClients(client *c, int time_idx) {
+int clientsCronTrackExpansiveClients(client *c) {
     size_t qb_size = c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     size_t argv_size = c->argv ? zmalloc_size(c->argv) : 0;
     size_t in_usage = qb_size + c->argv_len_sum + argv_size;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
 
     /* Track the biggest values observed so far in this slot. */
-    if (in_usage > ClientsPeakMemInput[time_idx]) ClientsPeakMemInput[time_idx] = in_usage;
-    if (out_usage > ClientsPeakMemOutput[time_idx]) ClientsPeakMemOutput[time_idx] = out_usage;
+    if (in_usage > ClientsPeakMemInput[CurrentPeakMemUsageSlot])
+        ClientsPeakMemInput[CurrentPeakMemUsageSlot] = in_usage;
+    if (out_usage > ClientsPeakMemOutput[CurrentPeakMemUsageSlot])
+        ClientsPeakMemOutput[CurrentPeakMemUsageSlot] = out_usage;
 
     return 0; /* This function never terminates the client. */
 }
@@ -996,7 +1055,16 @@ void removeClientFromMemUsageBucket(client *c, int allow_eviction) {
  * returns 1 if client eviction for this client is allowed, 0 otherwise.
  */
 int updateClientMemUsageAndBucket(client *c) {
-    serverAssert(pthread_equal(pthread_self(), server.main_thread_id) && c->conn);
+    /* The unlikely case this function was called from a thread different
+     * than the main one is a module call from a spawned thread. This is safe
+     * since this call must have been made after calling
+     * RedisModule_ThreadSafeContextLock i.e the module is holding the GIL. In
+     * that special case we assert that at least the updated client's
+     * running_tid is the main thread. The true main thread is allowed to call
+     * this function on clients handled by IO-threads as it makes sure the
+     * IO-threads are paused, f.e see cleintsCron() and evictClients(). */
+    serverAssert((pthread_equal(pthread_self(), server.main_thread_id) ||
+                  c->running_tid == IOTHREAD_MAIN_THREAD_ID) && c->conn);
     int allow_eviction = clientEvictionAllowed(c);
     removeClientFromMemUsageBucket(c, allow_eviction);
 
@@ -1033,6 +1101,33 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
     *out_usage = o;
 }
 
+/* Run cron tasks for a single client. Return 1 if the client should
+ * be terminated, 0 otherwise. */
+int clientsCronRunClient(client *c) {
+    mstime_t now = server.mstime;
+    /* The following functions do different service checks on the client.
+     * The protocol is that they return non-zero if the client was
+     * terminated. */
+    if (clientsCronHandleTimeout(c,now)) return 1;
+    if (clientsCronResizeQueryBuffer(c)) return 1;
+    if (clientsCronFreeArgvIfIdle(c)) return 1;
+    if (clientsCronResizeOutputBuffer(c,now)) return 1;
+
+    if (clientsCronTrackExpansiveClients(c)) return 1;
+
+    /* Iterating all the clients in getMemoryOverheadData() is too slow and
+     * in turn would make the INFO command too slow. So we perform this
+     * computation incrementally and track the (not instantaneous but updated
+     * to the second) total memory used by clients using clientsCron() in
+     * a more incremental way (depending on server.hz).
+     * If client eviction is enabled, update the bucket as well. */
+    if (!updateClientMemUsageAndBucket(c))
+        updateClientMemoryUsage(c);
+
+    if (closeClientOnOutputBufferLimitReached(c, 0)) return 1;
+    return 0;
+}
+
 /* This function is called by serverCron() and is used in order to perform
  * operations on clients that are important to perform constantly. For instance
  * we use this function in order to disconnect clients after a timeout, including
@@ -1048,8 +1143,6 @@ void getExpansiveClientsInfo(size_t *in_usage, size_t *out_usage) {
  * default server.hz value is 10, so sometimes here we need to process thousands
  * of clients per second, turning this function into a source of latency.
  */
-#define CLIENTS_CRON_PAUSE_IOTHREAD 8
-#define CLIENTS_CRON_MIN_ITERATIONS 5
 void clientsCron(void) {
     /* Try to process at least numclients/server.hz of clients
      * per call. Since normally (if there are no big latency events) this
@@ -1057,7 +1150,6 @@ void clientsCron(void) {
      * process all the clients in 1 second. */
     int numclients = listLength(server.clients);
     int iterations = numclients/server.hz;
-    mstime_t now = mstime();
 
     /* Process at least a few clients while we are at it, even if we need
      * to process less than CLIENTS_CRON_MIN_ITERATIONS to meet our contract
@@ -1067,7 +1159,7 @@ void clientsCron(void) {
                      numclients : CLIENTS_CRON_MIN_ITERATIONS;
 
 
-    int curr_peak_mem_usage_slot = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    CurrentPeakMemUsageSlot = server.unixtime % CLIENTS_PEAK_MEM_USAGE_SLOTS;
     /* Always zero the next sample, so that when we switch to that second, we'll
      * only register samples that are greater in that second without considering
      * the history of such slot.
@@ -1079,19 +1171,9 @@ void clientsCron(void) {
      * than CLIENTS_PEAK_MEM_USAGE_SLOTS seconds: however this is not a problem
      * since here we want just to track if "recently" there were very expansive
      * clients from the POV of memory usage. */
-    int zeroidx = (curr_peak_mem_usage_slot+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
+    int zeroidx = (CurrentPeakMemUsageSlot+1) % CLIENTS_PEAK_MEM_USAGE_SLOTS;
     ClientsPeakMemInput[zeroidx] = 0;
     ClientsPeakMemOutput[zeroidx] = 0;
-
-    /* Pause the IO threads that are processing clients, to let us access clients
-     * safely. In order to avoid increasing CPU usage by pausing all threads when
-     * there are too many io threads, we pause io threads in multiple batches. */
-    static int start = 1, end = 0;
-    if (server.io_threads_num >= 1 && listLength(server.clients) > 0) {
-        end = start + CLIENTS_CRON_PAUSE_IOTHREAD - 1;
-        if (end >= server.io_threads_num) end = server.io_threads_num - 1;
-        pauseIOThreadsRange(start, end);
-    }
 
     while(listLength(server.clients) && iterations--) {
         client *c;
@@ -1103,42 +1185,10 @@ void clientsCron(void) {
         c = listNodeValue(head);
         listRotateHeadToTail(server.clients);
 
-        if (c->running_tid != IOTHREAD_MAIN_THREAD_ID &&
-            !(c->running_tid >= start && c->running_tid <= end))
-        {
-            /* Skip clients that are being processed by the IO threads that
-             * are not paused. */
-            continue;
-        }
+        /* Clients handled by IO threads will be processed by IOThreadClientsCron. */
+        if (c->tid != IOTHREAD_MAIN_THREAD_ID) continue;
 
-        /* The following functions do different service checks on the client.
-         * The protocol is that they return non-zero if the client was
-         * terminated. */
-        if (clientsCronHandleTimeout(c,now)) continue;
-        if (clientsCronResizeQueryBuffer(c)) continue;
-        if (clientsCronFreeArgvIfIdle(c)) continue;
-        if (clientsCronResizeOutputBuffer(c,now)) continue;
-
-        if (clientsCronTrackExpansiveClients(c, curr_peak_mem_usage_slot)) continue;
-
-        /* Iterating all the clients in getMemoryOverheadData() is too slow and
-         * in turn would make the INFO command too slow. So we perform this
-         * computation incrementally and track the (not instantaneous but updated
-         * to the second) total memory used by clients using clientsCron() in
-         * a more incremental way (depending on server.hz).
-         * If client eviction is enabled, update the bucket as well. */
-        if (!updateClientMemUsageAndBucket(c))
-            updateClientMemoryUsage(c);
-
-        if (closeClientOnOutputBufferLimitReached(c, 0)) continue;
-    }
-
-    /* Resume the IO threads that were paused */
-    if (end) {
-        resumeIOThreadsRange(start, end);
-        start = end + 1;
-        if (start >= server.io_threads_num) start = 1;
-        end = 0;
+        clientsCronRunClient(c);
     }
 }
 
@@ -1303,11 +1353,17 @@ void checkChildrenDone(void) {
     }
 }
 
+/* Record the max memory used since the server was started. */
+void updatePeakMemory(size_t used_memory) {
+    if (unlikely(used_memory > server.stat_peak_memory)) {
+        server.stat_peak_memory = used_memory;
+        server.stat_peak_memory_time = server.unixtime;
+    }
+}
+
 /* Called from serverCron and cronUpdateMemoryStats to update cached memory metrics. */
 void cronUpdateMemoryStats(void) {
-    /* Record the max memory used since the server was started. */
-    if (zmalloc_used_memory() > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used_memory();
+    updatePeakMemory(zmalloc_used_memory());
 
     run_with_period(100) {
         /* Sample the RSS and other metrics here since this is a relatively slow call.
@@ -1435,11 +1491,13 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* We received a SIGTERM or SIGINT, shutting down here in a safe way, as it is
      * not ok doing so inside the signal handler. */
-    if (server.shutdown_asap && !isShutdownInitiated()) {
+    if (shouldShutdownAsap() && !isShutdownInitiated()) {
         int shutdownFlags = SHUTDOWN_NOFLAGS;
-        if (server.last_sig_received == SIGINT && server.shutdown_on_sigint)
+        int last_sig_received;
+        atomicGet(server.last_sig_received, last_sig_received);
+        if (last_sig_received == SIGINT && server.shutdown_on_sigint)
             shutdownFlags = server.shutdown_on_sigint;
-        else if (server.last_sig_received == SIGTERM && server.shutdown_on_sigterm)
+        else if (last_sig_received == SIGTERM && server.shutdown_on_sigterm)
             shutdownFlags = server.shutdown_on_sigterm;
 
         if (prepareForShutdown(shutdownFlags) == C_OK) exit(0);
@@ -1662,6 +1720,12 @@ void whileBlockedCron(void) {
     if (server.blocked_last_cron >= server.mstime)
         return;
 
+    /* Increment server.cronloops so that run_with_period works. */
+    long hz_ms = 1000 / server.hz;
+    int cronloops = (server.mstime - server.blocked_last_cron + (hz_ms - 1)) / hz_ms; /* rounding up */
+    server.blocked_last_cron += cronloops * hz_ms;
+    server.cronloops += cronloops;
+
     mstime_t latency;
     latencyStartMonitor(latency);
 
@@ -1675,11 +1739,11 @@ void whileBlockedCron(void) {
 
     /* We received a SIGTERM during loading, shutting down here in a safe way,
      * as it isn't ok doing so inside the signal handler. */
-    if (server.shutdown_asap && server.loading) {
+    if (shouldShutdownAsap() && server.loading) {
         if (prepareForShutdown(SHUTDOWN_NOSAVE) == C_OK) exit(0);
         serverLog(LL_WARNING,"SIGTERM received but errors trying to shut down the server, check the logs for more information");
-        server.shutdown_asap = 0;
-        server.last_sig_received = 0;
+        atomicSet(server.shutdown_asap, 0);
+        atomicSet(server.last_sig_received, 0);
     }
 }
 
@@ -1710,9 +1774,7 @@ extern int ProcessingEventsWhileBlocked;
 void beforeSleep(struct aeEventLoop *eventLoop) {
     UNUSED(eventLoop);
 
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used;
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Just call a subset of vital functions in case we are re-entering
      * the event loop from processEventsWhileBlocked(). Note that in this
@@ -1830,6 +1892,22 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
             dont_sleep = 1;
     }
 
+    if (server.io_threads_num > 1) {
+        /* Corresponding to IOThreadBeforeSleep, process the clients from IO threads
+         * without notification. */
+        if (processClientsOfAllIOThreads() > 0) {
+            /* If there are clients that are processed, it means IO thread is busy to
+             * trafer clients to main thread, so the main thread does not sleep. */
+            dont_sleep = 1;
+        }
+        if (!dont_sleep) {
+            atomicSetWithSync(server.running, 0); /* Not running if going to sleep. */
+            /* Try to process the clients from IO threads again, since before setting running
+             * to 0, some clients may be transferred without notification. */
+            processClientsOfAllIOThreads();
+        }
+    }
+
     /* Handle writes with pending output buffers. */
     handleClientsWithPendingWrites();
 
@@ -1910,6 +1988,9 @@ void afterSleep(struct aeEventLoop *eventLoop) {
         /* Set the eventloop command count at start. */
         server.el_cmd_cnt_start = server.stat_numcommands;
     }
+
+    /* Set running after waking up */
+    if (server.io_threads_num > 1) atomicSetWithSync(server.running, 1);
 
     /* Update the time cache. */
     updateCachedTime(1);
@@ -2046,6 +2127,7 @@ void createSharedObjects(void) {
     shared.hpexpireat = createStringObject("HPEXPIREAT",10);
     shared.hpersist = createStringObject("HPERSIST",8);
     shared.hdel = createStringObject("HDEL",4);
+    shared.hsetex = createStringObject("HSETEX",6);
 
     /* Shared command argument */
     shared.left = createStringObject("left",4);
@@ -2068,6 +2150,7 @@ void createSharedObjects(void) {
     shared.special_asterick = createStringObject("*",1);
     shared.special_equals = createStringObject("=",1);
     shared.redacted = makeObjectShared(createStringObject("(redacted)",10));
+    shared.fields = createStringObject("FIELDS",6);
 
     for (j = 0; j < OBJ_SHARED_INTEGERS; j++) {
         shared.integers[j] =
@@ -2131,6 +2214,7 @@ void initServerConfig(void) {
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
+    server.dbg_assert_keysizes = 0; /* Disabled by default */
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
@@ -2195,15 +2279,18 @@ void initServerConfig(void) {
     server.master_initial_offset = -1;
     server.repl_state = REPL_STATE_NONE;
     server.repl_rdb_ch_state = REPL_RDB_CH_STATE_NONE;
+    server.repl_num_master_disconnection = 0;
     server.repl_full_sync_buffer = (struct replDataBuf) {0};
     server.repl_transfer_tmpfile = NULL;
     server.repl_transfer_fd = -1;
     server.repl_transfer_s = NULL;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_down_since = 0; /* Never connected, repl is down since EVER. */
+    server.repl_up_since = 0;
     server.master_repl_offset = 0;
     server.fsynced_reploff_pending = 0;
     server.repl_stream_lastio = server.unixtime;
+    server.repl_total_sync_attempts = 0;
 
     /* Replication partial resync backlog */
     server.repl_backlog = NULL;
@@ -2661,6 +2748,8 @@ void resetServerStats(void) {
     server.stat_reply_buffer_shrinks = 0;
     server.stat_reply_buffer_expands = 0;
     server.stat_cluster_incompatible_ops = 0;
+    server.stat_total_prefetch_batches = 0;
+    server.stat_total_prefetch_entries = 0;
     memset(server.duration_stats, 0, sizeof(durationStats) * EL_DURATION_TYPE_NUM);
     server.el_cmd_cnt_max = 0;
     lazyfreeResetStats();
@@ -2808,6 +2897,7 @@ void initServer(void) {
     /* A few stats we don't want to reset: server startup time, and peak mem. */
     server.stat_starttime = time(NULL);
     server.stat_peak_memory = 0;
+    server.stat_peak_memory_time = server.unixtime;
     server.stat_current_cow_peak = 0;
     server.stat_current_cow_bytes = 0;
     server.stat_current_cow_updated = 0;
@@ -2825,12 +2915,14 @@ void initServer(void) {
     server.cron_malloc_stats.allocator_allocated = 0;
     server.cron_malloc_stats.allocator_active = 0;
     server.cron_malloc_stats.allocator_resident = 0;
+    server.repl_current_sync_attempts = 0;
     server.lastbgsave_status = C_OK;
     server.aof_last_write_status = C_OK;
     server.aof_last_write_errno = 0;
     server.repl_good_slaves_count = 0;
     server.last_sig_received = 0;
     memset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
+    atomicSetWithSync(server.running, 0);
 
     /* Initiate acl info struct */
     server.acl_info.invalid_cmd_accesses = 0;
@@ -3185,10 +3277,10 @@ void populateCommandTable(void) {
 void resetCommandTableStats(dict* commands) {
     struct redisCommand *c;
     dictEntry *de;
-    dictIterator *di;
+    dictIterator di;
 
-    di = dictGetSafeIterator(commands);
-    while((de = dictNext(di)) != NULL) {
+    dictInitSafeIterator(&di, commands);
+    while((de = dictNext(&di)) != NULL) {
         c = (struct redisCommand *) dictGetVal(de);
         c->microseconds = 0;
         c->calls = 0;
@@ -3201,7 +3293,7 @@ void resetCommandTableStats(dict* commands) {
         if (c->subcommands_dict)
             resetCommandTableStats(c->subcommands_dict);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 void resetErrorTableStats(void) {
@@ -3628,7 +3720,7 @@ void call(client *c, int flags) {
      * and a client which is reprocessing command again (after being unblocked).
      * Blocked clients can be blocked in different places and not always it means the call() function has been
      * called. For example this is required for avoiding double logging to monitors.*/
-    int reprocessing_command = flags & CMD_CALL_REPROCESSING;
+    int reprocessing_command = (c->flags & CLIENT_REEXECUTING_COMMAND) ? 1 : 0;
 
     /* Initialization: clear the flags that must be set by the command on
      * demand, and initialize the array for additional commands propagation. */
@@ -3655,19 +3747,11 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
-    /* Setting the CLIENT_REPROCESSING_COMMAND flag so that during the actual
-     * processing of the command proc, the client is aware that it is being
-     * re-processed. */
-    if (reprocessing_command) c->flags |= CLIENT_REPROCESSING_COMMAND;
-
     monotime monotonic_start = 0;
     if (monotonicGetType() == MONOTONIC_CLOCK_HW)
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
-
-    /* Clear the CLIENT_REPROCESSING_COMMAND flag after the proc is executed. */
-    if (reprocessing_command) c->flags &= ~CLIENT_REPROCESSING_COMMAND;
 
     exitExecutionUnit();
 
@@ -3741,13 +3825,14 @@ void call(client *c, int flags) {
     if (!(c->flags & CLIENT_BLOCKED))
         freeClientOriginalArgv(c);
 
-    /* populate the per-command statistics that we show in INFO commandstats.
-     * If the client is blocked we will handle latency stats and duration when it is unblocked. */
+    /* Populate the per-command and per-slot statistics that we show in INFO commandstats and CLUSTER SLOT-STATS,
+     * respectively. If the client is blocked we will handle latency stats and duration when it is unblocked. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED)) {
         real_cmd->calls++;
         real_cmd->microseconds += c->duration;
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
+        clusterSlotStatsAddCpuDuration(c, c->duration);
     }
 
     /* The duration needs to be reset after each call except for a blocked command,
@@ -3817,14 +3902,18 @@ void call(client *c, int flags) {
         }
     }
 
-    if (!(c->flags & CLIENT_BLOCKED))
+    if (!(c->flags & CLIENT_BLOCKED)) {
+        /* Modules may call commands in cron, in which case server.current_client
+         * is not set. */
+        if (server.current_client) {
+            server.current_client->commands_processed++;
+        }
         server.stat_numcommands++;
+    }
 
     /* Record peak memory after each command and before the eviction that runs
      * before the next command. */
-    size_t zmalloc_used = zmalloc_used_memory();
-    if (zmalloc_used > server.stat_peak_memory)
-        server.stat_peak_memory = zmalloc_used;
+    updatePeakMemory(zmalloc_used_memory());
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
@@ -3887,7 +3976,6 @@ void rejectCommandFormat(client *c, const char *fmt, ...) {
 
 /* This is called after a command in call, we can do some maintenance job in it. */
 void afterCommand(client *c) {
-    UNUSED(c);
     /* Should be done before trackingHandlePendingKeyInvalidations so that we
      * reply to client before invalidating cache (makes more sense) */
     postExecutionUnitOperations();
@@ -3895,10 +3983,16 @@ void afterCommand(client *c) {
     /* Flush pending tracking invalidations. */
     trackingHandlePendingKeyInvalidations();
 
+    clusterSlotStatsAddNetworkBytesOutForUserClient(c);
+
     /* Flush other pending push messages. only when we are not in nested call.
      * So the messages are not interleaved with transaction response. */
     if (!server.execution_nesting)
         listJoin(c->reply, server.pending_push_messages);
+
+    /* Assert keysizes histogram if enabled */
+    if (unlikely(server.dbg_assert_keysizes))
+        dbgAssertKeysizesHist(c->db);
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.
@@ -3935,13 +4029,11 @@ int commandCheckExistence(client *c, sds *err) {
 
 /* Check if c->argc is valid for c->cmd, fills `err` with details in case it isn't.
  * Return 1 if valid. */
-int commandCheckArity(client *c, sds *err) {
-    if ((c->cmd->arity > 0 && c->cmd->arity != c->argc) ||
-        (c->argc < -c->cmd->arity))
-    {
+int commandCheckArity(struct redisCommand *cmd, int argc, sds *err) {
+    if ((cmd->arity > 0 && cmd->arity != argc) || (argc < -cmd->arity)) {
         if (err) {
             *err = sdsnew(NULL);
-            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", c->cmd->fullname);
+            *err = sdscatprintf(*err, "wrong number of arguments for '%s' command", cmd->fullname);
         }
         return 0;
     }
@@ -4034,7 +4126,7 @@ int processCommand(client *c) {
             rejectCommandSds(c, err);
             return C_OK;
         }
-        if (!commandCheckArity(c, &err)) {
+        if (!commandCheckArity(c->cmd, c->argc, &err)) {
             rejectCommandSds(c, err);
             return C_OK;
         }
@@ -4324,7 +4416,6 @@ int processCommand(client *c) {
         addReply(c,shared.queued);
     } else {
         int flags = CMD_CALL_FULL;
-        if (client_reprocessing_command) flags |= CMD_CALL_REPROCESSING;
         call(c,flags);
         if (listLength(server.ready_keys) && !isInsideYieldingLongCommand())
             handleClientsBlockedOnKeys();
@@ -4530,10 +4621,10 @@ int isReadyToShutdown(void) {
 }
 
 static void cancelShutdown(void) {
-    server.shutdown_asap = 0;
+    atomicSet(server.shutdown_asap, 0);
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
-    server.last_sig_received = 0;
+    atomicSet(server.last_sig_received, 0);
     replyToClientsBlockedOnShutdown();
     unpauseActions(PAUSE_DURING_SHUTDOWN);
 }
@@ -4542,10 +4633,10 @@ static void cancelShutdown(void) {
 int abortShutdown(void) {
     if (isShutdownInitiated()) {
         cancelShutdown();
-    } else if (server.shutdown_asap) {
+    } else if (shouldShutdownAsap()) {
         /* Signal handler has requested shutdown, but it hasn't been initiated
          * yet. Just clear the flag. */
-        server.shutdown_asap = 0;
+        atomicSet(server.shutdown_asap, 0);
     } else {
         /* Shutdown neither initiated nor requested. */
         return C_ERR;
@@ -5116,14 +5207,15 @@ void addReplyCommandSubCommands(client *c, struct redisCommand *cmd, void (*repl
     else
         addReplyArrayLen(c, dictSize(cmd->subcommands_dict));
     dictEntry *de;
-    dictIterator *di = dictGetSafeIterator(cmd->subcommands_dict);
-    while((de = dictNext(di)) != NULL) {
+    dictIterator di;
+    dictInitSafeIterator(&di, cmd->subcommands_dict);
+    while((de = dictNext(&di)) != NULL) {
         struct redisCommand *sub = (struct redisCommand *)dictGetVal(de);
         if (use_map)
             addReplyBulkCBuffer(c, sub->fullname, sdslen(sub->fullname));
         reply_function(c, sub);
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* Output the representation of a Redis command. Used by the COMMAND command and COMMAND INFO. */
@@ -5277,7 +5369,7 @@ void getKeysSubcommand(client *c) {
 }
 
 void genericCommandCommand(client *c, int count_only) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     void *len = NULL;
     int count = 0;
@@ -5285,8 +5377,8 @@ void genericCommandCommand(client *c, int count_only) {
     if (!count_only)
         len = addReplyDeferredLen(c);
 
-    di = dictGetIterator(server.commands);
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, server.commands);
+    while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (!commandVisibleForClient(c, cmd))
             continue;
@@ -5294,7 +5386,7 @@ void genericCommandCommand(client *c, int count_only) {
             addReplyCommandInfo(c, dictGetVal(de));
         count++;
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
     if (count_only)
         addReplyLongLong(c, count);
     else
@@ -5358,9 +5450,10 @@ int shouldFilterFromCommandList(struct redisCommand *cmd, commandListFilter *fil
 /* COMMAND LIST FILTERBY (MODULE <module-name>|ACLCAT <cat>|PATTERN <pattern>) */
 void commandListWithFilter(client *c, dict *commands, commandListFilter filter, int *numcmds) {
     dictEntry *de;
-    dictIterator *di = dictGetIterator(commands);
+    dictIterator di;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, commands);
+    while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (commandVisibleForClient(c, cmd) && !shouldFilterFromCommandList(cmd,&filter)) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
@@ -5371,15 +5464,16 @@ void commandListWithFilter(client *c, dict *commands, commandListFilter filter, 
             commandListWithFilter(c, cmd->subcommands_dict, filter, numcmds);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* COMMAND LIST */
 void commandListWithoutFilter(client *c, dict *commands, int *numcmds) {
     dictEntry *de;
-    dictIterator *di = dictGetIterator(commands);
+    dictIterator di;
 
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, commands);
+    while ((de = dictNext(&di)) != NULL) {
         struct redisCommand *cmd = dictGetVal(de);
         if (commandVisibleForClient(c, cmd)) {
             addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
@@ -5390,7 +5484,7 @@ void commandListWithoutFilter(client *c, dict *commands, int *numcmds) {
             commandListWithoutFilter(c, cmd->subcommands_dict, numcmds);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 /* COMMAND LIST [FILTERBY (MODULE <module-name>|ACLCAT <cat>|PATTERN <pattern>)] */
@@ -5455,11 +5549,11 @@ void commandDocsCommand(client *c) {
     int numcmds = 0;
     if (c->argc == 2) {
         /* Reply with an array of all commands */
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de;
         void *replylen = addReplyDeferredLen(c);
-        di = dictGetIterator(server.commands);
-        while ((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, server.commands);
+        while ((de = dictNext(&di)) != NULL) {
             struct redisCommand *cmd = dictGetVal(de);
             if (commandVisibleForClient(c, cmd)) {
                 addReplyBulkCBuffer(c, cmd->fullname, sdslen(cmd->fullname));
@@ -5467,7 +5561,7 @@ void commandDocsCommand(client *c) {
                 numcmds++;
             }
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         setDeferredMapLen(c,replylen,numcmds);
     } else {
         /* Reply with an array of the requested commands (if we find them) */
@@ -5600,9 +5694,9 @@ const char *getSafeInfoString(const char *s, size_t len, char **tmp) {
 sds genRedisInfoStringCommandStats(sds info, dict *commands) {
     struct redisCommand *c;
     dictEntry *de;
-    dictIterator *di;
-    di = dictGetSafeIterator(commands);
-    while((de = dictNext(di)) != NULL) {
+    dictIterator di;
+    dictInitSafeIterator(&di, commands);
+    while((de = dictNext(&di)) != NULL) {
         char *tmpsafe;
         c = (struct redisCommand *) dictGetVal(de);
         if (c->calls || c->failed_calls || c->rejected_calls) {
@@ -5618,7 +5712,7 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
             info = genRedisInfoStringCommandStats(info, c->subcommands_dict);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return info;
 }
@@ -5640,9 +5734,9 @@ sds genRedisInfoStringACLStats(sds info) {
 sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
     struct redisCommand *c;
     dictEntry *de;
-    dictIterator *di;
-    di = dictGetSafeIterator(commands);
-    while((de = dictNext(di)) != NULL) {
+    dictIterator di;
+    dictInitSafeIterator(&di, commands);
+    while((de = dictNext(&di)) != NULL) {
         char *tmpsafe;
         c = (struct redisCommand *) dictGetVal(de);
         if (c->latency_histogram) {
@@ -5655,7 +5749,7 @@ sds genRedisInfoStringLatencyStats(sds info, dict *commands) {
             info = genRedisInfoStringLatencyStats(info, c->subcommands_dict);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return info;
 }
@@ -5859,8 +5953,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
          * may happen that the instantaneous value is slightly bigger than
          * the peak value. This may confuse users, so we update the peak
          * if found smaller than the current memory usage. */
-        if (zmalloc_used > server.stat_peak_memory)
-            server.stat_peak_memory = zmalloc_used;
+        updatePeakMemory(zmalloc_used);
 
         bytesToHuman(hmem,sizeof(hmem),zmalloc_used);
         bytesToHuman(peak_hmem,sizeof(peak_hmem),server.stat_peak_memory);
@@ -5879,6 +5972,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "used_memory_rss_human:%s\r\n", used_memory_rss_hmem,
             "used_memory_peak:%zu\r\n", server.stat_peak_memory,
             "used_memory_peak_human:%s\r\n", peak_hmem,
+            "used_memory_peak_time:%jd\r\n", (intmax_t)server.stat_peak_memory_time,
             "used_memory_peak_perc:%.2f%%\r\n", mh->peak_perc,
             "used_memory_overhead:%zu\r\n", mh->overhead_total,
             "used_memory_startup:%zu\r\n", mh->startup_allocated,
@@ -5920,7 +6014,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_fragmentation_bytes:%zd\r\n", mh->total_frag_bytes,
             "mem_not_counted_for_evict:%zu\r\n", freeMemoryGetNotCountedMemory(),
             "mem_replication_backlog:%zu\r\n", mh->repl_backlog,
-            "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem,
+            "mem_total_replication_buffers:%zu\r\n", server.repl_buffer_mem + server.repl_full_sync_buffer.mem_used,
             "mem_replica_full_sync_buffer:%zu\r\n", server.repl_full_sync_buffer.mem_used,
             "mem_clients_slaves:%zu\r\n", mh->clients_slaves,
             "mem_clients_normal:%zu\r\n", mh->clients_normal,
@@ -6129,6 +6223,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "total_writes_processed:%lld\r\n", stat_total_writes_processed,
             "io_threaded_reads_processed:%lld\r\n", stat_io_reads_processed,
             "io_threaded_writes_processed:%lld\r\n", stat_io_writes_processed,
+            "io_threaded_total_prefetch_batches:%lld\r\n", server.stat_total_prefetch_batches,
+            "io_threaded_total_prefetch_entries:%lld\r\n", server.stat_total_prefetch_entries,
             "client_query_buffer_limit_disconnections:%lld\r\n", stat_client_qbuf_limit_disconnections,
             "client_output_buffer_limit_disconnections:%lld\r\n", server.stat_client_outbuf_limit_disconnections,
             "reply_buffer_shrinks:%lld\r\n", server.stat_reply_buffer_shrinks,
@@ -6154,6 +6250,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (server.masterhost) {
             long long slave_repl_offset = 1;
             long long slave_read_repl_offset = 1;
+            time_t current_disconnect_time = server.repl_down_since ?
+                server.unixtime - server.repl_down_since : 0 ;
 
             if (server.master) {
                 slave_repl_offset = server.master->reploff;
@@ -6172,8 +6270,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 "slave_read_repl_offset:%lld\r\n", slave_read_repl_offset,
                 "slave_repl_offset:%lld\r\n", slave_repl_offset,
                 "replica_full_sync_buffer_size:%zu\r\n", server.repl_full_sync_buffer.size,
-                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak));
-
+                "replica_full_sync_buffer_peak:%zu\r\n", server.repl_full_sync_buffer.peak,
+                "master_current_sync_attempts:%lld\r\n", server.repl_current_sync_attempts,
+                "master_total_sync_attempts:%lld\r\n", server.repl_total_sync_attempts));
             if (server.repl_state == REPL_STATE_TRANSFER) {
                 double perc = 0;
                 if (server.repl_transfer_size) {
@@ -6192,7 +6291,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                     "master_link_down_since_seconds:%jd\r\n",
                     server.repl_down_since ?
                     (intmax_t)(server.unixtime-server.repl_down_since) : -1);
+            } else {
+                info = sdscatprintf(info,
+                    "master_link_up_since_seconds:%jd\r\n",
+                    server.repl_up_since ? /* defensive code, should never be 0 when connected */
+                    (intmax_t)(server.unixtime-server.repl_up_since) : -1);
             }
+            info = sdscatprintf(info, "total_disconnect_time_sec:%jd\r\n", (intmax_t)server.repl_total_disconnect_time+(current_disconnect_time));
+
             info = sdscatprintf(info, FMTARGS(
                 "slave_priority:%d\r\n", server.slave_priority,
                 "slave_read_only:%d\r\n", server.repl_slave_ro,
@@ -6389,7 +6495,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 continue;
             
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                uint64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
+                int64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
                 char buf[10000];
                 int cnt = 0, buflen = 0;
 
@@ -6686,7 +6792,7 @@ static void sigShutdownHandler(int sig) {
      * If we receive the signal the second time, we interpret this as
      * the user really wanting to quit ASAP without waiting to persist
      * on disk and without waiting for lagging replicas. */
-    if (server.shutdown_asap && sig == SIGINT) {
+    if (shouldShutdownAsap() && sig == SIGINT) {
         serverLogRawFromHandler(LL_WARNING, "You insist... exiting now.");
         rdbRemoveTempFile(getpid(), 1);
         exit(1); /* Exit with an error since this was not a clean shutdown. */
@@ -6695,8 +6801,8 @@ static void sigShutdownHandler(int sig) {
     }
 
     serverLogRawFromHandler(LL_WARNING, msg);
-    server.shutdown_asap = 1;
-    server.last_sig_received = sig;
+    atomicSet(server.shutdown_asap, 1);
+    atomicSet(server.last_sig_received, sig);
 }
 
 void setupSignalHandlers(void) {
@@ -6719,7 +6825,10 @@ static void sigKillChildHandler(int sig) {
     UNUSED(sig);
     int level = server.in_fork_child == CHILD_TYPE_MODULE? LL_VERBOSE: LL_WARNING;
     serverLogRawFromHandler(level, "Received SIGUSR1 in child, exiting now.");
-    exitFromChild(SERVER_CHILD_NOERROR_RETVAL);
+    /* We don't want to perform any IO in the child when the parent is terminating us.
+     * We don't know what our stack trace is, it is possible that we were called during an IO operation
+     * If we were to do another IO operation, we might end up in a deadlock */
+    exitFromChild(SERVER_CHILD_NOERROR_RETVAL, 1);
 }
 
 void setupChildSignalHandlers(void) {
@@ -7490,6 +7599,7 @@ int main(int argc, char **argv) {
     }
     if (!server.sentinel_mode) {
         moduleInitModulesSystemLast();
+        moduleLoadInternalModules();
         moduleLoadFromQueue();
     }
     ACLLoadUsersAtStartup();

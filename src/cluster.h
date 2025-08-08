@@ -1,3 +1,17 @@
+/*
+ * Copyright (c) 2009-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+ */
+
 #ifndef __CLUSTER_H
 #define __CLUSTER_H
 
@@ -107,9 +121,7 @@ clusterNode *getMyClusterNode(void);
 char *getMyClusterId(void);
 int getClusterSize(void);
 int getMyShardSlotCount(void);
-int handleDebugClusterCommand(client *c);
 int clusterNodePending(clusterNode  *node);
-int clusterNodeIsMaster(clusterNode *n);
 char **getClusterNodesList(size_t *numnodes);
 int clusterNodeIsMaster(clusterNode *n);
 char *clusterNodeIp(clusterNode *node);
@@ -132,6 +144,8 @@ const char *clusterNodePreferredEndpoint(clusterNode *n);
 long long clusterNodeReplOffset(clusterNode *node);
 clusterNode *clusterLookupNode(const char *name, int length);
 const char *clusterGetSecret(size_t *len);
+unsigned int countKeysInSlot(unsigned int slot);
+int getSlotOrReply(client *c, robj *o);
 
 /* functions with shared implementations */
 clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, uint64_t cmd_flags, int *error_code);
@@ -149,6 +163,7 @@ void clusterFreeNodesSlotsInfo(clusterNode *n);
 int clusterNodeSlotInfoCount(clusterNode *n);
 uint16_t clusterNodeSlotInfoEntry(clusterNode *n, int idx);
 int clusterNodeHasSlotInfo(clusterNode *n);
+void resetClusterStats(void);
 
 int clusterGetShardCount(void);
 void *clusterGetShardIterator(void);

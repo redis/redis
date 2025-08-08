@@ -10,8 +10,9 @@
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
  *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2) or the Server Side Public License v1 (SSPLv1).
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
  */
 
 #ifndef __REDIS_ASSERT_H__
@@ -24,5 +25,11 @@
 
 void _serverAssert(const char *estr, const char *file, int line);
 void _serverPanic(const char *file, int line, const char *msg, ...);
+
+#ifdef DEBUG_ASSERTIONS
+#define debugAssert(_e) assert(_e)
+#else
+#define debugAssert(_e) ((void)0)
+#endif
 
 #endif

@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/defragtest.so]
 
 start_server {tags {"modules"} overrides {{save ""}}} {
-    r module load $testmodule 50000
+    r module load $testmodule
     r config set hz 100
     r config set active-defrag-ignore-bytes 1
     r config set active-defrag-threshold-lower 0
@@ -19,6 +19,8 @@ start_server {tags {"modules"} overrides {{save ""}}} {
                 fail "Unable to wait for active defrag to stop"
             }
 
+            r flushdb
+            r frag.resetstats
             r frag.create key1 1 1000 0
 
             r config set activedefrag yes
@@ -34,7 +36,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             assert_morethan [getInfoProperty $info defragtest_datatype_raw_defragged] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
-        }
+        } {} {tsan:skip}
 
         test {Module defrag: late defrag with cursor works} {
             r config set activedefrag no
@@ -64,7 +66,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             assert_morethan [getInfoProperty $info defragtest_datatype_raw_defragged] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
-        }
+        } {} {tsan:skip}
 
         test {Module defrag: global defrag works} {
             r config set activedefrag no
@@ -76,7 +78,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
 
             r flushdb
             r frag.resetstats
-            r frag.create_frag_global
+            r frag.create_frag_global 50000
             r config set activedefrag yes
 
             wait_for_condition 200 50 {
@@ -94,6 +96,6 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             assert_morethan [getInfoProperty $info defragtest_defrag_ended] 0
             assert_morethan [getInfoProperty $info defragtest_global_dicts_resumes] [getInfoProperty $info defragtest_defrag_ended]
             assert_morethan [getInfoProperty $info defragtest_global_subdicts_resumes] [getInfoProperty $info defragtest_defrag_ended]
-        }
+        } {} {tsan:skip}
     }
 }
