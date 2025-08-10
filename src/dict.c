@@ -45,7 +45,7 @@ static dictResizeEnable dict_can_resize = DICT_RESIZE_ENABLE;
 static unsigned int dict_force_resize_ratio = 4;
 
 /* -------------------------- types ----------------------------------------- */
-typedef struct dictEntry {
+struct dictEntry {
     struct dictEntry *next;  /* Must be first */
     void *key;               /* Must be second */
     union {
@@ -54,7 +54,7 @@ typedef struct dictEntry {
         int64_t s64;
         double d;
     } v;
-} dictEntry;
+};
 
 typedef struct dictEntryNoValue {
     dictEntry *next; /* Must be first */
