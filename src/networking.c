@@ -2239,6 +2239,27 @@ void sendReplyToClient(connection *conn) {
     writeToClient(c,1);
 }
 
+static int clients_write_events_num = 0;
+
+int clientsWriteEventHandler(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    UNUSED(eventLoop);
+    UNUSED(id);
+    UNUSED(clientData);
+    clients_write_events_num--;
+    handleClientsWithPendingWrites();
+    return AE_NOMORE;
+}
+
+void tryRegisterClientsWriteEvent(void) {
+    if (clients_write_events_num == 0) {
+        if (aeCreateTimeEvent(server.el, 0, clientsWriteEventHandler, NULL, NULL) == AE_ERR) {
+            serverLog(LL_WARNING,"Failed to create time event for clients write.");
+        } else {
+            clients_write_events_num++;
+        }
+    }
+}
+
 /* This function is called just before entering the event loop, in the hope
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
@@ -2246,10 +2267,13 @@ void sendReplyToClient(connection *conn) {
 int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;
-    int processed = listLength(server.clients_pending_write);
+
+    unsigned int processed_tracking_clis = 0;
+    int processed_clis = 0;
 
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
+        processed_clis++;
         client *c = listNodeValue(ln);
         c->flags &= ~CLIENT_PENDING_WRITE;
         listUnlinkNode(server.clients_pending_write,ln);
@@ -2260,6 +2284,8 @@ int handleClientsWithPendingWrites(void) {
 
         /* Don't write to clients that are going to be closed anyway. */
         if (c->flags & CLIENT_CLOSE_ASAP) continue;
+
+        if (c->flags & CLIENT_TRACKING) processed_tracking_clis++;
 
         /* Let IO thread handle the client if possible. */
         if (server.io_threads_num > 1 &&
@@ -2278,8 +2304,16 @@ int handleClientsWithPendingWrites(void) {
         if (clientHasPendingReplies(c)) {
             installClientWriteHandler(c);
         }
+
+        /* If the number of tracking clients to call writeToClient exceeds the limit, 
+           break the loop to avoid blocking the entire event loop for long time and 
+           respond to other events ASAP. */
+        if (processed_tracking_clis >= server.max_tracking_clients_to_write) {
+            tryRegisterClientsWriteEvent();
+            break;
+        }
     }
-    return processed;
+    return processed_clis;
 }
 
 static inline void resetClientInternal(client *c, int free_argv) {
