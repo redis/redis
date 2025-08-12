@@ -1505,7 +1505,7 @@ foreach disklessload {disabled on-empty-db} {
                 $replica config set repl-diskless-load $disklessload
 
                 # Populate replica with many keys, master with a few keys.
-                $replica debug populate 2000000
+                $replica debug populate 4000000
                 populate 3 master 10
 
                 # Start the replication process...
