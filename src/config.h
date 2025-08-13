@@ -379,7 +379,8 @@ void setcpuaffinity(const char *cpulist);
 #endif
 
 #if defined(HAVE_AARCH64_NEON)
-#define ATTRIBUTE_TARGET_AARCH64_NEON __attribute__((target("+neon")))
+/* AArch64 always has NEON, no target attribute needed */
+#define ATTRIBUTE_TARGET_AARCH64_NEON
 #else
 #define ATTRIBUTE_TARGET_AARCH64_NEON
 #endif
