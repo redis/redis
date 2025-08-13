@@ -959,6 +959,77 @@ run_solo {defrag} {
     }
     }
 
+    test "Active defrag can't be triggered during replicaof database flush. See issue #14267" {
+        start_server {tags {"repl"} overrides {save ""}} {
+            set master_host [srv 0 host]
+            set master_port [srv 0 port]
+            set master_pid [srv 0 pid]
+
+            start_server {overrides {save ""}} {
+                set replica [srv 0 client]
+                set rd [redis_deferring_client 0]
+
+                $replica config set hz 100
+                $replica config set activedefrag no
+                $replica config set active-defrag-threshold-lower 5
+                $replica config set active-defrag-cycle-min 65
+                $replica config set active-defrag-cycle-max 75
+                $replica config set active-defrag-ignore-bytes 2mb
+                $replica config set maxmemory 100mb
+
+                # add a mass of string keys
+                set count 0
+                for {set j 0} {$j < 500000} {incr j} {
+                    $rd setrange $j 150 a
+
+                    incr count
+                    if {$count % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
+                }
+                assert_equal [$replica dbsize] 500000
+
+                # create some fragmentation
+                set count 0
+                for {set j 0} {$j < 500000} {incr j 2} {
+                    $rd del $j
+
+                    incr count
+                    if {$count % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
+                }
+                assert_equal [$replica dbsize] 250000
+
+                catch {r config set activedefrag yes} e
+                if {[r config get activedefrag] eq "activedefrag yes"} {
+                    $replica replicaof $master_host $master_port
+                    
+                    # wait for the active defrag to start working (decision once a second)
+                    wait_for_condition 50 100 {
+                        [s total_active_defrag_time] ne 0
+                    } else {
+                        after 120 ;# serverCron only updates the info once in 100ms
+                        puts [r info memory]
+                        puts [r info stats]
+                        puts [r memory malloc-stats]
+                        fail "defrag not started."
+                    }
+
+                    wait_for_sync $replica
+
+                    # wait for the active defrag to stop working (db has been emptied during replication sync)
+                    wait_for_defrag_stop 500 100
+                    assert_equal [$replica dbsize] 0
+                }
+            }
+        }
+    }
+
     start_cluster 1 0 {tags {"defrag external:skip tsan:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "cluster"
     }
