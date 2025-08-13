@@ -1040,7 +1040,7 @@ void activeDefragCycle(void) {
                 server.stat_active_defrag_hits - prev_defragged > 512 ||
                 server.stat_active_defrag_scanned - prev_scanned > 64)
             {
-                if (!cursor || ustime() > endtime) {
+                if (!(cursor || expires_cursor) || ustime() > endtime) {
                     quit = 1;
                     break;
                 }
