@@ -1028,7 +1028,7 @@ run_solo {defrag} {
                 }
             }
         }
-    }
+    } {} {"defrag external:skip tsan:skip cluster"}
 
     start_cluster 1 0 {tags {"defrag external:skip tsan:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "cluster"
