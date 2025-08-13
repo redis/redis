@@ -25,6 +25,10 @@
 #include <immintrin.h>
 #endif
 
+#ifdef HAVE_AARCH64_NEON
+#include <arm_neon.h>
+#endif
+
 #ifdef HAVE_AVX2
 #define BITOP_USE_AVX2 (__builtin_cpu_supports("avx2"))
 #else
@@ -36,6 +40,15 @@
 #else
 #define BITOP_USE_AVX512 0
 #endif
+
+#ifdef HAVE_AARCH64_NEON
+/* AArch64 always has NEON, but check for specific features */
+#define BITOP_USE_AARCH64_NEON 1
+#else
+#define BITOP_USE_AARCH64_NEON 0
+#endif
+
+
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -230,6 +243,93 @@ long long redisPopCountAvx2(void *s, long count) {
     return bits;
 }
 #endif
+
+#ifdef HAVE_AARCH64_NEON
+/* AArch64 NEON optimized version of redisPopcount.
+ * This function uses NEON 128-bit vectors with lookup table approach. */
+ATTRIBUTE_TARGET_AARCH64_NEON
+long long redisPopCountAarch64(void *s, long count) {
+    long long bits = 0;
+    unsigned char *p = s;
+    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
+
+    /* 4-bit popcount lookup table */
+    static const uint8_t popcount_table[16] = {
+        0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4
+    };
+
+    /* Align to 16-byte boundary for optimal NEON performance */
+    while ((unsigned long)p & 15 && count) {
+        bits += bitsinbyte[*p++];
+        count--;
+    }
+
+    uint8x16_t lookup_tbl = vld1q_u8(popcount_table);
+    uint64x2_t accumulator = vdupq_n_u64(0);
+
+    /* Process 32 bytes at a time using dual 128-bit registers */
+    while (count >= 32) {
+        /* Load two 128-bit chunks */
+        uint8x16_t data1 = vld1q_u8(p);
+        uint8x16_t data2 = vld1q_u8(p + 16);
+
+        /* Process first chunk */
+        uint8x16_t low1 = vandq_u8(data1, vdupq_n_u8(0x0F));
+        uint8x16_t high1 = vshrq_n_u8(data1, 4);
+        uint8x16_t count1 = vaddq_u8(
+            vqtbl1q_u8(lookup_tbl, low1),
+            vqtbl1q_u8(lookup_tbl, high1)
+        );
+
+        /* Process second chunk */
+        uint8x16_t low2 = vandq_u8(data2, vdupq_n_u8(0x0F));
+        uint8x16_t high2 = vshrq_n_u8(data2, 4);
+        uint8x16_t count2 = vaddq_u8(
+            vqtbl1q_u8(lookup_tbl, low2),
+            vqtbl1q_u8(lookup_tbl, high2)
+        );
+
+        /* Accumulate counts efficiently */
+        uint16x8_t sum16_1 = vpaddlq_u8(count1);
+        uint16x8_t sum16_2 = vpaddlq_u8(count2);
+        uint32x4_t sum32 = vpaddlq_u16(vaddq_u16(sum16_1, sum16_2));
+        accumulator = vpadalq_u32(accumulator, sum32);
+
+        p += 32;
+        count -= 32;
+        redis_prefetch_read(p + 2048);
+    }
+
+    /* Extract final sum */
+    bits += vgetq_lane_u64(accumulator, 0) + vgetq_lane_u64(accumulator, 1);
+
+    /* Handle remaining 16-byte chunks */
+    while (count >= 16) {
+        uint8x16_t data = vld1q_u8(p);
+        uint8x16_t low = vandq_u8(data, vdupq_n_u8(0x0F));
+        uint8x16_t high = vshrq_n_u8(data, 4);
+        uint8x16_t counts = vaddq_u8(
+            vqtbl1q_u8(lookup_tbl, low),
+            vqtbl1q_u8(lookup_tbl, high)
+        );
+
+        uint64x2_t sum_pairs = vpaddlq_u32(vpaddlq_u16(vpaddlq_u8(counts)));
+        bits += vgetq_lane_u64(sum_pairs, 0) + vgetq_lane_u64(sum_pairs, 1);
+
+        p += 16;
+        count -= 16;
+    }
+
+    /* Handle remaining bytes */
+    while (count--) {
+        bits += bitsinbyte[*p++];
+    }
+
+    return bits;
+}
+#endif
+
+
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
@@ -1391,6 +1491,11 @@ void bitcountCommand(client *c) {
             count = redisPopCountAvx2(p+start,bytes);
         } else
 #endif
+#ifdef HAVE_AARCH64_NEON
+        if (BITOP_USE_AARCH64_NEON) {
+            count = redisPopCountAarch64(p+start,bytes);
+        } else
+#endif
         {
             count = redisPopcount(p+start,bytes);
         }
@@ -1412,6 +1517,11 @@ void bitcountCommand(client *c) {
 #ifdef HAVE_AVX2
             if (BITOP_USE_AVX2) {
                 count -= redisPopCountAvx2(firstlast,2);
+            } else
+#endif
+#ifdef HAVE_AARCH64_NEON
+            if (BITOP_USE_AARCH64_NEON) {
+                count -= redisPopCountAarch64(firstlast,2);
             } else
 #endif
             {
@@ -1887,6 +1997,24 @@ int popcountTest(int argc, char **argv, int flags) {
 #else
     printf("AVX512 not compiled in\n");
 #endif
+
+#ifdef HAVE_AARCH64_NEON
+    if (BITOP_USE_AARCH64_NEON) {
+        long long result_aarch64 = redisPopCountAarch64(test_data, sizeof(test_data));
+        printf("AArch64 NEON popcount: %lld (expected: %d)\n", result_aarch64, expected_bits);
+
+        if (result_aarch64 != expected_bits) {
+            printf("FAIL: AArch64 NEON popcount mismatch\n");
+            return 1;
+        }
+    } else {
+        printf("AArch64 NEON not available\n");
+    }
+#else
+    printf("AArch64 NEON not compiled in\n");
+#endif
+
+
 
     printf("All popcount tests passed!\n");
     return 0;
