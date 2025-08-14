@@ -269,7 +269,7 @@ start_server {
         # ACKED option should work correctly even without cgroup references.
         r XADD mystream MAXLEN = 1 ACKED 3-0 f v
         assert_equal [r XLEN mystream] 2
-    }
+    } {} {needs:debug}
 
     test {XADD with MAXLEN option and DELREF option} {
         r DEL mystream
