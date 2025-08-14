@@ -963,7 +963,6 @@ run_solo {defrag} {
         start_server {tags {"repl"} overrides {save ""}} {
             set master_host [srv 0 host]
             set master_port [srv 0 port]
-            set master_pid [srv 0 pid]
 
             start_server {overrides {save ""}} {
                 set replica [srv 0 client]
@@ -1003,6 +1002,7 @@ run_solo {defrag} {
                         }
                     }
                 }
+                $rd close
                 assert_equal [$replica dbsize] 250000
 
                 catch {r config set activedefrag yes} e
@@ -1028,7 +1028,7 @@ run_solo {defrag} {
                 }
             }
         }
-    } {} {"defrag external:skip tsan:skip cluster"}
+    } {} {defrag external:skip tsan:skip cluster}
 
     start_cluster 1 0 {tags {"defrag external:skip tsan:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "cluster"
