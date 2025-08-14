@@ -1008,7 +1008,6 @@ run_solo {defrag} {
                 catch {$replica config set activedefrag yes} e
                 if {[$replica config get activedefrag] eq "activedefrag yes"} {
                     $replica replicaof $master_host $master_port
-                    
                     # wait for the active defrag to start working (decision once a second)
                     wait_for_condition 50 100 {
                         [s total_active_defrag_time] ne 0
