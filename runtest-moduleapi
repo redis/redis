@@ -32,6 +32,7 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/auth \
 --single unit/moduleapi/keyspace_events \
 --single unit/moduleapi/blockedclient \
+--single unit/moduleapi/getchannels \
 --single unit/moduleapi/getkeys \
 --single unit/moduleapi/test_lazyfree \
 --single unit/moduleapi/defrag \
@@ -57,4 +58,5 @@ $TCLSH tests/test_helper.tcl \
 --single unit/moduleapi/rdbloadsave \
 --single unit/moduleapi/crash \
 --single unit/moduleapi/internalsecret \
+--single unit/moduleapi/configaccess \
 "${@}"

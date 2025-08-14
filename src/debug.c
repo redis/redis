@@ -131,7 +131,7 @@ void mixStringObjectDigest(unsigned char *digest, robj *o) {
 void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) {
     uint32_t aux = htonl(o->type);
     mixDigest(digest,&aux,sizeof(aux));
-    long long expiretime = getExpire(db,keyobj);
+    long long expiretime = getExpire(db, keyobj->ptr, NULL);
     char buf[128];
 
     /* Save the key and associated value */
@@ -189,10 +189,11 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             }
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
-            dictIterator *di = dictGetIterator(zs->dict);
+            dictIterator di;
             dictEntry *de;
 
-            while((de = dictNext(di)) != NULL) {
+            dictInitIterator(&di, zs->dict);
+            while((de = dictNext(&di)) != NULL) {
                 sds sdsele = dictGetKey(de);
                 double *score = dictGetVal(de);
                 const int len = fpconv_dtoa(*score, buf);
@@ -202,7 +203,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 mixDigest(eledigest,buf,strlen(buf));
                 xorDigest(digest,eledigest,20);
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -290,17 +291,16 @@ void computeDatasetDigest(unsigned char *final) {
 
         /* Iterate this DB writing every entry */
         while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-            sds key;
-            robj *keyobj, *o;
+            robj *keyobj;
 
             memset(digest,0,20); /* This key-val digest */
-            key = dictGetKey(de);
+            kvobj *kv = dictGetKV(de);
+            sds key = kvobjGetKey(kv);
             keyobj = createStringObject(key,sdslen(key));
 
             mixDigest(digest,key,sdslen(key));
 
-            o = dictGetVal(de);
-            xorObjectDigest(db,keyobj,digest,o);
+            xorObjectDigest(db, keyobj, digest, kv);
 
             /* We can finally xor the key-val digest to the final digest */
             xorDigest(final,digest,20);
@@ -413,6 +413,8 @@ void debugCommand(client *c) {
 "    Return hash table statistics of the specified Redis database.",
 "HTSTATS-KEY <key> [full]",
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
+"KEYSIZES-HIST-ASSERT <0|1>",
+"    Enable/disable keysizes histogram assertion after each command.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "REPLICATE <string>",
@@ -528,6 +530,12 @@ NULL
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"assert")) {
         serverAssertWithInfo(c,c->argv[0],1 == 2);
+    } else if (!strcasecmp(c->argv[1]->ptr,"KEYSIZES-HIST-ASSERT") && c->argc == 3) {
+        long long flag;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
+            return;
+        server.dbg_assert_keysizes = (flag != 0);
+        addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
         addReply(c,shared.ok);
@@ -605,22 +613,21 @@ NULL
         server.cluster_drop_packet_filter = packet_type;
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"object") && c->argc == 3) {
-        dictEntry *de;
-        robj *val;
+        kvobj *kv;
         char *strenc;
 
-        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
+        if ((kv = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
-        val = dictGetVal(de);
-        strenc = strEncoding(val->encoding);
+
+        strenc = strEncoding(kv->encoding);
 
         char extra[138] = {0};
-        if (val->encoding == OBJ_ENCODING_QUICKLIST) {
+        if (kv->encoding == OBJ_ENCODING_QUICKLIST) {
             char *nextra = extra;
             int remaining = sizeof(extra);
-            quicklist *ql = val->ptr;
+            quicklist *ql = kv->ptr;
             /* Add number of quicklist nodes */
             int used = snprintf(nextra, remaining, " ql_nodes:%lu", ql->len);
             nextra += used;
@@ -653,38 +660,42 @@ NULL
             "Value at:%p refcount:%d "
             "encoding:%s serializedlength:%zu "
             "lru:%d lru_seconds_idle:%llu%s",
-            (void*)val, val->refcount,
-            strenc, rdbSavedObjectLen(val, c->argv[2], c->db->id),
-            val->lru, estimateObjectIdleTime(val)/1000, extra);
+            (void*)kv, kv->refcount,
+            strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id),
+            kv->lru, estimateObjectIdleTime(kv)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
-        dictEntry *de;
         robj *val;
         sds key;
+        kvobj *kv;
 
-        if ((de = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
+        if ((kv = dbFind(c->db, c->argv[2]->ptr)) == NULL) {
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
-        val = dictGetVal(de);
-        key = dictGetKey(de);
-
-        if (val->type != OBJ_STRING || !sdsEncodedObject(val)) {
+        
+        val = kv;
+        key = kvobjGetKey(kv);
+        if (kv->type != OBJ_STRING || !sdsEncodedObject(val)) {
             addReplyError(c,"Not an sds encoded string.");
         } else {
+            /* The key's allocation size reflects the entire robj allocation.  
+             * For embedded values, report an allocation size of 0. */
+            size_t obj_alloc = zmalloc_usable_size(val);
+            size_t val_alloc = val->encoding == OBJ_ENCODING_RAW ? sdsAllocSize(val->ptr) : 0;
             addReplyStatusFormat(c,
                 "key_sds_len:%lld, key_sds_avail:%lld, key_zmalloc: %lld, "
                 "val_sds_len:%lld, val_sds_avail:%lld, val_zmalloc: %lld",
                 (long long) sdslen(key),
                 (long long) sdsavail(key),
-                (long long) sdsZmallocSize(key),
+                (long long) obj_alloc,
                 (long long) sdslen(val->ptr),
                 (long long) sdsavail(val->ptr),
-                (long long) getStringObjectSdsUsedMemory(val));
+                (long long) val_alloc);
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"listpack") && c->argc == 3) {
-        robj *o;
+        kvobj *o;
 
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+        if ((o = kvobjCommandLookupOrReply(c, c->argv[2], shared.nokeyerr))
                 == NULL) return;
 
         if (o->encoding != OBJ_ENCODING_LISTPACK && o->encoding != OBJ_ENCODING_LISTPACK_EX) {
@@ -698,9 +709,9 @@ NULL
             addReplyStatus(c,"Listpack structure printed on stdout");
         }
     } else if (!strcasecmp(c->argv[1]->ptr,"quicklist") && (c->argc == 3 || c->argc == 4)) {
-        robj *o;
+        kvobj *o;
 
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+        if ((o = kvobjCommandLookupOrReply(c, c->argv[2], shared.nokeyerr))
             == NULL) return;
 
         int full = 0;
@@ -750,7 +761,7 @@ NULL
                 val = createStringObject(NULL,valsize);
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
-            dbAdd(c->db,key,val);
+            dbAdd(c->db, key, &val);
             signalModifiedKey(c,c->db,key);
             decrRefCount(key);
         }
@@ -782,8 +793,7 @@ NULL
 
             /* We don't use lookupKey because a debug command should
              * work on logically expired keys */
-            dictEntry *de;
-            robj *o = ((de = dbFind(c->db, c->argv[j]->ptr)) == NULL) ? NULL : dictGetVal(de);
+            kvobj *o = dbFind(c->db, c->argv[j]->ptr);
             if (o) xorObjectDigest(c->db,c->argv[j],digest,o);
 
             sds d = sdsempty();
@@ -901,7 +911,7 @@ NULL
         sds sizes = sdsempty();
         sizes = sdscatprintf(sizes,"bits:%d ",(sizeof(void*) == 8)?64:32);
         sizes = sdscatprintf(sizes,"robj:%d ",(int)sizeof(robj));
-        sizes = sdscatprintf(sizes,"dictentry:%d ",(int)dictEntryMemUsage());
+        sizes = sdscatprintf(sizes,"dictentry:%d ",(int)dictEntryMemUsage(0));
         sizes = sdscatprintf(sizes,"sdshdr5:%d ",(int)sizeof(struct sdshdr5));
         sizes = sdscatprintf(sizes,"sdshdr8:%d ",(int)sizeof(struct sdshdr8));
         sizes = sdscatprintf(sizes,"sdshdr16:%d ",(int)sizeof(struct sdshdr16));
@@ -937,14 +947,14 @@ NULL
         addReplyVerbatim(c,stats,sdslen(stats),"txt");
         sdsfree(stats);
     } else if (!strcasecmp(c->argv[1]->ptr,"htstats-key") && c->argc >= 3) {
-        robj *o;
+        kvobj *o;
         dict *ht = NULL;
         int full = 0;
 
         if (c->argc >= 4 && !strcasecmp(c->argv[3]->ptr,"full"))
             full = 1;
 
-        if ((o = objectCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
+        if ((o = kvobjCommandLookupOrReply(c,c->argv[2],shared.nokeyerr))
                 == NULL) return;
 
         /* Get the hash table reference from the object, if possible. */
@@ -1056,14 +1066,15 @@ NULL
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr,"list")) {
-            dictIterator *di = dictGetIterator(evalScriptsDict());
+            dictIterator di;
             dictEntry *de;
-            while ((de = dictNext(di)) != NULL) {
+            dictInitIterator(&di, evalScriptsDict());
+            while ((de = dictNext(&di)) != NULL) {
                 luaScript *script = dictGetVal(de);
                 sds *sha = dictGetKey(de);
                 serverLog(LL_WARNING, "SCRIPT SHA: %s\n%s", (char*)sha, (char*)script->body->ptr);
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         } else if (sdslen(c->argv[2]->ptr) == 40) {
             dictEntry *de;
             if ((de = dictFind(evalScriptsDict(), c->argv[2]->ptr)) == NULL) {
@@ -1378,6 +1389,7 @@ static void* getAndSetMcontextEip(ucontext_t *uc, void *eip) {
 #undef NOT_SUPPORTED
 }
 
+REDIS_NO_SANITIZE_MSAN("memory")
 REDIS_NO_SANITIZE("address")
 void logStackContent(void **sp) {
     if (server.hide_user_data_from_log) {
@@ -2189,15 +2201,11 @@ void logCurrentClient(client *cc, const char *title) {
     /* Check if the first argument, usually a key, is found inside the
      * selected DB, and if so print info about the associated object. */
     if (cc->argc > 1) {
-        robj *val, *key;
-        dictEntry *de;
-
-        key = getDecodedObject(cc->argv[1]);
-        de = dbFind(cc->db, key->ptr);
-        if (de) {
-            val = dictGetVal(de);
+        robj *key = getDecodedObject(cc->argv[1]);
+        kvobj *kv = dbFind(cc->db, key->ptr);
+        if (kv) {
             serverLog(LL_WARNING,"key '%s' found in DB containing the following object:", (char*)key->ptr);
-            serverLogObjectDebugInfo(val);
+            serverLogObjectDebugInfo(kv);
         }
         decrRefCount(key);
     }
@@ -2495,7 +2503,7 @@ void removeSigSegvHandlers(void) {
 }
 
 void printCrashReport(void) {
-    server.crashing = 1;
+    atomicSet(server.crashing, 1);
 
     /* Log INFO and CLIENT LIST */
     logServerInfo();
@@ -2577,6 +2585,9 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 #include <sys/time.h>
 
 void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
+    /* Save and restore errno to avoid spoiling it's value as caught by
+     * WARNING: ThreadSanitizer: signal handler spoils errno */
+    int save_errno = errno;
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
 #else
@@ -2597,6 +2608,7 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
     serverLogRawFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
     serverLogRawFromHandler(LL_WARNING,"--------\n");
+    errno = save_errno;
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
@@ -2653,7 +2665,7 @@ void debugDelay(int usec) {
  * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
  * also returns 0 if something is wrong and prints a warning message to the log file **/
 static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char *tid, int sig_num) {
-    /* Open the threads status file path /proc/<pid>>/task/<tid>/status */
+    /* Open the threads status file path /proc/<pid>/task/<tid>/status */
     char path_buff[PATH_MAX];
     snprintf_async_signal_safe(path_buff, PATH_MAX, "%s/%s/status", proc_pid_task_path, tid);
 
@@ -2729,7 +2741,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
     pid_t calling_tid = syscall(SYS_gettid);
     int current_thread_index = -1;
     long nread;
-    char buff[PATH_MAX];
+    char buff[PATH_MAX] = {0};
 
     /* readdir() is not async-signal-safe (AS-safe).
     Hence, we read the file using SYS_getdents64, which is considered AS-sync*/

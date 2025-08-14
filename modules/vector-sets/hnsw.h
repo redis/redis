@@ -158,7 +158,7 @@ void hnsw_free_insert_context(InsertContext *ctx);
 hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node);
 void hnsw_free_serialized_node(hnswSerNode *sn);
 hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, uint32_t params_len, void *value);
-int hnsw_deserialize_index(HNSW *index);
+int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1);
 
 // Helper function in case the user wants to directly copy
 // the vector bytes.

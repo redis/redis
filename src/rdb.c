@@ -880,26 +880,26 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         /* Save a set value */
         if (o->encoding == OBJ_ENCODING_HT) {
             dict *set = o->ptr;
-            dictIterator *di = dictGetIterator(set);
+            dictIterator di;
             dictEntry *de;
 
             if ((n = rdbSaveLen(rdb,dictSize(set))) == -1) {
-                dictReleaseIterator(di);
                 return -1;
             }
             nwritten += n;
 
-            while((de = dictNext(di)) != NULL) {
+            dictInitIterator(&di, set);
+            while((de = dictNext(&di)) != NULL) {
                 sds ele = dictGetKey(de);
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)ele,sdslen(ele)))
                     == -1)
                 {
-                    dictReleaseIterator(di);
+                    dictResetIterator(&di);
                     return -1;
                 }
                 nwritten += n;
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             size_t l = intsetBlobLen((intset*)o->ptr);
 
@@ -969,7 +969,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             nwritten += n;
         } else if (o->encoding == OBJ_ENCODING_HT) {
             int hashWithMeta = 0;  /* RDB_TYPE_HASH_METADATA */
-            dictIterator *di = dictGetIterator(o->ptr);
+            dictIterator di;
             dictEntry *de;
             /* Determine the hash layout to use based on the presence of at least
              * one field with a valid TTL. If such a field exists, employ the
@@ -983,20 +983,19 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 hashWithMeta = 1;
                 /* Save next field expire time of hash */
                 if (rdbSaveMillisecondTime(rdb, minExpire) == -1) {
-                    dictReleaseIterator(di);
                     return -1;
                 }
             }
 
             /* save number of fields in hash */
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) {
-                dictReleaseIterator(di);
                 return -1;
             }
             nwritten += n;
 
             /* save all hash fields */
-            while((de = dictNext(di)) != NULL) {
+            dictInitIterator(&di, o->ptr);
+            while((de = dictNext(&di)) != NULL) {
                 hfield field = dictGetKey(de);
                 sds value = dictGetVal(de);
 
@@ -1010,7 +1009,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                      */
                     ttl = (expiryTime == EB_EXPIRE_TIME_INVALID) ? 0 : expiryTime - minExpire + 1;
                     if ((n = rdbSaveLen(rdb, ttl)) == -1) {
-                        dictReleaseIterator(di);
+                        dictResetIterator(&di);
                         return -1;
                     }
                     nwritten += n;
@@ -1020,7 +1019,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)field,
                         hfieldlen(field))) == -1)
                 {
-                    dictReleaseIterator(di);
+                    dictResetIterator(&di);
                     return -1;
                 }
                 nwritten += n;
@@ -1029,12 +1028,12 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
                 if ((n = rdbSaveRawString(rdb,(unsigned char*)value,
                         sdslen(value))) == -1)
                 {
-                    dictReleaseIterator(di);
+                    dictResetIterator(&di);
                     return -1;
                 }
                 nwritten += n;
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         } else {
             serverPanic("Unknown hash encoding");
         }
@@ -1349,22 +1348,24 @@ error:
 
 ssize_t rdbSaveFunctions(rio *rdb) {
     dict *functions = functionsLibGet();
-    dictIterator *iter = dictGetIterator(functions);
+    dictIterator iter;
     dictEntry *entry = NULL;
     ssize_t written = 0;
     ssize_t ret;
-    while ((entry = dictNext(iter))) {
+
+    dictInitIterator(&iter, functions);
+    while ((entry = dictNext(&iter))) {
         if ((ret = rdbSaveType(rdb, RDB_OPCODE_FUNCTION2)) < 0) goto werr;
         written += ret;
         functionLibInfo *li = dictGetVal(entry);
         if ((ret = rdbSaveRawString(rdb, (unsigned char *) li->code, sdslen(li->code))) < 0) goto werr;
         written += ret;
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     return written;
 
 werr:
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     return -1;
 }
 
@@ -1412,21 +1413,21 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter) {
             written += res;
             last_slot = curr_slot;
         }
-        sds keystr = dictGetKey(de);
-        robj key, *o = dictGetVal(de);
+        kvobj *kv = dictGetKV(de);
+        robj key;
         long long expire;
         size_t rdb_bytes_before_key = rdb->processed_bytes;
 
-        initStaticStringObject(key,keystr);
-        expire = getExpire(db,&key);
-        if ((res = rdbSaveKeyValuePair(rdb, &key, o, expire, dbid)) < 0) goto werr;
+        initStaticStringObject(key,kvobjGetKey(kv));
+        expire = kvobjGetExpire(kv);
+        if ((res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid)) < 0) goto werr;
         written += res;
 
         /* In fork child process, we can try to release memory back to the
          * OS and possibly avoid or decrease COW. We give the dismiss
          * mechanism a hint about an estimated size of the object we stored. */
         size_t dump_size = rdb->processed_bytes - rdb_bytes_before_key;
-        if (server.in_fork_child) dismissObject(o, dump_size);
+        if (server.in_fork_child) dismissObject(kv, dump_size);
 
         /* Update child info every 1 second (approximately).
          * in order to avoid calling mstime() on each iteration, we will
@@ -1658,7 +1659,7 @@ int rdbSaveBackground(int req, char *filename, rdbSaveInfo *rsi, int rdbflags) {
         if (retval == C_OK) {
             sendChildCowInfo(CHILD_INFO_TYPE_RDB_COW_SIZE, "RDB");
         }
-        exitFromChild((retval == C_OK) ? 0 : 1);
+        exitFromChild((retval == C_OK) ? 0 : 1, 0);
     } else {
         /* Parent */
         if (childpid == -1) {
@@ -2283,7 +2284,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (rdbtype == RDB_TYPE_HASH_METADATA) {
             minExpire = rdbLoadMillisecondTime(rdb, RDB_VERSION);
             if (rioGetReadError(rdb)) {
-                rdbReportCorruptRDB("Hash failed loading minExpire");
+                rdbReportReadError("Hash failed loading minExpire");
                 return NULL;
             }
             if (minExpire > EB_EXPIRE_TIME_INVALID) {
@@ -2300,7 +2301,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         if (len > server.hash_max_listpack_entries) {
             hashTypeConvert(o, OBJ_ENCODING_HT, NULL);
             dictTypeAddMeta((dict**)&o->ptr, &mstrHashDictTypeWithHFE);
-            initDictExpireMetadata(key, o);
+            initDictExpireMetadata(o);
         } else {
             hashTypeConvert(o, OBJ_ENCODING_LISTPACK_EX, NULL);
             if (deep_integrity_validation) {
@@ -2529,7 +2530,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
              * directly to FLASH (while keeping in mem its next expiration time) */
             UNUSED(minExpire);
             if (rioGetReadError(rdb)) {
-                rdbReportCorruptRDB( "Hash listpackex integrity check failed.");
+                rdbReportReadError( "Short read of listpackex min expiration time.");
                 return NULL;
             }
         }
@@ -2749,7 +2750,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                      (rdbtype == RDB_TYPE_HASH_LISTPACK_EX_PRE_GA) ) {
                     listpackEx *lpt = listpackExCreate();
                     lpt->lp = encoded;
-                    lpt->key = key;
                     o->ptr = lpt;
                     o->encoding = OBJ_ENCODING_LISTPACK_EX;
                 } else
@@ -2974,6 +2974,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 streamNACK *nack = streamCreateNACK(NULL);
                 nack->delivery_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
+                nack->cgroup_ref_node = streamLinkCGroupToEntry(s, cgroup, rawid);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream PEL NACK loading failed.");
                     decrRefCount(o);
@@ -3209,15 +3210,13 @@ void startLoadingFile(size_t size, char* filename, int rdbflags) {
 /* Refresh the absolute loading progress info */
 void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
-    if (server.stat_peak_memory < zmalloc_used_memory())
-        server.stat_peak_memory = zmalloc_used_memory();
+    updatePeakMemory(zmalloc_used_memory());
 }
 
 /* Refresh the incremental loading progress info */
 void loadingIncrProgress(off_t size) {
     server.loading_loaded_bytes += size;
-    if (server.stat_peak_memory < zmalloc_used_memory())
-        server.stat_peak_memory = zmalloc_used_memory();
+    updatePeakMemory(zmalloc_used_memory());
 }
 
 /* Update the file name currently being loaded */
@@ -3628,15 +3627,16 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
-            int added = dbAddRDBLoad(db,key,val);
+            kvobj *kv = dbAddRDBLoad(db, key, &val, expiretime);
             server.rdb_last_load_keys_loaded++;
-            if (!added) {
+            if (!kv) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
                     /* This flag is useful for DEBUG RELOAD special modes.
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    dbAddRDBLoad(db,key,val);
+                    kv = dbAddRDBLoad(db, key, &val, expiretime);
+                    serverAssert(kv != NULL);
                 } else {
                     serverLog(LL_WARNING,
                         "RDB has duplicated key '%s' in DB %d",key,db->id);
@@ -3646,15 +3646,10 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
             /* If minExpiredField was set, then the object is hash with expiration
              * on fields and need to register it in global HFE DS */
-            if (val->type == OBJ_HASH) {
-                uint64_t minExpiredField = hashTypeGetMinExpire(val, 1);
+            if (kv->type == OBJ_HASH) {
+                uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
                 if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-                    hashTypeAddToExpires(db, key, val, minExpiredField);
-            }
-
-            /* Set the expire time if needed */
-            if (expiretime != -1) {
-                setExpire(NULL,db,&keyobj,expiretime);
+                    hashTypeAddToExpires(db, kv, minExpiredField);
             }
 
             /* Set usage information (for eviction). */
@@ -3662,6 +3657,9 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
 
             /* call key space notification on key loaded for modules only */
             moduleNotifyKeyspaceEvent(NOTIFY_LOADED, "loaded", &keyobj, db->id);
+
+            /* Release key (sds), dictEntry stores a copy of it in embedded data */
+            sdsfree(key);
         }
 
         /* Loading the database more slowly is useful in order to test
@@ -3884,7 +3882,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
     listIter li;
     pid_t childpid;
     int pipefds[2], rdb_pipe_write = 0, safe_to_exit_pipe = 0;
-    int rdb_channel = (req & SLAVE_REQ_RDB_CHANNEL);
+    int rdb_channel = server.repl_rdb_channel && (req & SLAVE_REQ_RDB_CHANNEL);
 
     if (hasActiveChildProcess()) return C_ERR;
 
@@ -3978,7 +3976,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
             UNUSED(dummy);
         }
         zfree(conns);
-        exitFromChild((retval == C_OK) ? 0 : 1);
+        exitFromChild((retval == C_OK) ? 0 : 1, 0);
     } else {
         /* Parent */
         if (childpid == -1) {

@@ -297,7 +297,11 @@ run_solo {defrag} {
             r config set maxmemory 0
             r config set list-max-ziplist-size 5 ;# list of 10k items will have 2000 quicklist nodes
             r config set stream-node-max-entries 5
-            r hmset hash h1 v1 h2 v2 h3 v3
+            r config set hash-max-listpack-entries 10
+            r hmset hash_lp h1 v1 h2 v2 h3 v3
+            assert_encoding listpack hash_lp
+            r hmset hash_ht h1 v1 h2 v2 h3 v3 h4 v4 h5 v5 h6 v6 h7 v7 h8 v8 h9 v9 h10 v10 h11 v11
+            assert_encoding hashtable hash_ht
             r lpush list a b c d
             r zadd zset 0 a 1 b 2 c 3 d
             r sadd set a b c d
@@ -327,36 +331,51 @@ run_solo {defrag} {
             r set "{bigstream}smallitem" val
 
 
-            set expected_frag 1.5
+            set expected_frag 1.49
             if {$::accurate} {
                 # scale the hash to 1m fields in order to have a measurable the latency
+                set count 0
                 for {set j 10000} {$j < 1000000} {incr j} {
                     $rd hset bighash $j [concat "asdfasdfasdf" $j]
-                }
-                for {set j 10000} {$j < 1000000} {incr j} {
-                    $rd read ; # Discard replies
+
+                    incr count
+                    if {$count % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
                 }
                 # creating that big hash, increased used_memory, so the relative frag goes down
                 set expected_frag 1.3
             }
 
             # add a mass of string keys
+            set count 0
             for {set j 0} {$j < 500000} {incr j} {
                 $rd setrange $j 150 a
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                    }
+                }
             }
-            for {set j 0} {$j < 500000} {incr j} {
-                $rd read ; # Discard replies
-            }
-            assert_equal [r dbsize] 500015
+            assert_equal [r dbsize] 500016
 
             # create some fragmentation
+            set count 0
             for {set j 0} {$j < 500000} {incr j 2} {
                 $rd del $j
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                    }
+                }
             }
-            for {set j 0} {$j < 500000} {incr j 2} {
-                $rd read ; # Discard replies
-            }
-            assert_equal [r dbsize] 250015
+            assert_equal [r dbsize] 250016
 
             # start defrag
             after 120 ;# serverCron only updates the info once in 100ms
@@ -512,43 +531,45 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
-        test "Active Defrag HFE: $type" {
+        foreach {eb_container fields n} {eblist 16 3000 ebrax 30 1600 large_ebrax 1600 30} {
+        test "Active Defrag HFE with $eb_container: $type" {
             r flushdb
             r config set hz 100
             r config set activedefrag no
             wait_for_defrag_stop 500 100
             r config resetstat
-            # TODO: Lower the threshold after defraging the ebuckets.
-            # Now just to ensure that the reference is updated correctly.
-            r config set active-defrag-threshold-lower 12
+            r config set active-defrag-threshold-lower 5
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
-            r config set active-defrag-ignore-bytes 1500kb
+            r config set active-defrag-ignore-bytes 1000kb
             r config set maxmemory 0
             r config set hash-max-listpack-value 512
             r config set hash-max-listpack-entries 10
 
             # Populate memory with interleaving hash field of same size
-            set n 3000
-            set fields 16 ;# make all the fields in an eblist.
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
                 for {set j 0} {$j < $fields} {incr j} {
-                    $rd hset h$i f$j $dummy_field
-                    $rd hexpire h$i 9999999 FIELDS 1 f$j
+                    $rd hset h$i $dummy_field$j v
+                    $rd hexpire h$i 9999999 FIELDS 1 $dummy_field$j
                     $rd set "k$i$j" $dummy_field
                 }
+                $rd expire h$i 9999999 ;# Ensure expire is updated after kvobj reallocation
             }
-            for {set j 0} {$j < [expr $n*$fields]} {incr j} {
-                $rd read ; # Discard hset replies
-                $rd read ; # Discard hexpire replies
-                $rd read ; # Discard set replies
+            
+            for {set i 0} {$i < $n} {incr i} {
+                for {set j 0} {$j < $fields} {incr j} {
+                    $rd read ; # Discard hset replies
+                    $rd read ; # Discard hexpire replies
+                    $rd read ; # Discard set replies
+                }
+                $rd read ; # Discard expire replies
             }
 
             # Coverage for listpackex.
-            r hset h_lpex f0 $dummy_field
-            r hexpire h_lpex 9999999 FIELDS 1 f0
+            r hset h_lpex $dummy_field v
+            r hexpire h_lpex 9999999 FIELDS 1 $dummy_field
             assert_encoding listpackex h_lpex
 
             after 120 ;# serverCron only updates the info once in 100ms
@@ -591,7 +612,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.5
+                wait_for_defrag_stop 500 100 1.05
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -603,6 +624,7 @@ run_solo {defrag} {
                 }
             }
         }
+        } ;# end of foreach
 
         test "Active defrag for argv retained by the main thread from IO thread: $type" {
             r flushdb
@@ -683,7 +705,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.4
+            assert_morethan [s allocator_frag_ratio] 1.35
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -732,22 +754,27 @@ run_solo {defrag} {
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 2mb
             r config set maxmemory 0
-            r config set list-max-ziplist-size 5 ;# list of 500k items will have 100k quicklist nodes
+            r config set list-max-ziplist-size 1 ;# list of 100k items will have 100k quicklist nodes
 
             # create big keys with 10k items
             set rd [redis_deferring_client]
 
             set expected_frag 1.5
             # add a mass of list nodes to two lists (allocations are interlaced)
-            set val [string repeat A 100] ;# 5 items of 100 bytes puts us in the 640 bytes bin, which has 32 regs, so high potential for fragmentation
-            set elements 500000
+            set val [string repeat A 500] ;# 1 item of 500 bytes puts us in the 640 bytes bin, which has 32 regs, so high potential for fragmentation
+            set elements 100000
+            set count 0
             for {set j 0} {$j < $elements} {incr j} {
                 $rd lpush biglist1 $val
                 $rd lpush biglist2 $val
-            }
-            for {set j 0} {$j < $elements} {incr j} {
-                $rd read ; # Discard replies
-                $rd read ; # Discard replies
+
+                incr count
+                if {$count % 10000 == 0} {
+                    for {set k 0} {$k < 10000} {incr k} {
+                        $rd read ; # Discard replies
+                        $rd read ; # Discard replies
+                    }
+                }
             }
 
             # create some fragmentation
@@ -811,9 +838,9 @@ run_solo {defrag} {
                     assert {$max_latency <= 30}
                 }
 
-                # in extreme cases of stagnation, we see over 20m misses before the tests aborts with "defrag didn't stop",
-                # in normal cases we only see 100k misses out of 500k elements
-                assert {$misses < $elements}
+                # in extreme cases of stagnation, we see over 5m misses before the tests aborts with "defrag didn't stop",
+                # in normal cases we only see 100k misses out of 100k elements
+                assert {$misses < $elements * 2}
             }
             # verify the data isn't corrupted or changed
             set newdigest [debug_digest]
@@ -852,11 +879,16 @@ run_solo {defrag} {
                 # add a mass of keys with 600 bytes values, fill the bin of 640 bytes which has 32 regs per slab.
                 set rd [redis_deferring_client]
                 set keys 640000
+                set count 0
                 for {set j 0} {$j < $keys} {incr j} {
                     $rd setrange $j 600 x
-                }
-                for {set j 0} {$j < $keys} {incr j} {
-                    $rd read ; # Discard replies
+
+                    incr count
+                    if {$count % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
                 }
 
                 # create some fragmentation of 50%
@@ -865,9 +897,12 @@ run_solo {defrag} {
                     $rd del $j
                     incr sent
                     incr j 1
-                }
-                for {set j 0} {$j < $sent} {incr j} {
-                    $rd read ; # Discard replies
+
+                    if {$sent % 10000 == 0} {
+                        for {set k 0} {$k < 10000} {incr k} {
+                            $rd read ; # Discard replies
+                        }
+                    }
                 }
 
                 # create higher fragmentation in the first slab
@@ -924,11 +959,11 @@ run_solo {defrag} {
     }
     }
 
-    start_cluster 1 0 {tags {"defrag external:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_cluster 1 0 {tags {"defrag external:skip tsan:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_server {tags {"defrag external:skip tsan:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo

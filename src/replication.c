@@ -28,6 +28,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 #include "bio.h"
 #include "functions.h"
 #include "connection.h"
@@ -392,6 +393,8 @@ void feedReplicationBuffer(char *s, size_t len) {
 
     if (server.repl_backlog == NULL) return;
 
+    clusterSlotStatsIncrNetworkBytesOutForReplication(len);
+
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
         listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
@@ -546,6 +549,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         feedReplicationBufferWithObject(selectcmd);
+
+        /* Although the SELECT command is not associated with any slot,
+         * its per-slot network-bytes-out accumulation is made by the above function call.
+         * To cancel-out this accumulation, below adjustment is made. */
+        clusterSlotStatsDecrNetworkBytesOutForReplication(sdslen(selectcmd->ptr));
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
@@ -782,7 +790,7 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
     /* Don't send this reply to slaves that approached us with
      * the old SYNC command. */
     if (!(slave->flags & CLIENT_PRE_PSYNC)) {
-        if (slave->slave_req & SLAVE_REQ_RDB_CHANNEL) {
+        if (slave->flags & CLIENT_REPL_RDB_CHANNEL) {
             /* This slave is rdbchannel. Find its associated main channel and
              * change its state so we can deliver replication stream from now
              * on, in parallel to rdb. */
@@ -1125,9 +1133,7 @@ void syncCommand(client *c) {
                           "Full sync will continue with dedicated rdb channel.",
                           replicationGetSlaveName(c));
 
-                /* Send +RDBCHANNELSYNC with client id. Rdbchannel of replica
-                 * will call 'replconf set-main-ch-id <client-id>' so we can
-                 * associate replica connections on master.*/
+                /* Send +RDBCHANNELSYNC with client id so we can associate replica connections on master.*/
                 len = snprintf(buf, sizeof(buf), "+RDBCHANNELSYNC %llu\r\n",
                                (unsigned long long) c->id);
                 if (connWrite(c->conn, buf, strlen(buf)) != len)
@@ -1358,8 +1364,16 @@ void replconfCommand(client *c) {
             if (getRangeLongFromObjectOrReply(c,c->argv[j+1],
                     0,1,&rdb_only,NULL) != C_OK)
                 return;
-            if (rdb_only == 1) c->flags |= CLIENT_REPL_RDBONLY;
-            else c->flags &= ~CLIENT_REPL_RDBONLY;
+            if (rdb_only == 1) {
+                c->flags |= CLIENT_REPL_RDBONLY;
+                /* If replicas ask for RDB only, We can apply the background
+                 * RDB transfer optimization based on the configurations. */
+                if (server.repl_rdb_channel && server.repl_diskless_sync)
+                    c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
+            } else {
+                c->flags &= ~CLIENT_REPL_RDBONLY;
+                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
+            }
         } else if (!strcasecmp(c->argv[j]->ptr,"rdb-filter-only")) {
             /* REPLCONFG RDB-FILTER-ONLY is used to define "include" filters
              * for the RDB snapshot. Currently we only support a single
@@ -1393,10 +1407,8 @@ void replconfCommand(client *c) {
                 return;
             if (rdb_channel == 1) {
                 c->flags |= CLIENT_REPL_RDB_CHANNEL;
-                c->slave_req |= SLAVE_REQ_RDB_CHANNEL;
             } else {
                 c->flags &= ~CLIENT_REPL_RDB_CHANNEL;
-                c->slave_req &= ~SLAVE_REQ_RDB_CHANNEL;
             }
         } else if (!strcasecmp(c->argv[j]->ptr, "main-ch-client-id")) {
             /* REPLCONF main-ch-client-id <client-id> is used to identify
@@ -1570,7 +1582,12 @@ void sendBulkToSlave(connection *conn) {
     }
 
     /* If the preamble was already transferred, send the RDB bulk data. */
-    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
+    if (lseek(slave->repldbfd,slave->repldboff,SEEK_SET) == -1) {
+	serverLog(LL_WARNING,"Failed to lseek the RDB file to offset %lld for replica %s: %s",
+	    (long long)slave->repldboff, replicationGetSlaveName(slave), strerror(errno));
+	freeClient(slave);
+	return;
+    }
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
         serverLog(LL_WARNING,"Read error sending DB to replica: %s",
@@ -2436,7 +2453,12 @@ void readSyncBulkPayload(connection *conn) {
     replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
+    server.repl_up_since = server.unixtime;
 
+    if (server.repl_disconnect_start_time != 0) {
+        server.repl_total_disconnect_time += server.unixtime - server.repl_disconnect_start_time;
+        server.repl_disconnect_start_time = 0;
+    }
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
                           REDISMODULE_SUBEVENT_MASTER_LINK_UP,
@@ -2732,6 +2754,7 @@ int slaveTryPartialResynchronization(connection *conn, int read_reply) {
         if (!client_id) {
             serverLog(LL_WARNING,
                       "Master replied with wrong +RDBCHANNELSYNC syntax: %s", reply);
+            sdsfree(reply);
             return PSYNC_NOT_SUPPORTED;
         }
         server.repl_main_ch_client_id = strtoll(client_id, NULL, 10);;
@@ -3025,7 +3048,7 @@ void syncWithMaster(connection *conn) {
     /* If reached this point, we should be in REPL_STATE_RECEIVE_PSYNC_REPLY. */
     if (server.repl_state != REPL_STATE_RECEIVE_PSYNC_REPLY) {
         serverLog(LL_WARNING,"syncWithMaster(): state machine error, "
-                             "state should be RECEIVE_PSYNC but is %d",
+                             "state should be RECEIVE_PSYNC_REPLY but is %d",
                              server.repl_state);
         goto error;
     }
@@ -3156,6 +3179,8 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
+    server.repl_current_sync_attempts++;
+    server.repl_total_sync_attempts++;
     server.repl_transfer_s = connCreate(server.el, connTypeOfReplication());
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
@@ -3188,6 +3213,8 @@ void undoConnectWithMaster(void) {
 void replicationAbortSyncTransfer(void) {
     serverAssert(server.repl_state == REPL_STATE_TRANSFER);
     undoConnectWithMaster();
+    if (server.repl_disconnect_start_time == 0)
+        server.repl_disconnect_start_time = server.unixtime;
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
         bg_unlink(server.repl_transfer_tmpfile);
@@ -3279,6 +3306,8 @@ void replicationSetMaster(char *ip, int port) {
                               NULL);
 
     server.repl_state = REPL_STATE_CONNECT;
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
     connectWithMaster();
@@ -3312,7 +3341,9 @@ void replicationUnsetMaster(void) {
      * a very fast reconnection. */
     disconnectSlaves();
     server.repl_state = REPL_STATE_NONE;
-
+    /* Reset the attempts number. */
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     /* We need to make sure the new master will start the replication stream
      * with a SELECT statement. This is forced after a full resync, but
      * with PSYNC version 2, there is no need for full resync after a
@@ -3328,9 +3359,9 @@ void replicationUnsetMaster(void) {
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
     
-    /* Reset down time so it'll be ready for when we turn into replica again. */
+    /* Reset up and down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
-
+    server.repl_up_since = 0;
     /* Fire the role change modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
                           REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER,
@@ -3354,8 +3385,11 @@ void replicationHandleMasterDisconnection(void) {
                               NULL);
 
     server.master = NULL;
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        server.repl_current_sync_attempts = 0;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;
+    server.repl_up_since = 0;
     server.repl_num_master_disconnection++;
 
     /* If we are in the loop of streaming accumulated buffers, discard the
@@ -3365,6 +3399,8 @@ void replicationHandleMasterDisconnection(void) {
     if (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF)
         rdbChannelCleanup();
 
+    if (server.repl_disconnect_start_time == 0)
+        server.repl_disconnect_start_time = server.unixtime;
     /* We lost connection with our master, don't disconnect slaves yet,
      * maybe we'll be able to PSYNC with our master later. We'll disconnect
      * the slaves only if we'll have to do a full resync with our master. */
@@ -4121,6 +4157,9 @@ void replicationSendAck(void) {
             addReplyBulkLongLong(c,server.fsynced_reploff);
         }
         c->flags &= ~CLIENT_MASTER_FORCE_REPLY;
+        /* Accumulation from above replies must be reset back to 0 manually,
+         * as this subroutine does not invoke resetClient(). */
+        c->net_output_bytes_curr_cmd = 0;
     }
 }
 
@@ -4248,7 +4287,11 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.master->lastinteraction = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
-
+    server.repl_up_since = server.unixtime;
+    if (server.repl_disconnect_start_time != 0) {
+        server.repl_total_disconnect_time += server.unixtime - server.repl_disconnect_start_time;
+        server.repl_disconnect_start_time = 0;
+    }
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
                           REDISMODULE_SUBEVENT_MASTER_LINK_UP,

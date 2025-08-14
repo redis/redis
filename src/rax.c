@@ -1270,6 +1270,7 @@ void raxStart(raxIterator *it, rax *rt) {
     it->key_max = RAX_ITER_STATIC_LEN;
     it->data = NULL;
     it->node_cb = NULL;
+    it->privdata = NULL;
     raxStackInit(&it->stack);
 }
 
@@ -1346,7 +1347,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
             memcpy(&it->node,cp,sizeof(it->node));
             /* Call the node callback if any, and replace the node pointer
              * if the callback returns true. */
-            if (it->node_cb && it->node_cb(&it->node))
+            if (it->node_cb && it->node_cb(&it->node, it->privdata))
                 memcpy(cp,&it->node,sizeof(it->node));
             /* For "next" step, stop every time we find a key along the
              * way, since the key is lexicographically smaller compared to
@@ -1402,7 +1403,7 @@ int raxIteratorNextStep(raxIterator *it, int noup) {
                         memcpy(&it->node,cp,sizeof(it->node));
                         /* Call the node callback if any, and replace the node
                          * pointer if the callback returns true. */
-                        if (it->node_cb && it->node_cb(&it->node))
+                        if (it->node_cb && it->node_cb(&it->node, it->privdata))
                             memcpy(cp,&it->node,sizeof(it->node));
                         if (it->node->iskey) {
                             it->data = raxGetData(it->node);

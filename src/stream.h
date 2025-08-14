@@ -21,6 +21,9 @@ typedef struct stream {
     streamID max_deleted_entry_id;  /* The maximal ID that was deleted. */
     uint64_t entries_added; /* All time count of elements added. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
+    rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
+    streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
+    unsigned int min_cgroup_last_id_valid: 1;
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
@@ -94,6 +97,7 @@ typedef struct streamNACK {
     uint64_t delivery_count;    /* Number of times this message was delivered.*/
     streamConsumer *consumer;   /* The consumer this message was delivered to
                                    in the last delivery. */
+    listNode *cgroup_ref_node; /* Reference to this NACK in the cgroups_ref list. */
 } streamNACK;
 
 /* Stream propagation information, passed to functions in order to propagate
@@ -143,5 +147,7 @@ void streamGetEdgeID(stream *s, int first, int skip_tombstones, streamID *edge_i
 long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id);
 int64_t streamTrimByLength(stream *s, long long maxlen, int approx);
 int64_t streamTrimByID(stream *s, streamID minid, int approx);
+
+listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
 #endif

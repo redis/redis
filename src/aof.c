@@ -179,6 +179,19 @@ sds getTempAofManifestFileName(void) {
                 server.aof_filename, MANIFEST_NAME_SUFFIX);
 }
 
+sds appendAofInfoFromList(sds buf, list *aofList) {
+    listNode *ln;
+    listIter li;
+
+    listRewind(aofList, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        aofInfo *ai = (aofInfo*)ln->value;
+        buf = aofInfoFormat(buf, ai);
+    }
+
+    return buf;
+}
+
 /* Returns the string representation of aofManifest pointed to by am.
  *
  * The string is multiple lines separated by '\n', and each line represents
@@ -198,8 +211,6 @@ sds getAofManifestAsString(aofManifest *am) {
     serverAssert(am != NULL);
 
     sds buf = sdsempty();
-    listNode *ln;
-    listIter li;
 
     /* 1. Add BASE File information, it is always at the beginning
      * of the manifest file. */
@@ -208,18 +219,10 @@ sds getAofManifestAsString(aofManifest *am) {
     }
 
     /* 2. Add HISTORY type AOF information. */
-    listRewind(am->history_aof_list, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        aofInfo *ai = (aofInfo*)ln->value;
-        buf = aofInfoFormat(buf, ai);
-    }
+    buf = appendAofInfoFromList(buf, am->history_aof_list);
 
     /* 3. Add INCR type AOF information. */
-    listRewind(am->incr_aof_list, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        aofInfo *ai = (aofInfo*)ln->value;
-        buf = aofInfoFormat(buf, ai);
-    }
+    buf = appendAofInfoFromList(buf, am->incr_aof_list);
 
     return buf;
 }
@@ -1655,7 +1658,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeClientArgv(fakeClient);
-        if (server.aof_load_truncated) valid_up_to = ftello(fp);
+        if (server.aof_load_truncated || server.aof_load_broken) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
     }
@@ -1716,8 +1719,41 @@ uxeof: /* Unexpected AOF end of file. */
     goto cleanup;
 
 fmterr: /* Format error. */
-    serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
-        "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
+    /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
+     * is less than a specified size, try to recover it automatically */
+    if (server.aof_load_broken) {
+        if (valid_up_to == -1) {
+            serverLog(LL_WARNING,"Last valid command offset is invalid");
+        } else if (sb.st_size - valid_up_to < server.aof_load_broken_max_size) {
+            if (truncate(aof_filepath,valid_up_to) == -1) {
+                serverLog(LL_WARNING,"Error truncating the AOF file: %s",
+                    strerror(errno));
+            } else {
+                /* Make sure the AOF file descriptor points to the end of the
+                 * file after the truncate call. */
+                if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
+                    serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
+                        strerror(errno));
+                } else {
+                    serverLog(LL_WARNING,
+                        "AOF loaded anyway because aof-load-broken is enabled and "
+                        "broken size '%lld' is less than aof-load-broken-max-size '%lld'",
+                        (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
+                    ret = AOF_BROKEN_RECOVERED;
+                    goto loaded_ok;
+                }
+            }
+        } else { /* The size of the corrupted portion exceeds the configured limit. */
+            serverLog(LL_WARNING,
+                 "AOF was not loaded because the size of the corrupted portion "
+                 "exceeds the configured limit. aof-load-broken is enabled and broken size '%lld' "
+                 "is bigger than aof-load-broken-max-size '%lld'",
+                 (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
+        }
+    } else {
+        serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
+            "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
+    }
     ret = AOF_FAILED;
     /* fall through to cleanup. */
 
@@ -1725,7 +1761,10 @@ cleanup:
     if (fakeClient) freeClient(fakeClient);
     server.current_client = old_cur_client;
     server.executing_client = old_exec_client;
+    int fd = dup(fileno(fp));
     fclose(fp);
+    /* Reclaim page cache memory used by the AOF file in background. */
+    if (fd >= 0) bioCreateCloseJob(fd, 0, 1);
     sdsfree(aof_filepath);
     return ret;
 }
@@ -1788,13 +1827,13 @@ int loadAppendOnlyFiles(aofManifest *am) {
         last_file = ++aof_num == total_num;
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
-        if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+        if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
         /* If the truncated file is not the last file, we consider this to be a fatal error. */
-        if (ret == AOF_TRUNCATED && !last_file) {
+        if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
             ret = AOF_FAILED;
             serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
         }
@@ -1818,7 +1857,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             last_file = ++aof_num == total_num;
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
-            if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+            if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds",
                     aof_name, (float)(ustime()-start)/1000000);
             }
@@ -1828,7 +1867,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             if (ret == AOF_EMPTY) ret = AOF_OK;
 
             /* If the truncated file is not the last file, we consider this to be a fatal error. */
-            if (ret == AOF_TRUNCATED && !last_file) {
+            if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
                 ret = AOF_FAILED;
                 serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
             }
@@ -1994,10 +2033,11 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
         }
     } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
-        dictIterator *di = dictGetIterator(zs->dict);
+        dictIterator di;
         dictEntry *de;
 
-        while((de = dictNext(di)) != NULL) {
+        dictInitIterator(&di, zs->dict);
+        while((de = dictNext(&di)) != NULL) {
             sds ele = dictGetKey(de);
             double *score = dictGetVal(de);
 
@@ -2009,20 +2049,20 @@ int rewriteSortedSetObject(rio *r, robj *key, robj *o) {
                     !rioWriteBulkString(r,"ZADD",4) ||
                     !rioWriteBulkObject(r,key)) 
                 {
-                    dictReleaseIterator(di);
+                    dictResetIterator(&di);
                     return 0;
                 }
             }
             if (!rioWriteBulkDouble(r,*score) ||
                 !rioWriteBulkString(r,ele,sdslen(ele)))
             {
-                dictReleaseIterator(di);
+                dictResetIterator(&di);
                 return 0;
             }
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     } else {
         serverPanic("Unknown sorted zset encoding");
     }
@@ -2326,20 +2366,21 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
 
 static int rewriteFunctions(rio *aof) {
     dict *functions = functionsLibGet();
-    dictIterator *iter = dictGetIterator(functions);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, functions);
+    while ((entry = dictNext(&iter))) {
         functionLibInfo *li = dictGetVal(entry);
         if (rioWrite(aof, "*3\r\n", 4) == 0) goto werr;
         char function_load[] = "$8\r\nFUNCTION\r\n$4\r\nLOAD\r\n";
         if (rioWrite(aof, function_load, sizeof(function_load) - 1) == 0) goto werr;
         if (rioWriteBulkString(aof, li->code, sdslen(li->code)) == 0) goto werr;
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     return 1;
 
 werr:
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     return 0;
 }
 
@@ -2371,16 +2412,18 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         kvs_it = kvstoreIteratorInit(db->keys);
         /* Iterate this DB writing every entry */
         while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-            sds keystr;
-            robj key, *o;
             long long expiretime;
             size_t aof_bytes_before_key = aof->processed_bytes;
 
-            keystr = dictGetKey(de);
-            o = dictGetVal(de);
-            initStaticStringObject(key,keystr);
-
-            expiretime = getExpire(db,&key);
+            /* Get the value object (of type kvobj) */
+            kvobj *o = dictGetKV(de);
+            
+            /* Get the expire time */
+            expiretime = kvobjGetExpire(o);
+            
+            /* Set on stack string object for key */
+            robj key;
+            initStaticStringObject(key, kvobjGetKey(o));
 
             /* Save the key and associated value */
             if (o->type == OBJ_STRING) {
@@ -2579,9 +2622,9 @@ int rewriteAppendOnlyFileBackground(void) {
             serverLog(LL_NOTICE,
                 "Successfully created the temporary AOF base file %s", tmpfile);
             sendChildCowInfo(CHILD_INFO_TYPE_AOF_COW_SIZE, "AOF rewrite");
-            exitFromChild(0);
+            exitFromChild(0, 0);
         } else {
-            exitFromChild(1);
+            exitFromChild(1, 0);
         }
     } else {
         /* Parent */

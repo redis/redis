@@ -95,9 +95,10 @@ proc kill_server config {
 
     # kill server and wait for the process to be totally exited
     send_data_packet $::test_server_fd server-killing $pid
-    catch {exec kill $pid}
     # Node might have been stopped in the test
+    # Send SIGCONT before SIGTERM, otherwise shutdown may be slow with ASAN.
     catch {exec kill -SIGCONT $pid}
+    catch {exec kill $pid}
     if {$::valgrind} {
         set max_wait 120000
     } else {
@@ -231,6 +232,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::tsan && [lsearch $tags "tsan:skip"] >= 0} {
+        set err "Not supported under thread sanitizer"
+        return 0
+    }
+
     if {$::tls && [lsearch $tags "tls:skip"] >= 0} {
         set err "Not supported in tls mode"
         return 0
@@ -294,7 +300,12 @@ proc spawn_server {config_file stdout stderr args} {
         # ASAN_OPTIONS environment variable is for address sanitizer. If a test
         # tries to allocate huge memory area and expects allocator to return
         # NULL, address sanitizer throws an error without this setting.
-        set pid [exec /usr/bin/env ASAN_OPTIONS=allocator_may_return_null=1 {*}$cmd >> $stdout 2>> $stderr &]
+        set env [list \
+            "ASAN_OPTIONS=allocator_may_return_null=1" \
+            "MSAN_OPTIONS=allocator_may_return_null=1" \
+            "TSAN_OPTIONS=allocator_may_return_null=1,detect_deadlocks=0,suppressions=src/tsan.sup" \
+        ]
+        set pid [exec /usr/bin/env {*}$env {*}$cmd >> $stdout 2>> $stderr &]
     }
 
     if {$::wait_server} {
@@ -729,11 +740,6 @@ proc start_server {options {code undefined}} {
 
         # fetch srv back from the server list, in case it was restarted by restart_server (new PID)
         set srv [lindex $::servers end]
-
-        # Don't do the leak check when no tests were run
-        if {$num_tests == $::num_tests} {
-            dict set srv "skipleaks" 1
-        }
 
         # pop the server object
         set ::servers [lrange $::servers 0 end-1]

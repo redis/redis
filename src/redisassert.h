@@ -26,4 +26,10 @@
 void _serverAssert(const char *estr, const char *file, int line);
 void _serverPanic(const char *file, int line, const char *msg, ...);
 
+#ifdef DEBUG_ASSERTIONS
+#define debugAssert(_e) assert(_e)
+#else
+#define debugAssert(_e) ((void)0)
+#endif
+
 #endif

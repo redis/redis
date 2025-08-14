@@ -87,6 +87,24 @@ tags "modules" {
             $rd1 close
         }
 
+        test "Keyspace notifications: unsubscribe removes handler" {
+            r config set notify-keyspace-events KEA
+            set before [r keyspace.callback_count]
+            r set a 1
+            r del a
+            wait_for_condition 100 10 {
+                [r keyspace.callback_count] > $before
+            } else {
+                fail "callback did not trigger"
+            }
+            set before_unsub [r keyspace.callback_count]
+            r keyspace.unsubscribe 4  ;# REDISMODULE_NOTIFY_GENERIC
+            r set a 1
+            r del a
+            set after_unsub [r keyspace.callback_count]
+            assert_equal $before_unsub $after_unsub
+        }
+
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
             r set exp 1 PX 10

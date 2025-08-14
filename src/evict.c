@@ -131,27 +131,16 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
     count = kvstoreDictGetSomeKeys(samplekvs,slot,samples,server.maxmemory_samples);
     for (j = 0; j < count; j++) {
         unsigned long long idle;
-        sds key;
-        robj *o;
-        dictEntry *de;
-
-        de = samples[j];
-        key = dictGetKey(de);
-
-        /* If the dictionary we are sampling from is not the main
-         * dictionary (but the expires one) we need to lookup the key
-         * again in the key dictionary to obtain the value object. */
-        if (server.maxmemory_policy != MAXMEMORY_VOLATILE_TTL) {
-            if (samplekvs != db->keys)
-                de = kvstoreDictFind(db->keys, slot, key);
-            o = dictGetVal(de);
-        }
-
+        
+        dictEntry *de = samples[j];
+        kvobj *kv = dictGetKV(de);
+        sds key = kvobjGetKey(kv);
+        
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
          * just a score where a higher score means better candidate. */
         if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU) {
-            idle = estimateObjectIdleTime(o);
+            idle = estimateObjectIdleTime(kv);
         } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             /* When we use an LRU policy, we sort the keys by idle time
              * so that we expire keys starting from greater idle time.
@@ -160,10 +149,10 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
              * first. So inside the pool we put objects using the inverted
              * frequency subtracting the actual frequency to the maximum
              * frequency of 255. */
-            idle = 255-LFUDecrAndReturn(o);
+            idle = 255-LFUDecrAndReturn(kv);
         } else if (server.maxmemory_policy == MAXMEMORY_VOLATILE_TTL) {
             /* In this case the sooner the expire the better. */
-            idle = ULLONG_MAX - dictGetSignedIntegerVal(de);
+            idle = ULLONG_MAX - kvobjGetExpire(kv);
         } else {
             serverPanic("Unknown eviction policy in evictionPoolPopulate()");
         }
@@ -622,7 +611,7 @@ int performEvictions(void) {
                     /* If the key exists, is our pick. Otherwise it is
                      * a ghost and we need to try the next element. */
                     if (de) {
-                        bestkey = dictGetKey(de);
+                        bestkey = kvobjGetKey(dictGetKV(de));
                         break;
                     } else {
                         /* Ghost... Iterate again. */
@@ -650,7 +639,8 @@ int performEvictions(void) {
                 int slot = kvstoreGetFairRandomDictIndex(kvs);
                 de = kvstoreDictGetRandomKey(kvs, slot);
                 if (de) {
-                    bestkey = dictGetKey(de);
+                    kvobj *kv = dictGetKV(de);
+                    bestkey = kvobjGetKey(kv);
                     bestdbid = j;
                     break;
                 }

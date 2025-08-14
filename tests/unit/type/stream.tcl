@@ -205,6 +205,64 @@ start_server {
         }
     }
 
+    test {XADD with MAXLEN option and ACKED option} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XADD mystream 4-0 f v
+        r XADD mystream 5-0 f v
+        assert {[r XLEN mystream] == 5}
+
+        # Create a consumer group but don't read any messages yet
+        # ACKED option should preserve all messages since none are acked.
+        r XGROUP CREATE mystream mygroup 0
+        r XADD mystream MAXLEN = 1 ACKED 6-0 f v
+        assert {[r XLEN mystream] == 6} ;# All messages preserved + the new one
+
+        # Read 1 messages and acknowledge them
+        # This leaves 5 messages still unacked
+        set records [r XREADGROUP GROUP mygroup consumer1 COUNT 1 STREAMS mystream >]
+        r XACK mystream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
+        assert {[lindex [r XPENDING mystream mygroup] 0] == 0}
+
+        # With 5 messages still unacked, ACKED option should preserve them
+        r XADD mystream MAXLEN = 1 ACKED 7-0 f v
+        assert {[r XLEN mystream] == 6} ;# 6 - 1 acked + 1 new
+
+        # Acknowledge all remaining messages
+        set records [r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >]
+        set ids {}
+        foreach entry [lindex [lindex $records 0] 1] {
+            lappend ids [lindex $entry 0]
+        }
+        r XACK mystream mygroup {*}$ids
+        assert {[lindex [r XPENDING mystream mygroup] 0] == 0} ;# All messages acked
+
+        # Now ACKED should trim to MAXLEN since all messages are acked
+        r XADD mystream MAXLEN = 1 ACKED * f v
+        assert {[r XLEN mystream] == 1} ;# Successfully trimmed to 1 entries
+    }
+
+    test {XADD with MAXLEN option and DELREF option} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XADD mystream 4-0 f v
+        r XADD mystream 5-0 f v
+
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 COUNT 1 STREAMS mystream >
+
+        # XADD with MAXLEN and DELREF should trim and remove all references
+        r XADD mystream MAXLEN = 1 DELREF * f v
+        assert {[r XLEN mystream] == 1}
+
+        # All PEL entries should be cleaned up
+        assert {[lindex [r XPENDING mystream mygroup] 0] == 0}
+    }
+
     test {XTRIM with MINID option} {
         r DEL mystream
         r XADD mystream 1-0 f v
@@ -1079,5 +1137,142 @@ start_server {tags {"stream"}} {
     test {XINFO HELP should not have unexpected options} {
         catch {r XINFO help xxx} e
         assert_match "*wrong number of arguments for 'xinfo|help' command" $e
+    }
+}
+
+start_server {tags {"stream"}} {
+    test "XDELEX wrong number of args" {
+        assert_error {*wrong number of arguments for 'xdelex' command} {r XDELEX s DELREF}
+    }
+
+    test "XDELEX should return empty array when key doesn't exist" {
+        r DEL nonexist
+        assert_equal {-1 -1} [r XDELEX nonexist IDS 2 1-1 2-2]
+    }
+
+    test "XDELEX IDS parameter validation" {
+        r DEL s
+        r XADD s 1-0 f v
+        r XGROUP CREATE s g 0
+
+        # Test invalid numids
+        assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS abc 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS 0 1-1}
+        assert_error {*Number of IDs must be a positive integer*} {r XDELEX s IDS -5 1-1}
+
+        # Test whether numids is equal to the number of IDs provided
+        assert_error {*The `numids` parameter must match the number of arguments*} {r XDELEX s IDS 3 1-1 2-2}
+        assert_error {*syntax error*} {r XDELEX s IDS 1 1-1 2-2}
+
+        # Delete non-existent ids
+        assert_equal {-1 -1} [r XDELEX s IDS 2 1-1 2-2]
+    }
+
+    test "XDELEX KEEPREF/DELREF/ACKED parameter validation" {
+        # Test mutually exclusive options
+        assert_error {*syntax error*} {r XDELEX s KEEPREF DELREF IDS 1 1-1}
+        assert_error {*syntax error*} {r XDELEX s KEEPREF ACKED IDS 1 1-1}
+        assert_error {*syntax error*} {r XDELEX s ACKED DELREF IDS 1 1-1}
+    }
+
+    test "XDELEX with DELREF option acknowledges will remove entry from all PELs" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+
+        # Create two consumer groups
+        r XGROUP CREATE mystream group1 0
+        r XGROUP CREATE mystream group2 0
+        r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+        r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
+
+        # Verify the message was removed from both groups' PELs when with DELREF
+        assert_equal {1 1} [r XDELEX mystream DELREF IDS 2 1-0 2-0]
+        assert_equal 0 [r XLEN mystream] 
+        assert_equal {0 {} {} {}} [r XPENDING mystream group1]
+        assert_equal {0 {} {} {}} [r XPENDING mystream group2] 
+    }
+
+    test "XDELEX with ACKED option only deletes messages acknowledged by all groups" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+
+        # Create two consumer groups
+        r XGROUP CREATE mystream group1 0
+        r XGROUP CREATE mystream group2 0
+        r XGROUP CREATE mystream group3 0
+        r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+        r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
+
+        # The message is referenced by three consumer groups:
+        # - group1 and group2 have read the messages
+        # - group3 hasn't read the messages yet (not delivered)
+        # Even after group1 acknowledges the messages, they still can't be deleted
+        r XACK mystream group1 1-0 2-0
+        assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal 2 [r XLEN mystream]
+
+        # Even after both group1 and group2 acknowledge the messages, these entries
+        # still can't be deleted because group3 hasn't even read them yet.
+        r XACK mystream group2 1-0 2-0
+        assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal 2 [r XLEN mystream]
+
+        # Now group3 reads the messages, but hasn't acknowledged them yet.
+        # these entries still can't be deleted because group3 hasn't acknowledged them.
+        r XREADGROUP GROUP group3 consumer3 STREAMS mystream >
+        assert_equal {2 2} [r XDELEX mystream ACKED IDS 2 1-0 2-0]
+        assert_equal 2 [r XLEN mystream]
+
+        # Now group3 acknowledges the messages. These entries can now be deleted.
+        r XACK mystream group3 1-0 2-0
+        r XDELEX mystream ACKED IDS 2 1-0 2-0
+        assert_equal 0 [r XLEN mystream]
+    }
+
+    test "XDELEX with ACKED option won't delete messages when new consumer groups are created" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+
+        r XGROUP CREATE mystream group1 0
+        r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+
+        # When the group1 ack message, the message can be deleted with ACK option.
+        assert_equal {3} [r XACK mystream group1 1-0 2-0 3-0]
+        assert_equal {1} [r XDELEX mystream ACKED IDS 1 1-0]
+        
+        # Create a new consumer group that hasn't read the messages yet.
+        # Even if group1 ack the message, we still can't delete the message.
+        r XGROUP CREATE mystream group2 0
+        assert_equal {2} [r XDELEX mystream ACKED IDS 1 2-0]
+
+        # Now group2 reads and acknowledges the messages,
+        # so we can be successfully deleted with the ACKED option.
+        r XREADGROUP GROUP group2 consumer1 STREAMS mystream >
+        assert_equal {2} [r XACK mystream group2 2-0 3-0]
+        assert_equal {1 1} [r XDELEX mystream ACKED IDS 2 2-0 3-0]
+    }
+
+    test "XDELEX with KEEPREF" {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+
+        # Create two consumer groups
+        r XGROUP CREATE mystream group1 0
+        r XGROUP CREATE mystream group2 0
+        r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+        r XREADGROUP GROUP group2 consumer2 STREAMS mystream >
+
+        # Test XDELEX with KEEPREF
+        # XDELEX only deletes the message from the stream
+        # but does not clean up references in consumer groups' PELs
+        assert_equal {1 1} [r XDELEX mystream KEEPREF IDS 2 1-0 2-0]
+        assert_equal 0 [r XLEN mystream]
+        assert_equal {2 1-0 2-0 {{consumer1 2}}} [r XPENDING mystream group1]
+        assert_equal {2 1-0 2-0 {{consumer2 2}}} [r XPENDING mystream group2]
     }
 }

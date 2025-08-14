@@ -616,6 +616,7 @@ start_server {tags {"external:skip needs:debug"}} {
             r select 9
             r flushall
             r hset myhash field1 value1
+            r expireat myhash 2000000000000 ;# Force kvobj reallocation during move command
             r hpexpire myhash 100 NX FIELDS 1 field1
             r move myhash 10
             assert_equal [r exists myhash] 0
@@ -1446,6 +1447,36 @@ start_server {tags {"external:skip needs:debug"}} {
 
         r config set hash-max-listpack-value 64
     }
+
+    test {Test HEXPIRE coexists with EXPIRE} {
+        # Verify HEXPIRE & EXPIRE coexists. When setting EXPIRE a new kvobj might be
+        # created whereas the old one can be ref by hash field expiration DS.
+        # Take care to set hexpire before expire. Verify all combinations of
+        # which expired first.
+        # Another point to verify is that whether hexpire deletes the last field
+        # and in turn the key (See f2).
+        foreach etime {10 1000} htime {10 1000} f2 {0 1} {
+            r del myhash
+            r hset myhash f1 v1
+            if {$f2} { r hset myhash f2 v2 }
+            r hpexpire myhash $etime FIELDS 1 f1
+            r pexpire myhash $htime
+            after 20
+            # If EXPIRE is shorter, it should delete the key.
+            if {$etime == 10} {
+                assert_equal [r httl myhash FIELDS 1 f1] $T_NO_FIELD
+                assert_equal [r exists myhash] 0
+            } else {
+                if {$htime == 10} {
+                    assert_equal [r httl myhash FIELDS 1 f1] $T_NO_FIELD
+                    assert_range [r pttl myhash] 500 1000
+                } else {
+                    assert_range [r httl myhash FIELDS 1 f1] 1 1000
+                    assert_range [r pttl myhash] 500 1000
+                }
+            }
+        }
+    }
 }
 
 start_server {tags {"external:skip needs:debug"}} {
@@ -1926,5 +1957,51 @@ start_server {tags {"external:skip needs:debug"}} {
             }
             close_replication_stream $repl
         } {} {needs:repl}
+
+        test "HINCRBYFLOAT command won't remove field expiration on replica ($type)" {
+            r flushall
+            set repl [attach_to_replication_stream]
+
+            r hsetex h1 EX 100 FIELDS 1 f1 1
+            r hset h1 f2 1
+            r hincrbyfloat h1 f1 1.1
+            r hincrbyfloat h1 f2 1.1
+
+            # HINCRBYFLOAT will be replicated as HSETEX with KEEPTTL flag
+            assert_replication_stream $repl {
+                {select *}
+                {hsetex h1 PXAT * FIELDS 1 f1 1}
+                {hset h1 f2 1}
+                {hsetex h1 KEEPTTL FIELDS 1 f1 *}
+                {hsetex h1 KEEPTTL FIELDS 1 f2 *}
+            }
+            close_replication_stream $repl
+
+            start_server {tags {external:skip}} {
+                r -1 flushall
+                r slaveof [srv -1 host] [srv -1 port]
+                wait_for_sync r
+
+                r -1 hsetex h1 EX 100 FIELDS 1 f1 1
+                r -1 hset h1 f2 1
+                wait_for_ofs_sync  [srv -1 client]  [srv 0 client]
+                assert_range [r httl h1 FIELDS 1 f1] 90 100
+                assert_equal {-1} [r httl h1 FIELDS 1 f2]
+
+                r -1 hincrbyfloat h1 f1 1.1
+                r -1 hincrbyfloat h1 f2 1.1
+
+                # Expiration time should not be removed on replica and the value
+                # should be equal to the master.
+                wait_for_ofs_sync  [srv -1 client]  [srv 0 client]
+                assert_range [r httl h1 FIELDS 1 f1] 90 100
+                assert_equal [r -1 hget h1 f1] [r hget h1 f1]
+
+                # The field f2 should not have any expiration on replica either even
+                # though it was set using HSET with KEEPTTL flag.
+                assert_equal {-1} [r httl h1 FIELDS 1 f2]
+                assert_equal [r -1 hget h1 f2] [r hget h1 f2]
+            }
+        } {} {needs:repl external:skip}
     }
 }
