@@ -1005,7 +1005,7 @@ run_solo {defrag} {
                 $rd close
                 assert_equal [$replica dbsize] 250000
 
-                catch {r config set activedefrag yes} e
+                catch {$replica config set activedefrag yes} e
                 if {[$replica config get activedefrag] eq "activedefrag yes"} {
                     $replica replicaof $master_host $master_port
                     
