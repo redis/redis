@@ -1014,8 +1014,6 @@ run_solo {defrag} {
                         [s total_active_defrag_time] ne 0
                     } else {
                         after 120 ;# serverCron only updates the info once in 100ms
-                        puts [r info memory]
-                        puts [r info stats]
                         puts [$replica info memory]
                         puts [$replica info stats]
                         puts [$replica memory malloc-stats]
