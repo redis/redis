@@ -974,7 +974,6 @@ run_solo {defrag} {
                 $replica config set active-defrag-cycle-min 65
                 $replica config set active-defrag-cycle-max 75
                 $replica config set active-defrag-ignore-bytes 2mb
-                $replica config set maxmemory 100mb
 
                 # add a mass of string keys
                 set count 0
@@ -1007,7 +1006,10 @@ run_solo {defrag} {
 
                 catch {$replica config set activedefrag yes} e
                 if {[$replica config get activedefrag] eq "activedefrag yes"} {
+                    # Start replication sync which will flush the replica's database,
+                    # then enable defrag to run concurrently with the database flush.
                     $replica replicaof $master_host $master_port
+
                     # wait for the active defrag to start working (decision once a second)
                     wait_for_condition 50 100 {
                         [s total_active_defrag_time] ne 0
