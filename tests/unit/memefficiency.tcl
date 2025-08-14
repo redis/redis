@@ -67,6 +67,14 @@ run_solo {defrag} {
         }
     }
 
+    proc discard_replies_every {rd count frequency discard_num} {
+        if {$count % $frequency == 0} {
+            for {set k 0} {$k < $discard_num} {incr k} {
+                $rd read ; # Discard replies
+            }
+        }
+    }
+
     proc test_active_defrag {type} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
@@ -339,11 +347,7 @@ run_solo {defrag} {
                     $rd hset bighash $j [concat "asdfasdfasdf" $j]
 
                     incr count
-                    if {$count % 10000 == 0} {
-                        for {set k 0} {$k < 10000} {incr k} {
-                            $rd read ; # Discard replies
-                        }
-                    }
+                    discard_replies_every $rd $count 10000 10000
                 }
                 # creating that big hash, increased used_memory, so the relative frag goes down
                 set expected_frag 1.3
@@ -355,11 +359,7 @@ run_solo {defrag} {
                 $rd setrange $j 150 a
 
                 incr count
-                if {$count % 10000 == 0} {
-                    for {set k 0} {$k < 10000} {incr k} {
-                        $rd read ; # Discard replies
-                    }
-                }
+                discard_replies_every $rd $count 10000 10000
             }
             assert_equal [r dbsize] 500016
 
@@ -369,11 +369,7 @@ run_solo {defrag} {
                 $rd del $j
 
                 incr count
-                if {$count % 10000 == 0} {
-                    for {set k 0} {$k < 10000} {incr k} {
-                        $rd read ; # Discard replies
-                    }
-                }
+                discard_replies_every $rd $count 10000 10000
             }
             assert_equal [r dbsize] 250016
 
@@ -769,12 +765,7 @@ run_solo {defrag} {
                 $rd lpush biglist2 $val
 
                 incr count
-                if {$count % 10000 == 0} {
-                    for {set k 0} {$k < 10000} {incr k} {
-                        $rd read ; # Discard replies
-                        $rd read ; # Discard replies
-                    }
-                }
+                discard_replies_every $rd $count 10000 20000
             }
 
             # create some fragmentation
@@ -884,11 +875,7 @@ run_solo {defrag} {
                     $rd setrange $j 600 x
 
                     incr count
-                    if {$count % 10000 == 0} {
-                        for {set k 0} {$k < 10000} {incr k} {
-                            $rd read ; # Discard replies
-                        }
-                    }
+                    discard_replies_every $rd $count 10000 10000
                 }
 
                 # create some fragmentation of 50%
@@ -898,11 +885,7 @@ run_solo {defrag} {
                     incr sent
                     incr j 1
 
-                    if {$sent % 10000 == 0} {
-                        for {set k 0} {$k < 10000} {incr k} {
-                            $rd read ; # Discard replies
-                        }
-                    }
+                    discard_replies_every $rd $sent 10000 10000
                 }
 
                 # create higher fragmentation in the first slab
@@ -981,11 +964,7 @@ run_solo {defrag} {
                     $rd setrange $j 150 a
 
                     incr count
-                    if {$count % 10000 == 0} {
-                        for {set k 0} {$k < 10000} {incr k} {
-                            $rd read ; # Discard replies
-                        }
-                    }
+                    discard_replies_every $rd $count 10000 10000
                 }
                 assert_equal [$replica dbsize] 500000
 
@@ -995,11 +974,7 @@ run_solo {defrag} {
                     $rd del $j
 
                     incr count
-                    if {$count % 10000 == 0} {
-                        for {set k 0} {$k < 10000} {incr k} {
-                            $rd read ; # Discard replies
-                        }
-                    }
+                    discard_replies_every $rd $count 10000 10000
                 }
                 $rd close
                 assert_equal [$replica dbsize] 250000
