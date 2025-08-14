@@ -1016,7 +1016,9 @@ run_solo {defrag} {
                         after 120 ;# serverCron only updates the info once in 100ms
                         puts [r info memory]
                         puts [r info stats]
-                        puts [r memory malloc-stats]
+                        puts [$replica info memory]
+                        puts [$replica info stats]
+                        puts [$replica memory malloc-stats]
                         fail "defrag not started."
                     }
 
