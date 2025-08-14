@@ -358,4 +358,18 @@ void setcpuaffinity(const char *cpulist);
 #define ATTRIBUTE_TARGET_AVX2
 #endif
 
+/* Check for AArch64 (ARM v8) specific optimizations */
+#if defined(__aarch64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || defined(__clang__))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_AARCH64_NEON
+#endif
+#endif
+
+#if defined(HAVE_AARCH64_NEON)
+/* AArch64 always has NEON, no target attribute needed */
+#define ATTRIBUTE_TARGET_AARCH64_NEON
+#else
+#define ATTRIBUTE_TARGET_AARCH64_NEON
+#endif
+
 #endif
