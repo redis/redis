@@ -23,9 +23,14 @@ void asmFeedMigrationClient(robj **argv, int argc);
 int asmDebugSetFailPoint(char * channel, char *state);
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
-int asmNotifyConfigUpdated(struct slotRangeArray *slot_ranges, sds *err);
+int asmNotifyConfigUpdated(struct asmTask *task, struct slotRangeArray *slot_ranges, sds *err);
 size_t asmGetPeakSyncBufferSize(void);
 int asmKeyBelongsToCurrentNode(kvobj *kv);
+size_t asmGetImportingBufferSize(void);
+size_t asmGetMigratingBufferSize(void);
+int clusterAsmCancel(const char *task_id, const char *reason);
+int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slot_ranges, const char *reason);
+int isSlotInAsmTask(int slot);
 
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);

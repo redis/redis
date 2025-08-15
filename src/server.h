@@ -427,7 +427,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_REPROCESSING_COMMAND (1ULL<<50) /* The client is re-processing the command. */
 #define CLIENT_REPL_RDB_CHANNEL (1ULL<<51)      /* Client which is used for rdb delivery as part of rdb channel replication */
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
-#define CLIENT_REPL_MIGRATION_DEST (1ULL<<53) /* Client is a main channel for atomic slot migration destination */
+#define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
+#define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)
@@ -1629,6 +1630,8 @@ struct redisMemOverhead {
     size_t overhead_db_hashtable_lut;
     size_t overhead_db_hashtable_rehashing;
     unsigned long db_dict_rehashing_count;
+    size_t asm_importing_buffer;
+    size_t asm_migrating_buffer;
     struct {
         size_t dbid;
         size_t overhead_ht_main;

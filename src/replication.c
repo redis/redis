@@ -249,7 +249,7 @@ int canFeedReplicaReplBuffer(client *replica) {
     /* Don't feed replicas that only want the RDB or main channels of migration
      * destinations which need filtered stream for migrating slot ranges. */
     if (replica->flags & CLIENT_REPL_RDBONLY ||
-        replica->flags & CLIENT_REPL_MIGRATION_DEST) return 0;
+        replica->flags & CLIENT_ASM_MIGRATING) return 0;
 
     /* Don't feed replicas that are still waiting for BGSAVE to start. */
     if (replica->replstate == SLAVE_STATE_WAIT_BGSAVE_START ||
@@ -1478,7 +1478,7 @@ int replicaPutOnline(client *slave) {
     }
 
     /* Don't put migration destination client online. */
-    if (slave->flags & CLIENT_REPL_MIGRATION_DEST) return 0;
+    if (slave->flags & CLIENT_ASM_MIGRATING) return 0;
 
     slave->replstate = SLAVE_STATE_ONLINE;
     slave->repl_ack_time = server.unixtime; /* Prevent false timeout. */

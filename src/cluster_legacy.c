@@ -1085,6 +1085,9 @@ void clusterReset(int hard) {
     clusterCloseAllSlots();
     resetManualFailover();
 
+    /* Cancel all ASM tasks */
+    clusterAsmCancel(NULL, "CLUSTER RESET");
+
     /* Unassign all the slots. */
     for (j = 0; j < CLUSTER_SLOTS; j++) clusterDelSlot(j);
 
@@ -2445,7 +2448,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     }
     if (sra->num_ranges > 0 && server.masterhost == NULL) {
         sds err = NULL;
-        if (asmNotifyConfigUpdated(sra, &err) != C_OK) {
+        if (asmNotifyConfigUpdated(NULL, sra, &err) != C_OK) {
             serverLog(LL_WARNING, "ASM config update failed: %s", err);
             sdsfree(err);
         }
@@ -5318,6 +5321,8 @@ void clusterSetMaster(clusterNode *n) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
         clusterCloseAllSlots();
+        /* Cancel all ASM tasks when switching into slave */
+        clusterAsmCancel(NULL, "switching to replica");
     } else {
         if (myself->slaveof)
             clusterNodeRemoveSlave(myself->slaveof,myself);
@@ -6094,6 +6099,14 @@ int clusterCommandSpecial(client *c) {
         }
 
         if ((slot = getSlotOrReply(c, c->argv[2])) == -1) return 1;
+
+        /* Don't allow old style slot migration if the slot is in an ASM task. */
+        if (isSlotInAsmTask(slot)) {
+            addReplyErrorFormat(c, "Slot %d is in an active atomic slot migration, "
+                "cannot use CLUSTER SETSLOT now, if you persist in using this command, "
+                "please use CLUSTER MIGRATION CANCEL to cancel the task first", slot);
+            return 1;
+        }
 
         if (!strcasecmp(c->argv[3]->ptr,"migrating") && c->argc == 5) {
             if (server.cluster->slots[slot] != myself) {

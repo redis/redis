@@ -113,8 +113,6 @@ typedef struct {
     clusterNodeTlsPortFunc clusterNodeTlsPort;
     clusterGetSecretFunc clusterGetSecret;
     clusterAsmOnEventFunc clusterAsmOnEvent;
-
-
 } ClusterPlugin;
 
 void clusterPluginInit(ClusterPlugin *plugin);

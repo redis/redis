@@ -108,8 +108,7 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_chec
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 static void asmSyncBufferReadFromConn(connection *conn);
-void asmTaskSetFailed(asmTask *task, const char *fmt, ...);
-int clusterAsmCancel(const char *task_id);
+static void asmTaskCancel(asmTask *task, const char *reason);
 
 void clusterAsmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
@@ -300,6 +299,26 @@ int asmKeyBelongsToCurrentNode(kvobj *kv) {
     return 1;
 }
 
+size_t asmGetImportingBufferSize(void) {
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
+
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    if (task->operation == ASM_IMPORT)
+        return task->sync_buffer.mem_used;
+
+    return 0;
+}
+
+size_t asmGetMigratingBufferSize(void) {
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
+
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    if (task->operation == ASM_MIGRATE && task->main_channel_client)
+        return getClientOutputBufferMemoryUsage(task->main_channel_client);
+
+    return 0;
+}
+
 static int compareSlotRange(const void *a, const void *b) {
     const slotRange *sa = a;
     const slotRange *sb = b;
@@ -371,6 +390,15 @@ static int slotRangeArrayOverlaps(slotRangeArray *sra, slotRange *req) {
     return 0;
 }
 
+/* Returns 1 if the two slot range arrays overlap, 0 otherwise. */
+static int slotRangeArraysOverlap(slotRangeArray *sra1, slotRangeArray *sra2) {
+    for (int i = 0; i < sra1->num_ranges; i++) {
+        slotRange *sr1 = &sra1->ranges[i];
+        if (slotRangeArrayOverlaps(sra2, sr1)) return 1;
+    }
+    return 0;
+}
+
 /* Returns the ASM task that overlaps with the given slot range, or NULL if
  * no such task exists. */
 static asmTask *lookupAsmTaskBySlotRange(slotRange *req) {
@@ -395,7 +423,7 @@ static asmTask *lookupAsmTaskBySlotRange(slotRange *req) {
  *
  * Returns the source node if validation succeeds.
  * Otherwise, returns NULL and sets 'err' variable. */
-static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *err) {
+static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *err, asmTask *current) {
     clusterNode *source = NULL;
     unsigned char *slots = zcalloc(CLUSTER_SLOTS);
 
@@ -403,7 +431,7 @@ static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *e
 
     /* Ensure this is a master node */
     if (!clusterNodeIsMaster(getMyClusterNode())) {
-        *err = sdsnew("Slot migration not allowed on replica.");
+        *err = sdsnew("slot migration not allowed on replica.");
         goto out;
     }
 
@@ -412,7 +440,7 @@ static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *e
         if (getImportingSlotSource(i) != NULL ||
             getMigratingSlotDest(i) != NULL)
         {
-            *err = sdsnew("All slot states must be STABLE to start a slot migration task.");
+            *err = sdsnew("all slot states must be STABLE to start a slot migration task.");
             goto out;
         }
     }
@@ -420,9 +448,10 @@ static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *e
     for (int i = 0; i < slot_ranges->num_ranges; i++) {
         slotRange *sr = &slot_ranges->ranges[i];
 
-        /* Ensure no import task overlaps with this slot range. */
+        /* Ensure no import task overlaps with this slot range.
+         * Skip check current task that is running for this slot range. */
         asmTask *task = lookupAsmTaskBySlotRange(sr);
-        if (task && task->operation == ASM_IMPORT) {
+        if (task && task != current && task->operation == ASM_IMPORT) {
             *err = sdscatprintf(sdsempty(),
                                 "overlapping import exists for slot range: %d-%d",
                                 sr->start, sr->end);
@@ -524,7 +553,7 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slot_ranges, s
     *err = NULL;
     /* Validate that the slot ranges are valid and that migration can be
      * initiated for them. */
-    source = validateImportSlotRanges(slot_ranges, err);
+    source = validateImportSlotRanges(slot_ranges, err, NULL);
     if (!source)
         return NULL;
 
@@ -533,10 +562,20 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slot_ranges, s
         return NULL;
     }
 
+    /* Only support a single task at a time now. */
     if (listLength(asmManager->tasks) != 0) {
-        *err = sdsnew("another ASM task is already in progress");
-        return NULL;
+        asmTask *current = listNodeValue(listFirst(asmManager->tasks));
+        if (current->state == ASM_FAILED) {
+            /* We can create a new task only if the current one is failed,
+             * cancel the failed task to create a new one. */
+            asmTaskCancel(current, "new task requested");
+        } else {
+            *err = sdsnew("another ASM task is already in progress");
+            return NULL;
+        }
     }
+    /* There should be no task in progress. */
+    serverAssert(listLength(asmManager->tasks) == 0);
 
     /* Create a slot migration task */
     asmTask *task = asmTaskCreate(task_id);
@@ -617,7 +656,7 @@ static void clusterMigrationCommandCancel(client *c) {
         return;
     }
 
-    num_cancelled = clusterAsmCancel(task_id);
+    num_cancelled = clusterAsmCancel(task_id, "user request");
     addReplyLongLong(c, num_cancelled);
 }
 
@@ -793,6 +832,9 @@ void asmTaskComplete(asmTask *task) {
     listNode *ln = listFirst(asmManager->tasks);
     serverAssert(ln->value == task);
 
+    /* Should never access it */
+    task->source_node = NULL;
+
     task->done_time = server.mstime;
     asmManager->total_done_tasks++;
 
@@ -813,10 +855,10 @@ void asmTaskComplete(asmTask *task) {
     }
 }
 
-void asmTaskCancel(asmTask *task) {
+static void asmTaskCancel(asmTask *task, const char *reason) {
     if (task->state == ASM_CANCELED) return;
 
-    asmTaskSetFailed(task, "Cancelled by user");
+    asmTaskSetFailed(task, "Cancelled due to %s", reason);
     task->state = ASM_CANCELED;
     asmTaskComplete(task);
 }
@@ -959,8 +1001,15 @@ void asmRdbChannelSyncWithSource(connection *conn) {
 
     if (task->rdb_channel_state == ASM_RDBCHANNEL_REPLY) {
         err = receiveSynchronousResponse(conn);
-        /* The destination node did not reply */
+        /* The source node did not reply */
         if (err == NULL) goto no_response_error;
+
+        /* Ignore ‘\n' sent from the source node to keep the connection alive. */
+        if (sdslen(err) == 0) {
+            serverLog(LL_DEBUG, "Received an empty line in RDBCHANNEL reply, slots snapshot delivery will start later");
+            sdsfree(err);
+            return;
+        }
 
         /* Check `+SLOTSSNAPSHOT` reply */
         if (!strncmp(err, "+SLOTSSNAPSHOT", strlen("+SLOTSSNAPSHOT"))) {
@@ -972,7 +1021,7 @@ void asmRdbChannelSyncWithSource(connection *conn) {
 
             task->rdb_channel_state = ASM_RDBCHANNEL_TRANSFER;
             client *c = createClient(conn);
-            c->flags |= (CLIENT_MASTER | CLIENT_INTERNAL);
+            c->flags |= (CLIENT_MASTER | CLIENT_INTERNAL | CLIENT_ASM_IMPORTING);
             c->querybuf = sdsempty();
             c->authenticated = 1;
             c->user = NULL;
@@ -1170,7 +1219,7 @@ void asmSyncWithSource(connection *conn) {
         connSetPrivateData(task->rdb_channel_conn, task);
         serverLog(LL_NOTICE,
             "RDB channel connection to source node %.40s established, waiting for AUTH reply...",
-            clusterNodeGetName(task->source_node));
+            task->source);
 
         /* Main channel waits for the new event */
         connSetReadHandler(conn, NULL);
@@ -1300,8 +1349,36 @@ void clusterSyncSlotsStreamEOF(client *c) {
 /* Start the import task. */
 void asmStartImportTask(asmTask *task) {
     if (task->operation != ASM_IMPORT || task->state != ASM_NONE) return;
-
     sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
+
+    /* Detect if the cluster topology is change. We should cancel the task if we can
+     * not schedule it, and update the source node if needed. */
+    sds err = NULL;
+    clusterNode *source = validateImportSlotRanges(task->slot_ranges, &err, task);
+    if (!source) {
+        serverLog(LL_WARNING, "Cancel the import task for slots: %s, occur error: %s",
+                              slot_ranges_str, err);
+        asmTaskCancel(task, "cluster topology changed");
+        sdsfree(slot_ranges_str);
+        sdsfree(err);
+        return;
+    }
+    /* Now I'm the owner of the slot range, cancel the import task. */
+    if (source == getMyClusterNode()) {
+        serverLog(LL_NOTICE, "Cancel the import task for slots: %s, since this node is"
+                             " already the owner of the slot range", slot_ranges_str);
+        asmTaskCancel(task, "slots owned by myself");
+        sdsfree(slot_ranges_str);
+        return;
+    }
+    /* Change the source node if needed. */
+    if (source != task->source_node) {
+        task->source_node = source;
+        memcpy(task->source, source->name, CLUSTER_NAMELEN);
+        serverLog(LL_NOTICE, "Import slots %s task source node changed to %.40s",
+                             slot_ranges_str, source->name);
+    }
+
     serverLog(LL_NOTICE, "Import task starting: src=%.40s, dest=%.40s, slots=%s",
               task->source, task->dest, slot_ranges_str);
     sdsfree(slot_ranges_str);
@@ -1334,11 +1411,22 @@ void clusterSyncSlotsCommand(client *c) {
      * external clients may damage the slot migration state. */
     if (!(c->flags & (CLIENT_INTERNAL | CLIENT_MASTER))) {
         addReplyError(c, "CLUSTER SYNCSLOTS subcommands are only allowed for internal clients");
+        c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         return;
     }
 
-    /* Only allow CONF subcommand on replica. */
-    if (server.masterhost && strcasecmp(c->argv[2]->ptr, "conf")) return;
+    /* On replica, only allow master client to execute CONF subcommand. */
+    if (server.masterhost) {
+        if (!(c->flags & CLIENT_MASTER)) {
+            /* Not master client, reject all subcommands and close the connection. */
+            addReplyError(c, "CLUSTER SYNCSLOTS subcommands are only allowed for master");
+            c->flags |= CLIENT_CLOSE_AFTER_REPLY;
+            return;
+        } else {
+            /* Only allow CONF subcommand on replica. */
+            if (strcasecmp(c->argv[2]->ptr, "conf")) return;
+        }
+    }
 
     if (!strcasecmp(c->argv[2]->ptr, "ranges") && c->argc >= 6) {
         /* CLUSTER SYNCSLOTS RANGES <ID> <start-slot> <end-slot> [<start-slot> <end-slot>] */
@@ -1353,7 +1441,7 @@ void clusterSyncSlotsCommand(client *c) {
         /* Validate that the slot ranges are valid and that migration can be
          * initiated for them. */
         sds err = NULL;
-        clusterNode *source = validateImportSlotRanges(slot_ranges, &err);
+        clusterNode *source = validateImportSlotRanges(slot_ranges, &err, NULL);
         if (!source) {
             addReplyErrorSds(c, err);
             zfree(slot_ranges);
@@ -1380,9 +1468,16 @@ void clusterSyncSlotsCommand(client *c) {
             zfree(task->slot_ranges); /* Will be set again later */
             task->retry_count++;
         } else if (task) {
-            addReplyError(c, "Another migration task is already in progress");
-            zfree(slot_ranges);
-            return;
+            if (task->state == ASM_FAILED) {
+                /* We can create a new task only if the current one is failed,
+                 * cancel the failed task to create a new one. */
+                asmTaskCancel(task, "new task requested");
+                task = NULL;
+            } else {
+                addReplyError(c, "Another migration task is already in progress");
+                zfree(slot_ranges);
+                return;
+            }
         }
 
         /* Create the migrate slots task and add it to the list,
@@ -1390,6 +1485,7 @@ void clusterSyncSlotsCommand(client *c) {
         if (task == NULL) {
             task = asmTaskCreate(task_id);
             task->start_time = server.mstime; /* Start immediately */
+            serverAssert(listLength(asmManager->tasks) == 0);
             listAddNodeTail(asmManager->tasks, task);
         }
 
@@ -1398,19 +1494,13 @@ void clusterSyncSlotsCommand(client *c) {
         memcpy(task->source, getMyClusterNode()->name, CLUSTER_NAMELEN);
         if (c->node_id) memcpy(task->dest, c->node_id, CLUSTER_NAMELEN);
 
-        clusterNode *dst = clusterLookupNode(task->dest, CLUSTER_NAMELEN);
-        if (dst) {
-            int port = server.tls_replication ? dst->tls_port : dst->tcp_port;
-            c->slave_listening_port = port;
-        }
-
         task->main_channel_client = c;
         c->task = task;
 
         /* We mark the main channel client as a replica, so this client is limited
          * by the client output buffer settings for replicas. The replstate has no
          * real significance, just to prevent it from going online. */
-        c->flags |= (CLIENT_SLAVE | CLIENT_REPL_MIGRATION_DEST);
+        c->flags |= (CLIENT_SLAVE | CLIENT_ASM_MIGRATING);
         c->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
         if (server.repl_disable_tcp_nodelay)
             connDisableTcpNoDelay(c->conn);  /* Non critical if it fails. */
@@ -1465,12 +1555,11 @@ void clusterSyncSlotsCommand(client *c) {
         }
 
         /* Mark the client as a slave to generate slots snapshot */
-        c->flags |= (CLIENT_SLAVE | CLIENT_REPL_RDB_CHANNEL | CLIENT_REPL_RDBONLY | CLIENT_REPL_MIGRATION_DEST);
+        c->flags |= (CLIENT_SLAVE | CLIENT_REPL_RDB_CHANNEL | CLIENT_REPL_RDBONLY | CLIENT_ASM_MIGRATING);
         c->slave_capa |= SLAVE_CAPA_EOF;
         c->slave_req |= (SLAVE_REQ_SLOTS_SNAPSHOT | SLAVE_REQ_RDB_CHANNEL);
         c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
         c->repldbfd = -1;
-        c->slave_listening_port = task->main_channel_client->slave_listening_port;
         if (server.repl_disable_tcp_nodelay)
             connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
         listAddNodeTail(server.slaves, c);
@@ -1795,7 +1884,7 @@ void asmSyncBufferStreamToDb(asmTask *task) {
     /* The buffered stream from the main channel connection into
      * the database is processed by a fake client. */
     client *c = createClient(task->main_channel_conn);
-    c->flags |= (CLIENT_MASTER | CLIENT_INTERNAL);
+    c->flags |= (CLIENT_MASTER | CLIENT_INTERNAL | CLIENT_ASM_IMPORTING);
     c->querybuf = sdsempty();
     c->authenticated = 1;
     c->user = NULL;
@@ -1925,12 +2014,14 @@ void asmCron(void) {
 }
 
 /* Cancel a specific task if ID is provided, otherwise cancel all tasks. */
-int clusterAsmCancel(const char *task_id) {
+int clusterAsmCancel(const char *task_id, const char *reason) {
+    if (asmManager == NULL) return 0;
+
     if (task_id) {
         asmTask *task = lookupAsmTaskById(task_id);
         if (!task) return 0; /* Not found */
 
-        asmTaskCancel(task);
+        asmTaskCancel(task, reason);
         return 1;
     } else {
         int num_cancelled = 0;
@@ -1940,11 +2031,46 @@ int clusterAsmCancel(const char *task_id) {
         listRewind(asmManager->tasks, &li);
         while ((ln = listNext(&li)) != NULL) {
             asmTask *task = listNodeValue(ln);
-            asmTaskCancel(task);
+            asmTaskCancel(task, reason);
             num_cancelled++;
         }
         return num_cancelled;
     }
+}
+
+/* Cancel all tasks that overlap with the given slot ranges.
+ * If slot_ranges is NULL, cancel all tasks. */
+int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slot_ranges, const char *reason) {
+    if (asmManager == NULL) return 0;
+
+    int num_cancelled = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->tasks, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        asmTask *task = listNodeValue(ln);
+        if (!slot_ranges || slotRangeArraysOverlap(task->slot_ranges, slot_ranges)) {
+            asmTaskCancel(task, reason);
+            num_cancelled++;
+        }
+    }
+    return num_cancelled;
+}
+
+/* Check if the slot is in an active ASM task. */
+int isSlotInAsmTask(int slot) {
+    slotRange req = {slot, slot};
+    if (!asmManager) return 0;
+
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->tasks, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        asmTask *task = listNodeValue(ln);
+        if (slotRangeArrayOverlaps(task->slot_ranges, &req))
+            return 1;
+    }
+    return 0;
 }
 
 int clusterAsmHandoff(const char *task_id, sds *err) {
@@ -1963,15 +2089,22 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
     return C_OK;
 }
 
-int asmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
-    /* TODO: Validation, cancel asmTasks if required */
-
+/* Notify Redis that the config is updated for the given slot ranges.
+ * If `current` is provided, it should match the task found for the slot ranges.
+ * If `current` is NULL, any task found will be used, if no task is found, it means
+ * the config update is not related to current ASM task, but this node learned about
+ * the config update from cluster protocol, and we need to cancel any conflicting
+ * tasks that overlap with the slot ranges. */
+int asmNotifyConfigUpdated(asmTask *current, slotRangeArray *slot_ranges, sds *err) {
     asmTask *task = lookupAsmTaskBySlotRangeArray(slot_ranges);
+    if (current != NULL) serverAssert(task == current);
     if (!task) {
-        sds slot_ranges_str = slotRangeArrayToString(slot_ranges);
-        *err = sdscatprintf(sdsempty(), "No ASM task found for slots: %s", slot_ranges_str);
-        sdsfree(slot_ranges_str);
-        return C_ERR;
+        /* Cancel asmTasks that overlap with the slot ranges, since the cluster topology
+         * has changed. That may be because another node with different slot config and
+         * higher configEpoch takes over the slot ranges, e.g., a slot is updated through
+         * CLUSTER SETSLOT <slot> NODE <node-id> directly. */
+        clusterAsmCancelBySlotRangeArray(slot_ranges, "cluster topology changed");
+        return C_OK;
     }
 
     if (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER) {
@@ -1991,6 +2124,9 @@ int asmNotifyConfigUpdated(slotRangeArray *slot_ranges, sds *err) {
         *err = sdscatprintf(sdsempty(),
                             "ASM task is not in the correct state for config update: %s",
                             asmTaskStateToString(task->state));
+        /* Cancel asmTasks that overlap with the slot ranges, since the cluster topology
+         * has changed and the task is not in the correct state to complete. */
+        clusterAsmCancelBySlotRangeArray(slot_ranges, "cluster topology changed");
         return C_ERR;
     }
 
@@ -2006,7 +2142,7 @@ int clusterAsmDone(const char *task_id, sds *err) {
         *err = sdscatprintf(sdsempty(), "No ASM task found for id: %s", task_id);
         return C_ERR;
     }
-    return asmNotifyConfigUpdated(task->slot_ranges, err);
+    return asmNotifyConfigUpdated(task, task->slot_ranges, err);
 }
 
 int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
@@ -2021,7 +2157,7 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
             ret = asmCreateImportTask(task_id, arg, &errsds) ? C_OK : C_ERR;
             break;
         case ASM_EVENT_CANCEL:
-            num_cancelled = clusterAsmCancel(task_id);
+            num_cancelled = clusterAsmCancel(task_id, "user request");
             if (arg) *((int *)arg) = num_cancelled;
             ret = C_OK;
             break;
