@@ -2349,6 +2349,42 @@ werr:
     return 0;
 }
 
+int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
+    /* Save the key and associated value */
+    if (o->type == OBJ_STRING) {
+        /* Emit a SET command */
+        static const char cmd[]="*3\r\n$3\r\nSET\r\n";
+        if (rioWrite(r,cmd,sizeof(cmd)-1) == 0) return C_ERR;
+        /* Key and value */
+        if (rioWriteBulkObject(r,key) == 0) return C_ERR;
+        if (rioWriteBulkObject(r,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_LIST) {
+        if (rewriteListObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_SET) {
+        if (rewriteSetObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_ZSET) {
+        if (rewriteSortedSetObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_HASH) {
+        if (rewriteHashObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_STREAM) {
+        if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_MODULE) {
+        if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
+    } else {
+        serverPanic("Unknown object type");
+    }
+
+    /* Save the expire time */
+    if (expiretime != -1) {
+        static const char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
+        if (rioWrite(r,cmd,sizeof(cmd)-1) == 0) return C_ERR;
+        if (rioWriteBulkObject(r,key) == 0) return C_ERR;
+        if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
+    }
+
+    return C_OK;
+}
+
 int rewriteAppendOnlyFileRio(rio *aof) {
     dictEntry *de;
     int j;
@@ -2390,43 +2426,13 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             robj key;
             initStaticStringObject(key, kvobjGetKey(o));
 
-            /* Save the key and associated value */
-            if (o->type == OBJ_STRING) {
-                /* Emit a SET command */
-                char cmd[]="*3\r\n$3\r\nSET\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                /* Key and value */
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkObject(aof,o) == 0) goto werr;
-            } else if (o->type == OBJ_LIST) {
-                if (rewriteListObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_SET) {
-                if (rewriteSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_ZSET) {
-                if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_HASH) {
-                if (rewriteHashObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_STREAM) {
-                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
-            } else {
-                serverPanic("Unknown object type");
-            }
+            if (rewriteObject(aof, &key, o, j, expiretime) == C_ERR) goto werr;
 
             /* In fork child process, we can try to release memory back to the
              * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
-
-            /* Save the expire time */
-            if (expiretime != -1) {
-                char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
-            }
 
             /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will

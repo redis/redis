@@ -1762,23 +1762,35 @@ int slotRangesSnapshotSaveRio(int req, rio *rdb, int *error) {
                     robj key;
                     initStaticStringObject(key, kvobjGetKey(o));
 
-                    if (rioWriteBulkCount(rdb, '*', 5) == 0) goto werr;
-                    if (rioWriteBulkString(rdb, "RESTORE", 7) == 0) goto werr;
-                    if (rioWriteBulkObject(rdb, &key) == 0) goto werr;
-                    if (rioWriteBulkLongLong(rdb, expiretime == -1 ? 0 : expiretime) == 0) goto werr;
+                    /* If non-string/module object that is not too big, or module object
+                     * that does not support aof_rewrite, use RESTORE to import data.
+                     * Generally RDB binary format is more efficient, but it may cause
+                     * block in the destination if the object is too large, so fall back
+                     * to AOF format if necessary. */
+                    if ((o->type != OBJ_STRING && o->type != OBJ_MODULE && getObjectLength(o) <= AOF_REWRITE_ITEMS_PER_CMD) ||
+                        (o->type == OBJ_MODULE && ((moduleValue*)o->ptr)->type->aof_rewrite == NULL))
+                    {
+                        if (rioWriteBulkCount(rdb, '*', 5) == 0) goto werr;
+                        if (rioWriteBulkString(rdb, "RESTORE", 7) == 0) goto werr;
+                        if (rioWriteBulkObject(rdb, &key) == 0) goto werr;
+                        if (rioWriteBulkLongLong(rdb, expiretime == -1 ? 0 : expiretime) == 0) goto werr;
 
-                    /* Create the DUMP encoded representation. */
-                    rio payload;
-                    createDumpPayload(&payload, o, &key, i, 1);
-                    sds buf = payload.io.buffer.ptr;
-                    if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
+                        /* Create the DUMP encoded representation. */
+                        rio payload;
+                        createDumpPayload(&payload, o, &key, i, 1);
+                        sds buf = payload.io.buffer.ptr;
+                        if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
+                            sdsfree(payload.io.buffer.ptr);
+                            goto werr;
+                        }
                         sdsfree(payload.io.buffer.ptr);
-                        goto werr;
-                    }
-                    sdsfree(payload.io.buffer.ptr);
 
-                    /* Write ABSTTL */
-                    if (rioWriteBulkString(rdb, "ABSTTL", 6) == 0) goto werr;
+                        /* Write ABSTTL */
+                        if (rioWriteBulkString(rdb, "ABSTTL", 6) == 0) goto werr;
+                    } else {
+                        /* Use AOF format to import data */
+                        if (rewriteObject(rdb, &key, o, i, expiretime) == C_ERR) goto werr;
+                    }
 
                     /* Delay return if required (for testing) */
                     if (unlikely(server.rdb_key_save_delay)) {
