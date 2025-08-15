@@ -104,7 +104,7 @@ char *sendCommand(connection *conn, ...);
 char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens);
 char *receiveSynchronousResponse(connection *conn);
 ConnectionType *connTypeOfReplication(void);
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 static void asmSyncBufferReadFromConn(connection *conn);
@@ -1616,6 +1616,10 @@ int slotRangesSnapshotSaveRio(int req, rio *rdb, int *error) {
     if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_RDB_CHANNEL, ASM_SEND_BULK_AND_STREAM)))
         rioAbort(rdb); /* Simulate a failure */
 
+    /* Disable RDB compression for slots snapshot since compression is too
+     * expensive both in source and destination. */
+    server.rdb_compression = 0;
+
     for (int i = 0; i < server.dbnum; i++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
         redisDb *db = server.db + i;
@@ -1676,7 +1680,7 @@ int slotRangesSnapshotSaveRio(int req, rio *rdb, int *error) {
 
                     /* Create the DUMP encoded representation. */
                     rio payload;
-                    createDumpPayload(&payload, o, &key, i);
+                    createDumpPayload(&payload, o, &key, i, 1);
                     sds buf = payload.io.buffer.ptr;
                     if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
                         sdsfree(payload.io.buffer.ptr);
