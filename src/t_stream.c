@@ -2705,6 +2705,7 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
         return 1;
 
     /* Check if the message is in any consumer group's PEL */
+    if (!s->cgroups_ref) return 0;
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
     return raxFind(s->cgroups_ref, buf, sizeof(streamID), NULL);
