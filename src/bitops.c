@@ -1891,9 +1891,6 @@ int popcountTest(int argc, char **argv, int flags) {
 #else
     printf("AArch64 NEON not compiled in\n");
 #endif
-
-
-
     printf("All popcount tests passed!\n");
     return 0;
 }
