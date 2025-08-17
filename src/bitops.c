@@ -1873,9 +1873,9 @@ int bitopsTest(int argc, char **argv, int flags) {
             printf("FAIL: AArch64 NEON popcount mismatch\n");
             return 1;
         }
-    } else {
-        printf("AArch64 NEON not available\n");
     }
+#else
+    printf("AArch64 NEON not available\n");
 #endif
     printf("All popcount tests passed!\n");
     return 0;
