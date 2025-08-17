@@ -7305,6 +7305,7 @@ struct redisTest {
     {"listpack", listpackTest},
     {"kvstore", kvstoreTest},
     {"ebuckets", ebucketsTest},
+    {"bitmap", bitopsTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);

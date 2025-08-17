@@ -64,6 +64,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "connection.h" /* Connection abstraction */
 #include "eventnotifier.h" /* Event notification */
 #include "memory_prefetch.h"
+#include "bitops.h"  /* Bit operations */
 
 #define REDISMODULE_CORE 1
 typedef struct redisObject robj;
@@ -2804,7 +2805,6 @@ void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode, int from_signal);
-long long redisPopcount(void *s, long count);
 int redisSetProcTitle(char *title);
 int validateProcTitleTemplate(const char *template);
 int redisCommunicateSystemd(const char *sd_notify_msg);

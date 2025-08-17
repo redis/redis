@@ -10,6 +10,7 @@
 
 #include "server.h"
 #include "ctype.h"
+#include "bitops.h"
 
 #ifdef HAVE_AVX2
 /* Define __MM_MALLOC_H to prevent importing the memory aligned
@@ -28,12 +29,7 @@
 #define BITOP_USE_AVX2 0
 #endif
 
-#ifdef HAVE_AARCH64_NEON
-/* AArch64 always has NEON, but check for specific features */
-#define BITOP_USE_AARCH64_NEON 1
-#else
-#define BITOP_USE_AARCH64_NEON 0
-#endif
+/* AArch64 NEON support is determined at compile time via HAVE_AARCH64_NEON */
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -206,8 +202,6 @@ long long redisPopCountAarch64(void *s, long count) {
 
         p += 128;
         count -= 128;
-
-        redis_prefetch_read(p + 2048);
     }
 
     /* Reduce vector accumulators to scalar once. */
@@ -1412,13 +1406,10 @@ void bitcountCommand(client *c) {
 
         /* Use the best available popcount implementation */
 #ifdef HAVE_AARCH64_NEON
-        if (BITOP_USE_AARCH64_NEON) {
-            count = redisPopCountAarch64(p+start,bytes);
-        } else
+        count = redisPopCountAarch64(p+start,bytes);
+#else
+        count = redisPopcount(p+start,bytes);
 #endif
-        {
-            count = redisPopcount(p+start,bytes);
-        }
 
         if (first_byte_neg_mask != 0 || last_byte_neg_mask != 0) {
             unsigned char firstlast[2] = {0, 0};
@@ -1430,13 +1421,10 @@ void bitcountCommand(client *c) {
 
             /* Use the same popcount implementation for consistency */
 #ifdef HAVE_AARCH64_NEON
-            if (BITOP_USE_AARCH64_NEON) {
-                count -= redisPopCountAarch64(firstlast,2);
-            } else
+            count -= redisPopCountAarch64(firstlast,2);
+#else
+            count -= redisPopcount(firstlast,2);
 #endif
-            {
-                count -= redisPopcount(firstlast,2);
-            }
         }
         addReplyLongLong(c,count);
     }
@@ -1858,7 +1846,7 @@ void bitfieldroCommand(client *c) {
 
 #ifdef REDIS_TEST
 /* Test function to verify popcount implementations */
-int popcountTest(int argc, char **argv, int flags) {
+int bitopsTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
@@ -1877,7 +1865,7 @@ int popcountTest(int argc, char **argv, int flags) {
     }
 
 #ifdef HAVE_AARCH64_NEON
-    if (BITOP_USE_AARCH64_NEON) {
+    {
         long long result_aarch64 = redisPopCountAarch64(test_data, sizeof(test_data));
         printf("AArch64 NEON popcount: %lld (expected: %d)\n", result_aarch64, expected_bits);
 
@@ -1888,8 +1876,6 @@ int popcountTest(int argc, char **argv, int flags) {
     } else {
         printf("AArch64 NEON not available\n");
     }
-#else
-    printf("AArch64 NEON not compiled in\n");
 #endif
     printf("All popcount tests passed!\n");
     return 0;
