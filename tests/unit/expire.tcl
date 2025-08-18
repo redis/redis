@@ -61,6 +61,33 @@ start_server {tags {"expire"}} {
         set _ $e
     } {*invalid expire*}
 
+    test {INCREX - Incr + Expire combo operation. Check for TTL} {
+        r increx i 12
+        r ttl i
+    } {1[012]}
+
+    test {INCREX - Check value} {
+        r get i
+    } {1}
+
+    test {INCREX - Modify old key} {
+        r set j 1
+        r increx j 1
+        r get j
+    } {2}
+
+    tags {"slow"} {
+        test {INCREX - Wait for the key to expire} {
+            after 1100
+            r get j
+        } {}
+    }
+
+    test {INCREX - Wrong time parameter} {
+        catch {r increx k -10} e
+        set _ $e
+    } {*invalid expire*}
+
     test {PERSIST can undo an EXPIRE} {
         r set x foo
         r expire x 50

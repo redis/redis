@@ -601,13 +601,16 @@ void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
-void incrDecrCommand(client *c, long long incr) {
-    long long value, oldvalue;
+void incrDecrCommand(client *c, long long incr, robj *expire, int flags, int unit) {
+    long long value, oldvalue, milliseconds = 0;
     robj *new;
     dictEntryLink link;
     kvobj *o = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,o,OBJ_STRING)) return;
     if (getLongLongFromObjectOrReply(c,o,&value,NULL) != C_OK) return;
+    if (expire &&
+        getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK)
+        return;
 
     oldvalue = value;
     if ((incr < 0 && oldvalue < 0 && incr < (LLONG_MIN-oldvalue)) ||
@@ -636,25 +639,29 @@ void incrDecrCommand(client *c, long long incr) {
             dbAddByLink(c->db, c->argv[1], &new, &link);
         }
     }
+    if (expire)
+        new = setExpireByLink(c, c->db, c->argv[1]->ptr, milliseconds, link);
     addReplyLongLongFromStr(c,new);
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
+    if (expire)
+        notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
     server.dirty++;
 }
 
 void incrCommand(client *c) {
-    incrDecrCommand(c,1);
+    incrDecrCommand(c,1,NULL,0,0);
 }
 
 void decrCommand(client *c) {
-    incrDecrCommand(c,-1);
+    incrDecrCommand(c,-1,NULL,0,0);
 }
 
 void incrbyCommand(client *c) {
     long long incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
-    incrDecrCommand(c,incr);
+    incrDecrCommand(c,incr,NULL,0,0);
 }
 
 void decrbyCommand(client *c) {
@@ -666,7 +673,7 @@ void decrbyCommand(client *c) {
         addReplyError(c, "decrement would overflow");
         return;
     }
-    incrDecrCommand(c,-incr);
+    incrDecrCommand(c,-incr,NULL,0,0);
 }
 
 void incrbyfloatCommand(client *c) {
@@ -700,6 +707,10 @@ void incrbyfloatCommand(client *c) {
     rewriteClientCommandArgument(c,0,shared.set);
     rewriteClientCommandArgument(c,2,new);
     rewriteClientCommandArgument(c,3,shared.keepttl);
+}
+
+void increxCommand(client *c) {
+    incrDecrCommand(c,1,c->argv[2],OBJ_EX,UNIT_SECONDS);
 }
 
 void appendCommand(client *c) {
