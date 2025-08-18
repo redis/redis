@@ -19,6 +19,25 @@ The release notes contain PRs from multiple repositories:
 #Tn = Time Series (https://github.com/RedisTimeSeries/RedisTimeSeries)
 #Pn = Probabilistic (https://github.com/RedisBloom/RedisBloom)
 
+
+=============================================================
+8.2.1 (v8.2.1)    Committed  Mon 18 Aug 2025 12:00:00 IST
+=============================================================
+
+Update urgency: `MODERATE`: Program an upgrade of the server, but it's not urgent.
+
+### Bug fixes
+
+- #14240 `INFO KEYSIZES` - potential incorrect histogram updates on cluster mode with modules
+- #14274 Disable Active Defrag during flushing replica
+- #14276 `XADD` or `XTRIM` can crash the server after loading RDB
+- #Q6601 Potential crash when running `FLUSHDB` (MOD-10681)
+
+### Performance and resource utilization
+
+- Query Engine - LeanVec and LVQ proprietary Intel optimizations were removed from Redis Open Source
+- #Q6621 Fix regression in `INFO` (MOD-10779)
+
 ===========================================================
 8.2 GA (v8.2.0)    Released Mon 4 Aug 2025 15:00:00 IST
 ===========================================================
