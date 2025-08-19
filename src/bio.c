@@ -48,13 +48,20 @@
 #include "bio.h"
 #include <fcntl.h>
 
-static char* bio_worker_title[] = {
-    "bio_close_file",
-    "bio_aof",
-    "bio_lazy_free",
-};
+typedef struct {
+    const char *const bio_worker_title;
+    pthread_t bio_thread_id;
+    pthread_mutex_t bio_mutex;
+    pthread_cond_t bio_newjob_cond;
+    list *bio_jobs;
+} bio_worker_data;
 
-#define BIO_WORKER_NUM (sizeof(bio_worker_title) / sizeof(*bio_worker_title))
+static bio_worker_data bio_workers[] = {
+    {"bio_close_file"},
+    {"bio_aof"},
+    {"bio_lazy_free"}
+};
+#define BIO_WORKER_NUM (sizeof bio_workers / sizeof *bio_workers)
 
 static unsigned int bio_job_to_worker[] = {
     [BIO_CLOSE_FILE] = 0,
@@ -66,10 +73,6 @@ static unsigned int bio_job_to_worker[] = {
     [BIO_COMP_RQ_LAZY_FREE]  = 2
 };
 
-static pthread_t bio_threads[BIO_WORKER_NUM];
-static pthread_mutex_t bio_mutex[BIO_WORKER_NUM];
-static pthread_cond_t bio_newjob_cond[BIO_WORKER_NUM];
-static list *bio_jobs[BIO_WORKER_NUM];
 static unsigned long bio_jobs_counter[BIO_NUM_OPS] = {0};
 
 /* The bio_comp_list is used to hold completion job responses and to handover
@@ -126,15 +129,14 @@ void bioPipeReadJobCompList(aeEventLoop *el, int fd, void *privdata, int mask);
 /* Initialize the background system, spawning the thread. */
 void bioInit(void) {
     pthread_attr_t attr;
-    pthread_t thread;
     size_t stacksize;
-    unsigned long j;
 
     /* Initialization of state vars and objects */
-    for (j = 0; j < BIO_WORKER_NUM; j++) {
-        pthread_mutex_init(&bio_mutex[j],NULL);
-        pthread_cond_init(&bio_newjob_cond[j],NULL);
-        bio_jobs[j] = listCreate();
+    for (size_t j = 0; j != BIO_WORKER_NUM; ++j) {
+        bio_worker_data *const bwd = &bio_workers[j];
+        pthread_mutex_init(&bwd->bio_mutex,NULL);
+        pthread_cond_init(&bwd->bio_newjob_cond,NULL);
+        bwd->bio_jobs = listCreate();
     }
 
     /* init jobs comp responses */
@@ -168,24 +170,24 @@ void bioInit(void) {
     /* Ready to spawn our threads. We use the single argument the thread
      * function accepts in order to pass the job ID the thread is
      * responsible for. */
-    for (j = 0; j < BIO_WORKER_NUM; j++) {
-        int err = pthread_create(&thread,&attr,bioProcessBackgroundJobs, (void*) j);
+    for (size_t j = 0; j != BIO_WORKER_NUM; ++j) {
+        bio_worker_data *const bwd = &bio_workers[j];
+        int err = pthread_create(&bwd->bio_thread_id,&attr,bioProcessBackgroundJobs,(void*)bwd);
         if (err) {
             serverLog(LL_WARNING, "Fatal: Can't initialize Background Jobs. Error message: %s", strerror(err));
             exit(1);
         }
-        bio_threads[j] = thread;
     }
 }
 
 void bioSubmitJob(int type, bio_job *job) {
     job->header.type = type;
-    unsigned long worker = bio_job_to_worker[type];
-    pthread_mutex_lock(&bio_mutex[worker]);
-    listAddNodeTail(bio_jobs[worker],job);
+    bio_worker_data *const bwd = &bio_workers[bio_job_to_worker[type]];
+    pthread_mutex_lock(&bwd->bio_mutex);
+    listAddNodeTail(bwd->bio_jobs,job);
     bio_jobs_counter[type]++;
-    pthread_cond_signal(&bio_newjob_cond[worker]);
-    pthread_mutex_unlock(&bio_mutex[worker]);
+    pthread_cond_signal(&bwd->bio_newjob_cond);
+    pthread_mutex_unlock(&bwd->bio_mutex);
 }
 
 void bioCreateLazyFreeJob(lazy_free_fn free_fn, int arg_count, ...) {
@@ -255,20 +257,17 @@ void bioCreateFsyncJob(int fd, long long offset, int need_reclaim_cache) {
 }
 
 void *bioProcessBackgroundJobs(void *arg) {
+    bio_worker_data *const bwd = arg;
     bio_job *job;
-    unsigned long worker = (unsigned long) arg;
     sigset_t sigset;
 
-    /* Check that the worker is within the right interval. */
-    serverAssert(worker < BIO_WORKER_NUM);
-
-    redis_set_thread_title(bio_worker_title[worker]);
+    redis_set_thread_title(bwd->bio_worker_title);
 
     redisSetCpuAffinity(server.bio_cpulist);
 
     makeThreadKillable();
 
-    pthread_mutex_lock(&bio_mutex[worker]);
+    pthread_mutex_lock(&bwd->bio_mutex);
     /* Block SIGALRM so we are sure that only the main thread will
      * receive the watchdog signal. */
     sigemptyset(&sigset);
@@ -282,16 +281,16 @@ void *bioProcessBackgroundJobs(void *arg) {
         listNode *ln;
 
         /* The loop always starts with the lock hold. */
-        if (listLength(bio_jobs[worker]) == 0) {
-            pthread_cond_wait(&bio_newjob_cond[worker], &bio_mutex[worker]);
+        if (listLength(bwd->bio_jobs) == 0) {
+            pthread_cond_wait(&bwd->bio_newjob_cond, &bwd->bio_mutex);
             continue;
         }
         /* Get the job from the queue. */
-        ln = listFirst(bio_jobs[worker]);
+        ln = listFirst(bwd->bio_jobs);
         job = ln->value;
         /* It is now possible to unlock the background system as we know have
          * a stand alone job structure to process.*/
-        pthread_mutex_unlock(&bio_mutex[worker]);
+        pthread_mutex_unlock(&bwd->bio_mutex);
 
         /* Process the job accordingly to its type. */
         int job_type = job->header.type;
@@ -361,33 +360,33 @@ void *bioProcessBackgroundJobs(void *arg) {
 
         /* Lock again before reiterating the loop, if there are no longer
          * jobs to process we'll block again in pthread_cond_wait(). */
-        pthread_mutex_lock(&bio_mutex[worker]);
-        listDelNode(bio_jobs[worker], ln);
+        pthread_mutex_lock(&bwd->bio_mutex);
+        listDelNode(bwd->bio_jobs, ln);
         bio_jobs_counter[job_type]--;
-        pthread_cond_signal(&bio_newjob_cond[worker]);
+        pthread_cond_signal(&bwd->bio_newjob_cond);
     }
 }
 
 /* Return the number of pending jobs of the specified type. */
 unsigned long bioPendingJobsOfType(int type) {
-    unsigned int worker = bio_job_to_worker[type];
+    bio_worker_data *const bwd = &bio_workers[bio_job_to_worker[type]];
 
-    pthread_mutex_lock(&bio_mutex[worker]);
+    pthread_mutex_lock(&bwd->bio_mutex);
     unsigned long val = bio_jobs_counter[type];
-    pthread_mutex_unlock(&bio_mutex[worker]);
+    pthread_mutex_unlock(&bwd->bio_mutex);
 
     return val;
 }
 
 /* Wait for the job queue of the worker for jobs of specified type to become empty. */
 void bioDrainWorker(int job_type) {
-    unsigned long worker = bio_job_to_worker[job_type];
+    bio_worker_data *const bwd = &bio_workers[bio_job_to_worker[job_type]];
 
-    pthread_mutex_lock(&bio_mutex[worker]);
-    while (listLength(bio_jobs[worker]) > 0) {
-        pthread_cond_wait(&bio_newjob_cond[worker], &bio_mutex[worker]);
+    pthread_mutex_lock(&bwd->bio_mutex);
+    while (listLength(bwd->bio_jobs) > 0) {
+        pthread_cond_wait(&bwd->bio_newjob_cond, &bwd->bio_mutex);
     }
-    pthread_mutex_unlock(&bio_mutex[worker]);
+    pthread_mutex_unlock(&bwd->bio_mutex);
 }
 
 /* Kill the running bio threads in an unclean way. This function should be
@@ -396,18 +395,18 @@ void bioDrainWorker(int job_type) {
  * to perform a fast memory check without other threads messing with memory. */
 void bioKillThreads(void) {
     int err;
-    unsigned long j;
 
-    for (j = 0; j < BIO_WORKER_NUM; j++) {
-        if (bio_threads[j] == pthread_self()) continue;
-        if (bio_threads[j] && pthread_cancel(bio_threads[j]) == 0) {
-            if ((err = pthread_join(bio_threads[j],NULL)) != 0) {
+    for (size_t j = 0; j != BIO_WORKER_NUM; ++j) {
+        bio_worker_data *const bwd = &bio_workers[j];
+        if (bwd->bio_thread_id == pthread_self()) continue;
+        if (bwd->bio_thread_id && pthread_cancel(bwd->bio_thread_id) == 0) {
+            if ((err = pthread_join(bwd->bio_thread_id,NULL)) != 0) {
                 serverLog(LL_WARNING,
-                    "Bio worker thread #%lu can not be joined: %s",
+                    "Bio worker thread #%zu can not be joined: %s",
                         j, strerror(err));
             } else {
                 serverLog(LL_WARNING,
-                    "Bio worker thread #%lu terminated",j);
+                    "Bio worker thread #%zu terminated",j);
             }
         }
     }
