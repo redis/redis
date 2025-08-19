@@ -501,6 +501,8 @@ void debugCommand(client *c) {
 "    Promote the current connection to an internal connection.",
 "ASM-FAILPOINT <channel> <state>",
 "    Set a fail point for the specified channel and state for cluster atomic slot migration.",
+"ASM-TRIM-METHOD <default|none> ",
+"    Disable trimming for cluster atomic slot migration.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1103,6 +1105,12 @@ NULL
     } else if(!strcasecmp(c->argv[1]->ptr,"asm-failpoint") && c->argc == 4) {
         if (asmDebugSetFailPoint(c->argv[2]->ptr, c->argv[3]->ptr) != C_OK) {
             addReplyError(c, "Failed to set ASM fail point");
+        } else {
+            addReply(c, shared.ok);
+        }
+    } else if(!strcasecmp(c->argv[1]->ptr,"asm-trim-method") && c->argc == 3) {
+        if (asmDebugSetTrimMethod(c->argv[2]->ptr) != C_OK) {
+            addReplyError(c, "Failed to set ASM trim method");
         } else {
             addReply(c, shared.ok);
         }

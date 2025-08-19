@@ -18,6 +18,9 @@
 #define ASM_MAX_DONE_TASKS 32 /* Maximum number of completed tasks to keep in memory. */
 #define ASM_PAUSE_WRITE_MAX_GAP_BYTES (1 * 1024 * 1024) /* 1MB, TODO: a new config */
 
+#define ASM_DEBUG_TRIM_DEFAULT 0
+#define ASM_DEBUG_TRIM_NONE 1
+
 typedef struct asmTask {
     sds id;                             /* Task ID */
     int operation;                      /* Either ASM_IMPORT or ASM_MIGRATE */
@@ -52,6 +55,7 @@ struct asmManager {
     /* Fail point injection for debugging */
     int debug_failed_channel;     /* Channel where the task failed */
     int debug_failed_state;       /* State where the task failed */
+    int debug_trim_method;        /* Method to trim the buffer */
 };
 
 enum asmState {
@@ -118,6 +122,7 @@ void clusterAsmInit(void) {
     asmManager->total_done_tasks = 0;
     asmManager->debug_failed_channel = 0;
     asmManager->debug_failed_state = 0;
+    asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
 }
 
 char *asmTaskStateToString(int state) {
@@ -206,6 +211,31 @@ const char *asmChannelToString(int channel) {
     }
 }
 
+int asmDebugSetTrimMethod(const char *method) {
+    if (!asmManager) {
+        serverLog(LL_WARNING, "ASM manager is not initialized");
+        return C_ERR;
+    }
+
+    int prev = asmManager->debug_trim_method;
+    if (!strcasecmp(method, "default")) asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
+    else if (!strcasecmp(method, "none")) asmManager->debug_trim_method = ASM_DEBUG_TRIM_NONE;
+    else return C_ERR;
+
+    /* If we are switching from none to default, delete all the keys in the
+     * slots we don't own */
+    if (prev == ASM_DEBUG_TRIM_NONE && asmManager->debug_trim_method != ASM_DEBUG_TRIM_NONE) {
+        for (int i = 0; i < CLUSTER_SLOTS; i++)
+            if (!clusterIsMySlot(i))
+                clusterDelKeysInSlot(i, CLUSTER_DELKEYS_ASYNC);
+    }
+    return C_OK;
+}
+
+int asmCanTrimSlots(void) {
+    return !asmManager || asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT;
+}
+
 int asmDebugIsFailPointActive(int channel, int state) {
     if (!asmManager) return 0; /* ASM manager not initialized */
     if (asmManager->debug_failed_channel == channel && asmManager->debug_failed_state == state) {
@@ -214,6 +244,30 @@ int asmDebugIsFailPointActive(int channel, int state) {
         return 1;
     }
     return 0;
+}
+
+sds asmCatInfoString(sds info) {
+    int active_tasks = 0;
+
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->tasks, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        asmTask *task = listNodeValue(ln);
+        if (task->operation == ASM_IMPORT ||
+            (task->operation == ASM_MIGRATE && task->state != ASM_FAILED))
+        {
+            active_tasks++;
+        }
+    }
+
+    return sdscatprintf(info ? info : sdsempty(),
+                        "cluster_slot_migration_task_count:%d\r\n"
+                        "cluster_slot_migration_total_done_tasks:%lld\r\n"
+                        "cluster_slot_migration_sync_buffer_peak:%zu\r\n",
+                        active_tasks,
+                        asmManager->total_done_tasks,
+                        asmGetPeakSyncBufferSize());
 }
 
 void asmTaskReset(asmTask *task) {
@@ -319,42 +373,22 @@ size_t asmGetMigratingBufferSize(void) {
     return 0;
 }
 
-static int compareSlotRange(const void *a, const void *b) {
-    const slotRange *sa = a;
-    const slotRange *sb = b;
-    if (sa->start < sb->start) return -1;
-    if (sa->start > sb->start) return 1;
-    return 0;
-}
-
-/* Compare two slot range arrays, return 1 if equal, 0 otherwise */
-static int slotRangeArrayIsEqual(slotRangeArray *sra1, slotRangeArray *sra2) {
-    if (sra1->num_ranges != sra2->num_ranges) return 0;
-
-    /* Sort slot ranges first */
-    qsort(sra1->ranges, sra1->num_ranges, sizeof(slotRange), compareSlotRange);
-    qsort(sra2->ranges, sra2->num_ranges, sizeof(slotRange), compareSlotRange);
-
-    for (int i = 0; i < sra1->num_ranges; i++) {
-        if (sra1->ranges[i].start != sra2->ranges[i].start ||
-            sra1->ranges[i].end != sra2->ranges[i].end) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
 /* Returns the ASM task with the given ID, or NULL if no such task exists. */
-asmTask *lookupAsmTaskById(const char *id) {
+static asmTask *lookupAsmTaskAt(list *tasks, const char *id) {
     listIter li;
     listNode *ln;
 
-    listRewind(asmManager->tasks, &li);
+    listRewind(tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
         if (!strcmp(task->id, id)) return task;
     }
     return NULL;
+}
+
+/* Returns the ASM task with the given ID, or NULL if no such task exists. */
+asmTask *lookupAsmTaskById(const char *id) {
+    return lookupAsmTaskAt(asmManager->tasks, id);
 }
 
 /* Returns the ASM task that is identical to the given slot range array, or NULL
@@ -694,21 +728,43 @@ static void replyTaskStatus(client *c, asmTask *task) {
     addReplyBulkLongLong(c, p);
 }
 
-/* CLUSTER MIGRATION STATUS
+/* CLUSTER MIGRATION STATUS [ID <task-id>]
  *  - Reply: Array of atomic slot migration tasks */
 static void clusterMigrationCommandStatus(client *c) {
     listIter li;
     listNode *ln;
 
-    addReplyArrayLen(c, listLength(asmManager->tasks) + listLength(asmManager->done_tasks));
+    if (c->argc != 3 && c->argc != 5) {
+        addReplyErrorArity(c);
+        return;
+    }
 
-    listRewind(asmManager->tasks, &li);
-    while ((ln = listNext(&li)) != NULL)
-        replyTaskStatus(c, listNodeValue(ln));
+    if (c->argc == 5) {
+        if (strcasecmp(c->argv[3]->ptr, "id") != 0) {
+            addReplyError(c, "unknown argument");
+            return;
+        }
+        sds id = c->argv[4]->ptr;
+        asmTask *task = lookupAsmTaskAt(asmManager->tasks, id);
+        if (!task) task = lookupAsmTaskAt(asmManager->done_tasks, id);
+        if (!task) {
+            addReplyArrayLen(c, 0);
+            return;
+        }
 
-    listRewind(asmManager->done_tasks, &li);
-    while ((ln = listNext(&li)) != NULL)
-        replyTaskStatus(c, listNodeValue(ln));
+        addReplyArrayLen(c, 1);
+        replyTaskStatus(c, task);
+    } else {
+        addReplyArrayLen(c, listLength(asmManager->tasks) +
+                            listLength(asmManager->done_tasks));
+        listRewind(asmManager->tasks, &li);
+        while ((ln = listNext(&li)) != NULL)
+            replyTaskStatus(c, listNodeValue(ln));
+
+        listRewind(asmManager->done_tasks, &li);
+        while ((ln = listNext(&li)) != NULL)
+            replyTaskStatus(c, listNodeValue(ln));
+    }
 }
 
 /* CLUSTER MIGRATION

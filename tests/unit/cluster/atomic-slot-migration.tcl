@@ -1,29 +1,136 @@
-proc migration_status {node_id task_id field} {
-    set status [R $node_id CLUSTER MIGRATION STATUS]
+set ::slot_prefixes [dict create \
+    0 "{06S}" \
+    1 "{Qi}" \
+    2 "{5L5}" \
+    3 "{4Iu}" \
+    4 "{4gY}" \
+    5 "{460}" \
+    6 "{1Y7}" \
+    7 "{1LV}" \
+    101 "{1j2}" \
+    6000 "{4L7}" \
+    6001 "{4YV}" \
+    6002 "{0bx}" \
+    6003 "{AJ}" \
+    6004 "{of}" \
+]
 
-    # Iterate through each migration operation
-    foreach operation $status {
-        set task_id_found ""
-        set field_value ""
+# Helper functions
+proc get_port {node_id} {
+    if {$::tls} {
+        return [lindex [R $node_id config get tls-port] 1]
+    } else {
+        return [lindex [R $node_id config get port] 1]
+    }
+}
 
-        # Parse the key-value pairs in the operation
-        for {set i 0} {$i < [llength $operation]} {incr i 2} {
-            set key [lindex $operation $i]
-            set value [lindex $operation [expr $i + 1]]
+# return the prefix for the given slot
+proc slot_prefix {slot} {
+    return [dict get $::slot_prefixes $slot]
+}
 
-            if {$key eq "id"} {
-                set task_id_found $value
-            } elseif {$key eq $field} {
-                set field_value $value
-            }
-        }
-        # Check if this operation matches the requested task_id
-        if {$task_id_found eq $task_id} {
-            return $field_value
+# return a key for the given slot
+proc slot_key {slot {suffix ""}} {
+    return "[slot_prefix $slot]$suffix"
+}
+
+# Populate a slot with keys
+# TODO: Consider merging with populate()
+proc populate_slot {num args} {
+    # Default values
+    set prefix "key:"
+    set size 3
+    set idx 0
+    set prints false
+    set expires 0
+    set slot -1
+
+    # Parse named arguments
+    foreach {key value} $args {
+        switch -- $key {
+            -prefix { set prefix $value }
+            -size { set size $value }
+            -idx { set idx $value }
+            -prints { set prints $value }
+            -expires { set expires $value }
+            -slot { set slot $value }
+            default { error "Unknown option: $key" }
         }
     }
-    # Return empty string if slots_range not found or field not found
-    return ""
+
+    # If slot is specified, use slot prefix from table
+    if {$slot >= 0} {
+        if {[dict exists $::slot_prefixes $slot]} {
+            set prefix [dict get $::slot_prefixes $slot]
+        } else {
+            error "Slot $slot not supported in slot_prefixes table, add it manually"
+        }
+    }
+
+    R $idx deferred 1
+    if {$num > 16} {set pipeline 16} else {set pipeline $num}
+    set val [string repeat A $size]
+    for {set j 0} {$j < $pipeline} {incr j} {
+        if {$expires > 0} {
+            R $idx set $prefix$j $val ex $expires
+        } else {
+            R $idx set $prefix$j $val
+        }
+        if {$prints} {puts $j}
+    }
+    for {} {$j < $num} {incr j} {
+        if {$expires > 0} {
+            R $idx set $prefix$j $val ex $expires
+        } else {
+            R $idx set $prefix$j $val
+        }
+        R $idx read
+        if {$prints} {puts $j}
+    }
+    for {set j 0} {$j < $pipeline} {incr j} {
+        R $idx read
+        if {$prints} {puts $j}
+    }
+    R $idx deferred 0
+}
+
+# Wait for all ASM tasks to complete in the cluster
+proc wait_for_asm_done {} {
+    set total_instances [expr {$::cluster_master_nodes + $::cluster_replica_nodes}]
+
+    for {set i 0} {$i < $total_instances} {incr i} {
+        wait_for_condition 1000 10 {
+            [CI $i cluster_slot_migration_task_count] == 0
+        } else {
+            set migration_count [CI $i cluster_slot_migration_task_count]
+            fail "ASM tasks did not complete on instance $i: migration_tasks=$migration_count"
+        }
+    }
+}
+
+proc migration_status {node_id task_id field} {
+    set status [R $node_id CLUSTER MIGRATION STATUS ID $task_id]
+
+    # STATUS ID returns single task, so get first element
+    if {[llength $status] == 0} {
+        return ""
+    }
+
+    set task_status [lindex $status 0]
+    set field_value ""
+
+    # Parse the key-value pairs in the task
+    for {set i 0} {$i < [llength $task_status]} {incr i 2} {
+        set key [lindex $task_status $i]
+        set value [lindex $task_status [expr $i + 1]]
+
+        if {$key eq $field} {
+            set field_value $value
+            break
+        }
+    }
+
+    return $field_value
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 30000}} {
@@ -106,6 +213,74 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal "tag22273" [R 0 get tag22273]
         assert_equal "tag9283" [R 0 get tag9283]
         R 1 config set rdb-key-save-delay 0
+
+        # revert the migration
+        R 1 CLUSTER MIGRATION IMPORT 7000 8000
+        wait_for_asm_done
+    }
+
+    test "Simple slot migration with write load" {
+        # Perform slot migration while traffic is on and verify data consistency.
+        # Trimming is disabled on source nodes so, we can compare the dbs after
+        # migration via DEBUG DIGEST to ensure no data loss during migration.
+        # Steps:
+        # 1. Disable trimming on both nodes
+        # 2. Populate slot 0 on node-0 and slot 6000 on node-1
+        # 2. Start write traffic on both nodes
+        # 3. Migrate slot 0 from node-0 to node-1
+        # 4. Migrate slot 6000 from node-1 to node-0
+        # 5. Stop write traffic, verify db's are identical.
+
+        R 0 flushall
+        R 0 debug asm-trim-method none
+        populate_slot 10000 -idx 0 -slot 0
+
+        R 1 flushall
+        R 1 debug asm-trim-method none
+        populate_slot 10000 -idx 1 -slot 6000
+
+        # Start write traffic on node-0
+        # Throws -MOVED error once asm is completed, catch block will ignore it.
+        catch {
+            # Start the slot 0 write load on the R 0
+            set port [get_port 0]
+            set key [slot_key 0 mykey]
+            set load_handle0 [start_write_load "127.0.0.1" $port 100 $key]
+        }
+
+        # Start write traffic on node-1
+        # Throws -MOVED error once asm is completed, catch block will ignore it.
+        catch {
+            # Start the slot 6000 write load on the R 1
+            set port [get_port 1]
+            set key [slot_key 6000 mykey]
+            set load_handle1 [start_write_load "127.0.0.1" $port 100 $key]
+        }
+
+        # Migrate keys
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 6000 6100
+        wait_for_asm_done
+
+        stop_write_load $load_handle0
+        stop_write_load $load_handle1
+
+        # verify data
+        assert_morethan [R 0 dbsize] 0
+        assert_equal [R 0 dbsize] [R 1 dbsize]
+        assert_equal [R 0 debug digest] [R 1 debug digest]
+
+        # cleanup
+        R 0 debug asm-trim-method default
+        R 0 flushall
+        R 1 debug asm-trim-method default
+        R 1 flushall
+
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 1 CLUSTER MIGRATION IMPORT 6000 6100
+        wait_for_asm_done
     }
 
     test "Simple slot migration" {
@@ -117,7 +292,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 set $slot101_key "c"
         # 3 keys cost 3s to save
         R 0 config set rdb-key-save-delay 1000000
-    
+
         # migrate slot 0-100 to R 1
         set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
         # migration is start, and in accumulating buffer stage
@@ -173,9 +348,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             }
 
             # Start the slot 0 write load on the R 1
-            if {$::tls} { set port [lindex [R 1 config get tls-port] 1]
-            } else { set port [lindex [R 1 config get port] 1] }
-            set load_handle [start_write_load "127.0.0.1" $port 500 "06S"]
+            set load_handle [start_write_load "127.0.0.1" [get_port 1] 500 "06S"]
 
             # clear old fail points and set the new fail point
             assert_equal {OK} [R 0 debug asm-failpoint "" ""]
@@ -257,9 +430,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 config set rdb-key-save-delay 1000000
 
         # Start the slot 0 write load on the R 1
-        if {$::tls} { set port [lindex [R 1 config get tls-port] 1]
-        } else { set port [lindex [R 1 config get port] 1] }
-        set load_handle [start_write_load "127.0.0.1" $port 100 $slot0_key]
+        set load_handle [start_write_load "127.0.0.1" [get_port 1] 100 $slot0_key]
 
         # Clear all fail points
         assert_equal {OK} [R 0 debug asm-failpoint "" ""]
@@ -317,9 +488,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set loglines [count_log_lines 0]
 
         # Start the slot 0 write load on the R 0
-        if {$::tls} { set port [lindex [R 0 config get tls-port] 1]
-        } else { set port [lindex [R 0 config get port] 1] }
-        set load_handle [start_write_load "127.0.0.1" $port 1000 $slot0_key]
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 1000 $slot0_key]
 
         # After some time, the client output buffer limit should be reached
         wait_for_log_messages 0 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10

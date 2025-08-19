@@ -105,6 +105,8 @@ proc cluster_setup {masters node_count slot_allocator code} {
 # Start a cluster with the given number of masters and replicas. Replicas
 # will be allocated to masters by round robin.
 proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation}} {
+    set ::cluster_master_nodes $masters
+    set ::cluster_replica_nodes $replicas
     set node_count [expr $masters + $replicas]
 
     # Set the final code to be the tests + cluster setup

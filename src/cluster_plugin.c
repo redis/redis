@@ -9,6 +9,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_asm.h"
 #include "cluster_plugin.h"
 
 ClusterPlugin *clusterPlugin = NULL;
@@ -102,7 +103,9 @@ void clusterPromoteSelfToMaster(void) {
 }
 
 sds genClusterInfoString(void) {
-    return clusterPlugin->genClusterInfoString();
+    sds info = clusterPlugin->genClusterInfoString();
+    info = asmCatInfoString(info);
+    return info;
 }
 
 int getClusterSize(void) {
@@ -164,7 +167,7 @@ void clusterInitLast(void) {
 }
 
 void clusterBeforeSleep(void) {
-    // TODO: call asmBeforeSleep();
+    asmBeforeSleep();
 }
 
 int verifyClusterConfigWithData(void) {

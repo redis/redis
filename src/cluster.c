@@ -1636,6 +1636,10 @@ unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *sra, int flags) {
     return j;
 }
 
+int clusterIsMySlot(int slot) {
+    return getMyClusterNode() == getNodeBySlot(slot);
+}
+
 void replySlotsFlushAndFree(client *c, slotRangeArray *sra) {
     addReplyArrayLen(c, sra->num_ranges);
     for (int i = 0 ; i < sra->num_ranges ; i++) {
@@ -1643,7 +1647,7 @@ void replySlotsFlushAndFree(client *c, slotRangeArray *sra) {
         addReplyLongLong(c, sra->ranges[i].start);
         addReplyLongLong(c, sra->ranges[i].end);
     }
-    zfree(sra);
+    slotRangeArrayFree(sra);
 }
 
 /* Checks that slot ranges are well-formed and non-overlapping. */
@@ -1713,6 +1717,83 @@ sds slotRangeArrayToString(slotRangeArray *sra) {
     s[sdslen(s)] = '\0';
 
     return s;
+}
+
+static int compareSlotRange(const void *a, const void *b) {
+    const slotRange *sa = a;
+    const slotRange *sb = b;
+    if (sa->start < sb->start) return -1;
+    if (sa->start > sb->start) return 1;
+    return 0;
+}
+
+/* Compare two slot range arrays, return 1 if equal, 0 otherwise */
+int slotRangeArrayIsEqual(slotRangeArray *sra1, slotRangeArray *sra2) {
+    if (sra1->num_ranges != sra2->num_ranges) return 0;
+
+    /* Sort slot ranges first */
+    qsort(sra1->ranges, sra1->num_ranges, sizeof(slotRange), compareSlotRange);
+    qsort(sra2->ranges, sra2->num_ranges, sizeof(slotRange), compareSlotRange);
+
+    for (int i = 0; i < sra1->num_ranges; i++) {
+        if (sra1->ranges[i].start != sra2->ranges[i].start ||
+            sra1->ranges[i].end != sra2->ranges[i].end) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* Add a slot to the slot range array.
+ * Usage:
+ *     slotRangeArray *sra = NULL
+ *     sra = slotRangeArrayAppend(sra, 1000);
+ *     sra = slotRangeArrayAppend(sra, 1001);
+ *     sra = slotRangeArrayAppend(sra, 1003);
+ *     sra = slotRangeArrayAppend(sra, 1004);
+ *     sra = slotRangeArrayAppend(sra, 1005);
+ *
+ *     Result: 1000-1001, 1003-1005
+ *     Note: `slot` must be greater than the previous slot.
+ * */
+slotRangeArray *slotRangeArrayAppend(slotRangeArray *sra, int slot) {
+    if (sra == NULL) {
+        sra = slotRangeArrayCreate(4);
+        sra->ranges[0].start = slot;
+        sra->ranges[0].end = slot;
+        sra->num_ranges = 1;
+        return sra;
+    }
+
+    serverAssert(sra->num_ranges >= 0 && sra->num_ranges <= CLUSTER_SLOTS);
+    serverAssert(slot > sra->ranges[sra->num_ranges - 1].end);
+
+    /* Check if we can extend the last range */
+    slotRange *last = &sra->ranges[sra->num_ranges - 1];
+    if (slot == last->end + 1) {
+        last->end = slot;
+        return sra;
+    }
+
+    /* Calculate current capacity and reallocate if needed */
+    int cap = (int) ((zmalloc_size(sra) - sizeof(slotRangeArray)) / sizeof(slotRange));
+    if (sra->num_ranges >= cap)
+        sra = zrealloc(sra, sizeof(slotRangeArray) + sizeof(slotRange) * cap * 2);
+
+    /* Add new single-slot range */
+    sra->ranges[sra->num_ranges].start = slot;
+    sra->ranges[sra->num_ranges].end = slot;
+    sra->num_ranges++;
+
+    return sra;
+}
+
+/* Returns 1 if the slot range array contains the given slot, 0 otherwise. */
+int slotRangeArrayContains(slotRangeArray *sra, unsigned int slot) {
+    for (int i = 0; i < sra->num_ranges; i++)
+        if (sra->ranges[i].start <= slot && sra->ranges[i].end >= slot)
+            return 1;
+    return 0;
 }
 
 /* Free the slot range array. */
@@ -1797,42 +1878,19 @@ void sflushCommand(client *c) {
      * a new slotRangeArray. It is allocated on heap since there is a chance
      * that FLUSH SYNC will be running as blocking ASYNC and only later reply
      * with slot ranges */
-    int in_slot_range = 0;
-    int capacity = 32; /* Initial capacity */
-
-    slotRangeArray *myslots = zmalloc(sizeof(*myslots) + sizeof(slotRange) * capacity);
-    myslots->num_ranges = 0;
-
+    slotRangeArray *myslots = NULL;
     for (int i = 0; i < slot_ranges->num_ranges; i++) {
         slotRange *sr = &slot_ranges->ranges[i];
-        for (int slot = sr->start; slot <= sr->end; slot++) {
-            if (myslots->num_ranges >= capacity) {
-                capacity *= 2;
-                myslots = zrealloc(myslots, sizeof(*myslots) + sizeof(slotRange) * capacity);
-            }
-            /* Check if this slot belongs to this node */
-            int myslot = (getNodeBySlot(slot) == getMyClusterNode());
-
-            /* Start range on first owned slot, end range on first unowned slot */
-            if (myslot && !in_slot_range) {
-                in_slot_range = 1;
-                myslots->ranges[myslots->num_ranges].start = slot;
-            } else if (!myslot && in_slot_range) {
-                in_slot_range = 0;
-                myslots->ranges[myslots->num_ranges++].end = slot - 1;
-            }
-        }
-        if (in_slot_range) {
-            /* End the current slot range if this is the last range or if
-             * there's a gap before the next range starts. */
-            int last_range = (i == slot_ranges->num_ranges - 1);
-            if (last_range || slot_ranges->ranges[i + 1].start != sr->end + 1) {
-                myslots->ranges[myslots->num_ranges++].end = sr->end;
-                in_slot_range = 0;
-            }
-        }
+        for (int slot = sr->start; slot <= sr->end; slot++)
+            if (clusterIsMySlot(slot))
+                myslots = slotRangeArrayAppend(myslots, slot);
     }
     zfree(slot_ranges);
+
+    if (myslots == NULL) {
+        addReply(c, shared.emptyarray);
+        return;
+    }
 
     /* Flush selected slots. If not flush as blocking async, then reply immediately */
     if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0)

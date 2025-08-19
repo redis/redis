@@ -1034,7 +1034,7 @@ void flushallSyncBgDone(uint64_t client_id, void *userdata) {
 
     /* Verify that client still exists and being blocked. */
     if (!(c && c->flags & CLIENT_BLOCKED)) {
-        zfree(sra);
+        slotRangeArrayFree(sra);
         return;
     }
 
