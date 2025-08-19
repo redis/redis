@@ -2241,7 +2241,7 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         set k [r lrange k 0 -1]
         set dump [r dump k]
 
-        # coverage for objectComputeSize
+        # coverage for kvobjComputeSize
         assert_morethan [memory_usage k] 0
 
         config_set sanitize-dump-payload no mayfail

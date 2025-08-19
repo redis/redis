@@ -684,6 +684,33 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         lappend res [r get bar]
     } {12 12}
     
+    # coverage for kvobjComputeSize
+    test {MEMORY USAGE - STRINGS} {
+        set sizes {1 5 8 15 16 17 31 32 33 63 64 65 127 128 129 255 256 257}
+        set hdrsize [expr {[s arch_bits] == 32 ? 12 : 16}]
+        
+        foreach ksize $sizes {
+            set key [string repeat "k" $ksize]
+            # OBJ_ENCODING_EMBSTR, OBJ_ENCODING_RAW        
+            foreach vsize $sizes {
+                set value [string repeat "v" $vsize]                        
+                r set $key $value
+                set memory_used [r memory usage $key]
+                set min [expr $hdrsize + $ksize + $vsize] 
+                assert_lessthan_equal $min $memory_used
+                set max [expr {32 > $min ? 64 : [expr $min * 2]}]
+                assert_morethan_equal $max $memory_used
+            }
+            
+            # OBJ_ENCODING_INT
+            foreach value {1 100 10000 10000000} {
+                r set $key $value
+                set min [expr $hdrsize + $ksize]
+                assert_lessthan_equal $min [r memory usage $key]
+            }
+        }
+    }
+    
     if {[string match {*jemalloc*} [s mem_allocator]]} {
         test {Check MEMORY USAGE for embedded key strings with jemalloc} {
         
