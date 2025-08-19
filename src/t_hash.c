@@ -3516,8 +3516,8 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
     long numFields = 0, numFieldsAt = 3;
 
     /* Read the hash object */
-    hashObj = lookupKeyRead(c->db, c->argv[1]);
-    if (checkType(c, hashObj, OBJ_HASH))
+    hashObj = lookupKeyReadOrReply(c,c->argv[1], shared.null[c->resp]);
+    if ((hashObj == NULL) || checkType(c, hashObj, OBJ_HASH))
         return;
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
@@ -3674,8 +3674,8 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     robj *keyArg = c->argv[1], *expireArg = c->argv[2];
 
     /* Read the hash object */
-    kvobj *hashObj = lookupKeyWrite(c->db, keyArg);
-    if (checkType(c, hashObj, OBJ_HASH))
+    kvobj *hashObj = lookupKeyWriteOrReply(c,c->argv[1], shared.null[c->resp]);
+    if ((hashObj == NULL) || checkType(c, hashObj, OBJ_HASH))
         return;
 
     /* Read the expiry time from command */
@@ -3840,9 +3840,8 @@ void hpersistCommand(client *c) {
     int changed = 0; /* Used to determine whether to send a notification. */
 
     /* Read the hash object */
-    kvobj *hashObj = lookupKeyWrite(c->db, c->argv[1]);
-    if (checkType(c, hashObj, OBJ_HASH))
-        return;
+    kvobj *hashObj = lookupKeyWriteOrReply(c,c->argv[1], shared.null[c->resp]);
+    if (hashObj == NULL || checkType(c,hashObj,OBJ_HASH)) return;
 
     if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
         addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");

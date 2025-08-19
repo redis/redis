@@ -64,12 +64,17 @@ start_server {tags {"external:skip needs:debug"}} {
             r config set hash-max-listpack-entries 512
         }
 
-        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Returns array if the key does not exist" {
+        test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Key or field does not exist" {
             r del myhash
+            r hset myhash x y
             assert_equal [r HEXPIRE myhash 1000 FIELDS 1 a] [list $E_NO_FIELD]
             assert_equal [r HEXPIREAT myhash 1000 FIELDS 1 a] [list $E_NO_FIELD]
             assert_equal [r HPEXPIRE myhash 1000 FIELDS 2 a b] [list $E_NO_FIELD $E_NO_FIELD]
             assert_equal [r HPEXPIREAT myhash 1000 FIELDS 2 a b] [list $E_NO_FIELD $E_NO_FIELD]
+
+            r del nonexistentkey
+            assert_equal [r HEXPIRE nonexistentkey 1000 FIELDS 1 field1] ""
+            assert_equal [r HEXPIREAT nonexistentkey [expr [clock seconds] + 1000] FIELDS 1 field1] ""
         }
 
         test "HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT - Verify that the expire time does not overflow" {
@@ -248,10 +253,15 @@ start_server {tags {"external:skip needs:debug"}} {
             r flushall async
         }
 
-        test "HTTL/HPTTL - Returns array if the key does not exist" {
+        test "HTTL/HPTTL - Key or field does not exist" {
             r del myhash
+            r hset myhash x y
             assert_equal [r HTTL myhash FIELDS 1 a] [list $T_NO_FIELD]
             assert_equal [r HPTTL myhash FIELDS 2 a b] [list $T_NO_FIELD $T_NO_FIELD]
+
+            r del nonexistentkey
+            assert_equal [r HTTL nonexistentkey FIELDS 1 field1] ""
+            assert_equal [r HPTTL nonexistentkey FIELDS 1 field1] ""
         }
 
         test "HTTL/HPTTL - Input validation gets failed on nonexists field or field without expire ($type)" {
@@ -277,10 +287,15 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range $ttl 1000 2000
         }
 
-        test "HEXPIRETIME/HPEXPIRETIME - Returns array if the key does not exist" {
+        test "HEXPIRETIME/HPEXPIRETIME - Key or field does not exist" {
             r del myhash
+            r hset myhash x y
             assert_equal [r HEXPIRETIME myhash FIELDS 1 a] [list $T_NO_FIELD]
             assert_equal [r HPEXPIRETIME myhash FIELDS 2 a b] [list $T_NO_FIELD $T_NO_FIELD]
+
+            r del nonexistentkey
+            assert_equal [r HEXPIRETIME nonexistentkey FIELDS 1 field1] ""
+            assert_equal [r HPEXPIRETIME nonexistentkey FIELDS 1 field1] ""
         }
 
         test "HEXPIRETIME - returns TTL in Unix timestamp ($type)" {
@@ -727,10 +742,14 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
-        test "HPERSIST - Returns array if the key does not exist ($type)" {
+        test "HPERSIST - Key or field does not exist ($type)" {
             r del myhash
+            r hset myhash x y
             assert_equal [r HPERSIST myhash FIELDS 1 a] [list $P_NO_FIELD]
             assert_equal [r HPERSIST myhash FIELDS 2 a b] [list $P_NO_FIELD $P_NO_FIELD]
+
+            r del nonexistentkey
+            assert_equal [r HPERSIST nonexistentkey FIELDS 1 field1] ""
         }
 
         test "HPERSIST - input validation ($type)" {
@@ -1463,11 +1482,11 @@ start_server {tags {"external:skip needs:debug"}} {
             after 20
             # If EXPIRE is shorter, it should delete the key.
             if {$etime == 10} {
-                assert_equal [r httl myhash FIELDS 1 f1] $T_NO_FIELD
+                assert_equal [r httl myhash FIELDS 1 f1] ""
                 assert_equal [r exists myhash] 0
             } else {
                 if {$htime == 10} {
-                    assert_equal [r httl myhash FIELDS 1 f1] $T_NO_FIELD
+                    assert_equal [r httl myhash FIELDS 1 f1] ""
                     assert_range [r pttl myhash] 500 1000
                 } else {
                     assert_range [r httl myhash FIELDS 1 f1] 1 1000
