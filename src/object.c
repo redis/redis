@@ -1783,7 +1783,7 @@ NULL
             addReplyNull(c);
             return;
         }
-        size_t usage = kvobjComputeSize(c->argv[2], (robj *)kv, samples, c->db->id);
+        size_t usage = kvobjComputeSize(c->argv[2], kv, samples, c->db->id);
         addReplyLongLong(c,usage);
     } else if (!strcasecmp(c->argv[1]->ptr,"stats") && c->argc == 2) {
         struct redisMemOverhead *mh = getMemoryOverheadData();
