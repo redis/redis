@@ -1255,8 +1255,7 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  *                   For example, module commands that are called by the modules,
  *                   commands that do not perform ACL validations (relying on earlier checks)
  * * **"touches-arbitrary-keys"**: This command may modify arbitrary keys (i.e. not provided via argv).
- *                   This flag is used so we don't wrap the replicated commands with MULTI/EXEC, because it
- *                   might result in a CROSSSLOT violation in Redis-Enterprise
+ *                   This flag is used so we don't wrap the replicated commands with MULTI/EXEC.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.
