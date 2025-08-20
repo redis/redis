@@ -2776,7 +2776,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 /* Convert listpack to hash table without registering in global HFE DS,
                  * if has HFEs, since the listpack is not connected yet to the DB */
                 if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-                    hashTypeConvert(o, OBJ_ENCODING_HT, NULL /*db->hexpires*/);
+                    hashTypeConvert(o, OBJ_ENCODING_HT, NULL /*db*/);
 
                 break;
             default:
@@ -3649,7 +3649,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             if (kv->type == OBJ_HASH) {
                 uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
                 if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-                    hashTypeAddToExpires(db, kv, minExpiredField);
+                    estoreAdd(db->subexpires, getKeySlot(key), kv, minExpiredField);
             }
 
             /* Set usage information (for eviction). */

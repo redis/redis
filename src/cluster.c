@@ -264,7 +264,7 @@ void restoreCommand(client *c) {
     if (kv->type == OBJ_HASH) {
         uint64_t minExpiredField = hashTypeGetMinExpire(kv, 1);
         if (minExpiredField != EB_EXPIRE_TIME_INVALID)
-            hashTypeAddToExpires(c->db, kv, minExpiredField);
+            estoreAdd(c->db->subexpires, getKeySlot(key->ptr), kv, minExpiredField);
     }
 
     if (ttl) {

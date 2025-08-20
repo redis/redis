@@ -22,7 +22,10 @@
 #define MAX_KEYSIZES_BINS 60
 #define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
 
-/* When creating kvstore with flag `KVSTORE_ALLOC_META_KEYS_HIST`, then kvstore 
+/* fwd declaration */
+typedef struct fwTree fwTree;
+
+/* When creating kvstore with flag `KVSTORE_ALLOC_META_KEYS_HIST`, then kvstore
  * alloc and memset struct kvstoreMetadata on init, yet, managed outside kvstore */
 typedef struct {
     int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
@@ -34,6 +37,7 @@ typedef struct {
 } kvstoreDictMetadata;
 
 typedef struct _kvstore kvstore;
+typedef struct _estore estore;
 typedef struct _kvstoreIterator kvstoreIterator;
 typedef struct _kvstoreDictIterator kvstoreDictIterator;
 
@@ -107,6 +111,21 @@ void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link,
 /* dict with distinct key & value (no_value=1) currently is used only by pubsub. */
 void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key);
 void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val);
+
+/**************** estore API (See comment in estore.c) ************************/
+estore *estoreCreate(EbucketsType *type, int num_buckets_bits);
+void estoreEmpty(estore *es);
+int estoreIsEmpty(estore *es);
+void estoreRelease(estore *es);
+void estoreActiveExpire(estore *es, int eidx, ExpireInfo *info);
+uint64_t estoreRemove(estore *es, int eidx, eItem item);
+void estoreAdd(estore *es, int eidx, eItem item, uint64_t when);
+void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when);
+uint64_t estoreSize(estore *es);
+ebuckets *estoreGetBuckets(estore *es, int eidx);
+int estoreGetFirstNonEmptyBucket(estore *es);
+int estoreGetNextNonEmptyBucket(estore *es, int eidx);
+ExpireMeta *hashGetExpireMeta(const eItem kvobjHash);
 
 #ifdef REDIS_TEST
 int kvstoreTest(int argc, char *argv[], int flags);

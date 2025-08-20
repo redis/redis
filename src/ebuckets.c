@@ -737,6 +737,7 @@ static void ebValidateList(eItem head, EbucketsType *type) {
 
     for (int i = 0; i < mHead->numItems ; ++i) {
         mIter = type->getExpireMeta(iter);
+        assert(mIter->trash == 0);
         if (i == 0) {
             /* first item */
             assert(mIter->numItems > 0 && mIter->numItems <= EB_LIST_MAX_ITEMS);
@@ -1211,7 +1212,7 @@ static void ebValidateRax(rax *rax, EbucketsType *type) {
                 assert(iter != NULL);
                 mIter = type->getExpireMeta(iter);
                 curBktKey = EB_BUCKET_KEY(ebGetMetaExpTime(mIter));
-
+                assert(mIter->trash == 0);
                 if (i == 0) {
                     assert(mIter->numItems > 0 && mIter->numItems <= EB_SEG_MAX_ITEMS);
                     assert(mIter->firstItemBucket == expectFirstItemBucket);
@@ -1975,8 +1976,10 @@ int ebDefragRax(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
  *
  * The 'defragfns' callbacks are called with a pointer to memory that callback
  * can reallocate. The callbacks should return a new memory address or NULL,
- * where NULL means that no reallocation happened and the old memory is still
- * valid. */
+ * where NULL means that no reallocation happened and the old memory is still valid.
+ *
+ * Returns 0 if no more work needs to be been done. Otherwise 1.
+ */
 int ebScanDefrag(ebuckets *eb, EbucketsType *type, unsigned long *cursor,
                  ebDefragFunctions *defragfns, void *privdata)
 {

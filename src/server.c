@@ -2850,7 +2850,7 @@ void initServer(void) {
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
         server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
-        server.db[j].hexpires = ebCreate();
+        server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
@@ -6452,16 +6452,16 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keyspace\r\n");
         for (j = 0; j < server.dbnum; j++) {
-            long long keys, vkeys, hexpires;
+            long long keys, vkeys, subexpiry;
 
             keys = kvstoreSize(server.db[j].keys);
             vkeys = kvstoreSize(server.db[j].expires);
-            hexpires = ebGetTotalItems(server.db[j].hexpires, &hashExpireBucketsType);
+            subexpiry = estoreSize(server.db[j].subexpires);
 
             if (keys || vkeys) {
                 info = sdscatprintf(info,
-                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld,subexpiry=%lld\r\n",
-                    j, keys, vkeys, server.db[j].avg_ttl, hexpires);
+                                    "db%d:keys=%lld,expires=%lld,avg_ttl=%lld,subexpiry=%lld\r\n",
+                                    j, keys, vkeys, server.db[j].avg_ttl, subexpiry);
             }
         }
     }
