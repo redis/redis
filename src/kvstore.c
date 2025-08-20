@@ -75,7 +75,7 @@ struct _kvstore {
 };
 
 /* Forward declaration of the estore structure */
-typedef struct _estore {
+struct _estore {
     int flags;                  /* Flags for configuration options */
     EbucketsType *bucket_type;  /* Type of buckets used in this store */
     ebuckets *ebArray;          /* Array of ebuckets (one per slot in cluster mode, or just one) */
@@ -83,7 +83,7 @@ typedef struct _estore {
     int num_buckets;            /* Number of buckets (1 << num_buckets_bits) */
     unsigned long long count;   /* Total number of items in this estore */
     fwTree *buckets_sizes;      /* Binary indexed tree (BIT) that describes cumulative key frequencies */
-} estore;
+};
 
 /* Structure for kvstore iterator that allows iterating across multiple dicts. */
 struct _kvstoreIterator {
@@ -125,12 +125,12 @@ typedef struct {
  */
 /**********************************/
 
-typedef struct fwTree {
+struct _fwTree {
     unsigned long long *tree;
     int size_bits;
     int size;
     uint64_t total;
-} fwTree;
+};
 
 static fwTree *fwTreeCreate(int sizeBits) {
 

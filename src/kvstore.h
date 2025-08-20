@@ -22,9 +22,6 @@
 #define MAX_KEYSIZES_BINS 60
 #define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
 
-/* fwd declaration */
-typedef struct fwTree fwTree;
-
 /* When creating kvstore with flag `KVSTORE_ALLOC_META_KEYS_HIST`, then kvstore
  * alloc and memset struct kvstoreMetadata on init, yet, managed outside kvstore */
 typedef struct {
@@ -37,6 +34,7 @@ typedef struct {
 } kvstoreDictMetadata;
 
 typedef struct _kvstore kvstore;
+typedef struct _fwTree fwTree;
 typedef struct _estore estore;
 typedef struct _kvstoreIterator kvstoreIterator;
 typedef struct _kvstoreDictIterator kvstoreDictIterator;
