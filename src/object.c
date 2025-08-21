@@ -1211,7 +1211,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     dict *d;
     dictIterator di;
     struct dictEntry *de;
-    size_t asize = 0, elesize = 0, samples = 0;
+    size_t elesize = 0, samples = 0;
     
     /* All kv-objects has at least kvobj header and embedded key */
     size_t asize = zmalloc_size((void *)o);
