@@ -482,28 +482,29 @@ void zfree(void *ptr) {
 
 /* Similar to zfree, '*usable' is set to the usable size being freed. */
 void zfree_usable(void *ptr, size_t *usable) {
+    size_t oldsize;
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
-    size_t oldsize;
 #endif
 
     if (ptr == NULL) {
-        *usable = 0;
+        if (usable) *usable = 0;
         return;
     }
 
 #ifdef HAVE_ALLOC_WITH_USIZE
-    free_with_usize(ptr, usable);
-    update_zmalloc_stat_free(*usable);
+    free_with_usize(ptr, &oldsize);
+    update_zmalloc_stat_free(oldsize);
 #elif HAVE_MALLOC_SIZE
-    update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
+    update_zmalloc_stat_free(oldsize = zmalloc_size(ptr));
     free(ptr);
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
-    *usable = oldsize = *((size_t*)realptr);
+    oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     free(realptr);
 #endif
+    if (usable) *usable = oldsize;
 }
 
 char *zstrdup_usable(const char *s, size_t *usable) {
