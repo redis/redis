@@ -58,6 +58,18 @@ int patternHashSlot(char *pattern, int length) {
     return crc16(pattern, length) & 0x3FFF;
 }
 
+int getSlotOrReply(client *c, robj *o) {
+    long long slot;
+
+    if (getLongLongFromObject(o,&slot) != C_OK ||
+        slot < 0 || slot >= CLUSTER_SLOTS)
+    {
+        addReplyError(c,"Invalid or out of range slot");
+        return -1;
+    }
+    return (int) slot;
+}
+
 ConnectionType *connTypeOfCluster(void) {
     if (server.tls_cluster) {
         return connectionTypeTls();

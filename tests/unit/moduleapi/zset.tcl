@@ -66,7 +66,55 @@ start_server {tags {"modules"}} {
         r debug set-active-expire 1
         run_cmd_verify_hist {after 5} {} 50
     }
-    
+
+    test {Module zset DELALL functionality} {
+        # Clean up any existing keys
+        r flushall
+
+        # Create some zsets and other types of keys
+        r zadd zset1 100 hello 200 world
+        r zadd zset2 300 foo 400 bar
+        r zadd zset3 500 baz
+        r set string1 "value1"
+        r hset hash1 field1 value1
+        r lpush list1 item1
+
+        # Verify we have the expected keys
+        assert_equal 6 [r dbsize]
+        assert_equal 3 [llength [r keys zset*]]
+
+        # Run zset.delall
+        set deleted [r zset.delall]
+        assert_equal 3 $deleted
+
+        # Verify only zsets were deleted
+        assert_equal 3 [r dbsize]
+        assert_equal 0 [llength [r keys zset*]]
+        assert_equal 1 [r exists string1]
+        assert_equal 1 [r exists hash1]
+        assert_equal 1 [r exists list1]
+
+        # Test with no zsets
+        set deleted [r zset.delall]
+        assert_equal 0 $deleted
+        assert_equal 3 [r dbsize]
+    }
+
+    test {Module zset DELALL not in transaction} {
+        set repl [attach_to_replication_stream]
+        r zadd z1 1 e1
+        r zadd z2 1 e1
+        r zset.delall
+        assert_replication_stream $repl {
+            {select *}
+            {zadd z1 1 e1}
+            {zadd z2 1 e1}
+            {del z*}
+            {del z*}
+        }
+        close_replication_stream $repl
+    } {} {needs:repl}
+
     test "Unload the module - zset" {
         assert_equal {OK} [r module unload zset]
     }
