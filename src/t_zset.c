@@ -109,11 +109,11 @@ void zslFree(zskiplist *zsl) {
  * (both inclusive), with a powerlaw-alike distribution where higher
  * levels are less likely to be returned. */
 int zslRandomLevel(void) {
-    static const int threshold = ZSKIPLIST_P*RAND_MAX;
+    static const int threshold = ZSKIPLIST_P * RAND_MAX;
     int level = 1;
     while (random() < threshold)
         level += 1;
-    return (level<ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
+    return (level < ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 }
 
 /* Insert a new node in the skiplist. Assumes the element does not already
