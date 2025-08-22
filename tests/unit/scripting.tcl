@@ -426,6 +426,18 @@ start_server {tags {"scripting"}} {
         } 0]
     }
 
+    test {EVAL - cjson array metatable modification should be readonly} {
+        catch {
+            run_script {
+                cjson.decode_array_with_array_mt(true)
+                local t = cjson.decode('[]')
+                getmetatable(t).__is_cjson_array = function() return 1 end
+                return cjson.encode(t)
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
     test {EVAL - JSON smoke test} {
         run_script {
             local some_map = {
