@@ -1230,6 +1230,7 @@ static void json_parse_array_context(lua_State *l, json_parse_t *json)
         lua_newtable(l);
         lua_pushboolean(l, 1);
         lua_setfield(l, -2, "__is_cjson_array");
+        lua_enablereadonlytable(l, -1, 1); /* protect the metatable. */
         lua_setmetatable(l, -2); /* set metatable for the array table */
     }
 
