@@ -692,7 +692,7 @@ static void json_append_data(lua_State *l, json_config_t *cfg,
         current_depth++;
         json_check_encode_depth(l, cfg, current_depth, json);
 
-        /* Check if this is a array */
+        /* Check if this is an array */
         int as_array = 0;
         if (!lua_checkstack(l, 2))
             luaL_error(l, "max lua stack reached");
