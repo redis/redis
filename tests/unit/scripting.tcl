@@ -380,24 +380,34 @@ start_server {tags {"scripting"}} {
     } {a b}
 
     test {EVAL - JSON empty array decoding} {
+        # Default behavior
         assert_equal "{}" [run_script {
             return cjson.encode(cjson.decode('[]'))
         } 0]
+        assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{\"item\":{}}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('{"item": []}'))
+        } 0]
 
+        # With array metatable
         assert_equal "\[\]" [run_script {
             cjson.decode_array_with_array_mt(true)
             return cjson.encode(cjson.decode('[]'))
         } 0]
-
-        assert_equal "{}" [run_script {
-            cjson.decode_array_with_array_mt(false)
-            return cjson.encode(cjson.decode('[]'))
+        assert_equal "{\"item\":\[\]}" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            return cjson.encode(cjson.decode('{"item": []}'))
         } 0]
     }
 
     test {EVAL - JSON empty array decoding after element removal} {
         # Default: emptied array becomes object
         assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
             local t = cjson.decode('[1, 2]')
             -- emptying the array
             t[1] = nil
