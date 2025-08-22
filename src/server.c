@@ -4587,6 +4587,9 @@ int prepareForShutdown(int flags) {
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
         redisCommunicateSystemd("STOPPING=1\n");
 
+    /* Cancel all ASM tasks before shutting down. */
+    clusterAsmCancel(NULL, "server shutdown");
+
     /* If we have any replicas, let them catch up the replication offset before
      * we shut down, to avoid data loss. */
     if (!(flags & SHUTDOWN_NOW) &&

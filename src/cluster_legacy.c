@@ -1540,7 +1540,8 @@ void clusterAddNode(clusterNode *node) {
  * 2) Remove all the failure reports sent by this node and referenced by
  *    other nodes.
  * 3) Remove the node from the owning shard
- * 4) Free the node with freeClusterNode() that will in turn remove it
+ * 4) Cancel all ASM tasks that involve the node.
+ * 5) Free the node with freeClusterNode() that will in turn remove it
  *    from the hash table and from the list of slaves of its master, if
  *    it is a slave node.
  */
@@ -1572,7 +1573,10 @@ void clusterDelNode(clusterNode *delnode) {
     /* 3) Remove the node from the owning shard */
     clusterRemoveNodeFromShard(delnode);
 
-    /* 4) Free the node, unlinking it from the cluster. */
+    /* 4) Cancel all ASM tasks that involve the node. */
+    clusterAsmCancelByNode(delnode, "node deleted");
+
+    /* 5) Free the node, unlinking it from the cluster. */
     freeClusterNode(delnode);
 }
 
@@ -2676,6 +2680,7 @@ void clusterProcessPingExtensions(clusterMsg *hdr, clusterLink *link) {
             if (n && n != myself && !(nodeIsSlave(myself) && myself->slaveof == n)) {
                 sds id = sdsnewlen(forgotten_node_ext->name, CLUSTER_NAMELEN);
                 dictEntry *de = dictAddOrFind(server.cluster->nodes_black_list, id);
+                if (dictGetKey(de) != id) sdsfree(id);
                 uint64_t expire = server.unixtime + ntohu64(forgotten_node_ext->ttl);
                 dictSetUnsignedIntegerVal(de, expire);
                 clusterDelNode(n);
@@ -3273,6 +3278,8 @@ int clusterProcessPacket(clusterLink *link) {
         /* This message is acceptable only if I'm a master and the sender
          * is one of my slaves. */
         if (!sender || sender->slaveof != myself) return 1;
+        /* Cancel all ASM tasks when starting manual failover */
+        clusterAsmCancel(NULL, "manual failover");
         /* Manual failover requested from slaves. Initialize the state
          * accordingly. */
         resetManualFailover();
@@ -5659,6 +5666,9 @@ void clusterUpdateSlots(client *c, unsigned char *slots, int del) {
             if (server.cluster->importing_slots_from[j])
                 server.cluster->importing_slots_from[j] = NULL;
 
+            /* Cancel any ASM task that overlaps with the slot. */
+            clusterAsmCancelBySlot(j, "slots configuration updated");
+
             retval = del ? clusterDelSlot(j) :
                            clusterAddSlot(myself,j);
             serverAssertWithInfo(c,NULL,retval == C_OK);
@@ -6078,11 +6088,11 @@ int clusterCommandSpecial(client *c) {
 
         if ((slot = getSlotOrReply(c, c->argv[2])) == -1) return 1;
 
-        /* Don't allow old style slot migration if the slot is in an ASM task. */
+        /* Don't allow legacy slot migration if the slot is in an ASM task. */
         if (isSlotInAsmTask(slot)) {
-            addReplyErrorFormat(c, "Slot %d is in an active atomic slot migration, "
-                "cannot use CLUSTER SETSLOT now, if you persist in using this command, "
-                "please use CLUSTER MIGRATION CANCEL to cancel the task first", slot);
+            addReplyErrorFormat(c, "Slot %d is currently in an active atomic slot migration. "
+                "CLUSTER SETSLOT cannot be used at this time. To perform a legacy slot migration "
+                "instead, first cancel the ongoing task with CLUSTER MIGRATION CANCEL", slot);
             return 1;
         }
 

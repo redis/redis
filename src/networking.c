@@ -4476,7 +4476,10 @@ static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
         if (p->paused_actions & PAUSE_ACTION_CLIENT_ALL)
             actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
     }
-    
+
+    /* Cancel all ASM tasks when starting client pause */
+    clusterAsmCancel(NULL, "client pause requested");
+
     pauseActions(PAUSE_BY_CLIENT_COMMAND, endTime, actions);
 }
 
@@ -4510,6 +4513,13 @@ void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
     if (server.in_exec) {
         server.client_pause_in_transaction = 1;
     }
+
+    /* Assert that there is no import task in progress when we are pausing.
+     * otherwise we break the promise that no writes are performed, maybe
+     * causing data lost during a failover. */
+    if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
+        isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
+        serverAssert(!asmImportInProgress());
 }
 
 /* Unpause actions and queue them for reprocessing. */

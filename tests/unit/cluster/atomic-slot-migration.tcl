@@ -133,7 +133,31 @@ proc migration_status {node_id task_id field} {
     return $field_value
 }
 
-start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 30000}} {
+# Setup slot migration test with keys and 2s delay, then start migration
+# Returns the task_id for the migration
+proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot} {
+    # Two keys on the start slot
+    set key1 [slot_key $start_slot key1]
+    set key2 [slot_key $start_slot key2]
+    R $src_node set $key1 "a"
+    R $src_node set $key2 "b"
+
+    # we set a delay to ensure migration takes time for testing,
+    # two keys cost 2s to save
+    R $src_node config set rdb-key-save-delay 1000000
+
+    # migrate slot range from src_node to dst_node
+    set task_id [R $dst_node CLUSTER MIGRATION IMPORT $start_slot $end_slot]
+    wait_for_condition 2000 10 {
+        [string match {*send-bulk-and-stream*} [migration_status $src_node $task_id state]]
+    } else {
+        fail "ASM task did not start"
+    }
+
+    return $task_id
+}
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 30000 cluster-allow-replica-migration no}} {
     test "Test IMPORT input validation" {
         # Invalid slot range
         assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT}
@@ -311,12 +335,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # wait until migration of 0-100 successful
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not start"
-        }
+        wait_for_asm_done
 
         # the appended 99 times should also be migrated
         assert_equal [string repeat a 100] [R 1 get $slot0_key]
@@ -440,12 +459,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
 
         # Wait for the migration to complete
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not complete successfully"
-        }
+        wait_for_asm_done
 
         stop_write_load $load_handle
 
@@ -501,12 +515,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 debug repl-pause clear
 
         # Wait for the migration to complete
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not complete successfully"
-        }
+        wait_for_asm_done
 
         # Reset configurations
         R 0 config set client-output-buffer-limit "replica 0 0 0"
@@ -559,12 +568,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             assert {[scan [regexp -inline {expires\=([\d]*)} [R $id info keyspace]] expires=%d] >= 1}
         }
 
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not complete successfully"
-        }
+        wait_for_asm_done
 
         wait_for_ofs_sync [Rn 0] [Rn 3]
 
@@ -654,12 +658,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set r1_mem_used  [getInfoProperty [R 1 info memory] used_memory]
         assert {$r1_mem_used > $r1_max_mem + 1024*1024}
 
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not complete successfully"
-        }
+        wait_for_asm_done
 
         # after migration, these big keys should be evicted
         for {set j 0} {$j < 100} {incr j} { R 1 ping } ;# trigger eviction
@@ -667,20 +666,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Failover will cancel slot migration tasks" {
-        set slot0_key "06S"
-        set slot1_key "Qi"
-        R 1 set $slot0_key "a"
-        R 1 set $slot1_key "b"
-        # we set a delay to failover
-        R 1 config set rdb-key-save-delay 1000000
-
         # migrate slot 0-100 from 1 to 0
-        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
-        wait_for_condition 2000 10 {
-            [string match {*send-bulk-and-stream*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not start"
-        }
+        set task_id [setup_slot_migration_with_delay 1 0 0 100]
 
         # FAILOVER happens on the destination node, instance #3 become master, #0 become slave
         R 3 cluster failover
@@ -694,6 +681,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # the source node will be failed
         wait_for_condition 1000 50 {
             [string match {*canceled*} [migration_status 0 $task_id state]] &&
+            [string match {*failover*} [migration_status 0 $task_id last_error]] &&
             [string match {*failed*} [migration_status 1 $task_id state]]
         } else {
             fail "ASM task did not cancel"
@@ -702,21 +690,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # We can restart ASM tasks on new master, migrate slot 0-100 from 1 to 3
         R 1 config set rdb-key-save-delay 0
         set task_id [R 3 CLUSTER MIGRATION IMPORT 0 100]
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 3 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not finish"
-        }
+        wait_for_asm_done
 
         # migrate slot 0-100 from 3 to 1
-        R 3 config set rdb-key-save-delay 1000000
-        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
-        wait_for_condition 2000 10 {
-            [string match {*send-bulk-and-stream*} [migration_status 3 $task_id state]]
-        } else {
-            fail "ASM task did not start"
-        }
+        set task_id [setup_slot_migration_with_delay 3 1 0 100]
 
         # FAILOVER happens on the source node, instance #3 become slave, #0 become master
         R 0 cluster failover
@@ -733,12 +710,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         } else {
             fail "ASM task did not cancel"
         }
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 1 $task_id state]] &&
-            [string match {*done*} [migration_status 0 $task_id state]]
-        } else {
-            fail "ASM task did not finish"
-        }
+        wait_for_asm_done
     }
 
     test "Flush-like command can cancel slot migration task" {
@@ -747,19 +719,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # flushall, flushdb, sflush
         foreach flushcmd {flushall flushdb sflush} {
-            # write some keys on R 1
-            set slot0_key "06S"
-            set slot1_key "Qi"
-            R 1 set $slot0_key "a"
-            R 1 set $slot1_key "b"
-
             # start slot migration from 1 to 0
-            set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
-            wait_for_condition 1000 20 {
-                [string match {*send-bulk-and-stream*} [migration_status 1 $task_id state]]
-            } else {
-                fail "ASM task did not start"
-            }
+            set task_id [setup_slot_migration_with_delay 1 0 0 100]
 
             if {$::verbose} { puts "flush command: $flushcmd"}
             if {$flushcmd == "flushall"} {
@@ -783,29 +744,12 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # The destination node will retry the import task, and eventually the slot 0-100
         # migration to #0 will succeed.
         R 1 config set rdb-key-save-delay 0
-        wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
-        } else {
-            fail "ASM task did not finish"
-        }
+        wait_for_asm_done
     }
 
     test "CLUSTER SETSLOT command when there is a slot migration task" {
-        R 0 config set rdb-key-save-delay 1000000
-        # write some keys on R 0
-        set slot0_key "06S"
-        set slot1_key "Qi"
-        R 0 set $slot0_key "a"
-        R 0 set $slot1_key "b"
-
-        # start slot migration from 0 to 1
-        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
-        wait_for_condition 1000 20 {
-            [string match {*send-bulk-and-stream*} [migration_status 0 $task_id state]]
-        } else {
-            fail "ASM task did not start"
-        }
+        # Setup slot migration test from node 0 to node 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
 
         # Cluster SETSLOT command is not allowed when there is a slot migration task
         # on the slot. #0 and #1 are having migration task now.
@@ -831,18 +775,125 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # slot configuration, so #0 and #1 will cancel the migration task.
         # BTW, if config epoch is not bumped, the slot config of #2 may be
         # updated by #0 and #1.
-        R 2 CLUSTER BUMPEPOCH
+        R 2 cluster bumpepoch
         R 2 cluster setslot 0 node [R 2 cluster myid]
         wait_for_condition 1000 50 {
             [string match {*canceled*} [migration_status 0 $task_id state]] &&
+            [string match {*slots configuration updated*} [migration_status 0 $task_id last_error]] &&
             [string match {*canceled*} [migration_status 1 $task_id state]]
         } else {
             fail "ASM task did not cancel"
         }
 
         # set slot 0 back to #0
+        R 0 cluster bumpepoch
         R 0 cluster setslot 0 node [R 0 cluster myid]
-        R 1 cluster setslot 0 node [R 0 cluster myid]
-        R 2 cluster setslot 0 node [R 0 cluster myid]
+        wait_for_cluster_propagation
+        wait_for_cluster_state "ok"
+    }
+
+    test "CLUSTER DELSLOTSRANGE command cancels a slot migration task" {
+        # start slot migration from 0 to 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+
+        R 0 cluster delslotsrange 0 100
+        wait_for_condition 1000 50 {
+            [string match {*canceled*} [migration_status 0 $task_id state]] &&
+            [string match {*slots configuration updated*} [migration_status 0 $task_id last_error]] &&
+            [string match {*failed*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not cancel"
+        }
+        R 1 cluster migration cancel id $task_id
+
+        # add the slots back
+        R 0 cluster addslotsrange 0 100
+        wait_for_cluster_propagation
+        wait_for_cluster_state "ok"
+    }
+
+    # NOTE: this test needs more than 60s, maybe you can skip when testing
+    test "CLUSTER FORGET command cancels a slot migration task" {
+        R 0 config set rdb-key-save-delay 0
+        # Migrate all slot on #0 to #1, so we can forget #0
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 5461]
+        wait_for_asm_done
+
+        # start slot migration from 1 to 0
+        set task_id [setup_slot_migration_with_delay 1 0 0 5461]
+
+        # Forget #0 on #1, the migration task on #1 will be canceled due to node deleted,
+        # and the importing task on #0 will be failed
+        R 1 cluster forget [R 0 cluster myid]
+        wait_for_condition 1000 50 {
+            [string match {*canceled*} [migration_status 1 $task_id state]] &&
+            [string match {*node deleted*} [migration_status 1 $task_id last_error]] &&
+            [string match {*failed*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not cancel"
+        }
+
+        # Add #0 back into cluster
+        # NOTE: this will cost 60s to let #0 join the cluster since
+        # other nodes add #0 into black list for 60s after FORGET.
+        R 1 config set rdb-key-save-delay 0
+        R 1 cluster meet "127.0.0.1" [lindex [R 0 config get port] 1]
+
+        # the importing task on #0 will be retried, and eventually succeed
+        # since now #0 is back in the cluster
+        wait_for_condition 2000 50 {
+            [string match {*done*} [migration_status 0 $task_id state]] &&
+            [string match {*done*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not finish"
+        }
+
+        # make sure #0 is completely back to the cluster
+        wait_for_cluster_propagation
+        wait_for_cluster_state "ok"
+    }
+
+    test "CLIENT PAUSE can cancel slot migration task" {
+        # start slot migration from 0 to 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+
+        # CLIENT PAUSE happens on the destination node, #1 will cancel the importing task
+        R 1 client pause 100000 write ;# pause 100s
+        wait_for_condition 1000 50 {
+            [string match {*canceled*} [migration_status 1 $task_id state]] &&
+            [string match {*client pause*} [migration_status 1 $task_id last_error]]
+        } else {
+            fail "ASM task did not cancel"
+        }
+
+        # start task again
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+        after 200 ;# give some time to have chance to schedule the task
+        # the task should not start since server is paused
+        assert {[string match {*none*} [migration_status 1 $task_id state]]}
+
+        # unpause the server, the task should start
+        R 1 client unpause
+        wait_for_asm_done
+
+        # migrate back to original node #0
+        R 1 config set rdb-key-save-delay 0
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
+
+    test "Server shutdown can cancel slot migration task, exit with success" {
+        # start slot migration from 0 to 1
+        setup_slot_migration_with_delay 0 1 0 100
+
+        set loglines [count_log_lines -1]
+
+        # Shutdown the server, it should cancel the migration task
+        restart_server -1 true false true nosave
+
+        wait_for_log_messages -1 {"*Cancelled due to server shutdown*"} $loglines 100 100
+
+        wait_for_cluster_propagation
+        wait_for_cluster_state "ok"
     }
 }
