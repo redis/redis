@@ -692,13 +692,10 @@ static void json_append_data(lua_State *l, json_config_t *cfg,
         current_depth++;
         json_check_encode_depth(l, cfg, current_depth, json);
 
-        if (!lua_checkstack(l, 2)) {
-            luaL_error(l, "Stack overflow while creating metatable");
-            break;
-        }
-
         /* Check if this is a array */
         int as_array = 0;
+        if (!lua_checkstack(l, 2))
+            luaL_error(l, "max lua stack reached");
         if (lua_getmetatable(l, -1)) {
             lua_getfield(l, -1, "__is_cjson_array");
             as_array = lua_toboolean(l, -1);
@@ -708,13 +705,14 @@ static void json_append_data(lua_State *l, json_config_t *cfg,
         if (as_array) {
             len = lua_objlen(l, -1);
             json_append_array(l, cfg, current_depth, json, len);
-        } else {
-            len = lua_array_length(l, cfg, json);
-            if (len > 0)
-                json_append_array(l, cfg, current_depth, json, len);
-            else
-                json_append_object(l, cfg, current_depth, json);
+            break;
         }
+        
+        len = lua_array_length(l, cfg, json);
+        if (len > 0)
+            json_append_array(l, cfg, current_depth, json, len);
+        else
+            json_append_object(l, cfg, current_depth, json);
         break;
     case LUA_TNIL:
         strbuf_append_mem(json, "null", 4);
