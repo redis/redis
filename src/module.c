@@ -11645,14 +11645,15 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             ret = 0;
         }
     } else if (kv->type == OBJ_SET) {
-        setTypeIterator *si = setTypeInitIterator(kv);
+        setTypeIterator si;
         sds sdsele;
-        while ((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, kv);
+        while ((sdsele = setTypeNextObject(&si)) != NULL) {
             robj *field = createObject(OBJ_STRING, sdsele);
             fn(key, field, NULL, privdata);
             decrRefCount(field);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;

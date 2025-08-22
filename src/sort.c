@@ -425,15 +425,16 @@ void sortCommandGeneric(client *c, int readonly) {
     } else if (sortval->type == OBJ_SET) {
         if (server.memory_tracking_per_slot)
             oldsize = setTypeAllocSize(sortval);
-        setTypeIterator *si = setTypeInitIterator(sortval);
+        setTypeIterator si;
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, sortval);
+        while((sdsele = setTypeNextObject(&si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         if (server.memory_tracking_per_slot)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(sortval));
     } else if (sortval->type == OBJ_ZSET && dontsort) {

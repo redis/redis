@@ -1796,9 +1796,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             addReplyArrayLen(c, array_reply_len);
         }
 
-        setTypeIterator *si = setTypeInitIterator(o);
+        setTypeIterator si;
         unsigned long cur_length = 0;
-        while (setTypeNext(si, &str, &len, &llele) != -1) {
+        setTypeInitIterator(&si, o);
+        while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 len = ll2string(buf, sizeof(buf), llele);
             }
@@ -1809,7 +1810,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             addReplyBulkCBuffer(c, key, len);
             cur_length++;
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         if (use_pattern)
             setDeferredArrayLen(c,replylen,cur_length);
         else

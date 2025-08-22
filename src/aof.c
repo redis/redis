@@ -1961,11 +1961,12 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
  * The function returns 0 on error, 1 on success. */
 int rewriteSetObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = setTypeSize(o);
-    setTypeIterator *si = setTypeInitIterator(o);
+    setTypeIterator si;
     char *str;
     size_t len;
     int64_t llval;
-    while (setTypeNext(si, &str, &len, &llval) != -1) {
+    setTypeInitIterator(&si, o);
+    while (setTypeNext(&si, &str, &len, &llval) != -1) {
         if (count == 0) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
@@ -1973,20 +1974,20 @@ int rewriteSetObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkString(r,"SADD",4) ||
                 !rioWriteBulkObject(r,key))
             {
-                setTypeReleaseIterator(si);
+                setTypeResetIterator(&si);
                 return 0;
             }
         }
         size_t written = str ?
             rioWriteBulkString(r, str, len) : rioWriteBulkLongLong(r, llval);
         if (!written) {
-            setTypeReleaseIterator(si);
+            setTypeResetIterator(&si);
             return 0;
         }
         if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
     }
-    setTypeReleaseIterator(si);
+    setTypeResetIterator(&si);
     return 1;
 }
 
@@ -2104,14 +2105,14 @@ static int rioWriteHashIteratorCursor(rio *r, hashTypeIterator *hi, int what) {
 int rewriteHashObject(rio *r, robj *key, robj *o) {
     int res = 0; /*fail*/
 
-    hashTypeIterator *hi;
+    hashTypeIterator hi;
     long long count = 0, items = hashTypeLength(o, 0);
 
     int isHFE = hashTypeGetMinExpire(o, 0) != EB_EXPIRE_TIME_INVALID;
-    hi = hashTypeInitIterator(o);
+    hashTypeInitIterator(&hi, o);
 
     if (!isHFE) {
-        while (hashTypeNext(hi, 0) != C_ERR) {
+        while (hashTypeNext(&hi, 0) != C_ERR) {
             if (count == 0) {
                 int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                                 AOF_REWRITE_ITEMS_PER_CMD : items;
@@ -2121,31 +2122,31 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
                     goto reHashEnd;
             }
 
-            if (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY) ||
-                !rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE))
+            if (!rioWriteHashIteratorCursor(r, &hi, OBJ_HASH_KEY) ||
+                !rioWriteHashIteratorCursor(r, &hi, OBJ_HASH_VALUE))
                 goto reHashEnd;
 
             if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
             items--;
         }
     } else {
-        while (hashTypeNext(hi, 0) != C_ERR) {
+        while (hashTypeNext(&hi, 0) != C_ERR) {
 
             char hmsetCmd[] = "*4\r\n$5\r\nHMSET\r\n";
             if ( (!rioWrite(r, hmsetCmd, sizeof(hmsetCmd) - 1)) ||
                  (!rioWriteBulkObject(r, key)) ||
-                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) ||
-                 (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_VALUE)) )
+                 (!rioWriteHashIteratorCursor(r, &hi, OBJ_HASH_KEY)) ||
+                 (!rioWriteHashIteratorCursor(r, &hi, OBJ_HASH_VALUE)) )
                 goto reHashEnd;
 
-            if (hi->expire_time != EB_EXPIRE_TIME_INVALID) {
+            if (hi.expire_time != EB_EXPIRE_TIME_INVALID) {
                 char cmd[] = "*6\r\n$10\r\nHPEXPIREAT\r\n";
                 if ( (!rioWrite(r, cmd, sizeof(cmd) - 1)) ||
                      (!rioWriteBulkObject(r, key)) ||
-                     (!rioWriteBulkLongLong(r, hi->expire_time)) ||
+                     (!rioWriteBulkLongLong(r, hi.expire_time)) ||
                      (!rioWriteBulkString(r, "FIELDS", 6)) ||
                      (!rioWriteBulkString(r, "1", 1)) ||
-                     (!rioWriteHashIteratorCursor(r, hi, OBJ_HASH_KEY)) )
+                     (!rioWriteHashIteratorCursor(r, &hi, OBJ_HASH_KEY)) )
                     goto reHashEnd;
             }
         }
@@ -2154,7 +2155,7 @@ int rewriteHashObject(rio *r, robj *key, robj *o) {
     res = 1; /* success */
 
 reHashEnd:
-    hashTypeReleaseIterator(hi);
+    hashTypeResetIterator(&hi);
     return res;
 }
 
