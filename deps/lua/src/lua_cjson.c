@@ -1226,6 +1226,9 @@ static void json_parse_array_context(lua_State *l, json_parse_t *json)
 
     /* set array_mt on the table at the top of the stack */
     if (json->cfg->decode_array_with_array_mt) {
+        /* Ensure sufficient stack space for metatable creation (metatable + boolean) */
+        if (!lua_checkstack(l, 2))
+            luaL_error(l, "max lua stack reached");
         /* Mark this table so encoder can emit [] for empty arrays */
         lua_newtable(l);
         lua_pushboolean(l, 1);
