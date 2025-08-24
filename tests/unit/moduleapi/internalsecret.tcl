@@ -2,7 +2,7 @@ tags {modules external:skip} {
 set testmodule [file normalize tests/modules/internalsecret.so]
 
 set modules [list loadmodule $testmodule]
-start_cluster 1 0 [list config_lines $modules] {
+start_cluster 1 0 [list tags {external:skip cluster modules} config_lines $modules] {
     set r [srv 0 client]
 
     test {Internal command without internal connection fails as an unknown command} {
@@ -167,7 +167,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_cluster 1 1 [list config_lines $modules] {
+start_cluster 1 1 [list tags {external:skip cluster modules} config_lines $modules] {
     set master [srv 0 client]
     set slave [srv -1 client]
 
