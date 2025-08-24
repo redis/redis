@@ -2562,13 +2562,14 @@ void hincrbyfloatCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
 
-    /* Always replicate HINCRBYFLOAT as an HSET command with the final value
+    /* Always replicate HINCRBYFLOAT as an HSETEX command with the final value
      * in order to make sure that differences in float precision or formatting
-     * will not create differences in replicas or after an AOF restart. */
+     * will not create differences in replicas or after an AOF restart.
+     * The KEEPTTL flag is used to make sure the field TTL is preserved. */
     robj *newobj;
     newobj = createRawStringObject(buf,len);
-    rewriteClientCommandArgument(c,0,shared.hset);
-    rewriteClientCommandArgument(c,3,newobj);
+    rewriteClientCommandVector(c, 7, shared.hsetex, c->argv[1], shared.keepttl,
+                        shared.fields, shared.integers[1], c->argv[2], newobj);
     decrRefCount(newobj);
 }
 

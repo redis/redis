@@ -1658,7 +1658,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeClientArgv(fakeClient);
-        if (server.aof_load_truncated) valid_up_to = ftello(fp);
+        if (server.aof_load_truncated || server.aof_load_broken) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
     }
@@ -1719,8 +1719,41 @@ uxeof: /* Unexpected AOF end of file. */
     goto cleanup;
 
 fmterr: /* Format error. */
-    serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
-        "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
+    /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
+     * is less than a specified size, try to recover it automatically */
+    if (server.aof_load_broken) {
+        if (valid_up_to == -1) {
+            serverLog(LL_WARNING,"Last valid command offset is invalid");
+        } else if (sb.st_size - valid_up_to < server.aof_load_broken_max_size) {
+            if (truncate(aof_filepath,valid_up_to) == -1) {
+                serverLog(LL_WARNING,"Error truncating the AOF file: %s",
+                    strerror(errno));
+            } else {
+                /* Make sure the AOF file descriptor points to the end of the
+                 * file after the truncate call. */
+                if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
+                    serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
+                        strerror(errno));
+                } else {
+                    serverLog(LL_WARNING,
+                        "AOF loaded anyway because aof-load-broken is enabled and "
+                        "broken size '%lld' is less than aof-load-broken-max-size '%lld'",
+                        (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
+                    ret = AOF_BROKEN_RECOVERED;
+                    goto loaded_ok;
+                }
+            }
+        } else { /* The size of the corrupted portion exceeds the configured limit. */
+            serverLog(LL_WARNING,
+                 "AOF was not loaded because the size of the corrupted portion "
+                 "exceeds the configured limit. aof-load-broken is enabled and broken size '%lld' "
+                 "is bigger than aof-load-broken-max-size '%lld'",
+                 (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
+        }
+    } else {
+        serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
+            "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
+    }
     ret = AOF_FAILED;
     /* fall through to cleanup. */
 
@@ -1794,13 +1827,13 @@ int loadAppendOnlyFiles(aofManifest *am) {
         last_file = ++aof_num == total_num;
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
-        if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+        if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
         /* If the truncated file is not the last file, we consider this to be a fatal error. */
-        if (ret == AOF_TRUNCATED && !last_file) {
+        if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
             ret = AOF_FAILED;
             serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
         }
@@ -1824,7 +1857,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             last_file = ++aof_num == total_num;
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
-            if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+            if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds",
                     aof_name, (float)(ustime()-start)/1000000);
             }
@@ -1834,7 +1867,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             if (ret == AOF_EMPTY) ret = AOF_OK;
 
             /* If the truncated file is not the last file, we consider this to be a fatal error. */
-            if (ret == AOF_TRUNCATED && !last_file) {
+            if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
                 ret = AOF_FAILED;
                 serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
             }

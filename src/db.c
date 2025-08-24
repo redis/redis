@@ -1975,7 +1975,7 @@ void moveCommand(client *c) {
 
     dbAddByLink(dst, c->argv[1], &kv, &dstBucket);
     if (expire != -1)
-        setExpireByLink(c, dst, c->argv[1]->ptr, expire, dstBucket);
+        kv = setExpireByLink(c, dst, c->argv[1]->ptr, expire, dstBucket);
 
     /* If object of type hash with expiration on fields. Taken care to add the
      * hash to hexpires of `dst` only after dbDelete(). */
