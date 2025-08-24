@@ -2780,6 +2780,12 @@ void hgetexCommand(client *c) {
         num_fields_pos += 1;
     }
 
+    /* Check if we have enough arguments */
+    if (num_fields_pos >= c->argc) {
+        addReplyErrorArity(c);
+        return;
+    }
+
     if (strcasecmp(c->argv[num_fields_pos - 1]->ptr, "FIELDS") != 0) {
         addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
         return;

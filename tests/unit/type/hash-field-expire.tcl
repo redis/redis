@@ -887,9 +887,9 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 0}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 1}
-            assert_error "*argument FIELDS is missing*" {r HGETEX h1 XFIELDX 1 a}
-            assert_error "*argument FIELDS is missing*" {r HGETEX h1 PXAT 1 1}
-            assert_error "*argument FIELDS is missing*" {r HGETEX h1 PERSIST 1 FIELDS 1 a}
+            assert_error "*wrong number of arguments*" {r HGETEX h1 PXAT 1 1}
+            assert_error "*Mandatory argument FIELDS*" {r HGETEX h1 XFIELDX 1 a}
+            assert_error "*Mandatory argument FIELDS*" {r HGETEX h1 PERSIST 1 FIELDS 1 a}
             assert_error "*must match the number of arguments*" {r HGETEX h1 FIELDS 2 a}
             assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 0 a}
             assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS -1 a}
@@ -908,6 +908,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*invalid expire time*" {r HGETEX h1 EXAT [expr (1<<46) + 100 ] FIELDS 1 a}
             assert_error "*invalid expire time*" {r HGETEX h1 PX [expr (1<<46) - [clock milliseconds] + 100 ] FIELDS 1 a}
             assert_error "*invalid expire time*" {r HGETEX h1 PXAT [expr (1<<46) + 100 ] FIELDS 1 a}
+            assert_error "*wrong number of arguments*" {r HGETEX missingkey EX 100 FIELDS}
+            assert_error "*wrong number of arguments*" {r EVAL "return redis.call('HGETEX', 'missingkey', 'EX', '100', 'FIELDS')" 0}
         }
 
         test "HGETEX - get without setting ttl ($type)" {
