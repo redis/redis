@@ -199,12 +199,12 @@ jobs:
       run: |
         sudo apt-get update && sudo apt-get install libc6-dev-i386 g++ gcc-multilib g++-multilib
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
+        make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}
-        make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
