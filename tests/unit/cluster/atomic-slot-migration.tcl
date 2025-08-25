@@ -157,7 +157,7 @@ proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot} {
     return $task_id
 }
 
-start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 30000 cluster-allow-replica-migration no}} {
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     test "Test IMPORT input validation" {
         # Invalid slot range
         assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT}
@@ -895,5 +895,31 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         wait_for_cluster_propagation
         wait_for_cluster_state "ok"
+    }
+    test "Cancel import task when stream buffer into db" {
+        # set a delay to have time to cancel import task that is streaming buf to db
+        R 1 config set key-load-delay 50000
+        # start slot migration from 0 to 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+
+        # start the slot 0 write load on the node 0
+        set slot0_key [slot_key 0 mykey]
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 1000 $slot0_key]
+
+        # wait for entering streaming buffer state
+        wait_for_condition 1000 10 {
+            [string match {*streaming-buffer*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not enter streaming buffer state"
+        }
+        stop_write_load $load_handle
+
+        # cancel the import task on #1
+        R 1 cluster migration cancel id $task_id
+        assert_match {*canceled*} [migration_status 1 $task_id state]
+        assert_match {*failed*} [migration_status 0 $task_id state]
+
+        # reset config
+        R 1 config set key-load-delay 0
     }
 }

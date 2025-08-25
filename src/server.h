@@ -1480,6 +1480,7 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
 
 /* Context for streaming replDataBuf to database */
 typedef struct replDataBufToDbCtx {
+    void *privdata;                     /* Private data of context */
     client *client;                     /* Client to process commands */
     size_t applied_offset;              /* Offset applied to the database */
     int  (*should_continue)(void *ctx); /* Check if should continue */

@@ -74,6 +74,7 @@ enum asmState {
     ASM_SYNCSLOTS_REPLY,
     ASM_INIT_RDBCHANNEL,
     ASM_ACCUMULATE_BUF,
+    ASM_READY_TO_STREAM,
     ASM_STREAMING_BUF,
     ASM_WAIT_STREAM_EOF,
     ASM_TAKEOVER,
@@ -141,6 +142,7 @@ char *asmTaskStateToString(int state) {
         case ASM_SYNCSLOTS_REPLY: return "syncslots-reply";
         case ASM_INIT_RDBCHANNEL: return "init-rdbchannel";
         case ASM_ACCUMULATE_BUF: return "accumulate-buffer";
+        case ASM_READY_TO_STREAM: return "ready-to-stream";
         case ASM_STREAMING_BUF: return "streaming-buffer";
         case ASM_WAIT_STREAM_EOF: return "wait-stream-eof";
         case ASM_TAKEOVER: return "takeover";
@@ -820,9 +822,11 @@ void asmImportSetFailed(asmTask *task) {
         freeClientAsync(c);
     }
 
-    /* If we are in the wait stream EOF state, we need to close the
+    /* If in the wait stream EOF or streaming buffer state, we need to close the
      * client that was created for the main channel. */
-    if (task->main_channel_conn && task->state == ASM_WAIT_STREAM_EOF) {
+    if (task->main_channel_conn &&
+        (task->state == ASM_STREAMING_BUF || task->state == ASM_WAIT_STREAM_EOF))
+    {
         client *c = connGetPrivateData(task->main_channel_conn);
         serverAssert(c->task == task);
         task->main_channel_conn = NULL;
@@ -899,7 +903,7 @@ void asmTaskSetFailed(asmTask *task, const char *fmt, ...) {
 }
 
 /* The task is done or canceled and won't be retried. Update stats and
- * move it to the completed list, trim if necessary. */
+ * move it to the completed list. */
 void asmTaskComplete(asmTask *task) {
     listNode *ln = listFirst(asmManager->tasks);
     serverAssert(ln->value == task);
@@ -916,15 +920,9 @@ void asmTaskComplete(asmTask *task) {
         replDataBufClear(&task->sync_buffer); /* Not used, so save memory */
     }
 
+    /* Move the task to the completed list */
     listUnlinkNode(asmManager->tasks, ln);
     listLinkNodeHead(asmManager->done_tasks, ln);
-
-    /* Trim the done tasks list if it grows too large */
-    if (listLength(asmManager->done_tasks) > ASM_MAX_DONE_TASKS) {
-        asmTask *oldest = listNodeValue(listLast(asmManager->done_tasks));
-        asmTaskFree(oldest);
-        listDelNode(asmManager->done_tasks, listLast(asmManager->done_tasks));
-    }
 }
 
 static void asmTaskCancel(asmTask *task, const char *reason) {
@@ -966,8 +964,10 @@ void asmCallbackOnFreeClient(client *c) {
     }
 
     if (c->conn && task->main_channel_conn == c->conn) {
-        /* After streaming buffer to DB, the client has the chance to close */
-        serverAssert(task->state == ASM_WAIT_STREAM_EOF);
+        /* After or in the process of streaming buffer to DB, a client will be
+         * created based on the main channel connection. */
+        serverAssert(task->state == ASM_STREAMING_BUF ||
+                     task->state == ASM_WAIT_STREAM_EOF);
         task->main_channel_conn = NULL; /* Will be freed by freeClient */
         c->flags &= ~CLIENT_MASTER;
         asmTaskSetFailed(task, "Main channel - Connection is closed");
@@ -1380,7 +1380,7 @@ void clusterSyncSlotsSnapshotEOF(client *c) {
      * we are in the context of executing command, otherwise, redis will
      * generate a big MULTI-EXEC including all the commands in the buffer.
      * just update the state here, and do it in beforeSleep(). */
-    task->state = ASM_STREAMING_BUF;
+    task->state = ASM_READY_TO_STREAM;
     connSetReadHandler(task->main_channel_conn, NULL);
 }
 
@@ -1913,9 +1913,7 @@ static void asmReadSyncBufferErrorHandler(connection *conn) {
     serverAssert(task->main_channel_conn == conn);
 
     if (task->state == ASM_STREAMING_BUF) {
-        /* Since the client is protected, just mark the connection as closed.
-         * Actual failure will be detected in the asmSyncBufferStreamToDb. */
-        freeClientAsync(connGetPrivateData(conn));
+        freeClient(connGetPrivateData(conn));
     } else {
         asmTaskSetFailed(task, "Main channel - Read error: %s", connGetLastError(conn));
     }
@@ -1956,8 +1954,7 @@ static void asmSyncBufferStreamYieldCallback(void *ctx) {
     if (err) {
         serverLog(LL_WARNING, "Error sending CLUSTER SYNCSLOTS ACK: %s", err);
         sdsfree(err);
-        /* Since this client is protected, freeClient just masks it as closed */
-        freeClientAsync(c);
+        freeClient(c);
     }
     serverLog(LL_DEBUG, "Yielding sending ACK during streaming buffer, applied offset: %zu",
                          context->applied_offset);
@@ -1965,19 +1962,21 @@ static void asmSyncBufferStreamYieldCallback(void *ctx) {
 
 static int asmSyncBufferStreamShouldContinue(void *ctx) {
     replDataBufToDbCtx *context = ctx;
-    client *c = context->client;
 
-    /* Check if the client is still valid, maybe killed by `client kill`, or an
-     * error happened during accumulating buffer. Since the client is protected,
-     * won't be freed, here we check if the connection is marked as closed. */
-    if (c->flags & CLIENT_CLOSE_ASAP) return 0;
+    /* If the task is failed or canceled, we should stop streaming immediately. */
+    asmTask *task = context->privdata;
+    if (task->state == ASM_FAILED || task->state == ASM_CANCELED) return 0;
+
+    /* Check the client-close flag only if the task has not failed or been canceled,
+     * otherwise the client may have already been freed. */
+    if (context->client->flags & CLIENT_CLOSE_ASAP) return 0;
 
     return 1;
 }
 
 /* Stream the sync buffer to the database. */
 void asmSyncBufferStreamToDb(asmTask *task) {
-    serverAssert(task->state == ASM_STREAMING_BUF);
+    task->state = ASM_STREAMING_BUF;
     serverLog(LL_NOTICE, "Starting to stream accumulated buffer for the import task (%zu bytes)",
                          task->sync_buffer.used);
 
@@ -1994,21 +1993,22 @@ void asmSyncBufferStreamToDb(asmTask *task) {
      * faster than we read from the source side. */
     task->sync_buffer.last_num_blocks = listLength(task->sync_buffer.blocks);
 
+    /* Continue accumulating during streaming to prevent accumulation on source side. */
+    connSetReadHandler(c->conn, asmSyncBufferReadFromConn);
+
     replDataBufToDbCtx ctx = {
+        .privdata = task,
         .client = c,
         .applied_offset = 0,
         .should_continue = asmSyncBufferStreamShouldContinue,
         .yield_callback = asmSyncBufferStreamYieldCallback,
     };
 
-    /* Protect the client from being killed by `client kill` */
-    protectClient(c);
-    /* protectClient will set read handler to NULL to prevent it from being freed,
-     * but now we want to continue accumulating during streaming, so set it back
-     * and guarantee the client won't be freed in the read handler. */
-    connSetReadHandler(c->conn, asmSyncBufferReadFromConn);
+    /* Start streaming the buffer to the DB. This task may fail due to network
+     * errors or cancellations. We never release the task immediately; instead,
+     * it may be moved to the 'done' list. The actual free happens in serverCron,
+     * which ensures there is no use-after-free issue. */
     int ret = replDataBufStreamToDb(&task->sync_buffer, &ctx);
-    unprotectClient(c);
 
     if (ret == C_OK) {
         if (task->stream_eof_during_streaming) {
@@ -2031,13 +2031,9 @@ void asmSyncBufferStreamToDb(asmTask *task) {
         /* ACK offset after streaming buffer is done. */
         asmImportSendACK(task);
     } else {
-        /* If the streaming buffer failed, we need to clean up the task and
-         * the main channel connection, to avoid client exposure when not in
-         * ASM_WAIT_STREAM_EOF state */
-        task->main_channel_conn = NULL;
-        c->task = NULL;
-        c->flags &= ~CLIENT_MASTER;
-        freeClientAsync(c);
+        /* If the task is already canceled or failed, we don't need to do anything here. */
+        if (task->state == ASM_FAILED || task->state == ASM_CANCELED) return;
+
         asmTaskSetFailed(task, "Main channel - Failed to stream into the DB");
     }
 }
@@ -2055,7 +2051,7 @@ void asmBeforeSleep(void) {
     if (task->operation == ASM_IMPORT) {
         if (task->state == ASM_NONE)
             asmStartImportTask(task);
-        else if (task->state == ASM_STREAMING_BUF)
+        else if (task->state == ASM_READY_TO_STREAM)
             asmSyncBufferStreamToDb(task);
     }
 
@@ -2110,6 +2106,13 @@ void asmCron(void) {
         } else if (task->state == ASM_WAIT_STREAM_EOF) {
             asmImportSendACK(task);
         }
+    }
+
+    /* Trim the done tasks list if it grows too large */
+    while (listLength(asmManager->done_tasks) > ASM_MAX_DONE_TASKS) {
+        asmTask *oldest = listNodeValue(listLast(asmManager->done_tasks));
+        asmTaskFree(oldest);
+        listDelNode(asmManager->done_tasks, listLast(asmManager->done_tasks));
     }
 }
 

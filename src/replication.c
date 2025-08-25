@@ -3919,6 +3919,10 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
                 ret = C_ERR;
                 break;
             }
+
+            /* Streaming buffer into the database more slowly is useful in order
+             * to test certain edge cases. */
+            if (server.key_load_delay) debugDelay(server.key_load_delay);
         }
         size_t size = o->size;
         zfree(o);
