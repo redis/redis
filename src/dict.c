@@ -1014,8 +1014,7 @@ void *dictGetKey(const dictEntry *de) {
     /* if entryIsKey() */
     if ((uintptr_t)de & ENTRY_PTR_IS_ODD_KEY) return (void *) de;
     if ((uintptr_t)de & ENTRY_PTR_IS_EVEN_KEY) return decodeMaskedPtr(de);    
-    /* Regular entry */ 
-
+    /* Regular entry */
     return de->key;
 }
 
