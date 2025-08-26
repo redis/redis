@@ -10,7 +10,6 @@
 
 #include "server.h"
 #include "ctype.h"
-#include "bitops.h"
 
 #ifdef HAVE_AVX2
 /* Define __MM_MALLOC_H to prevent importing the memory aligned

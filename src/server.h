@@ -64,7 +64,6 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "connection.h" /* Connection abstraction */
 #include "eventnotifier.h" /* Event notification */
 #include "memory_prefetch.h"
-#include "bitops.h"  /* Bit operations */
 
 #define REDISMODULE_CORE 1
 typedef struct redisObject robj;
