@@ -303,7 +303,19 @@ Tested with the following Docker image:
    wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
    ```
 
-3. Extract the source archive
+3. Install CMake
+
+   Install CMake using `pip3` and link it for system-wide access:
+
+   ```sh
+   pip3 install cmake==3.31.6
+   sudo ln -sf /usr/local/bin/cmake /usr/bin/cmake
+   cmake --version
+   ```
+
+   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
+
+4. Extract the source archive
 
    Create a directory for the source code and extract the contents into it:
 
@@ -313,7 +325,7 @@ Tested with the following Docker image:
    rm redis-<version>.tar.gz
    ```
 
-4. Build Redis
+5. Build Redis
 
    Set the necessary environment variables and build Redis:
 
@@ -323,7 +335,7 @@ Tested with the following Docker image:
    make -j "$(nproc)" all
    ```
 
-5. Run Redis
+6. Run Redis
 
    ```sh
    cd /usr/src/redis-<version>
