@@ -26,7 +26,7 @@ start_cluster 1 0 [list config_lines $modules] {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     test {Internal secret is not available in non-cluster mode} {
@@ -49,7 +49,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     test {Test `COMMAND *` commands with\without internal connections} {
@@ -80,7 +80,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     test {No authentication needed for internal connections} {
@@ -94,7 +94,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     test {RM_Call of internal commands without user-flag succeeds only for all connections} {
@@ -120,7 +120,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     test {RM_Call with the user-flag after setting thread-safe-context from an internal connection should fail} {
@@ -132,7 +132,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     r config set appendonly yes
@@ -154,7 +154,7 @@ start_server {tags {"external:skip"}} {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     test {Internal commands are not allowed from scripts} {
@@ -201,7 +201,7 @@ start_cluster 1 1 [list config_lines $modules] {
     }
 }
 
-start_server {tags {"external:skip"}} {
+start_server {} {
     r module load $testmodule
 
     test {Internal commands are not reported in the monitor output for non-internal connections when unsuccessful} {

@@ -18,11 +18,11 @@ tags "modules external:skip" {
 
     test {modules global are lost without aux} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path] tags {"external:skip"} keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path] keep_persistence true] {
             r testrdb.set.before global1
             assert_equal "global1" [r testrdb.get.before]
         }
-        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path] tags {"external:skip"}] {
+        start_server [list overrides [list loadmodule "$testmodule" "dir" $server_path]] {
             assert_equal "" [r testrdb.get.before]
         }
     }
@@ -31,7 +31,7 @@ tags "modules external:skip" {
         set server_path [tmpdir "server.module-testrdb"]
         puts $server_path
         # 15 == 1111 - use aux_save2 before and after key space without data
-        start_server [list overrides [list loadmodule "$testmodule 15" "dir" $server_path] tags {"external:skip"} keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule 15" "dir" $server_path] keep_persistence true] {
             r set x 1
             r save
         }
@@ -45,11 +45,11 @@ tags "modules external:skip" {
         set server_path [tmpdir "server.module-testrdb"]
         puts $server_path
         # 14 == 1110 - use aux_save before and after key space without data
-        start_server [list overrides [list loadmodule "$testmodule 14" "dir" $server_path] tags {"external:skip"} keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule 14" "dir" $server_path] keep_persistence true] {
             r set x 1
             r save
         }
-        start_server [list overrides [list loadmodule "$testmodule 14" "dir" $server_path] tags {"external:skip"} keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule 14" "dir" $server_path] keep_persistence true] {
             # make sure server started successfully and aux_save was called twice.
             assert_equal {1} [r get x]
             assert_equal {2} [r testrdb.get.n_aux_load_called]
@@ -61,13 +61,13 @@ tags "modules external:skip" {
     # 7 == 0111 - use aux_save2 before and after key space with data
     test {modules are able to persist globals before and after} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"] tags {"external:skip"} keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"] keep_persistence true] {
             r testrdb.set.before global1
             r testrdb.set.after global2
             assert_equal "global1" [r testrdb.get.before]
             assert_equal "global2" [r testrdb.get.after]
         }
-        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"] tags {"external:skip"}] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"]] {
             assert_equal "global1" [r testrdb.get.before]
             assert_equal "global2" [r testrdb.get.after]
         }
@@ -80,29 +80,29 @@ tags "modules external:skip" {
     # 5 == 0101 - use aux_save2 after key space with data
     test {modules are able to persist globals just after} {
         set server_path [tmpdir "server.module-testrdb"]
-        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"] tags {"external:skip"} keep_persistence true] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"] keep_persistence true] {
             r testrdb.set.after global2
             assert_equal "global2" [r testrdb.get.after]
         }
-        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"] tags {"external:skip"}] {
+        start_server [list overrides [list loadmodule "$testmodule $test_case" "dir" $server_path "save" "900 1"]] {
             assert_equal "global2" [r testrdb.get.after]
         }
     }
     }
 
     test {Verify module options info} {
-        start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
             assert_match "*\[handle-io-errors|handle-repl-async-load\]*" [r info modules]
         }
     }
 
     tags {repl} {
         test {diskless loading short read with module} {
-            start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+            start_server [list overrides [list loadmodule "$testmodule"]] {
                 set replica [srv 0 client]
                 set replica_host [srv 0 host]
                 set replica_port [srv 0 port]
-                start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+                start_server [list overrides [list loadmodule "$testmodule"]] {
                     set master [srv 0 client]
                     set master_host [srv 0 host]
                     set master_port [srv 0 port]
@@ -199,7 +199,7 @@ tags "modules external:skip" {
                 set replica_host [srv 0 host]
                 set replica_port [srv 0 port]
                 set replica_log [srv 0 stdout]
-                start_server [list overrides [list loadmodule "$testmodule $test_case"] tags {"external:skip"}] {
+                start_server [list overrides [list loadmodule "$testmodule $test_case"]] {
                     set master [srv 0 client]
                     set master_host [srv 0 host]
                     set master_port [srv 0 port]

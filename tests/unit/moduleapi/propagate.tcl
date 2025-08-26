@@ -4,12 +4,12 @@ set keyspace_events [file normalize tests/modules/keyspace_events.so]
 
 tags "modules external:skip" {
     test {Modules can propagate in async and threaded contexts} {
-        start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
             set replica [srv 0 client]
             set replica_host [srv 0 host]
             set replica_port [srv 0 port]
             $replica module load $keyspace_events
-            start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+            start_server [list overrides [list loadmodule "$testmodule"]] {
                 set master [srv 0 client]
                 set master_host [srv 0 host]
                 set master_port [srv 0 port]
@@ -680,7 +680,7 @@ tags "modules external:skip" {
 tags "modules aof external:skip" {
     foreach aofload_type {debug_cmd startup} {
     test "Modules RM_Replicate replicates MULTI/EXEC correctly: AOF-load type $aofload_type" {
-        start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
             # Enable the AOF
             r config set appendonly yes
             r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
@@ -723,7 +723,7 @@ tags "modules aof external:skip" {
         }
     }
     test "Modules RM_Call does not update stats during aof load: AOF-load type $aofload_type" {
-        start_server [list overrides [list loadmodule "$miscmodule"] tags {"external:skip"}] {
+        start_server [list overrides [list loadmodule "$miscmodule"]] {
             # Enable the AOF
             r config set appendonly yes
             r config set auto-aof-rewrite-percentage 0 ; # Disable auto-rewrite.
