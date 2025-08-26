@@ -8,7 +8,7 @@ set testmodule [file normalize tests/modules/testrdb.so]
 
 tags "modules external:skip" {
     test {modules are able to persist types} {
-        start_server [list overrides [list loadmodule "$testmodule"] {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
             r testrdb.set.key key1 value1
             assert_equal "value1" [r testrdb.get.key key1]
             r debug reload
