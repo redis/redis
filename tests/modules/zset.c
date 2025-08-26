@@ -69,6 +69,91 @@ int zset_incrby(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return RedisModule_ReplyWithError(ctx, "ERR ZsetIncrby failed");
 }
 
+/* Structure to hold data for the delall scan callback */
+typedef struct {
+    RedisModuleCtx *ctx;
+    RedisModuleString **keys_to_delete;
+    size_t keys_capacity;
+    size_t keys_count;
+} zset_delall_data;
+
+/* Callback function for scanning keys and collecting zset keys to delete */
+void zset_delall_callback(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key, void *privdata) {
+    zset_delall_data *data = privdata;
+    int was_opened = 0;
+
+    /* Open the key if it wasn't already opened */
+    if (!key) {
+        key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
+        was_opened = 1;
+    }
+
+    /* Check if the key is a zset and add it to the list */
+    if (RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_ZSET) {
+        /* Expand the array if needed */
+        if (data->keys_count >= data->keys_capacity) {
+            data->keys_capacity = data->keys_capacity ? data->keys_capacity * 2 : 16;
+            data->keys_to_delete = RedisModule_Realloc(data->keys_to_delete,
+                                                       data->keys_capacity * sizeof(RedisModuleString*));
+        }
+
+        /* Store the key name (retain it so it doesn't get freed) */
+        data->keys_to_delete[data->keys_count] = keyname;
+        RedisModule_RetainString(ctx, keyname);
+        data->keys_count++;
+    }
+
+    /* Close the key if we opened it */
+    if (was_opened) {
+        RedisModule_CloseKey(key);
+    }
+}
+
+/* ZSET.DELALL
+ *
+ * Iterates through the keyspace and deletes all keys of type "zset".
+ * Returns the number of deleted keys.
+ */
+int zset_delall(RedisModuleCtx *ctx, REDISMODULE_ATTR_UNUSED RedisModuleString **argv, int argc) {
+    if (argc != 1) return RedisModule_WrongArity(ctx);
+    RedisModule_AutoMemory(ctx);
+
+    zset_delall_data data = {
+        .ctx = ctx,
+        .keys_to_delete = NULL,
+        .keys_capacity = 0,
+        .keys_count = 0
+    };
+
+    /* Create a scan cursor and iterate through all keys */
+    RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
+    while (RedisModule_Scan(ctx, cursor, zset_delall_callback, &data));
+    RedisModule_ScanCursorDestroy(cursor);
+
+    /* Delete all the collected zset keys after scan is complete */
+    size_t deleted_count = 0;
+    for (size_t i = 0; i < data.keys_count; i++) {
+        RedisModuleCallReply *reply = RedisModule_Call(ctx, "DEL", "s!", data.keys_to_delete[i]);
+        if (reply && RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_INTEGER) {
+            long long del_result = RedisModule_CallReplyInteger(reply);
+            if (del_result > 0) {
+                deleted_count++;
+            }
+        }
+        if (reply) {
+            RedisModule_FreeCallReply(reply);
+        }
+        RedisModule_FreeString(ctx, data.keys_to_delete[i]);
+    }
+
+    /* Free the keys array */
+    if (data.keys_to_delete) {
+        RedisModule_Free(data.keys_to_delete);
+    }
+
+    return RedisModule_ReplyWithLongLong(ctx, deleted_count);
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -85,6 +170,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     if (RedisModule_CreateCommand(ctx, "zset.incrby", zset_incrby, "write",
                                   1, 1, 1) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "zset.delall", zset_delall, "write touches-arbitrary-keys",
+                                  0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

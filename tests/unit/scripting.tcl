@@ -379,6 +379,65 @@ start_server {tags {"scripting"}} {
         } 0
     } {a b}
 
+    test {EVAL - JSON empty array decoding} {
+        # Default behavior
+        assert_equal "{}" [run_script {
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{\"item\":{}}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('{"item": []}'))
+        } 0]
+
+        # With array metatable
+        assert_equal "\[\]" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{\"item\":\[\]}" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            return cjson.encode(cjson.decode('{"item": []}'))
+        } 0]
+    }
+
+    test {EVAL - JSON empty array decoding after element removal} {
+        # Default: emptied array becomes object
+        assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            local t = cjson.decode('[1, 2]')
+            -- emptying the array
+            t[1] = nil
+            t[2] = nil
+            return cjson.encode(t)
+        } 0]
+
+        # With array metatable: emptied array stays array
+        assert_equal "\[\]" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            local t = cjson.decode('[1, 2]')
+            -- emptying the array
+            t[1] = nil
+            t[2] = nil
+            return cjson.encode(t)
+        } 0]
+    }
+
+    test {EVAL - cjson array metatable modification should be readonly} {
+        catch {
+            run_script {
+                cjson.decode_array_with_array_mt(true)
+                local t = cjson.decode('[]')
+                getmetatable(t).__is_cjson_array = function() return 1 end
+                return cjson.encode(t)
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
+
     test {EVAL - JSON smoke test} {
         run_script {
             local some_map = {

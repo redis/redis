@@ -22,11 +22,13 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <stddef.h>
 
 #include "dict.h"
 #include "zmalloc.h"
 #include "redisassert.h"
 #include "monotonic.h"
+#include "util.h"
 
 /* Using dictSetResizeEnabled() we make possible to disable
  * resizing and rehashing of the hash table as needed. This is very important
@@ -44,20 +46,23 @@ static unsigned int dict_force_resize_ratio = 4;
 
 /* -------------------------- types ----------------------------------------- */
 struct dictEntry {
-    void *key;
+    struct dictEntry *next;  /* Must be first */
+    void *key;               /* Must be second */
     union {
         void *val;
         uint64_t u64;
         int64_t s64;
         double d;
     } v;
-    struct dictEntry *next;     /* Next entry in the same hash bucket. */
 };
 
-typedef struct {
-    void *key;
-    dictEntry *next;
+typedef struct dictEntryNoValue {
+    dictEntry *next; /* Must be first */
+    void *key;       /* Must be second */
 } dictEntryNoValue;
+
+static_assert(offsetof(dictEntry, next) == offsetof(dictEntryNoValue, next), "dictEntry & dictEntryNoValue next not aligned");
+static_assert(offsetof(dictEntry, key) == offsetof(dictEntryNoValue, key), "dictEntry & dictEntryNoValue key not aligned");
 
 /* -------------------------- private prototypes ---------------------------- */
 
@@ -129,8 +134,8 @@ uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
 #define ENTRY_PTR_MASK        7 /* 111 */
 #define ENTRY_PTR_NORMAL      0 /* 000 : If a pointer to an entry with value. */
 #define ENTRY_PTR_IS_ODD_KEY  1 /* XX1 : If a pointer to odd key address (must be 1). */
-#define ENTRY_PTR_IS_EVEN_KEY 2 /* 010 : If a pointer to even key address. (must be 2 or 4). */ 
-#define ENTRY_PTR_NO_VALUE    4 /* 100 : If a pointer to an entry without value. */ 
+#define ENTRY_PTR_IS_EVEN_KEY 2 /* 010 : If a pointer to even key address. (must be 2 or 4). */
+#define ENTRY_PTR_UNUSED      4 /* 100 : Unused. */
 
 /* Returns 1 if the entry pointer is a pointer to a key, rather than to an
  * allocated entry. Returns 0 otherwise. */
@@ -144,18 +149,12 @@ static inline int entryIsNormal(const dictEntry *de) {
     return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NORMAL;
 }
 
-/* Returns 1 if the entry is a special entry with key and next, but without
- * value. Returns 0 otherwise. */
-static inline int entryIsNoValue(const dictEntry *de) {
-    return ((uintptr_t)(void *)de & ENTRY_PTR_MASK) == ENTRY_PTR_NO_VALUE;
-}
-
 /* Creates an entry without a value field. */
 static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
     dictEntryNoValue *entry = zmalloc(sizeof(*entry));
     entry->key = key;
     entry->next = next;
-    return (dictEntry *)(void *)((uintptr_t)(void *)entry | ENTRY_PTR_NO_VALUE);
+    return (dictEntry *) entry;
 }
 
 static inline dictEntry *encodeMaskedPtr(const void *ptr, unsigned int bits) {
@@ -359,9 +358,6 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
                 /* We don't have an allocated entry but we need one. */
                 de = createEntryNoValue(key, d->ht_table[1][h]);
             } else {
-                /* Just move the existing entry to the destination table and
-                 * update the 'next' field. */
-                assert(entryIsNoValue(de));
                 dictSetNext(de, d->ht_table[1][h]);
             }
         } else {
@@ -893,15 +889,13 @@ void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
     }
     
     dictEntry **de = *link;
-    /* is it regular dict entry of key and next */
-    if (entryIsNoValue(*de)) {
-        decodeEntryNoValue(*de)->key = addedKey;
-    } else if (entryIsKey(*de)) {
+    if (entryIsKey(*de)) {
         /* `de` opt-out to be actually a key. Replace key but keep the lsb flags */
         int mask = ((uintptr_t) *de) & ENTRY_PTR_MASK;
         *de = encodeMaskedPtr(addedKey, mask);
     } else {
-        (*de)->key = addedKey; /* `de` is a normal key-value dict entry */
+        /* either dictEntry or dictEntryNoValue */
+        (*de)->key = addedKey;
     }
 }
 
@@ -1020,8 +1014,7 @@ void *dictGetKey(const dictEntry *de) {
     /* if entryIsKey() */
     if ((uintptr_t)de & ENTRY_PTR_IS_ODD_KEY) return (void *) de;
     if ((uintptr_t)de & ENTRY_PTR_IS_EVEN_KEY) return decodeMaskedPtr(de);    
-    /* Regular entry */ 
-    if (entryIsNoValue(de)) return decodeEntryNoValue(de)->key;
+    /* Regular entry */
     return de->key;
 }
 
@@ -1055,7 +1048,7 @@ double *dictGetDoubleValPtr(dictEntry *de) {
  * 'next' field. */
 dictEntry *dictGetNext(const dictEntry *de) {
     if (entryIsKey(de)) return NULL; /* there's no next */
-    if (entryIsNoValue(de)) return decodeEntryNoValue(de)->next;
+    /* Must come after entryIsKey() check */
     return de->next;
 }
 
@@ -1063,18 +1056,14 @@ dictEntry *dictGetNext(const dictEntry *de) {
  * doesn't have a next field. */
 static dictEntryLink dictGetNextLink(dictEntry *de) {
     if (entryIsKey(de)) return NULL;
-    if (entryIsNoValue(de)) return &decodeEntryNoValue(de)->next;
+    /* Must come after entryIsKey() check */
     return &de->next;
 }
 
 static void dictSetNext(dictEntry *de, dictEntry *next) {
     assert(!entryIsKey(de));
-    if (entryIsNoValue(de)) {
-        dictEntryNoValue *entry = decodeEntryNoValue(de);
-        entry->next = next;
-    } else {
-        de->next = next;
-    }
+    /* dictEntryNoValue & dictEntry are layout-compatible */
+    de->next = next;
 }
 
 /* Returns the memory usage in bytes of the dict, excluding the size of the keys
@@ -1357,7 +1346,7 @@ end:
 
 /* Reallocate the dictEntry, key and value allocations in a bucket using the
  * provided allocation functions in order to defrag them. */
-static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragfns) {
+static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions *defragfns) {
     dictDefragAllocFunction *defragalloc = defragfns->defragAlloc;
     dictDefragAllocFunction *defragkey = defragfns->defragKey;
     dictDefragAllocFunction *defragval = defragfns->defragVal;
@@ -1367,10 +1356,10 @@ static void dictDefragBucket(dictEntry **bucketref, dictDefragFunctions *defragf
         void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
         if (entryIsKey(de)) {
             if (newkey) *bucketref = newkey;
-        } else if (entryIsNoValue(de)) {
+        } else if (d->type->no_value) {
             dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
             if ((newentry = defragalloc(entry))) {
-                newde = encodeMaskedPtr(newentry, ENTRY_PTR_NO_VALUE);
+                newde = (dictEntry *) newentry;
                 entry = newentry;
             }
             if (newkey) entry->key = newkey;
@@ -1516,14 +1505,14 @@ unsigned long dictScan(dict *d,
     return dictScanDefrag(d, v, fn, NULL, privdata);
 }
 
-void dictScanDefragBucket(dictScanFunction *fn,
+void dictScanDefragBucket(dict *d,dictScanFunction *fn,
                           dictDefragFunctions *defragfns,
                           void *privdata,
                           dictEntry **bucketref) {
     dictEntry **plink, *de, *next;
 
     /* Emit entries at bucket */
-    if (defragfns) dictDefragBucket(bucketref, defragfns);
+    if (defragfns) dictDefragBucket(d, bucketref, defragfns);
 
     de = *bucketref;
     plink = bucketref;
@@ -1536,7 +1525,7 @@ void dictScanDefragBucket(dictScanFunction *fn,
         /* if `*plink` still pointing to 'de', then it means that the 
          * visited item wasn't deleted by fn() */
         if (*plink == de)            
-            plink = (entryIsNoValue(de)) ? &(decodeEntryNoValue(de)->next) : &(de->next);
+            plink = &(de->next);
 
         de = next;
     }
@@ -1567,7 +1556,7 @@ unsigned long dictScanDefrag(dict *d,
     if (!dictIsRehashing(d)) {
         htidx0 = 0;
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
-        dictScanDefragBucket(fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
+        dictScanDefragBucket(d, fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
 
         /* Set unmasked bits so incrementing the reversed cursor
          * operates on the masked bits */
@@ -1591,12 +1580,12 @@ unsigned long dictScanDefrag(dict *d,
         m0 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx0]);
         m1 = DICTHT_SIZE_MASK(d->ht_size_exp[htidx1]);
 
-        dictScanDefragBucket(fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
+        dictScanDefragBucket(d, fn, defragfns, privdata, &d->ht_table[htidx0][v & m0]);
 
         /* Iterate over indices in larger table that are the expansion
          * of the index pointed to by the cursor in the smaller table */
         do {
-            dictScanDefragBucket(fn, defragfns, privdata, &d->ht_table[htidx1][v & m1]);            
+            dictScanDefragBucket(d, fn, defragfns, privdata, &d->ht_table[htidx1][v & m1]);
 
             /* Increment the reverse cursor not covered by the smaller mask.*/
             v |= ~m1;

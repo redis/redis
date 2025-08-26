@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/stream.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {Module stream add and delete} {
