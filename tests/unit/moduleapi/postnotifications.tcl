@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/postnotifications.so]
 
 tags "modules external:skip" {
-    start_server {tags {"external:skip"}} {
+    start_server {} {
         r module load $testmodule with_key_events
 
         test {Test write on post notification callback} {
