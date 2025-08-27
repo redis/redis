@@ -18,11 +18,27 @@
 #include <immintrin.h>
 #endif
 
+#ifdef HAVE_AVX512
+/* Define __MM_MALLOC_H to prevent importing the memory aligned
+ * allocation functions, which we don't use. */
+#define __MM_MALLOC_H
+#include <immintrin.h>
+#endif
+
+
 #ifdef HAVE_AVX2
 #define BITOP_USE_AVX2 (__builtin_cpu_supports("avx2"))
 #else
 #define BITOP_USE_AVX2 0
 #endif
+
+#ifdef HAVE_AVX512
+#define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
+#else
+#define BITOP_USE_AVX512 0
+#endif
+
+
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -42,7 +58,18 @@ long long redisPopcount(void *s, long count) {
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if
                          * __builtin_cpu_supports() is not available. */
 #endif
-    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
+    /* Lookup table for counting set bits in a byte.
+     * bitsinbyte[i] contains the number of 1-bits in byte value i (0-255).
+     * Used as fallback when hardware bit counting instructions are not available/to align to 64-bit. */
+    static const uint8_t bitsinbyte[256] = {
+        #define B2(n) n, n+1, n+1, n+2
+        #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+        #define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+        B6(0), B6(1), B6(1), B6(2)
+        #undef B6
+        #undef B4
+        #undef B2
+    };
     
     /* Count initial bytes not aligned to 64-bit when using the POPCNT instruction,
      * otherwise align to 32-bit. */
@@ -120,6 +147,121 @@ remain:
     while(count--) bits += bitsinbyte[*p++];
     return bits;
 }
+
+#ifdef HAVE_AVX512
+/* AVX512 optimized version of redisPopcount using VPOPCNTDQ instruction.
+ * This function requires AVX512F and AVX512VPOPCNTDQ support. */
+ATTRIBUTE_TARGET_AVX512
+long long redisPopCountAvx512(void *s, long count) {
+    long long bits = 0;
+    unsigned char *p = s;
+    /* Lookup table for counting set bits in a byte (see main function for details) */
+    static const uint8_t bitsinbyte[256] = {
+        #define B2(n) n, n+1, n+1, n+2
+        #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+        #define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+        B6(0), B6(1), B6(1), B6(2)
+        #undef B6
+        #undef B4
+        #undef B2
+    };
+
+    /* Align to 64-byte boundary for optimal AVX512 performance */
+    while ((unsigned long)p & 63 && count) {
+        bits += bitsinbyte[*p++];
+        count--;
+    }
+
+    /* Process 64 bytes at a time using AVX512 */
+    while (count >= 64) {
+        __m512i data = _mm512_loadu_si512((__m512i*)p);
+        __m512i popcnt = _mm512_popcnt_epi64(data);
+
+        /* Sum all 8 64-bit popcount results */
+        bits += _mm512_reduce_add_epi64(popcnt);
+
+        p += 64;
+        count -= 64;
+
+        /* Prefetch next cache line */
+        redis_prefetch_read(p + 2048);
+    }
+
+    /* Handle remaining bytes with scalar popcount */
+    while (count >= 8) {
+        bits += __builtin_popcountll(*(uint64_t*)p);
+        p += 8;
+        count -= 8;
+    }
+
+    /* Handle final bytes */
+    while (count--) {
+        bits += bitsinbyte[*p++];
+    }
+
+    return bits;
+}
+#endif
+
+#ifdef HAVE_AVX2
+/* AVX2 optimized version of redisPopcount.
+ * This function requires AVX2 and POPCNT support. */
+ATTRIBUTE_TARGET_AVX2
+long long redisPopCountAvx2(void *s, long count) {
+    long long bits = 0;
+    unsigned char *p = s;
+    /* Lookup table for counting set bits in a byte (see main function for details) */
+    static const uint8_t bitsinbyte[256] = {
+        #define B2(n) n, n+1, n+1, n+2
+        #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+        #define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+        B6(0), B6(1), B6(1), B6(2)
+        #undef B6
+        #undef B4
+        #undef B2
+    };
+
+    /* Align to 8-byte boundary for 64-bit operations */
+    while ((unsigned long)p & 7 && count) {
+        bits += bitsinbyte[*p++];
+        count--;
+    }
+
+    /* Use separate counters to avoid dependencies, similar to regular redisPopcount */
+    uint64_t cnt[4];
+    memset(cnt, 0, sizeof(cnt));
+
+    /* Process 32 bytes at a time using POPCNT on 64-bit chunks */
+    while (count >= 32) {
+        cnt[0] += __builtin_popcountll(*(uint64_t*)(p));
+        cnt[1] += __builtin_popcountll(*(uint64_t*)(p + 8));
+        cnt[2] += __builtin_popcountll(*(uint64_t*)(p + 16));
+        cnt[3] += __builtin_popcountll(*(uint64_t*)(p + 24));
+
+        p += 32;
+        count -= 32;
+
+        /* Prefetch next cache line */
+        redis_prefetch_read(p + 2048);
+    }
+
+    bits += cnt[0] + cnt[1] + cnt[2] + cnt[3];
+
+    /* Handle remaining bytes with scalar popcount */
+    while (count >= 8) {
+        bits += __builtin_popcountll(*(uint64_t*)p);
+        p += 8;
+        count -= 8;
+    }
+
+    /* Handle final bytes */
+    while (count--) {
+        bits += bitsinbyte[*p++];
+    }
+
+    return bits;
+}
+#endif
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
@@ -1268,7 +1410,23 @@ void bitcountCommand(client *c) {
         addReply(c,shared.czero);
     } else {
         long bytes = (long)(end-start+1);
-        long long count = redisPopcount(p+start,bytes);
+        long long count;
+
+        /* Use the best available popcount implementation */
+#ifdef HAVE_AVX512
+        if (BITOP_USE_AVX512) {
+            count = redisPopCountAvx512(p+start,bytes);
+        } else
+#endif
+#ifdef HAVE_AVX2
+        if (BITOP_USE_AVX2) {
+            count = redisPopCountAvx2(p+start,bytes);
+        } else
+#endif
+        {
+            count = redisPopcount(p+start,bytes);
+        }
+
         if (first_byte_neg_mask != 0 || last_byte_neg_mask != 0) {
             unsigned char firstlast[2] = {0, 0};
             /* We may count bits of first byte and last byte which are out of
@@ -1276,7 +1434,21 @@ void bitcountCommand(client *c) {
             * bits in the range to zero. So these bit will not be excluded. */
             if (first_byte_neg_mask != 0) firstlast[0] = p[start] & first_byte_neg_mask;
             if (last_byte_neg_mask != 0) firstlast[1] = p[end] & last_byte_neg_mask;
-            count -= redisPopcount(firstlast,2);
+
+            /* Use the same popcount implementation for consistency */
+#ifdef HAVE_AVX512
+            if (BITOP_USE_AVX512) {
+                count -= redisPopCountAvx512(firstlast,2);
+            } else
+#endif
+#ifdef HAVE_AVX2
+            if (BITOP_USE_AVX2) {
+                count -= redisPopCountAvx2(firstlast,2);
+            } else
+#endif
+            {
+                count -= redisPopcount(firstlast,2);
+            }
         }
         addReplyLongLong(c,count);
     }
@@ -1695,3 +1867,234 @@ void bitfieldCommand(client *c) {
 void bitfieldroCommand(client *c) {
     bitfieldGeneric(c, BITFIELD_FLAG_READONLY);
 }
+
+#ifdef REDIS_TEST
+#include <assert.h>
+
+static void test_basic_popcount(void) {
+    /* Test data with known popcount values */
+    unsigned char test_data[] = {0xFF, 0x00, 0xAA, 0x55, 0xF0, 0x0F, 0x33, 0xCC};
+    int expected_bits = 8 + 0 + 4 + 4 + 4 + 4 + 4 + 4; /* = 32 bits */
+
+    long long result_regular = redisPopcount(test_data, sizeof(test_data));
+    assert(result_regular == expected_bits);
+
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        long long result_avx2 = redisPopCountAvx2(test_data, sizeof(test_data));
+        assert(result_avx2 == expected_bits);
+    }
+#endif
+
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        long long result_avx512 = redisPopCountAvx512(test_data, sizeof(test_data));
+        assert(result_avx512 == expected_bits);
+    }
+#endif
+}
+
+static void test_large_buffer_popcount(void) {
+    /* Large buffer test (4KB) */
+    size_t large_size = 4096;
+    unsigned char *large_data = zmalloc(large_size);
+    assert(large_data != NULL);
+
+    /* Fill with alternating pattern */
+    for (size_t i = 0; i < large_size; i++) {
+        large_data[i] = (i % 2) ? 0xAA : 0x55; /* 4 bits each */
+    }
+    int expected_large = large_size * 4; /* 4 bits per byte */
+
+    long long result_large = redisPopcount(large_data, large_size);
+    assert(result_large == expected_large);
+
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        long long result_large_avx2 = redisPopCountAvx2(large_data, large_size);
+        assert(result_large_avx2 == expected_large);
+    }
+#endif
+
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        long long result_large_avx512 = redisPopCountAvx512(large_data, large_size);
+        assert(result_large_avx512 == expected_large);
+    }
+#endif
+
+    zfree(large_data);
+}
+
+static void test_unaligned_buffer_popcount(void) {
+    /* Unaligned buffer test */
+    unsigned char *aligned_buf = zmalloc(128 + 64); /* Extra space for alignment */
+    assert(aligned_buf != NULL);
+
+    /* Create unaligned pointer (offset by 1, 3, 5, 7 bytes) */
+    for (int offset = 1; offset <= 7; offset += 2) {
+        unsigned char *unaligned_data = aligned_buf + offset;
+        size_t unaligned_size = 64;
+
+        /* Fill with known pattern */
+        for (size_t i = 0; i < unaligned_size; i++) {
+            unaligned_data[i] = 0xF0; /* 4 bits each */
+        }
+        int expected_unaligned = unaligned_size * 4;
+
+        long long result_unaligned = redisPopcount(unaligned_data, unaligned_size);
+        assert(result_unaligned == expected_unaligned);
+
+#ifdef HAVE_AVX2
+        if (BITOP_USE_AVX2) {
+            long long result_unaligned_avx2 = redisPopCountAvx2(unaligned_data, unaligned_size);
+            assert(result_unaligned_avx2 == expected_unaligned);
+        }
+#endif
+
+#ifdef HAVE_AVX512
+        if (BITOP_USE_AVX512) {
+            long long result_unaligned_avx512 = redisPopCountAvx512(unaligned_data, unaligned_size);
+            assert(result_unaligned_avx512 == expected_unaligned);
+        }
+#endif
+    }
+
+    zfree(aligned_buf);
+}
+
+static void test_edge_case_sizes_popcount(void) {
+    /* Edge case sizes */
+    unsigned char edge_data[128];
+    for (int i = 0; i < 128; i++) edge_data[i] = 0x0F; /* 4 bits each */
+
+    /* Test various small sizes */
+    int edge_sizes[] = {1, 2, 3, 4, 5, 6, 7, 15, 16, 17, 31, 32, 33, 63, 64, 65};
+    int num_edge_sizes = sizeof(edge_sizes) / sizeof(edge_sizes[0]);
+
+    for (int i = 0; i < num_edge_sizes; i++) {
+        int size = edge_sizes[i];
+        int expected_edge = size * 4;
+
+        long long result_edge = redisPopcount(edge_data, size);
+        assert(result_edge == expected_edge);
+
+#ifdef HAVE_AVX2
+        if (BITOP_USE_AVX2) {
+            long long result_edge_avx2 = redisPopCountAvx2(edge_data, size);
+            assert(result_edge_avx2 == expected_edge);
+        }
+#endif
+
+#ifdef HAVE_AVX512
+        if (BITOP_USE_AVX512) {
+            long long result_edge_avx512 = redisPopCountAvx512(edge_data, size);
+            assert(result_edge_avx512 == expected_edge);
+        }
+#endif
+    }
+}
+
+static void test_zeros_and_ones_popcount(void) {
+    /* All zeros and all ones */
+    unsigned char zeros[256] = {0};
+    unsigned char ones[256];
+    memset(ones, 0xFF, 256);
+
+    /* Test all zeros */
+    long long result_zeros = redisPopcount(zeros, 256);
+    assert(result_zeros == 0);
+
+    /* Test all ones */
+    long long result_ones = redisPopcount(ones, 256);
+    assert(result_ones == 256 * 8);
+
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        assert(redisPopCountAvx2(zeros, 256) == 0);
+        assert(redisPopCountAvx2(ones, 256) == 256 * 8);
+    }
+#endif
+
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        assert(redisPopCountAvx512(zeros, 256) == 0);
+        assert(redisPopCountAvx512(ones, 256) == 256 * 8);
+    }
+#endif
+}
+
+static void test_random_pattern_popcount(void) {
+    /* Random pattern test */
+    unsigned char random_data[512];
+
+    /* Generate pseudo-random data with known seed for reproducibility */
+    unsigned int seed = 12345;
+    long long expected_random = 0;
+    for (int i = 0; i < 512; i++) {
+        seed = seed * 1103515245 + 12345; /* Simple LCG */
+        random_data[i] = (seed >> 16) & 0xFF;
+
+        /* Count bits manually for verification */
+        unsigned char byte = random_data[i];
+        for (int bit = 0; bit < 8; bit++) {
+            if (byte & (1 << bit)) expected_random++;
+        }
+    }
+
+    long long result_random = redisPopcount(random_data, 512);
+    assert(result_random == expected_random);
+
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        long long result_random_avx2 = redisPopCountAvx2(random_data, 512);
+        assert(result_random_avx2 == expected_random);
+    }
+#endif
+
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        long long result_random_avx512 = redisPopCountAvx512(random_data, 512);
+        assert(result_random_avx512 == expected_random);
+    }
+#endif
+}
+
+static void test_boundary_conditions_popcount(void) {
+    /* Boundary conditions */
+    unsigned char test_data[] = {0xFF, 0x00, 0xAA, 0x55};
+
+    /* Test zero length */
+    long long result_zero_len = redisPopcount(test_data, 0);
+    assert(result_zero_len == 0);
+
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        assert(redisPopCountAvx2(test_data, 0) == 0);
+    }
+#endif
+
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        assert(redisPopCountAvx512(test_data, 0) == 0);
+    }
+#endif
+}
+
+int bitopsTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    test_basic_popcount();
+    test_large_buffer_popcount();
+    test_unaligned_buffer_popcount();
+    test_edge_case_sizes_popcount();
+    test_zeros_and_ones_popcount();
+    test_random_pattern_popcount();
+    test_boundary_conditions_popcount();
+
+    printf("All bitops tests passed!\n");
+    return 0;
+}
+#endif

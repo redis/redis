@@ -7285,6 +7285,7 @@ int __test_num = 0;
 * --accurate:     Runs tests with more iterations.
 * --large-memory: Enables tests that consume more than 100mb. */
 typedef int redisTestProc(int argc, char **argv, int flags);
+int bitopsTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -7305,6 +7306,7 @@ struct redisTest {
     {"listpack", listpackTest},
     {"kvstore", kvstoreTest},
     {"ebuckets", ebucketsTest},
+    {"bitmap", bitopsTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
