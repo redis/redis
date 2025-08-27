@@ -2804,6 +2804,7 @@ void getRandomHexChars(char *p, size_t len);
 void getRandomBytes(unsigned char *p, size_t len);
 uint64_t crc64(uint64_t crc, const unsigned char *s, uint64_t l);
 void exitFromChild(int retcode, int from_signal);
+long long redisPopcount(void *s, long count);
 int redisSetProcTitle(char *title);
 int validateProcTitleTemplate(const char *template);
 int redisCommunicateSystemd(const char *sd_notify_msg);
