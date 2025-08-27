@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/getkeys.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {COMMAND INFO correctly reports a movable keys module command} {

@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/aclcheck.so]
 
-start_server {tags {"modules acl"}} {
+start_server {tags {"modules acl external:skip"}} {
     r module load $testmodule
 
     test {test module check acl for command perm} {
@@ -158,7 +158,7 @@ start_server {tags {"modules acl"}} {
     }
 }
 
-start_server {tags {"modules acl"}} {
+start_server {tags {"modules acl external:skip"}} {
     test {test existing users to have access to module commands loaded on runtime} {
         r acl SETUSER j3 on >password -@all +@WRITE
         assert_equal [r module load $testmodule] OK
@@ -167,7 +167,7 @@ start_server {tags {"modules acl"}} {
     }
 }
 
-start_server {tags {"modules acl"}} {
+start_server {tags {"modules acl external:skip"}} {
     test {test existing users without permissions, do not have access to module commands loaded on runtime.} {
         r acl SETUSER j4 on >password -@all +@READ
         r acl SETUSER j5 on >password -@all +@WRITE
@@ -200,7 +200,7 @@ start_server {tags {"modules acl"}} {
     }
 }
 
-start_server {tags {"modules acl"}} {
+start_server {tags {"modules acl external:skip"}} {
     test {test module load fails if exceeds the maximum number of adding acl categories} {
         assert_error {ERR Error loading the extension. Please check the server logs.} {r module load $testmodule 1}
     }
