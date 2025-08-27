@@ -549,7 +549,8 @@ run_solo {defrag} {
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd hset h$i $dummy_field$j v
                     $rd hexpire h$i 9999999 FIELDS 1 $dummy_field$j
-                    $rd set "k$i$j" $dummy_field
+                    $rd hset k$i $dummy_field$j v
+                    $rd hexpire k$i 9999999 FIELDS 1 $dummy_field$j
                 }
                 $rd expire h$i 9999999 ;# Ensure expire is updated after kvobj reallocation
             }
@@ -558,7 +559,8 @@ run_solo {defrag} {
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd read ; # Discard hset replies
                     $rd read ; # Discard hexpire replies
-                    $rd read ; # Discard set replies
+                    $rd read ; # Discard hset replies
+                    $rd read ; # Discard hexpire replies
                 }
                 $rd read ; # Discard expire replies
             }
@@ -579,9 +581,7 @@ run_solo {defrag} {
 
             # Delete all the keys to create fragmentation
             for {set i 0} {$i < $n} {incr i} {
-                for {set j 0} {$j < $fields} {incr j} {
-                    r del "k$i$j"
-                }
+                r del k$i
             }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
