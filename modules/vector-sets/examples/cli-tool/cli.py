@@ -8,6 +8,7 @@
 #
 
 #!/usr/bin/env python3
+import sys
 import redis
 import requests
 import re
@@ -15,9 +16,12 @@ import shlex
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
 
+# Default Ollama embeddings URL (can be overridden with --ollama-url)
+OLLAMA_URL = "http://localhost:11434/api/embeddings"
+
 def get_embedding(text):
     """Get embedding from local Ollama API"""
-    url = "http://localhost:11434/api/embeddings"
+    url = OLLAMA_URL
     payload = {
         "model": "mxbai-embed-large",
         "prompt": text
@@ -73,6 +77,17 @@ def format_response(response):
         return str(response)
 
 def main():
+    global OLLAMA_URL
+
+    for i in range(1, len(sys.argv)):
+        arg = sys.argv[i]
+        if arg.startswith("--ollama-url="):
+            OLLAMA_URL = arg.split("=", 1)[1]
+            break
+        if arg == "--ollama-url" and i + 1 < len(sys.argv):
+            OLLAMA_URL = sys.argv[i + 1]
+            break
+
     # Default connection to localhost:6379
     r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
