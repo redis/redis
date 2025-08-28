@@ -2331,6 +2331,7 @@ err_expiration:
 void hsetexCommand(client *c) {
     int flags = 0, first_field_pos = 0, field_count = 0, expire_time_pos = -1;
     int updated = 0, deleted = 0, set_expiry;
+    int expired = 0, fields_set = 0;
     long long expire_time = EB_EXPIRE_TIME_INVALID;
     int64_t oldlen, newlen;
     HashTypeSetEx setex;
@@ -2358,12 +2359,18 @@ void hsetexCommand(client *c) {
         int found = 0;
         for (int i = 0; i < field_count; i++) {
             sds field = c->argv[first_field_pos + (i * 2)]->ptr;
+            unsigned char *vstr = NULL;
+            unsigned int vlen = UINT_MAX;
+            long long vll = LLONG_MAX;
             const int opt = HFE_LAZY_NO_NOTIFICATION |
                             HFE_LAZY_NO_SIGNAL |
                             HFE_LAZY_AVOID_HASH_DEL |
                             HFE_LAZY_NO_UPDATE_KEYSIZES;
-            int exists = hashTypeExists(c->db, o, field, opt, NULL);
-            found += (exists != 0);
+
+            GetFieldRes res = hashTypeGetValue(c->db, o, field, &vstr, &vlen, &vll, opt, NULL);
+            int exists = (res == GETF_OK);
+            expired += (res == GETF_EXPIRED);
+            found += exists;
 
             /* Check for early exit if the condition is already invalid. */
             if (((flags & HFE_FXX) && !exists) ||
@@ -2400,7 +2407,7 @@ void hsetexCommand(client *c) {
             opt |= HASH_SET_KEEP_TTL;
 
         hashTypeSet(c->db, o, field, value, opt);
-
+        fields_set = 1;
         /* Update the expiration time. */
         if (set_expiry) {
             int ret = hashTypeSetEx(o, field, expire_time, &setex);
@@ -2413,11 +2420,6 @@ void hsetexCommand(client *c) {
         hashTypeSetExDone(&setex);
 
     server.dirty += field_count;
-    signalModifiedKey(c, c->db, c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
-    if (deleted || updated)
-        notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel": "hexpire",
-                            c->argv[1], c->db->id);
 
     if (deleted) {
         /* If fields are deleted due to timestamp is being in the past, hdel's
@@ -2437,6 +2439,17 @@ void hsetexCommand(client *c) {
     addReplyLongLong(c, 1);
 
 out:
+    /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
+    if (fields_set || expired) {
+        signalModifiedKey(c, c->db, c->argv[1]);
+        if (expired)
+            notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
+        if (fields_set) {
+            notifyKeyspaceEvent(NOTIFY_HASH, "hset", c->argv[1], c->db->id);
+            if (deleted || updated)
+                notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire", c->argv[1], c->db->id);
+        }
+    }
     /* Key may become empty due to lazy expiry in hashTypeExists()
      * or the new expiration time is in the past.*/
     newlen = (int64_t) hashTypeLength(o, 0);
@@ -2549,13 +2562,14 @@ void hincrbyfloatCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
 
-    /* Always replicate HINCRBYFLOAT as an HSET command with the final value
+    /* Always replicate HINCRBYFLOAT as an HSETEX command with the final value
      * in order to make sure that differences in float precision or formatting
-     * will not create differences in replicas or after an AOF restart. */
+     * will not create differences in replicas or after an AOF restart.
+     * The KEEPTTL flag is used to make sure the field TTL is preserved. */
     robj *newobj;
     newobj = createRawStringObject(buf,len);
-    rewriteClientCommandArgument(c,0,shared.hset);
-    rewriteClientCommandArgument(c,3,newobj);
+    rewriteClientCommandVector(c, 7, shared.hsetex, c->argv[1], shared.keepttl,
+                        shared.fields, shared.integers[1], c->argv[2], newobj);
     decrRefCount(newobj);
 }
 
@@ -3208,7 +3222,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     if (count*HRANDFIELD_SUB_STRATEGY_MUL > size) {
         /* Hashtable encoding (generic implementation) */
         dict *ht = hash->ptr;
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de;
         unsigned long idx = 0;
 
@@ -3220,10 +3234,10 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
         } *pairs = zmalloc(sizeof(struct FieldValPair) * size);
 
         /* Add all the elements into the temporary array. */
-        di = dictGetIterator(ht);
-        while((de = dictNext(di)) != NULL)
+        dictInitIterator(&di, ht);
+        while((de = dictNext(&di)) != NULL)
               pairs[idx++] = (struct FieldValPair) {dictGetKey(de), dictGetVal(de)};
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
 
         /* Remove random elements to reach the right count. */
         while (size > count) {

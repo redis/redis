@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/mallocsize.so]
 
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {MallocSize of raw bytes} {

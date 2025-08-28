@@ -852,7 +852,7 @@ void VSIM_execute(RedisModuleCtx *ctx, struct vsetObject *vset,
 
     long long arraylen = 0;
     for (unsigned int i = 0; i < found && i < count; i++) {
-        if (distances[i] > epsilon) break;
+        if (distances[i]/2 > epsilon) break;
         struct vsetNodeVal *nv = neighbors[i]->value;
         RedisModule_ReplyWithString(ctx, nv->item);
         arraylen++;

@@ -43,7 +43,7 @@ start_server {tags {"hash"}} {
         create_hash myhash $contents
         assert_encoding $type myhash
 
-        # coverage for objectComputeSize
+        # coverage for kvobjComputeSize
         assert_morethan [memory_usage myhash] 0
 
         test "HRANDFIELD - $type" {

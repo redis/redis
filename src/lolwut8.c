@@ -170,7 +170,9 @@ void lolwut8Command(client *c) {
         "\nIn 1961, Nanni Balestrini created one of the first computer-generated poems, TAPE MARK I, using an IBM 7090 mainframe. Each execution combined verses from three literary sources following algorithmic rules based on metrical compatibility and group constraints. This LOLWUT command reproduces Balestrini's original algorithm, generating new stanzas through the same computational poetry process described in Almanacco Letterario Bompiani, 1962.\n\n"
         "https://en.wikipedia.org/wiki/Digital_poetry\n"
         "https://www.youtube.com/watch?v=8i7uFCK7G0o (English subs)\n\n"
-        "Use: LOLWUT IT for the original Italian output.\n\n");
+        "Use: LOLWUT IT for the original Italian output. Redis ver. ");
+    combined = sdscat(combined,REDIS_VERSION);
+    combined = sdscatlen(combined,"\n",1);
 
     addReplyVerbatim(c,combined,sdslen(combined),"txt");
     sdsfree(combined);

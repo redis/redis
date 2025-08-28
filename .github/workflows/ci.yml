@@ -16,8 +16,6 @@ jobs:
       run: |
         sudo apt-get install tcl8.6 tclx
         ./runtest --verbose --tags -slow --dump-logs
-    - name: module api test
-      run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs
     - name: validate commands.def up to date
       run: |
         touch src/commands/ping.json
@@ -36,8 +34,6 @@ jobs:
         run: sudo apt-get install tcl8.6 tclx -y
       - name: test
         run: ./runtest --verbose --tags -slow --dump-logs
-      - name: module api test
-        run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs
 
   build-debian-old:
     runs-on: ubuntu-latest

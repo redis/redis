@@ -1218,14 +1218,14 @@ void srandmemberWithCountCommand(client *c) {
 
     /* CASE 3 & 4: send the result to the user. */
     {
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de;
 
         addReplyArrayLen(c,count);
-        di = dictGetIterator(d);
-        while((de = dictNext(di)) != NULL)
+        dictInitIterator(&di, d);
+        while((de = dictNext(&di)) != NULL)
             addReplyBulkSds(c,dictGetKey(de));
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         dictRelease(d);
     }
 }
