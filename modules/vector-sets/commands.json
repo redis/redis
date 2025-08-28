@@ -6,6 +6,13 @@
     "since": "8.0.0",
     "arity": -1,
     "function": "vaddCommand",
+    "command_flags": [
+      "WRITE",
+      "DENYOOM"
+    ],
+    "acl_categories": [
+      "VECTORSET"
+    ],
     "arguments": [
       {
         "name": "key",
@@ -92,13 +99,6 @@
         "type": "integer",
         "optional": true
       }
-    ],
-    "command_flags": [
-      "WRITE",
-      "DENYOOM"
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VREM": {
@@ -111,6 +111,9 @@
     "command_flags": [
       "WRITE"
     ],
+    "acl_categories": [
+      "VECTORSET"
+    ],
     "arguments": [
       {
         "name": "key",
@@ -121,9 +124,6 @@
         "type": "string",
         "multiple": true
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VSIM": {
@@ -135,6 +135,9 @@
     "function": "vsimCommand",
     "command_flags": [
       "READONLY"
+    ],
+    "acl_categories": [
+      "VECTORSET"
     ],
     "arguments": [
       {
@@ -214,9 +217,6 @@
         "type": "pure-token",
         "optional": true
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VDIM": {
@@ -230,14 +230,14 @@
       "READONLY",
       "FAST"
     ],
+    "acl_categories": [
+      "VECTORSET"
+    ],
     "arguments": [
       {
         "name": "key",
         "type": "key"
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VCARD": {
@@ -251,14 +251,14 @@
       "READONLY",
       "FAST"
     ],
+    "acl_categories": [
+      "VECTORSET"
+    ],
     "arguments": [
       {
         "name": "key",
         "type": "key"
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VEMB": {
@@ -270,6 +270,9 @@
     "function": "vembCommand",
     "command_flags": [
       "READONLY"
+    ],
+    "acl_categories": [
+      "VECTORSET"
     ],
     "arguments": [
       {
@@ -286,9 +289,6 @@
         "type": "pure-token",
         "optional": true
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VLINKS": {
@@ -300,6 +300,9 @@
     "function": "vlinksCommand",
     "command_flags": [
       "READONLY"
+    ],
+    "acl_categories": [
+      "VECTORSET"
     ],
     "arguments": [
       {
@@ -316,9 +319,6 @@
         "type": "pure-token",
         "optional": true
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VINFO": {
@@ -332,14 +332,14 @@
       "READONLY",
       "FAST"
     ],
+    "acl_categories": [
+      "VECTORSET"
+    ],
     "arguments": [
       {
         "name": "key",
         "type": "key"
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VSETATTR": {
@@ -351,6 +351,9 @@
     "function": "vsetattrCommand",
     "command_flags": [
       "WRITE"
+    ],
+    "acl_categories": [
+      "VECTORSET"
     ],
     "arguments": [
       {
@@ -365,9 +368,6 @@
         "name": "json",
         "type": "string"
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VGETATTR": {
@@ -380,6 +380,9 @@
     "command_flags": [
       "READONLY"
     ],
+    "acl_categories": [
+      "VECTORSET"
+    ],
     "arguments": [
       {
         "name": "key",
@@ -389,9 +392,6 @@
         "name": "element",
         "type": "string"
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   },
   "VRANDMEMBER": {
@@ -404,6 +404,9 @@
     "command_flags": [
       "READONLY"
     ],
+    "acl_categories": [
+      "VECTORSET"
+    ],
     "arguments": [
       {
         "name": "key",
@@ -414,9 +417,6 @@
         "type": "integer",
         "optional": true
       }
-    ],
-    "acl_categories": [
-      "VECTORSET"
     ]
   }
 }
