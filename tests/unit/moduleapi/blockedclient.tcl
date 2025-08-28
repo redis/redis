@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/blockedclient.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {Locked GIL acquisition} {
@@ -261,7 +261,7 @@ foreach call_type {nested normal} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+    start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
         set replica [srv 0 client]
         set replica_host [srv 0 host]
         set replica_port [srv 0 port]

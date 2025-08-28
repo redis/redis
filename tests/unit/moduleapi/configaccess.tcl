@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/configaccess.so]
 set othermodule [file normalize tests/modules/moduleconfigs.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
     r module loadex $othermodule CONFIG moduleconfigs.mutable_bool yes
 

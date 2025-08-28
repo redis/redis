@@ -4,7 +4,7 @@ proc latency_percentiles_usec {cmd} {
     return [latencyrstat_percentiles $cmd r]
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test { blocked clients time tracking - check blocked command that uses RedisModule_BlockedClientMeasureTimeStart() is tracking background time} {
