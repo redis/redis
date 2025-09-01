@@ -433,6 +433,7 @@ void activeDefragSdsDict(dict* d, int val_type) {
         .defragVal = (val_type == DEFRAG_SDS_DICT_VAL_IS_SDS ? (dictDefragAllocFunction *)activeDefragSds :
                       val_type == DEFRAG_SDS_DICT_VAL_IS_STROB ? (dictDefragAllocFunction *)activeDefragStringOb :
                       val_type == DEFRAG_SDS_DICT_VAL_VOID_PTR ? (dictDefragAllocFunction *)activeDefragAlloc :
+                      val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
                       NULL)
     };
     do {
@@ -1322,39 +1323,10 @@ static doneStatus defragStagePubsubKvstore(void *ctx, monotime endtime) {
         defragPubsubScanCallback, NULL, &defragfns);
 }
 
-/* Defragmentation callback for Lua scripts dictionary. */
-void activeDefragScriptsDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
-    UNUSED(plink);
-    dict *d = privdata;
-    sds newkey, key = dictGetKey(de);  /* Get the script SHA key (sds string) */
-    luaScript *l = dictGetVal(de);   /* Get the luaScript structure */
-
-    if ((newkey = activeDefragSds(key))) {
-        dictSetKey(d, (dictEntry *)de, newkey);
-
-        /* Update the LRU list node value to point to the new key.
-         * The LRU list stores SHA strings as node values, so we need to
-         * update the reference when the key is reallocated during defragmentation. */
-        if (l->node)
-            l->node->value = newkey;
-    }
-}
-
 static doneStatus defragLuaScripts(void *ctx, monotime endtime) {
     UNUSED(endtime);
     UNUSED(ctx);
-
-    unsigned long cursor = 0;
-    dictDefragFunctions defragfns = {
-        .defragAlloc = activeDefragAlloc,
-        .defragKey = NULL, /* Defrag key in activeDefragScriptsDictCallback() */
-        .defragVal = (dictDefragAllocFunction *)activeDefragLuaScript,
-    };
-    do {
-        cursor = dictScanDefrag(evalScriptsDict(), cursor, activeDefragScriptsDictCallback,
-                                &defragfns, evalScriptsDict());
-    } while (cursor != 0);
-
+    activeDefragSdsDict(evalScriptsDict(), DEFRAG_SDS_DICT_VAL_LUA_SCRIPT);
     return DEFRAG_DONE;
 }
 

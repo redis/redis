@@ -601,8 +601,6 @@ void evalGenericCommand(client *c, int evalsha) {
     if (!de)
         de = dictFind(lctx.lua_scripts, lua_cur_script);
     luaScript *l = dictGetVal(de);
-    listNode *ln = l->node; /* Save node pointer before Lua script execution,
-                             * as long-running scripts may trigger defrag. */
     int ro = c->cmd->proc == evalRoCommand || c->cmd->proc == evalShaRoCommand;
 
     scriptRunCtx rctx;
@@ -618,11 +616,11 @@ void evalGenericCommand(client *c, int evalsha) {
     scriptResetRun(&rctx);
     luaGC(lua, &gc_count);
 
-    if (ln) {
+    if (l->node) {
         /* Quick removal and re-insertion after the script is called to
          * maintain the LRU list. */
-        listUnlinkNode(lctx.lua_scripts_lru_list, ln);
-        listLinkNodeTail(lctx.lua_scripts_lru_list, ln);
+        listUnlinkNode(lctx.lua_scripts_lru_list, l->node);
+        listLinkNodeTail(lctx.lua_scripts_lru_list, l->node);
     }
 }
 
