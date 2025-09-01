@@ -410,6 +410,17 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de, dictEntryL
     UNUSED(de);
 }
 
+void activeDefragLuaScriptDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    UNUSED(privdata);
+
+    /* If this luaScript is in the LRU list, unconditionally update the node's
+     * value pointer to the current dict key (regardless of reallocation). */
+    luaScript *script = dictGetVal(de);
+    if (script->node)
+        script->node->value = dictGetKey(de);
+}
+
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     dict *d = privdata;
@@ -436,8 +447,10 @@ void activeDefragSdsDict(dict* d, int val_type) {
                       val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
                       NULL)
     };
+    dictScanFunction *fn = (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ?
+        activeDefragLuaScriptDictCallback : activeDefragSdsDictCallback);
     do {
-        cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
+        cursor = dictScanDefrag(d, cursor, fn,
                                 &defragfns, NULL);
     } while (cursor != 0);
 }

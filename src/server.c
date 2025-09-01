@@ -1729,7 +1729,8 @@ void whileBlockedCron(void) {
     mstime_t latency;
     latencyStartMonitor(latency);
 
-    defragWhileBlocked();
+    /* Only defragment during AOF loading. */
+    if (isAOFLoadingContext()) defragWhileBlocked();
 
     /* Update memory stats during loading (excluding blocked scripts) */
     if (server.loading) cronUpdateMemoryStats();
