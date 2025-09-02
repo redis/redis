@@ -2691,7 +2691,7 @@ void commandProcessed(client *c) {
             c->repl_applied += applied;
 
             /* Update the atomic slot migration task's applied bytes. */
-            if (c->flags & CLIENT_ASM_MIGRATING)
+            if (c->flags & CLIENT_ASM_IMPORTING)
                 asmImportIncrAppliedBytes(c->task, applied);
         }
     }

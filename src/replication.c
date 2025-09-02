@@ -795,12 +795,12 @@ int replicationSetupSlaveForFullResync(client *slave, long long offset) {
      * a SELECT statement in the replication stream. */
     server.slaveseldb = -1;
 
-    /* Slot range snapshot. */
+    /* Slots snapshot. */
     if (slave->flags & CLIENT_REPL_RDB_CHANNEL &&
         slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
     {
-        /* Start to deliver the commands stream on exporting slots. */
-        asmStartSendBulkAndStream(slave->task);
+        /* Start to deliver the commands stream on migrating slots. */
+        asmSlotSnapshotAndStreamStart(slave->task);
 
         buflen = snprintf(buf, sizeof(buf), "+SLOTSSNAPSHOT\r\n");
         if (connWrite(slave->conn, buf, buflen) != buflen) {
@@ -1803,14 +1803,21 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
         if (slave->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) {
             /* This is the main channel of the slave that received the RDB.
              * Put it online if RDB delivery is successful. */
-            if (bgsaveerr == C_OK)
+            if (bgsaveerr == C_OK) {
+                /* Notify the task that the snapshot bulk delivery is done */
+                if (slave->flags & CLIENT_ASM_MIGRATING)
+                    asmSlotSnapshotSucceed(slave->task);
                 replicaPutOnline(slave);
-            else
+            } else {
                 freeClientAsync(slave);
+            }
         } else if (slave->replstate == SLAVE_STATE_WAIT_BGSAVE_END) {
             struct redis_stat buf;
 
             if (bgsaveerr != C_OK) {
+                /* Notify the task that the snapshot bulk delivery failed */
+                if (slave->flags & CLIENT_ASM_MIGRATING)
+                    asmSlotSnapshotFailed(slave->task);
                 freeClientAsync(slave);
                 serverLog(LL_WARNING,"SYNC failed. BGSAVE child returned an error");
                 continue;
@@ -3893,6 +3900,7 @@ int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx) {
             size_t bytes = min(PROTO_IOBUF_LEN, o->used - processed);
             c->querybuf = sdscatlen(c->querybuf, &o->buf[processed], bytes);
             c->read_reploff += (long long int) bytes;
+            c->lastinteraction = server.unixtime;
 
             /* We don't expect error return value but just in case. */
             ret = processInputBuffer(c);

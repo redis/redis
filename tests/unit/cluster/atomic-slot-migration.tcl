@@ -133,9 +133,9 @@ proc migration_status {node_id task_id field} {
     return $field_value
 }
 
-# Setup slot migration test with keys and 2s delay, then start migration
+# Setup slot migration test with keys and delay, then start migration
 # Returns the task_id for the migration
-proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot} {
+proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {delay 1000000}} {
     # Two keys on the start slot
     set key1 [slot_key $start_slot key1]
     set key2 [slot_key $start_slot key2]
@@ -143,8 +143,8 @@ proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot} {
     R $src_node set $key2 "b"
 
     # we set a delay to ensure migration takes time for testing,
-    # two keys cost 2s to save
-    R $src_node config set rdb-key-save-delay 1000000
+    # two keys cost 2s to save by default.
+    R $src_node config set rdb-key-save-delay $delay
 
     # migrate slot range from src_node to dst_node
     set task_id [R $dst_node CLUSTER MIGRATION IMPORT $start_slot $end_slot]
@@ -361,9 +361,15 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
 
             # For states that need incremental data streaming, set a longer delay
-            set streaming_states [list "streaming-buffer" "accumulate-buffer" "send-bulk-and-stream"]
+            set streaming_states [list "streaming-buffer" "accumulate-buffer" "send-bulk-and-stream" "send-stream"]
             if {$state in $streaming_states} {
                 R 1 config set rdb-key-save-delay 1000000
+            }
+
+            # Let the destination node take time to stream buffer, so the source node will handle
+            # slot snapshot child process exit, and then enter "send-stream" state.
+            if {$state == "send-stream"} {
+                R 0 config set key-load-delay 100000
             }
 
             # Start the slot 0 write load on the R 1
@@ -394,6 +400,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                       expected: $channel $state)"
             }
             R 1 config set rdb-key-save-delay 0
+            R 0 config set key-load-delay 0
             stop_write_load $load_handle
 
             # Cancel the task
@@ -429,6 +436,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set all_states [list \
             "wait-rdbchannel" \
             "send-bulk-and-stream" \
+            "send-stream" \
             "handoff" \
         ]
         asm_basic_error_handling_test "migrate" "main" $all_states
@@ -506,7 +514,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # After some time, the client output buffer limit should be reached
         wait_for_log_messages 0 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10
-        assert_match {*send-bulk-and-stream*} [migration_status 0 $task_id last_error]
+        assert_match {*send*stream*} [migration_status 0 $task_id last_error]
 
         stop_write_load $load_handle
 
@@ -896,7 +904,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_cluster_propagation
         wait_for_cluster_state "ok"
     }
-    test "Cancel import task when stream buffer into db" {
+
+    test "Cancel import task when streaming buffer into db" {
         # set a delay to have time to cancel import task that is streaming buf to db
         R 1 config set key-load-delay 50000
         # start slot migration from 0 to 1
@@ -914,12 +923,151 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
         stop_write_load $load_handle
 
-        # cancel the import task on #1
+        # cancel the import task on #1, the destination node works fine
         R 1 cluster migration cancel id $task_id
         assert_match {*canceled*} [migration_status 1 $task_id state]
-        assert_match {*failed*} [migration_status 0 $task_id state]
 
         # reset config
         R 1 config set key-load-delay 0
+    }
+
+    test "Destination node main channel timeout when waiting stream EOF" {
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+        R 1 config set repl-timeout 5
+
+        # pause the source node to make EOF wait timeout. Do not pause
+        # the child process, so it can deliver slot snapshot to destination
+        set r0_process_id [getInfoProperty [R 0 info] process_id]
+        pause_process $r0_process_id
+
+        # the destination node will fail after 7s, 5s for EOF wait and 2s for slot snapshot
+        wait_for_condition 1000 20 {
+            [string match {*failed*} [migration_status 1 $task_id state]] &&
+            [string match {*Main channel*Connection timeout*wait-stream-eof*} \
+                [migration_status 1 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+
+        # resume the source node
+        resume_process $r0_process_id
+
+        # After the source node is resumed, the task on source node may receive
+        # ACKs from destination and consider the task is stream-done. In this case,
+        # the task on source node will be failed after several seconds
+        if {[string match {*stream-done*} [migration_status 0 $task_id state]]} {
+            wait_for_condition 1000 20 {
+                [string match {*failed*} [migration_status 0 $task_id state]] &&
+                [string match {*Server paused*} [migration_status 0 $task_id last_error]]
+            } else {
+                fail "ASM task did not fail"
+            }
+        }
+
+        R 1 config set repl-timeout 60
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
+    }
+
+    test "Destination node rdb channel timeout when transferring slots snapshot" {
+        # cost 10s to transfer each key
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000000]
+        R 1 config set repl-timeout 3
+
+        # the destination node will fail after 3s
+        wait_for_condition 1000 20 {
+            [string match {*failed*} [migration_status 1 $task_id state]] &&
+            [string match {*RDB channel*Connection timeout*rdbchannel-transfer*} \
+                [migration_status 1 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+
+        R 1 config set repl-timeout 60
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
+    }
+
+    test "Source node rdb channel timeout when transferring slots snapshot" {
+        set r1_pid [getInfoProperty [R 1 info] process_id]
+        R 0 flushall
+        R 0 config set save ""
+        # generate several large keys, make sure the memory usage is more than
+        # socket buffer size, so the rdb channel will block and timeout if
+        # no data is received by destination.
+        set val [string repeat "a" 102400] ;# 100kb
+        for {set i 0} {$i < 1000} {incr i} {
+            set key [slot_key 0 "key$i"]
+            R 0 set $key $val
+        }
+        R 0 config set repl-timeout 3 ;# 3s for rdb channel timeout
+        R 0 config set rdb-key-save-delay 10000 ;# 1000 keys cost 10s to save
+
+        # start migration from #0 to #1
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+        wait_for_condition 1000 20 {
+            [string match {*send-bulk-and-stream*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not start"
+        }
+
+        # pause the destination node to make rdb channel timeout
+        pause_process $r1_pid
+
+        # the source node will fail, the rdb child process can not
+        # write data to destination, so it will timeout
+        wait_for_condition 1000 30 {
+            [string match {*failed*} [migration_status 0 $task_id state]] &&
+            [string match {*RDB channel*Failed to send slots snapshot*} \
+                [migration_status 0 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+        resume_process $r1_pid
+
+        R 0 config set repl-timeout 60
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
+    }
+
+    test "Source node main channel timeout when sending incremental stream" {
+        R 0 flushall
+        R 0 config set repl-timeout 3   ;# 3s for main channel timeout
+
+        set r1_pid [getInfoProperty [R 1 info] process_id]
+        # in order to have time to pause the destination node
+        R 1 config set key-load-delay 100000
+
+        # start migration from #0 to #1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+
+        # Start the slot 0 write load on the R 0
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 1000 [slot_key 0 mykey]]
+
+        # wait for streaming buffer state, then pause the destination node
+        wait_for_condition 1000 20 {
+            [string match {*streaming-buffer*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not stream buffer"
+        }
+        pause_process $r1_pid
+
+        # the source node will fail after several seconds (including the time
+        # to fill the socket buffer of source node), the main channel can not
+        # write data to destination since the destination is paused
+        wait_for_condition 1000 30 {
+            [string match {*failed*} [migration_status 0 $task_id state]] &&
+            [string match {*Main channel*Connection timeout*} \
+                [migration_status 0 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+        stop_write_load $load_handle
+        resume_process $r1_pid
+
+        R 0 config set repl-timeout 60
+        R 1 config set key-load-delay 0
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
     }
 }
