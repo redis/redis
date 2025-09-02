@@ -3446,8 +3446,6 @@ int restartServer(int flags, mstime_t delay);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 
-#define GETSLOT_NOKEYS     (-1)
-#define GETSLOT_CROSSSLOT  (-2)
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc);
 
 /* kvstore wrappers */

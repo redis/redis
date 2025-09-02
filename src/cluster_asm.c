@@ -587,7 +587,7 @@ void asmFeedMigrationClient(robj **argv, int argc) {
     int slot = getSlotFromCommand(cmd, argv, argc);
     /* If the command does not have keys, or has crossslot keys, skip it.
      * TODO: revisit this to see if we are okay with this. */
-    if (slot == GETSLOT_NOKEYS || slot == GETSLOT_CROSSSLOT) return;
+    if (slot == -1) return;
 
     /* Check if the slot belongs to the task's slot range. */
     slotRange sr = {slot, slot};
