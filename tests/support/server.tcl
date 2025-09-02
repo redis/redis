@@ -558,6 +558,10 @@ proc start_server {options {code undefined}} {
         dict set config "client-default-resp" "3"
     }
 
+    if {$::debug_defrag} {
+        dict set config "activedefrag" "yes"
+    }
+
     # write new configuration to temporary file
     set config_file [tmpfile redis.conf]
     create_server_config_file $config_file $config $config_lines

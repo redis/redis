@@ -140,6 +140,11 @@ endif
 # Override default settings if possible
 -include .make-settings
 
+# Special case of forcing defrag to run even though we have no Jemlloc support
+ifeq ($(DEBUG_FORCE_DEFRAG), yes)
+	CFLAGS +=-DDEBUG_FORCE_DEFRAG
+endif
+
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(OPT) $(REDIS_LDFLAGS) $(DEBUG)
 FINAL_LIBS=-lm -lstdc++

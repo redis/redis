@@ -239,7 +239,7 @@ void zfree_with_flags(void *ptr, int flags) {
 /* Allocation and free functions that bypass the thread cache
  * and go straight to the allocator arena bins.
  * Currently implemented only for jemalloc. Used for online defragmentation. */
-#ifdef HAVE_DEFRAG
+#if (defined(USE_JEMALLOC) && defined(HAVE_DEFRAG))
 void *zmalloc_no_tcache(size_t size) {
     if (size >= SIZE_MAX/2) zmalloc_oom_handler(size);
     void *ptr = mallocx(size+PREFIX_SIZE, MALLOCX_TCACHE_NONE);
