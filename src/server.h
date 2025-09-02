@@ -3465,6 +3465,7 @@ typedef struct listpackEx {
 /* Each dict of hash object that has fields with time-Expiration will have the
  * following metadata attached to dict header */
 typedef struct dictExpireMetadata {
+    size_t alloc_size;       /* Total memory used for keys and values */
     ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
                                 To be used in order to register the hash in the
                                 subexpires DB with next minimum hash-field to expire.
@@ -3507,7 +3508,7 @@ void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, char **str,
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
                            unsigned int *vlen, long long *vll, uint64_t *expireTime);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi);
+hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi, size_t *usable);
 int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
 int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
@@ -3524,12 +3525,12 @@ void listpackExAddNew(robj *o, char *field, size_t flen,
                       char *value, size_t vlen, uint64_t expireAt);
 
 /* Hash-Field data type (of t_hash.c) */
-hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
-hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta);
+hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta, size_t *usable);
+hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta, size_t *usable);
 int hfieldIsExpireAttached(hfield field);
 int hfieldIsExpired(hfield field);
 uint64_t hfieldGetExpireTime(hfield field);
-static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }
+static inline void hfieldFree(hfield field, size_t *usable) { mstrFree(&mstrFieldKind, field, usable); }
 static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
 static inline size_t hfieldlen(hfield field) { return mstrlen(field);}
 
@@ -3879,6 +3880,10 @@ int dictSdsKeyCaseCompare(dictCmpCache *cache, const void *key1, const void *key
 void dictSdsDestructor(dict *d, void *val);
 void dictListDestructor(dict *d, void *val);
 void *dictSdsDup(dict *d, const void *key);
+
+/* Keys destructor for sets accounting allocated memory in dict's metadata. */
+void setSdsDestructor(dict *d, void *val);
+size_t setDictMetadataBytes(dict *d);
 
 /* Git SHA1 */
 char *redisGitSHA1(void);

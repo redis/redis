@@ -25,7 +25,7 @@ static inline size_t mstrAllocLen(const mstr s, struct mstrKind *kind);
  * - If initStr equals NULL, then only allocation will be made.
  * - string of mstr is always null-terminated.
  */
-mstr mstrNew(const char *initStr, size_t lenStr, int trymalloc) {
+mstr mstrNew(const char *initStr, size_t lenStr, int trymalloc, size_t *usable) {
     unsigned char *pInfo; /* pointer to mstr info field */
     void *sh;
     mstr s;
@@ -35,7 +35,7 @@ mstr mstrNew(const char *initStr, size_t lenStr, int trymalloc) {
     assert(lenStr + mstrHdr + 1 > lenStr); /* Catch size_t overflow */
 
     size_t len = mstrHdr + lenStr + NULL_SIZE;
-    sh = trymalloc? s_trymalloc(len) : s_malloc(len);
+    sh = trymalloc? s_trymalloc_usable(len, usable) : s_malloc_usable(len, usable);
 
     if (sh == NULL) return NULL;
 
@@ -76,11 +76,11 @@ mstr mstrNew(const char *initStr, size_t lenStr, int trymalloc) {
 
 /* Creates mstr with given string. Reserve space for metadata.
  *
- * Note: mstrNew(s,l) and mstrNewWithMeta(s,l,0) are not the same. The first allocates
+ * Note: mstrNew(s,l,u) and mstrNewWithMeta(s,l,0,u) are not the same. The first allocates
  * just string. The second allocates a string with flags (yet without any metadata
  * structures allocated).
  */
-mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, mstrFlags metaFlags, int trymalloc) {
+mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, mstrFlags metaFlags, int trymalloc, size_t *usable) {
     unsigned char *pInfo; /* pointer to mstr info field */
     char *allocMstr;
     mstr mstrPtr;
@@ -92,7 +92,7 @@ mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, 
     /* mstrSumMetaLen() + sizeof(mstrFlags) + sizeof(mstrhdrX) + lenStr  */
 
     size_t allocLen = sumMetaLen + sizeof(mstrFlags) + mstrHdr + lenStr + NULL_SIZE;
-    allocMstr = trymalloc? s_trymalloc(allocLen) : s_malloc(allocLen);
+    allocMstr = trymalloc? s_trymalloc_usable(allocLen, usable) : s_malloc_usable(allocLen, usable);
 
     if (allocMstr == NULL) return NULL;
 
@@ -134,13 +134,13 @@ mstr mstrNewWithMeta(struct mstrKind *kind, const char *initStr, size_t lenStr, 
 
 /* Create copy of mstr. Flags can be modified. For each metadata flag, if
  * same flag is set on both, then copy its metadata. */
-mstr mstrNewCopy(struct mstrKind *kind, mstr src, mstrFlags newFlags) {
+mstr mstrNewCopy(struct mstrKind *kind, mstr src, mstrFlags newFlags, size_t *usable) {
     mstr dst;
 
     /* if no flags are set, then just copy the string */
-    if (newFlags == 0) return mstrNew(src, mstrlen(src), 0);
+    if (newFlags == 0) return mstrNew(src, mstrlen(src), 0, usable);
 
-    dst = mstrNewWithMeta(kind, src, mstrlen(src), newFlags, 0);
+    dst = mstrNewWithMeta(kind, src, mstrlen(src), newFlags, 0, usable);
     memcpy(dst, src, mstrlen(src) + 1);
 
     /* if metadata is attached to src, then selectively copy metadata */
@@ -174,9 +174,11 @@ mstr mstrNewCopy(struct mstrKind *kind, mstr src, mstrFlags newFlags) {
 /* Free mstring. Note, mstrKind is required to eval sizeof metadata and find start
  * of allocation but if mstrIsMetaAttached(s) is false, you can pass NULL as well.
  */
-void mstrFree(struct mstrKind *kind, mstr s) {
+void mstrFree(struct mstrKind *kind, mstr s, size_t *usable) {
+    size_t oldsize = 0;
     if (s != NULL)
-        s_free(mstrGetAllocPtr(kind, s));
+        s_free_usable(mstrGetAllocPtr(kind, s), &oldsize);
+    if (usable != NULL) *usable = oldsize;
 }
 
 /* return ref to metadata flags. Useful to modify directly flags which doesn't
@@ -408,26 +410,26 @@ int mstrTest(int argc, char **argv, int flags) {
     TEST_CONTEXT("Create simple short mstr")
     {
         char *str = "foo";
-        mstr s = mstrNew(str, strlen(str), 0);
+        mstr s = mstrNew(str, strlen(str), 0, NULL);
         size_t expStrLen = strlen(str);
 
         test_cond("Verify str length and alloc length",
                   mstrAllocLen(s, NULL) == (1 + expStrLen + 1) &&   /* mstrhdr5 + str + null */
                   mstrlen(s) == expStrLen &&                             /* expected strlen(str) */
                   memcmp(s, str, expStrLen + 1) == 0);
-        mstrFree(&kind_mymstr, s);
+        mstrFree(&kind_mymstr, s, NULL);
     }
 
     TEST_CONTEXT("Create simple 40 bytes mstr")
     {
         char *str = "0123456789012345678901234567890123456789"; // 40 bytes
-        mstr s = mstrNew(str, strlen(str), 0);
+        mstr s = mstrNew(str, strlen(str), 0, NULL);
 
         test_cond("Verify str length and alloc length",
                   mstrAllocLen(s, NULL) == (3 + 40 + 1) &&   /* mstrhdr8 + str + null */
                   mstrlen(s) == 40 &&
                   memcmp(s,str,40) == 0);
-        mstrFree(&kind_mymstr, s);
+        mstrFree(&kind_mymstr, s, NULL);
     }
 
     TEST_CONTEXT("Create mstr with random characters")
@@ -439,7 +441,7 @@ int mstrTest(int argc, char **argv, int flags) {
         size_t len[] = { 31, 32, 33, 255, 256, 257, 65535, 65536, 65537, 66000};
         for (i = 0 ; i < sizeof(len) / sizeof(len[0]) ; ++i) {
             char title[100];
-            mstr s = mstrNew(str, len[i], 0);
+            mstr s = mstrNew(str, len[i], 0, NULL);
             size_t mstrhdrSize = (len[i] < 1<<5) ? sizeof(struct mstrhdr5) :
                             (len[i] < 1<<8) ? sizeof(struct mstrhdr8) :
                             (len[i] < 1<<16) ? sizeof(struct mstrhdr16) :
@@ -450,7 +452,7 @@ int mstrTest(int argc, char **argv, int flags) {
                       mstrAllocLen(s, NULL) == (mstrhdrSize + len[i] + 1) &&   /* mstrhdrX + str + null */
                       mstrlen(s) == len[i] &&
                       memcmp(s,str,len[i]) == 0);
-            mstrFree(&kind_mymstr, s);
+            mstrFree(&kind_mymstr, s, NULL);
         }
     }
 
@@ -461,7 +463,8 @@ int mstrTest(int argc, char **argv, int flags) {
                                  "foo",
                                  strlen("foo"),
                                  B(META_IDX_MYMSTR_TTL4), /* allocate with TTL4 metadata */
-                                 0);
+                                 0,
+                                 NULL);
 
         ttl = mstrMetaRef(s, &kind_mymstr, META_IDX_MYMSTR_TTL4);
         *ttl = 0x12345678;
@@ -478,26 +481,26 @@ int mstrTest(int argc, char **argv, int flags) {
 
         test_cond("Verify mstrIsMetaAttached() function works", mstrIsMetaAttached(s) != 0);
 
-        mstrFree(&kind_mymstr, s);
+        mstrFree(&kind_mymstr, s, NULL);
     }
 
     TEST_CONTEXT("Create short mstr with TTL4 and value ptr ")
     {
         mstr s = mstrNewWithMeta(&kind_mymstr, "foo", strlen("foo"),
-                                 B(META_IDX_MYMSTR_TTL4) | B(META_IDX_MYMSTR_VALUE_PTR), 0);
+                                 B(META_IDX_MYMSTR_TTL4) | B(META_IDX_MYMSTR_VALUE_PTR), 0, NULL);
         *((uint32_t *) (mstrMetaRef(s, &kind_mymstr,
                                     META_IDX_MYMSTR_TTL4))) = 0x12345678;
 
         test_cond("Verify length and alloc length",
                   mstrAllocLen(s, &kind_mymstr) == (1 + 3 + 1 + 2 + 4 + 8) && /* mstrhdr5 + str + null + mstrFlags + TLL + PTR */
                   mstrlen(s) == 3);
-        mstrFree(&kind_mymstr, s);
+        mstrFree(&kind_mymstr, s, NULL);
     }
 
     TEST_CONTEXT("Copy mstr and add it TTL4")
     {
-        mstr s1 = mstrNew("foo", strlen("foo"), 0);
-        mstr s2 = mstrNewCopy(&kind_mymstr, s1, B(META_IDX_MYMSTR_TTL4));
+        mstr s1 = mstrNew("foo", strlen("foo"), 0, NULL);
+        mstr s2 = mstrNewCopy(&kind_mymstr, s1, B(META_IDX_MYMSTR_TTL4), NULL);
         *((uint32_t *) (mstrMetaRef(s2, &kind_mymstr, META_IDX_MYMSTR_TTL4))) = 0x12345678;
 
         test_cond("Verify new mstr includes TTL4",
@@ -505,7 +508,7 @@ int mstrTest(int argc, char **argv, int flags) {
                   mstrlen(s2) == 3 &&                   /* 'foo' = 3bytes */
                   memcmp(s2, "foo\0", 4) == 0);
 
-        mstr s3 = mstrNewCopy(&kind_mymstr, s2, B(META_IDX_MYMSTR_TTL4));
+        mstr s3 = mstrNewCopy(&kind_mymstr, s2, B(META_IDX_MYMSTR_TTL4), NULL);
         unsigned char expMem[] = { 0xFF, 0xFF, 0xFF, 0xFF, 0x1, 0x0, 0x1c, 'f', 'o', 'o', '\0' };
         uint32_t value = 0x12345678;
         memcpy(expMem, &value, sizeof(uint32_t));
@@ -515,9 +518,9 @@ int mstrTest(int argc, char **argv, int flags) {
                   memcmp(ppp, expMem, sizeof(expMem)) == 0);
 
         mstrPrint(s3, &kind_mymstr, 1);
-        mstrFree(&kind_mymstr, s1);
-        mstrFree(&kind_mymstr, s2);
-        mstrFree(&kind_mymstr, s3);
+        mstrFree(&kind_mymstr, s1, NULL);
+        mstrFree(&kind_mymstr, s2, NULL);
+        mstrFree(&kind_mymstr, s3, NULL);
     }
 
     return 0;

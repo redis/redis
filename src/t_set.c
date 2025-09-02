@@ -132,6 +132,8 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             /* Key doesn't already exist in the set. Add it but dup the key. */
             if (sdsval == str) sdsval = sdsdup(sdsval);
             dictSetKeyAtLink(ht, sdsval, &bucket, 1);
+            size_t *alloc_size = (size_t *)dictMetadata(ht);
+            *alloc_size += sdsAllocSize(sdsval);
             return 1;
         } else if (sdsval != str) {
             /* String is already a member. Free our temporary sds copy. */
@@ -160,7 +162,10 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             } else {
                 /* Size limit is reached. Convert to hashtable and add. */
                 setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
-                serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
+                sds newval = sdsnewlen(str,len);
+                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
+                size_t *alloc_size = (size_t *)dictMetadata((dict *)set->ptr);
+                *alloc_size += sdsAllocSize(newval);
             }
             return 1;
         }
@@ -204,7 +209,10 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                                         intsetLen(set->ptr) + 1, 1);
                 /* The set *was* an intset and this value is not integer
                  * encodable, so dictAdd should always work. */
-                serverAssert(dictAdd(set->ptr,sdsnewlen(str,len),NULL) == DICT_OK);
+                sds newval = sdsnewlen(str,len);
+                serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
+                size_t *alloc_size = (size_t *)dictMetadata((dict *)set->ptr);
+                *alloc_size += sdsAllocSize(newval);
                 return 1;
             }
         }
@@ -503,9 +511,11 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         }
 
         /* To add the elements we extract integers and create redis objects */
+        size_t *alloc_size = (size_t *)dictMetadata(d);
         si = setTypeInitIterator(setobj);
         while ((element = setTypeNextObject(si)) != NULL) {
             serverAssert(dictAdd(d,element,NULL) == DICT_OK);
+            *alloc_size += sdsAllocSize(element);
         }
         setTypeReleaseIterator(si);
 

@@ -400,6 +400,17 @@ void dictSdsDestructor(dict *d, void *val)
     sdsfree(val);
 }
 
+void setSdsDestructor(dict *d, void *val) {
+    size_t usable, *alloc_size = (size_t *)dictMetadata(d);
+    sdsfreeusable(val, &usable);
+    *alloc_size -= usable;
+}
+
+size_t setDictMetadataBytes(dict *d) {
+    UNUSED(d);
+    return sizeof(size_t);
+}
+
 void *dictSdsDup(dict *d, const void *key) {
     UNUSED(d);
     return sdsdup((const sds) key);
@@ -551,11 +562,12 @@ dictType setDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
-    dictSdsDestructor,         /* key destructor */
+    setSdsDestructor,          /* key destructor */
     NULL,                      /* val destructor */
     NULL,                      /* allow to expand */
     .no_value = 1,             /* no values in this dict */
-    .keys_are_odd = 1          /* an SDS string is always an odd pointer */
+    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
+    .dictMetadataBytes = setDictMetadataBytes,
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */

@@ -204,8 +204,9 @@ dict *dictCreate(dictType *type)
 void dictTypeAddMeta(dict **d, dictType *typeWithMeta) {
     /* Verify new dictType is compatible with the old one */
     dictType toCmp = *typeWithMeta;
-    toCmp.dictMetadataBytes = NULL;                            /* Expected old one not to have metadata */
-    toCmp.onDictRelease = (*d)->type->onDictRelease;           /* Ignore 'onDictRelease' in comparison */
+    /* Ignore 'dictMetadataBytes' and 'onDictRelease' in comparison */
+    toCmp.dictMetadataBytes = (*d)->type->dictMetadataBytes;
+    toCmp.onDictRelease = (*d)->type->onDictRelease;
     assert(memcmp((*d)->type, &toCmp, sizeof(dictType)) == 0); /* The rest of the dictType fields must be the same */
 
     *d = zrealloc(*d, sizeof(dict) + typeWithMeta->dictMetadataBytes(*d));

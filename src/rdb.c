@@ -311,7 +311,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         } else if (sdsFlag) {
             p = sdsnewlen(SDS_NOINIT,len);
         } else { /* hfldFlag */
-            p = hfieldNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1);
+            p = hfieldNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1, NULL);
         }
         memcpy(p,buf,len);
         return p;
@@ -403,7 +403,7 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
     } else if (sdsFlag || robjFlag) {
         val = sdstrynewlen(SDS_NOINIT,len);
     } else { /* hfldFlag */
-        val = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1);
+        val = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1, NULL);
     }
 
     if (!val) {
@@ -430,7 +430,7 @@ err:
     } else if (sdsFlag || robjFlag) {
         sdsfree(val);
     } else { /* hfldFlag*/
-        hfieldFree(val);
+        hfieldFree(val, NULL);
     }
     return NULL;
 }
@@ -562,7 +562,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     } else if (sdsFlag) {
         buf = sdstrynewlen(SDS_NOINIT,len);
     }  else { /* hfldFlag */
-        buf = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1);
+        buf = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1, NULL);
     }
     if (!buf) {
         serverLog(isRestoreContext()? LL_VERBOSE: LL_WARNING, "rdbGenericLoadStringObject failed allocating %llu bytes", len);
@@ -576,7 +576,7 @@ void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
         else if (sdsFlag) {
             sdsfree(buf);
         } else { /* hfldFlag */
-            hfieldFree(buf);
+            hfieldFree(buf, NULL);
         }
         return NULL;
     }
@@ -2068,6 +2068,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     sdsfree(sdsele);
                     return NULL;
                 }
+                size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
+                *alloc_size += sdsAllocSize(sdsele);
             } else {
                 sdsfree(sdsele);
             }
@@ -2176,7 +2178,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-                hfieldFree(field);
+                hfieldFree(field, NULL);
                 decrRefCount(o);
                 if (dupSearchDict) dictRelease(dupSearchDict);
                 return NULL;
@@ -2190,7 +2192,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     dictRelease(dupSearchDict);
                     decrRefCount(o);
                     sdsfree(field_dup);
-                    hfieldFree(field);
+                    hfieldFree(field, NULL);
                     sdsfree(value);
                     return NULL;
                 }
@@ -2209,10 +2211,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     rdbReportCorruptRDB("Duplicate hash fields detected");
                     if (dupSearchDict) dictRelease(dupSearchDict);
                     sdsfree(value);
-                    hfieldFree(field);
+                    hfieldFree(field, NULL);
                     decrRefCount(o);
                     return NULL;
                 }
+                size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
+                *alloc_size += zmalloc_usable_size(mstrGetAllocPtr(&mstrFieldKind, field)) + sdsAllocSize(value);
                 break;
             }
 
@@ -2220,7 +2224,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             o->ptr = lpAppend(o->ptr, (unsigned char*)field, hfieldlen(field));
             o->ptr = lpAppend(o->ptr, (unsigned char*)value, sdslen(value));
 
-            hfieldFree(field);
+            hfieldFree(field, NULL);
             sdsfree(value);
         }
 
@@ -2248,7 +2252,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
             if ((value = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
-                hfieldFree(field);
+                hfieldFree(field, NULL);
                 decrRefCount(o);
                 return NULL;
             }
@@ -2261,10 +2265,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             if (ret == DICT_ERR) {
                 rdbReportCorruptRDB("Duplicate hash fields detected");
                 sdsfree(value);
-                hfieldFree(field);
+                hfieldFree(field, NULL);
                 decrRefCount(o);
                 return NULL;
             }
+            size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
+            *alloc_size += zmalloc_usable_size(mstrGetAllocPtr(&mstrFieldKind, field)) + sdsAllocSize(value);
         }
 
         /* All pairs should be read by now */
@@ -2361,7 +2367,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 serverLog(LL_WARNING, "failed reading hash value");
                 decrRefCount(o);
                 if (dupSearchDict != NULL) dictRelease(dupSearchDict);
-                hfieldFree(field);
+                hfieldFree(field, NULL);
                 return NULL;
             }
 
@@ -2377,7 +2383,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         decrRefCount(o);
                         sdsfree(field_dup);
                         sdsfree(value);
-                        hfieldFree(field);
+                        hfieldFree(field, NULL);
                         return NULL;
                     }
                 }
@@ -2396,7 +2402,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                             decrRefCount(o);
                             if (dupSearchDict != NULL) dictRelease(dupSearchDict);
                             sdsfree(value);
-                            hfieldFree(field);
+                            hfieldFree(field, NULL);
                             return NULL;
                         }
                     }
@@ -2405,7 +2411,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 } else {
                     listpackExAddNew(o, field, hfieldlen(field),
                                      value, sdslen(value), expireAt);
-                    hfieldFree(field);
+                    hfieldFree(field, NULL);
                     sdsfree(value);
                 }
             }
@@ -2426,10 +2432,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 if (ret == DICT_ERR) {
                     rdbReportCorruptRDB("Duplicate hash fields detected");
                     sdsfree(value);
-                    hfieldFree(field);
+                    hfieldFree(field, NULL);
                     decrRefCount(o);
                     return NULL;
                 }
+                size_t *alloc_size = (size_t *)dictMetadata(d);
+                *alloc_size += zmalloc_usable_size(mstrGetAllocPtr(&mstrFieldKind, field)) + sdsAllocSize(value);
             }
         }
 

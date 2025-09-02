@@ -1209,8 +1209,6 @@ size_t streamRadixTreeMemoryUsage(rax *rax) {
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
 size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     dict *d;
-    dictIterator di;
-    struct dictEntry *de;
     size_t elesize = 0, elecount = 0, samples = 0;
     
     /* All kv-objects has at least kvobj header and embedded key */
@@ -1245,15 +1243,8 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     } else if (o->type == OBJ_SET) {
         if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
-            dictInitIterator(&di, d);
-            asize += sizeof(dict) + (sizeof(struct dictEntry*) * dictBuckets(d));
-            while((de = dictNext(&di)) != NULL && samples < sample_size) {
-                sds ele = dictGetKey(de);
-                elesize += dictEntryMemUsage(0) + sdsZmallocSize(ele);
-                samples++;
-            }
-            dictResetIterator(&di);
-            if (samples) asize += (double)elesize/samples*dictSize(d);
+            size_t *alloc_size = (size_t *)dictMetadata(d);
+            asize += sizeof(dict) + dictMemUsage(d) + *alloc_size;
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             asize += zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -1280,17 +1271,8 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
             asize += zmalloc_size(lpt) + zmalloc_size(lpt->lp);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
-            dictInitIterator(&di, d);
-            asize += sizeof(dict) + (sizeof(struct dictEntry*) * dictBuckets(d));
-            while((de = dictNext(&di)) != NULL && samples < sample_size) {
-                hfield ele = dictGetKey(de);
-                sds ele2 = dictGetVal(de);
-                elesize += hfieldZmallocSize(ele) + sdsZmallocSize(ele2);
-                elesize += dictEntryMemUsage(0);
-                samples++;
-            }
-            dictResetIterator(&di);
-            if (samples) asize += (double)elesize/samples*dictSize(d);
+            size_t *alloc_size = (size_t *)dictMetadata(d);
+            asize += sizeof(dict) + dictMemUsage(d) + *alloc_size;
         } else {
             serverPanic("Unknown hash encoding");
         }
