@@ -501,8 +501,8 @@ void debugCommand(client *c) {
 "    Promote the current connection to an internal connection.",
 "ASM-FAILPOINT <channel> <state>",
 "    Set a fail point for the specified channel and state for cluster atomic slot migration.",
-"ASM-TRIM-METHOD <default|none> ",
-"    Disable trimming for cluster atomic slot migration.",
+"ASM-TRIM-METHOD <default|none|bg> ",
+"    Disable trimming or force a trimming method for cluster atomic slot migration.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());

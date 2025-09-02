@@ -1087,6 +1087,7 @@ void clusterReset(int hard) {
 
     /* Cancel all ASM tasks */
     clusterAsmCancel(NULL, "CLUSTER RESET");
+    asmCancelTrimJobs();
 
     /* Unassign all the slots. */
     for (j = 0; j < CLUSTER_SLOTS; j++) clusterDelSlot(j);
@@ -2428,9 +2429,17 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
     }
 
     /* Notify ASM about the config update */
+    struct asmTask *asm_task = NULL;
     if (sra && sra->num_ranges > 0 && server.masterhost == NULL) {
         sds err = NULL;
-        if (asmNotifyConfigUpdated(NULL, sra, &err) != C_OK) {
+        asm_task = asmLookupTaskBySlotRangeArray(sra);
+        if (!asm_task) {
+            /* If no task was found, it means the config update is not related
+             * to current ASM task, but this node learned about the config
+             * update from cluster protocol, and we need to cancel any
+             * conflicting tasks that overlap with the slot ranges. */
+            clusterAsmCancelBySlotRangeArray(sra, "slots configuration updated");
+        } else if (asmNotifyConfigUpdated(asm_task, &err) != C_OK) {
             serverLog(LL_WARNING, "ASM config update failed: %s", err);
             sdsfree(err);
         }
@@ -2477,7 +2486,7 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
                              CLUSTER_TODO_FSYNC_CONFIG);
-    } else if (dirty_slots_count && asmCanTrimSlots()) {
+    } else if (dirty_slots_count && !asm_task) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
          * we are serving some slots, so this master node was not demoted to
@@ -4259,6 +4268,9 @@ void clusterFailoverReplaceYourMaster(void) {
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
+
+    /* 6) Check if we have keys in slots that does not belong to this node. */
+    asmTrimSlotsIfNotOwned();
 }
 
 /* This function is called if we are a slave node and our master serving
@@ -5302,12 +5314,11 @@ void clusterSetMaster(clusterNode *n) {
     serverAssert(n != myself);
     serverAssert(myself->numslots == 0);
 
-    if (clusterNodeIsMaster(myself)) {
+    int was_master = clusterNodeIsMaster(myself);
+    if (was_master) {
         myself->flags &= ~(CLUSTER_NODE_MASTER|CLUSTER_NODE_MIGRATE_TO);
         myself->flags |= CLUSTER_NODE_SLAVE;
         clusterCloseAllSlots();
-        /* Cancel all ASM tasks when switching into slave */
-        clusterAsmCancel(NULL, "switching to replica");
     } else {
         if (myself->slaveof)
             clusterNodeRemoveSlave(myself->slaveof,myself);
@@ -5318,6 +5329,9 @@ void clusterSetMaster(clusterNode *n) {
     replicationSetMaster(n->ip, getNodeDefaultReplicationPort(n));
     removeAllNotOwnedShardChannelSubscriptions();
     resetManualFailover();
+
+    /* Cancel all ASM tasks when switching into slave */
+    if (was_master) clusterAsmCancel(NULL, "switching to replica");
 }
 
 /* -----------------------------------------------------------------------------
@@ -6096,6 +6110,14 @@ int clusterCommandSpecial(client *c) {
             return 1;
         }
 
+        if (isSLotInTrimJob(slot)) {
+            addReplyErrorFormat(c, "There is a pending trim job for slot %d. "
+                "Most probably, this is due to a failed atomic slot migration. "
+                "CLUSTER SETSLOT cannot be used at this time. "
+                "Please retry later once the trim job is done. ", slot);
+            return 1;
+        }
+
         if (!strcasecmp(c->argv[3]->ptr,"migrating") && c->argc == 5) {
             if (server.cluster->slots[slot] != myself) {
                 addReplyErrorFormat(c,"I'm not the owner of hash slot %u",slot);
@@ -6525,6 +6547,7 @@ int clusterAllowFailoverCmd(client *c) {
 
 void clusterPromoteSelfToMaster(void) {
     replicationUnsetMaster();
+    asmTrimSlotsIfNotOwned();
 }
 
 int clusterAsmOnEvent(const char *task_id, int event, void *arg) {

@@ -12,6 +12,7 @@
 
 struct asmTask;
 struct slotRangeArray;
+struct slotRange;
 
 void clusterAsmInit(void);
 void asmBeforeSleep(void);
@@ -24,9 +25,11 @@ int asmMigrateInProgress(void);
 int asmImportInProgress(void);
 void asmFeedMigrationClient(robj **argv, int argc);
 int asmDebugSetFailPoint(char * channel, char *state);
+int asmDebugSetTrimMethod(const char *method);
+
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
-int asmNotifyConfigUpdated(struct asmTask *task, struct slotRangeArray *slot_ranges, sds *err);
+int asmNotifyConfigUpdated(struct asmTask *task, sds *err);
 size_t asmGetPeakSyncBufferSize(void);
 int asmKeyBelongsToCurrentNode(kvobj *kv);
 size_t asmGetImportingBufferSize(void);
@@ -36,12 +39,12 @@ int clusterAsmCancelBySlot(int slot, const char *reason);
 int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slot_ranges, const char *reason);
 int clusterAsmCancelByNode(void *node, const char *reason);
 int isSlotInAsmTask(int slot);
+int isSLotInTrimJob(int slot);
 sds asmCatInfoString(sds info);
-int asmDebugSetTrimMethod(const char *method);
-int asmCanTrimSlots(void);
-
 void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);
-
+struct asmTask *asmLookupTaskBySlotRangeArray(struct slotRangeArray *sra);
+void asmTrimSlotsIfNotOwned(void);
+void asmCancelTrimJobs(void);
 #endif
 

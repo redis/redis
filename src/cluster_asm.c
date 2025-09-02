@@ -17,6 +17,7 @@
 
 #define ASM_DEBUG_TRIM_DEFAULT 0
 #define ASM_DEBUG_TRIM_NONE 1
+#define ASM_DEBUG_TRIM_BG 2
 
 typedef struct asmTask {
     sds id;                             /* Task ID */
@@ -49,6 +50,7 @@ typedef struct asmTask {
 struct asmManager {
     list *tasks;                  /* List of asmTask to be processed */
     list *done_tasks;             /* List of completed asmTask */
+    list *pending_trim_jobs;      /* List of pending trim jobs (due to write pause) */
     size_t sync_buffer_peak;      /* Peak size of sync buffer */
     long long total_done_tasks;   /* Total number of completed tasks */
 
@@ -115,11 +117,16 @@ int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 static void asmSyncBufferReadFromConn(connection *conn);
 static void asmTaskCancel(asmTask *task, const char *reason);
+static void propagateTrimSlots(slotRangeArray *slots);
+void asmTrimJobSchedule(slotRangeArray *slots);
+void asmTrimJobProcessPending(void);
+int asmTrimJobIsPending(void);
 
 void clusterAsmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
     asmManager->tasks = listCreate();
     asmManager->done_tasks = listCreate();
+    asmManager->pending_trim_jobs = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->total_done_tasks = 0;
     asmManager->debug_failed_channel = 0;
@@ -225,6 +232,7 @@ int asmDebugSetTrimMethod(const char *method) {
     int prev = asmManager->debug_trim_method;
     if (!strcasecmp(method, "default")) asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
     else if (!strcasecmp(method, "none")) asmManager->debug_trim_method = ASM_DEBUG_TRIM_NONE;
+    else if (!strcasecmp(method, "bg")) asmManager->debug_trim_method = ASM_DEBUG_TRIM_BG;
     else return C_ERR;
 
     /* If we are switching from none to default, delete all the keys in the
@@ -234,11 +242,8 @@ int asmDebugSetTrimMethod(const char *method) {
             if (!clusterIsMySlot(i))
                 clusterDelKeysInSlot(i, CLUSTER_DELKEYS_ASYNC);
     }
+    serverLog(LL_NOTICE, "ASM trim method was set: %s", method);
     return C_OK;
-}
-
-int asmCanTrimSlots(void) {
-    return !asmManager || asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT;
 }
 
 int asmDebugIsFailPointActive(int channel, int state) {
@@ -383,7 +388,7 @@ size_t asmGetMigratingBufferSize(void) {
 }
 
 /* Returns the ASM task with the given ID, or NULL if no such task exists. */
-static asmTask *lookupAsmTaskAt(list *tasks, const char *id) {
+static asmTask *asmLookupTaskAt(list *tasks, const char *id) {
     listIter li;
     listNode *ln;
 
@@ -396,13 +401,13 @@ static asmTask *lookupAsmTaskAt(list *tasks, const char *id) {
 }
 
 /* Returns the ASM task with the given ID, or NULL if no such task exists. */
-asmTask *lookupAsmTaskById(const char *id) {
-    return lookupAsmTaskAt(asmManager->tasks, id);
+asmTask *asmLookupTaskById(const char *id) {
+    return asmLookupTaskAt(asmManager->tasks, id);
 }
 
 /* Returns the ASM task that is identical to the given slot range array, or NULL
  * if no such task exists. */
-asmTask *lookupAsmTaskBySlotRangeArray(slotRangeArray *sra) {
+asmTask *asmLookupTaskBySlotRangeArray(slotRangeArray *sra) {
     listIter li;
     listNode *ln;
 
@@ -418,7 +423,7 @@ asmTask *lookupAsmTaskBySlotRangeArray(slotRangeArray *sra) {
 /* Returns the slot range array for the given task ID */
 slotRangeArray *asmTaskGetSlotRanges(const char *task_id) {
     asmTask *task = NULL;
-    if (!task_id || (task = lookupAsmTaskById(task_id)) == NULL) return NULL;
+    if (!task_id || (task = asmLookupTaskById(task_id)) == NULL) return NULL;
 
     return task->slot_ranges;
 }
@@ -771,8 +776,8 @@ static void clusterMigrationCommandStatus(client *c) {
             return;
         }
         sds id = c->argv[4]->ptr;
-        asmTask *task = lookupAsmTaskAt(asmManager->tasks, id);
-        if (!task) task = lookupAsmTaskAt(asmManager->done_tasks, id);
+        asmTask *task = asmLookupTaskAt(asmManager->tasks, id);
+        if (!task) task = asmLookupTaskAt(asmManager->done_tasks, id);
         if (!task) {
             addReplyArrayLen(c, 0);
             return;
@@ -855,6 +860,7 @@ void asmImportSetFailed(asmTask *task) {
 
     /* Mark the task as failed and notify the cluster */
     task->state = ASM_FAILED;
+    asmTrimJobSchedule(task->slot_ranges);
     clusterAsmOnEvent(task->id, ASM_EVENT_IMPORT_FAILED, NULL);
 }
 
@@ -1464,7 +1470,8 @@ void asmStartImportTask(asmTask *task) {
     /* Cannot start import task since pause action is performed. Otherwise, we will
      * break the promise that no writes are performed during the pause. */
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
-        isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
+        isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
+        asmTrimJobIsPending())
     {
         static time_t last_log = 0;
         if (server.unixtime - last_log >= 5) { /* Log every 5 seconds to avoid spam */
@@ -2091,6 +2098,8 @@ void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes) {
 }
 
 void asmBeforeSleep(void) {
+    asmTrimJobProcessPending();
+
     if (listLength(asmManager->tasks) == 0) return;
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
 
@@ -2238,7 +2247,7 @@ int clusterAsmCancel(const char *task_id, const char *reason) {
     if (asmManager == NULL) return 0;
 
     if (task_id) {
-        asmTask *task = lookupAsmTaskById(task_id);
+        asmTask *task = asmLookupTaskById(task_id);
         if (!task) return 0; /* Not found */
 
         asmTaskCancel(task, reason);
@@ -2332,10 +2341,26 @@ int isSlotInAsmTask(int slot) {
     return 0;
 }
 
+/* Check if the slot is in a pending trim job. It may happen if we can't trim
+ * the slots immediately due to a write pause. */
+int isSLotInTrimJob(int slot) {
+    if (!asmManager) return 0;
+
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->pending_trim_jobs, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        slotRangeArray *sra = listNodeValue(ln);
+        if (slotRangeArrayContains(sra, slot))
+            return 1;
+    }
+    return 0;
+}
+
 int clusterAsmHandoff(const char *task_id, sds *err) {
     serverAssert(task_id);
 
-    asmTask *task = lookupAsmTaskById(task_id);
+    asmTask *task = asmLookupTaskById(task_id);
     if (!task || task->state != ASM_HANDOFF_PREP) {
         *err = sdscatprintf(sdsempty(), "No suitable ASM task found for id: %s, task_state: %s",
                             task_id, task ? asmTaskStateToString(task->state) : "null");
@@ -2348,60 +2373,43 @@ int clusterAsmHandoff(const char *task_id, sds *err) {
     return C_OK;
 }
 
-/* Notify Redis that the config is updated for the given slot ranges.
- * If `current` is provided, it should match the task found for the slot ranges.
- * If `current` is NULL, any task found will be used, if no task is found, it means
- * the config update is not related to current ASM task, but this node learned about
- * the config update from cluster protocol, and we need to cancel any conflicting
- * tasks that overlap with the slot ranges. */
-int asmNotifyConfigUpdated(asmTask *current, slotRangeArray *slot_ranges, sds *err) {
-    asmTask *task = lookupAsmTaskBySlotRangeArray(slot_ranges);
-    if (current != NULL) serverAssert(task == current);
-    if (!task) {
-        /* Cancel asmTasks that overlap with the slot ranges, since slots configuration
-         * has changed. That may be because another node with different slot config and
-         * higher configEpoch takes over the slot ranges, e.g., a slot is updated through
-         * CLUSTER SETSLOT <slot> NODE <node-id> directly. */
-        clusterAsmCancelBySlotRangeArray(slot_ranges, "slots configuration updated");
-        return C_OK;
-    }
+/* Notify Redis that the config is updated for the task. */
+int asmNotifyConfigUpdated(asmTask *task, sds *err) {
+    int event = -1;
 
     if (task->operation == ASM_IMPORT && task->state == ASM_TAKEOVER) {
-        task->state = ASM_DONE;
-        clusterAsmOnEvent(task->id, ASM_EVENT_IMPORT_COMPLETED, NULL);
-        asmTaskComplete(task);
-        return C_OK;
+        event = ASM_EVENT_IMPORT_COMPLETED;
     } else if (task->operation == ASM_MIGRATE && task->state == ASM_STREAM_DONE) {
-        /* TODO: for plugin, we need to clean up the data of slot ranges
-         * such as slotsflush */
-
-        task->state = ASM_DONE;
-        clusterAsmOnEvent(task->id, ASM_EVENT_MIGRATE_COMPLETED, NULL);
-        asmTaskComplete(task);
-        return C_OK;
+        event = ASM_EVENT_MIGRATE_COMPLETED;
     } else {
         *err = sdscatprintf(sdsempty(),
                             "ASM task is not in the correct state for config update: %s",
                             asmTaskStateToString(task->state));
-        /* Cancel asmTasks that overlap with the slot ranges, since slots configuration
-         * has changed and the task is not in the correct state to complete. */
-        clusterAsmCancelBySlotRangeArray(slot_ranges, "slots configuration updated");
+        asmTaskCancel(task, "slots configuration updated");
         return C_ERR;
     }
 
-    serverAssert(0); /* Unreachable */
+    task->state = ASM_DONE;
+    clusterAsmOnEvent(task->id, event, NULL);
+    asmTaskComplete(task);
+
+    /* Trim the slots after the migrate task is done. */
+    if (event == ASM_EVENT_MIGRATE_COMPLETED)
+        asmTrimJobSchedule(task->slot_ranges);
+
+    return C_OK;
 }
 
 /* Import/Migrate task is done, config is updated. */
 int clusterAsmDone(const char *task_id, sds *err) {
     serverAssert(task_id);
 
-    asmTask *task = lookupAsmTaskById(task_id);
+    asmTask *task = asmLookupTaskById(task_id);
     if (!task) {
         *err = sdscatprintf(sdsempty(), "No ASM task found for id: %s", task_id);
         return C_ERR;
     }
-    return asmNotifyConfigUpdated(task, task->slot_ranges, err);
+    return asmNotifyConfigUpdated(task, err);
 }
 
 int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
@@ -2439,4 +2447,190 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
     sdsfree(errsds);
 
     return ret;
+}
+
+/* Check if we can propagate TRIMSLOTS command to AOF and replicas. */
+static int canPropagateTrimSlots(void) {
+    return !isPausedActions(PAUSE_ACTION_CLIENT_WRITE) &&
+           !isPausedActions(PAUSE_ACTION_CLIENT_ALL) &&
+           !isPausedActions(PAUSE_ACTION_REPLICA);
+}
+
+/* Propagate TRIMSLOTS command to AOF and replicas. */
+static void propagateTrimSlots(slotRangeArray *slots) {
+    int argc = slots->num_ranges * 2 + 3;
+    robj **argv = zmalloc(sizeof(robj*) * argc);
+    argv[0] = createStringObject("TRIMSLOTS", 9);
+    argv[1] = createStringObject("RANGES", 6);
+    argv[2] = createStringObjectFromLongLong(slots->num_ranges);
+    for (int i = 0; i < slots->num_ranges; i++) {
+        argv[i*2+3] = createStringObjectFromLongLong(slots->ranges[i].start);
+        argv[i*2+4] = createStringObjectFromLongLong(slots->ranges[i].end);
+    }
+
+    enterExecutionUnit(1, 0);
+
+    int prev_replication_allowed = server.replication_allowed;
+    server.replication_allowed = 1;
+    alsoPropagate(-1, argv, argc, PROPAGATE_AOF | PROPAGATE_REPL);
+    server.replication_allowed = prev_replication_allowed;
+
+    exitExecutionUnit();
+    postExecutionUnitOperations();
+
+    for (int i = 0; i < argc; i++)
+        decrRefCount(argv[i]);
+    zfree(argv);
+}
+
+/* Trim the slots asynchronously in the BIO thread. */
+void asmTrimInBackground(slotRangeArray *slots) {
+    /* TODO: Fire module event
+     * TODO: This is going to send invalidation message for all the keys for
+     * the tracking clients. We need to consider how we can do that for only
+     * the keys in the slots we are trimming. */
+    signalFlushedDb(0, 1, slots);
+
+    /* Create temp kvstores, move relevant slot dicts into them, and delete them
+     * in BIO thread asynchronously. */
+    kvstore *keys = kvstoreCreate(&dbDictType,
+                                  CLUSTER_SLOT_MASK_BITS,
+                                  KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    kvstore *expires = kvstoreCreate(&dbExpiresDictType,
+                                     CLUSTER_SLOT_MASK_BITS,
+                                     KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
+            kvstoreMoveDict(server.db[0].keys, keys, slot);
+            kvstoreMoveDict(server.db[0].expires, expires, slot);
+            /* TODO: hexpires */
+        }
+    }
+
+    /* TODO: Do not delete all the hexpires */
+    emptyDbDataAsync(keys, expires, server.db[0].hexpires);
+    server.db[0].hexpires = ebCreate();
+
+    sds str = slotRangeArrayToString(slots);
+    serverLog(LL_NOTICE, "Background trim started for slots: %s", str);
+    sdsfree(str);
+}
+
+void asmTrimSlots(slotRangeArray *slots) {
+    if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
+        return;
+    /* TODO: Insert logic to select trim method */
+    asmTrimInBackground(slots);
+}
+
+int asmTrimJobIsPending(void) {
+    return listLength(asmManager->pending_trim_jobs);
+}
+
+/* Schedule a trim job for the specified slot ranges. The job will be
+ * deferred and handled later in asmBeforeSleep(). We delay the trim jobs to
+ * asmBeforeSleep() to ensure it only runs when there is no write pause.
+ * Attempting to process it during a write pause could trigger an assertion
+ * in propagateNow(), as propagation is not allowed during a write pause. */
+void asmTrimJobSchedule(slotRangeArray *slots) {
+    listAddNodeTail(asmManager->pending_trim_jobs, slotRangeArrayDup(slots));
+}
+
+/* Process any pending trim jobs. */
+void asmTrimJobProcessPending(void) {
+    /* Check if there is any pending trim job and we can propagate it. */
+    if (!asmTrimJobIsPending() || !canPropagateTrimSlots())
+        return;
+
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->pending_trim_jobs, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        slotRangeArray *sra = listNodeValue(ln);
+        asmTrimSlots(sra);
+        propagateTrimSlots(sra);
+        listDelNode(asmManager->pending_trim_jobs, ln);
+        slotRangeArrayFree(sra);
+    }
+}
+
+/* Trim keys in slots not owned by this node (if any). */
+void asmTrimSlotsIfNotOwned(void) {
+    if (!server.cluster_enabled || server.masterhost != NULL) return;
+
+    slotRangeArray *sra = NULL;
+    for (int i = 0; i < CLUSTER_SLOTS; i++) {
+        if (clusterIsMySlot(i)) continue;
+        if (kvstoreDictSize(server.db[0].keys, i) == 0) continue;
+        sra = slotRangeArrayAppend(sra, i);
+    }
+    if (!sra) return;
+
+    sds str = slotRangeArrayToString(sra);
+    serverLog(LL_NOTICE,
+              "Detected keys in slots that does not belong to this node. "
+              "Scheduling trim for slots: %s", str);
+    sdsfree(str);
+
+    asmTrimJobSchedule(sra);
+    slotRangeArrayFree(sra);
+}
+
+/* Cancel all pending trim jobs. */
+void asmCancelTrimJobs(void) {
+    if (!asmManager) return;
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->pending_trim_jobs, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        slotRangeArray *sra = listNodeValue(ln);
+        listDelNode(asmManager->pending_trim_jobs, ln);
+        slotRangeArrayFree(sra);
+    }
+}
+
+/* It's used to trim slots after the migration is done or import is failed.
+ * TRIMSLOTS RANGES <numranges> <start-slot> <end-slot> ... */
+void trimslotsCommand(client *c) {
+    if (server.cluster_enabled == 0) {
+        addReplyError(c,"This instance has cluster support disabled");
+        return;
+    }
+
+    long numranges = 0;
+
+    if (c->argc < 5) {
+        addReplyErrorArity(c);
+        return;
+    }
+
+    /* Validate the ranges argument */
+    if (strcasecmp(c->argv[1]->ptr, "ranges") != 0) {
+        addReplyError(c, "missing ranges argument");
+        return;
+    }
+
+    /* Get the number of ranges */
+    if (getLongFromObjectOrReply(c, c->argv[2], &numranges, NULL) != C_OK)
+        return;
+
+    /* Validate the number of ranges and argument count */
+    if (numranges < 1 || numranges > CLUSTER_SLOTS || c->argc != 3 + numranges * 2) {
+        addReplyError(c, "invalid number of ranges");
+        return;
+    }
+
+    /* Parse the slot ranges and start trimming */
+    slotRangeArray *slots = parseSlotRangesOrReply(c, c->argc, 3);
+    if (!slots) return;
+
+    asmTrimSlots(slots);
+
+    /* Command will not be propagated automatically since it does not modify
+     * the dataset. */
+    forceCommandPropagation(c, PROPAGATE_REPL | PROPAGATE_AOF);
+
+    slotRangeArrayFree(slots);
+    addReply(c, shared.ok);
 }

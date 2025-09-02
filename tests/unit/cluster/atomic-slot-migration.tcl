@@ -13,6 +13,7 @@ set ::slot_prefixes [dict create \
     6002 "{0bx}" \
     6003 "{AJ}" \
     6004 "{of}" \
+    16383 "{6ZJ}" \
 ]
 
 # Helper functions
@@ -135,15 +136,12 @@ proc migration_status {node_id task_id field} {
 
 # Setup slot migration test with keys and delay, then start migration
 # Returns the task_id for the migration
-proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {delay 1000000}} {
+proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {keys 2} {delay 1000000}} {
     # Two keys on the start slot
-    set key1 [slot_key $start_slot key1]
-    set key2 [slot_key $start_slot key2]
-    R $src_node set $key1 "a"
-    R $src_node set $key2 "b"
+    populate_slot $keys -idx $src_node -slot $start_slot
 
     # we set a delay to ensure migration takes time for testing,
-    # two keys cost 2s to save by default.
+    # with default parameters, two keys cost 2s to save
     R $src_node config set rdb-key-save-delay $delay
 
     # migrate slot range from src_node to dst_node
@@ -885,6 +883,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
 
         # migrate back to original node #0
+        R 0 config set rdb-key-save-delay 0
         R 1 config set rdb-key-save-delay 0
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
@@ -928,6 +927,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_match {*canceled*} [migration_status 1 $task_id state]
 
         # reset config
+        R 0 config set key-load-delay 0
         R 1 config set key-load-delay 0
     }
 
@@ -971,7 +971,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
     test "Destination node rdb channel timeout when transferring slots snapshot" {
         # cost 10s to transfer each key
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000000]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 2 10000000]
         R 1 config set repl-timeout 3
 
         # the destination node will fail after 3s
@@ -1069,5 +1069,241 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 config set key-load-delay 0
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
+    }
+}
+
+start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 30000 cluster-allow-replica-migration no}} {
+    test "Test bgtrim after a successful migration" {
+        R 0 debug asm-trim-method bg
+        R 3 debug asm-trim-method bg
+        R 0 CONFIG RESETSTAT
+        R 3 CONFIG RESETSTAT
+
+        # Fill slot 0 on node-0 and migrate it to node-1
+        R 0 flushall
+        populate_slot 10000 -idx 0 -slot 0
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+
+        # Verify the data is migrated
+        assert_equal 0 [R 0 dbsize]
+        assert_equal 0 [R 3 dbsize]
+        assert_equal 10000 [R 1 dbsize]
+        assert_equal 10000 [R 4 dbsize]
+
+        # Verify the keys are trimmed lazily
+        wait_for_condition 1000 10 {
+            [S 0 lazyfreed_objects] == 10000 &&
+            [S 3 lazyfreed_objects] == 10000
+        } else {
+            puts "lazyfreed_objects: [S 0 lazyfreed_objects] [S 3 lazyfreed_objects]"
+            fail "Background trim did not happen"
+        }
+
+        # Cleanup
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+        R 3 debug asm-trim-method default
+    }
+
+    test "Test bgtrim after a failed migration" {
+        R 0 debug asm-trim-method bg
+        R 3 debug asm-trim-method bg
+        R 1 CONFIG RESETSTAT
+        R 4 CONFIG RESETSTAT
+
+        # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
+        R 0 flushall
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
+        after 1000 ;# wait some time so that some keys are moved
+
+        # Fail the migration
+        R 1 CLUSTER MIGRATION CANCEL ID $task_id
+        wait_for_asm_done
+
+        # Verify the data is not migrated
+        assert_equal 10000 [R 0 dbsize]
+        assert_equal 10000 [R 3 dbsize]
+
+        # Verify the keys are trimmed lazily after a failed import on dest side.
+        wait_for_condition 1000 20 {
+            [R 1 dbsize] == 0 &&
+            [R 4 dbsize] == 0 &&
+            [S 1 lazyfreed_objects] > 0 &&
+            [S 4 lazyfreed_objects] > 0
+        } else {
+            fail "Background trim did not happen"
+        }
+
+        # Cleanup
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+        R 3 debug asm-trim-method default
+    }
+
+    test "Test bgtrim unblocks stream client" {
+        # Two clients waiting for data on two different streams which are in
+        # different slots. We are going to migrate one slot, which will unblock
+        # the client. The other client should still be blocked.
+        R 0 debug asm-trim-method bg
+
+        set key0 [slot_key 0 mystream]
+        set key1 [slot_key 1 mystream]
+
+        # First client waits on slot-0 key
+        R 0 DEL $key0
+        R 0 XADD $key0 666 f v
+        R 0 XGROUP CREATE $key0 mygroup $
+        set rd0 [redis_deferring_client]
+        $rd0 XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS $key0 ">"
+        wait_for_blocked_clients_count 1
+
+        # Second client waits on slot-1 key
+        R 0 DEL $key1
+        R 0 XADD $key1 666 f v
+        R 0 XGROUP CREATE $key1 mygroup $
+        set rd1 [redis_deferring_client]
+        $rd1 XREADGROUP GROUP mygroup Alice BLOCK 0 STREAMS $key1 ">"
+        wait_for_blocked_clients_count 2
+
+        # Migrate slot 0
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+
+        # First client should get MOVED error
+        assert_error "*MOVED*" {$rd0 read}
+        $rd0 close
+
+        # Second client should operate normally
+        R 0 XADD $key1 667 f v
+        set res [$rd1 read]
+        assert_equal [lindex $res 0 1 0] {667-0 {f v}}
+        $rd1 close
+
+        # cleanup
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+    }
+
+    test "Test bgtrim touches watched keys" {
+         R 0 debug asm-trim-method bg
+
+         # bgtrim should touch watched keys on migrated slots
+         set key0 [slot_key 0 key]
+         R 0 set $key0 30
+         R 0 watch $key0
+         R 1 CLUSTER MIGRATION IMPORT 0 0
+         wait_for_asm_done
+         R 0 multi
+         R 0 ping
+         assert_equal {} [R 0 exec]
+
+         # bgtrim should not touch watched keys on other slots
+         set key2 [slot_key 2 key]
+         R 0 set $key2 30
+         R 0 watch $key2
+         R 1 CLUSTER MIGRATION IMPORT 1 1
+         wait_for_asm_done
+         R 0 multi
+         R 0 ping
+         assert_equal PONG [R 0 exec]
+
+        # cleanup
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 1
+        wait_for_asm_done
+        R 0 flushall
+        R 0 debug asm-trim-method default
+    }
+
+    test "Test bgtrim invalidates keys for tracking clients" {
+        # Setup a tracking client that is redirected to a pubsub client
+        set rd_redirection [redis_deferring_client]
+        $rd_redirection client id
+        set redir_id [$rd_redirection read]
+        $rd_redirection subscribe __redis__:invalidate
+        $rd_redirection read ; # Consume the SUBSCRIBE reply.
+
+        # setup tracking
+        set key0 [slot_key 0 key]
+        R 0 CLIENT TRACKING on REDIRECT $redir_id
+        R 0 SET $key0 1
+        R 0 GET $key0
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+
+        # Verify the tracking client received the invalidation message
+        set msg [$rd_redirection read]
+        assert {[lindex msg 2] eq {} }
+
+        # cleanup
+        $rd_redirection close
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+        R 0 flushall
+    }
+
+    test "Test bgtrim after a FAILOVER on destination side" {
+        R 1 debug asm-trim-method bg
+        R 4 debug asm-trim-method bg
+
+        set loglines [count_log_lines -4]
+
+        # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
+        R 0 flushall
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
+        after 1000 ;# wait some time so that some keys are moved
+
+        # Trigger a failover with force to simulate unreachable master and
+        # verify unowned keys are trimmed once replica becomes master.
+        R 4 cluster failover
+        wait_for_log_messages -4 {"*Detected keys in slots that does not belong*Scheduling trim for slot*"} $loglines 1000 10
+        wait_for_condition 1000 10 {
+            [R 1 dbsize] == 0 &&
+            [R 4 dbsize] == 0
+        } else {
+            fail "Background trim did not happen"
+        }
+
+        # cleanup
+        wait_for_cluster_propagation
+        R 1 cluster failover
+        wait_for_condition 1000 10 {
+            [getInfoProperty [R 1 info] role] eq {master}
+        } else {
+            fail "Instance #0 is not a master after some time"
+        }
+        R 0 config set rdb-key-save-delay 0
+        R 1 debug asm-trim-method default
+        R 4 debug asm-trim-method default
+        wait_for_asm_done
+    }
+
+    test "CLUSTER SETSLOT is not allowed if there is a pending trim job" {
+        R 0 debug asm-trim-method bg
+        R 3 debug asm-trim-method bg
+
+        # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
+        R 0 flushall
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
+
+        # Pause will cancel the task and there will be a pending trim job
+        # until writes are allowed again.
+        R 1 client pause 100000 write ;# pause 100s
+        wait_for_asm_done
+
+        # CLUSTER SETSLOT is not allowed if there is a pending trim job.
+        assert_error {*There is a pending trim job for slot 0*} {R 1 CLUSTER SETSLOT 0 STABLE}
+
+        # Unpause the server, trim will be triggered and SETSLOT will be allowed
+        R 1 client unpause
+        R 1 CLUSTER SETSLOT 0 STABLE
     }
 }

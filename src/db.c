@@ -853,6 +853,9 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
         return -1;
     }
 
+    if (dbnum == -1 || dbnum == 0)
+        asmCancelTrimJobs();
+
     /* Fire the flushdb modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
                           REDISMODULE_SUBEVENT_FLUSHDB_START,
@@ -861,7 +864,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     /* Make sure the WATCHed keys are affected by the FLUSH* commands.
      * Note that we need to call the function while the keys are still
      * there. */
-    signalFlushedDb(dbnum, async);
+    signalFlushedDb(dbnum, async, NULL);
 
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
@@ -951,7 +954,7 @@ void signalModifiedKey(client *c, redisDb *db, robj *key) {
     trackingInvalidateKey(c,key,1);
 }
 
-void signalFlushedDb(int dbid, int async) {
+void signalFlushedDb(int dbid, int async, slotRangeArray *slots) {
     int startdb, enddb;
     if (dbid == -1) {
         startdb = 0;
@@ -961,8 +964,8 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        scanDatabaseForDeletedKeys(&server.db[j], NULL);
-        touchAllWatchedKeysInDb(&server.db[j], NULL);
+        scanDatabaseForDeletedKeys(&server.db[j], NULL, slots);
+        touchAllWatchedKeysInDb(&server.db[j], NULL, slots);
     }
 
     trackingInvalidateKeysOnFlush(async);
@@ -2126,11 +2129,14 @@ void scanDatabaseForReadyKeys(redisDb *db) {
 /* Since we are unblocking XREADGROUP clients in the event the
  * key was deleted/overwritten we must do the same in case the
  * database was flushed/swapped. */
-void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, slotRangeArray *slots) {
     dictEntry *de;
     dictIterator *di = dictGetSafeIterator(emptied->blocking_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
+        /* Check if key belongs to the slot range. */
+        if (slots && !slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
+            continue;
         int existed = 0, exists = 0;
         int original_type = -1, curr_type = -1;
 
@@ -2171,12 +2177,12 @@ int dbSwapDatabases(int id1, int id2) {
 
     /* Swapdb should make transaction fail if there is any
      * client watching keys */
-    touchAllWatchedKeysInDb(db1, db2);
-    touchAllWatchedKeysInDb(db2, db1);
+    touchAllWatchedKeysInDb(db1, db2, NULL);
+    touchAllWatchedKeysInDb(db2, db1, NULL);
 
     /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-    scanDatabaseForDeletedKeys(db1, db2);
-    scanDatabaseForDeletedKeys(db2, db1);
+    scanDatabaseForDeletedKeys(db1, db2, NULL);
+    scanDatabaseForDeletedKeys(db2, db1, NULL);
 
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
@@ -2217,10 +2223,10 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
 
         /* Swapping databases should make transaction fail if there is any
          * client watching keys. */
-        touchAllWatchedKeysInDb(activedb, newdb);
+        touchAllWatchedKeysInDb(activedb, newdb, NULL);
 
         /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-        scanDatabaseForDeletedKeys(activedb, newdb);
+        scanDatabaseForDeletedKeys(activedb, newdb, NULL);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 

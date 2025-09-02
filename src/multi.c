@@ -8,6 +8,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 
 /* ================================ MULTI/EXEC ============================== */
 
@@ -405,13 +406,15 @@ void touchWatchedKey(redisDb *db, robj *key) {
 
 /* Set CLIENT_DIRTY_CAS to all clients of DB when DB is dirty.
  * It may happen in the following situations:
- * FLUSHDB, FLUSHALL, SWAPDB, end of successful diskless replication.
+ * - FLUSHDB, FLUSHALL, SWAPDB, end of successful diskless replication.
+ * - Atomic slot migration trimming phase. In this case, 'slots' is set and only
+ *   keys in the specified slots are touched.
  *
  * replaced_with: for SWAPDB, the WATCH should be invalidated if
  * the key exists in either of them, and skipped only if it
  * doesn't exist in both. */
 REDIS_NO_SANITIZE("thread")
-void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
+void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots) {
     listIter li;
     listNode *ln;
     dictEntry *de;
@@ -421,6 +424,8 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with) {
     dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
     while((de = dictNext(di)) != NULL) {
         robj *key = dictGetKey(de);
+        if (slots && !slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
+            continue;
         int exists_in_emptied = dbFind(emptied, key->ptr) != NULL;
         if (exists_in_emptied ||
             (replaced_with && dbFind(replaced_with, key->ptr) != NULL))

@@ -837,6 +837,7 @@ struct moduleLoadQueueEntry;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
 struct clusterState;
+struct slotRangeArray;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -3021,7 +3022,7 @@ void queueMultiCommand(client *c, uint64_t cmd_flags);
 size_t multiStateMemOverhead(client *c);
 void touchWatchedKey(redisDb *db, robj *key);
 int isWatchedKeyExpired(client *c);
-void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
+void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
@@ -3685,7 +3686,6 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_ALL   0
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
-struct slotRangeArray;
 void replySlotsFlushAndFree(client *c, struct slotRangeArray *ranges);
 int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *ranges);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
@@ -3701,11 +3701,12 @@ void discardTempDb(redisDb *tempDb);
 
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
-void signalFlushedDb(int dbid, int async);
+void signalFlushedDb(int dbid, int async, struct slotRangeArray *slots);
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
@@ -3811,7 +3812,7 @@ void blockForReplication(client *c, mstime_t timeout, long long offset, long num
 void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas);
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
-void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
 void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey, unsigned long *watched_keys);
 void blockedBeforeSleep(void);
 
@@ -3943,6 +3944,7 @@ void sscanCommand(client *c);
 void syncCommand(client *c);
 void flushdbCommand(client *c);
 void flushallCommand(client *c);
+void trimslotsCommand(client *c);
 void sortCommand(client *c);
 void sortroCommand(client *c);
 void lremCommand(client *c);

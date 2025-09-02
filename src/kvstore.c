@@ -31,6 +31,7 @@
 #include "kvstore.h"
 #include "redisassert.h"
 #include "monotonic.h"
+#include "server.h"
 
 #define UNUSED(V) ((void) V)
 
@@ -631,6 +632,37 @@ int kvstoreNumAllocatedDicts(kvstore *kvs) {
 
 int kvstoreNumDicts(kvstore *kvs) {
     return kvs->num_dicts;
+}
+
+/* Move dict from one kvstore to another. */
+void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
+    serverAssert(kvs->num_dicts > didx);
+    serverAssert(kvs->num_dicts == dst->num_dicts);
+    serverAssert(dst->dicts[didx] == NULL);
+
+    dict *d = kvs->dicts[didx];
+    if (d == NULL) return;
+
+    /* Adjust source kvstore */
+    kvs->allocated_dicts -= 1;
+    cumulativeKeyCountAdd(kvs, didx, -((long long)dictSize(d)));
+    kvstoreDictBucketChanged(d, -((long long) dictBuckets(d)));
+    /* If rehashing, stop it. */
+    if (dictIsRehashing(d))
+        kvstoreDictRehashingCompleted(d);
+    /* Clear dict from source kvstore and create a new one if needed */
+    kvs->dicts[didx] = NULL;
+    if (!(kvs->flags & (KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS)))
+        createDictIfNeeded(kvs, didx);
+
+    /* Move dict to destination kvstore */
+    dst->dicts[didx] = d;
+    dst->dicts[didx]->type = &dst->dtype;
+    dst->allocated_dicts += 1;
+    cumulativeKeyCountAdd(dst, didx, dictSize(d));
+    kvstoreDictBucketChanged(d, dictBuckets(d));
+    if (dictIsRehashing(dst->dicts[didx]))
+        kvstoreDictRehashingStarted(dst->dicts[didx]);
 }
 
 /* Returns kvstore iterator that can be used to iterate through sub-dictionaries.
