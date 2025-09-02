@@ -1630,5 +1630,33 @@ start_server {
             assert_equal {0 {} {} {}} [r XPENDING mystream group1]
             assert_equal {0 {} {} {}} [r XPENDING mystream group2]
         }
+
+        test "XGROUP CREATE with ENTRIESREAD larger than stream entries should cap the value" {
+            r DEL mystream
+            r xadd mystream * field value
+            r xgroup create mystream mygroup $ entriesread 9999
+
+            set reply [r XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+
+            # Lag must be 0 and entries-read must be 1.
+            assert_equal [dict get $group lag] 0
+            assert_equal [dict get $group entries-read] 1
+        }
+
+        test "XGROUP SETID with ENTRIESREAD larger than stream entries should cap the value" {
+            r DEL mystream
+            r xadd mystream * field value
+            r xgroup create mystream mygroup $
+
+            r xgroup setid mystream mygroup $ entriesread 9999
+
+            set reply [r XINFO STREAM mystream FULL]
+            set group [lindex [dict get $reply groups] 0]
+
+            # Lag must be 0 and entries-read must be 1.
+            assert_equal [dict get $group lag] 0
+            assert_equal [dict get $group entries-read] 1
+        }
     }
 }
