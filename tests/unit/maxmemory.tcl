@@ -9,7 +9,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r del foo
         r restore foo 0 $encoded
         r strlen foo
-    } {8000000}
+    } {8000000} {logreqres:skip}
 
     r flushall
     r config set maxmemory 11mb
