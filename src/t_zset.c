@@ -1615,10 +1615,12 @@ long zsetRank(robj *zobj, sds ele, int reverse, double *output_score) {
         serverAssert(eptr != NULL);
         sptr = lpNext(zl,eptr);
         serverAssert(sptr != NULL);
-
+        const size_t ele_len = sdslen(ele);
+        long long cached_val = 0;
+        int cached_valid = 0;
         rank = 1;
         while(eptr != NULL) {
-            if (lpCompare(eptr,(unsigned char*)ele,sdslen(ele)))
+            if (lpCompare(eptr,(unsigned char*)ele,ele_len,&cached_val,&cached_valid))
                 break;
             rank++;
             zzlNext(zl,&eptr,&sptr);
@@ -2431,20 +2433,20 @@ inline static void zunionInterAggregate(double *target, double val, int aggregat
 }
 
 static size_t zsetDictGetMaxElementLength(dict *d, size_t *totallen) {
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
     size_t maxelelen = 0;
 
-    di = dictGetIterator(d);
+    dictInitIterator(&di, d);
 
-    while((de = dictNext(di)) != NULL) {
+    while((de = dictNext(&di)) != NULL) {
         sds ele = dictGetKey(de);
         if (sdslen(ele) > maxelelen) maxelelen = sdslen(ele);
         if (totallen)
             (*totallen) += sdslen(ele);
     }
 
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     return maxelelen;
 }
@@ -2806,7 +2808,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiClearIterator(&src[0]);
         }
     } else if (op == SET_OP_UNION) {
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de, *existing;
         double score;
 
@@ -2855,15 +2857,15 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         }
 
         /* Step 2: convert the dictionary into the final sorted set. */
-        di = dictGetIterator(dstzset->dict);
+        dictInitIterator(&di, dstzset->dict);
 
-        while((de = dictNext(di)) != NULL) {
+        while((de = dictNext(&di)) != NULL) {
             sds ele = dictGetKey(de);
             score = dictGetDoubleVal(de);
             znode = zslInsert(dstzset->zsl,score,ele);
             dictSetVal(dstzset->dict,de,&znode->score);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     } else if (op == SET_OP_DIFF) {
         zdiff(src, setnum, dstzset, &maxelelen, &totelelen);
     } else {
@@ -3260,7 +3262,7 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
     handler->beginResultEmission(handler, -1);
 
     /* For invalid offset, return directly. */
-    if (offset > 0 && offset >= (long)zsetLength(zobj)) {
+    if (offset < 0 || (offset > 0 && offset >= (long)zsetLength(zobj))) {
         handler->finalizeResultEmission(handler, 0);
         return;
     }
@@ -3533,6 +3535,12 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
     unsigned long rangelen = 0;
 
     handler->beginResultEmission(handler, -1);
+
+    /* For invalid offset, return directly. */
+    if (offset < 0 || (offset > 0 && offset >= (long)zsetLength(zobj))) {
+        handler->finalizeResultEmission(handler, 0);
+        return;
+    }
 
     if (zobj->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl = zobj->ptr;
@@ -4345,10 +4353,11 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
         }
 
         /* Reply with what's in the dict and release memory */
-        dictIterator *di;
+        dictIterator di;
         dictEntry *de;
-        di = dictGetIterator(d);
-        while ((de = dictNext(di)) != NULL) {
+
+        dictInitIterator(&di, d);
+        while ((de = dictNext(&di)) != NULL) {
             if (withscores && c->resp > 2)
                 addReplyArrayLen(c,2);
             addReplyBulkSds(c, dictGetKey(de));
@@ -4356,7 +4365,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
                 addReplyDouble(c, dictGetDoubleVal(de));
         }
 
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
         dictRelease(d);
     }
 

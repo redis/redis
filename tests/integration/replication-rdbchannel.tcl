@@ -641,7 +641,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip tsan:skip"}} {
     set replica [srv 0 client]
     set replica_pid  [srv 0 pid]
 
@@ -825,7 +825,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip tsan:skip"}} {
     set master2 [srv 0 client]
     set master2_host [srv 0 host]
     set master2_port [srv 0 port]

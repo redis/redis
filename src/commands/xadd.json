@@ -14,6 +14,10 @@
             [
                 "7.0.0",
                 "Added support for the `<ms>-*` explicit ID form."
+            ],
+            [
+                "8.2.0",
+                "Added the `KEEPREF`, `DELREF` and `ACKED` options."
             ]
         ],
         "command_flags": [
@@ -60,6 +64,28 @@
                 "type": "pure-token",
                 "optional": true,
                 "since": "6.2.0"
+            },
+            {
+                "name": "condition",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "keepref",
+                        "type": "pure-token",
+                        "token": "KEEPREF"
+                    },
+                    {
+                        "name": "delref",
+                        "type": "pure-token",
+                        "token": "DELREF"
+                    },
+                    {
+                        "name": "acked",
+                        "type": "pure-token",
+                        "token": "ACKED"
+                    }
+                ]
             },
             {
                 "name": "trim",

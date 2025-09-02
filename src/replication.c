@@ -28,6 +28,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_slot_stats.h"
 #include "bio.h"
 #include "functions.h"
 #include "connection.h"
@@ -395,6 +396,8 @@ void feedReplicationBuffer(char *s, size_t len) {
 
     if (server.repl_backlog == NULL) return;
 
+    clusterSlotStatsIncrNetworkBytesOutForReplication(len);
+
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
         listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
@@ -554,6 +557,11 @@ void replicationFeedSlaves(list *slaves, int dictid, robj **argv, int argc) {
         }
 
         feedReplicationBufferWithObject(selectcmd);
+
+        /* Although the SELECT command is not associated with any slot,
+         * its per-slot network-bytes-out accumulation is made by the above function call.
+         * To cancel-out this accumulation, below adjustment is made. */
+        clusterSlotStatsDecrNetworkBytesOutForReplication(sdslen(selectcmd->ptr));
 
         if (dictid < 0 || dictid >= PROTO_SHARED_SELECT_CMDS)
             decrRefCount(selectcmd);
@@ -1610,7 +1618,12 @@ void sendBulkToSlave(connection *conn) {
     }
 
     /* If the preamble was already transferred, send the RDB bulk data. */
-    lseek(slave->repldbfd,slave->repldboff,SEEK_SET);
+    if (lseek(slave->repldbfd,slave->repldboff,SEEK_SET) == -1) {
+	serverLog(LL_WARNING,"Failed to lseek the RDB file to offset %lld for replica %s: %s",
+	    (long long)slave->repldboff, replicationGetSlaveName(slave), strerror(errno));
+	freeClient(slave);
+	return;
+    }
     buflen = read(slave->repldbfd,buf,PROTO_IOBUF_LEN);
     if (buflen <= 0) {
         serverLog(LL_WARNING,"Read error sending DB to replica: %s",
@@ -1986,6 +1999,7 @@ static void rdbLoadEmptyDbFunc(void) {
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
+
     emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
 }
 
@@ -2490,7 +2504,12 @@ void readSyncBulkPayload(connection *conn) {
     replicationCreateMasterClient(server.repl_transfer_s,rsi.repl_stream_db);
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
+    server.repl_up_since = server.unixtime;
 
+    if (server.repl_disconnect_start_time != 0) {
+        server.repl_total_disconnect_time += server.unixtime - server.repl_disconnect_start_time;
+        server.repl_disconnect_start_time = 0;
+    }
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
                           REDISMODULE_SUBEVENT_MASTER_LINK_UP,
@@ -3211,6 +3230,8 @@ write_error: /* Handle sendCommand() errors. */
 }
 
 int connectWithMaster(void) {
+    server.repl_current_sync_attempts++;
+    server.repl_total_sync_attempts++;
     server.repl_transfer_s = connCreate(server.el, connTypeOfReplication());
     if (connConnect(server.repl_transfer_s, server.masterhost, server.masterport,
                 server.bind_source_addr, syncWithMaster) == C_ERR) {
@@ -3243,6 +3264,8 @@ void undoConnectWithMaster(void) {
 void replicationAbortSyncTransfer(void) {
     serverAssert(server.repl_state == REPL_STATE_TRANSFER);
     undoConnectWithMaster();
+    if (server.repl_disconnect_start_time == 0)
+        server.repl_disconnect_start_time = server.unixtime;
     if (server.repl_transfer_fd!=-1) {
         close(server.repl_transfer_fd);
         bg_unlink(server.repl_transfer_tmpfile);
@@ -3334,6 +3357,8 @@ void replicationSetMaster(char *ip, int port) {
                               NULL);
 
     server.repl_state = REPL_STATE_CONNECT;
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
         server.masterhost, server.masterport);
     connectWithMaster();
@@ -3367,7 +3392,9 @@ void replicationUnsetMaster(void) {
      * a very fast reconnection. */
     disconnectSlaves();
     server.repl_state = REPL_STATE_NONE;
-
+    /* Reset the attempts number. */
+    server.repl_current_sync_attempts = 0;
+    server.repl_total_sync_attempts = 0;
     /* We need to make sure the new master will start the replication stream
      * with a SELECT statement. This is forced after a full resync, but
      * with PSYNC version 2, there is no need for full resync after a
@@ -3383,9 +3410,9 @@ void replicationUnsetMaster(void) {
      * failover if slaves do not connect immediately. */
     server.repl_no_slaves_since = server.unixtime;
     
-    /* Reset down time so it'll be ready for when we turn into replica again. */
+    /* Reset up and down time so it'll be ready for when we turn into replica again. */
     server.repl_down_since = 0;
-
+    server.repl_up_since = 0;
     /* Fire the role change modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_REPLICATION_ROLE_CHANGED,
                           REDISMODULE_EVENT_REPLROLECHANGED_NOW_MASTER,
@@ -3409,8 +3436,11 @@ void replicationHandleMasterDisconnection(void) {
                               NULL);
 
     server.master = NULL;
+    if (server.repl_state == REPL_STATE_CONNECTED)
+        server.repl_current_sync_attempts = 0;
     server.repl_state = REPL_STATE_CONNECT;
     server.repl_down_since = server.unixtime;
+    server.repl_up_since = 0;
     server.repl_num_master_disconnection++;
 
     /* If we are in the loop of streaming accumulated buffers, discard the
@@ -3420,6 +3450,8 @@ void replicationHandleMasterDisconnection(void) {
     if (server.repl_main_ch_state & REPL_MAIN_CH_STREAMING_BUF)
         rdbChannelCleanup();
 
+    if (server.repl_disconnect_start_time == 0)
+        server.repl_disconnect_start_time = server.unixtime;
     /* We lost connection with our master, don't disconnect slaves yet,
      * maybe we'll be able to PSYNC with our master later. We'll disconnect
      * the slaves only if we'll have to do a full resync with our master. */
@@ -4250,6 +4282,9 @@ void replicationSendAck(void) {
             addReplyBulkLongLong(c,server.fsynced_reploff);
         }
         c->flags &= ~CLIENT_MASTER_FORCE_REPLY;
+        /* Accumulation from above replies must be reset back to 0 manually,
+         * as this subroutine does not invoke resetClient(). */
+        c->net_output_bytes_curr_cmd = 0;
     }
 }
 
@@ -4377,7 +4412,11 @@ void replicationResurrectCachedMaster(connection *conn) {
     server.master->lastinteraction = server.unixtime;
     server.repl_state = REPL_STATE_CONNECTED;
     server.repl_down_since = 0;
-
+    server.repl_up_since = server.unixtime;
+    if (server.repl_disconnect_start_time != 0) {
+        server.repl_total_disconnect_time += server.unixtime - server.repl_disconnect_start_time;
+        server.repl_disconnect_start_time = 0;
+    }
     /* Fire the master link modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_MASTER_LINK_CHANGE,
                           REDISMODULE_SUBEVENT_MASTER_LINK_UP,

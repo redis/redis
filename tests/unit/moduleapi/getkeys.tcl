@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/getkeys.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {COMMAND INFO correctly reports a movable keys module command} {
@@ -57,6 +57,15 @@ start_server {tags {"modules"}} {
         catch {r getkeys.introspect 0 set key} e
         set _ $e
     } {*EINVAL*}
+
+    test "introspect with > MAX_KEYS_BUFFER keys triggers RM_GetCommandKeysWithFlags heap alloc" {
+        set args {}
+        for {set i 0} {$i < 7} {incr i} {
+            lappend args key k$i
+        }
+        set reply [r getkeys.introspect 1 getkeys.command_with_flags {*}$args]
+        assert_equal {{k0 RO} {k1 RO} {k2 RO} {k3 RO} {k4 RO} {k5 RO} {k6 RO}} $reply
+    }
 
     # user that can only read from "read" keys, write to "write" keys, and read+write to "RW" keys
     r ACL setuser testuser +@all %R~read* %W~write* %RW~rw*

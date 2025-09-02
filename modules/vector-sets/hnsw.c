@@ -45,6 +45,7 @@
 #include <float.h>  /* for INFINITY if not in math.h */
 #include <assert.h>
 #include "hnsw.h"
+#include "mixer.h"
 
 #if 0
 #define debugmsg printf
@@ -1974,6 +1975,13 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
     double logN = log2(index->node_count + 1);
     uint32_t num_walks = (uint32_t)(logN * c);
 
+    /* Avoid the ping-pong effect: imagine there are just two nodes and
+     * the number of walks selected is even. We will select always the
+     * first element of the graph; conversely, if it is odd, we will always
+     * select the other element. One way to add more selection randomness is
+     * to randomly add '1' or '0' to the number of walks to perform. */
+    num_walks += rand() & 1;
+
     // Perform random walk at level 0.
     for (uint32_t i = 0; i < num_walks; i++) {
         if (current->layers[0].num_links == 0) return current;
@@ -2057,6 +2065,18 @@ hnswNode *hnsw_random_node(HNSW *index, int slot) {
  * hash table, then scan all the nodes again and fix all the links converting
  * the ID to the pointer. */
 
+/* History of serialization versions:
+ * version 0: the first implementation, lacking worst node id/info.
+ * version 1: includes worst link id/info. */
+#define HNSW_SERIALIZATION_VERSION 1
+
+/* This is a special worst link index that is set when loading a serialized
+ * node with version 0 (this version of the serialization lacked explicit
+ * information about the worst link index/distance). This way, later, the
+ * function that fixes a deserialized index will know to compute the worst
+ * index info at runtime. */
+#define HNSW_SER_WORSTLINK_MISSING UINT32_MAX
+
 /* Return the serialized node information as specified in the top comment
  * above. Note that the returned information is true as long as the node
  * provided is not deleted or modified, so this function should be called
@@ -2072,6 +2092,7 @@ hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node) {
     for (uint32_t i = 0; i <= node->level; i++) {
         num_params += 2; // max_links and num_links info for this layer.
         num_params += node->layers[i].num_links; // The IDs of linked nodes.
+        num_params += 1; // worst link id/distance parameter.
     }
 
     /* We use another 64bit value to store two floats that are about
@@ -2095,18 +2116,43 @@ hnswSerNode *hnsw_serialize_node(HNSW *index, hnswNode *node) {
 
     uint32_t param_idx = 0;
     sn->params[param_idx++] = node->id;
-    sn->params[param_idx++] = node->level;
+    /* The second parameter contains information about the serialization
+     * version of this node, the node level and some unused field:
+     *
+     * +--------+--------+--------+--------+
+     * |VVVVVVVV|........|........|LLLLLLLL|
+     * +--------+--------+--------+--------+
+     *
+     * V is the version, 8 bits.
+     * L is the node level, 8 bits (but actually 16 is the max so far).
+     * The middle two bytes are reserved for future uses. */
+    sn->params[param_idx] = node->level & 0xff;
+    sn->params[param_idx] |= HNSW_SERIALIZATION_VERSION << 24;
+    param_idx++;
     for (uint32_t i = 0; i <= node->level; i++) {
         sn->params[param_idx++] = node->layers[i].num_links;
         sn->params[param_idx++] = node->layers[i].max_links;
         for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
             sn->params[param_idx++] = node->layers[i].links[j]->id;
         }
+        /* Since version 1: pack and store worst_idx and worst_distance. */
+        uint32_t worst_distance_bits;
+        memcpy(&worst_distance_bits, &node->layers[i].worst_distance,
+               sizeof(float));
+        uint64_t wi =
+            (((uint64_t)worst_distance_bits) << 32) | node->layers[i].worst_idx;
+        sn->params[param_idx++] = wi;
     }
-    uint64_t l2_and_range = 0;
-    unsigned char *aux = (unsigned char*)&l2_and_range;
-    memcpy(aux,&node->l2,sizeof(float));
-    memcpy(aux+4,&node->quants_range,sizeof(float));
+
+    /* Store l2 and range as uint32_t, in a way that is endian-safe.
+     * Note that in big endian archs both are reversed: integers and
+     * also the bytes of floats, so they will match. */
+    uint64_t l2_and_range;
+    uint32_t l2_bits, range_bits;
+    memcpy(&l2_bits,&node->l2,sizeof(float));
+    memcpy(&range_bits,&node->quants_range,sizeof(float));
+    l2_and_range = ((uint64_t)range_bits<<32) | l2_bits;
+
     sn->params[param_idx++] = l2_and_range;
 
     /* Better safe than sorry: */
@@ -2132,7 +2178,13 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     if (params_len < 2) return NULL;
 
     uint64_t id = params[0];
-    uint32_t level = params[1];
+    /* Check the node serialization function for the specific layout
+     * of param[1] fields. */
+    uint32_t level = params[1] & 0xff;                  // Node level.
+    uint32_t version = (params[1] & 0xff000000) >> 24;  // Format version.
+
+    if (version > HNSW_SERIALIZATION_VERSION) return NULL;
+    int has_worst_link_info = version > 0;
 
     /* Keep track of maximum ID seen while loading. */
     if (id >= index->last_id) index->last_id = id;
@@ -2150,13 +2202,20 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
     uint32_t param_idx = 2;
     for (uint32_t i = 0; i <= level; i++) {
         /* Sanity check. */
-        if (param_idx + 2 > params_len) {
+        if (param_idx + 2 + has_worst_link_info > params_len) {
             hnsw_node_free(node);
             return NULL;
         }
 
         uint32_t num_links = params[param_idx++];
         uint32_t max_links = params[param_idx++];
+
+        /* Sanity check: links should be less than max links and
+         * in general a reasonable amount. */
+        if (num_links > max_links || max_links > HNSW_MAX_M*4) {
+            hnsw_node_free(node);
+            return NULL;
+        }
 
         /* If max_links is larger than current allocation, reallocate.
          * It could happen in select_neighbors() that we over-allocate the
@@ -2174,7 +2233,7 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         node->layers[i].num_links = num_links;
 
         /* Sanity check. */
-        if (param_idx + num_links > params_len) {
+        if (param_idx + num_links + has_worst_link_info > params_len) {
             hnsw_node_free(node);
             return NULL;
         }
@@ -2185,6 +2244,27 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
          * fit more than 2^32 nodes in a 32 bit system. */
         for (uint32_t j = 0; j < num_links; j++)
             node->layers[i].links[j] = (hnswNode*)params[param_idx++];
+
+        if (has_worst_link_info) {
+            uint64_t wi = params[param_idx++];
+            uint32_t worst_idx = wi & 0xffffffff;
+            uint32_t worst_distance_bits = wi >> 32;
+            float worst_distance;
+            memcpy(&worst_distance,&worst_distance_bits,sizeof(float));
+            node->layers[i].worst_idx = worst_idx;
+            node->layers[i].worst_distance = worst_distance;
+
+            // Sanity check the worst ID range.
+            if (node->layers[i].num_links > 0 &&
+                node->layers[i].worst_idx >= node->layers[i].num_links)
+            {
+                hnsw_node_free(node);
+                return NULL;
+            }
+        } else {
+            node->layers[i].worst_idx = HNSW_SER_WORSTLINK_MISSING;
+            node->layers[i].worst_distance = 0;
+        }
     }
 
     /* Get l2 and quantization range. */
@@ -2192,10 +2272,14 @@ hnswNode *hnsw_insert_serialized(HNSW *index, void *vector, uint64_t *params, ui
         hnsw_node_free(node);
         return NULL;
     }
+
+    /* Load l2 and range packed into an uint64_t in an endian safe way. */
     uint64_t l2_and_range = params[param_idx];
-    unsigned char *aux = (unsigned char*)&l2_and_range;
-    memcpy(&node->l2, aux, sizeof(float));
-    memcpy(&node->quants_range, aux+4, sizeof(float));
+    uint32_t l2_bits, range_bits;
+    l2_bits = l2_and_range & 0xffffffff;
+    range_bits = l2_and_range >> 32;
+    memcpy(&node->l2, &l2_bits, sizeof(float));
+    memcpy(&node->quants_range, &range_bits, sizeof(float));
 
     node->value = value;
     hnsw_add_node(index, node);
@@ -2221,13 +2305,28 @@ uint64_t hnsw_hash_node_id(uint64_t id) {
     return id;
 }
 
+/* Helper for duplicated link detection in hnsw_deserialize_index(). */
+static int qsort_compare_pointers(const void *aptr, const void *bptr) {
+    uintptr_t a = *((uintptr_t*)aptr);
+    uintptr_t b = *((uintptr_t*)bptr);
+    if (a > b) return 1;
+    if (a < b) return -1;
+    return 0;
+}
+
 /* Fix pointers of neighbors nodes: after loading the serialized nodes, the
  * neighbors links are just IDs (casted to pointers), instead of the actual
  * pointers. We need to resolve IDs into pointers.
  *
+ * The two integers salt0 and salt1 are used to make the internal state
+ * of the function unguessable to an external attacker, in order to protect
+ * from corruptions. Show be two random numbers from /dev/urandom if possible
+ * otherwise can be just 0,0 if the application is not security critical and
+ * never processes untrusted inputs.
+ *
  * Return 0 on error (out of memory or some ID that can't be resolved), 1 on
  * success. */
-int hnsw_deserialize_index(HNSW *index) {
+int hnsw_deserialize_index(HNSW *index, uint64_t salt0, uint64_t salt1) {
     /* We will use simple linear probing, so over-allocating is a good
      * idea: anyway this flat array of pointers will consume a fraction
      * of the memory of the loaded index. */
@@ -2253,12 +2352,60 @@ int hnsw_deserialize_index(HNSW *index) {
         node = node->next;
     }
 
-    /* Second pass: fix pointers of all the neighbors links. */
+    /* Second pass: fix pointers of all the neighbors links.
+     * As we scan and fix the links, we also compute the accumulator
+     * register "reciprocal", that is used in order to guarantee that all
+     * the links are reciprocal.
+     *
+     * This is how it works, we hash (using a strong hash function) the
+     * following key for each link that we see from A to B (or vice versa):
+     *
+     *      hash(salt || A || B || link-level)
+     *
+     * We always sort A and B, so the same link from A to B and from B to A
+     * will hash the same. The we xor the result into the 128 bit accumulator.
+     * If each link has its own backlink, the accumulator is guaranteed to
+     * be zero at the end.
+     *
+     * Collisions are extremely unlikely to happen, and an external attacker
+     * can't easily control the hash function output, since the salt is
+     * unknown, and also there would be to control the pointers.
+     *
+     * This algorithm is O(1) for each node so it is basically free for
+     * us, as we scan the list of nodes, and runs on constant and very
+     * small memory. */
+    uint64_t accumulator[2] = {0,0};
+
     node = index->head; // Rewind.
     while(node) {
+        uint64_t this_node_id = node->id;
         for (uint32_t i = 0; i <= node->level; i++) {
+            // Check if there are duplicated links: those are
+            // also corruptions of the on-disk serialization format.
+            if (node->layers[i].num_links > 0) {
+                qsort(node->layers[i].links, node->layers[i].num_links,
+                        sizeof(void*), qsort_compare_pointers);
+                for (uint32_t j = 0; j < node->layers[i].num_links-1; j++) {
+                    if (node->layers[i].links[j] == node->layers[i].links[j+1])
+                        goto corrupted;
+                }
+            }
+
+            // Resolve pointers.
             for (uint32_t j = 0; j < node->layers[i].num_links; j++) {
                 uint64_t linked_id = (uint64_t) node->layers[i].links[j];
+
+                // We can't link to our own node.
+                if (linked_id == this_node_id) goto corrupted;
+
+                // Compute accumulator for reciprocal links check.
+                uint64_t mixed_h1, mixed_h2;
+                secure_pair_mixer_128(salt0, salt1, this_node_id, linked_id, (uint64_t)i, &mixed_h1, &mixed_h2);
+
+                accumulator[0] ^= mixed_h1;
+                accumulator[1] ^= mixed_h2;
+
+                // Fix links.
                 uint64_t bucket = hnsw_hash_node_id(linked_id) & (table_size-1);
                 hnswNode *neighbor = NULL;
                 for (uint64_t k = 0; k < table_size; k++) {
@@ -2268,19 +2415,37 @@ int hnsw_deserialize_index(HNSW *index) {
                     }
                     bucket = (bucket+1) & (table_size-1);
                 }
-                if (neighbor == NULL) {
+
+                /* The neighbor must exist and also exist at the right
+                 * level. */
+                if (neighbor == NULL || neighbor->level < i) {
                     /* Unresolved link! Either a bug in this code
                      * or broken serialization data. */
-                    hfree(table);
-                    return 0;
+                    goto corrupted;
                 }
                 node->layers[i].links[j] = neighbor;
+            }
+
+            /* The worst link information was missing from older
+             * serialization formats. Compute it on the fly if needed. */
+            if (node->layers[i].worst_idx == HNSW_SER_WORSTLINK_MISSING) {
+                hnsw_update_worst_neighbor(index,node,i);
             }
         }
         node = node->next;
     }
+
+    /* Check that links are reciprocal, otherwise fail. */
+    if (accumulator[0] || accumulator[1]) goto corrupted;
+
+    /* Everything fine. Return success. */
     hfree(table);
     return 1;
+
+corrupted:
+    /* Some corruption error detected. */
+    hfree(table);
+    return 0;
 }
 
 /* ================================ Iterator ================================ */
@@ -2324,6 +2489,7 @@ void hnsw_cursor_free(hnswCursor *cursor) {
             hfree(cursor);
             break;
         }
+        prev = x;
         x = x->next;
     }
     pthread_rwlock_unlock(&cursor->index->global_lock);

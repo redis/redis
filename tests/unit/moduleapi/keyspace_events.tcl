@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/keyspace_events.so]
 
-tags "modules" {
-    start_server [list overrides [list loadmodule "$testmodule"]] {
+tags "modules external:skip" {
+    start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
 
         # avoid using shared integers, to increase the chance of detection heap issues
         r config set maxmemory-policy allkeys-lru
@@ -87,6 +87,24 @@ tags "modules" {
             $rd1 close
         }
 
+        test "Keyspace notifications: unsubscribe removes handler" {
+            r config set notify-keyspace-events KEA
+            set before [r keyspace.callback_count]
+            r set a 1
+            r del a
+            wait_for_condition 100 10 {
+                [r keyspace.callback_count] > $before
+            } else {
+                fail "callback did not trigger"
+            }
+            set before_unsub [r keyspace.callback_count]
+            r keyspace.unsubscribe 4  ;# REDISMODULE_NOTIFY_GENERIC
+            r set a 1
+            r del a
+            set after_unsub [r keyspace.callback_count]
+            assert_equal $before_unsub $after_unsub
+        }
+
         test {Test expired key space event} {
             set prev_expired [s expired_keys]
             r set exp 1 PX 10
@@ -107,7 +125,7 @@ tags "modules" {
         }
     }
 
-    start_server {} {
+    start_server {tags {"external:skip"}} {
         test {OnLoad failure will handle un-registration} {
             catch {r module load $testmodule noload}
             r set x 1

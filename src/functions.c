@@ -168,14 +168,15 @@ static void engineDispose(dict *d, void *obj) {
 void functionsLibCtxClear(functionsLibCtx *lib_ctx) {
     dictEmpty(lib_ctx->functions, NULL);
     dictEmpty(lib_ctx->libraries, NULL);
-    dictIterator *iter = dictGetIterator(lib_ctx->engines_stats);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, lib_ctx->engines_stats);
+    while ((entry = dictNext(&iter))) {
         functionsLibEngineStats *stats = dictGetVal(entry);
         stats->n_functions = 0;
         stats->n_lib = 0;
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     lib_ctx->cache_memory = 0;
 }
 
@@ -218,14 +219,15 @@ functionsLibCtx* functionsLibCtxCreate(void) {
     ret->libraries = dictCreate(&librariesDictType);
     ret->functions = dictCreate(&functionDictType);
     ret->engines_stats = dictCreate(&engineStatsDictType);
-    dictIterator *iter = dictGetIterator(engines);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, engines);
+    while ((entry = dictNext(&iter))) {
         engineInfo *ei = dictGetVal(entry);
         functionsLibEngineStats *stats = zcalloc(sizeof(*stats));
         dictAdd(ret->engines_stats, ei->name, stats);
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     ret->cache_memory = 0;
     return ret;
 }
@@ -277,15 +279,16 @@ static functionLibInfo* engineLibraryCreate(sds name, engineInfo *ei, sds code) 
 }
 
 static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
-    dictIterator *iter = dictGetIterator(li->functions);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, li->functions);
+    while ((entry = dictNext(&iter))) {
         functionInfo *fi = dictGetVal(entry);
         int ret = dictDelete(lib_ctx->functions, fi->name);
         serverAssert(ret == DICT_OK);
         lib_ctx->cache_memory -= functionMallocSize(fi);
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     entry = dictUnlink(lib_ctx->libraries, li->name);
     dictSetVal(lib_ctx->libraries, entry, NULL);
     dictFreeUnlinkedEntry(lib_ctx->libraries, entry);
@@ -299,14 +302,15 @@ static void libraryUnlink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
 }
 
 static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
-    dictIterator *iter = dictGetIterator(li->functions);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, li->functions);
+    while ((entry = dictNext(&iter))) {
         functionInfo *fi = dictGetVal(entry);
         dictAdd(lib_ctx->functions, fi->name, fi);
         lib_ctx->cache_memory += functionMallocSize(fi);
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
 
     dictAdd(lib_ctx->libraries, li->name, li);
     lib_ctx->cache_memory += libraryMallocSize(li);
@@ -326,19 +330,20 @@ static void libraryLink(functionsLibCtx *lib_ctx, functionLibInfo* li) {
  *  */
 static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *functions_lib_ctx_src, int replace, sds *err) {
     int ret = C_ERR;
-    dictIterator *iter = NULL;
+    dictIterator iter;
     /* Stores the libraries we need to replace in case a revert is required.
      * Only initialized when needed */
     list *old_libraries_list = NULL;
     dictEntry *entry = NULL;
-    iter = dictGetIterator(functions_lib_ctx_src->libraries);
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, functions_lib_ctx_src->libraries);
+    while ((entry = dictNext(&iter))) {
         functionLibInfo *li = dictGetVal(entry);
         functionLibInfo *old_li = dictFetchValue(functions_lib_ctx_dst->libraries, li->name);
         if (old_li) {
             if (!replace) {
                 /* library already exists, failed the restore. */
                 *err = sdscatfmt(sdsempty(), "Library %s already exists", li->name);
+                dictResetIterator(&iter);
                 goto done;
             } else {
                 if (!old_libraries_list) {
@@ -350,30 +355,28 @@ static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *
             }
         }
     }
-    dictReleaseIterator(iter);
-    iter = NULL;
+    dictResetIterator(&iter);
 
     /* Make sure no functions collision */
-    iter = dictGetIterator(functions_lib_ctx_src->functions);
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, functions_lib_ctx_src->functions);
+    while ((entry = dictNext(&iter))) {
         functionInfo *fi = dictGetVal(entry);
         if (dictFetchValue(functions_lib_ctx_dst->functions, fi->name)) {
             *err = sdscatfmt(sdsempty(), "Function %s already exists", fi->name);
+            dictResetIterator(&iter);
             goto done;
         }
     }
-    dictReleaseIterator(iter);
-    iter = NULL;
+    dictResetIterator(&iter);
 
     /* No collision, it is safe to link all the new libraries. */
-    iter = dictGetIterator(functions_lib_ctx_src->libraries);
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, functions_lib_ctx_src->libraries);
+    while ((entry = dictNext(&iter))) {
         functionLibInfo *li = dictGetVal(entry);
         libraryLink(functions_lib_ctx_dst, li);
         dictSetVal(functions_lib_ctx_src->libraries, entry, NULL);
     }
-    dictReleaseIterator(iter);
-    iter = NULL;
+    dictResetIterator(&iter);
 
     functionsLibCtxClear(functions_lib_ctx_src);
     if (old_libraries_list) {
@@ -383,7 +386,6 @@ static int libraryJoin(functionsLibCtx *functions_lib_ctx_dst, functionsLibCtx *
     ret = C_OK;
 
 done:
-    if (iter) dictReleaseIterator(iter);
     if (old_libraries_list) {
         /* Link back all libraries on tmp_l_ctx */
         while (listLength(old_libraries_list) > 0) {
@@ -454,9 +456,10 @@ void functionStatsCommand(client *c) {
 
     addReplyBulkCString(c, "engines");
     addReplyMapLen(c, dictSize(engines));
-    dictIterator *iter = dictGetIterator(engines);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, engines);
+    while ((entry = dictNext(&iter))) {
         engineInfo *ei = dictGetVal(entry);
         addReplyBulkCString(c, ei->name);
         addReplyMapLen(c, 2);
@@ -466,7 +469,7 @@ void functionStatsCommand(client *c) {
         addReplyBulkCString(c, "functions_count");
         addReplyLongLong(c, e_stats->n_functions);
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
 }
 
 static void functionListReplyFlags(client *c, functionInfo *fi) {
@@ -528,9 +531,10 @@ void functionListCommand(client *c) {
         /* If no pattern is asked we know the reply len and we can just set it */
         addReplyArrayLen(c, dictSize(curr_functions_lib_ctx->libraries));
     }
-    dictIterator *iter = dictGetIterator(curr_functions_lib_ctx->libraries);
+    dictIterator iter;
     dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, curr_functions_lib_ctx->libraries);
+    while ((entry = dictNext(&iter))) {
         functionLibInfo *li = dictGetVal(entry);
         if (library_name) {
             if (!stringmatchlen(library_name, sdslen(library_name), li->name, sdslen(li->name), 1)) {
@@ -546,9 +550,10 @@ void functionListCommand(client *c) {
 
         addReplyBulkCString(c, "functions");
         addReplyArrayLen(c, dictSize(li->functions));
-        dictIterator *functions_iter = dictGetIterator(li->functions);
+        dictIterator functions_iter;
         dictEntry *function_entry = NULL;
-        while ((function_entry = dictNext(functions_iter))) {
+        dictInitIterator(&functions_iter, li->functions);
+        while ((function_entry = dictNext(&functions_iter))) {
             functionInfo *fi = dictGetVal(function_entry);
             addReplyMapLen(c, 3);
             addReplyBulkCString(c, "name");
@@ -562,14 +567,14 @@ void functionListCommand(client *c) {
             addReplyBulkCString(c, "flags");
             functionListReplyFlags(c, fi);
         }
-        dictReleaseIterator(functions_iter);
+        dictResetIterator(&functions_iter);
 
         if (with_code) {
             addReplyBulkCString(c, "library_code");
             addReplyBulkCBuffer(c, li->code, sdslen(li->code));
         }
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
     if (len_ptr) {
         setDeferredArrayLen(c, len_ptr, reply_len);
     }
@@ -951,7 +956,7 @@ void functionFreeLibMetaData(functionsLibMataData *md) {
 /* Compile and save the given library, return the loaded library name on success
  * and NULL on failure. In case on failure the err out param is set with relevant error message */
 sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibCtx *lib_ctx, size_t timeout) {
-    dictIterator *iter = NULL;
+    dictIterator iter;
     dictEntry *entry = NULL;
     functionLibInfo *new_li = NULL;
     functionLibInfo *old_li = NULL;
@@ -994,17 +999,17 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     }
 
     /* Verify no duplicate functions */
-    iter = dictGetIterator(new_li->functions);
-    while ((entry = dictNext(iter))) {
+    dictInitIterator(&iter, new_li->functions);
+    while ((entry = dictNext(&iter))) {
         functionInfo *fi = dictGetVal(entry);
         if (dictFetchValue(lib_ctx->functions, fi->name)) {
             /* functions name collision, abort. */
             *err = sdscatfmt(sdsempty(), "Function %s already exists", fi->name);
+            dictResetIterator(&iter);
             goto error;
         }
     }
-    dictReleaseIterator(iter);
-    iter = NULL;
+    dictResetIterator(&iter);
 
     libraryLink(lib_ctx, new_li);
 
@@ -1019,7 +1024,6 @@ sds functionsCreateWithLibraryCtx(sds code, int replace, sds* err, functionsLibC
     return loaded_lib_name;
 
 error:
-    if (iter) dictReleaseIterator(iter);
     if (new_li) engineLibraryFree(new_li);
     if (old_li) libraryLink(lib_ctx, old_li);
     functionFreeLibMetaData(&md);
@@ -1069,15 +1073,17 @@ void functionLoadCommand(client *c) {
 
 /* Return memory usage of all the engines combine */
 unsigned long functionsMemoryVM(void) {
-    dictIterator *iter = dictGetIterator(engines);
+    dictIterator iter;
     dictEntry *entry = NULL;
     size_t engines_memory = 0;
-    while ((entry = dictNext(iter))) {
+
+    dictInitIterator(&iter, engines);
+    while ((entry = dictNext(&iter))) {
         engineInfo *ei = dictGetVal(entry);
         engine *engine = ei->engine;
         engines_memory += engine->get_used_memory(engine->engine_ctx);
     }
-    dictReleaseIterator(iter);
+    dictResetIterator(&iter);
 
     return engines_memory;
 }

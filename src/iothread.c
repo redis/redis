@@ -343,6 +343,29 @@ int sendPendingClientsToIOThreads(void) {
     return processed;
 }
 
+/* Prefetch the commands from the IO thread. The return value is the number
+ * of clients that have been prefetched. */
+int prefetchIOThreadCommands(IOThread *t) {
+    int len = listLength(mainThreadProcessingClients[t->id]);
+    int to_prefetch = determinePrefetchCount(len);
+    if (to_prefetch == 0) return 0;
+
+    int clients = 0;
+    listIter li;
+    listNode *ln;
+    listRewind(mainThreadProcessingClients[t->id], &li);
+    while((ln = listNext(&li)) && clients++ < to_prefetch) {
+        client *c = listNodeValue(ln);
+        /* A single command may contain multiple keys. If the batch is full,
+         * we stop adding clients to it. */
+        if (addCommandToBatch(c) == C_ERR) break;
+    }
+
+    /* Prefetch the commands in the batch. */
+    prefetchCommands();
+    return clients;
+}
+
 extern int ProcessingEventsWhileBlocked;
 
 /* Send the pending clients to the IO thread if the number of pending clients
@@ -391,8 +414,19 @@ int processClientsFromIOThread(IOThread *t) {
     size_t processed = listLength(mainThreadProcessingClients[t->id]);
     if (processed == 0) return 0;
 
+    int prefetch_clients = 0;
+    /* We may call processClientsFromIOThread reentrantly, so we need to
+     * reset the prefetching batch, besides, users may change the config
+     * of prefetch batch size, so we need to reset the prefetching batch. */
+    resetCommandsBatch();
+
     listNode *node = NULL;
     while (listLength(mainThreadProcessingClients[t->id])) {
+        /* Prefetch the commands if no clients in the batch. */
+        if (prefetch_clients <= 0) prefetch_clients = prefetchIOThreadCommands(t);
+        /* Reset the prefetching batch if we have processed all clients. */
+        if (--prefetch_clients <= 0) resetCommandsBatch();
+
         /* Each time we pop up only the first client to process to guarantee
          * reentrancy safety. */
         if (node) zfree(node);
@@ -400,7 +434,7 @@ int processClientsFromIOThread(IOThread *t) {
         listUnlinkNode(mainThreadProcessingClients[t->id], node);
         client *c = listNodeValue(node);
 
-        /* Make sure the client is readable or writable in io thread to
+        /* Make sure the client is neither readable nor writable in io thread to
          * avoid data race. */
         serverAssert(!(c->io_flags & (CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED)));
         serverAssert(!(c->flags & CLIENT_CLOSE_ASAP));
@@ -418,8 +452,17 @@ int processClientsFromIOThread(IOThread *t) {
             continue;
         }
 
-        /* Update the client in the mem usage */
-        updateClientMemUsageAndBucket(c);
+        /* Run cron task for the client per second or it is marked as pending cron. */
+        if (c->last_cron_check_time + 1000 <= server.mstime ||
+            c->io_flags & CLIENT_IO_PENDING_CRON)
+        {
+            c->last_cron_check_time = server.mstime;
+            if (clientsCronRunClient(c)) continue;
+        } else {
+            /* Update the client in the mem usage if clientsCronRunClient is not
+             * being called, since that function already performs the update. */
+            updateClientMemUsageAndBucket(c);
+        }
 
         /* Process the pending command and input buffer. */
         if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
@@ -560,7 +603,7 @@ int processClientsFromMainThread(IOThread *t) {
 
         /* Enable read and write and reset some flags. */
         c->io_flags |= CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED;
-        c->io_flags &= ~CLIENT_IO_PENDING_COMMAND;
+        c->io_flags &= ~(CLIENT_IO_PENDING_COMMAND | CLIENT_IO_PENDING_CRON);
 
         /* Only bind once, we never remove read handler unless freeing client. */
         if (!connHasEventLoop(c->conn)) {
@@ -624,6 +667,41 @@ void IOThreadAfterSleep(struct aeEventLoop *el) {
     atomicSetWithSync(t->running, 1);
 }
 
+/* Periodically transfer part of clients to the main thread for processing. */
+void IOThreadClientsCron(IOThread *t) {
+    /* Process at least a few clients while we are at it, even if we need
+     * to process less than CLIENTS_CRON_MIN_ITERATIONS to meet our contract
+     * of processing each client once per second. */
+    int iterations = listLength(t->clients) / CONFIG_DEFAULT_HZ;
+    if (iterations < CLIENTS_CRON_MIN_ITERATIONS) {
+        iterations = CLIENTS_CRON_MIN_ITERATIONS;
+    }
+
+    listIter li;
+    listNode *ln;
+    listRewind(t->clients, &li);
+    while ((ln = listNext(&li)) && iterations--) {
+        client *c = listNodeValue(ln);
+        /* Mark the client as pending cron, main thread will process it. */
+        c->io_flags |= CLIENT_IO_PENDING_CRON;
+        enqueuePendingClientsToMainThread(c, 0);
+    }
+}
+
+/* This is the IO thread timer interrupt, CONFIG_DEFAULT_HZ times per second.
+ * The current responsibility is to detect clients that have been stuck in the
+ * IO thread for too long and hand them over to the main thread for handling. */
+int IOThreadCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    UNUSED(eventLoop);
+    UNUSED(id);
+    IOThread *t = clientData;
+
+    /* Run cron tasks for the clients in the IO thread. */
+    IOThreadClientsCron(t);
+
+    return 1000/CONFIG_DEFAULT_HZ;
+}
+
 /* The main function of IO thread, it will run an event loop. The mian thread
  * and IO thread will communicate through event notifier. */
 void *IOThreadMain(void *ptr) {
@@ -651,6 +729,8 @@ void initThreadedIO(void) {
         exit(1);
     }
 
+    prefetchCommandsBatchInit();
+
     /* Spawn and initialize the I/O threads. */
     for (int i = 1; i < server.io_threads_num; i++) {
         IOThread *t = &IOThreads[i];
@@ -677,6 +757,13 @@ void initThreadedIO(void) {
                               AE_READABLE, handleClientsFromMainThread, t) != AE_OK)
         {
             serverLog(LL_WARNING, "Fatal: Can't register file event for IO thread notifications.");
+            exit(1);
+        }
+
+        /* This is the timer callback of the IO thread, used to gradually handle 
+         * some background operations, such as clients cron. */
+        if (aeCreateTimeEvent(t->el, 1, IOThreadCron, t, NULL) == AE_ERR) {
+            serverLog(LL_WARNING, "Fatal: Can't create event loop timers in IO thread.");
             exit(1);
         }
 

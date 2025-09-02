@@ -421,8 +421,9 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with, struct sl
 
     if (dictSize(emptied->watched_keys) == 0) return;
 
-    dictIterator *di = dictGetSafeIterator(emptied->watched_keys);
-    while((de = dictNext(di)) != NULL) {
+    dictIterator di;
+    dictInitSafeIterator(&di, emptied->watched_keys);
+    while((de = dictNext(&di)) != NULL) {
         robj *key = dictGetKey(de);
         if (slots && !slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
             continue;
@@ -458,7 +459,7 @@ void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with, struct sl
             }
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 }
 
 void watchCommand(client *c) {

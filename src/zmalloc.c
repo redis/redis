@@ -67,6 +67,16 @@ void zlibc_free(void *ptr) {
 #define mallocx(size,flags) je_mallocx(size,flags)
 #define rallocx(ptr,size,flags) je_rallocx(ptr,size,flags)
 #define dallocx(ptr,flags) je_dallocx(ptr,flags)
+#if defined(HAVE_ALLOC_WITH_USIZE)
+void *je_malloc_with_usize(size_t size, size_t *usize);
+void *je_calloc_with_usize(size_t num, size_t size, size_t *usize);
+void *je_realloc_with_usize(void *ptr, size_t size, size_t *old_usize, size_t *new_usize);
+void je_free_with_usize(void *ptr, size_t *usize);
+#define malloc_with_usize(size,usize) je_malloc_with_usize(size,usize)
+#define calloc_with_usize(num,size,usize) je_calloc_with_usize(num,size,usize)
+#define realloc_with_usize(ptr,size,old_usize,new_usize) je_realloc_with_usize(ptr,size,old_usize,new_usize)
+#define free_with_usize(ptr,usize) je_free_with_usize(ptr,usize)
+#endif
 #endif
 
 #define MAX_THREADS 16 /* Keep it a power of 2 so we can use '&' instead of '%'. */
@@ -119,10 +129,17 @@ void *extend_to_usable(void *ptr, size_t size) {
 static inline void *ztrymalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
+#ifdef HAVE_ALLOC_WITH_USIZE
+    void *ptr = malloc_with_usize(MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+#else
     void *ptr = malloc(MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
-
+#endif
     if (!ptr) return NULL;
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_ALLOC_WITH_USIZE
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return ptr;
+#elif HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
     if (usable) *usable = size;
@@ -243,10 +260,18 @@ void zfree_no_tcache(void *ptr) {
 static inline void *ztrycalloc_usable_internal(size_t size, size_t *usable) {
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) return NULL;
+#ifdef HAVE_ALLOC_WITH_USIZE
+    void *ptr = calloc_with_usize(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE, &size);
+#else
     void *ptr = calloc(1, MALLOC_MIN_SIZE(size)+PREFIX_SIZE);
+#endif
     if (ptr == NULL) return NULL;
 
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_ALLOC_WITH_USIZE
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return ptr;
+#elif HAVE_MALLOC_SIZE
     size = zmalloc_size(ptr);
     update_zmalloc_stat_alloc(size);
     if (usable) *usable = size;
@@ -335,8 +360,17 @@ static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *
         if (usable) *usable = 0;
         return NULL;
     }
-
-#ifdef HAVE_MALLOC_SIZE
+#ifdef HAVE_ALLOC_WITH_USIZE
+    newptr = realloc_with_usize(ptr, size, &oldsize, &size);
+    if (newptr == NULL) {
+        if (usable) *usable = 0;
+        return NULL;
+    }
+    update_zmalloc_stat_free(oldsize);
+    update_zmalloc_stat_alloc(size);
+    if (usable) *usable = size;
+    return newptr;
+#elif HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
     newptr = realloc(ptr,size);
     if (newptr == NULL) {
@@ -417,17 +451,18 @@ size_t zmalloc_usable_size(void *ptr) {
 #endif
 
 void zfree(void *ptr) {
-#ifndef HAVE_MALLOC_SIZE
-    void *realptr;
-    size_t oldsize;
-#endif
-
     if (ptr == NULL) return;
-#ifdef HAVE_MALLOC_SIZE
+
+#ifdef HAVE_ALLOC_WITH_USIZE
+    size_t oldsize;
+    free_with_usize(ptr, &oldsize);
+    update_zmalloc_stat_free(oldsize);
+#elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(zmalloc_size(ptr));
     free(ptr);
 #else
-    realptr = (char*)ptr-PREFIX_SIZE;
+    size_t oldsize;
+    void *realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
     update_zmalloc_stat_free(oldsize+PREFIX_SIZE);
     free(realptr);
@@ -442,7 +477,11 @@ void zfree_usable(void *ptr, size_t *usable) {
 #endif
 
     if (ptr == NULL) return;
-#ifdef HAVE_MALLOC_SIZE
+
+#ifdef HAVE_ALLOC_WITH_USIZE
+    free_with_usize(ptr, usable);
+    update_zmalloc_stat_free(*usable);
+#elif HAVE_MALLOC_SIZE
     update_zmalloc_stat_free(*usable = zmalloc_size(ptr));
     free(ptr);
 #else
@@ -698,33 +737,46 @@ size_t zmalloc_get_rss(void) {
 size_t zmalloc_get_frag_smallbins_by_arena(unsigned int arena) {
     unsigned nbins;
     size_t sz, frag = 0;
-    char buf[100];
+
+    /* Pre-convert mallctl paths to MIB for better performance.
+     * This eliminates snprintf and string parsing overhead in the loop. */
+    size_t bin_size_mib[8], bin_nregs_mib[8], curregs_mib[8], curslabs_mib[8];
+    size_t bin_size_miblen = 8, bin_nregs_miblen = 8, curregs_miblen = 8, curslabs_miblen = 8;
 
     sz = sizeof(unsigned);
     assert(!je_mallctl("arenas.nbins", &nbins, &sz, NULL, 0));
+
+    /* Convert all patterns to MIB (required before using je_mallctlbymib) */
+    assert(!je_mallctlnametomib("arenas.bin.0.size", bin_size_mib, &bin_size_miblen));
+    assert(!je_mallctlnametomib("arenas.bin.0.nregs", bin_nregs_mib, &bin_nregs_miblen));
+    assert(!je_mallctlnametomib("stats.arenas.0.bins.0.curregs", curregs_mib, &curregs_miblen));
+    assert(!je_mallctlnametomib("stats.arenas.0.bins.0.curslabs", curslabs_mib, &curslabs_miblen));
+
     for (unsigned j = 0; j < nbins; j++) {
         size_t curregs, curslabs, reg_size;
         uint32_t nregs;
 
         /* The size of the current bin */
-        snprintf(buf, sizeof(buf), "arenas.bin.%u.size", j);
+        bin_size_mib[2] = j;
         sz = sizeof(size_t);
-        assert(!je_mallctl(buf, &reg_size, &sz, NULL, 0));
+        assert(!je_mallctlbymib(bin_size_mib, bin_size_miblen, &reg_size, &sz, NULL, 0));
 
         /* Number of used regions in the bin */
-        snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%u.curregs", arena, j);
+        curregs_mib[2] = arena;
+        curregs_mib[4] = j;
         sz = sizeof(size_t);
-        assert(!je_mallctl(buf, &curregs, &sz, NULL, 0));
+        assert(!je_mallctlbymib(curregs_mib, curregs_miblen, &curregs, &sz, NULL, 0));
 
         /* Number of regions per slab */
-        snprintf(buf, sizeof(buf), "arenas.bin.%u.nregs", j);
+        bin_nregs_mib[2] = j;
         sz = sizeof(uint32_t);
-        assert(!je_mallctl(buf, &nregs, &sz, NULL, 0));
+        assert(!je_mallctlbymib(bin_nregs_mib, bin_nregs_miblen, &nregs, &sz, NULL, 0));
 
         /* Number of current slabs in the bin */
-        snprintf(buf, sizeof(buf), "stats.arenas.%u.bins.%u.curslabs", arena, j);
+        curslabs_mib[2] = arena;
+        curslabs_mib[4] = j;
         sz = sizeof(size_t);
-        assert(!je_mallctl(buf, &curslabs, &sz, NULL, 0));
+        assert(!je_mallctlbymib(curslabs_mib, curslabs_miblen, &curslabs, &sz, NULL, 0));
 
         /* Calculate the fragmentation bytes for the current bin and add it to the total. */
         frag += ((nregs * curslabs) - curregs) * reg_size;

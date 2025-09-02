@@ -3,7 +3,7 @@
     "summary": "Add one or more elements to a vector set, or update its vector if it already exists",
     "complexity": "O(log(N)) for each element added, where N is the number of elements in the vector set.",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": -1,
     "function": "vaddCommand",
     "arguments": [
@@ -102,7 +102,7 @@
     "summary": "Remove one or more elements from a vector set",
     "complexity": "O(log(N)) for each element removed, where N is the number of elements in the vector set.",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": -2,
     "function": "vremCommand",
     "command_flags": [
@@ -124,7 +124,7 @@
     "summary": "Return elements by vector similarity",
     "complexity": "O(log(N)) where N is the number of elements in the vector set.",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": -3,
     "function": "vsimCommand",
     "command_flags": [
@@ -163,6 +163,12 @@
       {
         "token": "WITHSCORES",
         "name": "withscores",
+        "type": "pure-token",
+        "optional": true
+      },
+      {
+        "token": "WITHATTRIBS",
+        "name": "withattribs",
         "type": "pure-token",
         "optional": true
       },
@@ -208,7 +214,7 @@
     "summary": "Return the dimension of vectors in the vector set",
     "complexity": "O(1)",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": 2,
     "function": "vdimCommand",
     "command_flags": [
@@ -226,7 +232,7 @@
     "summary": "Return the number of elements in a vector set",
     "complexity": "O(1)",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": 2,
     "function": "vcardCommand",
     "command_flags": [
@@ -244,7 +250,7 @@
     "summary": "Return the vector associated with an element",
     "complexity": "O(1)",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": -3,
     "function": "vembCommand",
     "command_flags": [
@@ -271,7 +277,7 @@
     "summary": "Return the neighbors of an element at each layer in the HNSW graph",
     "complexity": "O(1)",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": -3,
     "function": "vlinksCommand",
     "command_flags": [
@@ -291,12 +297,6 @@
         "name": "withscores",
         "type": "pure-token",
         "optional": true
-      },
-      {
-        "token": "WITHATTRIBS",
-        "name": "withattribs",
-        "type": "pure-token",
-        "optional": true
       }
     ]
   },
@@ -304,7 +304,7 @@
     "summary": "Return information about a vector set",
     "complexity": "O(1)",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": 2,
     "function": "vinfoCommand",
     "command_flags": [
@@ -322,7 +322,7 @@
     "summary": "Associate or remove the JSON attributes of elements",
     "complexity": "O(1)",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": 4,
     "function": "vsetattrCommand",
     "command_flags": [
@@ -347,7 +347,7 @@
     "summary": "Retrieve the JSON attributes of elements",
     "complexity": "O(1)",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": 3,
     "function": "vgetattrCommand",
     "command_flags": [
@@ -368,7 +368,7 @@
     "summary": "Return one or multiple random members from a vector set",
     "complexity": "O(N) where N is the absolute value of the count argument.",
     "group": "vector_set",
-    "since": "1.0.0",
+    "since": "8.0.0",
     "arity": -2,
     "function": "vrandmemberCommand",
     "command_flags": [

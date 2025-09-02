@@ -190,10 +190,11 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             }
         } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
             zset *zs = o->ptr;
-            dictIterator *di = dictGetIterator(zs->dict);
+            dictIterator di;
             dictEntry *de;
 
-            while((de = dictNext(di)) != NULL) {
+            dictInitIterator(&di, zs->dict);
+            while((de = dictNext(&di)) != NULL) {
                 sds sdsele = dictGetKey(de);
                 double *score = dictGetVal(de);
                 const int len = fpconv_dtoa(*score, buf);
@@ -203,7 +204,7 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
                 mixDigest(eledigest,buf,strlen(buf));
                 xorDigest(digest,eledigest,20);
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         } else {
             serverPanic("Unknown sorted set encoding");
         }
@@ -1070,14 +1071,15 @@ NULL
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"script") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr,"list")) {
-            dictIterator *di = dictGetIterator(evalScriptsDict());
+            dictIterator di;
             dictEntry *de;
-            while ((de = dictNext(di)) != NULL) {
+            dictInitIterator(&di, evalScriptsDict());
+            while ((de = dictNext(&di)) != NULL) {
                 luaScript *script = dictGetVal(de);
                 sds *sha = dictGetKey(de);
                 serverLog(LL_WARNING, "SCRIPT SHA: %s\n%s", (char*)sha, (char*)script->body->ptr);
             }
-            dictReleaseIterator(di);
+            dictResetIterator(&di);
         } else if (sdslen(c->argv[2]->ptr) == 40) {
             dictEntry *de;
             if ((de = dictFind(evalScriptsDict(), c->argv[2]->ptr)) == NULL) {
@@ -2518,7 +2520,7 @@ void removeSigSegvHandlers(void) {
 }
 
 void printCrashReport(void) {
-    server.crashing = 1;
+    atomicSet(server.crashing, 1);
 
     /* Log INFO and CLIENT LIST */
     logServerInfo();
@@ -2600,6 +2602,9 @@ void serverLogHexDump(int level, char *descr, void *value, size_t len) {
 #include <sys/time.h>
 
 void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
+    /* Save and restore errno to avoid spoiling it's value as caught by
+     * WARNING: ThreadSanitizer: signal handler spoils errno */
+    int save_errno = errno;
 #ifdef HAVE_BACKTRACE
     ucontext_t *uc = (ucontext_t*) secret;
 #else
@@ -2620,6 +2625,7 @@ void sigalrmSignalHandler(int sig, siginfo_t *info, void *secret) {
     serverLogRawFromHandler(LL_WARNING,"Sorry: no support for backtrace().");
 #endif
     serverLogRawFromHandler(LL_WARNING,"--------\n");
+    errno = save_errno;
 }
 
 /* Schedule a SIGALRM delivery after the specified period in milliseconds.
@@ -2676,7 +2682,7 @@ void debugDelay(int usec) {
  * If thread tid blocks or ignores sig_num returns 0 (thread is not ready to catch the signal).
  * also returns 0 if something is wrong and prints a warning message to the log file **/
 static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char *tid, int sig_num) {
-    /* Open the threads status file path /proc/<pid>>/task/<tid>/status */
+    /* Open the threads status file path /proc/<pid>/task/<tid>/status */
     char path_buff[PATH_MAX];
     snprintf_async_signal_safe(path_buff, PATH_MAX, "%s/%s/status", proc_pid_task_path, tid);
 

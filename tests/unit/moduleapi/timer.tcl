@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/timer.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {RM_CreateTimer: a sequence of timers work} {

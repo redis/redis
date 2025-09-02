@@ -1,3 +1,17 @@
+/*
+ * Copyright (c) 2009-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
+ * Licensed under your choice of (a) the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+ */
+
 #ifndef __CLUSTER_H
 #define __CLUSTER_H
 
@@ -131,6 +145,8 @@ const char *clusterNodePreferredEndpoint(clusterNode *n);
 long long clusterNodeReplOffset(clusterNode *node);
 clusterNode *clusterLookupNode(const char *name, int length);
 const char *clusterGetSecret(size_t *len);
+unsigned int countKeysInSlot(unsigned int slot);
+int getSlotOrReply(client *c, robj *o);
 int clusterIsMySlot(int slot);
 
 /* functions with shared implementations */
@@ -174,6 +190,7 @@ void clusterFreeNodesSlotsInfo(clusterNode *n);
 int clusterNodeSlotInfoCount(clusterNode *n);
 uint16_t clusterNodeSlotInfoEntry(clusterNode *n, int idx);
 int clusterNodeHasSlotInfo(clusterNode *n);
+void resetClusterStats(void);
 
 int clusterGetShardCount(void);
 void *clusterGetShardIterator(void);

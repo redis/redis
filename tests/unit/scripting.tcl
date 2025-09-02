@@ -1,3 +1,17 @@
+#
+# Copyright (c) 2009-Present, Redis Ltd.
+# All rights reserved.
+#
+# Copyright (c) 2024-present, Valkey contributors.
+# All rights reserved.
+#
+# Licensed under your choice of (a) the Redis Source Available License 2.0
+# (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+# GNU Affero General Public License v3 (AGPLv3).
+#
+# Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+#
+
 foreach is_eval {0 1} {
 
 if {$is_eval == 1} {
@@ -364,6 +378,65 @@ start_server {tags {"scripting"}} {
                 return {decoded.keya, decoded.keyb}
         } 0
     } {a b}
+
+    test {EVAL - JSON empty array decoding} {
+        # Default behavior
+        assert_equal "{}" [run_script {
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{\"item\":{}}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            return cjson.encode(cjson.decode('{"item": []}'))
+        } 0]
+
+        # With array metatable
+        assert_equal "\[\]" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            return cjson.encode(cjson.decode('[]'))
+        } 0]
+        assert_equal "{\"item\":\[\]}" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            return cjson.encode(cjson.decode('{"item": []}'))
+        } 0]
+    }
+
+    test {EVAL - JSON empty array decoding after element removal} {
+        # Default: emptied array becomes object
+        assert_equal "{}" [run_script {
+            cjson.decode_array_with_array_mt(false)
+            local t = cjson.decode('[1, 2]')
+            -- emptying the array
+            t[1] = nil
+            t[2] = nil
+            return cjson.encode(t)
+        } 0]
+
+        # With array metatable: emptied array stays array
+        assert_equal "\[\]" [run_script {
+            cjson.decode_array_with_array_mt(true)
+            local t = cjson.decode('[1, 2]')
+            -- emptying the array
+            t[1] = nil
+            t[2] = nil
+            return cjson.encode(t)
+        } 0]
+    }
+
+    test {EVAL - cjson array metatable modification should be readonly} {
+        catch {
+            run_script {
+                cjson.decode_array_with_array_mt(true)
+                local t = cjson.decode('[]')
+                getmetatable(t).__is_cjson_array = function() return 1 end
+                return cjson.encode(t)
+            } 0
+        } e
+        set _ $e
+    } {*Attempt to modify a readonly table*}
 
     test {EVAL - JSON smoke test} {
         run_script {
@@ -2445,6 +2518,23 @@ start_server {tags {"scripting"}} {
 
             # Assert the string has been trimmed and the 80 bytes from the previous alloc were not kept.
             assert { [r memory usage foo] <= $expected_memory};
+        }
+    }
+
+    test {EVAL - explicit error() call handling} {
+        # error("simple string error")
+        assert_error {ERR user_script:1: simple string error script: *} {
+            r eval "error('simple string error')" 0
+        }
+
+        # error({"err": "ERR table error"})
+        assert_error {ERR table error script: *} {
+            r eval "error({err='ERR table error'})" 0
+        }
+
+        # error({})
+        assert_error {ERR unknown error script: *} {
+            r eval "error({})" 0
         }
     }
 }

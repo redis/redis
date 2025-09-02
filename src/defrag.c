@@ -410,6 +410,17 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de, dictEntryL
     UNUSED(de);
 }
 
+void activeDefragLuaScriptDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    UNUSED(privdata);
+
+    /* If this luaScript is in the LRU list, unconditionally update the node's
+     * value pointer to the current dict key (regardless of reallocation). */
+    luaScript *script = dictGetVal(de);
+    if (script->node)
+        script->node->value = dictGetKey(de);
+}
+
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     dict *d = privdata;
@@ -436,8 +447,10 @@ void activeDefragSdsDict(dict* d, int val_type) {
                       val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
                       NULL)
     };
+    dictScanFunction *fn = (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ?
+        activeDefragLuaScriptDictCallback : activeDefragSdsDictCallback);
     do {
-        cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
+        cursor = dictScanDefrag(d, cursor, fn,
                                 &defragfns, NULL);
     } while (cursor != 0);
 }
@@ -664,11 +677,12 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
     if (dictSize(zs->dict) > server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
     else {
-        dictIterator *di = dictGetIterator(zs->dict);
-        while((de = dictNext(di)) != NULL) {
+        dictIterator di;
+        dictInitIterator(&di, zs->dict);
+        while((de = dictNext(&di)) != NULL) {
             activeDefragZsetEntry(zs, de);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
     /* defrag the dict struct and tables */
     if ((newdict = dictDefragTables(zs->dict)))
@@ -1029,16 +1043,17 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
         /* The channel name is shared by the client's pubsub(shard) and server's
          * pubsub(shard), after defraging the channel name, we need to update
          * the reference in the clients' dictionary. */
-        dictIterator *di = dictGetIterator(clients);
+        dictIterator di;
         dictEntry *clientde;
-        while((clientde = dictNext(di)) != NULL) {
+        dictInitIterator(&di, clients);
+        while((clientde = dictNext(&di)) != NULL) {
             client *c = dictGetKey(clientde);
             dict *client_channels = ctx->getPubSubChannels(c);
             dictEntry *pubsub_channel = dictFind(client_channels, newchannel);
             serverAssert(pubsub_channel);
             dictSetKey(ctx->getPubSubChannels(c), pubsub_channel, newchannel);
         }
-        dictReleaseIterator(di);
+        dictResetIterator(&di);
     }
 
     /* Try to defrag the dictionary of clients that is stored as the value part. */
@@ -1241,7 +1256,7 @@ static doneStatus defragStageDbKeys(void *ctx, monotime endtime) {
 static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
     defragKeysCtx *defrag_keys_ctx = ctx;
     redisDb *db = &server.db[defrag_keys_ctx->dbid];
-    if (db->keys != defrag_keys_ctx->kvstate.kvs) {
+    if (db->expires != defrag_keys_ctx->kvstate.kvs) {
         /* There has been a change of the kvs (flushdb, swapdb, etc.). Just complete the stage. */
         return DEFRAG_DONE;
     }
@@ -1654,9 +1669,10 @@ static void beginDefragCycle(void) {
     addDefragStage(defragLuaScripts, NULL, NULL);
 
     /* Add stages for modules. */
-    dictIterator *di = dictGetIterator(modules);
+    dictIterator di;
     dictEntry *de;
-    while ((de = dictNext(di)) != NULL) {
+    dictInitIterator(&di, modules);
+    while ((de = dictNext(&di)) != NULL) {
         struct RedisModule *module = dictGetVal(de);
         if (module->defrag_cb || module->defrag_cb_2) {
             defragModuleCtx *ctx = zmalloc(sizeof(defragModuleCtx));
@@ -1665,7 +1681,7 @@ static void beginDefragCycle(void) {
             addDefragStage(defragModuleGlobals, freeDefragModelContext, ctx);
         }
     }
-    dictReleaseIterator(di);
+    dictResetIterator(&di);
 
     defrag.current_stage = NULL;
     defrag.start_cycle = getMonotonicUs();
