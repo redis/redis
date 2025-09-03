@@ -398,7 +398,7 @@ endif
 
 .PHONY: all
 
-module_tests:
+module_tests: $(REDIS_SERVER_NAME)
 	$(MAKE) -C ../tests/modules
 
 .PHONY: module_tests
