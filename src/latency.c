@@ -262,7 +262,7 @@ sds createLatencyReport(void) {
             if (server.slowlog_log_slower_than < 0 || server.slowlog_max_len == 0) {
                 advise_slowlog_enabled = 1;
                 advices++;
-            } else if (server.slowlog_log_slower_than/1000 >
+            } else if (server.slowlog_log_slower_than/1000 <
                        server.latency_monitor_threshold)
             {
                 advise_slowlog_tuning = 1;
