@@ -171,7 +171,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 
     /* currently we only support hash type sub-expire */
     assert(kv->type == OBJ_HASH);
-    uint64_t nextExpTime = hashTypeActiveExpire(kv, expireCtx->db,
+    uint64_t nextExpTime = hashTypeActiveExpire(expireCtx->db,kv,
                                           &expireCtx->fieldsToExpireQuota, 0);
 
     /* If hash has no more fields to expire or got deleted, indicate

@@ -602,7 +602,7 @@ void hashTypeTryConversion(redisDb *db, kvobj *o, robj **argv, int start, int en
      * might over allocate memory if there are duplicates. */
     size_t new_fields = (end - start + 1) / 2;
     if (new_fields > server.hash_max_listpack_entries) {
-        hashTypeConvert(o, OBJ_ENCODING_HT, db);
+        hashTypeConvert(db, o, OBJ_ENCODING_HT);
         dictExpand(o->ptr, new_fields);
         return;
     }
@@ -612,13 +612,13 @@ void hashTypeTryConversion(redisDb *db, kvobj *o, robj **argv, int start, int en
             continue;
         size_t len = sdslen(argv[i]->ptr);
         if (len > server.hash_max_listpack_value) {
-            hashTypeConvert(o, OBJ_ENCODING_HT, db);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
             return;
         }
         sum += len;
     }
     if (!lpSafeToAdd(hashTypeListpackGetLp(o), sum)) {
-        hashTypeConvert(o, OBJ_ENCODING_HT, db);
+        hashTypeConvert(db, o, OBJ_ENCODING_HT);
     }
 }
 
@@ -886,7 +886,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
     if (o->encoding == OBJ_ENCODING_LISTPACK  ||
         o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         if (sdslen(field) > server.hash_max_listpack_value || sdslen(value) > server.hash_max_listpack_value)
-            hashTypeConvert(o, OBJ_ENCODING_HT, db);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
     }
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -920,7 +920,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
 
         /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT, db);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         unsigned char *fptr = NULL, *vptr = NULL, *tptr = NULL;
         listpackEx *lpt = o->ptr;
@@ -959,7 +959,7 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
 
         /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT, db);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
 
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dict *ht = o->ptr;
@@ -1144,7 +1144,7 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
 
     /* Take care that HASH support expiration */
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        hashTypeConvert(o, OBJ_ENCODING_LISTPACK_EX, c->db);
+        hashTypeConvert(c->db, o, OBJ_ENCODING_LISTPACK_EX);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         /* Take care dict has HFE metadata */
         if (!isDictWithMetaHFE(ht)) {
@@ -1646,7 +1646,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
 }
 
 /* NOTE: db can be NULL (Won't register in global HFE DS) */
-void hashTypeConvert(robj *o, int enc, redisDb *db) {
+void hashTypeConvert(redisDb *db, robj *o, int enc) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
@@ -1792,7 +1792,7 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
  * - 0 if hash got deleted
  * - EB_EXPIRE_TIME_INVALID if no more fields to expire
  */
-uint64_t hashTypeActiveExpire(kvobj *o, redisDb *db, uint32_t *quota, int updateSubexpires) {
+uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires) {
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
     ExpireInfo info = {0};
 
@@ -1878,7 +1878,7 @@ static int hashTypeExpireIfNeeded(redisDb *db, kvobj *o) {
 
     /* Take care to expire all the fields */
     uint32_t quota = UINT32_MAX;
-    nextExpireTime = hashTypeActiveExpire(o, db, &quota, 1);
+    nextExpireTime = hashTypeActiveExpire(db, o, &quota, 1);
     /* return 1 if the entire hash was deleted */
     return nextExpireTime == 0;
 }

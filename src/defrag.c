@@ -1666,7 +1666,6 @@ static void beginDefragCycle(void) {
         ctx->slot = ITER_SLOT_UNASSIGNED;
         ctx->cursor = 0;
         ctx->dbid = dbid;
-        ctx->cursor = 0;
         addDefragStage(defragStageSubexpires, zfree, ctx);
     }
 

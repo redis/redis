@@ -69,7 +69,7 @@ struct _kvstore {
     int non_empty_dicts;                   /* The number of non-empty dicts. */
     unsigned long long key_count;          /* Total number of keys in this kvstore. */
     unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
-    fwTree *dict_sizes;                    /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
+    fenwickTree *dict_sizes;               /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
     size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
     void *metadata[];                      /* conditionally allocated based on "flags" */
 };
@@ -82,7 +82,7 @@ struct _estore {
     int num_buckets_bits;       /* Log2 of the number of buckets */
     int num_buckets;            /* Number of buckets (1 << num_buckets_bits) */
     unsigned long long count;   /* Total number of items in this estore */
-    fwTree *buckets_sizes;      /* Binary indexed tree (BIT) that describes cumulative key frequencies */
+    fenwickTree *buckets_sizes; /* Binary indexed tree (BIT) that describes cumulative key frequencies */
 };
 
 /* Structure for kvstore iterator that allows iterating across multiple dicts. */
@@ -125,16 +125,16 @@ typedef struct {
  */
 /**********************************/
 
-struct _fwTree {
+struct _fenwickTree {
     unsigned long long *tree;
     int size_bits;
     int size;
     uint64_t total;
 };
 
-static fwTree *fwTreeCreate(int sizeBits) {
+static fenwickTree *fwTreeCreate(int sizeBits) {
 
-    fwTree *ft = zmalloc(sizeof(fwTree));
+    fenwickTree *ft = zmalloc(sizeof(fenwickTree));
     ft->size_bits = sizeBits;
     ft->size = 1 << sizeBits;
     /* Fenwick tree is 1-based, so we need size + 1 elements */
@@ -143,14 +143,14 @@ static fwTree *fwTreeCreate(int sizeBits) {
     return ft;
 }
 
-static void fwTreeDestroy(fwTree *ft) {
+static void fwTreeDestroy(fenwickTree *ft) {
     if (!ft) return;
     zfree(ft->tree);
     zfree(ft);
 }
 
 /* Query cumulative sum from index 0 to idx (inclusive, 0-based) */
-static unsigned long long fwTreePrefixSum(fwTree *ft, int idx) {
+static unsigned long long fwTreePrefixSum(fenwickTree *ft, int idx) {
     if (!ft || idx < 0) return 0;
     if (idx >= ft->size) idx = ft->size - 1;
 
@@ -166,7 +166,7 @@ static unsigned long long fwTreePrefixSum(fwTree *ft, int idx) {
 }
 
 /* Update the tree by adding delta to the element at idx (0-based) */
-static void fwTreeUpdate(fwTree *ft, int idx, long long delta) {
+static void fwTreeUpdate(fenwickTree *ft, int idx, long long delta) {
     if (!ft || idx < 0 || idx >= ft->size) return;
 
     /* Convert to 1-based indexing */
@@ -187,7 +187,7 @@ static void fwTreeUpdate(fwTree *ft, int idx, long long delta) {
  * target should be in range [1..total].
  * Returns the 0-based index, or 0 if target <= 0 or tree is empty.
  */
-static int fwTreeFindIndex(fwTree *ft, unsigned long long target) {
+static int fwTreeFindIndex(fenwickTree *ft, unsigned long long target) {
     debugAssert(ft);
 
     if (target <= 0) return 0;
@@ -212,7 +212,7 @@ static int fwTreeFindIndex(fwTree *ft, unsigned long long target) {
     return result;
 }
 
-static int fwTreeFindFirstNonEmpty(fwTree *ft) {
+static int fwTreeFindFirstNonEmpty(fenwickTree *ft) {
     debugAssert(ft);
     return fwTreeFindIndex(ft, 1);
 }
@@ -222,7 +222,7 @@ static int fwTreeFindFirstNonEmpty(fwTree *ft) {
  * If idx is -1, finds the first non-empty index.
  * Time complexity: O(log n)
  */
-static int fwTreeFindNextNonEmpty(fwTree *ft, int idx) {
+static int fwTreeFindNextNonEmpty(fenwickTree *ft, int idx) {
     if (!ft || idx < 0 || idx >= ft->size) return -1;
     /* Get cumulative sum up to current index */
     unsigned long long next_sum = fwTreePrefixSum(ft, idx) + 1;
@@ -231,7 +231,7 @@ static int fwTreeFindNextNonEmpty(fwTree *ft, int idx) {
 }
 
 /* Clear all values in the tree */
-static void fwTreeClear(fwTree *ft) {
+static void fwTreeClear(fenwickTree *ft) {
     debugAssert(ft);
     memset(ft->tree, 0, sizeof(unsigned long long) * (ft->size + 1));
     ft->total = 0;
@@ -1189,11 +1189,13 @@ uint64_t estoreRemove(estore *es, int eidx, eItem item) {
 
     /* currently only used by hash field expiration. Verify it is hash with HFE */
     kvobj *kv = (kvobj *) item;
-    if ( (kv->type != OBJ_HASH) ||
-         (kv->encoding == OBJ_ENCODING_LISTPACK) ||
-         ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &mstrHashDictTypeWithHFE)))
-        return EB_EXPIRE_TIME_INVALID;
 
+    serverAssert(
+        kv->type == OBJ_HASH &&
+        kv->encoding != OBJ_ENCODING_LISTPACK &&
+        !(kv->encoding == OBJ_ENCODING_HT && (((dict *)kv->ptr)->type != &mstrHashDictTypeWithHFE))
+    );
+    
     /* If (ExpireMeta of kv) marked as trash, then it is already removed */
     if ((expireTime = ebGetExpireTime(es->bucket_type, item)) == EB_EXPIRE_TIME_INVALID)
         return EB_EXPIRE_TIME_INVALID;
@@ -1294,7 +1296,7 @@ static void test_fenwick_tree(void) {
 
     /* Test basic operations */
     int sizeBits = 3; /*size = 8*/
-    fwTree *ft = fwTreeCreate(sizeBits);
+    fenwickTree *ft = fwTreeCreate(sizeBits);
     assert(ft != NULL);
 
     /* Test updates and queries */

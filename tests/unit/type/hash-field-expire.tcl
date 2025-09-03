@@ -1097,7 +1097,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*invalid number of fields*} {r hsetex myhash fields 0 a b}
             assert_error {*invalid number of fields*} {r hsetex myhash fields -1 a b}
         }
-
+        
         test "HSETEX - Basic test ($type)" {
             r del myhash
 

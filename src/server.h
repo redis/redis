@@ -3480,7 +3480,7 @@ typedef struct dictExpireMetadata {
 #define HFE_LAZY_ACCESS_EXPIRED      (1<<4) /* Avoid lazy expire and allow access to expired fields */
 #define HFE_LAZY_NO_UPDATE_KEYSIZES  (1<<5) /* If field lazy deleted, avoid updating keysizes histogram */
 
-void hashTypeConvert(robj *o, int enc, redisDb *db);
+void hashTypeConvert(redisDb *db, robj *o, int enc);
 void hashTypeTryConversion(redisDb *db, kvobj *kv, robj **argv, int start, int end);
 int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashDeleted);
 int hashTypeDelete(robj *o, void *key, int isSdsField);
@@ -3503,7 +3503,7 @@ int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
 int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
 robj *hashTypeDup(kvobj *kv, uint64_t *minHashExpire);
-uint64_t hashTypeActiveExpire(kvobj *o, redisDb *db, uint32_t *quota, int updateSubexpires);
+uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires);
 void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
