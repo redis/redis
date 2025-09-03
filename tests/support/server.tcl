@@ -222,6 +222,11 @@ proc tags_acceptable {tags err_return} {
         return 0
     }
 
+    if {$::debug_defrag && [lsearch $tags "debug_defrag:skip"] >= 0} {
+        set err "Not supported when debug_defrag is enabled"
+        return 0
+    }
+
     if {$::singledb && [lsearch $tags "singledb:skip"] >= 0} {
         set err "Not supported on singledb"
         return 0
@@ -559,7 +564,7 @@ proc start_server {options {code undefined}} {
     }
 
     if {$::debug_defrag} {
-        dict set config "activedefrag" "yes"
+        dict set config "activedefrag" "yes" ;# defrag enabled
     }
 
     # write new configuration to temporary file
