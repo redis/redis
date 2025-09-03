@@ -1187,15 +1187,13 @@ uint64_t estoreRemove(estore *es, int eidx, eItem item) {
     uint64_t expireTime;
     debugAssert(es != NULL && item != NULL);
 
-    /* currently only used by hash field expiration. Verify it is hash with HFE */
+    /* Currently only used by hash field expiration. gracefully ignore otherwise */
     kvobj *kv = (kvobj *) item;
+    if ( (kv->type != OBJ_HASH) ||
+         (kv->encoding == OBJ_ENCODING_LISTPACK) ||
+         ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &mstrHashDictTypeWithHFE)))
+        return EB_EXPIRE_TIME_INVALID;
 
-    serverAssert(
-        kv->type == OBJ_HASH &&
-        kv->encoding != OBJ_ENCODING_LISTPACK &&
-        !(kv->encoding == OBJ_ENCODING_HT && (((dict *)kv->ptr)->type != &mstrHashDictTypeWithHFE))
-    );
-    
     /* If (ExpireMeta of kv) marked as trash, then it is already removed */
     if ((expireTime = ebGetExpireTime(es->bucket_type, item)) == EB_EXPIRE_TIME_INVALID)
         return EB_EXPIRE_TIME_INVALID;
