@@ -793,6 +793,31 @@ void linenoiseEditMoveRight(struct linenoiseState *l) {
     }
 }
 
+/* Consider letters/digits/underscore as “word”; others as delimiters. */
+static int isWordChar(char c) {
+    return (c == '_' || (c >= '0' && c <= '9') ||
+            (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
+}
+
+static void linenoiseEditMoveWordLeft(struct linenoiseState *l) {
+    if (l->pos == 0) return;
+    /* Move cursor to the left over any delimiters */
+    while (l->pos > 0 && !isWordChar(l->buf[l->pos - 1])) l->pos--;
+    /* Then continue moving over a word */
+    while (l->pos > 0 && isWordChar(l->buf[l->pos - 1])) l->pos--;
+    refreshLine(l);
+}
+
+static void linenoiseEditMoveWordRight(struct linenoiseState *l) {
+    if (l->pos == l->len) return;
+    /* Move cursor to the right over any delimiters */
+    while (l->pos < l->len &&  isWordChar(l->buf[l->pos])) l->pos++;
+    /* Then continue moving over a word */
+    while (l->pos < l->len && !isWordChar(l->buf[l->pos])) l->pos++;
+    refreshLine(l);
+}
+
+
 /* Move cursor to the start of the line. */
 void linenoiseEditMoveHome(struct linenoiseState *l) {
     if (l->pos != 0) {
@@ -1012,6 +1037,17 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
              * Use two calls to handle slow terminals returning the two
              * chars at different times. */
             if (read(l.ifd,seq,1) == -1) break;
+
+            /* Handle Meta-b / Meta-f directly */
+            if (seq[0] == 'b') {                 /* ESC b → word left */
+                linenoiseEditMoveWordLeft(&l);
+                break;
+            }
+            if (seq[0] == 'f') {                 /* ESC f → word right */
+                linenoiseEditMoveWordRight(&l);
+                break;
+            }
+
             if (read(l.ifd,seq+1,1) == -1) break;
 
             if (reverse_search_mode_enabled) {
@@ -1022,14 +1058,34 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
             /* ESC [ sequences. */
             if (seq[0] == '[') {
                 if (seq[1] >= '0' && seq[1] <= '9') {
-                    /* Extended escape, read additional byte. */
-                    if (read(l.ifd,seq+2,1) == -1) break;
-                    if (seq[2] == '~') {
-                        switch(seq[1]) {
-                        case '3': /* Delete key. */
-                            linenoiseEditDelete(&l);
+                    /* Extended escape, read additional bytes.
+                     * Examples: ESC [1;5C  ESC [3~ */
+                    const int seqBufferMaxLength = 8;
+                    char seqBuffer[seqBufferMaxLength];
+                    int i = 0;
+                    seqBuffer[i++] = seq[1];
+
+                    /* If first param is digit or ';', read more until we see a final in @~ */
+                    char additionalChar;
+                    while (i < seqBufferMaxLength-1 && read(l.ifd, &additionalChar, 1) != -1) {
+                        seqBuffer[i++] = additionalChar;
+                        if (additionalChar >= '@' && additionalChar <= '~') {    /* CSI final byte */
+                            seqBuffer[i] = '\0';
                             break;
                         }
+                    }
+
+                    if (strstr(seqBuffer, "1;5D") || strstr(seqBuffer, "5D")) {
+                        linenoiseEditMoveWordLeft(&l);
+                        break;
+                    }
+                    if (strstr(seqBuffer, "1;5C") || strstr(seqBuffer, "5C")) {
+                        linenoiseEditMoveWordRight(&l);
+                        break;
+                    }
+                    if (strstr(seqBuffer, "3~")) {
+                        linenoiseEditDelete(&l);
+                        break;
                     }
                 } else {
                     switch(seq[1]) {
