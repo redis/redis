@@ -226,6 +226,7 @@ dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index)
 void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink llink, int table_index);
 void dictRelease(dict *d);
 dictEntry * dictFind(dict *d, const void *key);
+dictEntry *dictFindByHashAndPtr(dict *d, const void *oldptr, const uint64_t hash);
 int dictShrinkIfNeeded(dict *d);
 int dictExpandIfNeeded(dict *d);
 void *dictGetKey(const dictEntry *de);
