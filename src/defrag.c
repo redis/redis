@@ -1278,10 +1278,10 @@ void *activeDefragHExpiresOB(void *ptr, void *privdata) {
         serverAssert(exlink != NULL);
     }
 
+    link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
+    serverAssert(link != NULL);
     if ((kvobj = activeDefragAlloc(kvobj))) {
         /* Update its reference in the DB keys. */
-        link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
-        serverAssert(link != NULL);
         kvstoreDictSetAtLink(db->keys, slot, kvobj, &link, 0);
         if (expire != -1)
             kvstoreDictSetAtLink(db->expires, slot, kvobj, &exlink, 0);
