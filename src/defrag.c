@@ -1661,12 +1661,12 @@ static void beginDefragCycle(void) {
         addDefragStage(defragStageExpiresKvstore, freeDefragKeysContext, defrag_expires_ctx);
 
         /* Add stage for subexpires. */
-        defragSubexpiresCtx *ctx = zcalloc(sizeof(defragSubexpiresCtx));
-        ctx->subexpires = db->subexpires;
-        ctx->slot = ITER_SLOT_UNASSIGNED;
-        ctx->cursor = 0;
-        ctx->dbid = dbid;
-        addDefragStage(defragStageSubexpires, zfree, ctx);
+        defragSubexpiresCtx *defrag_subexpires_ctx = zcalloc(sizeof(defragSubexpiresCtx));
+        defrag_subexpires_ctx->subexpires = db->subexpires;
+        defrag_subexpires_ctx->slot = ITER_SLOT_UNASSIGNED;
+        defrag_subexpires_ctx->cursor = 0;
+        defrag_subexpires_ctx->dbid = dbid;
+        addDefragStage(defragStageSubexpires, zfree, defrag_subexpires_ctx);
     }
 
     /* Add stage for pubsub channels. */
