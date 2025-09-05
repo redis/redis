@@ -584,6 +584,19 @@ void asmFeedMigrationClient(robj **argv, int argc) {
     struct redisCommand *cmd = lookupCommandBySds(argv[0]->ptr);
     serverAssert(cmd);
 
+    /* Ensure all arguments are converted to string encoding if necessary,
+     * since getSlotFromCommand expects them to be string-encoded.
+     * Generally the arguments are string-encoded, but we may rewrite
+     * the command arguments to integer encoding. */
+    for (int i = 0; i < argc; i++) {
+        if (!sdsEncodedObject(argv[i])) {
+            serverAssert(argv[i]->encoding == OBJ_ENCODING_INT);
+            robj *old = argv[i];
+            argv[i] = createStringObjectFromLongLongWithSds((long)old->ptr);
+            decrRefCount(old);
+        }
+    }
+
     int slot = getSlotFromCommand(cmd, argv, argc);
     /* If the command does not have keys, or has crossslot keys, skip it.
      * TODO: revisit this to see if we are okay with this. */

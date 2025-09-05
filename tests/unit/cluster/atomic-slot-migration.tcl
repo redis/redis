@@ -554,7 +554,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # update expire time during mirgration
-        R 1 expire $slot0_key 100
+        R 1 setex $slot0_key 100 "a"
         R 1 expire $slot1_key 80
         R 1 expire $slot2_key 60
         R 1 hincrbyfloat $slot2_key "f1" 1
