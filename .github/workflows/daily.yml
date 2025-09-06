@@ -1245,7 +1245,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make SANITIZER=address DEBUG_FORCE_DEFRAG=yes REDIS_CFLAGS='-Werror'
+      run: make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test

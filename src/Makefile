@@ -137,13 +137,15 @@ endif
 endif
 endif
 
+# Special case of forcing defrag to run even though we have no Jemlloc support
+ifeq ($(DEBUG_DEFRAG), force)
+	CFLAGS +=-DDEBUG_FORCE_DEFRAG
+else ifeq ($(DEBUG_DEFRAG), fully)
+	CFLAGS +=-DDEBUG_DEFRAG_FORCE -DDEBUG_DEFRAG_FULLY
+endif
+
 # Override default settings if possible
 -include .make-settings
-
-# Special case of forcing defrag to run even though we have no Jemlloc support
-ifeq ($(DEBUG_FORCE_DEFRAG), yes)
-	CFLAGS +=-DDEBUG_FORCE_DEFRAG
-endif
 
 FINAL_CFLAGS=$(STD) $(WARN) $(OPT) $(DEBUG) $(CFLAGS) $(REDIS_CFLAGS)
 FINAL_LDFLAGS=$(LDFLAGS) $(OPT) $(REDIS_LDFLAGS) $(DEBUG)
@@ -403,7 +405,7 @@ endif
 
 .PHONY: all
 
-module_tests:
+module_tests: $(REDIS_SERVER_NAME)
 	$(MAKE) -C ../tests/modules
 
 .PHONY: module_tests
