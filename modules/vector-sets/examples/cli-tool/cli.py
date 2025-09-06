@@ -8,7 +8,7 @@
 #
 
 #!/usr/bin/env python3
-import sys
+import argparse
 import redis
 import requests
 import re
@@ -79,14 +79,12 @@ def format_response(response):
 def main():
     global OLLAMA_URL
 
-    for i in range(1, len(sys.argv)):
-        arg = sys.argv[i]
-        if arg.startswith("--ollama-url="):
-            OLLAMA_URL = arg.split("=", 1)[1]
-            break
-        if arg == "--ollama-url" and i + 1 < len(sys.argv):
-            OLLAMA_URL = sys.argv[i + 1]
-            break
+    parser = argparse.ArgumentParser(prog="cli.py", add_help=False)
+    parser.add_argument("--ollama-url", dest="ollama_url",
+                        help="Ollama embeddings API URL (default: http://localhost:11434/api/embeddings)",
+                        default=OLLAMA_URL)
+    args, _ = parser.parse_known_args()
+    OLLAMA_URL = args.ollama_url
 
     # Default connection to localhost:6379
     r = redis.Redis(host='localhost', port=6379, decode_responses=True)
