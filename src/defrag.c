@@ -141,12 +141,11 @@ typedef struct {
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
 
-/* Defrag helper for generic allocations.
+/* Defrag helper for generic allocations without freeing old pointer.
  *
- * returns NULL in case the allocation wasn't moved.
- * when it returns a non-null value, the old pointer was already released
- * and should NOT be accessed. */
-void* activeDefragAlloc(void *ptr) {
+ * Note: The caller is responsible for freeing the old pointer if this function
+ * returns a non-NULL value. */
+void* activeDefragAllocWithoutFree(void *ptr) {
     size_t size;
     void *newptr;
     if(!je_get_defrag_hint(ptr)) {
@@ -159,8 +158,23 @@ void* activeDefragAlloc(void *ptr) {
     size = zmalloc_usable_size(ptr);
     newptr = zmalloc_no_tcache(size);
     memcpy(newptr, ptr, size);
-    zfree_no_tcache(ptr);
     server.stat_active_defrag_hits++;
+    return newptr;
+}
+
+void activeDefragFree(void *ptr) {
+    zfree_no_tcache(ptr);
+}
+
+/* Defrag helper for generic allocations.
+ *
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
+void* activeDefragAlloc(void *ptr) {
+    void *newptr = activeDefragAllocWithoutFree(ptr);
+    if (newptr)
+        activeDefragFree(ptr);
     return newptr;
 }
 
@@ -171,7 +185,7 @@ void *activeDefragAllocRaw(size_t size) {
 
 /* Raw memory free for defrag, avoid using tcache. */
 void activeDefragFreeRaw(void *ptr) {
-    zfree_no_tcache(ptr);
+    activeDefragFree(ptr);
     server.stat_active_defrag_hits++;
 }
 
@@ -1278,7 +1292,7 @@ static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
 void *activeDefragHExpiresOB(void *ptr, void *privdata) {
     redisDb *db = privdata;
     dictEntryLink link, exlink = NULL;
-    kvobj *kvobj = ptr;
+    kvobj *newkv, *kvobj = ptr;
     sds keystr = kvobjGetKey(kvobj);
     unsigned int slot = calculateKeySlot(keystr);
     serverAssert(kvobj->type == OBJ_HASH);
@@ -1292,15 +1306,16 @@ void *activeDefragHExpiresOB(void *ptr, void *privdata) {
         serverAssert(exlink != NULL);
     }
 
-    link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
-    serverAssert(link != NULL);
-    if ((kvobj = activeDefragAlloc(kvobj))) {
+    if ((newkv = activeDefragAllocWithoutFree(kvobj))) {
         /* Update its reference in the DB keys. */
-        kvstoreDictSetAtLink(db->keys, slot, kvobj, &link, 0);
+        link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
+        serverAssert(link != NULL);
+        kvstoreDictSetAtLink(db->keys, slot, newkv, &link, 0);
         if (expire != -1)
-            kvstoreDictSetAtLink(db->expires, slot, kvobj, &exlink, 0);
+            kvstoreDictSetAtLink(db->expires, slot, newkv, &exlink, 0);
+        activeDefragFree(kvobj);
     }
-    return kvobj;
+    return newkv;
 }
 
 static doneStatus defragStageHExpires(void *ctx, monotime endtime) {
