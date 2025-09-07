@@ -2689,7 +2689,7 @@ int processMultibulkBuffer(client *c) {
                 if (!server.maxmemory || (size_t)c->bulklen < server.maxmemory / 32) {
                     c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);
                 } else {
-                    c->querybuf = sdsnewlen(NULL, PROTO_IOBUF_LEN);
+                    c->querybuf = sdsnewlen(SDS_NOINIT, PROTO_IOBUF_LEN);
                 }
                 sdsclear(c->querybuf);
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
