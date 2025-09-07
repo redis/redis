@@ -141,7 +141,7 @@ typedef struct {
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
 
-#if !defined(DEBUG_FORCE_DEFRAG)
+#if !defined(DEBUG_DEFRAG_FORCE)
 /* Defrag helper for generic allocations.
  *
  * returns NULL in case the allocation wasn't moved.
@@ -1014,7 +1014,7 @@ static void dbKeysScanCallback(void *privdata, const dictEntry *de, dictEntryLin
     server.stat_active_defrag_scanned++;
 }
 
-#if !defined(DEBUG_FORCE_DEFRAG)
+#if !defined(DEBUG_DEFRAG_FORCE)
 /* Utility function to get the fragmentation ratio from jemalloc.
  * It is critical to do that by comparing only heap maps that belong to
  * jemalloc, and skip ones the jemalloc keeps as spare. Since we use this
