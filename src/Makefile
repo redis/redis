@@ -398,7 +398,7 @@ endif
 
 .PHONY: all
 
-module_tests:
+module_tests: $(REDIS_SERVER_NAME)
 	$(MAKE) -C ../tests/modules
 
 .PHONY: module_tests
@@ -499,7 +499,7 @@ distclean: clean
 
 .PHONY: distclean
 
-test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME)
+test: $(REDIS_SERVER_NAME) $(REDIS_CHECK_AOF_NAME) $(REDIS_CLI_NAME) $(REDIS_BENCHMARK_NAME) module_tests
 	@(cd ..; ./runtest)
 
 test-modules: $(REDIS_SERVER_NAME)
