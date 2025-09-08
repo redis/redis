@@ -262,7 +262,7 @@ sds createLatencyReport(void) {
             if (server.slowlog_log_slower_than < 0 || server.slowlog_max_len == 0) {
                 advise_slowlog_enabled = 1;
                 advices++;
-            } else if (server.slowlog_log_slower_than/1000 <
+            } else if (server.slowlog_log_slower_than/1000 >
                        server.latency_monitor_threshold)
             {
                 advise_slowlog_tuning = 1;
@@ -370,7 +370,7 @@ sds createLatencyReport(void) {
         }
 
         if (advise_slowlog_tuning) {
-            report = sdscatprintf(report,"- Your current Slow Log configuration only logs events that are slower than your configured latency monitor threshold. Please use 'CONFIG SET slowlog-log-slower-than %llu'.\n", (unsigned long long)server.latency_monitor_threshold*1000);
+            report = sdscatprintf(report,"- Your current Slow Log configuration can not log the events that greater than your configured latency monitor threshold but less than the Slow Log threshold. Please use 'CONFIG SET slowlog-log-slower-than %llu'.\n", (unsigned long long)server.latency_monitor_threshold*1000);
         }
 
         if (advise_slowlog_inspect) {
