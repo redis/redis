@@ -1844,6 +1844,7 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
                        ebDefragFunctions *defragfns, void *privdata)
 {
     CommonSegHdr *currentSegHdr = ri->data;
+    CommonSegHdr *firstSegHdr = currentSegHdr;
     eItem iter = ((FirstSegHdr*)currentSegHdr)->head;
     ExpireMeta *mHead = type->getExpireMeta(iter);
     ExpireMeta *prevSegLastItem = NULL; /* The last item of the previous segment */
@@ -1879,6 +1880,7 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
             if (currentSegHdr == ri->data) {
                 /* If it's the first segment, update the rax data pointer. */
                 raxSetData(ri->node, ri->data=newSegHdr);
+                firstSegHdr = newSegHdr;
             } else {
                 /* For non-first segments, update the previous segment's next
                  * item to new pointer. */
@@ -1897,6 +1899,7 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
         }
 
         NextSegHdr *nextSegHdr = mIter->next;
+        nextSegHdr->firstSeg = (FirstSegHdr *)firstSegHdr;
         if (newSegHdr) {
             /* Update next segment's prev to point to the defragmented segment. */
             nextSegHdr->prevSeg = newSegHdr;
