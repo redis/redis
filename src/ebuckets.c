@@ -1899,10 +1899,10 @@ void ebDefragRaxBucket(EbucketsType *type, raxIterator *ri,
         }
 
         NextSegHdr *nextSegHdr = mIter->next;
+        nextSegHdr->firstSeg = (FirstSegHdr *)firstSegHdr;
         if (newSegHdr) {
             /* Update next segment's prev to point to the defragmented segment. */
             nextSegHdr->prevSeg = newSegHdr;
-            nextSegHdr->firstSeg = (FirstSegHdr *)firstSegHdr;
         }
 
         /* Update pointers for next segment iteration */
