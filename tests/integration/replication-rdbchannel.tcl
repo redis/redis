@@ -401,7 +401,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip debug_defrag:skip"}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
