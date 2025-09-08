@@ -51,6 +51,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */
 #include "kvstore.h" /* Slot-based hash table */
+#include "estore.h"  /* Expiration store */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */

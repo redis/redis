@@ -137,12 +137,12 @@ static inline int isExpiryDictValidForSamplingCb(dict *d) {
     return C_OK;
 }
 
-/* ActiveExpireCtx passed to activeSubexpiresCb() */
-typedef struct ExpireCtx {
+/* SubexpireCtx passed to activeSubexpiresCb() */
+typedef struct SubexpireCtx {
     uint32_t fieldsToExpireQuota;
     redisDb *db;
     int slot;
-} ExpireCtx;
+} SubexpireCtx;
 
 /*
  * Active sub-expiration callback
@@ -161,18 +161,18 @@ typedef struct ExpireCtx {
  * - If hash has no more fields afterward, it will remove the hash from keyspace.
  */
 static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
-    ExpireCtx *expireCtx = ctx;
+    SubexpireCtx *subexCtx = ctx;
 
     /* If no more quota left for this callback, stop */
-    if (expireCtx->fieldsToExpireQuota == 0)
+    if (subexCtx->fieldsToExpireQuota == 0)
         return ACT_STOP_ACTIVE_EXP;
 
     kvobj *kv = (kvobj *) item;
 
     /* currently we only support hash type sub-expire */
     assert(kv->type == OBJ_HASH);
-    uint64_t nextExpTime = hashTypeActiveExpire(expireCtx->db,kv,
-                                          &expireCtx->fieldsToExpireQuota, 0);
+    uint64_t nextExpTime = hashTypeActiveExpire(subexCtx->db,kv,
+                                          &subexCtx->fieldsToExpireQuota, 0);
 
     /* If hash has no more fields to expire or got deleted, indicate
      * to remove it from HFE DB to the caller ebExpire() */
@@ -200,7 +200,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
  * Returns number of fields active-expired.
  */
 uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
-    ExpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire, .slot = slot };
+    SubexpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire, .slot = slot };
     ExpireInfo info = {
             .maxToExpire = UINT64_MAX, /* Only maxFieldsToExpire play a role */
             .onExpireItem = activeSubexpiresCb,

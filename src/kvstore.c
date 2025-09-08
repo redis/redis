@@ -1,34 +1,4 @@
 /*
- * KVSTORE
- * -------
- * Index-based KV store implementation. This file implements a KV store comprised
- * of an array of dicts (see dict.c) The purpose of this KV store is to have easy
- * access to all keys that belong in the same dict (i.e. are in the same dict-index)
- *
- * For example, when Redis is running in cluster mode, we use kvstore to save
- * all keys that map to the same hash-slot in a separate dict within the kvstore
- * struct.
- * This enables us to easily access all keys that map to a specific hash-slot.
- *
- * ESTORE
- * ------
- * Index-based expiration store implementation. Similar to kvstore, but built
- * on top of ebuckets instead of dict. Items stored in estore must embed an
- * ExpireMeta, enabling efficient active-expiration.
- *
- * Estore is currently used to manage "subexpiry" for hash objects with
- * field-level expiration (HFE). Each hash with HFE is registered in estore
- * with the earliest expiration time among its fields.
- *
- * FENWICK-TREE
- * ------------
- * A Fenwick tree (BIT) is used by KVSTORE & ESTORE to efficiently calculate
- * cumulative key frequencies in O(log n) time. It is used by KVSTORE and ESTORE.
- * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
- * Time complexity is O(log(kvs->num_dicts)). Take care to call it only after
- * adding or removing keys from the kvstore.
- *
- *
  * Copyright (c) 2011-Present, Redis Ltd. and contributors.
  * All rights reserved.
  *
@@ -48,8 +18,8 @@
 #include <stddef.h>
 
 #include "zmalloc.h"
-#include "ebuckets.h"
 #include "kvstore.h"
+#include "fwtree.h"
 #include "redisassert.h"
 #include "monotonic.h"
 #include "server.h"
@@ -72,17 +42,6 @@ struct _kvstore {
     fenwickTree *dict_sizes;               /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
     size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
     void *metadata[];                      /* conditionally allocated based on "flags" */
-};
-
-/* Forward declaration of the estore structure */
-struct _estore {
-    int flags;                  /* Flags for configuration options */
-    EbucketsType *bucket_type;  /* Type of buckets used in this store */
-    ebuckets *ebArray;          /* Array of ebuckets (one per slot in cluster mode, or just one) */
-    int num_buckets_bits;       /* Log2 of the number of buckets */
-    int num_buckets;            /* Number of buckets (1 << num_buckets_bits) */
-    unsigned long long count;   /* Total number of items in this estore */
-    fenwickTree *buckets_sizes; /* Binary indexed tree (BIT) that describes cumulative key frequencies */
 };
 
 /* Structure for kvstore iterator that allows iterating across multiple dicts. */
@@ -111,131 +70,6 @@ typedef struct {
     /* External metadata */
     kvstoreDictMetadata meta;
 } kvstoreDictMetaEx;
-
-/**********************************/
-/*** Fenwick Tree *****************/
-/* Binary Indexed Tree implementation
- *
- * A Fenwick tree is a data structure that can efficiently:
- * - Update values and calculate prefix sums in O(log n) time
- * - Use O(n) space
- *
- * The tree is 1-based indexed internally, but the API uses 0-based indexing
- * for consistency with the rest of the codebase.
- */
-/**********************************/
-
-struct _fenwickTree {
-    unsigned long long *tree;
-    int size_bits;
-    int size;
-    uint64_t total;
-};
-
-static fenwickTree *fwTreeCreate(int sizeBits) {
-
-    fenwickTree *ft = zmalloc(sizeof(fenwickTree));
-    ft->size_bits = sizeBits;
-    ft->size = 1 << sizeBits;
-    /* Fenwick tree is 1-based, so we need size + 1 elements */
-    ft->tree = zcalloc(sizeof(unsigned long long) * (ft->size + 1));
-    ft->total = 0;
-    return ft;
-}
-
-static void fwTreeDestroy(fenwickTree *ft) {
-    if (!ft) return;
-    zfree(ft->tree);
-    zfree(ft);
-}
-
-/* Query cumulative sum from index 0 to idx (inclusive, 0-based) */
-static unsigned long long fwTreePrefixSum(fenwickTree *ft, int idx) {
-    if (!ft || idx < 0) return 0;
-    if (idx >= ft->size) idx = ft->size - 1;
-
-    /* Convert to 1-based indexing */
-    idx++;
-
-    unsigned long long sum = 0;
-    while (idx > 0) {
-        sum += ft->tree[idx];
-        idx -= (idx & -idx);
-    }
-    return sum;
-}
-
-/* Update the tree by adding delta to the element at idx (0-based) */
-static void fwTreeUpdate(fenwickTree *ft, int idx, long long delta) {
-    if (!ft || idx < 0 || idx >= ft->size) return;
-
-    /* Convert to 1-based indexing */
-    idx++;
-    ft->total += delta;
-
-    while (idx <= ft->size) {
-        if (delta < 0) {
-            assert(ft->tree[idx] >= (unsigned long long)(-delta));
-        }
-        ft->tree[idx] += delta;
-        idx += (idx & -idx);
-    }
-    debugAssert(ft->total == fwTreePrefixSum(ft, ft->size - 1));
-}
-
-/* Find the 0-based index where the cumulative sum first reaches or exceeds target.
- * target should be in range [1..total].
- * Returns the 0-based index, or 0 if target <= 0 or tree is empty.
- */
-static int fwTreeFindIndex(fenwickTree *ft, unsigned long long target) {
-    debugAssert(ft);
-
-    if (target <= 0) return 0;
-
-    int result = 0, bit_mask = 1 << ft->size_bits;
-    for (int i = bit_mask; i != 0; i >>= 1) {
-        int current = result + i;
-        /* When the target index is greater than 'current' node value the we will update
-         * the target and search in the 'current' node tree. */
-        if (target > ft->tree[current]) {
-            target -= ft->tree[current];
-            result = current;
-        }
-    }
-    /* Adjust the result to get the correct index:
-     * 1. result += 1;
-     *    After the calculations, the index of target in the tree should be the next one,
-     *    so we should add 1.
-     * 2. result -= 1;
-     *    Unlike BIT (tree is 1-based), the API uses 0-based indexing, so we need to subtract 1.
-     * As the addition and subtraction cancel each other out, we can simply return the result. */
-    return result;
-}
-
-static int fwTreeFindFirstNonEmpty(fenwickTree *ft) {
-    debugAssert(ft);
-    return fwTreeFindIndex(ft, 1);
-}
-
-/* Find the next non-empty index after idx (0-based).
- * Returns the 0-based index of the next non-empty element, or -1 if no such element exists.
- * If idx is -1, finds the first non-empty index.
- * Time complexity: O(log n)
- */
-static int fwTreeFindNextNonEmpty(fenwickTree *ft, int idx) {
-    if (!ft || idx < 0 || idx >= ft->size) return -1;
-    /* Get cumulative sum up to current index */
-    unsigned long long next_sum = fwTreePrefixSum(ft, idx) + 1;
-    /* Find the index that contains the next key (curr_sum + 1) */
-    return (next_sum <= ft->total) ? fwTreeFindIndex(ft, next_sum) : -1;
-}
-
-/* Clear all values in the tree */
-static void fwTreeClear(fenwickTree *ft) {
-    debugAssert(ft);
-    memset(ft->tree, 0, sizeof(unsigned long long) * (ft->size + 1));
-    ft->total = 0;
-}
 
 /**********************************/
 /*** Helpers **********************/
@@ -1074,163 +908,6 @@ kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs) {
     return (kvstoreMetadata *) &kvs->metadata;
 }
 
-/* Get the appropriate bucket for a given eidx */
-ebuckets *estoreGetBuckets(estore *es, int eidx) {
-    return &(es->ebArray[eidx]);
-}
-
-/* Create a new expiration store
- * type             - Pointer to a static EbucketsType defining the bucket behavior.
- * num_buckets_bits - The log2 of the number of buckets (0 for 1 bucket,
- *                    CLUSTER_SLOT_MASK_BITS for CLUSTER_SLOTS buckets)
- * flags - Configuration flags
- */
-estore *estoreCreate(EbucketsType *type, int num_buckets_bits) {
-    /* We can't support more than 2^16 buckets to be consistent with kvstore */
-    assert(num_buckets_bits <= 16);
-
-    estore *es = zmalloc(sizeof(estore));
-    /* Store the bucket type */
-    es->bucket_type = type;
-
-    /* Calculate number of buckets based on num_buckets_bits */
-    es->num_buckets_bits = num_buckets_bits;
-    es->num_buckets = 1 << num_buckets_bits;
-    es->buckets_sizes = num_buckets_bits > 1 ? fwTreeCreate(num_buckets_bits) : NULL;
-
-    /* Allocate the buckets array */
-    es->ebArray = zmalloc(sizeof(ebuckets) * es->num_buckets);
-
-    /* Initialize all buckets */
-    for (int i = 0; i < es->num_buckets; i++) {
-        es->ebArray[i] = ebCreate();
-    }
-    es->count = 0;
-    return es;
-}
-
-/* Empty an expiration store (clear all entries but keep the structure) */
-void estoreEmpty(estore *es) {
-    if (es == NULL) return;
-
-    for (int i = 0; i < es->num_buckets; i++) {
-        ebDestroy(&es->ebArray[i], es->bucket_type, NULL);
-        es->ebArray[i] = ebCreate();
-    }
-
-    es->count = 0;
-}
-
-int estoreIsEmpty(estore *es) {
-    return es->count == 0;
-}
-
-/* Get the first non-empty bucket index in the estore */
-int estoreGetFirstNonEmptyBucket(estore *es) {
-    if (es->num_buckets == 1 || estoreSize(es) == 0)
-        return 0;
-    return fwTreeFindFirstNonEmpty(es->buckets_sizes);
-}
-
-/* Get the next non-empty bucket index after the given index */
-int estoreGetNextNonEmptyBucket(estore *es, int eidx) {
-    if (es->num_buckets == 1) {
-        assert(eidx == 0);
-        return -1;
-    }
-    return fwTreeFindNextNonEmpty(es->buckets_sizes, eidx);
-}
-
-/* Release an expiration store (free all memory) */
-void estoreRelease(estore *es) {
-    if (es == NULL) return;
-
-    for (int i = 0; i < es->num_buckets; i++) {
-        if (es->ebArray[i])
-            ebDestroy(&es->ebArray[i], es->bucket_type, NULL);
-    }
-    fwTreeDestroy(es->buckets_sizes);
-    zfree(es->ebArray);
-    zfree(es);
-}
-
-void estoreActiveExpire(estore *es, int eidx, ExpireInfo *info) {
-    ebuckets *eb = estoreGetBuckets(es, eidx);
-    uint64_t before = ebGetTotalItems(*eb, es->bucket_type);
-    ebExpire(eb, es->bucket_type, info);
-    /* If items expired (or updated), update the BIT and estore count */
-    if (info->itemsExpired) {
-        uint64_t diff = before - ebGetTotalItems(*eb, es->bucket_type);
-        fwTreeUpdate(es->buckets_sizes, eidx, (long long) diff);
-        es->count -= diff;
-    }
-}
-
-/* Add item to estore with the given expiration time. The item must has
- * expireMeta already allocated. */
-void estoreAdd(estore *es, int eidx, eItem item, uint64_t when) {
-    debugAssert(es != NULL && item != NULL);
-
-    /* currently only used by hash field expiration. Verify it has expireMeta */
-    debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
-                ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &mstrHashDictTypeWithHFE));
-
-    ebuckets *bucket = estoreGetBuckets(es, eidx);
-    if (ebAdd(bucket, es->bucket_type, item, when) == 0) {
-        es->count++;
-        fwTreeUpdate(es->buckets_sizes, eidx, 1);
-    }
-}
-
-uint64_t estoreRemove(estore *es, int eidx, eItem item) {
-    uint64_t expireTime;
-    debugAssert(es != NULL && item != NULL);
-
-    /* Currently only used by hash field expiration. gracefully ignore otherwise */
-    kvobj *kv = (kvobj *) item;
-    if ( (kv->type != OBJ_HASH) ||
-         (kv->encoding == OBJ_ENCODING_LISTPACK) ||
-         ((kv->encoding == OBJ_ENCODING_HT) && (((dict *)kv->ptr)->type != &mstrHashDictTypeWithHFE)))
-        return EB_EXPIRE_TIME_INVALID;
-
-    /* If (ExpireMeta of kv) marked as trash, then it is already removed */
-    if ((expireTime = ebGetExpireTime(es->bucket_type, item)) == EB_EXPIRE_TIME_INVALID)
-        return EB_EXPIRE_TIME_INVALID;
-
-    ebuckets *bucket = estoreGetBuckets(es, eidx);
-    serverAssert(ebRemove(bucket, es->bucket_type, item)==1);
-    es->count--;
-    fwTreeUpdate(es->buckets_sizes, eidx, -1);
-
-    return expireTime;
-}
-
-void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when) {
-    debugAssert(es != NULL && item != NULL);
-
-    /* currently only used by hash field expiration. Verify it has expireMeta */
-    debugAssert((((robj *)item)->encoding == OBJ_ENCODING_LISTPACK_EX) ||
-                ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
-                 ((dict *) ((robj *)item)->ptr)->type == &mstrHashDictTypeWithHFE));
-
-    debugAssert(ebGetExpireTime(es->bucket_type, item) != EB_EXPIRE_TIME_INVALID);
-
-    ebuckets *bucket = estoreGetBuckets(es, eidx);
-
-    /* Remove the item from its current position */
-    serverAssert(ebRemove(bucket, es->bucket_type, item) != 0);
-
-    /* Add the item back with the new expiration time */
-    serverAssert(ebAdd(bucket, es->bucket_type, item, when) == 0);
-
-    /* Note that estore count remain unchanged */
-}
-
-uint64_t estoreSize(estore *es) {
-    return es->count;
-}
-
 #ifdef REDIS_TEST
 #include <stdio.h>
 #include "testhelp.h"
@@ -1287,103 +964,11 @@ char *stringFromInt(int value) {
     return s;
 }
 
-static void test_fenwick_tree(void) {
-    printf("Testing Fenwick tree... ");
-
-    /* Test basic operations */
-    int sizeBits = 3; /*size = 8*/
-    fenwickTree *ft = fwTreeCreate(sizeBits);
-    assert(ft != NULL);
-
-    /* Test updates and queries */
-    fwTreeUpdate(ft, 0, 5);  /* index 0 += 5 */
-    fwTreeUpdate(ft, 2, 3);  /* index 2 += 3 */
-    fwTreeUpdate(ft, 4, 7);  /* index 4 += 7 */
-    fwTreeUpdate(ft, 6, 2);  /* index 6 += 2 */
-
-    /* Test cumulative queries */
-    assert(fwTreePrefixSum(ft, 0) == 5);   /* sum[0..0] = 5 */
-    assert(fwTreePrefixSum(ft, 1) == 5);   /* sum[0..1] = 5 */
-    assert(fwTreePrefixSum(ft, 2) == 8);   /* sum[0..2] = 5+3 = 8 */
-    assert(fwTreePrefixSum(ft, 3) == 8);   /* sum[0..3] = 8 */
-    assert(fwTreePrefixSum(ft, 4) == 15);  /* sum[0..4] = 5+3+7 = 15 */
-    assert(fwTreePrefixSum(ft, 5) == 15);  /* sum[0..5] = 15 */
-    assert(fwTreePrefixSum(ft, 6) == 17);  /* sum[0..6] = 5+3+7+2 = 17 */
-    assert(fwTreePrefixSum(ft, 7) == 17);  /* sum[0..7] = 17 */
-
-
-
-    /* Test find_index functionality */
-    assert(fwTreeFindIndex(ft, 1) == 0);  /* target 1 -> index 0 */
-    assert(fwTreeFindIndex(ft, 5) == 0);  /* target 5 -> index 0 */
-    assert(fwTreeFindIndex(ft, 6) == 2);  /* target 6 -> index 2 */
-    assert(fwTreeFindIndex(ft, 8) == 2);  /* target 8 -> index 2 */
-    assert(fwTreeFindIndex(ft, 9) == 4);  /* target 9 -> index 4 */
-    assert(fwTreeFindIndex(ft, 15) == 4); /* target 15 -> index 4 */
-    assert(fwTreeFindIndex(ft, 16) == 6); /* target 16 -> index 6 */
-    assert(fwTreeFindIndex(ft, 17) == 6); /* target 17 -> index 6 */
-
-    /* Test fwTreeFindNextNonEmpty functionality */
-    /* Current state: indices 0, 2, 4, 6 have values 5, 3, 7, 2 respectively */
-    assert(fwTreeFindNextNonEmpty(ft, -1) == -1);  /* Invalid index */
-    assert(fwTreeFindNextNonEmpty(ft, 0) == 2);   /* Next after 0 is index 2 */
-    assert(fwTreeFindNextNonEmpty(ft, 1) == 2);   /* Next after 1 is index 2 */
-    assert(fwTreeFindNextNonEmpty(ft, 2) == 4);   /* Next after 2 is index 4 */
-    assert(fwTreeFindNextNonEmpty(ft, 3) == 4);   /* Next after 3 is index 4 */
-    assert(fwTreeFindNextNonEmpty(ft, 4) == 6);   /* Next after 4 is index 6 */
-    assert(fwTreeFindNextNonEmpty(ft, 5) == 6);   /* Next after 5 is index 6 */
-    assert(fwTreeFindNextNonEmpty(ft, 6) == -1);  /* No next after 6 */
-    assert(fwTreeFindNextNonEmpty(ft, 7) == -1);  /* No next after 7 */
-
-    /* Test negative updates */
-    fwTreeUpdate(ft, 2, -1);  /* index 2 -= 1 */
-    assert(fwTreePrefixSum(ft, 2) == 7);   /* sum[0..2] = 5+2 = 7 */
-    assert(fwTreePrefixSum(ft, 7) == 16);  /* total = 16 */
-
-    /* Test making an index empty */
-    fwTreeUpdate(ft, 2, -2);  /* index 2 -= 2, should become empty */
-    assert(fwTreePrefixSum(ft, 2) == 5);   /* sum[0..2] = 5+0 = 5 */
-
-    /* Test fwTreeFindNextNonEmpty after making index 2 empty */
-    /* Current state: indices 0, 4, 6 have values 5, 7, 2 respectively (index 2 is now empty) */
-    assert(fwTreeFindNextNonEmpty(ft, 0) == 4);   /* Next after 0 is now index 4 (skipping empty 2) */
-    assert(fwTreeFindNextNonEmpty(ft, 1) == 4);   /* Next after 1 is index 4 */
-    assert(fwTreeFindNextNonEmpty(ft, 2) == 4);   /* Next after 2 is index 4 */
-    assert(fwTreeFindNextNonEmpty(ft, 3) == 4);   /* Next after 3 is index 4 */
-
-    /* Test clear */
-    fwTreeClear(ft);
-    assert(fwTreePrefixSum(ft, 7) == 0);
-
-    /* Test fwTreeFindNextNonEmpty on empty tree */
-    assert(fwTreeFindNextNonEmpty(ft, -1) == -1);  /* Empty tree */
-    assert(fwTreeFindNextNonEmpty(ft, 0) == -1);   /* Empty tree */
-
-    fwTreeDestroy(ft);
-
-    /* Test edge cases */
-    ft = fwTreeCreate(0);
-    fwTreeUpdate(ft, 0, 10);  /* add 10 to index 0 */
-    assert(fwTreePrefixSum(ft, 0) == 10);
-
-    assert(fwTreeFindIndex(ft, 5) == 0);
-
-    /* Test fwTreeFindNextNonEmpty on single element tree */
-    assert(fwTreeFindNextNonEmpty(ft, -1) == -1);  /* Invalid index */
-    assert(fwTreeFindNextNonEmpty(ft, 0) == -1);   /* No next after 0 in single element tree */
-
-    fwTreeDestroy(ft);
-
-    printf("OK\n");
-}
-
 /* ./redis-server test kvstore */
 int kvstoreTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
     UNUSED(flags);
-
-    test_fenwick_tree();
 
     int i;
     void *key;

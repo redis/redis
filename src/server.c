@@ -28,6 +28,8 @@
 #include "fmtargs.h"
 #include "mstr.h"
 #include "ebuckets.h"
+#include "fwtree.h"
+#include "estore.h"
 
 #include <time.h>
 #include <signal.h>
@@ -7304,6 +7306,8 @@ struct redisTest {
     {"dict", dictTest},
     {"listpack", listpackTest},
     {"kvstore", kvstoreTest},
+    {"fwtree", fwtreeTest},
+    {"estore", estoreTest},
     {"ebuckets", ebucketsTest},
 };
 redisTestProc *getTestProcByName(const char *name) {

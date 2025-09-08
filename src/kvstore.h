@@ -9,7 +9,16 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  *
- * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
+ * KVSTORE
+ * -------
+ * Index-based KV store implementation. This file implements a KV store comprised
+ * of an array of dicts (see dict.c) The purpose of this KV store is to have easy
+ * access to all keys that belong in the same dict (i.e. are in the same dict-index)
+ *
+ * For example, when Redis is running in cluster mode, we use kvstore to save
+ * all keys that map to the same hash-slot in a separate dict within the kvstore
+ * struct.
+ * This enables us to easily access all keys that map to a specific hash-slot.
  */
 
 #ifndef DICTARRAY_H_
@@ -34,8 +43,6 @@ typedef struct {
 } kvstoreDictMetadata;
 
 typedef struct _kvstore kvstore;
-typedef struct _fenwickTree fenwickTree;
-typedef struct _estore estore;
 typedef struct _kvstoreIterator kvstoreIterator;
 typedef struct _kvstoreDictIterator kvstoreDictIterator;
 
@@ -109,21 +116,6 @@ void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link,
 /* dict with distinct key & value (no_value=1) currently is used only by pubsub. */
 void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key);
 void kvstoreDictSetVal(kvstore *kvs, int didx, dictEntry *de, void *val);
-
-/**************** estore API (See comment in estore.c) ************************/
-estore *estoreCreate(EbucketsType *type, int num_buckets_bits);
-void estoreEmpty(estore *es);
-int estoreIsEmpty(estore *es);
-void estoreRelease(estore *es);
-void estoreActiveExpire(estore *es, int eidx, ExpireInfo *info);
-uint64_t estoreRemove(estore *es, int eidx, eItem item);
-void estoreAdd(estore *es, int eidx, eItem item, uint64_t when);
-void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when);
-uint64_t estoreSize(estore *es);
-ebuckets *estoreGetBuckets(estore *es, int eidx);
-int estoreGetFirstNonEmptyBucket(estore *es);
-int estoreGetNextNonEmptyBucket(estore *es, int eidx);
-ExpireMeta *hashGetExpireMeta(const eItem kvobjHash);
 
 #ifdef REDIS_TEST
 int kvstoreTest(int argc, char *argv[], int flags);
