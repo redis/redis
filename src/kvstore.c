@@ -1207,8 +1207,6 @@ uint64_t estoreRemove(estore *es, int eidx, eItem item) {
 }
 
 void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when) {
-    uint64_t oldExpireTime;
-    UNUSED(oldExpireTime);
     debugAssert(es != NULL && item != NULL);
 
     /* currently only used by hash field expiration. Verify it has expireMeta */
@@ -1216,7 +1214,7 @@ void estoreUpdate(estore *es, int eidx, eItem item, uint64_t when) {
                 ((((robj *)item)->encoding == OBJ_ENCODING_HT) &&
                  ((dict *) ((robj *)item)->ptr)->type == &mstrHashDictTypeWithHFE));
 
-    debugAssert((oldExpireTime = ebGetExpireTime(es->bucket_type, item)) != EB_EXPIRE_TIME_INVALID);
+    debugAssert(ebGetExpireTime(es->bucket_type, item) != EB_EXPIRE_TIME_INVALID);
 
     ebuckets *bucket = estoreGetBuckets(es, eidx);
 

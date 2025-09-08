@@ -101,9 +101,9 @@ dictType mstrHashDictTypeWithHFE = {
  * HFE Active sub-expiration for each hash instance that has expired fields.
  *----------------------------------------------------------------------------*/
 EbucketsType subexpiresBucketsType = {
-        .onDeleteItem = NULL,
-        .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
-        .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
+    .onDeleteItem = NULL,
+    .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
+    .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
 };
 
 /* dictExpireMetadata - ebuckets-type for hash fields with time-Expiration. ebuckets
