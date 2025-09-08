@@ -81,7 +81,7 @@ def main():
 
     parser = argparse.ArgumentParser(prog="cli.py", add_help=False)
     parser.add_argument("--ollama-url", dest="ollama_url",
-                        help="Ollama embeddings API URL (default: http://localhost:11434/api/embeddings)",
+                        help="Ollama embeddings API URL (default: {OLLAMA_URL})",
                         default=OLLAMA_URL)
     args, _ = parser.parse_known_args()
     OLLAMA_URL = args.ollama_url
