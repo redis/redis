@@ -1625,7 +1625,7 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
 
     monotime starttime = getMonotonicUs();
     int dutyCycleUs = computeDefragCycleUs();
-#if defined(DEBUG_DEFRAG_FULLY)
+#if defined(DEBUG_DEFRAG_FORCE)
     dutyCycleUs = 30*1000*1000LL; /* 30 seconds */
 #endif
     monotime endtime = starttime + dutyCycleUs;

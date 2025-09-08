@@ -322,7 +322,7 @@ start_server {tags {"repl external:skip"}} {
 
 foreach mdl {no yes} rdbchannel {no yes} {
     foreach sdl {disabled swapdb} {
-        start_server {tags {"repl external:skip"} overrides {save {}}} {
+        start_server {tags {"repl external:skip debug_defrag:skip"} overrides {save {}}} {
             set master [srv 0 client]
             $master config set repl-diskless-sync $mdl
             $master config set repl-diskless-sync-delay 5
@@ -417,7 +417,7 @@ foreach mdl {no yes} rdbchannel {no yes} {
     }
 }
 
-start_server {tags {"repl external:skip"} overrides {save {}}} {
+start_server {tags {"repl external:skip debug_defrag:skip"} overrides {save {}}} {
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]
@@ -848,7 +848,7 @@ test {diskless loading short read} {
             $master config set rdb-key-save-delay 0
         }
     }
-} {} {external:skip}
+} {} {external:skip debug_defrag:skip}
 
 # get current stime and utime metrics for a thread (since it's creation)
 proc get_cpu_metrics { statfile } {
@@ -1539,7 +1539,7 @@ foreach disklessload {disabled on-empty-db} {
                 catch {$replica shutdown nosave}
             }
         }
-    } {} {repl external:skip}
+    } {} {repl external:skip debug_defrag:skip}
 }
 
 start_server {tags {"repl external:skip"} overrides {save {}}} {

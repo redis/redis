@@ -1824,7 +1824,7 @@ start_server {tags {"zset"}} {
                 }
             }
             assert_equal {} $err
-        }
+        } {} {debug_defrag:skip}
 
         test "ZRANGEBYLEX fuzzy test, 100 ranges in $elements element sorted set - $encoding" {
             set lexset {}

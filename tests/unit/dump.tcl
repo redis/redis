@@ -282,7 +282,7 @@ start_server {tags {"dump"}} {
             assert {[$second ttl key] == -1}
             assert {[$second llen key] == 40000*20}
         }
-    } {} {external:skip}
+    } {} {external:skip debug_defrag:skip}
 
     test {MIGRATE can correctly transfer hashes} {
         set first [srv 0 client]

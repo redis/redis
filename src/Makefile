@@ -138,10 +138,8 @@ endif
 endif
 
 # Special case of forcing defrag to run even though we have no Jemlloc support
-ifeq ($(DEBUG_DEFRAG), force)
+ifeq ($(DEBUG_DEFRAG), yes)
 	CFLAGS +=-DDEBUG_DEFRAG_FORCE
-else ifeq ($(DEBUG_DEFRAG), fully)
-	CFLAGS +=-DDEBUG_DEFRAG_FORCE -DDEBUG_DEFRAG_FULLY
 endif
 
 # Override default settings if possible
