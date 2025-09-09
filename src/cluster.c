@@ -1600,7 +1600,7 @@ void readonlyCommand(client *c) {
 
 /* Remove all the keys in the specified hash slot.
  * The number of removed items is returned. */
-unsigned int clusterDelKeysInSlot(unsigned int hashslot, int flags) {
+unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
     unsigned int j = 0;
 
     if (!kvstoreDictSize(server.db->keys, (int) hashslot))
@@ -1613,15 +1613,13 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int flags) {
         enterExecutionUnit(1, 0);
         sds sdskey = kvobjGetKey(dictGetKV(de));
         robj *key = createStringObject(sdskey, sdslen(sdskey));
-
-        if (flags & CLUSTER_DELKEYS_ASYNC) dbAsyncDelete(&server.db[0], key);
-        else dbSyncDelete(&server.db[0], key);
+        dbDelete(&server.db[0], key);
 
         signalModifiedKey(NULL, &server.db[0], key);
-        if (flags & CLUSTER_DELKEYS_BY_COMMAND) {
-            /* Keys are not migrated but actually deleted. Command (sflush)
-             * will be propagated, so there is no need to propagate each
-             * deletion of the key. */
+        if (by_command) {
+            /* Keys are deleted by a command (trimslots), we need to notify the
+             * keyspace event. Though, we don't need to propagate the DEL
+             * command, as the command (trimslots) will be propagated. */
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, server.db[0].id);
         } else {
             /* Propagate the DEL command */
@@ -1643,11 +1641,11 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int flags) {
 }
 
 /* Delete the keys in the slot ranges. Returns the number of deleted items */
-unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *sra, int flags) {
+unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *sra, int by_command) {
     unsigned int j = 0;
     for (int i = 0; i < sra->num_ranges; i++) {
         for (int slot = sra->ranges[i].start; slot <= sra->ranges[i].end; slot++) {
-            j += clusterDelKeysInSlot(slot, flags);
+            j += clusterDelKeysInSlot(slot, by_command);
         }
     }
     return j;
@@ -1818,6 +1816,39 @@ void slotRangeArrayFree(slotRangeArray *sra) {
     zfree(sra);
 }
 
+/* Slot range array iterator */
+slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *sra) {
+    slotRangeArrayIter *it = zmalloc(sizeof(*it));
+    it->sra = sra;
+    it->range_index = 0;
+    it->cur_slot = sra->num_ranges > 0 ? sra->ranges[0].start : -1;
+    return it;
+}
+
+/* Returns the next slot in the array, or -1 if there are no more slots. */
+int slotRangeArrayNext(slotRangeArrayIter *it) {
+    if (it->range_index >= it->sra->num_ranges) return -1;
+
+    if (it->cur_slot < it->sra->ranges[it->range_index].end) {
+        it->cur_slot++;
+    } else {
+        it->range_index++;
+        if (it->range_index < it->sra->num_ranges)
+            it->cur_slot = it->sra->ranges[it->range_index].start;
+        else
+            it->cur_slot = -1; /* finished */
+    }
+    return it->cur_slot;
+}
+
+int slotRangeArrayGetCurrentSlot(slotRangeArrayIter *it) {
+    return it->cur_slot;
+}
+
+void slotRangeArrayIteratorFree(slotRangeArrayIter *it) {
+    zfree(it);
+}
+
 /* Parse slot ranges from the command arguments. Returns NULL on error. */
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     int start, end, count;
@@ -1895,19 +1926,32 @@ void sflushCommand(client *c) {
      * a new slotRangeArray. It is allocated on heap since there is a chance
      * that FLUSH SYNC will be running as blocking ASYNC and only later reply
      * with slot ranges */
+    unsigned char slots_to_flush[CLUSTER_SLOTS] = {0}; /* Requested slots to flush */
     slotRangeArray *myslots = NULL;
     for (int i = 0; i < slot_ranges->num_ranges; i++) {
-        slotRange *sr = &slot_ranges->ranges[i];
-        for (int slot = sr->start; slot <= sr->end; slot++)
-            if (clusterIsMySlot(slot))
-                myslots = slotRangeArrayAppend(myslots, slot);
+        for (int j = slot_ranges->ranges[i].start; j <= slot_ranges->ranges[i].end; j++) {
+            if (clusterIsMySlot(j)) {
+                myslots = slotRangeArrayAppend(myslots, j);
+                slots_to_flush[j] = 1;
+            }
+        }
     }
-    zfree(slot_ranges);
 
-    if (myslots == NULL) {
-        addReply(c, shared.emptyarray);
+    /* Verify that all slots of mynode got covered. See sflushCommand() comment. */
+    int all_slots_covered = 1;
+    for (int i = 0; i < CLUSTER_SLOTS; i++) {
+        if (clusterIsMySlot(i) && !slots_to_flush[i]) {
+            all_slots_covered = 0;
+            break;
+        }
+    }
+    if (myslots == NULL || !all_slots_covered) {
+        addReplyArrayLen(c, 0);
+        slotRangeArrayFree(slot_ranges);
+        slotRangeArrayFree(myslots);
         return;
     }
+    slotRangeArrayFree(slot_ranges);
 
     /* Flush selected slots. If not flush as blocking async, then reply immediately */
     if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0)

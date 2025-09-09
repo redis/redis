@@ -2402,6 +2402,8 @@ void readSyncBulkPayload(connection *conn) {
 
         /* RDB loading succeeded if we reach this point. */
         if (server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB) {
+            /* Cancel all ASM trim jobs as we are about to swap the main db. */
+            asmCancelTrimJobs();
             /* We will soon swap main db with tempDb and replicas will start
              * to apply data from new master, we must discard the cached
              * master structure and force resync of sub-replicas. */

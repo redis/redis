@@ -11,6 +11,7 @@
 #include "bio.h"
 #include "rio.h"
 #include "functions.h"
+#include "cluster_asm.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -2425,6 +2426,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     int j;
     long key_count = 0;
     long long updated_time = 0;
+    unsigned long long skipped = 0;
     kvstoreIterator *kvs_it = NULL;
 
     /* Record timestamp at the beginning of rewriting AOF. */
@@ -2456,6 +2458,15 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             
             /* Get the expire time */
             expiretime = kvobjGetExpire(o);
+
+            /* Skip keys that are being trimmed */
+            if (server.cluster_enabled) {
+                int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+                if (isSlotInTrimJob(curr_slot)) {
+                    skipped++;
+                    continue;
+                }
+            }
             
             /* Set on stack string object for key */
             robj key;
@@ -2486,6 +2497,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         }
         kvstoreIteratorRelease(kvs_it);
     }
+    serverLog(LL_NOTICE, "AOF rewrite done, %ld keys saved, %llu keys skipped.", key_count, skipped);
     return C_OK;
 
 werr:

@@ -1136,17 +1136,10 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sra) {
     /* Cancel all ASM tasks that overlap with the given slot ranges. */
     clusterAsmCancelBySlotRangeArray(sra, c->argv[0]->ptr);
 
-    if (type == FLUSH_TYPE_ALL) {
+    if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
-    } else if (type == FLUSH_TYPE_DB) {
+    else
         server.dirty += emptyData(c->db->id, flags | EMPTYDB_NOFUNCTIONS, NULL);
-    } else {
-        serverAssert(type == FLUSH_TYPE_SLOTS);
-        int delkeys_flags = CLUSTER_DELKEYS_BY_COMMAND;
-        if (flags & EMPTYDB_ASYNC)
-            delkeys_flags |= CLUSTER_DELKEYS_ASYNC;
-        clusterDelKeysInSlotRangeArray(sra, delkeys_flags);
-    }
 
     /* Without the forceCommandPropagation, when DB(s) was already empty,
      * FLUSHALL\FLUSHDB will not be replicated nor put into the AOF. */
@@ -2598,6 +2591,12 @@ int confAllowsExpireDel(void) {
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
+
+    /* TODO: We don't actively expire from slots that are waiting to be trimmed.
+     * Though, can a module try to access keys that are in the process of
+     * being trimmed? So, we need lazy trimming in this case. */
+    if (asmActiveTrimDelIfNeeded(db, key, kv)) return KEY_DELETED;
+
     if ((server.allow_access_expired) ||
         (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))

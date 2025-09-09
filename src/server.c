@@ -1210,6 +1210,10 @@ void databasesCron(void) {
     /* Defrag keys gradually. */
     activeDefragCycle();
 
+    /* Handle active-trim */
+    if (server.cluster_enabled)
+        asmActiveTrimCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
+
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
@@ -1828,6 +1832,9 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && iAmMaster())
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
+
+    if (server.cluster_enabled)
+        asmActiveTrimCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     if (moduleCount()) {
         moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,
@@ -4331,6 +4338,23 @@ int processCommand(client *c) {
     {
         rejectCommand(c, shared.roslaveerr);
         return C_OK;
+    }
+
+    /* If this node is a replica and there is an active trim job, we cannot
+     * process commands from the master for the slot being trimmed. Otherwise,
+     * the trim cycle could mistakenly delete newly added keys. In this case,
+     * the master will be blocked until the trim job finishes. */
+    if ((c->flags & CLIENT_MASTER) && is_write_command && asmIsTrimInProgress()) {
+        int slot = getSlotFromCommand(c->cmd, c->argv, c->argc);
+        if (isSlotInTrimJob(slot)) {
+            serverLog(LL_WARNING, "Master is sending command for slot %d. "
+                                  "There is an active trim job in progress for this slot. "
+                                  "This replica cannot process this command right now. "
+                                  "Blocking master client until trim job is done. ", slot);
+            /* Block master client */
+            blockPostponeClientWithType(c, BLOCKED_POSTPONE_TRIM);
+            return C_OK;
+        }
     }
 
     /* Only allow a subset of commands in the context of Pub/Sub if the

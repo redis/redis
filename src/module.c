@@ -8901,6 +8901,18 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
     return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
+/* Check any subscriber for event */
+int moduleHasSubscribersForKeyspaceEvent(int type) {
+    listIter li;
+    listNode *ln;
+    listRewind(moduleKeyspaceSubscribers,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleKeyspaceSubscriber *sub = ln->value;
+        if (sub->event_mask & type) return 1;
+    }
+    return 0;
+}
+
 void firePostExecutionUnitJobs(void) {
     /* Avoid propagation of commands.
      * In that way, postExecutionUnitOperations will prevent
@@ -9021,8 +9033,10 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             int prev_active = sub->active;
             sub->active = 1;
             server.allow_access_expired++;
+            server.allow_access_trimmed++;
             sub->notify_callback(&ctx, type, event, key);
             server.allow_access_expired--;
+            server.allow_access_trimmed--;
             sub->active = prev_active;
             moduleFreeContext(&ctx);
         }
@@ -11600,6 +11614,8 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
     -1, /* REDISMODULE_EVENT_CONFIG */
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
+    -1, /* REDISMODULE_EVENT_CLUSTER */
+    REDISMODULE_CLUSTER_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_TRIM */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -12115,6 +12131,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, kvobj *kv, int dbid, int flags) {
     server.allow_access_expired++;
+    server.allow_access_trimmed++;
     int subevent = REDISMODULE_SUBEVENT_KEY_DELETED;
     if (flags & DB_FLAG_KEY_EXPIRED) {
         subevent = REDISMODULE_SUBEVENT_KEY_EXPIRED;
@@ -12138,6 +12155,7 @@ void moduleNotifyKeyUnlink(robj *key, kvobj *kv, int dbid, int flags) {
         }
     }
     server.allow_access_expired--;
+    server.allow_access_trimmed--;
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 
