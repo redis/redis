@@ -1079,7 +1079,7 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
 float getAllocatorFragmentation(size_t *out_frag_bytes) {
     if (out_frag_bytes)
         *out_frag_bytes = SIZE_MAX;
-    return 99; /* The maximum value of active-defrag-cycle-max */
+    return 99; /* The maximum percentage of fragmentation */
 }
 #endif
 

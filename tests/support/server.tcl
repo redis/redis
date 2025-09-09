@@ -579,6 +579,8 @@ proc start_server {options {code undefined}} {
 
     if {$::debug_defrag} {
         dict set config "activedefrag" "yes" ;# defrag enabled
+        dict set config "active-defrag-cycle-min" "99"
+        dict set config "active-defrag-cycle-max" "99"
     }
 
     # write new configuration to temporary file
