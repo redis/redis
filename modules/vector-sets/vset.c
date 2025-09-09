@@ -1873,8 +1873,7 @@ int VRANGE_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
     void *key_data;
     size_t key_len;
-    void *data;
-    while ((key_data = RedisModule_DictNextC(iter, &key_len, &data)) != NULL) {
+    while ((key_data = RedisModule_DictNextC(iter, &key_len, NULL)) != NULL) {
         /* Check if we've collected enough elements. */
         if (count >= 0 && returned >= count) break;
 

@@ -28,14 +28,12 @@ class BasicVRANGE(TestCase):
         # Test 2: Exclusive start boundary
         result = self.redis.execute_command('VRANGE', self.test_key, '(apple', '[cherry', '10')
         result = [r.decode() for r in result]
-        assert 'apple' not in result, "Exclusive boundary should not include 'apple'"
-        assert 'apricot' in result and 'banana' in result and 'cherry' in result, "Should include elements after apple up to cherry"
+        assert result == ['apricot', 'banana', 'cherry'], f"Expected elements after apple up to cherry inclusive, got {result}"
 
         # Test 3: Exclusive end boundary
         result = self.redis.execute_command('VRANGE', self.test_key, '[banana', '(cherry', '10')
         result = [r.decode() for r in result]
-        assert 'banana' in result, "Should include banana"
-        assert 'cherry' not in result, "Exclusive end should not include cherry"
+        assert result == ['banana'], f"Expected only banana (cherry excluded), got {result}"
 
         # Test 4: Using '-' for minimum element
         result = self.redis.execute_command('VRANGE', self.test_key, '-', '[banana', '10')
@@ -89,15 +87,15 @@ class BasicVRANGE(TestCase):
 
         # Test 8: Count of 0 returns empty array
         result = self.redis.execute_command('VRANGE', self.test_key, '-', '+', '0')
-        assert len(result) == 0, "Count of 0 should return empty array"
+        assert result == [], f"Count of 0 should return empty array, got {result}"
 
         # Test 9: Range with no matching elements
         result = self.redis.execute_command('VRANGE', self.test_key, '[zebra', '+', '10')
-        assert len(result) == 0, "Range beyond all elements should return empty"
+        assert result == [], f"Range beyond all elements should return empty array, got {result}"
 
         # Test 10: Non-existent key
         result = self.redis.execute_command('VRANGE', 'nonexistent_key', '-', '+', '10')
-        assert len(result) == 0, "Non-existent key should return empty array"
+        assert result == [], f"Non-existent key should return empty array, got {result}"
 
         # Test 11: Partial word boundaries
         result = self.redis.execute_command('VRANGE', self.test_key, '[app', '[apr', '10')
@@ -108,8 +106,8 @@ class BasicVRANGE(TestCase):
         # Test 12: Single element range
         result = self.redis.execute_command('VRANGE', self.test_key, '[cherry', '[cherry', '10')
         result = [r.decode() for r in result]
-        assert result == ['cherry'], "Inclusive single element range should return that element"
+        assert result == ['cherry'], f"Inclusive single element range should return that element, got {result}"
 
         # Test 13: Empty range (start > end)
         result = self.redis.execute_command('VRANGE', self.test_key, '[grape', '[apple', '10')
-        assert len(result) == 0, "Range where start > end should return empty"
+        assert result == [], f"Range where start > end should return empty array, got {result}"
