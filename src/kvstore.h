@@ -19,6 +19,8 @@
  * all keys that map to the same hash-slot in a separate dict within the kvstore
  * struct.
  * This enables us to easily access all keys that map to a specific hash-slot.
+ *
+ * Portions of this file are available under BSD3 terms; see REDISCONTRIBUTIONS for more information.
  */
 
 #ifndef DICTARRAY_H_
