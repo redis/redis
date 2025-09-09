@@ -289,7 +289,7 @@ start_server {tags {"other"}} {
             }
         }
         set _ $err
-    } {} {debug_defrag:skip}
+    } {}
 
     # Leave the user with a clean DB before to exit
     test {FLUSHDB} {

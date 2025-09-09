@@ -2003,7 +2003,7 @@ start_server {tags {"scripting"}} {
         } else {
             assert_lessthan [s used_memory_vm_functions] 14500000
         }
-    } {} {debug_defrag:skip}
+    }
 }
 } ;# foreach is_eval
 

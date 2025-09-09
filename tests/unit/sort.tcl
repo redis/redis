@@ -1,5 +1,5 @@
 start_server {
-    tags {"sort debug_defrag:skip"}
+    tags {"sort"}
     overrides {
         "list-max-ziplist-size" 16
         "set-max-intset-entries" 32

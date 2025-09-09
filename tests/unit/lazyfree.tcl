@@ -157,7 +157,7 @@ start_server {tags {"lazyfree"}} {
         } else {
             fail "Unexpected number of lazyfreed_objects: [s lazyfreed_objects]"
         }
-    } {} {debug_defrag:skip}
+    }
 
     test "Pending commands in querybuf processed once unblocking FLUSHALL ASYNC" {
         r config resetstat
@@ -196,5 +196,5 @@ start_server {tags {"lazyfree"}} {
         $rd close
         r ping
         r slaveof no one
-    } {OK} {external:skip debug_defrag:skip}
+    } {OK} {external:skip}
 }

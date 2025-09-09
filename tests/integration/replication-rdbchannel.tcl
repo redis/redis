@@ -227,7 +227,7 @@ start_server {tags {"repl external:skip"}} {
     }
 }
 
-start_server {tags {"repl external:skip debug_defrag:skip"}} {
+start_server {tags {"repl external:skip"}} {
     set replica [srv 0 client]
 
     start_server {} {

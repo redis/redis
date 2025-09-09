@@ -295,7 +295,7 @@ proc slave_query_buffer {srv} {
 }
 
 proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} {
-    start_server {tags {"maxmemory external:skip debug_defrag:skip"}} {
+    start_server {tags {"maxmemory external:skip"}} {
         start_server {} {
         set slave_pid [s process_id]
         test "$test_name" {
