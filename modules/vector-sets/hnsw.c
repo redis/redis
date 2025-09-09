@@ -46,7 +46,15 @@
 #include <assert.h>
 #include "hnsw.h"
 #include "mixer.h"
-#include <immintrin.h>
+
+// Cross-compiler SIMD header inclusion
+#if defined(__AVX2__) || defined(__AVX512F__)
+    #if defined(_MSC_VER)
+        #include <intrin.h>
+    #else
+        #include <immintrin.h>
+    #endif
+#endif
 
 #if 0
 #define debugmsg printf
