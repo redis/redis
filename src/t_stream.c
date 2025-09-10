@@ -901,7 +901,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             new_lp = lpAppendInteger(new_lp, master_fields_count);
             p = lpNext(lp, p);
             for (int i = 0; i < master_fields_count; i++) {
-                size_t field_len;
+                unsigned int field_len;
                 unsigned char *field_data = lpGetValue(p, &field_len, NULL);
                 new_lp = lpAppend(new_lp, field_data, field_len);
                 p = lpNext(lp, p);
@@ -925,8 +925,8 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                 /*copy item that not deleted */
                 new_lp = lpAppendInteger(new_lp, cur_lp_cnt);
                 for (int64_t i = 0; i < cur_lp_cnt; i++) {  
-                    size_t elem_len;
-                    int64_t elem_int;
+                    unsigned int elem_len;
+                    long long elem_int;
                     unsigned char *elem_data = lpGetValue(p, &elem_len, &elem_int);
                     if (elem_data) {
                         new_lp = lpAppend(new_lp, elem_data, elem_len);
