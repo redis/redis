@@ -3203,7 +3203,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
 /* When successful, initiates an internal connection, that is able to execute
  * internal commands (see CMD_INTERNAL). */
 static void internalAuth(client *c) {
-    if (server.cluster == NULL) {
+    if (!server.cluster_enabled) {
         addReplyError(c, "Cannot authenticate as an internal connection on non-cluster instances");
         return;
     }
