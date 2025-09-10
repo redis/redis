@@ -38,7 +38,6 @@ void streamFreeNACK(streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
-
 int streamEntryIsReferenced(stream *s, streamID *id);
 void streamCleanupEntryCGroupRefs(stream *s, streamID *id);
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
@@ -885,8 +884,65 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
          * there are too many entries deleted inside the listpack. */
         entries -= deleted_from_lp;
         marked_deleted += deleted_from_lp;
-        if (entries + marked_deleted > 10 && marked_deleted > entries/2) {
-            /* TODO: perform a garbage collection. */
+        if (entries + marked_deleted > 10 && marked_deleted > entries/2 && trim_strategy != TRIM_STRATEGY_MINID) {
+            unsigned char *new_lp = lpNew(0);
+            unsigned char *p = lpFirst(lp);
+            
+            int64_t original_items_count = lpGetInteger(p);
+            new_lp = lpAppendInteger(new_lp, original_items_count); 
+            p = lpNext(lp, p);
+
+    
+            p = lpNext(lp, p);  
+            new_lp = lpAppendInteger(new_lp, 0);/*marked_deleted is reset to 0 in the new listpack*/
+            
+            /*copy master_fields*/
+            int64_t master_fields_count = lpGetInteger(p);
+            new_lp = lpAppendInteger(new_lp, master_fields_count);
+            p = lpNext(lp, p);
+            for (int i = 0; i < master_fields_count; i++) {
+                size_t field_len;
+                unsigned char *field_data = lpGetValue(p, &field_len, NULL);
+                new_lp = lpAppend(new_lp, field_data, field_len);
+                p = lpNext(lp, p);
+            }
+            
+            /*only copy not deleted items*/
+            while (p) {
+                int64_t cur_lp_cnt = lpGetInteger(p);
+                if(!cur_lp_cnt) break;
+                p = lpNext(lp, p);  /*now point to flags*/
+                if (p == NULL) break;
+                int flags = lpGetInteger(p);
+                if (flags & STREAM_ITEM_FLAG_DELETED) {
+                    /*skip deleted item*/
+                    for (int64_t i = 1; i < cur_lp_cnt; i++) {  
+                        p = lpNext(lp, p);
+                    }
+                    continue;
+                }
+                
+                /*copy item that not deleted */
+                new_lp = lpAppendInteger(new_lp, cur_lp_cnt);
+                for (int64_t i = 0; i < cur_lp_cnt; i++) {  
+                    size_t elem_len;
+                    int64_t elem_int;
+                    unsigned char *elem_data = lpGetValue(p, &elem_len, &elem_int);
+                    if (elem_data) {
+                        new_lp = lpAppend(new_lp, elem_data, elem_len);
+                    } else {
+                        new_lp = lpAppendInteger(new_lp, elem_int);
+                    }
+                    p = lpNext(lp, p);
+                }
+            }
+            /*add zero term at the end*/
+            new_lp = lpAppendInteger(new_lp, 0); 
+            /*replace old listpack*/
+            raxRemove(s->rax, ri.key, ri.key_len, NULL);
+            raxInsert(s->rax, ri.key, ri.key_len, new_lp, NULL);
+            lpFree(lp);
+            lp = new_lp;
         }
 
         /* Update the listpack with the new pointer. */
@@ -902,7 +958,6 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                   node, so no need to go to the next node. */
     }
     raxStop(&ri);
-
     /* Update the stream's first ID after the trimming. */
     if (s->length == 0) {
         s->first_id.ms = 0;
