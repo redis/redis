@@ -1366,6 +1366,8 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
+            if (anetAcceptFailureNeedsRetry(errno))
+                continue;
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
@@ -1386,6 +1388,8 @@ void acceptTLSHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(max--) {
         cfd = anetTcpAccept(server.neterr, fd, cip, sizeof(cip), &cport);
         if (cfd == ANET_ERR) {
+            if (anetAcceptFailureNeedsRetry(errno))
+                continue;
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
@@ -1405,6 +1409,8 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
     while(max--) {
         cfd = anetUnixAccept(server.neterr, fd);
         if (cfd == ANET_ERR) {
+            if (anetAcceptFailureNeedsRetry(errno))
+                continue;
             if (errno != EWOULDBLOCK)
                 serverLog(LL_WARNING,
                     "Accepting client connection: %s", server.neterr);
