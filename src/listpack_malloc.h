@@ -24,6 +24,7 @@
  * See comment in zmalloc_usable_size(). */
 #define lp_malloc(sz) zmalloc_usable(sz,NULL)
 #define lp_realloc(ptr,sz) zrealloc_usable(ptr,sz,NULL,NULL)
+#define lp_realloc_usable(ptr,sz,usable,old_usable) zrealloc_usable(ptr,sz,usable,old_usable)
 #define lp_free zfree
 #define lp_malloc_size zmalloc_usable_size
 #endif

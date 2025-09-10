@@ -38,24 +38,49 @@ unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
 void lpFreeGeneric(void *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
+unsigned char* lpShrinkToFitUsable(unsigned char *lp, size_t *usable, size_t *old_usable);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
                               unsigned char *p, int where, unsigned char **newp);
 unsigned char *lpInsertInteger(unsigned char *lp, long long lval,
                                unsigned char *p, int where, unsigned char **newp);
+unsigned char *lpInsertStringUsable(unsigned char *lp, unsigned char *s, uint32_t slen,
+                                    unsigned char *p, int where, unsigned char **newp,
+                                    size_t *usable, size_t *old_usable);
+unsigned char *lpInsertIntegerUsable(unsigned char *lp, long long lval,
+                                     unsigned char *p, int where, unsigned char **newp,
+                                     size_t *usable, size_t *old_usable);
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpPrependInteger(unsigned char *lp, long long lval);
+unsigned char *lpPrependUsable(unsigned char *lp, unsigned char *s, uint32_t slen,
+                               size_t *usable, size_t *old_usable);
 unsigned char *lpAppend(unsigned char *lp, unsigned char *s, uint32_t slen);
 unsigned char *lpAppendInteger(unsigned char *lp, long long lval);
+unsigned char *lpAppendUsable(unsigned char *lp, unsigned char *ele, uint32_t size,
+                              size_t *usable, size_t *old_usable);
+unsigned char *lpAppendIntegerUsable(unsigned char *lp, long long lval,
+                                     size_t *usable, size_t *old_usable);
 unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s, uint32_t slen);
 unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long lval);
+unsigned char *lpReplaceUsable(unsigned char *lp, unsigned char **p, unsigned char *s, uint32_t slen,
+                               size_t *usable, size_t *old_usable);
+unsigned char *lpReplaceIntegerUsable(unsigned char *lp, unsigned char **p, long long lval,
+                                      size_t *usable, size_t *old_usable);
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp);
+unsigned char *lpDeleteUsable(unsigned char *lp, unsigned char *p, unsigned char **newp,
+                              size_t *usable, size_t *old_usable);
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num);
+unsigned char *lpDeleteRangeWithEntryUsable(unsigned char *lp, unsigned char **p, unsigned long num,
+                                            size_t *usable, size_t *old_usable);
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num);
+unsigned char *lpDeleteRangeUsable(unsigned char *lp, long index, unsigned long num,
+                                   size_t *usable, size_t *old_usable);
 unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned long len);
 unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
                              listpackEntry *entries, unsigned int len, unsigned char **newp);
 unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned long count);
 unsigned char *lpMerge(unsigned char **first, unsigned char **second);
+unsigned char *lpMergeUsable(unsigned char **first, unsigned char **second,
+                             size_t *usable, size_t *old_usable);
 unsigned char *lpDup(unsigned char *lp);
 unsigned long lpLength(unsigned char *lp);
 unsigned char *lpGet(unsigned char *p, int64_t *count, unsigned char *intbuf);

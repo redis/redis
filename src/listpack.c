@@ -239,9 +239,16 @@ void lpFreeGeneric(void *lp) {
 
 /* Shrink the memory to fit. */
 unsigned char* lpShrinkToFit(unsigned char *lp) {
+    return lpShrinkToFitUsable(lp, NULL, NULL);
+}
+
+unsigned char* lpShrinkToFitUsable(unsigned char *lp, size_t *usable, size_t *old_usable) {
     size_t size = lpGetTotalBytes(lp);
-    if (size < lp_malloc_size(lp)) {
-        return lp_realloc(lp, size);
+    size_t usable_size = lp_malloc_size(lp);
+    if (usable) *usable = usable_size;
+    if (old_usable) *old_usable = usable_size;
+    if (size < usable_size) {
+        return lp_realloc_usable(lp, size, usable, old_usable);
     } else {
         return lp;
     }
@@ -948,7 +955,8 @@ unsigned char *lpFind(unsigned char *lp, unsigned char *p, unsigned char *s,
  * set to the next element, on the right of the deleted one, or to NULL if the
  * deleted element was the last one. */
 unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char *eleint,
-                        uint32_t size, unsigned char *p, int where, unsigned char **newp)
+                        uint32_t size, unsigned char *p, int where, unsigned char **newp,
+                        size_t *usable, size_t *old_usable)
 {
     unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
     unsigned char backlen[LP_MAX_BACKLEN_SIZE];
@@ -1017,13 +1025,17 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
      * make room for the new element if the final allocation will get
      * larger, or we do it after if the final allocation will get smaller. */
 
+    size_t newsize, oldsize;
     unsigned char *dst = lp + poff; /* May be updated after reallocation. */
 
     /* Realloc before: we need more room. */
+    size_t usable_size = lp_malloc_size(lp);
     if (new_listpack_bytes > old_listpack_bytes &&
-        new_listpack_bytes > lp_malloc_size(lp)) {
-        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+        new_listpack_bytes > usable_size) {
+        if ((lp = lp_realloc_usable(lp,new_listpack_bytes,&newsize,&oldsize)) == NULL) return NULL;
         dst = lp + poff;
+    } else {
+        oldsize = newsize = usable_size;
     }
 
     /* Setup the listpack relocating the elements to make the exact room
@@ -1038,7 +1050,7 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
 
     /* Realloc after: we need to free space. */
     if (new_listpack_bytes < old_listpack_bytes) {
-        if ((lp = lp_realloc(lp,new_listpack_bytes)) == NULL) return NULL;
+        if ((lp = lp_realloc_usable(lp,new_listpack_bytes, &newsize, NULL)) == NULL) return NULL;
         dst = lp + poff;
     }
 
@@ -1092,7 +1104,8 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     memset(oldlp,'A',new_listpack_bytes);
     lp_free(oldlp);
 #endif
-
+    if (usable) *usable = newsize;
+    if (old_usable) *old_usable = oldsize;
     return lp;
 }
 
@@ -1234,24 +1247,43 @@ unsigned char *lpBatchInsert(unsigned char *lp, unsigned char *p, int where,
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
                               unsigned char *p, int where, unsigned char **newp)
 {
-    return lpInsert(lp, s, NULL, slen, p, where, newp);
+    return lpInsertStringUsable(lp,s,slen,p,where,newp,NULL,NULL);
+}
+
+unsigned char *lpInsertStringUsable(unsigned char *lp, unsigned char *s, uint32_t slen,
+                                    unsigned char *p, int where, unsigned char **newp,
+                                    size_t *usable, size_t *old_usable)
+{
+    return lpInsert(lp, s, NULL, slen, p, where, newp, usable, old_usable);
+}
+
+unsigned char *lpInsertIntegerUsable(unsigned char *lp, long long lval,
+                                     unsigned char *p, int where, unsigned char **newp,
+                                     size_t *usable, size_t *old_usable) {
+    uint64_t enclen; /* The length of the encoded element. */
+    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
+
+    lpEncodeIntegerGetType(lval, intenc, &enclen);
+    return lpInsert(lp, NULL, intenc, enclen, p, where, newp, usable, old_usable);
 }
 
 /* This is just a wrapper for lpInsert() to directly use a 64 bit integer
  * instead of a string. */
 unsigned char *lpInsertInteger(unsigned char *lp, long long lval, unsigned char *p, int where, unsigned char **newp) {
-    uint64_t enclen; /* The length of the encoded element. */
-    unsigned char intenc[LP_MAX_INT_ENCODING_LEN];
-
-    lpEncodeIntegerGetType(lval, intenc, &enclen);
-    return lpInsert(lp, NULL, intenc, enclen, p, where, newp);
+    return lpInsertIntegerUsable(lp, lval, p, where, newp, NULL, NULL);
 }
 
 /* Append the specified element 's' of length 'slen' at the head of the listpack. */
 unsigned char *lpPrepend(unsigned char *lp, unsigned char *s, uint32_t slen) {
+    return lpPrependUsable(lp,s,slen,NULL,NULL);
+}
+
+unsigned char *lpPrependUsable(unsigned char *lp, unsigned char *s, uint32_t slen,
+                               size_t *usable, size_t *old_usable)
+{
     unsigned char *p = lpFirst(lp);
-    if (!p) return lpAppend(lp, s, slen);
-    return lpInsert(lp, s, NULL, slen, p, LP_BEFORE, NULL);
+    if (!p) return lpAppendUsable(lp, s, slen, usable, old_usable);
+    return lpInsert(lp, s, NULL, slen, p, LP_BEFORE, NULL, usable, old_usable);
 }
 
 /* Append the specified integer element 'lval' at the head of the listpack. */
@@ -1265,16 +1297,27 @@ unsigned char *lpPrependInteger(unsigned char *lp, long long lval) {
  * listpack. It is implemented in terms of lpInsert(), so the return value is
  * the same as lpInsert(). */
 unsigned char *lpAppend(unsigned char *lp, unsigned char *ele, uint32_t size) {
+    return lpAppendUsable(lp, ele, size, NULL, NULL);
+}
+
+unsigned char *lpAppendUsable(unsigned char *lp, unsigned char *ele, uint32_t size,
+                              size_t *usable, size_t *old_usable)
+{
     uint64_t listpack_bytes = lpGetTotalBytes(lp);
     unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsert(lp,ele,NULL,size,eofptr,LP_BEFORE,NULL);
+    return lpInsert(lp,ele,NULL,size,eofptr,LP_BEFORE,NULL,usable,old_usable);
+}
+
+unsigned char *lpAppendIntegerUsable(unsigned char *lp, long long lval,
+                                     size_t *usable, size_t *old_usable) {
+    uint64_t listpack_bytes = lpGetTotalBytes(lp);
+    unsigned char *eofptr = lp + listpack_bytes - 1;
+    return lpInsertIntegerUsable(lp, lval, eofptr, LP_BEFORE, NULL, usable, old_usable);
 }
 
 /* Append the specified integer element 'lval' at the end of the listpack. */
 unsigned char *lpAppendInteger(unsigned char *lp, long long lval) {
-    uint64_t listpack_bytes = lpGetTotalBytes(lp);
-    unsigned char *eofptr = lp + listpack_bytes - 1;
-    return lpInsertInteger(lp, lval, eofptr, LP_BEFORE, NULL);
+    return lpAppendIntegerUsable(lp, lval, NULL, NULL);
 }
 
 /* Append batch of entries to the listpack.
@@ -1295,7 +1338,12 @@ unsigned char *lpBatchAppend(unsigned char *lp, listpackEntry *entries, unsigned
  * the current element. The function returns the new listpack as return
  * value, and also updates the current cursor by updating '*p'. */
 unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s, uint32_t slen) {
-    return lpInsert(lp, s, NULL, slen, *p, LP_REPLACE, p);
+    return lpReplaceUsable(lp, p, s, slen, NULL, NULL);
+}
+
+unsigned char *lpReplaceUsable(unsigned char *lp, unsigned char **p, unsigned char *s, uint32_t slen,
+                               size_t *usable, size_t *old_usable) {
+    return lpInsert(lp, s, NULL, slen, *p, LP_REPLACE, p, usable, old_usable);
 }
 
 /* This is just a wrapper for lpInsertInteger() to directly use a 64 bit integer
@@ -1303,7 +1351,12 @@ unsigned char *lpReplace(unsigned char *lp, unsigned char **p, unsigned char *s,
  * the new listpack as return value, and also updates the current cursor
  * by updating '*p'. */
 unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long lval) {
-    return lpInsertInteger(lp, lval, *p, LP_REPLACE, p);
+    return lpReplaceIntegerUsable(lp, p, lval, NULL, NULL);
+}
+
+unsigned char *lpReplaceIntegerUsable(unsigned char *lp, unsigned char **p, long long lval,
+                                      size_t *usable, size_t *old_usable) {
+    return lpInsertIntegerUsable(lp, lval, *p, LP_REPLACE, p, usable, old_usable);
 }
 
 /* Remove the element pointed by 'p', and return the resulting listpack.
@@ -1311,11 +1364,21 @@ unsigned char *lpReplaceInteger(unsigned char *lp, unsigned char **p, long long 
  * deleted one) is returned by reference. If the deleted element was the
  * last one, '*newp' is set to NULL. */
 unsigned char *lpDelete(unsigned char *lp, unsigned char *p, unsigned char **newp) {
-    return lpInsert(lp,NULL,NULL,0,p,LP_REPLACE,newp);
+    return lpDeleteUsable(lp,p,newp,NULL,NULL);
+}
+
+unsigned char *lpDeleteUsable(unsigned char *lp, unsigned char *p, unsigned char **newp,
+                              size_t *usable, size_t *old_usable) {
+    return lpInsert(lp,NULL,NULL,0,p,LP_REPLACE,newp,usable,old_usable);
 }
 
 /* Delete a range of entries from the listpack start with the element pointed by 'p'. */
 unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsigned long num) {
+    return lpDeleteRangeWithEntryUsable(lp, p, num, NULL, NULL);
+}
+
+unsigned char *lpDeleteRangeWithEntryUsable(unsigned char *lp, unsigned char **p, unsigned long num,
+                                            size_t *usable, size_t *old_usable) {
     size_t bytes = lpBytes(lp);
     unsigned long deleted = 0;
     unsigned char *eofptr = lp + bytes - 1;
@@ -1344,7 +1407,7 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
     uint32_t numele = lpGetNumElements(lp);
     if (numele != LP_HDR_NUMELE_UNKNOWN)
         lpSetNumElements(lp, numele-deleted);
-    lp = lpShrinkToFit(lp);
+    lp = lpShrinkToFitUsable(lp, usable, old_usable);
 
     /* Store the entry. */
     *p = lp+poff;
@@ -1355,6 +1418,11 @@ unsigned char *lpDeleteRangeWithEntry(unsigned char *lp, unsigned char **p, unsi
 
 /* Delete a range of entries from the listpack. */
 unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
+    return lpDeleteRangeUsable(lp, index, num, NULL, NULL);
+}
+
+unsigned char *lpDeleteRangeUsable(unsigned char *lp, long index, unsigned long num,
+                                   size_t *usable, size_t *old_usable) {
     unsigned char *p;
     uint32_t numele = lpGetNumElements(lp);
 
@@ -1373,9 +1441,9 @@ unsigned char *lpDeleteRange(unsigned char *lp, long index, unsigned long num) {
         p[0] = LP_EOF;
         lpSetTotalBytes(lp, p - lp + 1);
         lpSetNumElements(lp, index);
-        lp = lpShrinkToFit(lp);
+        lp = lpShrinkToFitUsable(lp, usable, old_usable);
     } else {
-        lp = lpDeleteRangeWithEntry(lp, &p, num);
+        lp = lpDeleteRangeWithEntryUsable(lp, &p, num, usable, old_usable);
     }
 
     return lp;
@@ -1446,6 +1514,11 @@ unsigned char *lpBatchDelete(unsigned char *lp, unsigned char **ps, unsigned lon
  * 'first' or 'second', also frees the other unused input listpack, and sets the
  * input listpack argument equal to newly reallocated listpack return value. */
 unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
+    return lpMergeUsable(first, second, NULL, NULL);
+}
+
+unsigned char *lpMergeUsable(unsigned char **first, unsigned char **second,
+                             size_t *usable, size_t *old_usable) {
     /* If any params are null, we can't merge, so NULL. */
     if (first == NULL || *first == NULL || second == NULL || *second == NULL)
         return NULL;
@@ -1491,7 +1564,8 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
     lplength = lplength < UINT16_MAX ? lplength : UINT16_MAX;
 
     /* Extend target to new lpbytes then append or prepend source. */
-    target = lp_realloc(target, lpbytes);
+    size_t newsize, oldsize, oldsize2;
+    target = lp_realloc_usable(target, lpbytes, &newsize, &oldsize);
     if (append) {
         /* append == appending to target */
         /* Copy source after target (copying over original [END]):
@@ -1515,14 +1589,17 @@ unsigned char *lpMerge(unsigned char **first, unsigned char **second) {
 
     /* Now free and NULL out what we didn't realloc */
     if (append) {
-        lp_free(*second);
+        lp_free_usable(*second, &oldsize2);
         *second = NULL;
         *first = target;
     } else {
-        lp_free(*first);
+        lp_free_usable(*first, &oldsize2);
         *first = NULL;
         *second = target;
     }
+
+    if (usable) *usable = newsize;
+    if (old_usable) *old_usable = oldsize + oldsize2;
 
     return target;
 }
