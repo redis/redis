@@ -3728,7 +3728,7 @@ int rdbLoad(char *filename, rdbSaveInfo *rsi, int rdbflags) {
     return rdbLoadWithEmptyFunc(filename, rsi, rdbflags, NULL);
 }
 
-int slotRangesSnapshotSaveRio(int req, rio *rdb, int *error);
+int slotSnapshotSaveRio(int req, rio *rdb, int *error);
 
 /* Like rdbLoadRio() but takes a filename instead of a rio stream. The
  * filename is open for reading and a rio stream object created in order
@@ -3969,7 +3969,7 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
 
         if (req & SLAVE_REQ_SLOTS_SNAPSHOT) {
             /* Slots snapshot is required */
-            retval = slotRangesSnapshotSaveRio(req, &rdb, NULL);
+            retval = slotSnapshotSaveRio(req, &rdb, NULL);
         } else {
             retval = rdbSaveRioWithEOFMark(req,&rdb,NULL,rsi);
         }
