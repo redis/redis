@@ -18,6 +18,7 @@
 #ifndef __REDIS_ASSERT_H__
 #define __REDIS_ASSERT_H__
 
+#include "stdlib.h"
 #include "config.h"
 
 #define assert(_e) (likely((_e))?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
