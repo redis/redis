@@ -29,6 +29,7 @@ struct _estore {
 
 /* Get the appropriate bucket for a given eidx */
 ebuckets *estoreGetBuckets(estore *es, int eidx) {
+    debugAssert(eidx < es->num_buckets);
     return &(es->ebArray[eidx]);
 }
 
@@ -52,7 +53,7 @@ estore *estoreCreate(EbucketsType *type, int num_buckets_bits) {
     es->buckets_sizes = num_buckets_bits > 1 ? fwTreeCreate(num_buckets_bits) : NULL;
 
     /* Allocate the buckets array */
-    es->ebArray = zmalloc(sizeof(ebuckets) * es->num_buckets);
+    es->ebArray = zcalloc(sizeof(ebuckets) * es->num_buckets);
 
     /* Initialize all buckets */
     for (int i = 0; i < es->num_buckets; i++) {
@@ -422,7 +423,7 @@ int estoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("Active expiration") {
-        estore *es = estoreCreate(&testEbucketsType, 0); /* 1 bucket */
+        estore *es = estoreCreate(&testEbucketsType, 14); /* 2^14 buckets */
 
         /* Create items with different expiration times */
         TestItem *expiredItem1 = createTestItem(1);
