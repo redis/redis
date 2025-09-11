@@ -1292,7 +1292,7 @@ void asmSyncWithSource(connection *conn) {
     }
 
     if (task->state == ASM_SEND_HANDSHAKE) {
-        sds node_id = sdsnewlen(getMyClusterNode()->name, CLUSTER_NAMELEN);
+        sds node_id = sdsnewlen(clusterNodeGetName(getMyClusterNode()), CLUSTER_NAMELEN);
         err = sendCommand(conn, "CLUSTER", "SYNCSLOTS", "CONF", "NODE-ID", node_id, NULL);
         sdsfree(node_id);
         if (err) goto write_error;
@@ -1684,7 +1684,7 @@ void clusterSyncSlotsCommand(client *c) {
 
         task->slot_ranges = slot_ranges;
         task->operation = ASM_MIGRATE;
-        memcpy(task->source, getMyClusterNode()->name, CLUSTER_NAMELEN);
+        memcpy(task->source, clusterNodeGetName(getMyClusterNode()), CLUSTER_NAMELEN);
         if (c->node_id) memcpy(task->dest, c->node_id, CLUSTER_NAMELEN);
 
         task->main_channel_client = c;

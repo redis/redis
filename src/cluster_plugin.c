@@ -144,12 +144,15 @@ void clusterCron(void) {
 }
 
 int clusterCommandSpecial(client *c) {
+    /* Enable CLUSTER MIGRATION and CLUSTER SYNCSLOTS for cluster plugin. */
     if (!strcasecmp(c->argv[1]->ptr, "migration")) {
         clusterMigrationCommand(c);
     } else if (!strcasecmp(c->argv[1]->ptr,"syncslots") && c->argc >= 3) {
         clusterSyncSlotsCommand(c);
+    } else {
+        return 0;
     }
-    return 0;
+    return 1;
 }
 
 const char** clusterCommandExtendedHelp(void) {
