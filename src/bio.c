@@ -169,9 +169,9 @@ void bioInit(void) {
      * function accepts in order to pass the job ID the thread is
      * responsible for. */
     for (j = 0; j < BIO_WORKER_NUM; j++) {
-        void *arg = (void*)(unsigned long) j;
-        if (pthread_create(&thread,&attr,bioProcessBackgroundJobs,arg) != 0) {
-            serverLog(LL_WARNING, "Fatal: Can't initialize Background Jobs. Error message: %s", strerror(errno));
+        int err = pthread_create(&thread,&attr,bioProcessBackgroundJobs, (void*) j);
+        if (err) {
+            serverLog(LL_WARNING, "Fatal: Can't initialize Background Jobs. Error message: %s", strerror(err));
             exit(1);
         }
         bio_threads[j] = thread;
@@ -273,9 +273,10 @@ void *bioProcessBackgroundJobs(void *arg) {
      * receive the watchdog signal. */
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGALRM);
-    if (pthread_sigmask(SIG_BLOCK, &sigset, NULL))
+    int err = pthread_sigmask(SIG_BLOCK, &sigset, NULL);
+    if (err)
         serverLog(LL_WARNING,
-            "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(errno));
+            "Warning: can't mask SIGALRM in bio.c thread: %s", strerror(err));
 
     while(1) {
         listNode *ln;

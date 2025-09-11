@@ -76,7 +76,7 @@
 /* We can enable the Redis defrag capabilities only if we are using Jemalloc
  * and the version used is our special version modified for Redis having
  * the ability to return per-allocation fragmentation hints. */
-#if defined(USE_JEMALLOC) && defined(JEMALLOC_FRAG_HINT)
+#if (defined(USE_JEMALLOC) && defined(JEMALLOC_FRAG_HINT)) || defined(DEBUG_DEFRAG_FORCE)
 #define HAVE_DEFRAG
 #endif
 
@@ -127,7 +127,7 @@ void *zrealloc_with_flags(void *ptr, size_t size, int flags);
 void zfree_with_flags(void *ptr, int flags);
 #endif
 
-#ifdef HAVE_DEFRAG
+#if (defined(USE_JEMALLOC) && defined(HAVE_DEFRAG))
 void zfree_no_tcache(void *ptr);
 __attribute__((malloc)) void *zmalloc_no_tcache(size_t size);
 #endif

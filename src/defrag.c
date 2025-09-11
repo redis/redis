@@ -143,12 +143,12 @@ typedef struct {
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
 
-/* Defrag helper for generic allocations.
+#if !defined(DEBUG_DEFRAG_FORCE)
+/* Defrag helper for generic allocations without freeing old pointer.
  *
- * returns NULL in case the allocation wasn't moved.
- * when it returns a non-null value, the old pointer was already released
- * and should NOT be accessed. */
-void* activeDefragAlloc(void *ptr) {
+ * Note: The caller is responsible for freeing the old pointer if this function
+ * returns a non-NULL value. */
+void* activeDefragAllocWithoutFree(void *ptr) {
     size_t size;
     void *newptr;
     if(!je_get_defrag_hint(ptr)) {
@@ -161,8 +161,23 @@ void* activeDefragAlloc(void *ptr) {
     size = zmalloc_usable_size(ptr);
     newptr = zmalloc_no_tcache(size);
     memcpy(newptr, ptr, size);
-    zfree_no_tcache(ptr);
     server.stat_active_defrag_hits++;
+    return newptr;
+}
+
+void activeDefragFree(void *ptr) {
+    zfree_no_tcache(ptr);
+}
+
+/* Defrag helper for generic allocations.
+ *
+ * returns NULL in case the allocation wasn't moved.
+ * when it returns a non-null value, the old pointer was already released
+ * and should NOT be accessed. */
+void* activeDefragAlloc(void *ptr) {
+    void *newptr = activeDefragAllocWithoutFree(ptr);
+    if (newptr)
+        activeDefragFree(ptr);
     return newptr;
 }
 
@@ -173,9 +188,40 @@ void *activeDefragAllocRaw(size_t size) {
 
 /* Raw memory free for defrag, avoid using tcache. */
 void activeDefragFreeRaw(void *ptr) {
-    zfree_no_tcache(ptr);
+    activeDefragFree(ptr);
     server.stat_active_defrag_hits++;
 }
+#else
+void *activeDefragAllocWithoutFree(void *ptr) {
+    size_t size;
+    void *newptr;
+    size = zmalloc_usable_size(ptr);
+    newptr = zmalloc(size);
+    memcpy(newptr, ptr, size);
+    server.stat_active_defrag_hits++;
+    return newptr;
+}
+
+void activeDefragFree(void *ptr) {
+    zfree(ptr);
+}
+
+void *activeDefragAlloc(void *ptr) {
+    void *newptr = activeDefragAllocWithoutFree(ptr);
+    if (newptr)
+        activeDefragFree(ptr);
+    return newptr;
+}
+
+void *activeDefragAllocRaw(size_t size) {
+    return zmalloc(size);
+}
+
+void activeDefragFreeRaw(void *ptr) {
+    zfree(ptr);
+    server.stat_active_defrag_hits++;
+}
+#endif
 
 /*Defrag helper for sds strings
  *
@@ -412,6 +458,17 @@ void activeDefragSdsDictCallback(void *privdata, const dictEntry *de, dictEntryL
     UNUSED(de);
 }
 
+void activeDefragLuaScriptDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
+    UNUSED(plink);
+    UNUSED(privdata);
+
+    /* If this luaScript is in the LRU list, unconditionally update the node's
+     * value pointer to the current dict key (regardless of reallocation). */
+    luaScript *script = dictGetVal(de);
+    if (script->node)
+        script->node->value = dictGetKey(de);
+}
+
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
     dict *d = privdata;
@@ -438,8 +495,10 @@ void activeDefragSdsDict(dict* d, int val_type) {
                       val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ? (dictDefragAllocFunction *)activeDefragLuaScript :
                       NULL)
     };
+    dictScanFunction *fn = (val_type == DEFRAG_SDS_DICT_VAL_LUA_SCRIPT ?
+        activeDefragLuaScriptDictCallback : activeDefragSdsDictCallback);
     do {
-        cursor = dictScanDefrag(d, cursor, activeDefragSdsDictCallback,
+        cursor = dictScanDefrag(d, cursor, fn,
                                 &defragfns, NULL);
     } while (cursor != 0);
 }
@@ -814,6 +873,7 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
     PendingEntryContext *ctx = privdata;
     streamNACK *nack = ri->data, *newnack;
     nack->consumer = ctx->c; /* update nack pointer to consumer */
+    nack->cgroup_ref_node->value = ctx->cg; /* Update the value of cgroups_ref node to the consumer group. */
     newnack = activeDefragAlloc(nack);
     if (newnack) {
         /* update consumer group pointer to the nack */
@@ -842,13 +902,15 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
 }
 
 void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
-    streamCG *cg = ri->data;
+    streamCG *newcg, *cg = ri->data;
     UNUSED(privdata);
+    if ((newcg = activeDefragAlloc(cg)))
+        cg = newcg;
     if (cg->consumers)
         defragRadixTree(&cg->consumers, 0, defragStreamConsumer, cg);
     if (cg->pel)
         defragRadixTree(&cg->pel, 0, NULL, NULL);
-    return NULL;
+    return cg;
 }
 
 void defragStream(defragKeysCtx *ctx, kvobj *ob) {
@@ -868,7 +930,7 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
         defragRadixTree(&s->rax, 1, NULL, NULL);
 
     if (s->cgroups)
-        defragRadixTree(&s->cgroups, 1, defragStreamConsumerGroup, NULL);
+        defragRadixTree(&s->cgroups, 0, defragStreamConsumerGroup, NULL);
 }
 
 /* Defrag a module key. This is either done immediately or scheduled
@@ -981,6 +1043,7 @@ static void dbKeysScanCallback(void *privdata, const dictEntry *de, dictEntryLin
     server.stat_active_defrag_scanned++;
 }
 
+#if !defined(DEBUG_DEFRAG_FORCE)
 /* Utility function to get the fragmentation ratio from jemalloc.
  * It is critical to do that by comparing only heap maps that belong to
  * jemalloc, and skip ones the jemalloc keeps as spare. Since we use this
@@ -1014,6 +1077,13 @@ float getAllocatorFragmentation(size_t *out_frag_bytes) {
         allocated, active, resident, frag_pct, rss_pct, frag_smallbins_bytes, rss_bytes);
     return frag_pct;
 }
+#else
+float getAllocatorFragmentation(size_t *out_frag_bytes) {
+    if (out_frag_bytes)
+        *out_frag_bytes = SIZE_MAX;
+    return 99; /* The maximum percentage of fragmentation */
+}
+#endif
 
 /* Defrag scan callback for the pubsub dictionary. */
 void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
@@ -1038,7 +1108,8 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
         while((clientde = dictNext(&di)) != NULL) {
             client *c = dictGetKey(clientde);
             dict *client_channels = ctx->getPubSubChannels(c);
-            dictEntry *pubsub_channel = dictFind(client_channels, newchannel);
+            uint64_t hash = dictGetHash(client_channels, newchannel);
+            dictEntry *pubsub_channel = dictFindByHashAndPtr(client_channels, channel, hash);
             serverAssert(pubsub_channel);
             dictSetKey(ctx->getPubSubChannels(c), pubsub_channel, newchannel);
         }
@@ -1263,7 +1334,7 @@ static doneStatus defragStageExpiresKvstore(void *ctx, monotime endtime) {
 void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
     redisDb *db = privdata;
     dictEntryLink link, exlink = NULL;
-    kvobj *kv = ptr;
+    kvobj *newkv, *kv = ptr;
     sds keystr = kvobjGetKey(kv);
     unsigned int slot = calculateKeySlot(keystr);
 
@@ -1278,15 +1349,15 @@ void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
         serverAssert(exlink != NULL);
     }
 
-    if ((kv = activeDefragAlloc(kv))) {
+    if ((newkv = activeDefragAlloc(kv))) {
         /* Update its reference in the DB keys. */
         link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
         serverAssert(link != NULL);
-        kvstoreDictSetAtLink(db->keys, slot, kv, &link, 0);
+        kvstoreDictSetAtLink(db->keys, slot, newkv, &link, 0);
         if (expire != -1)
-            kvstoreDictSetAtLink(db->expires, slot, kv, &exlink, 0);
+            kvstoreDictSetAtLink(db->expires, slot, newkv, &exlink, 0);
     }
-    return kv;
+    return newkv;
 }
 
 static doneStatus defragStageSubexpires(void *ctx, monotime endtime) {
@@ -1579,6 +1650,9 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
 
     monotime starttime = getMonotonicUs();
     int dutyCycleUs = computeDefragCycleUs();
+#if defined(DEBUG_DEFRAG_FULLY)
+    dutyCycleUs = 30*1000*1000LL; /* 30 seconds */
+#endif
     monotime endtime = starttime + dutyCycleUs;
     int haveMoreWork = 1;
 

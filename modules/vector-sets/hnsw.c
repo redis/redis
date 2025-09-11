@@ -2489,6 +2489,7 @@ void hnsw_cursor_free(hnswCursor *cursor) {
             hfree(cursor);
             break;
         }
+        prev = x;
         x = x->next;
     }
     pthread_rwlock_unlock(&cursor->index->global_lock);

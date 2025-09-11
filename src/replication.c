@@ -1949,6 +1949,7 @@ static void rdbLoadEmptyDbFunc(void) {
     serverLog(LL_NOTICE, "MASTER <-> REPLICA sync: Flushing old data");
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
+
     emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
 }
 

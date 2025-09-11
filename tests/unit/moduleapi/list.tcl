@@ -12,7 +12,7 @@ proc verify_list_edit_reply {reply argv} {
     }
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {Module list set, get, insert, delete} {
@@ -199,7 +199,7 @@ start_server {tags {"modules"}} {
 # the KEYSIZES histogram remains accurate and that insert & delete was tested.
 set testmodule [file normalize tests/modules/list.so]
 set modules [list loadmodule $testmodule]
-start_cluster 2 2 [list config_lines [list loadmodule $testmodule enable-debug-command yes]] {
+start_cluster 2 2 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule enable-debug-command yes]] {
     test "Module list - KEYSIZES is updated correctly in cluster mode" {
         for {set srvid -2} {$srvid <= 0} {incr srvid} {
             set instance [srv $srvid client]

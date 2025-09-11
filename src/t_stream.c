@@ -2705,6 +2705,7 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
         return 1;
 
     /* Check if the message is in any consumer group's PEL */
+    if (!s->cgroups_ref) return 0;
     unsigned char buf[sizeof(streamID)];
     streamEncodeID(buf, id);
     return raxFind(s->cgroups_ref, buf, sizeof(streamID), NULL);
@@ -2979,6 +2980,10 @@ NULL
             s = o->ptr;
             signalModifiedKey(c,c->db,c->argv[2]);
         }
+        
+        if (entries_read != SCG_INVALID_ENTRIES_READ && (uint64_t)entries_read > s->entries_added) {
+            entries_read = s->entries_added;
+        }
 
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
         if (cg) {
@@ -2996,6 +3001,11 @@ NULL
         } else if (streamParseIDOrReply(c,c->argv[4],&id,0) != C_OK) {
             return;
         }
+
+        if (entries_read != SCG_INVALID_ENTRIES_READ && (uint64_t)entries_read > s->entries_added) {
+            entries_read = s->entries_added;
+        }
+        
         streamUpdateCGroupLastId(s, cg, &id);
         cg->entries_read = entries_read;
         addReply(c,shared.ok);

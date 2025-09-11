@@ -2684,9 +2684,13 @@ int processMultibulkBuffer(client *c) {
                 c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
                 c->argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
-                /* Assume that if we saw a fat argument we'll see another one
-                 * likely... */
-                c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);
+                /* Assume that if we saw a fat argument we'll see another one likely...
+                 * But only if that fat argument is not too big compared to the memory limit. */
+                if (!server.maxmemory || (size_t)c->bulklen < server.maxmemory / 32) {
+                    c->querybuf = sdsnewlen(SDS_NOINIT,c->bulklen+2);
+                } else {
+                    c->querybuf = sdsnewlen(SDS_NOINIT, PROTO_IOBUF_LEN);
+                }
                 sdsclear(c->querybuf);
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {

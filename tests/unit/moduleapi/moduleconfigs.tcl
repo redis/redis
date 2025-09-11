@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/moduleconfigs.so]
 set testmoduletwo [file normalize tests/modules/moduleconfigstwo.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
     test {Config get commands work} {
         # Make sure config get module config works
@@ -322,7 +322,7 @@ start_server {tags {"modules"}} {
         assert_match {*Module Configurations were not set, missing LoadConfigs call. Unloading the module.*} $err
 
         # successful
-        start_server [list overrides [list loadmodule "$testmodule" moduleconfigs.string "bootedup" moduleconfigs.enum two moduleconfigs.flags "two four"]] {
+        start_server [list overrides [list loadmodule "$testmodule" moduleconfigs.string "bootedup" moduleconfigs.enum two moduleconfigs.flags "two four"] tags {"external:skip"}] {
             assert_equal [r config get moduleconfigs.string] "moduleconfigs.string bootedup"
             assert_equal [r config get moduleconfigs.mutable_bool] "moduleconfigs.mutable_bool yes"
             assert_equal [r config get moduleconfigs.immutable_bool] "moduleconfigs.immutable_bool no"
