@@ -311,15 +311,18 @@ int estoreTest(int argc, char **argv, int flags) {
         uint64_t expireTime1 = estoreRemove(es, 0, item1);
         assert(expireTime1 == 1000);
         assert(estoreSize(es) == 2);
+        zfree(item1);
 
         uint64_t expireTime2 = estoreRemove(es, 1, item2);
         assert(expireTime2 == 2000);
         assert(estoreSize(es) == 1);
+        zfree(item2);
 
         uint64_t expireTime3 = estoreRemove(es, 0, item3);
         assert(expireTime3 == 3000);
         assert(estoreSize(es) == 0);
         assert(estoreIsEmpty(es));
+        zfree(item3);
 
         /* Clean up - items are freed by the onDeleteItem callback */
         estoreRelease(es);
@@ -349,6 +352,7 @@ int estoreTest(int argc, char **argv, int flags) {
         /* Clean up */
         estoreRemove(es, 0, item);
         assert(estoreSize(es) == 0);
+        zfree(item);
 
         estoreRelease(es);
     }
@@ -388,8 +392,11 @@ int estoreTest(int argc, char **argv, int flags) {
 
         /* Clean up */
         estoreRemove(es, 1, item1);
+        zfree(item1);
         estoreRemove(es, 3, item2);
+        zfree(item2);
         estoreRemove(es, 3, item3);
+        zfree(item3);
         assert(estoreSize(es) == 0);
 
         estoreRelease(es);
@@ -457,6 +464,7 @@ int estoreTest(int argc, char **argv, int flags) {
 
         /* Clean up remaining item */
         estoreRemove(es, 0, futureItem);
+        zfree(futureItem);
         assert(estoreSize(es) == 0);
 
         estoreRelease(es);
