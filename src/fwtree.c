@@ -132,8 +132,6 @@ void fwTreeClear(fenwickTree *ft) {
 #ifdef REDIS_TEST
 #include <stdio.h>
 
-#define UNUSED(x) (void)(x)
-
 #define TEST(name) printf("%s\n", name);
 
 int fwtreeTest(int argc, char *argv[], int flags) {
