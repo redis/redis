@@ -21,7 +21,6 @@
 #include "rio.h"
 #include "atomicvar.h"
 #include "commands.h"
-#include "redisassert.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -765,6 +764,21 @@ typedef enum {
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
 #define run_with_period(_ms_) if (((_ms_) <= 1000/server.hz) || !(server.cronloops%((_ms_)/(1000/server.hz))))
+
+/* We can print the stacktrace, so our assert is defined this way: */
+#define serverAssertWithInfo(_c,_o,_e) (likely(_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
+
+/* The following macros provide assertions that are only executed during test builds and should be used to add
+ * assertions that are too computationally expensive or dangerous to run during normal operations.  */
+#ifdef DEBUG_ASSERTIONS
+#define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
+#define debugServerAssert(...) serverAssert(__VA_ARGS__)
+#else
+#define debugServerAssertWithInfo(...)
+#define debugServerAssert(...)
+#endif
 
 /* latency histogram per command init settings */
 #define LATENCY_HISTOGRAM_MIN_VALUE 1L        /* >= 1 nanosec */

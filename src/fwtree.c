@@ -9,7 +9,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "util.h"
+#include "server.h"
 #include "fwtree.h"
 #include "zmalloc.h"
 #include "redisassert.h"
