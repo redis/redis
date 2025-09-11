@@ -117,7 +117,7 @@ start_server {} {
 # become smaller when master disconnects with slow replicas since output buffer
 # limit is reached.
 foreach rdbchannel {"yes" "no"} {
-start_server {tags {"repl external:skip"}} {
+start_server {tags {"repl external:skip debug_defrag:skip"}} {
 start_server {} {
 start_server {} {
     set replica1 [srv -2 client]

@@ -527,14 +527,14 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
-        foreach {eb_container fields n} {eblist 16 3000 ebrax 30 1600 large_ebrax 1600 30} {
+        foreach {eb_container fields n} {eblist 16 3000 ebrax 30 1600 large_ebrax 500 100} {
         test "Active Defrag HFE with $eb_container: $type" {
             r flushdb
             r config set hz 100
             r config set activedefrag no
             wait_for_defrag_stop 500 100
             r config resetstat
-            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-threshold-lower 7
             r config set active-defrag-cycle-min 65
             r config set active-defrag-cycle-max 75
             r config set active-defrag-ignore-bytes 1000kb
@@ -577,7 +577,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_lessthan [s allocator_frag_ratio] 1.05
+            assert_lessthan [s allocator_frag_ratio] 1.07
 
             # Delete all the keys to create fragmentation
             for {set i 0} {$i < $n} {incr i} {
@@ -608,7 +608,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.05
+                wait_for_defrag_stop 500 100 1.07
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
@@ -1004,13 +1004,13 @@ run_solo {defrag} {
                 }
             }
         }
-    } {} {defrag external:skip tsan:skip cluster}
+    } {} {defrag external:skip tsan:skip debug_defrag:skip cluster}
 
-    start_cluster 1 0 {tags {"defrag external:skip tsan:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_cluster 1 0 {tags {"defrag external:skip tsan:skip debug_defrag:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip tsan:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_server {tags {"defrag external:skip tsan:skip debug_defrag:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo

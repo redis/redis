@@ -1287,14 +1287,20 @@ start_server {tags {"external:skip needs:debug"}} {
         r flushall
 
         # hash1: 5 fields, 3 with TTL. subexpiry incr +1
-        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 150 FIELDS 3 f1 f2 f3
+        r hset myhash1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash1 150 FIELDS 3 f1 f2 f3
+        assert_match  [get_stat_subexpiry r] 1
+        # Update hash1, f3 field with earlier TTL. subexpiry no change.
+        r hpexpire myhash1 100 FIELDS 1 f3
         assert_match  [get_stat_subexpiry r] 1
 
         # hash2: 5 fields, 3 with TTL. subexpiry incr +1
         r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         assert_match  [get_stat_subexpiry r] 1
         r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
+        assert_match  [get_stat_subexpiry r] 2
+        # Update hash2, f3 field with later TTL. subexpiry no change.
+        r hpexpire myhash2 150 FIELDS 1 f3
         assert_match  [get_stat_subexpiry r] 2
 
         # hash3: 2 fields, 1 with TTL. HDEL field with TTL. subexpiry decr -1

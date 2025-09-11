@@ -96,7 +96,7 @@ start_server {tags {"incr"}} {
         assert {[string range $old 0 2] eq "at:"}
         assert {[string range $new 0 2] eq "at:"}
         assert {$old eq $new}
-    } {} {needs:debug}
+    } {} {needs:debug debug_defrag:skip}
 
     test {INCRBYFLOAT against non existing key} {
         r del novar

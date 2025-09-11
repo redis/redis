@@ -2067,53 +2067,309 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     VectorSetType = RedisModule_CreateDataType(ctx,"vectorset",0,&tm);
     if (VectorSetType == NULL) return REDISMODULE_ERR;
 
+    // Register command VADD
     if (RedisModule_CreateCommand(ctx,"VADD",
         VADD_RedisCommand,"write deny-oom",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vadd_cmd = RedisModule_GetCommand(ctx, "VADD");
+    if (vadd_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vadd_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "reduce", .type = REDISMODULE_ARG_TYPE_BLOCK, .token = "REDUCE", .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+            .subargs = (RedisModuleCommandArg[]) {
+                { .name = "dim", .type = REDISMODULE_ARG_TYPE_INTEGER },
+                { NULL }
+            }
+        },
+        { .name = "format", .type = REDISMODULE_ARG_TYPE_ONEOF, .subargs = (RedisModuleCommandArg[]) {
+                { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
+                { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
+                { NULL }
+            }
+        },
+        { .name = "vector", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "cas", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "CAS", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "quant_type", .type = REDISMODULE_ARG_TYPE_ONEOF, .flags = REDISMODULE_CMD_ARG_OPTIONAL, .subargs = (RedisModuleCommandArg[]) {
+                { .name = "noquant", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "NOQUANT" },
+                { .name = "bin", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "BIN" },
+                { .name = "q8", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "Q8" },
+                { NULL }
+            }
+        },
+        { .name = "build-exploration-factor", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "attributes", .type = REDISMODULE_ARG_TYPE_STRING, .token = "SETATTR", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "numlinks", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "M", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { NULL }
+    };
+    RedisModuleCommandInfo vadd_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Add one or more elements to a vector set, or update its vector if it already exists",
+        .since = "8.0.0",
+        .arity = -5,
+        .args = vadd_args,
+    };
+    if (RedisModule_SetCommandInfo(vadd_cmd, &vadd_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VREM
     if (RedisModule_CreateCommand(ctx,"VREM",
         VREM_RedisCommand,"write",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vrem_cmd = RedisModule_GetCommand(ctx, "VREM");
+    if (vrem_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vrem_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { NULL }
+    };
+    RedisModuleCommandInfo vrem_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Remove an element from a vector set",
+        .since = "8.0.0",
+        .arity = 3,
+        .args = vrem_args,
+    };
+    if (RedisModule_SetCommandInfo(vrem_cmd, &vrem_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VSIM
     if (RedisModule_CreateCommand(ctx,"VSIM",
         VSIM_RedisCommand,"readonly",1,1,1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vsim_cmd = RedisModule_GetCommand(ctx, "VSIM");
+    if (vsim_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vsim_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "format", .type = REDISMODULE_ARG_TYPE_ONEOF, .subargs = (RedisModuleCommandArg[]) {
+                { .name = "ele", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "ELE" },
+                { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
+                { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
+                { NULL }
+            }
+        },
+        { .name = "vector_or_element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "withscores", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "WITHSCORES", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "withattribs", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "WITHATTRIBS", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "count", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "COUNT", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "max_distance", .type = REDISMODULE_ARG_TYPE_DOUBLE, .token = "EPSILON", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "search-exploration-factor", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "expression", .type = REDISMODULE_ARG_TYPE_STRING, .token = "FILTER", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "max-filtering-effort", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "FILTER-EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "truth", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "TRUTH", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { .name = "nothread", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "NOTHREAD", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { NULL }
+    };
+    RedisModuleCommandInfo vsim_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return elements by vector similarity",
+        .since = "8.0.0",
+        .arity = -4,
+        .args = vsim_args,
+    };
+    if (RedisModule_SetCommandInfo(vsim_cmd, &vsim_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VDIM
     if (RedisModule_CreateCommand(ctx, "VDIM",
         VDIM_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vdim_cmd = RedisModule_GetCommand(ctx, "VDIM");
+    if (vdim_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vdim_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { NULL }
+    };
+    RedisModuleCommandInfo vdim_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the dimension of vectors in the vector set",
+        .since = "8.0.0",
+        .arity = 2,
+        .args = vdim_args,
+    };
+    if (RedisModule_SetCommandInfo(vdim_cmd, &vdim_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VCARD
     if (RedisModule_CreateCommand(ctx, "VCARD",
         VCARD_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vcard_cmd = RedisModule_GetCommand(ctx, "VCARD");
+    if (vcard_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vcard_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { NULL }
+    };
+    RedisModuleCommandInfo vcard_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the number of elements in a vector set",
+        .since = "8.0.0",
+        .arity = 2,
+        .args = vcard_args,
+    };
+    if (RedisModule_SetCommandInfo(vcard_cmd, &vcard_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VEMB
     if (RedisModule_CreateCommand(ctx, "VEMB",
         VEMB_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vemb_cmd = RedisModule_GetCommand(ctx, "VEMB");
+    if (vemb_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vemb_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "raw", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "RAW", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { NULL }
+    };
+    RedisModuleCommandInfo vemb_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the vector associated with an element",
+        .since = "8.0.0",
+        .arity = -3,
+        .args = vemb_args,
+    };
+    if (RedisModule_SetCommandInfo(vemb_cmd, &vemb_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VLINKS
     if (RedisModule_CreateCommand(ctx, "VLINKS",
         VLINKS_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vlinks_cmd = RedisModule_GetCommand(ctx, "VLINKS");
+    if (vlinks_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vlinks_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "withscores", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "WITHSCORES", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { NULL }
+    };
+    RedisModuleCommandInfo vlinks_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return the neighbors of an element at each layer in the HNSW graph",
+        .since = "8.0.0",
+        .arity = -3,
+        .args = vlinks_args,
+    };
+    if (RedisModule_SetCommandInfo(vlinks_cmd, &vlinks_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VINFO
     if (RedisModule_CreateCommand(ctx, "VINFO",
         VINFO_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vinfo_cmd = RedisModule_GetCommand(ctx, "VINFO");
+    if (vinfo_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vinfo_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { NULL }
+    };
+    RedisModuleCommandInfo vinfo_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return information about a vector set",
+        .since = "8.0.0",
+        .arity = 2,
+        .args = vinfo_args,
+    };
+    if (RedisModule_SetCommandInfo(vinfo_cmd, &vinfo_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VSETATTR
     if (RedisModule_CreateCommand(ctx, "VSETATTR",
         VSETATTR_RedisCommand, "write fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vsetattr_cmd = RedisModule_GetCommand(ctx, "VSETATTR");
+    if (vsetattr_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vsetattr_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { .name = "json", .type = REDISMODULE_ARG_TYPE_STRING },
+        { NULL }
+    };
+    RedisModuleCommandInfo vsetattr_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Associate or remove the JSON attributes of elements",
+        .since = "8.0.0",
+        .arity = 4,
+        .args = vsetattr_args,
+    };
+    if (RedisModule_SetCommandInfo(vsetattr_cmd, &vsetattr_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VGETATTR
     if (RedisModule_CreateCommand(ctx, "VGETATTR",
         VGETATTR_RedisCommand, "readonly fast", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vgetattr_cmd = RedisModule_GetCommand(ctx, "VGETATTR");
+    if (vgetattr_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vgetattr_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { NULL }
+    };
+    RedisModuleCommandInfo vgetattr_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Retrieve the JSON attributes of elements",
+        .since = "8.0.0",
+        .arity = 3,
+        .args = vgetattr_args,
+    };
+    if (RedisModule_SetCommandInfo(vgetattr_cmd, &vgetattr_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VRANDMEMBER
     if (RedisModule_CreateCommand(ctx, "VRANDMEMBER",
         VRANDMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    RedisModuleCommand *vrandmember_cmd = RedisModule_GetCommand(ctx, "VRANDMEMBER");
+    if (vrandmember_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vrandmember_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "count", .type = REDISMODULE_ARG_TYPE_INTEGER, .flags = REDISMODULE_CMD_ARG_OPTIONAL },
+        { NULL }
+    };
+    RedisModuleCommandInfo vrandmember_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Return one or multiple random members from a vector set",
+        .since = "8.0.0",
+        .arity = -2,
+        .args = vrandmember_args,
+    };
+    if (RedisModule_SetCommandInfo(vrandmember_cmd, &vrandmember_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
+
+    // Register command VISMEMBER
     if (RedisModule_CreateCommand(ctx, "VISMEMBER",
         VISMEMBER_RedisCommand, "readonly", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    RedisModuleCommand *vismember_cmd = RedisModule_GetCommand(ctx, "VISMEMBER");
+    if (vismember_cmd == NULL) return REDISMODULE_ERR;
+
+    RedisModuleCommandArg vismember_args[] = {
+        { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
+        { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
+        { NULL }
+    };
+    RedisModuleCommandInfo vismember_info = {
+        .version = REDISMODULE_COMMAND_INFO_VERSION,
+        .summary = "Check if an element exists in a vector set",
+        .since = "8.2.0",
+        .arity = 3,
+        .args = vismember_args,
+    };
+    if (RedisModule_SetCommandInfo(vismember_cmd, &vismember_info) == REDISMODULE_ERR) return REDISMODULE_ERR;
 
     hnsw_set_allocator(RedisModule_Free, RedisModule_Alloc,
                        RedisModule_Realloc);
