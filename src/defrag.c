@@ -1349,14 +1349,14 @@ void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
         serverAssert(exlink != NULL);
     }
 
-    if ((newkv = activeDefragAllocWithoutFree(kvobj))) {
+    if ((newkv = activeDefragAllocWithoutFree(kv))) {
         /* Update its reference in the DB keys. */
         link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
         serverAssert(link != NULL);
         kvstoreDictSetAtLink(db->keys, slot, newkv, &link, 0);
         if (expire != -1)
             kvstoreDictSetAtLink(db->expires, slot, newkv, &exlink, 0);
-        activeDefragFree(kvobj);
+        activeDefragFree(kv);
     }
     return newkv;
 }
