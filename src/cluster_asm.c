@@ -61,7 +61,7 @@ struct asmManager {
     int debug_failed_channel;     /* Channel where the task failed */
     int debug_failed_state;       /* State where the task failed */
     int debug_trim_method;        /* Method to trim the buffer */
-    int debug_active_trim_delay; /* Sleep before trimming each key */
+    int debug_active_trim_delay;  /* Sleep before trimming each key */
 
     /* Active trim stats */
     unsigned long long active_trim_started;      /* Number of times active trim was started */
@@ -2020,8 +2020,6 @@ werr:
     return C_ERR;
 }
 
-/* ======================== ASM Sync Buffer Functions ======================== */
-
 /* Read error handler for sync buffer */
 static void asmReadSyncBufferErrorHandler(connection *conn) {
     if (listLength(asmManager->tasks) == 0) return;
@@ -2164,6 +2162,46 @@ void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes) {
     task->dest_offset += bytes;
 }
 
+/* Send STREAM-EOF if the sync buffer stream is drained. */
+void asmSendStreamEofIfDrained(asmTask *task) {
+    client *c = task->main_channel_client;
+
+    /* The command streams for slot ranges have been drained. */
+    if (!clientHasPendingReplies(c)) {
+        serverLog(LL_NOTICE, "Slot migration command stream drained, sending STREAM-EOF to the destination");
+
+        if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, task->state)))
+            shutdown(c->conn->fd, SHUT_RDWR);
+
+        /* Send STREAM-EOF to indicate the end of the stream. */
+        char *err = sendCommand(c->conn, "CLUSTER", "SYNCSLOTS", "STREAM-EOF", NULL);
+        if (err) {
+            asmTaskSetFailed(task, "Main channel - Failed to send STREAM-EOF: %s", err);
+            sdsfree(err);
+            return;
+        }
+
+        /* Even though the main channel client is no longer needed, we
+         * can't close it directly because the destination may still be
+         * sending ACKs over this connection. Instead, we leave it to the
+         * destination to close it. We just clear the task and client
+         * references */
+        task->main_channel_client->task = NULL;
+        task->main_channel_client = NULL;
+
+        /* There may be a delay to handle the disconnection of RDB channel,
+         * so we clear the task and client references here. */
+        if (task->rdb_channel_client != NULL) {
+            task->rdb_channel_state = ASM_DONE;
+            task->rdb_channel_client->task = NULL;
+            freeClientAsync(task->rdb_channel_client);
+            task->rdb_channel_client = NULL;
+        }
+
+        task->state = ASM_STREAM_DONE;
+    }
+}
+
 void asmBeforeSleep(void) {
     asmTrimJobProcessPending();
 
@@ -2184,42 +2222,7 @@ void asmBeforeSleep(void) {
                 asmTaskSetFailed(task, "Server paused timeout");
                 return;
             }
-
-            client *c = task->main_channel_client;
-            /* The command streams for slot ranges have been drained. */
-            if (!clientHasPendingReplies(c)) {
-                serverLog(LL_NOTICE, "Slot migration command stream drained, sending STREAM-EOF to the destination");
-
-                if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, task->state)))
-                    shutdown(c->conn->fd, SHUT_RDWR);
-
-                /* Send STREAM-EOF to indicate the end of the stream. */
-                char *err = sendCommand(c->conn, "CLUSTER", "SYNCSLOTS", "STREAM-EOF", NULL);
-                if (err) {
-                    asmTaskSetFailed(task, "Main channel - Failed to send STREAM-EOF: %s", err);
-                    sdsfree(err);
-                    return;
-                }
-
-               /* Even though the main channel client is no longer needed, we
-                * can't close it directly because the destination may still be
-                * sending ACKs over this connection. Instead, we leave it to the
-                * destination to close it. We just clear the task and client
-                * references */
-                task->main_channel_client->task = NULL;
-                task->main_channel_client = NULL;
-
-                /* There may be a delay to handle the disconnection of RDB channel,
-                 * so we clear the task and client references here. */
-                if (task->rdb_channel_client != NULL) {
-                    task->rdb_channel_state = ASM_DONE;
-                    task->rdb_channel_client->task = NULL;
-                    freeClientAsync(task->rdb_channel_client);
-                    task->rdb_channel_client = NULL;
-                }
-
-                task->state = ASM_STREAM_DONE;
-            }
+            asmSendStreamEofIfDrained(task);
         } else if (task->state == ASM_STREAM_DONE) {
             /* In state ASM_STREAM_DONE (server is still paused), we are waiting
              * for the destination node to broadcast the slot ownership change.
@@ -2285,18 +2288,18 @@ void asmCron(void) {
              * synchronization. A timeout check is required to handle this case.
              *
              * The timeout is calculated as the maximum of two values:
-             * - A configurable timeout (slot-migration-sync-buffer-drain-timeout) to avoid false positives.
+             * - A configurable timeout (slot-migration-sync-buffer-drain-timeout) to
+             *   avoid false positives.
              * - A dynamic timeout based on the time that the destination took to apply the
              *   slot snapshot and the accumulated buffer during slot snapshot delivery.
-             *   The destination should be able to drain the remaining sync buffer in less time than this.
-             *   We multiply it by 2 to be more conservative.
-             * TODO: need tests */
+             *   The destination should be able to drain the remaining sync buffer in less
+             *   time than this. We multiply it by 2 to be more conservative. */
             if (task->dest_state == ASM_WAIT_STREAM_EOF && task->dest_accum_applied_time &&
                 server.mstime - task->dest_accum_applied_time >
                     max(server.asm_sync_buffer_drain_timeout,
                         (task->dest_accum_applied_time - task->dest_slots_snapshot_time) * 2))
             {
-                asmTaskSetFailed(task, "synchronization gap converge timeout");
+                asmTaskSetFailed(task, "Sync buffer drain timeout");
             }
         }
     }

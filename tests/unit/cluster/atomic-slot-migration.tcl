@@ -1081,6 +1081,77 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
     }
+
+    test "Source server paused timeout" {
+        # set timeout to 0, so the task will fail immediately when checking timeout
+        R 0 config set slot-migration-pause-write-timeout 0
+
+        # start migration from node 0 to 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+
+        # start the slot 0 write load on the node 0
+        set slot0_key [slot_key 0 mykey]
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 1000 $slot0_key]
+
+        # node 0 will fail since server paused timeout
+        wait_for_condition 2000 10 {
+            [string match {*failed*} [migration_status 0 $task_id state]] &&
+            [string match {*Server paused timeout*} \
+                [migration_status 0 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+
+        stop_write_load $load_handle
+
+        # reset config
+        R 0 config set slot-migration-pause-write-timeout 10000
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
+    }
+
+    test "Sync buffer drain timeout" {
+        # set a very small gap size, so the gap between source and destination will
+        # not be less than the threshold if we continue writing the source.
+        R 0 config set slot-migration-pause-write-max-gap-size 0
+        R 0 config set slot-migration-sync-buffer-drain-timeout 5000
+
+        set r1_pid [S 1 process_id]
+
+        # start migration from node 0 to 1
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+
+        # start the slot 0 write load on the node 0
+        set slot0_key [slot_key 0 mykey]
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 1000 $slot0_key]
+
+        # wait for entering streaming buffer state
+        wait_for_condition 1000 10 {
+            [string match {*wait-stream-eof*} [migration_status 1 $task_id state]]
+        } else {
+            fail "ASM task did not enter wait-stream-eof state"
+        }
+
+        pause_process $r1_pid ;# avoid the destination to apply commands
+
+        # node 0 will fail since sync buffer drain timeout
+        wait_for_condition 2000 10 {
+            [string match {*failed*} [migration_status 0 $task_id state]] &&
+            [string match {*Sync buffer drain timeout*} \
+                [migration_status 0 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+
+        stop_write_load $load_handle
+        resume_process $r1_pid
+
+        # reset config
+        R 0 config set slot-migration-pause-write-max-gap-size 1mb
+        R 0 config set slot-migration-sync-buffer-drain-timeout 60000
+        R 0 cluster migration cancel id $task_id
+        R 1 cluster migration cancel id $task_id
+    }
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 30000 cluster-allow-replica-migration no}} {
