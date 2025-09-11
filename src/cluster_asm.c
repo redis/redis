@@ -2597,8 +2597,8 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
     }
 
     /* TODO: Do not delete all the hexpires */
-    emptyDbDataAsync(keys, expires, server.db[0].hexpires);
-    server.db[0].hexpires = ebCreate();
+    emptyDbDataAsync(keys, expires, server.db[0].subexpires);
+    server.db[0].subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s", str);
