@@ -23,13 +23,29 @@
 #define assert(_e) (likely((_e))?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
 #define panic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
-void _serverAssert(const char *estr, const char *file, int line);
-void _serverPanic(const char *file, int line, const char *msg, ...);
+/* We can print the stacktrace, so our assert is defined this way: */
+#define serverAssertWithInfo(_c,_o,_e) (likely(_e)?(void)0 : (_serverAssertWithInfo(_c,_o,#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverAssert(_e) (likely(_e)?(void)0 : (_serverAssert(#_e,__FILE__,__LINE__),redis_unreachable()))
+#define serverPanic(...) _serverPanic(__FILE__,__LINE__,__VA_ARGS__),redis_unreachable()
 
+/* The following macros provide assertions that are only executed during test builds and should be used to add
+ * assertions that are too computationally expensive or dangerous to run during normal operations.  */
 #ifdef DEBUG_ASSERTIONS
 #define debugAssert(_e) assert(_e)
+#define debugServerAssert(...) serverAssert(__VA_ARGS__)
+#define debugServerAssertWithInfo(...) serverAssertWithInfo(__VA_ARGS__)
 #else
 #define debugAssert(_e) ((void)0)
+#define debugServerAssert(...)
+#define debugServerAssertWithInfo(...)
 #endif
+
+/* forward declaration */
+typedef struct client client;
+typedef struct redisObject robj;
+
+void _serverAssert(const char *estr, const char *file, int line);
+void _serverAssertWithInfo(const client *c, const robj *o, const char *estr, const char *file, int line);
+void _serverPanic(const char *file, int line, const char *msg, ...);
 
 #endif
