@@ -47,13 +47,8 @@
 #include "hnsw.h"
 #include "mixer.h"
 
-// Cross-compiler SIMD header inclusion
 #if defined(__AVX2__) || defined(__AVX512F__)
-    #if defined(_MSC_VER)
-        #include <intrin.h>
-    #else
-        #include <immintrin.h>
-    #endif
+    #include <immintrin.h>
 #endif
 
 #if 0
@@ -267,7 +262,6 @@ float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) 
     return 1.0f - dot;
 }
 #endif
-
 
 /* Optimized dot product: automatically selects best available implementation 
  * Dot product: our vectors are already normalized.
