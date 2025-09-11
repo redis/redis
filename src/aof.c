@@ -1474,6 +1474,29 @@ struct client *createAOFClient(void) {
     return c;
 }
 
+int truncateAOF(char *filename, off_t valid_up_to) {
+    if (valid_up_to == -1) {
+        serverLog(LL_WARNING,"Last valid command offset is invalid");
+        return 0;
+    }
+
+    if (truncate(filename, valid_up_to) == -1) {
+        serverLog(LL_WARNING,"Error truncating the AOF file %s: %s",
+            filename, strerror(errno));
+        return 0;
+    }
+
+    /* Make sure the AOF file descriptor points to the end of the
+     * file after the truncate call. */
+    if (server.aof_fd != -1 && lseek(server.aof_fd, 0, SEEK_END) == -1) {
+        serverLog(LL_WARNING,"Can't seek the end of the AOF file %s: %s",
+            filename, strerror(errno));
+        return 0;
+    }
+
+    return 1; /* Success */
+}
+
 /* Replay an append log file. On success AOF_OK or AOF_TRUNCATED is returned,
  * otherwise, one of the following is returned:
  * AOF_OPEN_ERR: Failed to open the AOF file.
@@ -1658,7 +1681,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeClientArgv(fakeClient);
-        if (server.aof_load_truncated || server.aof_load_broken) valid_up_to = ftello(fp);
+        if (server.aof_load_truncated || server.aof_load_corrupt_tail_size) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
     }
@@ -1691,25 +1714,10 @@ uxeof: /* Unexpected AOF end of file. */
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu !!!",
             filename, (unsigned long long) valid_up_to);
-        if (valid_up_to == -1 || truncate(aof_filepath,valid_up_to) == -1) {
-            if (valid_up_to == -1) {
-                serverLog(LL_WARNING,"Last valid command offset is invalid");
-            } else {
-                serverLog(LL_WARNING,"Error truncating the AOF file %s: %s",
-                    filename, strerror(errno));
-            }
-        } else {
-            /* Make sure the AOF file descriptor points to the end of the
-             * file after the truncate call. */
-            if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
-                serverLog(LL_WARNING,"Can't seek the end of the AOF file %s: %s",
-                    filename, strerror(errno));
-            } else {
-                serverLog(LL_WARNING,
-                    "AOF %s loaded anyway because aof-load-truncated is enabled", filename);
-                ret = AOF_TRUNCATED;
-                goto loaded_ok;
-            }
+        if (truncateAOF(aof_filepath, valid_up_to)) {
+            serverLog(LL_WARNING, "AOF %s loaded anyway because aof-load-truncated is enabled", aof_filepath);
+            ret = AOF_TRUNCATED;
+            goto loaded_ok;
         }
     }
     serverLog(LL_WARNING, "Unexpected end of file reading the append only file %s. You can: "
@@ -1721,39 +1729,19 @@ uxeof: /* Unexpected AOF end of file. */
 fmterr: /* Format error. */
     /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
      * is less than a specified size, try to recover it automatically */
-    if (server.aof_load_broken) {
-        if (valid_up_to == -1) {
-            serverLog(LL_WARNING,"Last valid command offset is invalid");
-        } else if (sb.st_size - valid_up_to < server.aof_load_broken_max_size) {
-            if (truncate(aof_filepath,valid_up_to) == -1) {
-                serverLog(LL_WARNING,"Error truncating the AOF file: %s",
-                    strerror(errno));
-            } else {
-                /* Make sure the AOF file descriptor points to the end of the
-                 * file after the truncate call. */
-                if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
-                    serverLog(LL_WARNING,"Can't seek the end of the AOF file: %s",
-                        strerror(errno));
-                } else {
-                    serverLog(LL_WARNING,
-                        "AOF loaded anyway because aof-load-broken is enabled and "
-                        "broken size '%lld' is less than aof-load-broken-max-size '%lld'",
-                        (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
-                    ret = AOF_BROKEN_RECOVERED;
-                    goto loaded_ok;
-                }
-            }
-        } else { /* The size of the corrupted portion exceeds the configured limit. */
-            serverLog(LL_WARNING,
-                 "AOF was not loaded because the size of the corrupted portion "
-                 "exceeds the configured limit. aof-load-broken is enabled and broken size '%lld' "
-                 "is bigger than aof-load-broken-max-size '%lld'",
-                 (long long)(sb.st_size - valid_up_to), (long long)(server.aof_load_broken_max_size));
+    if (server.aof_load_corrupt_tail_size && sb.st_size - valid_up_to < server.aof_load_corrupt_tail_size) {
+        serverLog(LL_WARNING,"!!! Warning: corrupt AOF file tail!!!");
+        serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu (remaining %llu) !!!",
+            aof_filepath, (unsigned long long) valid_up_to, (unsigned long long) sb.st_size - valid_up_to);
+        if (truncateAOF(aof_filepath, valid_up_to)) {
+            serverLog(LL_WARNING, "AOF %s loaded anyway because aof-load-corrupt-tail-size is enabled", aof_filepath);
+            goto loaded_ok;
         }
-    } else {
-        serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
-            "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
     }
+    serverLog(LL_WARNING, "Bad file format reading the append only file %s at offset %llu. \
+                         make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>. \
+                         Alternatively you can set the 'aof-load-corrupt-tail-size' configuration option to %llu and restart the server.",
+                             aof_filepath, (unsigned long long)valid_up_to, (unsigned long long) sb.st_size - valid_up_to);
     ret = AOF_FAILED;
     /* fall through to cleanup. */
 
