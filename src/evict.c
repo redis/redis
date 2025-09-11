@@ -81,10 +81,10 @@ unsigned long long estimateObjectIdleTime(robj *o) {
     }
 }
 
-/* In cluster mode, check if the slot belongs to the current node,
- * skipping dicts that don't belong to the current node. */
+/* During atomic slot migration, keys that are being imported are in an
+ * intermediate state. we cannot evict them and therefore skip them. */
 static int randomEvictionShouldSkipDictIndex(int didx) {
-    return server.cluster_enabled && !clusterNodeCoversSlot(getMyClusterNode(), didx);
+    return !clusterCanAccessKeysInSlot(didx);
 }
 
 /* LRU approximation algorithm

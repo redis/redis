@@ -646,27 +646,16 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         signalModifiedKey(c,db,key);
 }
 
-/* In cluster mode, check whether the slot is served by the current node
- * or its master, and skip dicts that aren't.
+/* During atomic slot migration, keys that are being imported are in an
+ * intermediate state. we cannot access them and therefore skip them.
  *
- * This function now is used by:
+ * This callback function now is used by:
  * - dbRandomKey
  * - keysCommand
  * - scanCommand
  */
 static int accessKeysShouldSkipDictIndex(int didx) {
-    if (!server.cluster_enabled) return 0;
-
-    clusterNode *myself = getMyClusterNode();
-
-    /* Check if this node or its master covers the slot */
-    if (clusterNodeCoversSlot(myself, didx)) return 0;
-    if (clusterNodeIsSlave(myself)) {
-        clusterNode *master = clusterNodeGetMaster(myself);
-        if (master && clusterNodeCoversSlot(master, didx)) return 0;
-    }
-
-    return 1;
+    return !clusterCanAccessKeysInSlot(didx);
 }
 
 /* Return a random key, in form of a Redis object.
@@ -1807,7 +1796,7 @@ void scanCommand(client *c) {
 }
 
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,kvstoreSize(c->db->keys));
+    addReplyLongLong(c,dbSize(c->db));
 }
 
 void lastsaveCommand(client *c) {
@@ -2727,7 +2716,30 @@ kvobj *dbFindExpires(redisDb *db, sds key) {
 }
 
 unsigned long long dbSize(redisDb *db) {
-    return kvstoreSize(db->keys);
+    unsigned long long total = kvstoreSize(db->keys);
+
+    if (server.cluster_enabled) {
+        /* If we are the master and there is no import or trim in progress,
+         * then we can return the total count. If not, we need to subtract
+         * the number of keys in slots that are not accessible, as below. */
+        if (clusterNodeIsMaster(getMyClusterNode()) &&
+            !asmImportInProgress() &&
+            !asmIsTrimInProgress())
+        {
+            return total;
+        }
+
+        /* Besides, we don't know the slot migration states on replicas, so we
+         * need to check each slot to see if it's accessible. */
+        for (int i = 0; i < CLUSTER_SLOTS; i++) {
+            dict *d = kvstoreGetDict(db->keys, i);
+            if (d && !clusterCanAccessKeysInSlot(i)) {
+                total -= kvstoreDictSize(db->keys, i);
+            }
+        }
+    }
+
+    return total;
 }
 
 unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata) {
