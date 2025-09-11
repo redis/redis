@@ -237,7 +237,6 @@ static ExpireAction activeExpireTestCb(eItem item, void *ctx) {
     return 0;
 }
 
-__attribute__((optimize("O0")))
 int estoreTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
