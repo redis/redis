@@ -688,18 +688,18 @@ proc process_is_alive pid {
 proc pause_process pid {
     exec kill -SIGSTOP $pid
     wait_for_condition 50 100 {
-        [string match {*T*} [lindex [exec ps j $pid] 16]]
+        [string match {*T*} [lindex [exec ps -l -p $pid] 15]]
     } else {
-        puts [exec ps j $pid]
+        puts [exec ps -l -p $pid]
         fail "process didn't stop"
     }
 }
 
 proc resume_process pid {
     wait_for_condition 50 1000 {
-        [string match "T*" [exec ps -o state= -p $pid]]
+        [string match "T*" [exec ps -o s= -p $pid]]
     } else {
-        puts [exec ps j $pid]
+        puts [exec ps -l -p $pid]
         fail "process was not stopped"
     }
     exec kill -SIGCONT $pid
