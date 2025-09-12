@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC,defrag'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -1223,3 +1223,31 @@ jobs:
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: |
         ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
+
+  test-sanitizer-force-defrag:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'defrag')
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      run: ./runtest --debug-defrag --verbose --clients 1 ${{github.event.inputs.test_args}}
