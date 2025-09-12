@@ -249,6 +249,16 @@ static inline void activeSubexpiresCycle(int type) {
     if (currentSlot == -1)
         currentSlot = estoreGetFirstNonEmptyBucket(db->subexpires);
 
+    /* During atomic slot migration, keys that are being imported are in an
+     * intermediate state. We cannot expire them and therefore skip them. */
+    if (!clusterCanAccessKeysInSlot(currentSlot)) {
+        /* Move to next non-empty subexpires slot */
+        currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
+        if (currentSlot == -1)
+            currentDb = (currentDb + 1) % server.dbnum; /* Move to next db */
+        return;
+    }
+
     /* Maximum number of fields to actively expire on a single call */
     uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;
 

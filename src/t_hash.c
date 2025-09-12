@@ -1802,14 +1802,6 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
     ExpireInfo info = {0};
 
-    /* It may block the expiration of subsequent keys if current hash key is in
-     * importing.
-     * TODO: does it support skipping keys that belong to specific slots?
-     * and is it inefficient to skip a bunch of keys every time?
-     * maybe one hexpire per slot seems better. */
-    if (!asmKeyBelongsToCurrentNode(o))
-        return ACT_STOP_ACTIVE_EXP;
-
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         info = (ExpireInfo) {
                 .maxToExpire = *quota,

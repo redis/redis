@@ -370,34 +370,6 @@ size_t asmGetPeakSyncBufferSize(void) {
     return peak;
 }
 
-static inline int asmIsSlotImporting(void) {
-    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
-
-    /* Only support a single task at a time now, so only check the first task */
-    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
-    /* We only check the destination side, the source side `pauseActions` will
-     * pause the write traffic (including expire/evict). */
-    if ((task->operation == ASM_IMPORT && task->state != ASM_NONE)) {
-        return 1;
-    }
-
-    return 0;
-}
-
-/* Returns 1 if the key belongs to the current node, 0 otherwise.
- * Check if there is a s lot import task in progress, and if so,
- * check if the key belongs to the current node, to avoid the
- * overhead of calculating the key's hash slot. */
-int asmKeyBelongsToCurrentNode(kvobj *kv) {
-    if (asmIsSlotImporting()) {
-        sds key = kvobjGetKey(kv);
-        int slot = keyHashSlot((char*)key, sdslen(key));
-        return clusterNodeCoversSlot(getMyClusterNode(), slot);
-    }
-    /* Not importing, all keys belong to the current node. TODO: make sure? */
-    return 1;
-}
-
 size_t asmGetImportingBufferSize(void) {
     if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
@@ -559,36 +531,29 @@ out:
     return *err ? NULL : source;
 }
 
-/* Returns 1 if a migrate task is in progress, 0 otherwise. */
-int asmMigrateInProgress(void) {
+/* Returns 1 if a task with the specified operation is in progress, 0 otherwise. */
+static int asmTaskInProgress(int operation) {
     listIter li;
     listNode *ln;
 
-    if (!server.cluster_enabled || listLength(asmManager->tasks) == 0)
-        return 0;
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        if (task->operation == ASM_MIGRATE) return 1;
+        if (task->operation == operation) return 1;
     }
     return 0;
 }
 
+/* Returns 1 if a migrate task is in progress, 0 otherwise. */
+int asmMigrateInProgress(void) {
+    return asmTaskInProgress(ASM_MIGRATE);
+}
+
 /* Returns 1 if an import task is in progress, 0 otherwise. */
 int asmImportInProgress(void) {
-    listIter li;
-    listNode *ln;
-
-    if (!asmManager || listLength(asmManager->tasks) == 0)
-        return 0;
-
-    listRewind(asmManager->tasks, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        asmTask *task = listNodeValue(ln);
-        if (task->operation == ASM_IMPORT) return 1;
-    }
-    return 0;
+    return asmTaskInProgress(ASM_IMPORT);
 }
 
 /* Returns 1 if the task is in a state where it can receive replication stream

@@ -31,7 +31,6 @@ void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes);
 struct slotRangeArray *asmTaskGetSlotRanges(const char *task_id);
 int asmNotifyConfigUpdated(struct asmTask *task, sds *err);
 size_t asmGetPeakSyncBufferSize(void);
-int asmKeyBelongsToCurrentNode(kvobj *kv);
 size_t asmGetImportingBufferSize(void);
 size_t asmGetMigratingBufferSize(void);
 int clusterAsmCancel(const char *task_id, const char *reason);
