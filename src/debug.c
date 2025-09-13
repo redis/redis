@@ -465,6 +465,10 @@ void debugCommand(client *c) {
 "    Setting it to 0 disables expiring keys (and hash-fields) in background ",
 "    when they are not accessed (otherwise the Redis behavior). Setting it",
 "    to 1 reenables back the default.",
+"SET-ALLOW-ACCESS-EXPIRED <0|1>",
+"    Setting it to 0 prevents access to expired keys (and hash-fields),",
+"    simulating the standard Redis behavior. Setting it to 1 allows",
+"    access to expired keys (and hash-fields) without triggering deletion.",
 "QUICKLIST-PACKED-THRESHOLD <size>",
 "    Sets the threshold for elements to be inserted as plain vs packed nodes",
 "    Default value is 1GB, allows values up to 4GB. Setting to 0 restores to default.",
@@ -875,6 +879,11 @@ NULL
                c->argc == 3)
     {
         server.active_expire_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"set-allow-access-expired") &&
+               c->argc == 3)
+    {
+        server.allow_access_expired = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"quicklist-packed-threshold") &&
                c->argc == 3)
