@@ -24,7 +24,7 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
-    size_t alloc_size:63;   /* Total allocated memory (in bytes) by this stream. */
+    size_t alloc_size:8*sizeof(size_t)-1; /* Total allocated memory (in bytes) by this stream. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
