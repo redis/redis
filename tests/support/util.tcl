@@ -687,20 +687,40 @@ proc process_is_alive pid {
 
 proc pause_process pid {
     exec kill -SIGSTOP $pid
-    wait_for_condition 50 100 {
-        [string match {*T*} [lindex [exec ps -l -p $pid] 15]]
+    set system_name [string tolower [exec uname -s]]
+    if {$system_name eq {sunos}} {
+        wait_for_condition 50 100 {
+            [string match {*T*} [lindex [exec ps -l -p $pid] 15]]
+        } else {
+            puts [exec ps -l -p $pid]
+            fail "process didn't stop"
+        }
     } else {
-        puts [exec ps -l -p $pid]
-        fail "process didn't stop"
+        wait_for_condition 50 100 {
+            [string match {*T*} [lindex [exec ps j $pid] 16]]
+        } else {
+            puts [exec ps j $pid]
+            fail "process didn't stop"
+        }
     }
 }
 
 proc resume_process pid {
-    wait_for_condition 50 1000 {
-        [string match "T*" [exec ps -o s= -p $pid]]
+    set system_name [string tolower [exec uname -s]]
+    if {$system_name eq {sunos}} {
+        wait_for_condition 50 1000 {
+            [string match "T*" [exec ps -o s= -p $pid]]
+        } else {
+            puts [exec ps -l -p $pid]
+            fail "process was not stopped"
+        }
     } else {
-        puts [exec ps -l -p $pid]
-        fail "process was not stopped"
+        wait_for_condition 50 1000 {
+            [string match "T*" [exec ps -o state= -p $pid]]
+        } else {
+            puts [exec ps j $pid]
+            fail "process was not stopped"
+        }
     }
     exec kill -SIGCONT $pid
 }
