@@ -204,7 +204,7 @@ This section refers to building Redis from source. If you want to get up and run
 
 ### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
 
-Tested with the following Docker images:
+Tested with the following Docker image:
 
 - ubuntu:20.04
 
@@ -281,7 +281,6 @@ Tested with the following Docker images:
 Tested with the following Docker image:
 
 - ubuntu:22.04
-- ubuntu:24.04
 
 1. Install required dependencies
 
@@ -347,7 +346,6 @@ Tested with the following Docker image:
 
 Tested with the following Docker image:
 
-- ubuntu:22.04
 - ubuntu:24.04
 
 1. Install required dependencies
