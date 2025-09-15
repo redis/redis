@@ -2971,6 +2971,8 @@ int processInputBuffer(client *c) {
                     c->iolookedcmd = NULL;
                 }
                 c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
+                /* Reset to -1, since c->slot expects -1 if no slot is being used */
+                if (c->slot < -1) c->slot = -1;
                 enqueuePendingClientsToMainThread(c, 0);
                 break;
             }

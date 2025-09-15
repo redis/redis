@@ -4348,7 +4348,7 @@ int processCommand(client *c) {
      * the master will be blocked until the trim job finishes. */
     if ((c->flags & CLIENT_MASTER) && is_write_command && asmIsTrimInProgress()) {
         int slot = getSlotFromCommand(c->cmd, c->argv, c->argc);
-        if (isSlotInTrimJob(slot)) {
+        if (slot >= 0 && isSlotInTrimJob(slot)) {
             serverLog(LL_WARNING, "Master is sending command for slot %d. "
                                   "There is an active trim job in progress for this slot. "
                                   "This replica cannot process this command right now. "

@@ -670,8 +670,6 @@ void fcallroCommand(client *c) {
 }
 
 /*
- * FUNCTION DUMP
- *
  * Returns a binary payload representing all the libraries.
  * Can be loaded using FUNCTION RESTORE
  *
@@ -686,24 +684,32 @@ void fcallroCommand(client *c) {
  * The RDB version is saved for backward compatibility.
  * crc64 is saved so we can verify the payload content.
  */
-void functionDumpCommand(client *c) {
-    unsigned char buf[2];
+void createFunctionDumpPayload(rio *payload) {
     uint64_t crc;
-    rio payload;
-    rioInitWithBuffer(&payload, sdsempty());
+    unsigned char buf[2];
 
-    rdbSaveFunctions(&payload);
+    rioInitWithBuffer(payload, sdsempty());
+
+    rdbSaveFunctions(payload);
 
     /* RDB version */
     buf[0] = RDB_VERSION & 0xff;
     buf[1] = (RDB_VERSION >> 8) & 0xff;
-    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr, buf, 2);
+    payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr, buf, 2);
 
     /* CRC64 */
-    crc = crc64(0, (unsigned char*) payload.io.buffer.ptr,
-                sdslen(payload.io.buffer.ptr));
+    crc = crc64(0, (unsigned char*) payload->io.buffer.ptr,
+                sdslen(payload->io.buffer.ptr));
     memrev64ifbe(&crc);
-    payload.io.buffer.ptr = sdscatlen(payload.io.buffer.ptr, &crc, 8);
+    payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr, &crc, 8);
+}
+
+/*
+ * FUNCTION DUMP
+ */
+void functionDumpCommand(client *c) {
+    rio payload;
+    createFunctionDumpPayload(&payload);
 
     addReplyBulkSds(c, payload.io.buffer.ptr);
 }

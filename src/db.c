@@ -395,8 +395,8 @@ int getKeySlot(sds key) {
     return slot;
 }
 
-/* Return the slot of the key in the command. IO threads use this function
- * to calculate slot to reduce main-thread load */
+/* Return the slot of the key in the command.
+ * -1 if no keys, -2 if cross slot, otherwise the slot number. */
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     int slot = -1;
     if (!cmd || !server.cluster_enabled) return slot;
@@ -404,10 +404,18 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     /* Get the keys from the command */
     getKeysResult result = GETKEYS_RESULT_INIT;
     int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
-    if (numkeys > 0) {
-        /* Get the slot of the first key */
-        robj *first = argv[result.keys[0].pos];
-        slot = keyHashSlot(first->ptr, (int)sdslen(first->ptr));
+    keyReference *keyindex = result.keys;
+
+    /* Get slot of each key and check if they are all the same */
+    for (int j = 0; j < numkeys; j++) {
+        robj *thiskey = argv[keyindex[j].pos];
+        int thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
+        if (slot == -1) {
+            slot = thisslot;
+        } else if (slot != thisslot) {
+            slot = -2; /* Mark as cross slot */
+            break;
+        }
     }
     getKeysFreeResult(&result);
     return slot;

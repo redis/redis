@@ -3453,8 +3453,6 @@ int restartServer(int flags, mstime_t delay);
 int getKeySlot(sds key);
 int calculateKeySlot(sds key);
 
-int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc);
-
 /* kvstore wrappers */
 int dbExpand(redisDb *db, uint64_t db_size, int try_expand);
 int dbExpandExpires(redisDb *db, uint64_t db_size, int try_expand);

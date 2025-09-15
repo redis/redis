@@ -325,6 +325,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # 3 keys cost 3s to save
         R 0 config set rdb-key-save-delay 1000000
 
+        # load a function
+        R 0 function load {#!lua name=test1
+                redis.register_function('test1', function() return 'hello1' end)
+        }
+
         # migrate slot 0-100 to R 1
         set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
         # migration is start, and in accumulating buffer stage
@@ -337,7 +342,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # append 99 times during migration
         for {set i 0} {$i < 99} {incr i} {
+            R 0 multi
             R 0 append $slot0_key "a"
+            R 0 exec
             R 0 append $slot1_key "b"
             R 0 append $slot101_key "c"
         }
@@ -348,11 +355,14 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # the appended 99 times should also be migrated
         assert_equal [string repeat a 100] [R 1 get $slot0_key]
         assert_equal [string repeat b 100] [R 1 get $slot1_key]
+        # function should be migrated
+        assert_equal [R 0 function dump] [R 1 function dump]
         # the slave should also get the data
         wait_for_ofs_sync [Rn 1] [Rn 4]
         R 4 readonly
         assert_equal [string repeat a 100] [R 4 get $slot0_key]
         assert_equal [string repeat b 100] [R 4 get $slot1_key]
+        assert_equal [R 0 function dump] [R 4 function dump]
 
         # verify key that was not in the slot range is not migrated
         assert_equal [string repeat c 100] [R 0 get $slot101_key]

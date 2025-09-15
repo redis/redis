@@ -122,4 +122,6 @@ int luaEngineInitEngine(void);
 int functionsInit(void);
 void functionsFree(functionsLibCtx *lib_ctx, dict *engs);
 
+void createFunctionDumpPayload(rio *payload);
+
 #endif /* __FUNCTIONS_H_ */

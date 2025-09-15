@@ -8,9 +8,10 @@
  */
 
 #include "server.h"
-#include "cluster_asm.h"
 #include "cluster.h"
+#include "functions.h"
 #include "cluster_legacy.h"
+#include "cluster_asm.h"
 
 #define ASM_IMPORT  (1 << 1)
 #define ASM_MIGRATE (1 << 2)
@@ -592,11 +593,26 @@ void asmFeedMigrationClient(robj **argv, int argc) {
             decrRefCount(old);
         }
     }
-
     int slot = getSlotFromCommand(cmd, argv, argc);
-    /* If the command does not have keys, or has crossslot keys, skip it.
-     * TODO: revisit this to see if we are okay with this. */
+
+    /* If the command does not have keys, skip it now.
+     * SELECT is not propagated, since we only support a single db in cluster mode.
+     * MULTI/EXEC is not needed, since transaction semantics are unnecessary
+     * before the slot handoff.
+     * FUNCTION subcommands should be executed on all nodes, so here we skip it,
+     * and even propagating them may cause an error when executing.
+     *
+     * NOTICE: if some keyless commands should be propagated to the destination,
+     * we should identify them here and send. */
     if (slot == -1) return;
+
+    /* Generally we reject cross-slot commands before executing, but module may
+     * replicate this kind of command, so we check again. To guarantee data
+     * consistency, we cancel the task if we encounter a cross-slot command. */
+    if (slot == -2) {
+        asmTaskCancel(task, "cross-slot command");
+        return;
+    }
 
     /* Check if the slot belongs to the task's slot range. */
     slotRange sr = {slot, slot};
@@ -1911,6 +1927,22 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
     /* Disable RDB compression for slots snapshot since compression is too
      * expensive both in source and destination. */
     server.rdb_compression = 0;
+
+    /* Dump functions and send to destination side. */
+    rio payload;
+    createFunctionDumpPayload(&payload);
+    sds functions = payload.io.buffer.ptr;
+    if (rioWriteBulkCount(rdb, '*', 4) == 0) goto werr;
+    if (rioWriteBulkString(rdb, "FUNCTION", 8) == 0) goto werr;
+    if (rioWriteBulkString(rdb, "RESTORE", 7) == 0) goto werr;
+    if (rioWriteBulkString(rdb, functions, sdslen(functions)) == 0) {
+        sdsfree(payload.io.buffer.ptr);
+        goto werr;
+    }
+    sdsfree(payload.io.buffer.ptr);
+    /* Add the REPLACE option to the RESTORE command, to avoid error
+     * when migrating to a node with existing libraries. */
+    if (rioWriteBulkString(rdb, "REPLACE", 7) == 0) goto werr;
 
     for (int i = 0; i < server.dbnum; i++) {
         char selectcmd[] = "*2\r\n$6\r\nSELECT\r\n";
