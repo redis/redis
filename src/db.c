@@ -481,7 +481,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     /* if hash with HFEs, take care to remove from global HFE DS before attempting
      * to manipulate and maybe free kvOld object */
     if (old->type == OBJ_HASH)
-        hashTypeRemoveFromExpires(&db->hexpires, old);
+        estoreRemove(db->subexpires, slot, old);
 
     if (overwrite) {
         /* RM_StringDMA may call dbUnshareStringValue which may free val, so we
@@ -513,9 +513,9 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         kvNew = old;
         old = val;
 
-    /* Handle TTL in the optimization path */
-    if ((!keepTTL) && (getExpire(db, key->ptr, kvNew) >= 0))
-        removeExpire(db, key);
+        /* Handle TTL in the optimization path */
+        if ((!keepTTL) && (getExpire(db, key->ptr, kvNew) >= 0))
+            removeExpire(db, key);
     } else {
         /* Replace the old value at its location in the key space. */
         val->lru = old->lru;
@@ -698,7 +698,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* If hash object with expiry on fields, remove it from HFE DS of DB */
         if (type == OBJ_HASH)
-            hashTypeRemoveFromExpires(&db->hexpires, kv);
+            estoreRemove(db->subexpires, slot, kv);
 
         /* RM_StringDMA may call dbUnshareStringValue which may free kv, so we
          * need to incr to retain kv */
@@ -830,9 +830,9 @@ long long emptyDbStructure(redisDb *dbarray, int dbnum, int async,
         if (async) {
             emptyDbAsync(&dbarray[j]);
         } else {
-            /* Destroy global HFE DS before deleting the hashes since ebuckets
-             * DS is embedded in the stored objects. */
-            ebDestroy(&dbarray[j].hexpires, &hashExpireBucketsType, NULL);
+            /* Destroy sub-expires before deleting the kv-objects since ebuckets
+             * data structure is embedded in the stored kv-objects. */
+            estoreEmpty(dbarray[j].subexpires);
             kvstoreEmpty(dbarray[j].keys, callback);
             kvstoreEmpty(dbarray[j].expires, callback);
         }
@@ -913,7 +913,7 @@ redisDb *initTempDb(void) {
         tempDb[i].keys = kvstoreCreate(&dbDictType, slot_count_bits,
                                        flags | KVSTORE_ALLOC_META_KEYS_HIST);
         tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
-        tempDb[i].hexpires = ebCreate();
+        tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     }
 
     return tempDb;
@@ -926,9 +926,9 @@ void discardTempDb(redisDb *tempDb) {
     /* Release temp DBs. */
     emptyDbStructure(tempDb, -1, async, NULL);
     for (int i=0; i<server.dbnum; i++) {
-        /* Destroy global HFE DS before deleting the hashes since ebuckets DS is
-         * embedded in the stored objects. */
-        ebDestroy(&tempDb[i].hexpires, &hashExpireBucketsType, NULL);
+        /* Destroy sub-expires before deleting the kv-objects since ebuckets
+         * data structure is embedded in the stored kv-objects. */
+        estoreRelease(tempDb[i].subexpires);
         kvstoreRelease(tempDb[i].keys);
         kvstoreRelease(tempDb[i].expires);
     }
@@ -1882,14 +1882,14 @@ void renameGenericCommand(client *c, int nx) {
      * global HFE DS and we will lose the expiration time. */
     int srctype = o->type;
     if (srctype == OBJ_HASH)
-        minHashExpireTime = hashTypeRemoveFromExpires(&c->db->hexpires, o);
+        minHashExpireTime = estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
 
     dbDelete(c->db,c->argv[1]);
     dbAddInternal(c->db, c->argv[2], &o, NULL, expire);
 
-    /* If hash with HFEs, register in db->hexpires */
+    /* If hash with HFEs, register in DB subexpires */
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
-        hashTypeAddToExpires(c->db, o, minHashExpireTime);
+        estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
     signalModifiedKey(c,c->db,c->argv[1]);
     signalModifiedKey(c,c->db,c->argv[2]);
@@ -1964,11 +1964,13 @@ void moveCommand(client *c) {
         return;
     }
 
-    /* If hash with expiration on fields, remove it from global HFE DS and keep
-     * aside registered expiration time. Must be before addition/deletion of the
-     * object. hexpires (ebuckets) embed in stored items its structure. */
+    int slot = getKeySlot(c->argv[1]->ptr);
+
+    /* If hash with expiration on fields, remove it from DB subexpires and keep
+     * aside registered expiration time. Must be before removal of the
+     * object since it embeds ExpireMeta that is used by subexpires */
     if (kv->type == OBJ_HASH)
-        hashExpireTime = hashTypeRemoveFromExpires(&src->hexpires, kv);
+        hashExpireTime = estoreRemove(src->subexpires, slot, kv);
 
     incrRefCount(kv);            /* ref counter = 1->2 */
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
@@ -1978,9 +1980,9 @@ void moveCommand(client *c) {
         kv = setExpireByLink(c, dst, c->argv[1]->ptr, expire, dstBucket);
 
     /* If object of type hash with expiration on fields. Taken care to add the
-     * hash to hexpires of `dst` only after dbDelete(). */
+     * hash to subexpires of `dst` only after dbDelete(). */
     if (hashExpireTime != EB_EXPIRE_TIME_INVALID)
-        hashTypeAddToExpires(dst, kv, hashExpireTime);
+        estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
 
     signalModifiedKey(c,src,c->argv[1]);
     signalModifiedKey(c,dst,c->argv[1]);
@@ -2097,7 +2099,7 @@ void copyCommand(client *c) {
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
-        hashTypeAddToExpires(dst, kvCopy, minHashExpire);
+        estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
     /* OK! key copied */
     signalModifiedKey(c,dst,c->argv[2]);
@@ -2193,13 +2195,13 @@ int dbSwapDatabases(int id1, int id2) {
      * remain in the same DB they were. */
     db1->keys = db2->keys;
     db1->expires = db2->expires;
-    db1->hexpires = db2->hexpires;
+    db1->subexpires = db2->subexpires;
     db1->avg_ttl = db2->avg_ttl;
     db1->expires_cursor = db2->expires_cursor;
 
     db2->keys = aux.keys;
     db2->expires = aux.expires;
-    db2->hexpires = aux.hexpires;
+    db2->subexpires = aux.subexpires;
     db2->avg_ttl = aux.avg_ttl;
     db2->expires_cursor = aux.expires_cursor;
 
@@ -2237,13 +2239,13 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
          * remain in the same DB they were. */
         activedb->keys = newdb->keys;
         activedb->expires = newdb->expires;
-        activedb->hexpires = newdb->hexpires;
+        activedb->subexpires = newdb->subexpires;
         activedb->avg_ttl = newdb->avg_ttl;
         activedb->expires_cursor = newdb->expires_cursor;
 
         newdb->keys = aux.keys;
         newdb->expires = aux.expires;
-        newdb->hexpires = aux.hexpires;
+        newdb->subexpires = aux.subexpires;
         newdb->avg_ttl = aux.avg_ttl;
         newdb->expires_cursor = aux.expires_cursor;
 
@@ -2344,11 +2346,11 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* Val already had an expire field, so it was not reallocated. */
         serverAssert(kv == kvnew);
     } else { /* No old expire */
-        uint64_t hexpire = EB_EXPIRE_TIME_INVALID;
+        uint64_t subexpiry = EB_EXPIRE_TIME_INVALID;
         /* If hash with HFEs, take care to remove from global HFE DS before attempting
          * to manipulate and maybe free kv object */
         if (kv->type == OBJ_HASH)
-            hexpire = hashTypeRemoveFromExpires(&db->hexpires, kv);
+            subexpiry = estoreRemove(db->subexpires, slot, kv);
 
         kvobj *kvnew = kvobjSetExpire(kv, when); /* release kv if reallocated */
         /* if kvobj was reallocated, update dict */
@@ -2360,8 +2362,8 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         dictEntry *de = kvstoreDictAddRaw(db->expires, slot, kv, NULL);
         serverAssert(de != NULL);
 
-        if (hexpire != EB_EXPIRE_TIME_INVALID)
-            hashTypeAddToExpires(db, kv, hexpire);
+        if (subexpiry != EB_EXPIRE_TIME_INVALID)
+            estoreAdd(db->subexpires, slot, kv, subexpiry);
     }
 
     int writable_slave = server.masterhost && server.repl_slave_ro == 0;

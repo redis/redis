@@ -100,7 +100,7 @@ start_server {tags {"string"}} {
 
         assert_equal 1 [r setnx x 20]
         assert_equal 20 [r get x]
-    }
+    } {} {debug_defrag:skip}
 
     test "GETEX EX option" {
         r del foo

@@ -4,7 +4,7 @@
     "complexity": "O(log(N)) for each element added, where N is the number of elements in the vector set.",
     "group": "vector_set",
     "since": "8.0.0",
-    "arity": -1,
+    "arity": -5,
     "function": "vaddCommand",
     "arguments": [
       {
@@ -14,13 +14,14 @@
       {
         "token": "REDUCE",
         "name": "reduce",
-        "type": "pure-token",
-        "optional": true
-      },
-      {
-        "name": "dim",
-        "type": "integer",
-        "optional": true
+        "type": "block",
+        "optional": true,
+        "arguments": [
+          {
+            "name": "dim",
+            "type": "integer"
+          }
+        ]
       },
       {
         "name": "format",
@@ -99,11 +100,11 @@
     ]
   },
   "VREM": {
-    "summary": "Remove one or more elements from a vector set",
+    "summary": "Remove an element from a vector set",
     "complexity": "O(log(N)) for each element removed, where N is the number of elements in the vector set.",
     "group": "vector_set",
     "since": "8.0.0",
-    "arity": -2,
+    "arity": 3,
     "function": "vremCommand",
     "command_flags": [
       "WRITE"
@@ -115,8 +116,7 @@
       },
       {
         "name": "element",
-        "type": "string",
-        "multiple": true
+        "type": "string"
       }
     ]
   },
@@ -125,7 +125,7 @@
     "complexity": "O(log(N)) where N is the number of elements in the vector set.",
     "group": "vector_set",
     "since": "8.0.0",
-    "arity": -3,
+    "arity": -4,
     "function": "vsimCommand",
     "command_flags": [
       "READONLY"
@@ -205,6 +205,12 @@
       {
         "token": "TRUTH",
         "name": "truth",
+        "type": "pure-token",
+        "optional": true
+      },
+      {
+        "token": "NOTHREAD",
+        "name": "nothread",
         "type": "pure-token",
         "optional": true
       }
@@ -383,6 +389,27 @@
         "name": "count",
         "type": "integer",
         "optional": true
+      }
+    ]
+  },
+  "VISMEMBER": {
+    "summary": "Check if an element exists in a vector set",
+    "complexity": "O(1)",
+    "group": "vector_set",
+    "since": "8.2.0",
+    "arity": 3,
+    "function": "vismemberCommand",
+    "command_flags": [
+      "READONLY"
+    ],
+    "arguments": [
+      {
+        "name": "key",
+        "type": "key"
+      },
+      {
+        "name": "element",
+        "type": "string"
       }
     ]
   }

@@ -1950,16 +1950,7 @@ static void rdbLoadEmptyDbFunc(void) {
     int empty_db_flags = server.repl_slave_lazy_flush ? EMPTYDB_ASYNC :
                                                         EMPTYDB_NO_FLAGS;
 
-    /* Temporarily disable active defragmentation during database flush.
-     * This prevents defrag from being triggered in replicationEmptyDbCallback()
-     * which could modify the database while it's being emptied. */
-    int orig_active_defrag = server.active_defrag_enabled;
-    server.active_defrag_enabled = 0;
-
     emptyData(-1, empty_db_flags, replicationEmptyDbCallback);
-
-    /* Restore the original active defragmentation. */
-    server.active_defrag_enabled = orig_active_defrag;
 }
 
 /* Once we have a link with the master and the synchronization was

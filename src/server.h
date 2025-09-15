@@ -51,6 +51,7 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */
 #include "kvstore.h" /* Slot-based hash table */
+#include "estore.h"  /* Expiration store */
 #include "adlist.h"  /* Linked lists */
 #include "zmalloc.h" /* total memory usage aware version of malloc/free */
 #include "anet.h"    /* Networking the easy way */
@@ -1111,7 +1112,7 @@ typedef struct replBufBlock {
 typedef struct redisDb {
     kvstore *keys;              /* The keyspace for this DB. As metadata, holds keysizes histogram */
     kvstore *expires;           /* Timeout of keys with a timeout set */
-    ebuckets hexpires;          /* Hash expiration DS. Single TTL per hash (of next min field to expire) */
+    estore *subexpires;         /* Timeout of sub-keys with a timeout set. (Currently only used for hashes) */
     dict *blocking_keys;        /* Keys with clients waiting for data (BLPOP)*/
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
@@ -2730,7 +2731,7 @@ extern dictType sdsReplyDictType;
 extern dictType keylistDictType;
 extern dict *modules;
 
-extern EbucketsType hashExpireBucketsType;  /* global expires */
+extern EbucketsType subexpiresBucketsType;  /* global expires */
 extern EbucketsType hashFieldExpireBucketsType; /* local per hash */
 
 /*-----------------------------------------------------------------------------
@@ -3449,10 +3450,9 @@ robj *setTypeDup(robj *o);
  * and metadata fields for hash field expiration.*/
 typedef struct listpackEx {
     ExpireMeta meta;  /* To be used in order to register the hash in the
-                         global ebuckets (i.e. db->hexpires) with next,
-                         minimum, hash-field to expire. TTL value might be
-                         inaccurate up-to few seconds due to optimization
-                         consideration.  */
+                         global ebuckets subexpires with next, minimum,
+                         hash-field to expire. TTL value might be inaccurate
+                         up-to few seconds due to optimization consideration. */
     void *lp;         /* listpack that contains 'key-value-ttl' tuples which
                          are ordered by ttl. */
 } listpackEx;
@@ -3462,10 +3462,9 @@ typedef struct listpackEx {
 typedef struct dictExpireMetadata {
     ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
                                 To be used in order to register the hash in the
-                                global ebuckets (i.e db->hexpires) with next,
-                                minimum, hash-field to expire. TTL value might be
-                                inaccurate up-to few seconds due to optimization
-                                consideration. */
+                                subexpires DB with next minimum hash-field to expire.
+                                TTL value might be inaccurate up-to few seconds due
+                                to optimization consideration. */
     ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
 } dictExpireMetadata;
 
@@ -3485,8 +3484,8 @@ typedef struct dictExpireMetadata {
 #define HFE_LAZY_ACCESS_EXPIRED      (1<<4) /* Avoid lazy expire and allow access to expired fields */
 #define HFE_LAZY_NO_UPDATE_KEYSIZES  (1<<5) /* If field lazy deleted, avoid updating keysizes histogram */
 
-void hashTypeConvert(robj *o, int enc, ebuckets *hexpires);
-void hashTypeTryConversion(redisDb *db, robj *subject, robj **argv, int start, int end);
+void hashTypeConvert(redisDb *db, robj *o, int enc);
+void hashTypeTryConversion(redisDb *db, kvobj *kv, robj **argv, int start, int end);
 int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashDeleted);
 int hashTypeDelete(robj *o, void *key, int isSdsField);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
@@ -3506,10 +3505,9 @@ sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
 hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi);
 int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
-int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags);
+int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
 robj *hashTypeDup(kvobj *kv, uint64_t *minHashExpire);
-uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o);
-void hashTypeAddToExpires(redisDb *db, kvobj *hashObj, uint64_t expireTime);
+uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires);
 void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
@@ -3848,7 +3846,7 @@ void expireSlaveKeys(void);
 void rememberSlaveKeyWithExpire(redisDb *db, sds key);
 void flushSlaveKeysWithExpireList(void);
 size_t getSlaveKeyWithExpireCount(void);
-uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire);
+uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire);
 
 /* evict.c -- maxmemory handling and LRU eviction. */
 void evictionPoolAlloc(void);

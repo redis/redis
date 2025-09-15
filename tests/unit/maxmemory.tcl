@@ -1,4 +1,17 @@
 start_server {tags {"maxmemory" "external:skip"}} {
+
+    test {SET and RESTORE key nearly as large as the memory limit} {
+        r flushall
+        set used [s used_memory]
+        r config set maxmemory [expr {$used+10000000}]
+        r set foo [string repeat a 8000000]
+        set encoded [r dump foo]
+        r del foo
+        r restore foo 0 $encoded
+        r strlen foo
+    } {8000000} {logreqres:skip}
+
+    r flushall
     r config set maxmemory 11mb
     r config set maxmemory-policy allkeys-lru
     set server_pid [s process_id]

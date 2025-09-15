@@ -611,17 +611,21 @@ void evalGenericCommand(client *c, int evalsha) {
     rctx.flags |= SCRIPT_EVAL_MODE; /* mark the current run as EVAL (as opposed to FCALL) so we'll
                                       get appropriate error messages and logs */
 
-    luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
-    lua_pop(lua,1); /* Remove the error handler. */
-    scriptResetRun(&rctx);
-    luaGC(lua, &gc_count);
-
     if (l->node) {
         /* Quick removal and re-insertion after the script is called to
          * maintain the LRU list. */
         listUnlinkNode(lctx.lua_scripts_lru_list, l->node);
         listLinkNodeTail(lctx.lua_scripts_lru_list, l->node);
     }
+
+    luaCallFunction(&rctx, lua, c->argv+3, numkeys, c->argv+3+numkeys, c->argc-3-numkeys, ldb.active);
+    lua_pop(lua,1); /* Remove the error handler. */
+    scriptResetRun(&rctx);
+    luaGC(lua, &gc_count);
+
+    /* We can no longer touch 'l' here, as it may have been reallocated by activedefrag
+     * during AOF loading of long-running scripts. This issue is not with newly generated
+     * AOF files, in which scripts propagate effects rather than scripts. */
 }
 
 void evalCommand(client *c) {
