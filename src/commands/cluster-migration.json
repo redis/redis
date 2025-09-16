@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the total number of the slots between the start slot and end slot arguments.",
         "group": "cluster",
         "since": "9.0.0",
-        "arity": -3,
+        "arity": -4,
         "container": "CLUSTER",
         "function": "clusterCommand",
         "command_flags": [
@@ -14,45 +14,75 @@
         ],
         "arguments": [
             {
-                "name": "condition",
+                "name": "subcommand",
                 "type": "oneof",
                 "arguments": [
                     {
-                        "token": "IMPORT",
                         "name": "import",
+                        "token": "IMPORT",
                         "type": "block",
-                        "multiple": true,
                         "arguments": [
                             {
-                                "name": "start-slot",
+                                "name": "slots-keyword",
+                                "token": "SLOTS",
+                                "type": "pure-token"
+                            },
+                            {
+                                "name": "numranges",
                                 "type": "integer"
                             },
                             {
-                                "name": "end-slot",
-                                "type": "integer"
+                                "name": "slot-range",
+                                "type": "block",
+                                "multiple": true,
+                                "arguments": [
+                                    {
+                                        "name": "start-slot",
+                                        "type": "integer"
+                                    },
+                                    {
+                                        "name": "end-slot",
+                                        "type": "integer"
+                                    }
+                                ]
                             }
                         ]
                     },
                     {
-                        "token": "CANCEL",
                         "name": "cancel",
-                        "type": "block",
-                        "multiple": true,
+                        "token": "CANCEL",
+                        "type": "oneof",
                         "arguments": [
                             {
-                                "name": "start-slot",
-                                "type": "integer"
+                                "token": "ID",
+                                "name": "task-id",
+                                "type": "string"
                             },
                             {
-                                "name": "end-slot",
-                                "type": "integer"
+                                "name": "all",
+                                "token": "ALL",
+                                "type": "pure-token"
                             }
                         ]
                     },
                     {
-                        "token": "STATUS",
                         "name": "status",
-                        "type": "pure-token"
+                        "token": "STATUS",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "token": "ID",
+                                "name": "task-id",
+                                "type": "string",
+                                "optional": true
+                            },
+                            {
+                                "name": "all",
+                                "token": "ALL",
+                                "type": "pure-token",
+                                "optional": true
+                            }
+                        ]
                     }
                 ]
             }
@@ -60,20 +90,23 @@
         "reply_schema": {
             "oneOf": [
                 {
-                    "description": "Reply to CLUSTER STATUS.",
-                    "const": "OK"
+                    "description": "Reply to CLUSTER MIGRATION IMPORT, returns the task ID.",
+                    "type": "string"
                 },
                 {
-                    "description": "Reply to CLUSTER CANCEL, number of cancelled migration operations",
+                    "description": "Reply to CLUSTER MIGRATION CANCEL, number of cancelled migration operations.",
                     "type": "integer"
                 },
                 {
-                    "description": "Reply to CLUSTER STATUS, array of migration operation details.",
+                    "description": "Reply to CLUSTER MIGRATION STATUS, array of migration operation details.",
                     "type": "array",
                     "items": {
                         "type": "object",
                         "additionalProperties": false,
                         "properties": {
+                            "id": {
+                                "type": "string"
+                            },
                             "slots_range": {
                                 "type": "string"
                             },
@@ -95,6 +128,24 @@
                             },
                             "state": {
                                 "type": "string"
+                            },
+                            "last_error": {
+                                "type": "string"
+                            },
+                            "retries": {
+                                "type": "integer"
+                            },
+                            "create_time": {
+                                "type": "integer"
+                            },
+                            "start_time": {
+                                "type": "integer"
+                            },
+                            "done_time": {
+                                "type": "integer"
+                            },
+                            "write_pause_ms": {
+                                "type": "integer"
                             }
                         }
                     }

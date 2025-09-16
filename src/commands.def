@@ -700,28 +700,41 @@ struct COMMAND_ARG CLUSTER_MEET_Args[] = {
 #define CLUSTER_MIGRATION_Keyspecs NULL
 #endif
 
-/* CLUSTER MIGRATION condition import argument table */
-struct COMMAND_ARG CLUSTER_MIGRATION_condition_import_Subargs[] = {
+/* CLUSTER MIGRATION subcommand import slot_range argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_import_slot_range_Subargs[] = {
 {MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* CLUSTER MIGRATION condition cancel argument table */
-struct COMMAND_ARG CLUSTER_MIGRATION_condition_cancel_Subargs[] = {
-{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+/* CLUSTER MIGRATION subcommand import argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_import_Subargs[] = {
+{MAKE_ARG("slots-keyword",ARG_TYPE_PURE_TOKEN,-1,"SLOTS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("numranges",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slot-range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_import_slot_range_Subargs},
 };
 
-/* CLUSTER MIGRATION condition argument table */
-struct COMMAND_ARG CLUSTER_MIGRATION_condition_Subargs[] = {
-{MAKE_ARG("import",ARG_TYPE_BLOCK,-1,"IMPORT",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_MIGRATION_condition_import_Subargs},
-{MAKE_ARG("cancel",ARG_TYPE_BLOCK,-1,"CANCEL",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_MIGRATION_condition_cancel_Subargs},
-{MAKE_ARG("status",ARG_TYPE_PURE_TOKEN,-1,"STATUS",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+/* CLUSTER MIGRATION subcommand cancel argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_cancel_Subargs[] = {
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,"ID",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER MIGRATION subcommand status argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_status_Subargs[] = {
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,"ID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+{MAKE_ARG("all",ARG_TYPE_PURE_TOKEN,-1,"ALL",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
+};
+
+/* CLUSTER MIGRATION subcommand argument table */
+struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_Subargs[] = {
+{MAKE_ARG("import",ARG_TYPE_BLOCK,-1,"IMPORT",NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLUSTER_MIGRATION_subcommand_import_Subargs},
+{MAKE_ARG("cancel",ARG_TYPE_ONEOF,-1,"CANCEL",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_cancel_Subargs},
+{MAKE_ARG("status",ARG_TYPE_BLOCK,-1,"STATUS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_status_Subargs},
 };
 
 /* CLUSTER MIGRATION argument table */
 struct COMMAND_ARG CLUSTER_MIGRATION_Args[] = {
-{MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLUSTER_MIGRATION_condition_Subargs},
+{MAKE_ARG("subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=CLUSTER_MIGRATION_subcommand_Subargs},
 };
 
 /********** CLUSTER MYID ********************/
@@ -1057,6 +1070,46 @@ const char *CLUSTER_SYNCSLOTS_Tips[] = {
 #define CLUSTER_SYNCSLOTS_Keyspecs NULL
 #endif
 
+/* CLUSTER SYNCSLOTS subcommand ranges slot_range argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_ranges_slot_range_Subargs[] = {
+{MAKE_ARG("start-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("end-slot",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER SYNCSLOTS subcommand ranges argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_ranges_Subargs[] = {
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("slot-range",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_ranges_slot_range_Subargs},
+};
+
+/* CLUSTER SYNCSLOTS subcommand ack argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_ack_Subargs[] = {
+{MAKE_ARG("state",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("offset",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* CLUSTER SYNCSLOTS subcommand conf argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_conf_Subargs[] = {
+{MAKE_ARG("option",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+{MAKE_ARG("value",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,0,NULL)},
+};
+
+/* CLUSTER SYNCSLOTS subcommand argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_subcommand_Subargs[] = {
+{MAKE_ARG("ranges",ARG_TYPE_BLOCK,-1,"RANGES",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_ranges_Subargs},
+{MAKE_ARG("task-id",ARG_TYPE_STRING,-1,"RDBCHANNEL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("snapshot-eof",ARG_TYPE_PURE_TOKEN,-1,"SNAPSHOT-EOF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("stream-eof",ARG_TYPE_PURE_TOKEN,-1,"STREAM-EOF",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ack",ARG_TYPE_BLOCK,-1,"ACK",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_ack_Subargs},
+{MAKE_ARG("error",ARG_TYPE_STRING,-1,"FAIL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("conf",ARG_TYPE_BLOCK,-1,"CONF",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_conf_Subargs},
+};
+
+/* CLUSTER SYNCSLOTS argument table */
+struct COMMAND_ARG CLUSTER_SYNCSLOTS_Args[] = {
+{MAKE_ARG("subcommand",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,7,NULL),.subargs=CLUSTER_SYNCSLOTS_subcommand_Subargs},
+};
+
 /* CLUSTER command table */
 struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("addslots","Assigns new hash slots to a node.","O(N) where N is the total number of hash slot arguments","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_ADDSLOTS_History,0,CLUSTER_ADDSLOTS_Tips,0,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_ADDSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_ADDSLOTS_Args},
@@ -1075,7 +1128,7 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("keyslot","Returns the hash slot for a key.","O(N) where N is the number of bytes in the key","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_KEYSLOT_History,0,CLUSTER_KEYSLOT_Tips,0,clusterCommand,3,CMD_STALE,0,CLUSTER_KEYSLOT_Keyspecs,0,NULL,1),.args=CLUSTER_KEYSLOT_Args},
 {MAKE_CMD("links","Returns a list of all TCP links to and from peer nodes.","O(N) where N is the total number of Cluster nodes","7.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_LINKS_History,0,CLUSTER_LINKS_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_LINKS_Keyspecs,0,NULL,0)},
 {MAKE_CMD("meet","Forces a node to handshake with another node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MEET_History,1,CLUSTER_MEET_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MEET_Keyspecs,0,NULL,3),.args=CLUSTER_MEET_Args},
-{MAKE_CMD("migration","Start, monitor and cancel slot migration.","O(N) where N is the total number of the slots between the start slot and end slot arguments.","9.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MIGRATION_History,0,CLUSTER_MIGRATION_Tips,0,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MIGRATION_Keyspecs,0,NULL,1),.args=CLUSTER_MIGRATION_Args},
+{MAKE_CMD("migration","Start, monitor and cancel slot migration.","O(N) where N is the total number of the slots between the start slot and end slot arguments.","9.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MIGRATION_History,0,CLUSTER_MIGRATION_Tips,0,clusterCommand,-4,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_MIGRATION_Keyspecs,0,NULL,1),.args=CLUSTER_MIGRATION_Args},
 {MAKE_CMD("myid","Returns the ID of a node.","O(1)","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYID_History,0,CLUSTER_MYID_Tips,0,clusterCommand,2,CMD_STALE,0,CLUSTER_MYID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("myshardid","Returns the shard ID of a node.","O(1)","7.2.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_MYSHARDID_History,0,CLUSTER_MYSHARDID_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_MYSHARDID_Keyspecs,0,NULL,0)},
 {MAKE_CMD("nodes","Returns the cluster configuration for a node.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_NODES_History,0,CLUSTER_NODES_Tips,1,clusterCommand,2,CMD_STALE,0,CLUSTER_NODES_Keyspecs,0,NULL,0)},
@@ -1089,7 +1142,7 @@ struct COMMAND_STRUCT CLUSTER_Subcommands[] = {
 {MAKE_CMD("slaves","Lists the replica nodes of a master node.","O(N) where N is the number of replicas.","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER REPLICAS`","5.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLAVES_History,0,CLUSTER_SLAVES_Tips,1,clusterCommand,3,CMD_ADMIN|CMD_STALE,0,CLUSTER_SLAVES_Keyspecs,0,NULL,1),.args=CLUSTER_SLAVES_Args},
 {MAKE_CMD("slot-stats","Return an array of slot usage statistics for slots assigned to the current node.","O(N) where N is the total number of slots based on arguments. O(N*log(N)) with ORDERBY subcommand.","8.2.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOT_STATS_History,0,CLUSTER_SLOT_STATS_Tips,2,clusterSlotStatsCommand,-4,CMD_STALE|CMD_LOADING,0,CLUSTER_SLOT_STATS_Keyspecs,0,NULL,1),.args=CLUSTER_SLOT_STATS_Args},
 {MAKE_CMD("slots","Returns the mapping of cluster slots to nodes.","O(N) where N is the total number of Cluster nodes","3.0.0",CMD_DOC_DEPRECATED,"`CLUSTER SHARDS`","7.0.0","cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SLOTS_History,2,CLUSTER_SLOTS_Tips,1,clusterCommand,2,CMD_LOADING|CMD_STALE,0,CLUSTER_SLOTS_Keyspecs,0,NULL,0)},
-{MAKE_CMD("syncslots","Atomic slots migration.","O(N) where N is the total number of Cluster nodes","9.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SYNCSLOTS_History,0,CLUSTER_SYNCSLOTS_Tips,1,clusterCommand,-3,0,0,CLUSTER_SYNCSLOTS_Keyspecs,0,NULL,0)},
+{MAKE_CMD("syncslots","Internal command for atomic slot migration protocol between cluster nodes.","O(1)","9.0.0",CMD_DOC_NONE,NULL,NULL,"cluster",COMMAND_GROUP_CLUSTER,CLUSTER_SYNCSLOTS_History,0,CLUSTER_SYNCSLOTS_Tips,1,clusterCommand,-3,CMD_NO_ASYNC_LOADING|CMD_ADMIN|CMD_STALE,0,CLUSTER_SYNCSLOTS_Keyspecs,0,NULL,1),.args=CLUSTER_SYNCSLOTS_Args},
 {0}
 };
 

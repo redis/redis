@@ -692,18 +692,33 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slot_ranges, s
     return task;
 }
 
-/* CLUSTER MIGRATION IMPORT <start-slot end-slot [start-slot end-slot ...]>
+/* CLUSTER MIGRATION IMPORT SLOTS <numranges> <start-slot end-slot [start-slot end-slot ...]>
  *
  * Sent by operator to the destination node to start the migration. */
 static void clusterMigrationCommandImport(client *c) {
-    /* Validate slot range arg count */
-    int remaining = c->argc - 3;
-    if (remaining == 0 || remaining % 2 != 0) {
+    if (c->argc < 7) {
         addReplyErrorArity(c);
         return;
     }
 
-    slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, c->argc, 3);
+    if (strcasecmp(c->argv[3]->ptr, "slots") != 0) {
+        addReplyError(c, "unknown argument");
+        return;
+    }
+
+    long numranges = 0;
+    if (getRangeLongFromObjectOrReply(c, c->argv[4], 1, CLUSTER_SLOTS, &numranges,
+                                      "invalid number of slot ranges") != C_OK)
+        return;
+
+    /* Validate slot range arg count */
+    int remaining = c->argc - 5;
+    if (remaining == 0 || remaining % 2 != 0 || remaining / 2 != numranges) {
+        addReplyErrorArity(c);
+        return;
+    }
+
+    slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, c->argc, 5);
     if (!slot_ranges) return;
 
     sds err = NULL;
@@ -717,7 +732,7 @@ static void clusterMigrationCommandImport(client *c) {
     addReplyBulkCString(c, task->id);
 }
 
-/* CLUSTER MIGRATION CANCEL [ID <id> | ALL]
+/* CLUSTER MIGRATION CANCEL [ID <task-id> | ALL]
  *   - Reply: Number of cancelled tasks
  *
  * Cancels import tasks that overlap with the specified slot ranges.
@@ -727,7 +742,7 @@ static void clusterMigrationCommandCancel(client *c) {
     int num_cancelled = 0;
 
     /* Validate slot range arg count */
-    if (c->argc < 4) {
+    if (c->argc != 4 && c->argc != 5) {
         addReplyErrorArity(c);
         return;
     }
@@ -744,7 +759,7 @@ static void clusterMigrationCommandCancel(client *c) {
             return;
         }
     } else {
-        addReplyError(c, "Missing ID or ALL argument");
+        addReplyError(c, "unknown argument");
         return;
     }
 
@@ -786,20 +801,20 @@ static void replyTaskStatus(client *c, asmTask *task) {
     addReplyBulkLongLong(c, p);
 }
 
-/* CLUSTER MIGRATION STATUS [ID <task-id>]
+/* CLUSTER MIGRATION STATUS [ID <task-id> | ALL]
  *  - Reply: Array of atomic slot migration tasks */
 static void clusterMigrationCommandStatus(client *c) {
     listIter li;
     listNode *ln;
 
-    if (c->argc != 3 && c->argc != 5) {
+    if (c->argc != 4 && c->argc != 5) {
         addReplyErrorArity(c);
         return;
     }
 
-    if (c->argc == 5) {
-        if (strcasecmp(c->argv[3]->ptr, "id") != 0) {
-            addReplyError(c, "unknown argument");
+    if (!strcasecmp(c->argv[3]->ptr, "id")) {
+        if (c->argc != 5) {
+            addReplyErrorArity(c);
             return;
         }
         sds id = c->argv[4]->ptr;
@@ -812,7 +827,11 @@ static void clusterMigrationCommandStatus(client *c) {
 
         addReplyArrayLen(c, 1);
         replyTaskStatus(c, task);
-    } else {
+    } else if (!strcasecmp(c->argv[3]->ptr, "all")) {
+        if (c->argc != 4) {
+            addReplyErrorArity(c);
+            return;
+        }
         addReplyArrayLen(c, listLength(asmManager->tasks) +
                             listLength(asmManager->done_tasks));
         listRewind(asmManager->tasks, &li);
@@ -822,16 +841,19 @@ static void clusterMigrationCommandStatus(client *c) {
         listRewind(asmManager->done_tasks, &li);
         while ((ln = listNext(&li)) != NULL)
             replyTaskStatus(c, listNodeValue(ln));
+    } else {
+        addReplyError(c, "unknown argument");
+        return;
     }
 }
 
 /* CLUSTER MIGRATION
- *      <IMPORT start-slot end-slot [start-slot end-slot ...] |
- *       STATUS |
- *       CANCEL start-slot end-slot [start-slot end-slot ...]>
- * */
+ *      <IMPORT SLOTS <numranges> <start-slot end-slot [start-slot end-slot ...]> |
+ *       STATUS [ID <task-id> | ALL] |
+ *       CANCEL [ID <task-id> | ALL]>
+*/
 void clusterMigrationCommand(client *c) {
-    if (c->argc < 3) {
+    if (c->argc < 4) {
         addReplyErrorArity(c);
         return;
     }
