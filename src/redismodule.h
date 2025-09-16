@@ -508,8 +508,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_EVENTLOOP 15
 #define REDISMODULE_EVENT_CONFIG 16
 #define REDISMODULE_EVENT_KEY 17
-#define REDISMODULE_EVENT_CLUSTER 18
-#define REDISMODULE_EVENT_CLUSTER_TRIM 19
+#define REDISMODULE_EVENT_CLUSTER_ASM 18
+#define REDISMODULE_EVENT_CLUSTER_ASM_TRIM 19
 #define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
@@ -621,6 +621,14 @@ static const RedisModuleEvent
     RedisModuleEvent_Key = {
         REDISMODULE_EVENT_KEY,
         1
+    },
+    RedisModuleEvent_ClusterAsm = {
+        REDISMODULE_EVENT_CLUSTER_ASM,
+        1
+    },
+    RedisModuleEvent_ClusterAsmTrim = {
+        REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
+        1
     };
 
 /* Those are values that are used for the 'subevent' callback argument. */
@@ -699,17 +707,18 @@ static const RedisModuleEvent
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
 #define _REDISMODULE_SUBEVENT_SWAPDB_NEXT 0
 
-#define REDISMODULE_SUBEVENT_CLUSTER_IMPORT_STARTED 0
-#define REDISMODULE_SUBEVENT_CLUSTER_IMPORT_FAILED 1
-#define REDISMODULE_SUBEVENT_CLUSTER_IMPORT_COMPLETED 2
-#define REDISMODULE_SUBEVENT_CLUSTER_MIGRATE_STARTED 3
-#define REDISMODULE_SUBEVENT_CLUSTER_MIGRATE_FAILED 4
-#define REDISMODULE_SUBEVENT_CLUSTER_MIGRATE_COMPLETED 5
-#define _REDISMODULE_SUBEVENT_CLUSTER_NEXT 6
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED 0
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED 1
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED 2
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED 3
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED 4
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED 5
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE 6
+#define _REDISMODULE_SUBEVENT_CLUSTER_ASM_NEXT 7
 
-#define REDISMODULE_SUBEVENT_CLUSTER_TRIM_ACTIVE_STARTED 0
-#define REDISMODULE_SUBEVENT_CLUSTER_TRIM_ACTIVE_ENDED 1
-#define REDISMODULE_SUBEVENT_CLUSTER_TRIM_BACKGROUND 2
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED 0
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED 1
+#define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND 2
 #define _REDISMODULE_SUBEVENT_CLUSTER_TRIM_NEXT 3
 
 /* RedisModuleClientInfo flags. */
@@ -851,17 +860,28 @@ typedef struct RedisModuleSlotRangeArray {
     RedisModuleSlotRange ranges[];
 } RedisModuleSlotRangeArray;
 
-#define REDISMODULE_CLUSTER_TRIMINFO_VERSION 1
+#define REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION 1
 
-typedef struct RedisModuleClusterTrimInfo {
+typedef struct RedisModuleClusterAsmMigrationInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
-    int32_t dbnum;          /* Flushed database number, -1 for ALL. */
+    const char *task_id;
     RedisModuleSlotRangeArray* slots;
-} RedisModuleClusterTrimInfoV1;
+} RedisModuleClusterAsmMigrationInfoV1;
 
-#define RedisModuleClusterTrimInfo RedisModuleClusterTrimInfoV1
+#define RedisModuleClusterAsmMigrationInfo RedisModuleClusterAsmMigrationInfoV1
+
+#define REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION 1
+
+typedef struct RedisModuleClusterAsmTrimInfo {
+    uint64_t version;       /* Not used since this structure is never passed
+                               from the module to the core right now. Here
+                               for future compatibility. */
+    RedisModuleSlotRangeArray* slots;
+} RedisModuleClusterAsmTrimInfoV1;
+
+#define RedisModuleClusterAsmTrimInfo RedisModuleClusterAsmTrimInfoV1
 
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */
@@ -1314,6 +1334,8 @@ REDISMODULE_API void (*RedisModule_SetDisconnectCallback)(RedisModuleBlockedClie
 REDISMODULE_API void (*RedisModule_SetClusterFlags)(RedisModuleCtx *ctx, uint64_t flags) REDISMODULE_ATTR;
 REDISMODULE_API unsigned int (*RedisModule_ClusterKeySlot)(RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API const char *(*RedisModule_ClusterCanonicalKeyNameInSlot)(unsigned int slot) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterCanAccessKeysInSlot)(int slot) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterPropagateForSlotMigration)(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ExportSharedAPI)(RedisModuleCtx *ctx, const char *apiname, void *func) REDISMODULE_ATTR;
 REDISMODULE_API void * (*RedisModule_GetSharedAPI)(RedisModuleCtx *ctx, const char *apiname) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleCommandFilter * (*RedisModule_RegisterCommandFilter)(RedisModuleCtx *ctx, RedisModuleCommandFilterFunc cb, int flags) REDISMODULE_ATTR;
@@ -1702,6 +1724,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(SetClusterFlags);
     REDISMODULE_GET_API(ClusterKeySlot);
     REDISMODULE_GET_API(ClusterCanonicalKeyNameInSlot);
+    REDISMODULE_GET_API(ClusterCanAccessKeysInSlot);
+    REDISMODULE_GET_API(ClusterPropagateForSlotMigration);
     REDISMODULE_GET_API(ExportSharedAPI);
     REDISMODULE_GET_API(GetSharedAPI);
     REDISMODULE_GET_API(RegisterCommandFilter);

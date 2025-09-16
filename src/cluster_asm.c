@@ -47,6 +47,7 @@ typedef struct asmTask {
     mstime_t dest_slots_snapshot_time;  /* The time when the destination starts applying the slot snapshot */
     mstime_t dest_accum_applied_time;   /* The time when the destination finishes applying the accumulated buffer */
     sds error;                          /* Error message for this task */
+    redisOpArray *module_commands;      /* Module commands to be propagated at the beginning of slot migration */
 } asmTask;
 
 struct asmManager {
@@ -329,6 +330,7 @@ void asmTaskReset(asmTask *task) {
     task->paused_time = 0;
     task->dest_slots_snapshot_time = 0;
     task->dest_accum_applied_time = 0;
+    task->module_commands = NULL;
 }
 
 asmTask *asmTaskCreate(const char *task_id) {
@@ -604,12 +606,12 @@ void asmFeedMigrationClient(robj **argv, int argc) {
      *
      * NOTICE: if some keyless commands should be propagated to the destination,
      * we should identify them here and send. */
-    if (slot == -1) return;
+    if (slot == GETSLOT_NOKEYS) return;
 
     /* Generally we reject cross-slot commands before executing, but module may
      * replicate this kind of command, so we check again. To guarantee data
      * consistency, we cancel the task if we encounter a cross-slot command. */
-    if (slot == -2) {
+    if (slot == GETSLOT_CROSSSLOT) {
         asmTaskCancel(task, "cross-slot command");
         return;
     }
@@ -847,18 +849,22 @@ void clusterMigrationCommand(client *c) {
 
 /* Notify the state change to the module and the plugin. */
 void asmNotifyStateChange(asmTask *task, int state) {
-    RedisModuleSlotRangeArray *sra = (RedisModuleSlotRangeArray *) task->slot_ranges;
+    RedisModuleClusterAsmMigrationInfo info = {
+            REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
+            task->id,
+            (RedisModuleSlotRangeArray *) task->slot_ranges
+    };
 
     int module_event = -1;
-    if (state == ASM_EVENT_IMPORT_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_IMPORT_STARTED;
-    else if (state == ASM_EVENT_IMPORT_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_IMPORT_COMPLETED;
-    else if (state == ASM_EVENT_IMPORT_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_IMPORT_FAILED;
-    else if (state == ASM_EVENT_MIGRATE_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_MIGRATE_STARTED;
-    else if (state == ASM_EVENT_MIGRATE_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_MIGRATE_COMPLETED;
-    else if (state == ASM_EVENT_MIGRATE_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_MIGRATE_FAILED;
+    if (state == ASM_EVENT_IMPORT_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED;
+    else if (state == ASM_EVENT_IMPORT_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED;
+    else if (state == ASM_EVENT_IMPORT_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED;
+    else if (state == ASM_EVENT_MIGRATE_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED;
+    else if (state == ASM_EVENT_MIGRATE_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED;
+    else if (state == ASM_EVENT_MIGRATE_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED;
     serverAssert(module_event != -1);
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER, module_event, sra);
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM, module_event, &info);
     clusterAsmOnEvent(task->id, state, task->slot_ranges);
 }
 
@@ -1911,6 +1917,43 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
     return C_OK;
 }
 
+/* Modules can use RM_ClusterPropagateForSlotMigration() during the
+ * CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event to propagate commands that should be
+ * delivered just before the slot snapshot delivery starts. This function
+ * triggers the event, collects the commands and writes them to the rio. */
+static int propagateModuleCommands(asmTask *task, rio *rdb) {
+    RedisModuleClusterAsmMigrationInfo info = {
+            REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
+            task->id,
+            (RedisModuleSlotRangeArray *) task->slot_ranges
+    };
+
+    task->module_commands = zcalloc(sizeof(*task->module_commands));
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM,
+                          REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE,
+                          &info
+    );
+
+    int ret = C_OK;
+    /* Write the module commands to the rio */
+    for (int i = 0; i < task->module_commands->numops; i++) {
+        redisOp *op = &task->module_commands->ops[i];
+        if (rioWriteBulkCount(rdb, '*', op->argc) == 0) {
+            ret = C_ERR;
+            break;
+        }
+        for (int j = 0; j < op->argc; j++)
+            if (rioWriteBulkObject(rdb, op->argv[j]) == 0) {
+                ret = C_ERR;
+                break;
+            }
+    }
+    redisOpArrayFree(task->module_commands);
+    zfree(task->module_commands);
+    task->module_commands = NULL;
+    return ret;
+}
+
 /* Save the slot ranges snapshot to the file. It generates the DUMP encoded
  * representation of each key in the slot ranges and writes it to the file.
  *
@@ -1927,6 +1970,13 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
     /* Disable RDB compression for slots snapshot since compression is too
      * expensive both in source and destination. */
     server.rdb_compression = 0;
+
+    /* Only support a single migrate task */
+    serverAssert(listLength(asmManager->tasks) == 1);
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    serverAssert(task->operation == ASM_MIGRATE);
+
+    if (propagateModuleCommands(task, rdb) == C_ERR) goto werr;
 
     /* Dump functions and send to destination side. */
     rio payload;
@@ -1952,11 +2002,6 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
         /* SELECT the new DB */
         if (rioWrite(rdb,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(rdb, i) == 0) goto werr;
-
-        /* Only support a single migrate task */
-        serverAssert(listLength(asmManager->tasks) == 1);
-        asmTask *task = listNodeValue(listFirst(asmManager->tasks));
-        serverAssert(task->operation == ASM_MIGRATE);
 
         /* Iterate all slot ranges, and generate the DUMP encoded
          * representation of each key in the DB. */
@@ -2563,13 +2608,13 @@ static void propagateTrimSlots(slotRangeArray *slots) {
 
 /* Trim the slots asynchronously in the BIO thread. */
 void asmTriggerBackgroundTrim(slotRangeArray *slots) {
-    RedisModuleClusterTrimInfoV1 fsi = {
-            REDISMODULE_CLUSTER_TRIMINFO_VERSION, 0,
+    RedisModuleClusterAsmTrimInfoV1 fsi = {
+            REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_TRIM_BACKGROUND,
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
+                          REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND,
                           &fsi);
     /* TODO: This is going to send invalidation message for all the keys for
      * the tracking clients. We need to consider how we can do that for only
@@ -2781,13 +2826,13 @@ void asmActiveTrimStart(void) {
             asmManager->active_trim_keys_total += kvstoreDictSize(server.db[0].keys, slot);
     }        
 
-    RedisModuleClusterTrimInfoV1 fsi = {
-            REDISMODULE_CLUSTER_TRIMINFO_VERSION, 0,
+    RedisModuleClusterAsmTrimInfoV1 fsi = {
+            REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_TRIM_ACTIVE_STARTED,
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
+                          REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED,
                           &fsi);
 
     sds str = slotRangeArrayToString(slots);
@@ -2816,13 +2861,13 @@ void asmActiveTrimEnd(int start_next_job) {
     /* Unblock the master if it is blocked */
     asmUnblockMasterAfterTrim();
 
-    RedisModuleClusterTrimInfoV1 fsi = {
-            REDISMODULE_CLUSTER_TRIMINFO_VERSION, 0,
+    RedisModuleClusterAsmTrimInfoV1 fsi = {
+            REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_TRIM_ACTIVE_ENDED,
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
+                          REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED,
                           &fsi);
 
     sds str = slotRangeArrayToString(slots);
@@ -2954,4 +2999,62 @@ int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv) {
         decrRefCount(tmpkey);
     }
     return 1;
+}
+
+/* Modules can use RM_ClusterPropagateForSlotMigration() during the
+ * CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event to propagate commands that should be
+ * delivered just before the slot snapshot delivery starts. */
+int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc) {
+    /* This API is only called in the fork child. */
+    if (server.cluster_enabled == 0 ||
+        server.in_fork_child != CHILD_TYPE_RDB ||
+        listLength(asmManager->tasks) == 0)
+    {
+        errno = EBADF;
+        return C_ERR;
+    }
+
+    /* Check if the task state is right. */
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    if (task->operation != ASM_MIGRATE ||
+        task->state != ASM_SEND_BULK_AND_STREAM ||
+        task->module_commands == NULL)
+    {
+        errno = EBADF;
+        return C_ERR;
+    }
+
+    /* Ensure all arguments are converted to string encoding if necessary,
+     * since getSlotFromCommand expects them to be string-encoded. */
+    for (int i = 0; i < argc; i++) {
+        if (!sdsEncodedObject(argv[i])) {
+            serverAssert(argv[i]->encoding == OBJ_ENCODING_INT);
+            robj *old = argv[i];
+            argv[i] = createStringObjectFromLongLongWithSds((long)old->ptr);
+            decrRefCount(old);
+        }
+    }
+
+    /* Crossslot commands are not allowed */
+    int slot = getSlotFromCommand(cmd, argv, argc);
+    if (slot == GETSLOT_CROSSSLOT) {
+        errno = ENOTSUP;
+        return C_ERR;
+    }
+
+    /* Allow no-keys commands or if keys are in the slot range. */
+    slotRange sr = {slot, slot};
+    if (slot != GETSLOT_NOKEYS && !slotRangeArrayOverlaps(task->slot_ranges, &sr)) {
+        errno = ERANGE;
+        return C_ERR;
+    }
+
+    robj **argvcopy = zmalloc(sizeof(robj*) * argc);
+    for (int i = 0; i < argc; i++) {
+        argvcopy[i] = argv[i];
+        incrRefCount(argv[i]);
+    }
+
+    redisOpArrayAppend(task->module_commands, 0, argvcopy, argc, 0);
+    return C_OK;
 }

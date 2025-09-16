@@ -396,7 +396,7 @@ int getKeySlot(sds key) {
 }
 
 /* Return the slot of the key in the command.
- * -1 if no keys, -2 if cross slot, otherwise the slot number. */
+ * GETSLOT_NOKEYS if no keys, GETSLOT_CROSSSLOT if cross slot, otherwise the slot number. */
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     int slot = -1;
     if (!cmd || !server.cluster_enabled) return slot;
@@ -410,10 +410,10 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     for (int j = 0; j < numkeys; j++) {
         robj *thiskey = argv[keyindex[j].pos];
         int thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
-        if (slot == -1) {
+        if (slot == GETSLOT_NOKEYS) {
             slot = thisslot;
         } else if (slot != thisslot) {
-            slot = -2; /* Mark as cross slot */
+            slot = GETSLOT_CROSSSLOT; /* Mark as cross slot */
             break;
         }
     }
