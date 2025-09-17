@@ -119,8 +119,8 @@ typedef struct raxNode {
 
 typedef struct rax {
     raxNode *head;
-    uint8_t flags:RAX_FLAGS_BITS;
-    uint64_t numele:64-RAX_FLAGS_BITS;
+    __extension__ uint8_t flags:RAX_FLAGS_BITS;
+    __extension__ uint64_t numele:64-RAX_FLAGS_BITS;
     uint64_t numnodes;
     void *metadata[];
 } rax;

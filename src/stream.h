@@ -20,11 +20,11 @@ typedef struct stream {
     streamID first_id;      /* The first non-tombstone entry, zero if empty. */
     streamID max_deleted_entry_id;  /* The maximal ID that was deleted. */
     uint64_t entries_added; /* All time count of elements added. */
+    size_t alloc_size;      /* Total allocated memory (in bytes) by this stream. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
-    size_t alloc_size:8*sizeof(size_t)-1; /* Total allocated memory (in bytes) by this stream. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
