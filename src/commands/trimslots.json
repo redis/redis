@@ -3,7 +3,7 @@
         "summary": "Trim the keys that belong to specified slots.",
         "complexity": "O(N) where N is the total number of keys in all databases",
         "group": "server",
-        "since": "9.0.0",
+        "since": "8.4.0",
         "arity": -5,
         "function": "trimslotsCommand",
         "command_flags": [

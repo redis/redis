@@ -156,7 +156,7 @@ proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {key
     R $src_node config set rdb-key-save-delay $delay
 
     # migrate slot range from src_node to dst_node
-    set task_id [R $dst_node CLUSTER MIGRATION IMPORT SLOTS 1 $start_slot $end_slot]
+    set task_id [R $dst_node CLUSTER MIGRATION IMPORT $start_slot $end_slot]
     wait_for_condition 2000 10 {
         [string match {*send-bulk-and-stream*} [migration_status $src_node $task_id state]]
     } else {
@@ -170,29 +170,20 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     test "Test IMPORT input validation" {
         # invalid arguments
         assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT}
-        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT SLOTS}
-        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1}
-        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0}
-        assert_error {*unknown argument*} {R 0 CLUSTER MIGRATION IMPORT ABC 1 0 1}
-        assert_error {*invalid number of slot ranges*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 0 0 1}
-        assert_error {*invalid number of slot ranges*} {R 0 CLUSTER MIGRATION IMPORT SLOTS -1 0 1}
-        assert_error {*invalid number of slot ranges*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 16385 0 1}
-        assert_error {*invalid number of slot ranges*} {R 0 CLUSTER MIGRATION IMPORT SLOTS ABC 0 1}
-        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 100}
-        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 100 200 300}
-        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 100 200 300 400}
+        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT 100}
+        assert_error {*wrong number of arguments*} {R 0 CLUSTER MIGRATION IMPORT 100 200 300}
         # Invalid slot range
-        assert_error {*greater than end slot number*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 200 100}
-        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 17000 18000}
-        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 14000 18000}
-        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 -1 0}
-        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 sd sd}
+        assert_error {*greater than end slot number*} {R 0 CLUSTER MIGRATION IMPORT 200 100}
+        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 17000 18000}
+        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT 14000 18000}
+        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT -1 0}
+        assert_error {*out of range slot*} {R 0 CLUSTER MIGRATION IMPORT sd sd}
 
-        assert_error {*already the owner of the slot*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 100 200}
+        assert_error {*already the owner of the slot*} {R 0 CLUSTER MIGRATION IMPORT 100 200}
     }
 
     test "Test IMPORT not allowed on replica" {
-        assert_error {* not allowed on replica*} {R 4 CLUSTER MIGRATION IMPORT SLOTS 1 100 200}
+        assert_error {* not allowed on replica*} {R 4 CLUSTER MIGRATION IMPORT 100 200}
     }
 
     test "Test IMPORT not allowed during manual migration" {
@@ -200,39 +191,39 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Set a slot to IMPORTING
         R 0 CLUSTER SETSLOT 15000 IMPORTING $dst_id
-        assert_error {*must be STABLE to start*slot migration*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 100 200}
+        assert_error {*must be STABLE to start*slot migration*} {R 0 CLUSTER MIGRATION IMPORT 100 200}
         # Revert the change
         R 0 CLUSTER SETSLOT 15000 STABLE
 
         # Same test with setting a slot to MIGRATING
         R 0 CLUSTER SETSLOT 5000 MIGRATING $dst_id
-        assert_error {*must be STABLE to start*slot migration*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 100 200}
+        assert_error {*must be STABLE to start*slot migration*} {R 0 CLUSTER MIGRATION IMPORT 100 200}
         # Revert the change
         R 0 CLUSTER SETSLOT 5000 STABLE
     }
 
     test "Test IMPORT not allowed if the node is already the owner" {
-        assert_error {*already the owner of the slot*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 100 100}
+        assert_error {*already the owner of the slot*} {R 0 CLUSTER MIGRATION IMPORT 100 100}
     }
 
     test "Test IMPORT not allowed for a slot without an owner" {
         # Slot will have no owner
         R 0 CLUSTER DELSLOTS 5000
 
-        assert_error {*slot has no owner: 5000*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 5000 5000}
+        assert_error {*slot has no owner: 5000*} {R 0 CLUSTER MIGRATION IMPORT 5000 5000}
 
         # Revert the change
         R 0 CLUSTER ADDSLOTS 5000
     }
 
     test "Test IMPORT not allowed if slot ranges belong to different nodes" {
-        assert_error {*slots belong to different source nodes*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 7000 15000}
-        assert_error {*slots belong to different source nodes*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 2 7000 8000 14000 15000}
+        assert_error {*slots belong to different source nodes*} {R 0 CLUSTER MIGRATION IMPORT 7000 15000}
+        assert_error {*slots belong to different source nodes*} {R 0 CLUSTER MIGRATION IMPORT 7000 8000 14000 15000}
     }
 
     test "Test IMPORT not allowed if slot is given multiple times" {
-        assert_error {*Slot*specified multiple times*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 2 7000 8000 8000 9000}
-        assert_error {*Slot*specified multiple times*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 2 7000 8000 7900 9000}
+        assert_error {*Slot*specified multiple times*} {R 0 CLUSTER MIGRATION IMPORT 7000 8000 8000 9000}
+        assert_error {*Slot*specified multiple times*} {R 0 CLUSTER MIGRATION IMPORT 7000 8000 7900 9000}
     }
 
     test "Test IMPORT not allowed if there is an overlapping import" {
@@ -241,11 +232,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 set tag22273 tag22273 ;# slot hash is 7000
         R 1 set tag9283 tag9283 ;# slot hash is 8000
 
-        set task_id [R 0 CLUSTER MIGRATION IMPORT SLOTS 1 7000 8000]
-        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 8000 9000}
-        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 7500 8500}
-        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 6000 7000}
-        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT SLOTS 1 6500 7500}
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 7000 8000]
+        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 8000 9000}
+        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 7500 8500}
+        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6000 7000}
+        assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6500 7500}
 
         wait_for_condition 1000 50 {
             [string match {*done*} [migration_status 0 $task_id state]] &&
@@ -258,7 +249,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 config set rdb-key-save-delay 0
 
         # revert the migration
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 7000 8000
+        R 1 CLUSTER MIGRATION IMPORT 7000 8000
         wait_for_asm_done
     }
 
@@ -320,9 +311,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # Migrate keys
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 1 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 6000 6100
+        R 0 CLUSTER MIGRATION IMPORT 6000 6100
         wait_for_asm_done
 
         stop_write_load $load_handle0
@@ -338,9 +329,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 debug asm-trim-method default
         R 1 flushall
 
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 6000 6100
+        R 1 CLUSTER MIGRATION IMPORT 6000 6100
         wait_for_asm_done
     }
 
@@ -360,7 +351,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # migrate slot 0-100 to R 1
-        set task_id [R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
         # migration is start, and in accumulating buffer stage
         wait_for_condition 1000 50 {
             [string match {*send-bulk-and-stream*} [migration_status 0 $task_id state]] &&
@@ -434,7 +425,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             }
 
             # Start the migration
-            set task_id [R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+            set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
 
             # The task should be failed due to the fail point
             wait_for_condition 1000 50 {
@@ -511,7 +502,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal {OK} [R 1 debug asm-failpoint "" ""]
 
         # Start the migration
-        set task_id [R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
 
         # Wait for the migration to complete
         wait_for_asm_done
@@ -538,7 +529,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # we set a delay to write incremental data
         R 0 config set rdb-key-save-delay 1000000
 
-        set task_id [R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
 
         wait_for_condition 1000 50 {
             [string match {*send-bulk-and-stream*} [migration_status 0 $task_id state]]
@@ -595,7 +586,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 expire $slot2_key 2
         R 1 hexpire $slot2_key 2 FIELDS 1 "f1"
 
-        set task_id [R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 100]
         wait_for_condition 2000 10 {
             [string match {*send-bulk-and-stream*} [migration_status 1 $task_id state]]
         } else {
@@ -700,7 +691,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 set $slot1_key $1m_str
         R 0 set $slot2_key $1m_str
 
-        set task_id [R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
         wait_for_condition 2000 10 {
             [string match {*send-bulk-and-stream*} [migration_status 0 $task_id state]]
         } else {
@@ -752,7 +743,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # We can restart ASM tasks on new master, migrate slot 0-100 from 1 to 3
         R 1 config set rdb-key-save-delay 0
-        set task_id [R 3 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 3 CLUSTER MIGRATION IMPORT 0 100]
         wait_for_asm_done
 
         # migrate slot 0-100 from 3 to 1
@@ -879,7 +870,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     test "CLUSTER FORGET command cancels a slot migration task" {
         R 0 config set rdb-key-save-delay 0
         # Migrate all slot on #0 to #1, so we can forget #0
-        set task_id [R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 5461]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 5461]
         wait_for_asm_done
 
         # start slot migration from 1 to 0
@@ -930,7 +921,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # start task again
-        set task_id [R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
         after 200 ;# give some time to have chance to schedule the task
         # the task should not start since server is paused
         assert {[string match {*none*} [migration_status 1 $task_id state]]}
@@ -942,7 +933,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # migrate back to original node #0
         R 0 config set rdb-key-save-delay 0
         R 1 config set rdb-key-save-delay 0
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
     }
 
@@ -1061,7 +1052,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 config set rdb-key-save-delay 10000 ;# 1000 keys cost 10s to save
 
         # start migration from #0 to #1
-        set task_id [R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100]
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
         wait_for_condition 1000 20 {
             [string match {*send-bulk-and-stream*} [migration_status 0 $task_id state]]
         } else {
@@ -1210,7 +1201,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Fill slot 0 on node-0 and migrate it to node-1
         R 0 flushall
         populate_slot 10000 -idx 0 -slot 0
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 1 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
 
         # Verify the data is migrated
@@ -1231,7 +1222,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # Cleanup
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
         R 0 flushall
         R 0 debug asm-trim-method default
@@ -1300,7 +1291,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_blocked_clients_count 2
 
         # Migrate slot 0
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 0
+        R 1 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
 
         # First client should get MOVED error
@@ -1315,7 +1306,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # cleanup
         wait_for_asm_done
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 0
+        R 0 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
         R 0 flushall
         R 0 debug asm-trim-method default
@@ -1328,7 +1319,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set key0 [slot_key 0 key]
         R 0 set $key0 30
         R 0 watch $key0
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 0
+        R 1 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
         R 0 multi
         R 0 ping
@@ -1338,7 +1329,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set key2 [slot_key 2 key]
         R 0 set $key2 30
         R 0 watch $key2
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 1 1
+        R 1 CLUSTER MIGRATION IMPORT 1 1
         wait_for_asm_done
         R 0 multi
         R 0 ping
@@ -1346,7 +1337,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # cleanup
         wait_for_asm_done
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 0 CLUSTER MIGRATION IMPORT 0 1
         wait_for_asm_done
         R 0 flushall
         R 0 debug asm-trim-method default
@@ -1365,7 +1356,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 CLIENT TRACKING on REDIRECT $redir_id
         R 0 SET $key0 1
         R 0 GET $key0
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 0
+        R 1 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
 
         # Verify the tracking client received the invalidation message
@@ -1375,7 +1366,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # cleanup
         $rd_redirection close
         wait_for_asm_done
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 0
+        R 0 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
         R 0 flushall
     }
@@ -1448,7 +1439,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 500 -slot 4
 
         # Migrate 1500 keys
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 2 0 1 3 3
+        R 1 CLUSTER MIGRATION IMPORT 0 1 3 3
         wait_for_asm_done
 
         wait_for_condition 1000 10 {
@@ -1476,7 +1467,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # cleanup
         R 0 debug asm-trim-method default
         R 3 debug asm-trim-method default
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 2 0 1 3 3
+        R 0 CLUSTER MIGRATION IMPORT 0 1 3 3
         wait_for_asm_done
         R 0 flushall
         R 1 flushall
@@ -1493,7 +1484,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 500 -slot 4
 
         # Migrate 1500 keys
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
             [CI 0 cluster_slot_migration_task_count] == 0 &&
             [CI 0 cluster_slot_migration_active_trim_jobs] == 1 &&
@@ -1503,7 +1494,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # Migrate another slot and verify there are two trim tasks on the source
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 3 3
+        R 1 CLUSTER MIGRATION IMPORT 3 3
         wait_for_condition 1000 10 {
             [CI 0 cluster_slot_migration_task_count] == 0 &&
             [CI 0 cluster_slot_migration_active_trim_jobs] == 2 &&
@@ -1527,7 +1518,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # cleanup
         R 0 debug asm-trim-method default
         R 3 debug asm-trim-method default
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 2 0 1 3 3
+        R 0 CLUSTER MIGRATION IMPORT 0 1 3 3
         wait_for_asm_done
         R 0 flushall
         R 1 flushall
@@ -1544,7 +1535,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 250 -slot 3
         populate_slot 250 -slot 4
 
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 1 CLUSTER MIGRATION IMPORT 0 100
         after 2000
         R 1 CLUSTER MIGRATION CANCEL ALL
         wait_for_asm_done
@@ -1578,7 +1569,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set prev_trim_started_1 [CI 1 cluster_slot_migration_active_trim_started]
         set prev_trim_started_4 [CI 4 cluster_slot_migration_active_trim_started]
 
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 1 CLUSTER MIGRATION IMPORT 0 100
         after 2000
         R 4 CLUSTER FAILOVER
         wait_for_failover 4
@@ -1611,7 +1602,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 500 -slot 1
 
         # Migrate 1500 keys
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
             [CI 0 cluster_slot_migration_task_count] == 0 &&
             [CI 0 cluster_slot_migration_active_trim_jobs] == 1
@@ -1620,7 +1611,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # Try to migrate another slots back
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 0 CLUSTER MIGRATION IMPORT 0 1
         wait_for_log_messages 0 {"*Can not start import task for slots: 0-1 since trim in progress for some of the slots*"} 0 1000 10
 
         # Enabled active trim and verify slots are imported back
@@ -1652,7 +1643,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 5000 -idx 0 -slot 2
 
         # Start migration and wait until trim is in progress
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
             [CI 0 cluster_slot_migration_task_count] == 0 &&
             [CI 0 cluster_slot_migration_active_trim_jobs] == 1 &&
@@ -1680,7 +1671,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall
         R 1 flushall
         R 0 save
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 0 CLUSTER MIGRATION IMPORT 0 1
         wait_for_asm_done
     }
 
@@ -1695,7 +1686,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 5000 -idx 0 -slot 1
         populate_slot 5000 -idx 0 -slot 2
 
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
             [CI 0 cluster_slot_migration_task_count] == 0 &&
             [CI 0 cluster_slot_migration_active_trim_jobs] == 1
@@ -1730,7 +1721,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall
         R 1 flushall
         R 0 save
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 1
+        R 0 CLUSTER MIGRATION IMPORT 0 1
         wait_for_asm_done
     }
 
@@ -1740,7 +1731,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall
         populate_slot 10000 -idx 0 -slot 0
 
-        R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 1 CLUSTER MIGRATION IMPORT 0 100
         wait_for_condition 1000 10 {
             [CI 0 cluster_slot_migration_task_count] == 0 &&
             [CI 0 cluster_slot_migration_active_trim_jobs] == 1
@@ -1763,7 +1754,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal 0 [R 0 dbsize]
 
         # revert
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
         assert_equal 10000 [R 0 dbsize]
     }
@@ -1777,7 +1768,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             R 0 config set repl-diskless-sync-delay 0
             populate_slot 10000 -idx 0 -slot 0
 
-            R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+            R 1 CLUSTER MIGRATION IMPORT 0 100
             wait_for_condition 1000 10 {
                 [CI 0 cluster_slot_migration_task_count] == 0 &&
                 [CI 0 cluster_slot_migration_active_trim_jobs] == 0 &&
@@ -1789,7 +1780,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                 fail "trim failed"
             }
 
-            R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+            R 0 CLUSTER MIGRATION IMPORT 0 100
             wait_for_condition 1000 10 {
                 [CI 0 cluster_slot_migration_task_count] == 0 &&
                 [CI 0 cluster_slot_migration_active_trim_jobs] == 0 &&
@@ -1831,7 +1822,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
        populate_slot 100 -slot 0
 
        # Wait until active trim is in progress on replica
-       R 1 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+       R 1 CLUSTER MIGRATION IMPORT 0 100
        wait_for_condition 1000 10 {
            [CI 0 cluster_slot_migration_task_count] == 0 &&
            [CI 0 cluster_slot_migration_active_trim_jobs] == 0 &&
@@ -1844,7 +1835,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
        }
 
        # Get slots back
-       R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+       R 0 CLUSTER MIGRATION IMPORT 0 100
        wait_for_condition 1000 20 {
            [CI 0 cluster_slot_migration_task_count] == 1 &&
            [CI 0 cluster_slot_migration_active_trim_jobs] == 0 &&
@@ -1945,7 +1936,7 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         # cleanup
         R 0 debug asm-trim-method default
         R 3 debug asm-trim-method default
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
         R 0 flushall
         R 1 flushall
@@ -1962,7 +1953,7 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             R 0 set $key "value"
 
             # Migrate the slot ranges
-            set task_id [R 1 CLUSTER MIGRATION IMPORT SLOTS 2 0 100 200 300]
+            set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100 200 300]
             wait_for_ofs_sync [Rn 0] [Rn 3]
             wait_for_asm_done
 
@@ -1994,7 +1985,7 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             assert_equal $trim_event_log [R 3 asm.get_cluster_trim_event_log]
 
             # cleanup
-            R 0 CLUSTER MIGRATION IMPORT SLOTS 2 0 100 200 300
+            R 0 CLUSTER MIGRATION IMPORT 0 100 200 300
             wait_for_asm_done
             clear_module_event_log
             R 0 debug asm-trim-method default
@@ -2083,7 +2074,7 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
 
         # cleanup
         R 0 asm.replicate_module_command 0 "" ""
-        R 0 CLUSTER MIGRATION IMPORT SLOTS 1 0 100
+        R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
         R 0 flushall
         R 1 flushall

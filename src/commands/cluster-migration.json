@@ -3,7 +3,7 @@
         "summary": "Start, monitor and cancel slot migration.",
         "complexity": "O(N) where N is the total number of the slots between the start slot and end slot arguments.",
         "group": "cluster",
-        "since": "9.0.0",
+        "since": "8.4.0",
         "arity": -4,
         "container": "CLUSTER",
         "function": "clusterCommand",
@@ -21,30 +21,15 @@
                         "name": "import",
                         "token": "IMPORT",
                         "type": "block",
+                        "multiple": true,
                         "arguments": [
                             {
-                                "name": "slots-keyword",
-                                "token": "SLOTS",
-                                "type": "pure-token"
-                            },
-                            {
-                                "name": "numranges",
+                                "name": "start-slot",
                                 "type": "integer"
                             },
                             {
-                                "name": "slot-range",
-                                "type": "block",
-                                "multiple": true,
-                                "arguments": [
-                                    {
-                                        "name": "start-slot",
-                                        "type": "integer"
-                                    },
-                                    {
-                                        "name": "end-slot",
-                                        "type": "integer"
-                                    }
-                                ]
+                                "name": "end-slot",
+                                "type": "integer"
                             }
                         ]
                     },
