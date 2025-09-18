@@ -9859,8 +9859,8 @@ static void LRUTestMode(void) {
         printf(
             "%lld Gets/sec | Hits: %lld (%.2f%%) | Misses: %lld (%.2f%%)\n",
             hits+misses,
-            hits, total_gets > 0 ? (double)hits/(hits+misses)*100 : 0.0,
-            misses, total_gets > 0 ? (double)misses/(hits+misses)*100 : 0.0);
+            hits, total_gets > 0 ? (double)hits/total_gets*100 : 0.0,
+            misses, total_gets > 0 ? (double)misses/total_gets*100 : 0.0);
     }
     exit(0);
 }
