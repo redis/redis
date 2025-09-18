@@ -2257,13 +2257,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         { .name = "reduce", .type = REDISMODULE_ARG_TYPE_BLOCK, .token = "REDUCE", .flags = REDISMODULE_CMD_ARG_OPTIONAL,
             .subargs = (RedisModuleCommandArg[]) {
                 { .name = "dim", .type = REDISMODULE_ARG_TYPE_INTEGER },
-                { NULL }
+                { .name = NULL }
             }
         },
         { .name = "format", .type = REDISMODULE_ARG_TYPE_ONEOF, .subargs = (RedisModuleCommandArg[]) {
                 { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
                 { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
-                { NULL }
+                { .name = NULL }
             }
         },
         { .name = "vector", .type = REDISMODULE_ARG_TYPE_STRING },
@@ -2273,13 +2273,13 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 { .name = "noquant", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "NOQUANT" },
                 { .name = "bin", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "BIN" },
                 { .name = "q8", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "Q8" },
-                { NULL }
+                { .name = NULL }
             }
         },
         { .name = "build-exploration-factor", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { .name = "attributes", .type = REDISMODULE_ARG_TYPE_STRING, .token = "SETATTR", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { .name = "numlinks", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "M", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vadd_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2301,7 +2301,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandArg vrem_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
         { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vrem_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2326,7 +2326,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 { .name = "ele", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "ELE" },
                 { .name = "fp32", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "FP32" },
                 { .name = "values", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "VALUES" },
-                { NULL }
+                { .name = NULL }
             }
         },
         { .name = "vector_or_element", .type = REDISMODULE_ARG_TYPE_STRING },
@@ -2339,7 +2339,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         { .name = "max-filtering-effort", .type = REDISMODULE_ARG_TYPE_INTEGER, .token = "FILTER-EF", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { .name = "truth", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "TRUTH", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
         { .name = "nothread", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "NOTHREAD", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vsim_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2360,7 +2360,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleCommandArg vdim_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vdim_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2381,7 +2381,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleCommandArg vcard_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vcard_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2404,7 +2404,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
         { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
         { .name = "raw", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "RAW", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vemb_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2427,7 +2427,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
         { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
         { .name = "withscores", .type = REDISMODULE_ARG_TYPE_PURE_TOKEN, .token = "WITHSCORES", .flags = REDISMODULE_CMD_ARG_OPTIONAL },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vlinks_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2448,7 +2448,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
     RedisModuleCommandArg vinfo_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vinfo_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2471,7 +2471,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
         { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
         { .name = "json", .type = REDISMODULE_ARG_TYPE_STRING },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vsetattr_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2493,7 +2493,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandArg vgetattr_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
         { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vgetattr_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2515,7 +2515,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandArg vrandmember_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
         { .name = "count", .type = REDISMODULE_ARG_TYPE_INTEGER, .flags = REDISMODULE_CMD_ARG_OPTIONAL },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vrandmember_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2537,7 +2537,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandArg vismember_args[] = {
         { .name = "key", .type = REDISMODULE_ARG_TYPE_KEY, .key_spec_index = 0 },
         { .name = "element", .type = REDISMODULE_ARG_TYPE_STRING },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vismember_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
@@ -2561,7 +2561,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         { .name = "start", .type = REDISMODULE_ARG_TYPE_STRING },
         { .name = "end", .type = REDISMODULE_ARG_TYPE_STRING },
         { .name = "count", .type = REDISMODULE_ARG_TYPE_INTEGER, .flags = REDISMODULE_CMD_ARG_OPTIONAL },
-        { NULL }
+        { .name = NULL }
     };
     RedisModuleCommandInfo vrange_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
