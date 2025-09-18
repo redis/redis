@@ -582,7 +582,9 @@ void setrangeCommand(client *c) {
     }
 
     if (value_len > 0) {
+        size_t oldsize = stringObjectAllocSize(kv);
         kv->ptr = sdsgrowzero(kv->ptr,offset+value_len);
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
         memcpy((char*)kv->ptr+offset,value,value_len);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
@@ -817,7 +819,9 @@ void appendCommand(client *c) {
 
         /* Append the value */
         o = dbUnshareStringValueByLink(c->db,c->argv[1],o,link);
+        size_t oldsize = stringObjectAllocSize(o);
         o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(o));
         totlen = sdslen(o->ptr);
         int64_t oldlen = totlen - append_len;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, totlen);

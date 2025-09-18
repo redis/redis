@@ -352,6 +352,7 @@ int dictSdsCompareKV(dictCmpCache *cache, const void *sdsLookup, const void *kv)
 static void dictDestructorKV(dict *d, void *kv) {
     UNUSED(d);
     if (kv == NULL) return;
+    kvstoreTrackDeallocation(d, kv);
     decrRefCount(kv);
 }
 

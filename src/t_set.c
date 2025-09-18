@@ -479,6 +479,22 @@ unsigned long setTypeSize(const robj *subject) {
     }
 }
 
+size_t setTypeAllocSize(const robj *o) {
+    debugServerAssertWithInfo(NULL,o,o->type == OBJ_SET);
+    size_t size = 0;
+    if (o->encoding == OBJ_ENCODING_HT) {
+        dict *d = o->ptr;
+        size += sizeof(dict) + dictMemUsage(d) + *htGetMetadataSize(d);
+    } else if (o->encoding == OBJ_ENCODING_INTSET) {
+        size = intsetAllocSize(o->ptr);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        size = lpBytes(o->ptr);
+    } else {
+        serverPanic("Unknown set encoding");
+    }
+    return size;
+}
+
 /* Convert the set to specified encoding. The resulting dict (when converting
  * to a hash table) is presized to hold the number of elements in the original
  * set. */
@@ -606,12 +622,16 @@ void saddCommand(client *c) {
         robj *o = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         set = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
+        size_t oldsize = setTypeAllocSize(set);
         setTypeMaybeConvert(set, c->argc - 2);
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     }
 
+    size_t oldsize = setTypeAllocSize(set);
     for (j = 2; j < c->argc; j++) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
     }
+    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     if (added) {
         unsigned long size = setTypeSize(set);
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size - added, size);
@@ -630,17 +650,21 @@ void sremCommand(client *c) {
         return;
 
     unsigned long oldSize = setTypeSize(set);
+    size_t oldsize = setTypeAllocSize(set);
 
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
             deleted++;
             if (setTypeSize(set) == 0) {
+                updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
                 dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
             }
         }
     }
+    if (!keyremoved)
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     if (deleted) {
         int64_t newSize = oldSize - deleted;
 
@@ -681,8 +705,11 @@ void smoveCommand(client *c) {
         return;
     }
 
+    size_t oldSrcAllocSize = setTypeAllocSize(srcset);
+    int deleted = setTypeRemove(srcset,ele->ptr);
+    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldSrcAllocSize, setTypeAllocSize(srcset));
     /* If the element cannot be removed from the src set, return 0. */
-    if (!setTypeRemove(srcset,ele->ptr)) {
+    if (!deleted) {
         addReply(c,shared.czero);
         return;
     }
@@ -708,6 +735,7 @@ void smoveCommand(client *c) {
     signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty++;
 
+    size_t oldDstAllocSize = setTypeAllocSize(dstset);
     /* An extra key has changed when ele was successfully added to dstset */
     if (setTypeAdd(dstset,ele->ptr)) {
         unsigned long dstLen = setTypeSize(dstset);
@@ -716,6 +744,7 @@ void smoveCommand(client *c) {
         signalModifiedKey(c,c->db,c->argv[2]);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }
+    updateAllocSizes(c->db, getKeySlot(c->argv[2]->ptr), oldDstAllocSize, setTypeAllocSize(dstset));
     addReply(c,shared.cone);
 }
 
@@ -725,10 +754,12 @@ void sismemberCommand(client *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
+    size_t oldsize = setTypeAllocSize(set);
     if (setTypeIsMember(set,c->argv[2]->ptr))
         addReply(c,shared.cone);
     else
         addReply(c,shared.czero);
+    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
 }
 
 void smismemberCommand(client *c) {
@@ -739,12 +770,16 @@ void smismemberCommand(client *c) {
 
     addReplyArrayLen(c,c->argc - 2);
 
+    size_t oldsize = 0;
+    if (set) setTypeAllocSize(set);
     for (int j = 2; j < c->argc; j++) {
         if (set && setTypeIsMember(set,c->argv[j]->ptr))
             addReply(c,shared.cone);
         else
             addReply(c,shared.czero);
     }
+    if (set)
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
 }
 
 void scardCommand(client *c) {
@@ -838,6 +873,7 @@ void spopWithCountCommand(client *c) {
         set->encoding == OBJ_ENCODING_LISTPACK)
     {
         /* Specialized case for listpack. Traverse it only once. */
+        size_t oldsize = setTypeAllocSize(set);
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
         unsigned int index = 0;
@@ -872,7 +908,9 @@ void spopWithCountCommand(client *c) {
         zfree(ps);
         set->ptr = lp;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
+        size_t oldsize = setTypeAllocSize(set);
         for (unsigned long i = 0; i < count; i++) {
             propargv[propindex] = setTypePopRandom(set);
             addReplyBulk(c, propargv[propindex]);
@@ -887,6 +925,7 @@ void spopWithCountCommand(client *c) {
             }
         }
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
      * the size of the set itself. After some time extracting random elements
@@ -897,6 +936,7 @@ void spopWithCountCommand(client *c) {
      * set). Then we return the elements left in the original set and
      * release it. */
         robj *newset = NULL;
+        size_t oldsize = setTypeAllocSize(set);
 
         /* Create a new set with just the remaining elements. */
         if (set->encoding == OBJ_ENCODING_LISTPACK) {
@@ -956,6 +996,7 @@ void spopWithCountCommand(client *c) {
          * but here we're building the new set from the existing one. As a result, 
          * the size of the old set has already changed by the time we reach this point. */
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-count);
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
     }
 
@@ -997,8 +1038,12 @@ void spopCommand(client *c) {
     size = setTypeSize(kv);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-1);
 
+    size_t oldsize = setTypeAllocSize(kv);
+
     /* Pop a random element from the kv */
     ele = setTypePopRandom(kv);
+
+    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(kv));
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
@@ -1256,7 +1301,9 @@ void srandmemberCommand(client *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
+    size_t oldsize = setTypeAllocSize(set);
     setTypeRandomElement(set, &str, &len, &llele);
+    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     if (str == NULL) {
         addReplyBulkLongLong(c,llele);
     } else {
@@ -1264,16 +1311,22 @@ void srandmemberCommand(client *c) {
     }
 }
 
+typedef struct setopsrc {
+    robj *set;
+    size_t oldsize;
+} setopsrc;
+
 int qsortCompareSetsByCardinality(const void *s1, const void *s2) {
-    if (setTypeSize(*(robj**)s1) > setTypeSize(*(robj**)s2)) return 1;
-    if (setTypeSize(*(robj**)s1) < setTypeSize(*(robj**)s2)) return -1;
+    robj *o1 = ((setopsrc*)s1)->set, *o2 = ((setopsrc*)s2)->set;
+    if (setTypeSize(o1) > setTypeSize(o2)) return 1;
+    if (setTypeSize(o1) < setTypeSize(o2)) return -1;
     return 0;
 }
 
 /* This is used by SDIFF and in this case we can receive NULL that should
  * be handled as empty sets. */
 int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
-    robj *o1 = *(robj**)s1, *o2 = *(robj**)s2;
+    robj *o1 = ((setopsrc*)s1)->set, *o2 = ((setopsrc*)s2)->set;
     unsigned long first = o1 ? setTypeSize(o1) : 0;
     unsigned long second = o2 ? setTypeSize(o2) : 0;
 
@@ -1293,7 +1346,7 @@ int qsortCompareSetsByRevCardinality(const void *s1, const void *s2) {
 void sinterGenericCommand(client *c, robj **setkeys,
                           unsigned long setnum, robj *dstkey,
                           int cardinality_only, unsigned long limit) {
-    kvobj **sets = zmalloc(sizeof(robj*)*setnum);
+    setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
     char *str;
@@ -1308,14 +1361,16 @@ void sinterGenericCommand(client *c, robj **setkeys,
         if (!kv) {
             /* A NULL is considered an empty set */
             empty += 1;
-            sets[j] = NULL;
+            sets[j].set = NULL;
+            sets[j].oldsize = 0;
             continue;
         }
         if (checkType(c, kv, OBJ_SET)) {
             zfree(sets);
             return;
         }
-        sets[j] = kv;
+        sets[j].set = kv;
+        sets[j].oldsize = setTypeAllocSize(kv);
     }
 
     /* Set intersection with an empty set always results in an empty set.
@@ -1339,7 +1394,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
 
     /* Sort sets from the smallest to largest, this will improve our
      * algorithm's performance */
-    qsort(sets,setnum,sizeof(robj*),qsortCompareSetsByCardinality);
+    qsort(sets,setnum,sizeof(setopsrc),qsortCompareSetsByCardinality);
 
     /* The first thing we should output is the total number of elements...
      * since this is a multi-bulk write, but at this stage we don't know
@@ -1349,16 +1404,16 @@ void sinterGenericCommand(client *c, robj **setkeys,
     if (dstkey) {
         /* If we have a target key where to store the resulting set
          * create this key with an empty set inside */
-        if (sets[0]->encoding == OBJ_ENCODING_INTSET) {
+        if (sets[0].set->encoding == OBJ_ENCODING_INTSET) {
             /* The first set is an intset, so the result is an intset too. The
              * elements are inserted in ascending order which is efficient in an
              * intset. */
             dstset = createIntsetObject();
-        } else if (sets[0]->encoding == OBJ_ENCODING_LISTPACK) {
+        } else if (sets[0].set->encoding == OBJ_ENCODING_LISTPACK) {
             /* To avoid many reallocs, we estimate that the result is a listpack
              * of approximately the same size as the first set. Then we shrink
              * it or possibly convert it to intset in the end. */
-            unsigned char *lp = lpNew(lpBytes(sets[0]->ptr));
+            unsigned char *lp = lpNew(lpBytes(sets[0].set->ptr));
             dstset = createObject(OBJ_SET, lp);
             dstset->encoding = OBJ_ENCODING_LISTPACK;
         } else {
@@ -1375,11 +1430,11 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
     int only_integers = 1;
-    si = setTypeInitIterator(sets[0]);
+    si = setTypeInitIterator(sets[0].set);
     while((encoding = setTypeNext(si, &str, &len, &intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
-            if (sets[j] == sets[0]) continue;
-            if (!setTypeIsMemberAux(sets[j], str, len, intobj,
+            if (sets[j].set == sets[0].set) continue;
+            if (!setTypeIsMemberAux(sets[j].set, str, len, intobj,
                                     encoding == OBJ_ENCODING_HT))
                 break;
         }
@@ -1420,6 +1475,11 @@ void sinterGenericCommand(client *c, robj **setkeys,
         }
     }
     setTypeReleaseIterator(si);
+    for (j = 0; j < setnum; j++) {
+        if (!sets[j].set) continue;
+        updateAllocSizes(c->db, getKeySlot(setkeys[j]->ptr),
+                         sets[j].oldsize, setTypeAllocSize(sets[j].set));
+    }
 
     if (cardinality_only) {
         addReplyLongLong(c,cardinality);
@@ -1474,6 +1534,7 @@ void smembersCommand(client *c) {
     /* Prepare the response. */
     unsigned long length = setTypeSize(setobj);
     addReplySetLen(c,length);
+    size_t oldsize = setTypeAllocSize(setobj);
     /* Iterate through the elements of the set. */
     si = setTypeInitIterator(setobj);
 
@@ -1485,6 +1546,7 @@ void smembersCommand(client *c) {
         length--;
     }
     setTypeReleaseIterator(si);
+    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(setobj));
     serverAssert(length == 0); /* fail on corrupt data */
 }
 
@@ -1527,7 +1589,7 @@ void sinterstoreCommand(client *c) {
 
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
-    robj **sets = zmalloc(sizeof(robj*)*setnum);
+    setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
     setTypeIterator *si;
     robj *dstset = NULL;
     int dstset_encoding = OBJ_ENCODING_INTSET;
@@ -1542,7 +1604,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     for (j = 0; j < setnum; j++) {
         kvobj *setobj = lookupKeyRead(c->db, setkeys[j]);
         if (!setobj) {
-            sets[j] = NULL;
+            sets[j].set = NULL;
+            sets[j].oldsize = 0;
             continue;
         }
         if (checkType(c,setobj,OBJ_SET)) {
@@ -1566,8 +1629,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             (setobj->encoding == OBJ_ENCODING_LISTPACK || setobj->encoding == OBJ_ENCODING_HT)) {
             dstset_encoding = OBJ_ENCODING_HT;
         }
-        sets[j] = setobj;
-        if (j > 0 && sets[0] == sets[j]) {
+        sets[j].set = setobj;
+        sets[j].oldsize = setTypeAllocSize(setobj);
+        if (j > 0 && sets[0].set == sets[j].set) {
             sameset = 1; 
         }
     }
@@ -1581,14 +1645,14 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
      * the sets.
      *
      * We compute what is the best bet with the current input here. */
-    if (op == SET_OP_DIFF && sets[0] && !sameset) {
+    if (op == SET_OP_DIFF && sets[0].set && !sameset) {
         long long algo_one_work = 0, algo_two_work = 0;
 
         for (j = 0; j < setnum; j++) {
-            if (sets[j] == NULL) continue;
+            if (sets[j].set == NULL) continue;
 
-            algo_one_work += setTypeSize(sets[0]);
-            algo_two_work += setTypeSize(sets[j]);
+            algo_one_work += setTypeSize(sets[0].set);
+            algo_two_work += setTypeSize(sets[j].set);
         }
 
         /* Algorithm 1 has better constant times and performs less operations
@@ -1600,7 +1664,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             /* With algorithm 1 it is better to order the sets to subtract
              * by decreasing size, so that we are more likely to find
              * duplicated elements ASAP. */
-            qsort(sets+1,setnum-1,sizeof(robj*),
+            qsort(sets+1,setnum-1,sizeof(setopsrc),
                 qsortCompareSetsByRevCardinality);
         }
     }
@@ -1618,9 +1682,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         /* Union is trivial, just add every element of every set to the
          * temporary set. */
         for (j = 0; j < setnum; j++) {
-            if (!sets[j]) continue; /* non existing keys are like empty sets */
+            if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            si = setTypeInitIterator(sets[j]);
+            si = setTypeInitIterator(sets[j].set);
             while ((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
                 cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             }
@@ -1628,7 +1692,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         }
     } else if (op == SET_OP_DIFF && sameset) {
         /* At least one of the sets is the same one (same key) as the first one, result must be empty. */
-    } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 1) {
+    } else if (op == SET_OP_DIFF && sets[0].set && diff_algo == 1) {
         /* DIFF Algorithm 1:
          *
          * We perform the diff by iterating all the elements of the first set,
@@ -1637,12 +1701,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          *
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
-        si = setTypeInitIterator(sets[0]);
+        si = setTypeInitIterator(sets[0].set);
         while ((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
             for (j = 1; j < setnum; j++) {
-                if (!sets[j]) continue; /* no key is an empty set. */
-                if (sets[j] == sets[0]) break; /* same set! */
-                if (setTypeIsMemberAux(sets[j], str, len, llval,
+                if (!sets[j].set) continue; /* no key is an empty set. */
+                if (sets[j].set == sets[0].set) break; /* same set! */
+                if (setTypeIsMemberAux(sets[j].set, str, len, llval,
                                        encoding == OBJ_ENCODING_HT))
                     break;
             }
@@ -1652,7 +1716,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             }
         }
         setTypeReleaseIterator(si);
-    } else if (op == SET_OP_DIFF && sets[0] && diff_algo == 2) {
+    } else if (op == SET_OP_DIFF && sets[0].set && diff_algo == 2) {
         /* DIFF Algorithm 2:
          *
          * Add all the elements of the first set to the auxiliary set.
@@ -1661,9 +1725,9 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          * This is O(N) where N is the sum of all the elements in every
          * set. */
         for (j = 0; j < setnum; j++) {
-            if (!sets[j]) continue; /* non existing keys are like empty sets */
+            if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            si = setTypeInitIterator(sets[j]);
+            si = setTypeInitIterator(sets[j].set);
             while((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
                 if (j == 0) {
                     cardinality += setTypeAddAux(dstset, str, len, llval,
@@ -1679,6 +1743,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
              * of elements will have no effect. */
             if (cardinality == 0) break;
         }
+    }
+    for (j = 0; j < setnum; j++) {
+        if (!sets[j].set) continue;
+        updateAllocSizes(c->db, getKeySlot(setkeys[j]->ptr),
+                         sets[j].oldsize, setTypeAllocSize(sets[j].set));
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
@@ -1744,5 +1813,7 @@ void sscanCommand(client *c) {
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
+    size_t oldsize = setTypeAllocSize(set);
     scanGenericCommand(c,set,cursor);
+    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
 }

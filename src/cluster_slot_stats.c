@@ -18,6 +18,7 @@
 typedef enum {
     KEY_COUNT,
     CPU_USEC,
+    MEMORY_BYTES,
     NETWORK_BYTES_IN,
     NETWORK_BYTES_OUT,
     SLOT_STAT_COUNT,
@@ -49,6 +50,7 @@ static uint64_t getSlotStat(int slot, slotStatType stat_type) {
     switch (stat_type) {
     case KEY_COUNT: return countKeysInSlot(slot);
     case CPU_USEC: return server.cluster_slot_stats[slot].cpu_usec;
+    case MEMORY_BYTES: return kvstoreDictAllocSize(server.db->keys, slot);
     case NETWORK_BYTES_IN: return server.cluster_slot_stats[slot].network_bytes_in;
     case NETWORK_BYTES_OUT: return server.cluster_slot_stats[slot].network_bytes_out;
     default: serverPanic("Invalid slot stat type %d was found.", stat_type);
@@ -92,9 +94,11 @@ static void addReplySlotStat(client *c, int slot) {
                              * and 1st index represents (map) usage statistics. */
     addReplyLongLong(c, slot);
     addReplyMapLen(c, (server.cluster_slot_stats_enabled) ? SLOT_STAT_COUNT
-                                                          : 1); /* Nested map representing slot usage statistics. */
+                                                          : 2); /* Nested map representing slot usage statistics. */
     addReplyBulkCString(c, "key-count");
     addReplyLongLong(c, countKeysInSlot(slot));
+    addReplyBulkCString(c, "memory-bytes");
+    addReplyLongLong(c, kvstoreDictAllocSize(server.db->keys, slot));
 
     /* Any additional metrics aside from key-count come with a performance trade-off,
      * and are aggregated and returned based on its server config. */
@@ -293,6 +297,8 @@ void clusterSlotStatsCommand(client *c) {
             order_by = KEY_COUNT;
         } else if (!strcasecmp(c->argv[3]->ptr, "cpu-usec") && server.cluster_slot_stats_enabled) {
             order_by = CPU_USEC;
+        } else if (!strcasecmp(c->argv[3]->ptr, "memory-bytes") && server.cluster_slot_stats_enabled) {
+            order_by = MEMORY_BYTES;
         } else if (!strcasecmp(c->argv[3]->ptr, "network-bytes-in") && server.cluster_slot_stats_enabled) {
             order_by = NETWORK_BYTES_IN;
         } else if (!strcasecmp(c->argv[3]->ptr, "network-bytes-out") && server.cluster_slot_stats_enabled) {

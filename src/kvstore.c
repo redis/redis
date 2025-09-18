@@ -149,6 +149,12 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
         kvstoreDictSize(kvs, didx) != 0 ||
         kvstoreDictIsRehashingPaused(kvs, didx))
         return;
+#ifdef REDIS_TEST
+    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
+        kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(kvs->dicts[didx]);
+        serverAssert(metadata->meta.alloc_size == 0);
+    }
+#endif
     dictRelease(kvs->dicts[didx]);
     kvs->dicts[didx] = NULL;
     kvs->allocated_dicts--;
@@ -209,6 +215,18 @@ static size_t kvstoreDictMetaBaseSize(dict *d) {
 static size_t kvstoreDictMetadataExtendSize(dict *d) {
     UNUSED(d);
     return sizeof(kvstoreDictMetaEx);
+}
+
+void kvstoreTrackDeallocation(dict *d, void *kv) {
+    kvstore *kvs = d->type->userdata;
+    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
+        kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(d);
+        size_t alloc_size = kvobjAllocSize(kv);
+#ifdef REDIS_TEST
+        serverAssert(alloc_size <= metadata->meta.alloc_size);
+#endif
+        metadata->meta.alloc_size -= alloc_size;
+    }
 }
 
 /**********************************/
@@ -304,6 +322,13 @@ void kvstoreRelease(kvstore *kvs) {
         kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
+#ifdef REDIS_TEST
+        dictEmpty(d, NULL);
+        if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
+            kvstoreDictMetaEx *metaEx = (kvstoreDictMetaEx *)metadata;
+            serverAssert(metaEx->meta.alloc_size == 0);
+        }
+#endif
         dictRelease(d);
     }
     zfree(kvs->dicts);
@@ -739,6 +764,13 @@ unsigned long kvstoreDictSize(kvstore *kvs, int didx)
     if (!d)
         return 0;
     return dictSize(d);
+}
+
+size_t kvstoreDictAllocSize(kvstore *kvs, int didx)
+{
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(kvs, didx);
+    if (!dictMeta) return 0;
+    return dictMeta->alloc_size;
 }
 
 kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx)

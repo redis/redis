@@ -1017,6 +1017,21 @@ size_t stringObjectLen(robj *o) {
     }
 }
 
+size_t stringObjectAllocSize(const robj *o) {
+    debugServerAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    if(o->encoding == OBJ_ENCODING_INT) {
+        /* Value already counted (reuse the "ptr" in header to store int) */
+        return 0;
+    } else if(o->encoding == OBJ_ENCODING_RAW) {
+        return sdsAllocSize(o->ptr);
+    } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
+        /* Value already counted (Value embedded in the object as well) */
+        return 0;
+    } else {
+        serverPanic("Unknown string encoding");
+    }
+}
+
 int getDoubleFromObject(const robj *o, double *target) {
     double value;
 
@@ -1189,72 +1204,39 @@ char *strEncoding(int encoding) {
  * are checked and averaged to estimate the total size. */
 #define OBJ_COMPUTE_SIZE_DEF_SAMPLES 5 /* Default sample size. */
 size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
-    dict *d;
-    
+    if (o->type == OBJ_STRING ||
+        o->type == OBJ_LIST ||
+        o->type == OBJ_SET ||
+        o->type == OBJ_ZSET ||
+        o->type == OBJ_HASH ||
+        o->type == OBJ_STREAM)
+    {
+        return kvobjAllocSize(o);
+    } else if (o->type == OBJ_MODULE) {
+        return zmalloc_size(o) + moduleGetMemUsage(key, o, sample_size, dbid);
+    }
+    serverPanic("Unknown object type");
+}
+
+size_t kvobjAllocSize(kvobj *o) {
     /* All kv-objects has at least kvobj header and embedded key */
     size_t asize = zmalloc_size((void *)o);
 
     if (o->type == OBJ_STRING) {
-        if(o->encoding == OBJ_ENCODING_INT) {
-            /* Value already counted (reuse the "ptr" in header to store int) */
-        } else if(o->encoding == OBJ_ENCODING_RAW) {
-            asize += sdsZmallocSize(o->ptr);
-        } else if(o->encoding == OBJ_ENCODING_EMBSTR) {
-            /* Value already counted (Value embedded in the object as well) */
-        } else {
-            serverPanic("Unknown string encoding");
-        }
+        asize += stringObjectAllocSize(o);
     } else if (o->type == OBJ_LIST) {
-        if (o->encoding == OBJ_ENCODING_QUICKLIST) {
-            asize += quicklistAllocSize(o->ptr);
-        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            asize += zmalloc_size(o->ptr);
-        } else {
-            serverPanic("Unknown list encoding");
-        }
+        asize += listTypeAllocSize(o);
     } else if (o->type == OBJ_SET) {
-        if (o->encoding == OBJ_ENCODING_HT) {
-            d = o->ptr;
-            asize += sizeof(dict) + dictMemUsage(d) +
-                *htGetMetadataSize(d);
-        } else if (o->encoding == OBJ_ENCODING_INTSET) {
-            asize += zmalloc_size(o->ptr);
-        } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            asize += zmalloc_size(o->ptr);
-        } else {
-            serverPanic("Unknown set encoding");
-        }
+        asize += setTypeAllocSize(o);
     } else if (o->type == OBJ_ZSET) {
-        if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            asize += zmalloc_size(o->ptr);
-        } else if (o->encoding == OBJ_ENCODING_SKIPLIST) {
-            d = ((zset*)o->ptr)->dict;
-            zskiplist *zsl = ((zset*)o->ptr)->zsl;
-            asize += sizeof(zset) + zslAllocSize(zsl) +
-                sizeof(dict) + dictMemUsage(d);
-        } else {
-            serverPanic("Unknown sorted set encoding");
-        }
+        asize += zsetAllocSize(o);
     } else if (o->type == OBJ_HASH) {
-        if (o->encoding == OBJ_ENCODING_LISTPACK) {
-            asize += zmalloc_size(o->ptr);
-        } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-            listpackEx *lpt = o->ptr;
-            asize += zmalloc_size(lpt) + zmalloc_size(lpt->lp);
-        } else if (o->encoding == OBJ_ENCODING_HT) {
-            d = o->ptr;
-            asize += sizeof(dict) + dictMemUsage(d) +
-                *htGetMetadataSize(d);
-        } else {
-            serverPanic("Unknown hash encoding");
-        }
+        asize += hashTypeAllocSize(o);
     } else if (o->type == OBJ_STREAM) {
         stream *s = o->ptr;
         asize += s->alloc_size;
     } else if (o->type == OBJ_MODULE) {
-        asize += moduleGetMemUsage(key, o, sample_size, dbid);
-    } else {
-        serverPanic("Unknown object type");
+        // TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval
     }
     return asize;
 }

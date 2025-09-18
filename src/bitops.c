@@ -795,7 +795,11 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
     } else {
         o = dbUnshareStringValue(c->db,c->argv[1],o);
         *strOldSize  = sdslen(o->ptr);
+        size_t oldAllocSize = stringObjectAllocSize(o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
+        size_t allocSize = stringObjectAllocSize(o);
+        if (oldAllocSize != allocSize)
+            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldAllocSize, allocSize);
         *strGrowSize = sdslen(o->ptr) - *strOldSize;
     }
     return o;

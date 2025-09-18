@@ -338,8 +338,11 @@ void sortCommandGeneric(client *c, int readonly) {
     }
 
     /* Destructively convert encoded sorted sets for SORT. */
-    if (sortval->type == OBJ_ZSET)
+    if (sortval->type == OBJ_ZSET) {
+        size_t oldsize = zsetAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
+        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(sortval));
+    }
 
     /* Obtain the length of the object to sort. */
     switch(sortval->type) {

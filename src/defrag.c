@@ -1008,6 +1008,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         ob = kvnew;
     }
 
+    size_t oldsize = kvobjAllocSize(ob);
     if (ob->type == OBJ_STRING) {
         /* Already handled in activeDefragStringOb. */
     } else if (ob->type == OBJ_LIST) {
@@ -1062,6 +1063,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     } else {
         serverPanic("Unknown object type");
     }
+    updateAllocSizes(db, slot, oldsize, kvobjAllocSize(ob));
 }
 
 /* Defrag scan callback for the main db dictionary. */

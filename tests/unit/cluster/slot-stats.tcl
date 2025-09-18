@@ -786,7 +786,7 @@ start_cluster 1 0 {tags {external:skip cluster}} {
 
 start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
 
-    set metrics [list "key-count" "cpu-usec" "network-bytes-in" "network-bytes-out"]
+    set metrics [list "key-count" "memory-bytes" "cpu-usec" "network-bytes-in" "network-bytes-out"]
 
     # SET keys for target hashslots, to encourage ordering.
     set hash_tags [list 0 1 2 3 4]
