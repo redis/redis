@@ -37,6 +37,19 @@ __thread sds thread_reusable_qb = NULL;
 __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
                                          * buffer due to nested command execution. */
 
+void trimCommandQueue(client *c);
+static bool consumeCommandQueue(client *c);
+static void discardCommandQueue(client *c);
+static int parseMultibulk(client *c,
+                          int *argc,
+                          robj ***argv,
+                          int *argv_len,
+                          size_t *argv_len_sum,
+                          size_t *net_input_bytes_curr_cmd,
+                          uint8_t *flag);
+
+#define COMMAND_QUEUE_MIN_CAPACITY 16
+
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
  * the client output buffer size. */
@@ -167,6 +180,8 @@ client *createClient(connection *conn) {
     c->original_argv = NULL;
     c->deferred_objects = NULL;
     c->deferred_objects_num = 0;
+    c->cmd_queue.cmds = NULL;
+    c->cmd_queue.len = c->cmd_queue.off = c->cmd_queue.cap = 0;
     c->cmd = c->lastcmd = c->realcmd = c->iolookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
@@ -1823,6 +1838,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientArgv(c);
     freeClientOriginalArgv(c);
+    discardCommandQueue(c);
     freeClientDeferredObjects(c, 1);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
@@ -2287,9 +2303,6 @@ static inline void resetClientInternal(client *c, int free_argv) {
 
     freeClientArgvInternal(c, free_argv);
     c->cur_script = NULL;
-    c->reqtype = 0;
-    c->multibulklen = 0;
-    c->bulklen = -1;
     c->slot = -1;
     c->cluster_compatibility_check_slot = -2;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
@@ -2373,7 +2386,7 @@ void unprotectClient(client *c) {
  * have a well formed command. The function also returns C_ERR when there is
  * a protocol error: in such a case the client structure is setup to reply
  * with the error and close the connection. */
-int processInlineBuffer(client *c) {
+int parseInlineBuffer(client *c) {
     char *newline;
     int argc, j, linefeed_chars = 1;
     sds *argv, aux;
@@ -2459,6 +2472,7 @@ int processInlineBuffer(client *c) {
      * Inline) SET key value\r\n
      */
     c->net_input_bytes_curr_cmd = (c->argv_len_sum + (c->argc - 1) + 2);
+    c->reqtype = 0;
 
     return C_OK;
 }
@@ -2496,18 +2510,14 @@ static void setProtocolError(const char *errstr, client *c) {
     c->flags |= (CLIENT_CLOSE_AFTER_REPLY|CLIENT_PROTOCOL_ERROR);
 }
 
-/* Process the query buffer for client 'c', setting up the client argument
- * vector for command execution. Returns C_OK if after running the function
- * the client has a well-formed ready to be processed command, otherwise
- * C_ERR if there is still to read more buffer to get the full command.
- * The function also returns C_ERR when there is a protocol error: in such a
- * case the client structure is setup to reply with the error and close
- * the connection.
- *
- * This function is called if processInputBuffer() detects that the next
- * command is in RESP format, so the first byte in the command is found
- * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
-int processMultibulkBuffer(client *c) {
+static int parseMultibulk(client *c,
+                          int *argc,
+                          robj ***argv,
+                          int *argv_len,
+                          size_t *argv_len_sum,
+                          size_t *net_input_bytes_curr_cmd,
+                          uint8_t *flag)
+{
     char *newline = NULL;
     int ok;
     long long ll;
@@ -2515,13 +2525,13 @@ int processMultibulkBuffer(client *c) {
 
     if (c->multibulklen == 0) {
         /* The client should have been reset */
-        serverAssertWithInfo(c,NULL,c->argc == 0);
+        serverAssertWithInfo(c,NULL,*argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
         newline = strchr(c->querybuf+c->qb_pos,'\r');
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                c->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
+                *flag = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
             }
             return C_ERR;
         }
@@ -2536,10 +2546,10 @@ int processMultibulkBuffer(client *c) {
         size_t multibulklen_slen = newline - (c->querybuf + 1 + c->qb_pos);
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
-            c->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
+            *flag = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
             return C_ERR;
         } else if (ll > 10 && authRequired(c)) {
-            c->read_error = CLIENT_READ_UNAUTH_MBUCK_COUNT;
+            *flag = CLIENT_READ_UNAUTH_MBUCK_COUNT;
             return C_ERR;
         }
 
@@ -2548,6 +2558,7 @@ int processMultibulkBuffer(client *c) {
         if (ll <= 0) return C_OK;
 
         c->multibulklen = ll;
+        c->bulklen = -1;
 
         /* Setup argv array on client structure.
          * Create new argv in the following cases:
@@ -2555,12 +2566,12 @@ int processMultibulkBuffer(client *c) {
          * 2) When the requested size is less than the current size, because
          *    we always allocate argv gradually with a maximum size of 1024,
          *    Therefore, if argv_len exceeds this limit, we always reallocate. */
-        if (unlikely(c->multibulklen > c->argv_len || c->argv_len > 1024)) {
-            zfree(c->argv);
-            c->argv_len = min(c->multibulklen, 1024);
-            c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        if (unlikely(c->multibulklen > *argv_len || *argv_len > 1024)) {
+            zfree(*argv);
+            *argv_len = min(c->multibulklen, 1024);
+            *argv = zmalloc(sizeof(robj*)*(*argv_len));
         }
-        c->argv_len_sum = 0;
+        *argv_len_sum = 0;
 
         /* Per-slot network bytes-in calculation.
          *
@@ -2593,7 +2604,7 @@ int processMultibulkBuffer(client *c) {
          *
          * The 1st component is calculated within the below line.
          * */
-        c->net_input_bytes_curr_cmd += (multibulklen_slen + 3);
+        *net_input_bytes_curr_cmd += (multibulklen_slen + 3);
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
@@ -2603,7 +2614,7 @@ int processMultibulkBuffer(client *c) {
             newline = strchr(c->querybuf+c->qb_pos,'\r');
             if (newline == NULL) {
                 if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                    c->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
+                    *flag = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
                     return C_ERR;
                 }
                 break;
@@ -2614,7 +2625,7 @@ int processMultibulkBuffer(client *c) {
                 break;
 
             if (c->querybuf[c->qb_pos] != '$') {
-                c->read_error = CLIENT_READ_EXPECTED_DOLLAR;
+                *flag = CLIENT_READ_EXPECTED_DOLLAR;
                 return C_ERR;
             }
 
@@ -2622,10 +2633,10 @@ int processMultibulkBuffer(client *c) {
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
-                c->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
+                *flag = CLIENT_READ_INVALID_BUCK_LENGTH;
                 return C_ERR;
             } else if (ll > 16384 && authRequired(c)) {
-                c->read_error = CLIENT_READ_UNAUTH_BUCK_LENGTH;
+                *flag = CLIENT_READ_UNAUTH_BUCK_LENGTH;
                 return C_ERR;
             }
 
@@ -2659,7 +2670,7 @@ int processMultibulkBuffer(client *c) {
             }
             c->bulklen = ll;
             /* Per-slot network bytes-in calculation, 2nd component. */
-            c->net_input_bytes_curr_cmd += (bulklen_slen + 3);
+            *net_input_bytes_curr_cmd += (bulklen_slen + 3);
         }
 
         /* Read bulk argument */
@@ -2667,10 +2678,10 @@ int processMultibulkBuffer(client *c) {
             break;
         } else {
             /* Check if we have space in argv, grow if needed */
-            if (c->argc >= c->argv_len) {
-                serverAssert(c->argv_len); /* Ensure argv is not freed while the client is in the mid of parsing command. */
-                c->argv_len = min(c->argv_len < INT_MAX/2 ? c->argv_len*2 : INT_MAX, c->argc+c->multibulklen);
-                c->argv = zrealloc(c->argv, sizeof(robj*)*c->argv_len);
+            if (*argc >= *argv_len) {
+                serverAssert(*argv_len); /* Ensure argv is not freed while the client is in the mid of parsing command. */
+                *argv_len = min(*argv_len < INT_MAX/2 ? (*argv_len)*2 : INT_MAX, *argc+c->multibulklen);
+                *argv = zrealloc(*argv, sizeof(robj*)*(*argv_len));
             }
 
             /* Optimization: if a non-master client's buffer contains JUST our bulk element
@@ -2681,8 +2692,8 @@ int processMultibulkBuffer(client *c) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 querybuf_len == (size_t)(c->bulklen+2))
             {
-                c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
-                c->argv_len_sum += c->bulklen;
+                (*argv)[(*argc)++] = createObject(OBJ_STRING,c->querybuf);
+                *argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one likely...
                  * But only if that fat argument is not too big compared to the memory limit. */
@@ -2694,9 +2705,9 @@ int processMultibulkBuffer(client *c) {
                 sdsclear(c->querybuf);
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {
-                c->argv[c->argc++] =
+                (*argv)[(*argc)++] =
                     createStringObject(c->querybuf+c->qb_pos,c->bulklen);
-                c->argv_len_sum += c->bulklen;
+                *argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
             }
             c->bulklen = -1;
@@ -2707,12 +2718,74 @@ int processMultibulkBuffer(client *c) {
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) {
         /* Per-slot network bytes-in calculation, 3rd and 4th components. */
-        c->net_input_bytes_curr_cmd += (c->argv_len_sum + (c->argc * 2));
+        *net_input_bytes_curr_cmd += (*argv_len_sum + (*argc * 2));
+        c->reqtype = 0;
         return C_OK;
     }
 
     /* Still not ready to process the command */
+    *flag = READ_FLAGS_PARSING_INCOMPLETED;
     return C_ERR;
+}
+
+/* Process the query buffer for client 'c', setting up the client argument
+ * vector for command execution. Returns C_OK if after running the function
+ * the client has a well-formed ready to be processed command, otherwise
+ * C_ERR if there is still to read more buffer to get the full command.
+ * The function also returns C_ERR when there is a protocol error: in such a
+ * case the client structure is setup to reply with the error and close
+ * the connection.
+ *
+ * This function is called if processInputBuffer() detects that the next
+ * command is in RESP format, so the first byte in the command is found
+ * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
+int parseMultibulkBuffer(client *c) {
+    int flag = 0;
+    int ret = parseMultibulk(c, &c->argc, &c->argv, &c->argv_len,
+        &c->argv_len_sum, &c->net_input_bytes_curr_cmd, &c->read_error);
+
+    // if (c->read_error & READ_FLAGS_AUTH_REQUIRED) {
+    //     /* Execute client's AUTH command before parsing more, because it affects
+    //      * parser limits for max allowed bulk and multibulk lengths. */
+    //     return;
+    // }
+
+    // if (isReplicatedClient(c)) {
+    //     /* TODO: some change is required for replication offset which is
+    //      * computed from c->qb_pos, assuming we only parse one command at a
+    //      * time. Disable multi-command parsing for replication for now. */
+    //     return;
+    // }
+
+    /* Try parsing pipelined commands. */
+#if 1
+    cmdQueue *queue = &c->cmd_queue;
+    serverAssert(queue->len == 0);
+    while ((flag != READ_FLAGS_PARSING_INCOMPLETED) &&
+           sdslen(c->querybuf) > c->qb_pos &&
+           c->querybuf[c->qb_pos] == '*') {
+        c->reqtype = PROTO_REQ_MULTIBULK;
+        /* Push a new parser state to the command queue */
+        if (queue->len == queue->cap) {
+            if (queue->cap == 0) {
+                queue->cap = COMMAND_QUEUE_MIN_CAPACITY;
+            } else if (queue->cap <= 512) {
+                queue->cap *= 2;
+            } else {
+                break; /* Limit the length of the command queue. */
+            }
+            queue->cmds = zrealloc(queue->cmds, queue->cap * sizeof(parsedCommand));
+        }
+        parsedCommand *p = &queue->cmds[queue->len++];
+        memset(p, 0, sizeof(*p));
+        parseMultibulk(c, &p->argc, &p->argv, &p->argv_len,
+                       &p->argv_len_sum, &p->input_bytes, &flag);
+        p->read_flags = flag;
+        p->slot = -1;
+    }
+#endif
+
+    return ret;
 }
 
 /* Perform necessary tasks after a command was executed:
@@ -2810,7 +2883,7 @@ int processPendingCommandAndInputBuffer(client *c) {
      * Note: when a master client steps into this function,
      * it can always satisfy this condition, because its querybuf
      * contains data not applied. */
-    if (c->querybuf && sdslen(c->querybuf) > 0) {
+    if ((c->querybuf && sdslen(c->querybuf) > 0) || c->cmd_queue.off < c->cmd_queue.len) {
         return processInputBuffer(c);
     }
     return C_OK;
@@ -2884,6 +2957,28 @@ void handleClientReadError(client *c) {
     }
 }
 
+void parseInputBuffer(client *c) {
+    /* The command queue must be emptied before parsing. */
+    serverAssert(c->cmd_queue.len == 0);
+
+    /* Determine request type when unknown. */
+    if (!c->reqtype) {
+        if (c->querybuf[c->qb_pos] == '*') {
+            c->reqtype = PROTO_REQ_MULTIBULK;
+        } else {
+            c->reqtype = PROTO_REQ_INLINE;
+        }
+    }
+
+    if (c->reqtype == PROTO_REQ_INLINE) {
+        parseInlineBuffer(c);
+    } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
+        parseMultibulkBuffer(c);
+    } else {
+        serverPanic("Unknown request type");
+    }
+}
+
 /* This function is called every time, in the client structure 'c', there is
  * more query buffer to process, because we read more data from the socket
  * or because a client was blocked and later reactivated, so there could be
@@ -2891,7 +2986,8 @@ void handleClientReadError(client *c) {
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
-    while(c->qb_pos < sdslen(c->querybuf)) {
+    while ((c->querybuf && c->qb_pos < sdslen(c->querybuf)) ||
+           c->cmd_queue.off < c->cmd_queue.len) {
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -2912,62 +3008,64 @@ int processInputBuffer(client *c) {
          * The same applies for clients we want to terminate ASAP. */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
-        /* Determine request type when unknown. */
-        if (!c->reqtype) {
-            if (c->querybuf[c->qb_pos] == '*') {
-                c->reqtype = PROTO_REQ_MULTIBULK;
-            } else {
-                c->reqtype = PROTO_REQ_INLINE;
-            }
+        /* If commands are queued up, pop from the queue first */
+        if (!consumeCommandQueue(c)) {
+            parseInputBuffer(c);
+            prepareCommandQueue(c);
         }
 
-        if (c->reqtype == PROTO_REQ_INLINE) {
-            if (processInlineBuffer(c) != C_OK) {
-                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)
-                    enqueuePendingClientsToMainThread(c, 0);
-                break;
-            }
-        } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-            if (processMultibulkBuffer(c) != C_OK) {
-                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)
-                    enqueuePendingClientsToMainThread(c, 0);
-                break;
-            }
-        } else {
-            serverPanic("Unknown request type");
+        if (c->read_error == READ_FLAGS_PARSING_INCOMPLETED) {
+            break;
         }
 
-        /* Multibulk processing could see a <= 0 length. */
         if (c->argc == 0) {
             freeClientArgvInternal(c, 0);
             c->reqtype = 0;
             c->multibulklen = 0;
             c->bulklen = -1;
-        } else {
-            /* If we are in the context of an I/O thread, we can't really
-             * execute the command here. All we can do is to flag the client
-             * as one that needs to process the command. */
-            if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
-                c->io_flags |= CLIENT_IO_PENDING_COMMAND;
-                c->iolookedcmd = lookupCommand(c->argv, c->argc);
-                if (c->iolookedcmd && !commandCheckArity(c->iolookedcmd, c->argc, NULL)) {
-                    /* The command was found, but the arity is invalid, reset it and let main
-                     * thread handle. To avoid memory prefetching on an invalid command. */
-                    c->iolookedcmd = NULL;
-                }
-                c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
-                enqueuePendingClientsToMainThread(c, 0);
-                break;
-            }
-
-            /* We are finally ready to execute the command. */
-            if (processCommandAndResetClient(c) == C_ERR) {
-                /* If the client is no longer valid, we avoid exiting this
-                 * loop and trimming the client buffer later. So we return
-                 * ASAP in that case. */
-                return C_ERR;
-            }
+            /* No command to process - continue parsing the query buf. */
+            continue;
         }
+
+        /* We are finally ready to execute the command. */
+        if (processCommandAndResetClient(c) == C_ERR) {
+            /* If the client is no longer valid, we avoid exiting this
+             * loop and trimming the client buffer later. So we return
+             * ASAP in that case. */
+            return C_ERR;
+        }
+
+        // /* Multibulk processing could see a <= 0 length. */
+        // if (c->argc == 0) {
+        //     freeClientArgvInternal(c, 0);
+        //     c->reqtype = 0;
+        //     c->multibulklen = 0;
+        //     c->bulklen = -1;
+        // } else {
+        //     /* If we are in the context of an I/O thread, we can't really
+        //      * execute the command here. All we can do is to flag the client
+        //      * as one that needs to process the command. */
+        //     if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+        //         c->io_flags |= CLIENT_IO_PENDING_COMMAND;
+        //         c->iolookedcmd = lookupCommand(c->argv, c->argc);
+        //         if (c->iolookedcmd && !commandCheckArity(c->iolookedcmd, c->argc, NULL)) {
+        //             /* The command was found, but the arity is invalid, reset it and let main
+        //              * thread handle. To avoid memory prefetching on an invalid command. */
+        //             c->iolookedcmd = NULL;
+        //         }
+        //         c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
+        //         enqueuePendingClientsToMainThread(c, 0);
+        //         break;
+        //     }
+
+        //     /* We are finally ready to execute the command. */
+        //     if (processCommandAndResetClient(c) == C_ERR) {
+        //         /* If the client is no longer valid, we avoid exiting this
+        //          * loop and trimming the client buffer later. So we return
+        //          * ASAP in that case. */
+        //         return C_ERR;
+        //     }
+        // }
     }
 
     if (c->flags & CLIENT_MASTER) {
@@ -3125,6 +3223,8 @@ void readQueryFromClient(connection *conn) {
      * and check if there is a full command to execute. */
     if (processInputBuffer(c) == C_ERR)
          c = NULL;
+
+    trimCommandQueue(c);
 
 done:
     if (c && c->read_error) {
@@ -4712,6 +4812,70 @@ void evictClients(void) {
                 break;
             }
             listRewind(server.client_mem_usage_buckets[curr_bucket].clients, &bucket_iter);
+        }
+    }
+}
+
+static void discardCommandQueue(client *c) {
+    cmdQueue *queue = &c->cmd_queue;
+    while (queue->off < queue->len) {
+        parsedCommand *p = &queue->cmds[queue->off++];
+        for (int j = 0; j < p->argc; j++) {
+            decrRefCount(p->argv[j]);
+        }
+        zfree(p->argv);
+    }
+    zfree(queue->cmds);
+    queue->cmds = NULL;
+    queue->off = queue->len = queue->cap = 0;
+}
+
+/* Pops a command from the command queue and sets it as the client's current
+ * command. Returns true on success and false if the queue was empty. */
+static bool consumeCommandQueue(client *c) {
+    cmdQueue *queue = &c->cmd_queue;
+    if (queue->off >= queue->len) return false;
+    parsedCommand *p = &queue->cmds[queue->off++];
+    /* Combine the command's read flags with the client's read flags. Some read
+     * flags describe the client state (AUTH_REQUIRED) while others describe the
+     * command parsing outcome (PARSING_COMPLETED). */
+    c->read_error |= p->read_flags;
+    c->argc = p->argc;
+    c->argv = p->argv;
+    c->argv_len = p->argv_len;
+    c->argv_len_sum = p->argv_len_sum;
+    c->net_input_bytes_curr_cmd = p->input_bytes;
+    c->parsed_cmd = p->cmd;
+    c->slot = p->slot;
+    if (queue->off == queue->len) {
+        /* The queue is empty. Don't free it here, because if parsing is done in
+         * I/O threads, we want to free it in I/O threads too, to avoid
+         * fragmentation. */
+        queue->off = queue->len = 0;
+    }
+    return 1;
+}
+
+/* Free unused memory in a client's queue of parsed commands. */
+void trimCommandQueue(client *c) {
+    if (c->flags & CLIENT_CLOSE_ASAP) return; /* Prevent concurrent access with
+                                       freeClientAsync(). */
+    cmdQueue *queue = &c->cmd_queue;
+    if (queue->cmds != NULL) {
+        if (queue->len == 0) {
+            zfree(queue->cmds);
+            queue->cmds = NULL;
+            queue->cap = 0;
+        } else {
+            /* Try shrink to the next power of two >= len */
+            const int bits = CHAR_BIT * sizeof(unsigned int);
+            uint16_t cap = queue->len == 1 ? 1 : 1 << (bits - __builtin_clz(queue->len - 1));
+            serverAssert(cap >= queue->len);
+            cap = max(cap, COMMAND_QUEUE_MIN_CAPACITY);
+            if (cap < queue->cap) {
+                queue->cap = cap;
+                queue->cmds = zrealloc(queue->cmds, cap * sizeof(parsedCommand));
+            }
         }
     }
 }

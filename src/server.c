@@ -4102,11 +4102,14 @@ int processCommand(client *c) {
      * we do not have to repeat the same checks */
     if (!client_reprocessing_command) {
         /* check if we can reuse the last command instead of looking up if we already have that info */
-        struct redisCommand *cmd = NULL;
-        if (isCommandReusable(c->lastcmd, c->argv[0]))
-            cmd = c->lastcmd;
-        else
-            cmd = c->iolookedcmd ? c->iolookedcmd : lookupCommand(c->argv, c->argc);
+        serverAssert(c->parsed_cmd);
+        struct redisCommand *cmd = c->parsed_cmd;
+
+        // struct redisCommand *cmd = NULL;
+        // if (isCommandReusable(c->lastcmd, c->argv[0]))
+        //     cmd = c->lastcmd;
+        // else
+            // cmd = c->iolookedcmd ? c->iolookedcmd : lookupCommand(c->argv, c->argc);
         if (!cmd) {
             /* Handle possible security attacks. */
             if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
@@ -7664,3 +7667,53 @@ int main(int argc, char **argv) {
 }
 
 /* The End */
+
+static void prepareCommandGeneric(client *c, robj **argv, int argc, uint8_t *read_flags, struct redisCommand **cmd, int *slot) {
+    if ((*read_flags == READ_FLAGS_PARSING_INCOMPLETED) || argc == 0) return;
+    // *cmd = lookupCommand(argv, argc);
+
+    if (isCommandReusable(c->lastcmd, argv[0]))
+        *cmd = c->lastcmd;
+    else
+        *cmd = lookupCommand(argv, argc);
+
+    // long long start_time = ustime();
+    // for (int i = 0; i < 1000000000; i++) {
+    //     *cmd = lookupCommand(argv, argc);
+    // }
+    // long long end_time = ustime();
+    // long long duration_us = end_time - start_time;
+    
+    // printf("lookupCommand loop took %lld microseconds (%.3f ms)\n", 
+    //        duration_us, duration_us / 1000.0);
+
+    /* Make sure we don't do this twice. */
+    // debugServerAssert(*cmd == NULL && !(*read_flags & READ_FLAGS_COMMAND_NOT_FOUND));
+    // *cmd = lookupCommand(argv, argc);
+    // if (!*cmd) {
+    //     *read_flags |= READ_FLAGS_COMMAND_NOT_FOUND;
+    // } else if (!commandCheckArity(*cmd, argc, NULL)) {
+    //     *read_flags |= READ_FLAGS_BAD_ARITY;
+    // } else if (server.cluster_enabled) {
+    //     debugServerAssert(*slot == -1 &&
+    //                       !(*read_flags & READ_FLAGS_CROSSSLOT) &&
+    //                       !(*read_flags & READ_FLAGS_NO_KEYS));
+    //     *slot = clusterSlotByCommand(*cmd, argv, argc, read_flags);
+    // }
+}
+
+void prepareCommand(client *c) {
+    prepareCommandGeneric(c, c->argv, c->argc, &c->read_error, &c->parsed_cmd, &c->slot);
+}
+
+/* Prepare all parsed commands in the client's queue. See prepareCommand(). */
+void prepareCommandQueue(client *c) {
+    /* First AKA current command (c->argv). */
+    prepareCommand(c);
+
+    /* Commands in client's command queue. */
+    for (int i = c->cmd_queue.off; i < c->cmd_queue.len; i++) {
+        parsedCommand *p = &c->cmd_queue.cmds[i];
+        prepareCommandGeneric(c, p->argv, p->argc, &p->read_flags, &p->cmd, &p->slot);
+    }
+}
