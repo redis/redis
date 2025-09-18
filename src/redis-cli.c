@@ -209,6 +209,11 @@ static struct config {
     int monitor_mode;
     int pubsub_mode;
     int blocking_state_aborted; /* used to abort monitor_mode and pubsub_mode. */
+    int vset_recall_mode;
+    sds vset_recall_key;
+    int vset_recall_ele_count;
+    int vset_recall_vsim_count;
+    int vset_recall_vsim_ef;
     int latency_mode;
     int latency_dist_mode;
     int latency_history;
@@ -2748,6 +2753,21 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"--latency-history")) {
             config.latency_mode = 1;
             config.latency_history = 1;
+        } else if (!strcmp(argv[i],"--vset-recall") && !lastarg) {
+            config.vset_recall_mode = 1;
+            config.vset_recall_key = sdsnew(argv[++i]);
+        } else if (!strcmp(argv[i],"--vset-recall-ele") && !lastarg) {
+            config.vset_recall_ele_count = strtoll(argv[++i],NULL,10);
+            if (config.vset_recall_ele_count <= 0)
+                config.vset_recall_ele_count = 1;
+        } else if (!strcmp(argv[i],"--vset-recall-count") && !lastarg) {
+            config.vset_recall_vsim_count = strtoll(argv[++i],NULL,10);
+            if (config.vset_recall_vsim_count <= 0)
+                config.vset_recall_vsim_count = 1;
+        } else if (!strcmp(argv[i],"--vset-recall-ef") && !lastarg) {
+            config.vset_recall_vsim_ef = strtoll(argv[++i],NULL,10);
+            if (config.vset_recall_vsim_ef <= 0)
+                config.vset_recall_vsim_ef = 1;
         } else if (!strcmp(argv[i],"--lru-test") && !lastarg) {
             config.lru_test_mode = 1;
             config.lru_test_sample_size = strtoll(argv[++i],NULL,10);
@@ -3164,6 +3184,14 @@ version,tls_usage);
 "                     Default time interval is 15 sec. Change it using -i.\n"
 "  --latency-dist     Shows latency as a spectrum, requires xterm 256 colors.\n"
 "                     Default time interval is 1 sec. Change it using -i.\n"
+"  --vset-recall <key> Enable VSIM recall test mode for the specified key\n"
+"                     (that must be a vector set). Random vectors are created\n"
+"                     mixing componets from other elements. A VSIM is then\n"
+"                     executed and checked against ground truth.\n"
+"  --vset-recall-count <count> How many top elements to fetch per query.\n"
+"  --vset-recall-ef <ef> HSNW EF (search effort) to use. Default 500.\n"
+"  --vset-recall-ele <count> Number of elements used to compose query vectors\n"
+"                            Default 1.\n"
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
@@ -3637,6 +3665,11 @@ static int noninteractive(int argc, char **argv) {
         fflush(stdout);
     }
     return retval == REDIS_OK ? 0 : 1;
+}
+
+static void longStatLoopModeStop(int s) {
+    UNUSED(s);
+    force_cancel_loop = 1;
 }
 
 /*------------------------------------------------------------------------------
@@ -8527,6 +8560,191 @@ static void latencyDistMode(void) {
 }
 
 /*------------------------------------------------------------------------------
+ * Vset recall mode.
+ *
+ * This mode targets a specific vector set key, performing queries on
+ * vectors composed mixing components from existing vectors (each component of
+ * the query vector is the component of a random source vector), then uses
+ * VSIM and VSIM TRUTH to test for recall percentage.
+ *--------------------------------------------------------------------------- */
+
+static void vsetRecallMode(void) {
+    redisReply *reply, *vsim_reply, *truth_reply;
+    int ele_count = config.vset_recall_ele_count;
+    int vsim_count = config.vset_recall_vsim_count;
+    int vsim_ef = config.vset_recall_vsim_ef;
+    unsigned long long queries = 0, total_overlap = 0;
+    double min_recall = 100.0, max_recall = 0.0;
+    long long refresh_time = mstime();
+
+    if (!context) exit(1);
+
+    /* Get vector dimension first. */
+    reply = reconnectingRedisCommand(context, "VDIM %s",
+            config.vset_recall_key);
+    if (reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
+        fprintf(stderr,
+            "Error: Cannot get dimension for key %s\n", config.vset_recall_key);
+        exit(1);
+    }
+    unsigned int dim = reply->integer;
+    freeReplyObject(reply);
+
+    /* Start the recalling loop. */
+    printf("\n"
+           "# Testing recall for vector set: %s (dimension: %d)\n"
+           "# Mixing %d random elements vectors, top %d results, EF=%d\n\n",
+            config.vset_recall_key, dim,
+            ele_count, vsim_count, vsim_ef);
+
+    /* Trap Ctrl-C to print the final stats. */
+    signal(SIGINT, longStatLoopModeStop);
+
+    while (force_cancel_loop == 0) {
+        /* Get random members and their vectors. */
+        reply = reconnectingRedisCommand(context, "VRANDMEMBER %s %d",
+            config.vset_recall_key, ele_count);
+        if (reply == NULL || reply->type != REDIS_REPLY_ARRAY ||
+            reply->elements == 0)
+        {
+            fprintf(stderr, "Error fetching random members\n");
+            exit(1);
+        }
+
+        /* Store vectors for mixing. */
+        double **vectors = zmalloc(reply->elements * sizeof(double*));
+        int valid_vectors = 0;
+
+        for (size_t i = 0; i < reply->elements; i++) {
+            /* For each element, fetch its associated vector using
+             * the VEMB command. */
+            redisReply *vemb = reconnectingRedisCommand(context, "VEMB %s %s",
+                                                        config.vset_recall_key,
+                                                        reply->element[i]->str);
+            /* The reply from the server is likely correct but let's check
+             * for sanity. */
+            if (vemb &&
+                vemb->type == REDIS_REPLY_ARRAY &&
+                vemb->elements == dim)
+            {
+                vectors[valid_vectors] = zmalloc(dim * sizeof(double));
+                for (unsigned int j = 0; j < dim; j++) {
+                    vectors[valid_vectors][j] = atof(vemb->element[j]->str);
+                }
+                valid_vectors++;
+            }
+            if (vemb) freeReplyObject(vemb);
+        }
+        freeReplyObject(reply);
+
+        if (valid_vectors == 0) {
+            fprintf(stderr, "No valid vectors retrieved\n");
+            zfree(vectors);
+            continue;
+        }
+
+        /* Create mixed query vector. */
+        float *query = zmalloc(sizeof(float)*dim);
+        for (unsigned int i = 0; i < dim; i++) {
+            int src = rand() % valid_vectors;
+            query[i] = vectors[src][i];
+        }
+
+        /* Free original vectors. */
+        for (int i = 0; i < valid_vectors; i++) zfree(vectors[i]);
+        zfree(vectors);
+
+        /* Perform the VSIM query. */
+        vsim_reply = reconnectingRedisCommand(context,
+                    "VSIM %s FP32 %b COUNT %d EF %d",
+                    config.vset_recall_key, query,
+                    sizeof(float)*dim, vsim_count, vsim_ef);
+        if (vsim_reply == NULL || vsim_reply->type != REDIS_REPLY_ARRAY) {
+            zfree(query);
+            if (vsim_reply) freeReplyObject(vsim_reply);
+            continue;
+        }
+
+        /* Perform the VSIM TRUTH query, to have the actual top-K vectors. */
+        truth_reply = reconnectingRedisCommand(context,
+                    "VSIM %s FP32 %b COUNT %d TRUTH",
+                    config.vset_recall_key, query,
+                    sizeof(float)*dim, vsim_count);
+        zfree(query); // Query vector no longer needed.
+
+        if (truth_reply == NULL || truth_reply->type != REDIS_REPLY_ARRAY) {
+            freeReplyObject(vsim_reply);
+            if (truth_reply) freeReplyObject(truth_reply);
+            continue;
+        }
+
+        /* Build dict of truth results, so we can easily check for
+         * intersection among the two result sets (TRUTH vs greedy search). */
+        dictType dtype = {
+            dictSdsHash,
+            NULL,
+            NULL,
+            dictSdsKeyCompare,
+            dictSdsDestructor,
+            NULL,
+            NULL
+        };
+        dict *truth_dict = dictCreate(&dtype);
+
+        /* Add the top-k ground truth elements inside the dictionary. */
+        for (size_t i = 0; i < truth_reply->elements; i++) {
+            sds key = sdsnew(truth_reply->element[i]->str);
+            dictAdd(truth_dict, key, NULL);
+        }
+
+        /* Count overlapping elements. */
+        int overlap = 0;
+        for (size_t i = 0; i < vsim_reply->elements; i++) {
+            sds vsim_ele = sdsnew(vsim_reply->element[i]->str);
+            if (dictFind(truth_dict, vsim_ele) != NULL) {
+                overlap++;
+            }
+            sdsfree(vsim_ele);
+        }
+
+        dictRelease(truth_dict);
+        freeReplyObject(vsim_reply);
+        freeReplyObject(truth_reply);
+
+        /* Update statistics. */
+        queries++;
+        total_overlap += overlap;
+        double recall = (double)overlap / vsim_count * 100.0;
+        if (recall < min_recall) min_recall = recall;
+        if (recall > max_recall) max_recall = recall;
+
+        /* Display stats if TTY or at intervals. */
+        if (mstime() > refresh_time + REFRESH_INTERVAL ||
+            !IS_TTY_OR_FAKETTY())
+        {
+            refresh_time = mstime();
+            double avg_recall = (double)total_overlap / (queries * vsim_count) * 100.0;
+
+            if (IS_TTY_OR_FAKETTY()) printf("\x1b[0G\x1b[2K"); /* Clear line */
+            printf("Queries: %llu | Recall: %.2f%% (min: %.2f%%, max: %.2f%%)",
+                   queries, avg_recall, min_recall, max_recall);
+            if (!IS_TTY_OR_FAKETTY()) printf("\n");
+            fflush(stdout);
+        }
+        if (config.interval) usleep(config.interval);
+    }
+
+    /* Final stats, after Ctrl+C is pressed. */
+    printf("\n\nFinal Statistics:\n");
+    printf("Total queries: %llu\n", queries);
+    printf("Average recall: %.2f%%\n",
+        (double)total_overlap / (queries * vsim_count) * 100.0);
+    printf("Min recall: %.2f%%\n", min_recall);
+    printf("Max recall: %.2f%%\n", max_recall);
+    exit(0);
+}
+
+/*------------------------------------------------------------------------------
  * Slave mode
  *--------------------------------------------------------------------------- */
 
@@ -9205,11 +9423,6 @@ static void getKeySizes(redisReply *keys, typeinfo **types,
 
         freeReplyObject(reply);
     }
-}
-
-static void longStatLoopModeStop(int s) {
-    UNUSED(s);
-    force_cancel_loop = 1;
 }
 
 /* In cluster mode we may need to send the READONLY command.
@@ -10610,6 +10823,11 @@ int main(int argc, char **argv) {
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
     config.blocking_state_aborted = 0;
+    config.vset_recall_mode = 0;
+    config.vset_recall_key = NULL;
+    config.vset_recall_ele_count = 1;
+    config.vset_recall_vsim_count = 100;
+    config.vset_recall_vsim_ef = 500;
     config.latency_mode = 0;
     config.latency_dist_mode = 0;
     config.latency_history = 0;
@@ -10731,6 +10949,12 @@ int main(int argc, char **argv) {
     if (config.latency_dist_mode) {
         if (cliConnect(0) == REDIS_ERR) exit(1);
         latencyDistMode();
+    }
+
+    /* Latency mode */
+    if (config.vset_recall_mode) {
+        if (cliConnect(0) == REDIS_ERR) exit(1);
+        vsetRecallMode();
     }
 
     /* Slave mode */
