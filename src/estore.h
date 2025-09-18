@@ -77,6 +77,8 @@ int estoreGetFirstNonEmptyBucket(estore *es);
 
 int estoreGetNextNonEmptyBucket(estore *es, int eidx);
 
+void estoreMoveEbuckets(estore *src, estore *dst, int eidx);
+
 /* Hash-specific function to get ExpireMeta from a hash kvobj. 
  * Once we shall have another data-type with subexpiry, we should refactor
  * ExpireMeta to optionally reside as part of kvobj struct */

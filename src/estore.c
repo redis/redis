@@ -191,6 +191,26 @@ uint64_t estoreSize(estore *es) {
     return es->count;
 }
 
+/* Move ebuckets from one estore to another */
+void estoreMoveEbuckets(estore *src, estore *dst, int eidx) {
+    serverAssert(src->num_buckets > eidx);
+    serverAssert(src->num_buckets == dst->num_buckets);
+    serverAssert(ebIsEmpty(dst->ebArray[eidx])); /* If it is NULL */
+
+    /* Adjust source estore */
+    ebuckets eb = src->ebArray[eidx];
+    if (ebIsEmpty(eb)) return;
+    int64_t count = (int64_t)ebGetTotalItems(eb, src->bucket_type);
+    src->count -= count;
+    fwTreeUpdate(src->buckets_sizes, eidx, -count);
+    src->ebArray[eidx] = ebCreate(); /* Set to NULL actually.*/
+
+    /* Move ebuckets to destination estore */
+    dst->ebArray[eidx] = eb;
+    dst->count += count;
+    fwTreeUpdate(dst->buckets_sizes, eidx, count);
+}
+
 #ifdef REDIS_TEST
 #include <stdio.h>
 #include "testhelp.h"

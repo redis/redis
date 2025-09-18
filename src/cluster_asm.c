@@ -2628,26 +2628,25 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
      * the keys in the slots we are trimming. */
     signalFlushedDb(0, 1, slots);
 
-    /* Create temp kvstores, move relevant slot dicts into them, and delete them
-     * in BIO thread asynchronously. */
+    /* Create temp kvstores and estore, move relevant slot dicts/ebuckets into them,
+     * and delete them in BIO thread asynchronously. */
     kvstore *keys = kvstoreCreate(&dbDictType,
                                   CLUSTER_SLOT_MASK_BITS,
                                   KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     kvstore *expires = kvstoreCreate(&dbExpiresDictType,
                                      CLUSTER_SLOT_MASK_BITS,
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
 
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
-            /* TODO: hexpires */
+            estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
         }
     }
 
-    /* TODO: Do not delete all the hexpires */
-    emptyDbDataAsync(keys, expires, server.db[0].subexpires);
-    server.db[0].subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
+    emptyDbDataAsync(keys, expires, subexpires);
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s", str);

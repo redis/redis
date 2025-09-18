@@ -8,6 +8,8 @@ set ::slot_prefixes [dict create \
     6 "{1Y7}" \
     7 "{1LV}" \
     101 "{1j2}" \
+    102 "{75V}" \
+    103 "{bno}" \
     6000 "{4L7}" \
     6001 "{4YV}" \
     6002 "{0bx}" \
@@ -1198,24 +1200,39 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 CONFIG RESETSTAT
         R 3 CONFIG RESETSTAT
 
-        # Fill slot 0 on node-0 and migrate it to node-1
         R 0 flushall
-        populate_slot 10000 -idx 0 -slot 0
+        # Fill slot 0
+        populate_slot 1000 -idx 0 -slot 0
+        # Fill slot 1 with keys that have TTL
+        populate_slot 1000 -idx 0 -slot 1 -prefix "expirekey" -expires 100
+        # HFE key on slot 2
+        set slot2_hfekey [slot_key 2 hfekey]
+        R 0 HSETEX $slot2_hfekey EX 10 FIELDS 1 f1 v1
+
+        # Fill slot 101, these keys won't be migrated
+        populate_slot 1000 -idx 0 -slot 101
+        # Fill slot 102 with keys that have TTL
+        populate_slot 1000 -idx 0 -slot 102 -prefix "expirekey" -expires 100
+        # HFE key on slot 103
+        set slot103_hfekey [slot_key 103 hfekey]
+        R 0 HSETEX $slot103_hfekey EX 10 FIELDS 1 f1 v1
+
+        # migrate slot 0 to node-1
         R 1 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
 
         # Verify the data is migrated
         wait_for_ofs_sync [Rn 0] [Rn 3]
-        assert_equal 0 [R 0 dbsize]
-        assert_equal 0 [R 3 dbsize]
+        assert_equal 2001 [R 0 dbsize]
+        assert_equal 2001 [R 3 dbsize]
         wait_for_ofs_sync [Rn 1] [Rn 4]
-        assert_equal 10000 [R 1 dbsize]
-        assert_equal 10000 [R 4 dbsize]
+        assert_equal 2001 [R 1 dbsize]
+        assert_equal 2001 [R 4 dbsize]
 
         # Verify the keys are trimmed lazily
         wait_for_condition 1000 10 {
-            [S 0 lazyfreed_objects] == 10000 &&
-            [S 3 lazyfreed_objects] == 10000
+            [S 0 lazyfreed_objects] == 2001 &&
+            [S 3 lazyfreed_objects] == 2001
         } else {
             puts "lazyfreed_objects: [S 0 lazyfreed_objects] [S 3 lazyfreed_objects]"
             fail "Background trim did not happen"
