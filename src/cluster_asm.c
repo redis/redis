@@ -2810,6 +2810,18 @@ void trimslotsCommand(client *c) {
          * trimmed. We have to trim the keys synchronously. */
         clusterDelKeysInSlotRangeArray(slots, 1);
     } else {
+        /* We can not trim the slot that this node is serving. */
+        if (clusterNodeIsMaster(getMyClusterNode())) {
+            for (int i = 0; i < slots->num_ranges; i++) {
+                for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+                    if (clusterCanAccessKeysInSlot(j)) {
+                        addReplyErrorFormat(c, "the slot %d is served by this node", j);
+                        slotRangeArrayFree(slots);
+                        return;
+                    }
+                }
+            }
+        }
         asmTrimSlots(slots);
     }
 

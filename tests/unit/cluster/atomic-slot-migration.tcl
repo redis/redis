@@ -1874,6 +1874,13 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
        assert_equal 0 [R 1 dbsize]
        assert_equal 0 [R 4 dbsize]
     }
+
+    test "TRIMSLOTS should not trim slots that this node is serving" {
+        assert_error {*the slot 0 is served by this node*} {R 0 trimslots ranges 1 0 0}
+        assert_error {*READONLY*} {R 3 trimslots ranges 1 0 100}
+        assert_equal {OK} [R 0 trimslots ranges 1 16383 16383]
+        assert_error {*READONLY*} {R 3 trimslots ranges 1 16383 16383}
+    }
 }
 
 set testmodule [file normalize tests/modules/atomicslotmigration.so]
