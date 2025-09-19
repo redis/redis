@@ -168,6 +168,18 @@ proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {key
     return $task_id
 }
 
+set testmodule [file normalize tests/modules/atomicslotmigration.so]
+
+start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
+    test "Module replicate crossslot" {
+       R 0 asm.replicate_crossslot_command 1
+       set task_id [setup_slot_migration_with_delay 0 1 0 100]
+       # assert cancelled
+       # cleanup
+       R 0 asm.replicate_crossslot_command 0
+    }
+}
+
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     test "Test IMPORT input validation" {
         # invalid arguments
