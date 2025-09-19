@@ -2590,6 +2590,27 @@ int rewriteAppendOnlyFileBackground(void) {
      * feedAppendOnlyFile() to issue a SELECT command. */
     server.aof_selected_db = -1;
     flushAppendOnlyFile(1);
+    /* If the flushAppendOnlyFile function fails to fully write all data from the 
+     * AOF buffer (i.e., a short write occurs), we should stop executing the AOF rewrite 
+     * operation. Otherwise, we might encounter the following two scenarios:
+     * 1) Successful ftruncate: The aof_buf contains complete commands that would be written 
+     *    to the next incremental AOF file (about to be generated). However, these commands 
+     *    should actually be written to the current incremental AOF file (which will become 
+     *    the history AOF). Otherwise, it could cause data duplication between the new base AOF 
+     *    and new incremental AOF (especially problematic for non-idempotent commands).
+     * 2) Failed ftruncate: The aof_buf might contain an incomplete command, potentially causing
+     *    both the current incremental AOF (about to become history AOF) and the next incremental 
+     *    AOF to each contain partial data. This would make all subsequent data appended to the 
+     *    new incremental AOF fail to load correctly due to this incomplete data.
+     */
+    if (server.aof_last_write_status == C_ERR) {
+        serverLog(LL_WARNING,
+            "Can't flush the AOF buffer on disk. "
+            "Background AOF rewrite may be unreliable: %s",
+            strerror(errno));
+        server.aof_lastbgrewrite_status = C_ERR;
+        return C_ERR;
+    }
     if (openNewIncrAofForAppend() != C_OK) {
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
