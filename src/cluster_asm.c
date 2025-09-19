@@ -1891,13 +1891,13 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
     robj key;
     initStaticStringObject(key, kvobjGetKey(o));
 
-    /* If non-string/module object that is not too big, or module object
-     * that does not support aof_rewrite, use RESTORE to import data.
+    /* If module object or non-string object that is not too big,
+     * use RESTORE command (RDB format) to migrate data.
      * Generally RDB binary format is more efficient, but it may cause
      * block in the destination if the object is too large, so fall back
      * to AOF format if necessary. */
-    if ((o->type != OBJ_STRING && o->type != OBJ_MODULE && getObjectLength(o) <= AOF_REWRITE_ITEMS_PER_CMD) ||
-        (o->type == OBJ_MODULE && ((moduleValue*)o->ptr)->type->aof_rewrite == NULL))
+    if ((o->type == OBJ_MODULE) ||
+        (o->type != OBJ_STRING && getObjectLength(o) <= AOF_REWRITE_ITEMS_PER_CMD))
     {
         if (rioWriteBulkCount(rdb, '*', 5) == 0) return C_ERR;
         if (rioWriteBulkString(rdb, "RESTORE", 7) == 0) return C_ERR;
@@ -1917,7 +1917,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
         /* Write ABSTTL */
         if (rioWriteBulkString(rdb, "ABSTTL", 6) == 0) return C_ERR;
     } else {
-        /* Use AOF format to import data */
+        /* Use AOF format to migrate data */
         if (rewriteObject(rdb, &key, o, dbid, expiretime) == C_ERR) return C_ERR;
     }
 
