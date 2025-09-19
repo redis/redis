@@ -826,6 +826,27 @@ make V=1
 
 Please consult the [TLS.md](TLS.md) file for more information on how to use Redis with TLS.
 
+### Running Redis with the Query Engine and optional proprietary Intel SVS-VAMANA optimisations
+
+**License Disclaimer**
+If you are using Redis Open Source under AGPLv3 or SSPLv1, you cannot use it together with the Intel Optimizations (Leanvec and LVQ binaries). The reason is that the Intel SVS license is not compatible with those licenses.
+The Leanvec and LVQ techniques are closed source and are only available for use with Redis Open Source when distributed under the RSALv2 license.
+For more details, please refer to the information provided by Intel [here](https://github.com/intel/ScalableVectorSearch).
+
+By default, Redis with the Redis Query Engine supports SVS-VAMANA index with the regular 8-bit quantisation. To compile Redis with the Intel SVS-VAMANA optimisations, LeanVec and LVQ, use the following:
+
+```sh
+make BUILD_INTEL_SVS_OPT=yes
+```
+
+Alternatively, you can export the variable before running the build step for your platform:
+
+```sh
+export BUILD_INTEL_SVS_OPT=yes
+make
+```
+
+
 ## Code contributions
 
 By contributing code to the Redis project in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md and the description of the ability of users to backport security patches under Redis Open Source 7.4+ under BSDv3. Open Source Redis releases are subject to the following licenses:
