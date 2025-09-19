@@ -439,13 +439,14 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                       src: [migration_status 1 $task_id last_error]
                       expected: $channel $state)"
             }
-            R 1 config set rdb-key-save-delay 0
-            R 0 config set key-load-delay 0
             stop_write_load $load_handle
 
             # Cancel the task
             R 0 CLUSTER MIGRATION CANCEL ID $task_id
             R 1 CLUSTER MIGRATION CANCEL ID $task_id
+
+            R 1 config set rdb-key-save-delay 0
+            R 0 config set key-load-delay 0
         }
     }
 

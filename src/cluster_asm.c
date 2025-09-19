@@ -323,8 +323,6 @@ void asmTaskReset(asmTask *task) {
     task->source_offset = 0;
     task->stream_eof_during_streaming = 0;
     replDataBufInit(&task->sync_buffer);
-    sdsfree(task->error);
-    task->error = sdsempty();
     task->main_channel_client = NULL;
     task->rdb_channel_client = NULL;
     task->paused_time = 0;
@@ -2519,7 +2517,11 @@ int asmNotifyConfigUpdated(asmTask *task, sds *err) {
         return C_ERR;
     }
 
+    /* Clear error message if successful. */
+    sdsfree(task->error);
+    task->error = sdsempty();
     task->state = ASM_DONE;
+
     asmNotifyStateChange(task, event);
     asmTaskComplete(task);
 
