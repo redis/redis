@@ -1975,16 +1975,19 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             wait_for_ofs_sync [Rn 0] [Rn 3]
             wait_for_asm_done
 
+            set src_id [R 0 cluster myid]
+            set dest_id [R 1 cluster myid]
+
             # Verify the events on source
             assert_equal [list \
-                "sub: cluster-asm-migrate-started, task_id:$task_id, slots:0-100,200-300" \
-                "sub: cluster-asm-migrate-completed, task_id:$task_id, slots:0-100,200-300" \
+                "sub: cluster-asm-migrate-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
+                "sub: cluster-asm-migrate-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
             ] [R 0 asm.get_cluster_event_log]
 
             # Verify the events on destination
             assert_equal [list \
-                "sub: cluster-asm-import-started, task_id:$task_id, slots:0-100,200-300" \
-                "sub: cluster-asm-import-completed, task_id:$task_id, slots:0-100,200-300" \
+                "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
+                "sub: cluster-asm-import-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
             ] [R 1 asm.get_cluster_event_log]
 
             # Verify the trim events
@@ -2027,16 +2030,19 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             wait_for_asm_done
             wait_for_ofs_sync [Rn 0] [Rn 3]
 
+            set src_id [R 0 cluster myid]
+            set dest_id [R 1 cluster myid]
+
             # Verify the events on source
             assert_equal [list \
-                "sub: cluster-asm-migrate-started, task_id:$task_id, slots:0-100" \
-                "sub: cluster-asm-migrate-failed, task_id:$task_id, slots:0-100" \
+                "sub: cluster-asm-migrate-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+                "sub: cluster-asm-migrate-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
             ] [R 0 asm.get_cluster_event_log]
 
             # Verify the events on destination
             assert_equal [list \
-                "sub: cluster-asm-import-started, task_id:$task_id, slots:0-100" \
-                "sub: cluster-asm-import-failed, task_id:$task_id, slots:0-100" \
+                "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+                "sub: cluster-asm-import-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
             ] [R 1 asm.get_cluster_event_log]
 
             # Verify the trim events on destination (partially imported keys are trimmed)

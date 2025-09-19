@@ -719,7 +719,7 @@ static const RedisModuleEvent
 #define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED 0
 #define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED 1
 #define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND 2
-#define _REDISMODULE_SUBEVENT_CLUSTER_TRIM_NEXT 3
+#define _REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_NEXT 3
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -866,8 +866,10 @@ typedef struct RedisModuleClusterAsmMigrationInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
+    char source_node_id[REDISMODULE_NODE_ID_LEN + 1];
+    char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];
     const char *task_id;
-    RedisModuleSlotRangeArray* slots;
+    RedisModuleSlotRangeArray *slots;
 } RedisModuleClusterAsmMigrationInfoV1;
 
 #define RedisModuleClusterAsmMigrationInfo RedisModuleClusterAsmMigrationInfoV1
@@ -878,7 +880,7 @@ typedef struct RedisModuleClusterAsmTrimInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
-    RedisModuleSlotRangeArray* slots;
+    RedisModuleSlotRangeArray *slots;
 } RedisModuleClusterAsmTrimInfoV1;
 
 #define RedisModuleClusterAsmTrimInfo RedisModuleClusterAsmTrimInfoV1

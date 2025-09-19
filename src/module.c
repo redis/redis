@@ -11999,7 +11999,8 @@ static uint64_t moduleEventVersions[] = {
  *
  *     The data pointer can be casted to a RedisModuleClusterAsmMigrationInfo
  *     structure with the following fields:
- *
+ *         char source_node_id[REDISMODULE_NODE_ID_LEN + 1];
+ *         char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];
  *         const char *task_id;               // Task ID
  *         RedisModuleSlotRangeArray* slots;  // Slot ranges
  *

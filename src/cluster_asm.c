@@ -855,10 +855,12 @@ void clusterMigrationCommand(client *c) {
 /* Notify the state change to the module and the plugin. */
 void asmNotifyStateChange(asmTask *task, int state) {
     RedisModuleClusterAsmMigrationInfo info = {
-            REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
-            task->id,
-            (RedisModuleSlotRangeArray *) task->slot_ranges
+            .version = REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
+            .task_id = task->id,
+            .slots = (RedisModuleSlotRangeArray *) task->slot_ranges
     };
+    memcpy(info.source_node_id, task->source, CLUSTER_NAMELEN);
+    memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
 
     int module_event = -1;
     if (state == ASM_EVENT_IMPORT_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED;
@@ -1928,10 +1930,12 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
  * triggers the event, collects the commands and writes them to the rio. */
 static int propagateModuleCommands(asmTask *task, rio *rdb) {
     RedisModuleClusterAsmMigrationInfo info = {
-            REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
-            task->id,
-            (RedisModuleSlotRangeArray *) task->slot_ranges
+            .version = REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
+            .task_id = task->id,
+            .slots = (RedisModuleSlotRangeArray *) task->slot_ranges
     };
+    memcpy(info.source_node_id, task->source, CLUSTER_NAMELEN);
+    memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
 
     task->module_commands = zcalloc(sizeof(*task->module_commands));
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM,

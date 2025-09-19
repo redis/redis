@@ -115,6 +115,8 @@ const char *clusterMigrationInfoToString(RedisModuleClusterAsmMigrationInfo *inf
     else {
         RedisModule_Assert(0);
     }
+    snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "source_node_id:%.40s, destination_node_id:%.40s, ",
+             info->source_node_id, info->destination_node_id);
     snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "task_id:%s, slots:", info->task_id);
     for (int i = 0; i < info->slots->num_ranges; i++) {
         RedisModuleSlotRange *sr = &info->slots->ranges[i];
