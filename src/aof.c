@@ -2606,8 +2606,7 @@ int rewriteAppendOnlyFileBackground(void) {
     if (server.aof_last_write_status == C_ERR) {
         serverLog(LL_WARNING,
             "Can't flush the AOF buffer on disk. "
-            "Background AOF rewrite may be unreliable: %s",
-            strerror(errno));
+            "Background AOF rewrite aborted.");
         server.aof_lastbgrewrite_status = C_ERR;
         return C_ERR;
     }
