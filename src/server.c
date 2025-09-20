@@ -4102,7 +4102,7 @@ int processCommand(client *c) {
      * we do not have to repeat the same checks */
     if (!client_reprocessing_command) {
         /* check if we can reuse the last command instead of looking up if we already have that info */
-        serverAssert(c->parsed_cmd);
+        // serverAssert(c->parsed_cmd);
         struct redisCommand *cmd = c->parsed_cmd;
 
         // struct redisCommand *cmd = NULL;

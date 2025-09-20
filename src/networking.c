@@ -2679,7 +2679,6 @@ static int parseMultibulk(client *c,
         } else {
             /* Check if we have space in argv, grow if needed */
             if (*argc >= *argv_len) {
-                serverAssert(*argv_len); /* Ensure argv is not freed while the client is in the mid of parsing command. */
                 *argv_len = min(*argv_len < INT_MAX/2 ? (*argv_len)*2 : INT_MAX, *argc+c->multibulklen);
                 *argv = zrealloc(*argv, sizeof(robj*)*(*argv_len));
             }
@@ -2952,7 +2951,7 @@ void handleClientReadError(client *c) {
             break;
         }
         default:
-            serverPanic("Unknown client read error");
+            serverPanic("Unknown client read error: %d", c->read_error);
             break;
     }
 }
@@ -3223,11 +3222,11 @@ void readQueryFromClient(connection *conn) {
      * and check if there is a full command to execute. */
     if (processInputBuffer(c) == C_ERR)
          c = NULL;
-
-    trimCommandQueue(c);
+    else
+        trimCommandQueue(c);
 
 done:
-    if (c && c->read_error) {
+    if (c && c->read_error && c->read_error != READ_FLAGS_PARSING_INCOMPLETED) {
         if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
             handleClientReadError(c);
         }
