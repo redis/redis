@@ -38,7 +38,7 @@ __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusab
                                          * buffer due to nested command execution. */
 
 void trimCommandQueue(client *c);
-static bool consumeCommandQueue(client *c);
+static int consumeCommandQueue(client *c);
 static void discardCommandQueue(client *c);
 static int parseMultibulk(client *c,
                           int *argc,
@@ -2739,7 +2739,7 @@ static int parseMultibulk(client *c,
  * command is in RESP format, so the first byte in the command is found
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 int parseMultibulkBuffer(client *c) {
-    int flag = 0;
+    uint8_t flag = 0;
     int ret = parseMultibulk(c, &c->argc, &c->argv, &c->argv_len,
         &c->argv_len_sum, &c->net_input_bytes_curr_cmd, &c->read_error);
 
@@ -2757,7 +2757,6 @@ int parseMultibulkBuffer(client *c) {
     // }
 
     /* Try parsing pipelined commands. */
-#if 1
     cmdQueue *queue = &c->cmd_queue;
     serverAssert(queue->len == 0);
     while ((flag != READ_FLAGS_PARSING_INCOMPLETED) &&
@@ -2782,7 +2781,6 @@ int parseMultibulkBuffer(client *c) {
         p->read_flags = flag;
         p->slot = -1;
     }
-#endif
 
     return ret;
 }
@@ -4831,9 +4829,9 @@ static void discardCommandQueue(client *c) {
 
 /* Pops a command from the command queue and sets it as the client's current
  * command. Returns true on success and false if the queue was empty. */
-static bool consumeCommandQueue(client *c) {
+static int consumeCommandQueue(client *c) {
     cmdQueue *queue = &c->cmd_queue;
-    if (queue->off >= queue->len) return false;
+    if (queue->off >= queue->len) return 0;
     parsedCommand *p = &queue->cmds[queue->off++];
     /* Combine the command's read flags with the client's read flags. Some read
      * flags describe the client state (AUTH_REQUIRED) while others describe the
