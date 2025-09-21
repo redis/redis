@@ -80,9 +80,11 @@ typedef struct parsedCommand {
     struct redisCommand *cmd;
 } parsedCommand;
 
-/* Queue of parsed commands. */
+/* Queue of parsed commands with client-specific command pool. */
 typedef struct {
     list *cmds; /* List of parsedCommand structures */
+    parsedCommand *pool[16]; /* Client-specific command pool, max 16 objects */
+    int pool_size; /* Current number of objects in pool */
 } cmdQueue;
 
 /* kvobj - A specific type of robj that holds also embedded key
@@ -3357,6 +3359,12 @@ uint64_t getCommandFlags(client *c);
 void prepareCommandQueue(client *c);
 int processCommand(client *c);
 void commandProcessed(client *c);
+
+/* Client command queue functions */
+void cmdQueueInit(cmdQueue *queue);
+void cmdQueueCleanup(cmdQueue *queue);
+parsedCommand *cmdQueueGetCommand(cmdQueue *queue);
+void cmdQueuePutCommand(cmdQueue *queue, parsedCommand *cmd);
 int processPendingCommandAndInputBuffer(client *c);
 int processCommandAndResetClient(client *c);
 int areCommandKeysInSameSlot(client *c, int *hashslot);

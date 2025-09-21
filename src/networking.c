@@ -180,10 +180,7 @@ client *createClient(connection *conn) {
     c->original_argv = NULL;
     c->deferred_objects = NULL;
     c->deferred_objects_num = 0;
-    c->cmd_queue.cmds = listCreate();
-    if (c->cmd_queue.cmds) {
-        listSetFreeMethod(c->cmd_queue.cmds, NULL); /* We'll handle freeing manually */
-    }
+    cmdQueueInit(&c->cmd_queue);
     c->cmd = c->lastcmd = c->realcmd = c->iolookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
@@ -2673,6 +2670,8 @@ static int parseMultibulk(client *c,
             c->bulklen = ll;
             /* Per-slot network bytes-in calculation, 2nd component. */
             *net_input_bytes_curr_cmd += (bulklen_slen + 3);
+        } else {
+            serverAssert(*flag == READ_FLAGS_PARSING_INCOMPLETED);
         }
 
         /* Read bulk argument */
@@ -2740,10 +2739,9 @@ static int parseMultibulk(client *c,
  * This function is called if processInputBuffer() detects that the next
  * command is in RESP format, so the first byte in the command is found
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
-int parseMultibulkBuffer(client *c) {
-    uint8_t flag = 0;
-    int ret = parseMultibulk(c, &c->argc, &c->argv, &c->argv_len,
-        &c->argv_len_sum, &c->net_input_bytes_curr_cmd, &c->read_error);
+void parseMultibulkBuffer(client *c) {
+    // int ret = parseMultibulk(c, &c->argc, &c->argv, &c->argv_len,
+    //     &c->argv_len_sum, &c->net_input_bytes_curr_cmd, &c->read_error);
 
     // if (c->read_error & READ_FLAGS_AUTH_REQUIRED) {
     //     /* Execute client's AUTH command before parsing more, because it affects
@@ -2758,9 +2756,21 @@ int parseMultibulkBuffer(client *c) {
     //     return;
     // }
 
-    /* Try parsing pipelined commands. */
+    uint8_t flag = 0;
     cmdQueue *queue = &c->cmd_queue;
-    serverAssert(listLength(queue->cmds) == 0);
+    listNode *head = listFirst(queue->cmds);
+    if (head) {
+        parsedCommand *p = listNodeValue(head);
+        serverAssert(listLength(queue->cmds) == 1 && p->read_flags & READ_FLAGS_PARSING_INCOMPLETED);
+        parseMultibulk(c, &p->argc, &p->argv, &p->argv_len,
+           &p->argv_len_sum, &p->input_bytes, &flag); 
+        p->read_flags = flag;
+    }
+    // if (listLength(queue->cmds) == 1) {
+    //     serverAssert()
+    // }
+
+    /* Try parsing pipelined commands. */
     while ((flag != READ_FLAGS_PARSING_INCOMPLETED) &&
            sdslen(c->querybuf) > c->qb_pos &&
            c->querybuf[c->qb_pos] == '*') {
@@ -2770,21 +2780,12 @@ int parseMultibulkBuffer(client *c) {
             break; /* Limit the length of the command queue. */
         }
 
-        parsedCommand *p = zmalloc(sizeof(parsedCommand));
-        memset(p, 0, sizeof(*p));
+        parsedCommand *p = cmdQueueGetCommand(queue);
         parseMultibulk(c, &p->argc, &p->argv, &p->argv_len,
                        &p->argv_len_sum, &p->input_bytes, &flag);
         p->read_flags = flag;
-        p->slot = -1;
-
-        if (listAddNodeTail(queue->cmds, p) == NULL) {
-            /* Failed to add to list, free the allocated command */
-            zfree(p);
-            break;
-        }
+        listAddNodeTail(queue->cmds, p);
     }
-
-    return ret;
 }
 
 /* Perform necessary tasks after a command was executed:
@@ -3010,11 +3011,8 @@ int processInputBuffer(client *c) {
         /* If commands are queued up, pop from the queue first */
         if (!consumeCommandQueue(c)) {
             parseInputBuffer(c);
+            if (consumeCommandQueue(c) == 0) break;
             prepareCommandQueue(c);
-        }
-
-        if (c->read_error == READ_FLAGS_PARSING_INCOMPLETED) {
-            break;
         }
 
         if (c->argc == 0) {
@@ -3222,8 +3220,8 @@ void readQueryFromClient(connection *conn) {
      * and check if there is a full command to execute. */
     if (processInputBuffer(c) == C_ERR)
          c = NULL;
-    else
-        trimCommandQueue(c);
+    // else
+    //     trimCommandQueue(c);
 
 done:
     if (c && c->read_error && c->read_error != READ_FLAGS_PARSING_INCOMPLETED) {
@@ -4816,23 +4814,7 @@ void evictClients(void) {
 }
 
 static void discardCommandQueue(client *c) {
-    cmdQueue *queue = &c->cmd_queue;
-    if (!queue->cmds) return;
-
-    listIter iter;
-    listNode *node;
-
-    listRewind(queue->cmds, &iter);
-    while ((node = listNext(&iter)) != NULL) {
-        parsedCommand *p = listNodeValue(node);
-        for (int j = 0; j < p->argc; j++) {
-            decrRefCount(p->argv[j]);
-        }
-        zfree(p->argv);
-        zfree(p);
-    }
-    listRelease(queue->cmds);
-    queue->cmds = NULL;
+    cmdQueueCleanup(&c->cmd_queue);
 }
 
 /* Pops a command from the command queue and sets it as the client's current
@@ -4843,6 +4825,7 @@ static int consumeCommandQueue(client *c) {
     if (!head) return 0;
 
     parsedCommand *p = listNodeValue(head);
+    if (p->read_flags & READ_FLAGS_PARSING_INCOMPLETED) return 0;
     /* Combine the command's read flags with the client's read flags. Some read
      * flags describe the client state (AUTH_REQUIRED) while others describe the
      * command parsing outcome (PARSING_COMPLETED). */
@@ -4855,9 +4838,11 @@ static int consumeCommandQueue(client *c) {
     c->parsed_cmd = p->cmd;
     c->slot = p->slot;
 
-    /* Remove the command from the queue and free the parsedCommand structure */
+    /* Remove the command from the queue and return parsedCommand to pool */
     listDelNode(queue->cmds, head);
-    zfree(p);
+    /* Note: argv will be freed by the caller, so we don't need to handle it here */
+    p->argv = NULL;  /* Clear argv before returning to pool */
+    cmdQueuePutCommand(queue, p);
 
     return 1;
 }
