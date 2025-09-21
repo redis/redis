@@ -884,18 +884,16 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
          * there are too many entries deleted inside the listpack. */
         entries -= deleted_from_lp;
         marked_deleted += deleted_from_lp;
-        if (entries + marked_deleted > 10 && marked_deleted > entries/2 && trim_strategy != TRIM_STRATEGY_MINID) {
+        if (entries + marked_deleted > 10 && marked_deleted > entries/2 ) {
             unsigned char *new_lp = lpNew(0);
             unsigned char *p = lpFirst(lp);
             
-            int64_t original_items_count = lpGetInteger(p);
-            new_lp = lpAppendInteger(new_lp, original_items_count); 
-            p = lpNext(lp, p);
-
+            new_lp = lpAppendInteger(new_lp, entries); 
+            p = lpNext(lp, p);/*point to count  */
     
-            p = lpNext(lp, p);  
             new_lp = lpAppendInteger(new_lp, 0);/*marked_deleted is reset to 0 in the new listpack*/
-            
+            p = lpNext(lp, p);/*point to deleted*/  
+
             /*copy master_fields*/
             int64_t master_fields_count = lpGetInteger(p);
             new_lp = lpAppendInteger(new_lp, master_fields_count);
@@ -906,25 +904,53 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                 new_lp = lpAppend(new_lp, field_data, field_len);
                 p = lpNext(lp, p);
             }
-            
+
+            new_lp = lpAppendInteger(new_lp, 0);  
+            p = lpNext(lp, p);   
             /*only copy not deleted items*/
-            while (p) {
-                int64_t cur_lp_cnt = lpGetInteger(p);
-                if(!cur_lp_cnt) break;
-                p = lpNext(lp, p);  /*now point to flags*/
-                if (p == NULL) break;
+            while (p && p < lpLast(lp)) {  // 改进边界检查
                 int flags = lpGetInteger(p);
+                if (flags == 0) break;  // 终止条件
+                
+                unsigned char *flags_pos = p;
+                p = lpNext(lp, p);  
+                if (p == NULL) break;
+                
+                // 跳过 entry-id (ms-diff 和 seq-diff)
+                p = lpNext(lp, p);
+                if (p == NULL) break;
+                p = lpNext(lp, p);
+                if (p == NULL) break;
+                
+                int field_count;
+                int total_elements;
+                
+                if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
+                    field_count = master_fields_count;
+                    // flags + entry-id(2) + values(field_count) + lp-count
+                    total_elements = 1 + 2 + field_count + 1;
+                } else {
+                    field_count = lpGetInteger(p);
+                    p = lpNext(lp, p); // 移动到第一个字段
+                    // flags + entry-id(2) + num-fields + fields+values(field_count*2) + lp-count  
+                    total_elements = 1 + 2 + 1 + field_count * 2 + 1;
+                }
+                
                 if (flags & STREAM_ITEM_FLAG_DELETED) {
-                    /*skip deleted item*/
-                    for (int64_t i = 1; i < cur_lp_cnt; i++) {  
+                    // 跳过已删除的 entry
+                    p = flags_pos;  // 回到 flags 开始
+                    for (int i = 0; i < total_elements; i++) {
                         p = lpNext(lp, p);
+                        if (p == NULL) break;
                     }
                     continue;
                 }
                 
-                /*copy item that not deleted */
-                new_lp = lpAppendInteger(new_lp, cur_lp_cnt);
-                for (int64_t i = 0; i < cur_lp_cnt; i++) {  
+                // 复制非删除的 entry
+                p = flags_pos;  // 重新定位到 flags 开始
+                
+                // 复制整个 entry
+                for (int i = 0; i < total_elements; i++) {
                     unsigned int elem_len;
                     long long elem_int;
                     unsigned char *elem_data = lpGetValue(p, &elem_len, &elem_int);
@@ -934,17 +960,14 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
                         new_lp = lpAppendInteger(new_lp, elem_int);
                     }
                     p = lpNext(lp, p);
-                }
+                    if (p == NULL) break;  // 添加安全检查
+                } 
             }
-            /*add zero term at the end*/
-            new_lp = lpAppendInteger(new_lp, 0); 
-            /*replace old listpack*/
-            raxRemove(s->rax, ri.key, ri.key_len, NULL);
-            raxInsert(s->rax, ri.key, ri.key_len, new_lp, NULL);
+
+            // GC 完成后替换 listpack
             lpFree(lp);
             lp = new_lp;
         }
-
         /* Update the listpack with the new pointer. */
         raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
 
