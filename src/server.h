@@ -82,10 +82,7 @@ typedef struct parsedCommand {
 
 /* Queue of parsed commands. */
 typedef struct {
-    parsedCommand *cmds;
-    uint16_t len; /* Number of elements in the queue. */
-    uint16_t off; /* Offset to the next element to execute. */
-    uint16_t cap; /* Allocation size (capacity) of the ps array. */
+    list *cmds; /* List of parsedCommand structures */
 } cmdQueue;
 
 /* kvobj - A specific type of robj that holds also embedded key

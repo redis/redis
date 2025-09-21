@@ -7712,8 +7712,11 @@ void prepareCommandQueue(client *c) {
     prepareCommand(c);
 
     /* Commands in client's command queue. */
-    for (int i = c->cmd_queue.off; i < c->cmd_queue.len; i++) {
-        parsedCommand *p = &c->cmd_queue.cmds[i];
+    listIter iter;
+    listNode *node;
+    listRewind(c->cmd_queue.cmds, &iter);
+    while ((node = listNext(&iter)) != NULL) {
+        parsedCommand *p = listNodeValue(node);
         prepareCommandGeneric(c, p->argv, p->argc, &p->read_flags, &p->cmd, &p->slot);
     }
 }

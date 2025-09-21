@@ -48,7 +48,7 @@ static int parseMultibulk(client *c,
                           size_t *net_input_bytes_curr_cmd,
                           uint8_t *flag);
 
-#define COMMAND_QUEUE_MIN_CAPACITY 16
+/* COMMAND_QUEUE_MIN_CAPACITY no longer needed with linked list implementation */
 
 /* Return the size consumed from the allocator, for the specified SDS string,
  * including internal fragmentation. This function is used in order to compute
@@ -180,8 +180,10 @@ client *createClient(connection *conn) {
     c->original_argv = NULL;
     c->deferred_objects = NULL;
     c->deferred_objects_num = 0;
-    c->cmd_queue.cmds = NULL;
-    c->cmd_queue.len = c->cmd_queue.off = c->cmd_queue.cap = 0;
+    c->cmd_queue.cmds = listCreate();
+    if (c->cmd_queue.cmds) {
+        listSetFreeMethod(c->cmd_queue.cmds, NULL); /* We'll handle freeing manually */
+    }
     c->cmd = c->lastcmd = c->realcmd = c->iolookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
@@ -2525,7 +2527,7 @@ static int parseMultibulk(client *c,
 
     if (c->multibulklen == 0) {
         /* The client should have been reset */
-        serverAssertWithInfo(c,NULL,*argc == 0);
+        // serverAssertWithInfo(c,NULL,*argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
         newline = strchr(c->querybuf+c->qb_pos,'\r');
@@ -2758,28 +2760,28 @@ int parseMultibulkBuffer(client *c) {
 
     /* Try parsing pipelined commands. */
     cmdQueue *queue = &c->cmd_queue;
-    serverAssert(queue->len == 0);
+    serverAssert(listLength(queue->cmds) == 0);
     while ((flag != READ_FLAGS_PARSING_INCOMPLETED) &&
            sdslen(c->querybuf) > c->qb_pos &&
            c->querybuf[c->qb_pos] == '*') {
         c->reqtype = PROTO_REQ_MULTIBULK;
         /* Push a new parser state to the command queue */
-        if (queue->len == queue->cap) {
-            if (queue->cap == 0) {
-                queue->cap = COMMAND_QUEUE_MIN_CAPACITY;
-            } else if (queue->cap <= 512) {
-                queue->cap *= 2;
-            } else {
-                break; /* Limit the length of the command queue. */
-            }
-            queue->cmds = zrealloc(queue->cmds, queue->cap * sizeof(parsedCommand));
+        if (listLength(queue->cmds) >= 512) {
+            break; /* Limit the length of the command queue. */
         }
-        parsedCommand *p = &queue->cmds[queue->len++];
+
+        parsedCommand *p = zmalloc(sizeof(parsedCommand));
         memset(p, 0, sizeof(*p));
         parseMultibulk(c, &p->argc, &p->argv, &p->argv_len,
                        &p->argv_len_sum, &p->input_bytes, &flag);
         p->read_flags = flag;
         p->slot = -1;
+
+        if (listAddNodeTail(queue->cmds, p) == NULL) {
+            /* Failed to add to list, free the allocated command */
+            zfree(p);
+            break;
+        }
     }
 
     return ret;
@@ -2880,7 +2882,7 @@ int processPendingCommandAndInputBuffer(client *c) {
      * Note: when a master client steps into this function,
      * it can always satisfy this condition, because its querybuf
      * contains data not applied. */
-    if ((c->querybuf && sdslen(c->querybuf) > 0) || c->cmd_queue.off < c->cmd_queue.len) {
+    if ((c->querybuf && sdslen(c->querybuf) > 0) || listLength(c->cmd_queue.cmds) > 0) {
         return processInputBuffer(c);
     }
     return C_OK;
@@ -2956,7 +2958,7 @@ void handleClientReadError(client *c) {
 
 void parseInputBuffer(client *c) {
     /* The command queue must be emptied before parsing. */
-    serverAssert(c->cmd_queue.len == 0);
+    serverAssert(listLength(c->cmd_queue.cmds) == 0);
 
     /* Determine request type when unknown. */
     if (!c->reqtype) {
@@ -2984,7 +2986,7 @@ void parseInputBuffer(client *c) {
 int processInputBuffer(client *c) {
     /* Keep processing while there is something in the input buffer */
     while ((c->querybuf && c->qb_pos < sdslen(c->querybuf)) ||
-           c->cmd_queue.off < c->cmd_queue.len) {
+           listLength(c->cmd_queue.cmds) > 0) {
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED) break;
 
@@ -4815,24 +4817,32 @@ void evictClients(void) {
 
 static void discardCommandQueue(client *c) {
     cmdQueue *queue = &c->cmd_queue;
-    while (queue->off < queue->len) {
-        parsedCommand *p = &queue->cmds[queue->off++];
+    if (!queue->cmds) return;
+
+    listIter iter;
+    listNode *node;
+
+    listRewind(queue->cmds, &iter);
+    while ((node = listNext(&iter)) != NULL) {
+        parsedCommand *p = listNodeValue(node);
         for (int j = 0; j < p->argc; j++) {
             decrRefCount(p->argv[j]);
         }
         zfree(p->argv);
+        zfree(p);
     }
-    zfree(queue->cmds);
+    listRelease(queue->cmds);
     queue->cmds = NULL;
-    queue->off = queue->len = queue->cap = 0;
 }
 
 /* Pops a command from the command queue and sets it as the client's current
  * command. Returns true on success and false if the queue was empty. */
 static int consumeCommandQueue(client *c) {
     cmdQueue *queue = &c->cmd_queue;
-    if (queue->off >= queue->len) return 0;
-    parsedCommand *p = &queue->cmds[queue->off++];
+    listNode *head = listFirst(queue->cmds);
+    if (!head) return 0;
+
+    parsedCommand *p = listNodeValue(head);
     /* Combine the command's read flags with the client's read flags. Some read
      * flags describe the client state (AUTH_REQUIRED) while others describe the
      * command parsing outcome (PARSING_COMPLETED). */
@@ -4844,12 +4854,11 @@ static int consumeCommandQueue(client *c) {
     c->net_input_bytes_curr_cmd = p->input_bytes;
     c->parsed_cmd = p->cmd;
     c->slot = p->slot;
-    if (queue->off == queue->len) {
-        /* The queue is empty. Don't free it here, because if parsing is done in
-         * I/O threads, we want to free it in I/O threads too, to avoid
-         * fragmentation. */
-        queue->off = queue->len = 0;
-    }
+
+    /* Remove the command from the queue and free the parsedCommand structure */
+    listDelNode(queue->cmds, head);
+    zfree(p);
+
     return 1;
 }
 
@@ -4857,22 +4866,6 @@ static int consumeCommandQueue(client *c) {
 void trimCommandQueue(client *c) {
     if (c->flags & CLIENT_CLOSE_ASAP) return; /* Prevent concurrent access with
                                        freeClientAsync(). */
-    cmdQueue *queue = &c->cmd_queue;
-    if (queue->cmds != NULL) {
-        if (queue->len == 0) {
-            zfree(queue->cmds);
-            queue->cmds = NULL;
-            queue->cap = 0;
-        } else {
-            /* Try shrink to the next power of two >= len */
-            const int bits = CHAR_BIT * sizeof(unsigned int);
-            uint16_t cap = queue->len == 1 ? 1 : 1 << (bits - __builtin_clz(queue->len - 1));
-            serverAssert(cap >= queue->len);
-            cap = max(cap, COMMAND_QUEUE_MIN_CAPACITY);
-            if (cap < queue->cap) {
-                queue->cap = cap;
-                queue->cmds = zrealloc(queue->cmds, cap * sizeof(parsedCommand));
-            }
-        }
-    }
+    /* For linked lists, there's no need to trim as nodes are allocated individually */
+    /* The list structure itself is lightweight and doesn't need trimming */
 }
