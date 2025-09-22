@@ -1532,6 +1532,14 @@ static void asmStartImportTask(asmTask *task) {
     if (task->operation != ASM_IMPORT || task->state != ASM_NONE) return;
     sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
 
+    /* Trimming is skipped on failover to avoid data loss with legacy
+     * migration. Failover during import may leave keys in unowned slots and
+     * once a replica becomes master we cannot tell if legacy method or ASM
+     * was used, since replicas are unaware of migrations. Admin may also
+     * mark unowned slots as migrating to continue the legacy migration.
+     * So, ASM defers trimming unowned slots until the next ASM operation.*/
+    asmTrimSlotsIfNotOwned();
+
     /* Check if there is any trim job in progress for the slot ranges.
      * We can't start the import task since the trim job will modify the data.*/
     int trim_in_progress = asmIsAnyTrimJobOverlaps(task->slot_ranges);
@@ -2726,18 +2734,25 @@ void asmTrimJobProcessPending(void) {
 void asmTrimSlotsIfNotOwned(void) {
     if (!server.cluster_enabled || server.masterhost != NULL) return;
 
+    size_t num_keys = 0;
     slotRangeArray *sra = NULL;
     for (int i = 0; i < CLUSTER_SLOTS; i++) {
-        if (clusterIsMySlot(i)) continue;
-        if (kvstoreDictSize(server.db[0].keys, i) == 0) continue;
+        /* Skip slots that are owned, empty, or already in a trim job. */
+        if (clusterIsMySlot(i) ||
+            kvstoreDictSize(server.db[0].keys, i) == 0 ||
+            isSlotInTrimJob(i))
+        {
+            continue;
+        }
         sra = slotRangeArrayAppend(sra, i);
+        num_keys += kvstoreDictSize(server.db[0].keys, i);
     }
     if (!sra) return;
 
     sds str = slotRangeArrayToString(sra);
     serverLog(LL_NOTICE,
               "Detected keys in slots that does not belong to this node. "
-              "Scheduling trim for slots: %s", str);
+              "Scheduling trim for %zu keys in slots: %s", num_keys, str);
     sdsfree(str);
 
     asmTrimJobSchedule(sra);

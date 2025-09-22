@@ -4271,9 +4271,6 @@ void clusterFailoverReplaceYourMaster(void) {
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
-
-    /* 6) Check if we have keys in slots that does not belong to this node. */
-    asmTrimSlotsIfNotOwned();
 }
 
 /* This function is called if we are a slave node and our master serving
@@ -6563,7 +6560,6 @@ int clusterAllowFailoverCmd(client *c) {
 
 void clusterPromoteSelfToMaster(void) {
     replicationUnsetMaster();
-    asmTrimSlotsIfNotOwned();
 }
 
 int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
