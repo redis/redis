@@ -1882,6 +1882,34 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_error {*READONLY*} {R 3 trimslots ranges 1 16383 16383}
     }
 
+    test "Trigger multiple active trim jobs at the same time" {
+        R 1 debug asm-trim-method active 0
+        R 1 flushall
+
+        set prev_trim_done [CI 1 cluster_slot_migration_active_trim_done]
+        set prev_trim_keys_total [CI 1 cluster_slot_migration_active_trim_keys_total]
+
+        R 1 debug populate 1000 [slot_prefix 0] 100
+        R 1 debug populate 1000 [slot_prefix 1] 100
+        R 1 debug populate 1000 [slot_prefix 2] 100
+
+        R 1 multi
+        R 1 trimslots ranges 1 0 0
+        R 1 trimslots ranges 1 1 1
+        R 1 trimslots ranges 1 2 2
+        R 1 exec
+
+        wait_for_condition 1000 10 {
+            [CI 1 cluster_slot_migration_active_trim_done] == $prev_trim_done + 3 &&
+            [CI 1 cluster_slot_migration_active_trim_keys_total] == $prev_trim_keys_total + 3000
+        } else {
+            fail "active trim failed"
+        }
+
+        R 1 flushall
+        R 1 debug asm-trim-method default
+    }
+
     test "Restart will clean up unowned slot keys" {
         R 1 flushall
 

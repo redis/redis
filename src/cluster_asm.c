@@ -68,6 +68,7 @@ struct asmManager {
 
     /* Active trim stats */
     unsigned long long active_trim_started;      /* Number of times active trim was started */
+    unsigned long long active_trim_done;         /* Number of times active trim was completed */
     unsigned long long active_trim_cancelled;    /* Number of times active trim was cancelled */
     unsigned long long active_trim_keys_total;   /* Total number of keys to trim in the current job */
     unsigned long long active_trim_keys_deleted; /* Number of keys trimmed in the current job */
@@ -137,7 +138,7 @@ void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
 int asmTrimJobIsPending(void);
 void asmTriggerActiveTrim(slotRangeArray *slots);
-void asmActiveTrimEnd(int start_next_job);
+void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 
 void clusterAsmInit(void) {
@@ -153,6 +154,7 @@ void clusterAsmInit(void) {
     asmManager->debug_active_trim_delay = 0;
     asmManager->active_trim_jobs = listCreate();
     asmManager->active_trim_started = 0;
+    asmManager->active_trim_done = 0;
     asmManager->active_trim_cancelled = 0;
     listSetFreeMethod(asmManager->active_trim_jobs, (void (*)(void*))slotRangeArrayFree);
 }
@@ -301,6 +303,7 @@ sds asmCatInfoString(sds info) {
                         "cluster_slot_migration_sync_buffer_peak:%zu\r\n"
                         "cluster_slot_migration_active_trim_jobs:%lu\r\n"
                         "cluster_slot_migration_active_trim_started:%llu\r\n"
+                        "cluster_slot_migration_active_trim_done:%llu\r\n"
                         "cluster_slot_migration_active_trim_cancelled:%llu\r\n"
                         "cluster_slot_migration_active_trim_keys_total:%llu\r\n"
                         "cluster_slot_migration_active_trim_keys_deleted:%llu\r\n",
@@ -309,6 +312,7 @@ sds asmCatInfoString(sds info) {
                         asmGetPeakSyncBufferSize(),
                         listLength(asmManager->active_trim_jobs),
                         asmManager->active_trim_started,
+                        asmManager->active_trim_done,
                         asmManager->active_trim_cancelled,
                         asmManager->active_trim_keys_total,
                         asmManager->active_trim_keys_deleted);
@@ -2777,7 +2781,7 @@ void asmCancelTrimJobs(void) {
 
     serverLog(LL_NOTICE, "Cancelling all active trim jobs");
     asmManager->active_trim_cancelled += listLength(asmManager->active_trim_jobs);
-    asmActiveTrimEnd(0);
+    asmActiveTrimEnd();
     listEmpty(asmManager->active_trim_jobs);
 }
 
@@ -2848,8 +2852,6 @@ void trimslotsCommand(client *c) {
 
 /* Start the active trim job. */
 void asmActiveTrimStart(void) {
-    if (listLength(asmManager->active_trim_jobs) != 1) return;
-
     slotRangeArray *slots = listNodeValue(listFirst(asmManager->active_trim_jobs));
 
     serverAssert(asmManager->active_trim_it == NULL);
@@ -2883,11 +2885,10 @@ void asmTriggerActiveTrim(slotRangeArray *slots) {
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim scheduled for slots: %s", str);
     sdsfree(str);
-    asmActiveTrimStart();
 }
 
 /* End the active trim job. */
-void asmActiveTrimEnd(int start_next_job) {
+void asmActiveTrimEnd(void) {
     slotRangeArray *slots = listNodeValue(listFirst(asmManager->active_trim_jobs));
 
     if (asmManager->active_trim_it) {
@@ -2912,8 +2913,7 @@ void asmActiveTrimEnd(int start_next_job) {
               str, asmManager->active_trim_keys_deleted);
     sdsfree(str);
     listDelNode(asmManager->active_trim_jobs, listFirst(asmManager->active_trim_jobs));
-
-    if (start_next_job) asmActiveTrimStart();
+    asmManager->active_trim_done++;
 }
 
 /* Check if the slot range array overlaps with any trim job. */
@@ -2960,6 +2960,12 @@ void asmActiveTrimCycle(int type) {
         return;
     }
 
+    /* Start an active trim job if no active trim job is running. */
+    if (asmManager->active_trim_it == NULL) {
+        serverAssert(listLength(asmManager->active_trim_jobs) > 0);
+        asmActiveTrimStart();
+    }
+
     /* This works in a similar way to activeExpireCycle, in the sense that
      * we do incremental work across calls. */
     static long long last_fast_cycle = 0; /* When last fast cycle ran. */
@@ -2978,6 +2984,8 @@ void asmActiveTrimCycle(int type) {
 
     unsigned long long num_deleted = 0;
     int time_exceeded = 0;
+
+    serverAssert(asmManager->active_trim_it);
     int slot = slotRangeArrayGetCurrentSlot(asmManager->active_trim_it);
 
     while (!time_exceeded && slot != -1) {
@@ -3009,7 +3017,7 @@ void asmActiveTrimCycle(int type) {
 #if defined(USE_JEMALLOC)
         jemalloc_purge();
 #endif
-        asmActiveTrimEnd(1);
+        asmActiveTrimEnd();
     }
 
     long long elapsed = ustime() - start;
