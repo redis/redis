@@ -35,6 +35,7 @@ typedef struct asmTask {
     int rdb_channel_state;              /* State of the RDB channel */
     unsigned long long dest_offset;     /* Destination offset */
     unsigned long long source_offset;   /* Source offset */
+    int cross_slot_during_propagating;  /* If cross-slot commands are encountered during propagating */
     int stream_eof_during_streaming;    /* If STREAM-EOF is received during streaming buffer */
     replDataBuf sync_buffer;            /* Buffer for the stream */
     client *main_channel_client;        /* Client for the main channel on the source side */
@@ -322,6 +323,7 @@ void asmTaskReset(asmTask *task) {
     task->dest_offset = 0;
     task->source_offset = 0;
     task->stream_eof_during_streaming = 0;
+    task->cross_slot_during_propagating = 0;
     replDataBufInit(&task->sync_buffer);
     task->main_channel_client = NULL;
     task->rdb_channel_client = NULL;
@@ -576,6 +578,7 @@ void asmFeedMigrationClient(robj **argv, int argc) {
     /* Quick check if there is a migrate task in progress. */
     task = listNodeValue(listFirst(asmManager->tasks));
     if (task->operation != ASM_MIGRATE) return;
+    if (task->state == ASM_FAILED || task->cross_slot_during_propagating) return;
 
     /* Check if the command belongs to the slot range. */
     struct redisCommand *cmd = lookupCommandBySds(argv[0]->ptr);
@@ -610,7 +613,12 @@ void asmFeedMigrationClient(robj **argv, int argc) {
      * replicate this kind of command, so we check again. To guarantee data
      * consistency, we cancel the task if we encounter a cross-slot command. */
     if (slot == GETSLOT_CROSSSLOT) {
-        asmTaskCancel(task, "cross-slot command");
+        /* We cannot cancel the task directly here, since it may lead to a recursive
+         * call: asmTaskCancel() --> moduleFireServerEvent() --> moduleFreeContext()
+         * --> postExecutionUnitOperations() --> propagateNow(). Even worse, this
+         * could result in propagating pending commands to the replication stream twice.
+         * To avoid this, we simply set a flag here, cancel the task in beforeSleep. */
+        task->cross_slot_during_propagating = 1;
         return;
     }
 
@@ -2267,6 +2275,11 @@ void asmBeforeSleep(void) {
     }
 
     if (task->operation == ASM_MIGRATE) {
+        if (task->cross_slot_during_propagating) {
+            asmTaskCancel(task, "propagating cross slot command");
+            return;
+        }
+
         if (task->state == ASM_HANDOFF) {
             /* To avoid long pause, we fail the task if the pause takes too long. */
             if (server.mstime - task->paused_time >= server.asm_pause_write_timeout) {

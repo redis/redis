@@ -168,18 +168,6 @@ proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {key
     return $task_id
 }
 
-set testmodule [file normalize tests/modules/atomicslotmigration.so]
-
-start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
-    test "Module replicate crossslot" {
-       R 0 asm.replicate_crossslot_command 1
-       set task_id [setup_slot_migration_with_delay 0 1 0 100]
-       # assert cancelled
-       # cleanup
-       R 0 asm.replicate_crossslot_command 0
-    }
-}
-
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     test "Test IMPORT input validation" {
         # invalid arguments
@@ -1911,6 +1899,28 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
     test "Module api sanity" {
         R 0 asm.sanity ;# on master
         R 3 asm.sanity ;# on replica
+    }
+
+    test "Module replicate cross slot command" {
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+        set listkey [slot_key 0 "asmlist"]
+        # replicate cross slot command during migrating
+        R 0 asm.lpush_replicate_crossslot_command $listkey "item1"
+
+        # node 0 will fail due to cross slot
+        wait_for_condition 2000 10 {
+            [string match {*canceled*} [migration_status 0 $task_id state]] &&
+            [string match {*cross slot*} [migration_status 0 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+        R 1 CLUSTER MIGRATION CANCEL ID $task_id
+
+        # sanity check if lpush replicated correctly to the replica
+        wait_for_ofs_sync [Rn 0] [Rn 3]
+        assert_equal {item1} [R 0 lrange $listkey 0 -1]
+        R 3 readonly
+        assert_equal {item1} [R 3 lrange $listkey 0 -1]
     }
 
     test "Test RM_ClusterCanAccessKeysInSlot" {

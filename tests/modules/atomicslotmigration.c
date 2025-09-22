@@ -15,7 +15,6 @@ const char *clusterTrimEventLog[MAX_EVENTS];
 int numClusterTrimEvents = 0;
 
 int replicateModuleCommand = 0;   /* Enable or disable module command replication. */
-int replicateCrossSlotCommand = 0; /* Enable or disable cross-slot command replication. */
 RedisModuleString *moduleCommandKeyName = NULL; /* Key name to replicate. */
 RedisModuleString *moduleCommandKeyVal = NULL;  /* Key value to replicate. */
 
@@ -43,18 +42,18 @@ int replicate_module_command(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return REDISMODULE_OK;
 }
 
-int replicate_crossslot_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 2) {
-        RedisModule_ReplyWithError(ctx, "ERR wrong number of arguments");
-        return REDISMODULE_OK;
-    }
+int lpush_and_replicate_crossslot_command(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 3) return RedisModule_WrongArity(ctx);
 
-    long long enabled;
-    if (RedisModule_StringToLongLong(argv[1], &enabled) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR enable value");
-        return REDISMODULE_OK;
-    }
-    replicateCrossSlotCommand = (enabled != 0);
+    /* LPUSH */
+    RedisModuleCallReply *rep = RedisModule_Call(ctx, "LPUSH", "!ss", argv[1], argv[2]);
+    RedisModule_Assert(RedisModule_CallReplyType(rep) != REDISMODULE_REPLY_ERROR);
+    RedisModule_FreeCallReply(rep);
+
+    /* Replicate cross slot command */
+    int ret = RedisModule_Replicate(ctx, "MSET", "cccccc", "key1", "val1", "key2", "val2", "key3", "val3");
+    RedisModule_Assert(ret == REDISMODULE_OK);
+
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -227,11 +226,6 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
             ret = RedisModule_ClusterPropagateForSlotMigration(ctx, "SET", "ss", moduleCommandKeyName, moduleCommandKeyVal);
             RedisModule_Assert(ret == REDISMODULE_OK);
         } else {
-            if (replicateCrossSlotCommand == 1) {
-                ret = RedisModule_Replicate(ctx, "MSET", "cccccc", "key1", "val1", "key2", "val2", "key3", "val3");
-                RedisModule_Assert(ret == REDISMODULE_OK);
-            }
-
             /* Log the event. */
             if (numClusterEvents >= MAX_EVENTS) return;
             clusterEventLog[numClusterEvents++] = clusterMigrationInfoToString(info, sub);
@@ -358,7 +352,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.replicate_module_command", replicate_module_command, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "asm.replicate_crossslot_command", replicate_crossslot_command, "", 0, 0, 0) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "asm.lpush_replicate_crossslot_command", lpush_and_replicate_crossslot_command, "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsm, clusterEventCallback) == REDISMODULE_ERR)
