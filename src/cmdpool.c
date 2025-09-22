@@ -68,31 +68,34 @@ parsedCommand *cmdQueueGetCommand(cmdQueue *queue) {
         /* Get from pool */
         cmd = queue->pool[--queue->pool_size];
         queue->pool[queue->pool_size] = NULL;
+
+        robj **argv = cmd->argv;
+        int argv_len = cmd->argv_len;
         memset(cmd, 0, sizeof(parsedCommand));
+        cmd->argv = argv;
+        cmd->argv_len = argv_len;
     } else {
         /* Pool is empty, allocate new */
         cmd = zcalloc(sizeof(parsedCommand));
     }
     
-    /* Reset the command structure */
-    cmd->slot = -1;  /* Default slot value */
     return cmd;
 }
 
 /* Return a parsedCommand to the client's pool */
 void cmdQueuePutCommand(cmdQueue *queue, parsedCommand *cmd) {
-    if (!queue || !cmd) return;
-    
-    /* Clear argv before returning to pool */
-    if (cmd->argv) {
-        zfree(cmd->argv);
-        cmd->argv = NULL;
-    }
-    
+    for (int j = 0; j < cmd->argc; j++)
+        decrRefCount(cmd->argv[j]);
+
     /* If pool is not full, add to pool */
     if (queue->pool_size < 16) {
         queue->pool[queue->pool_size++] = cmd;
     } else {
+        if (cmd->argv) {
+            zfree(cmd->argv);
+            cmd->argv = NULL;
+        }
+
         /* Pool is full, free the command */
         zfree(cmd);
     }

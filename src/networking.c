@@ -2300,7 +2300,21 @@ int handleClientsWithPendingWrites(void) {
 static inline void resetClientInternal(client *c, int free_argv) {
     redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
 
-    freeClientArgvInternal(c, free_argv);
+    // freeClientArgvInternal(c, free_argv);
+
+    listNode *head = listFirst(c->cmd_queue.cmds);
+    if (head) {
+        cmdQueuePutCommand(&c->cmd_queue, listNodeValue(head));
+        listDelNode(c->cmd_queue.cmds, head);
+
+        c->argv_len = 0;
+        c->argv = NULL;
+        c->argc = 0;
+        c->cmd = NULL;
+    } else {
+        freeClientArgvInternal(c, free_argv);
+    }
+
     c->cur_script = NULL;
     c->slot = -1;
     c->cluster_compatibility_check_slot = -2;
@@ -4839,10 +4853,10 @@ static int consumeCommandQueue(client *c) {
     c->slot = p->slot;
 
     /* Remove the command from the queue and return parsedCommand to pool */
-    listDelNode(queue->cmds, head);
+    // listDelNode(queue->cmds, head);
     /* Note: argv will be freed by the caller, so we don't need to handle it here */
-    p->argv = NULL;  /* Clear argv before returning to pool */
-    cmdQueuePutCommand(queue, p);
+    // p->argv = NULL;  /* Clear argv before returning to pool */
+    // cmdQueuePutCommand(queue, p);
 
     return 1;
 }
