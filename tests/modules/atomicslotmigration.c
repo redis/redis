@@ -58,6 +58,32 @@ int lpush_and_replicate_crossslot_command(RedisModuleCtx *ctx, RedisModuleString
     return REDISMODULE_OK;
 }
 
+int testClusterGetLocalSlotRanges(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    static int use_auto_memory = 0;
+    use_auto_memory = !use_auto_memory;
+
+    RedisModuleSlotRangeArray *slots;
+    if (use_auto_memory) {
+        RedisModule_AutoMemory(ctx);
+        slots = RedisModule_ClusterGetLocalSlotRanges(ctx);
+    } else {
+        slots = RedisModule_ClusterGetLocalSlotRanges(NULL);
+    }
+
+    RedisModule_ReplyWithArray(ctx, slots->num_ranges);
+    for (int i = 0; i < slots->num_ranges; i++) {
+        RedisModule_ReplyWithArray(ctx, 2);
+        RedisModule_ReplyWithLongLong(ctx, slots->ranges[i].start);
+        RedisModule_ReplyWithLongLong(ctx, slots->ranges[i].end);
+    }
+    if (!use_auto_memory)
+        RedisModule_ClusterFreeSlotRanges(NULL, slots);
+    return REDISMODULE_OK;
+}
+
 /* Helper function to check if a slot range array contains a given slot. */
 int slotRangeArrayContains(RedisModuleSlotRangeArray *sra, unsigned int slot) {
     for (int i = 0; i < sra->num_ranges; i++)
@@ -353,6 +379,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.lpush_replicate_crossslot_command", lpush_and_replicate_crossslot_command, "write", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.cluster_get_local_slot_ranges", testClusterGetLocalSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsm, clusterEventCallback) == REDISMODULE_ERR)

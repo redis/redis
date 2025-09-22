@@ -94,6 +94,7 @@ struct AutoMemEntry {
 #define REDISMODULE_AM_DICT 4
 #define REDISMODULE_AM_INFO 5
 #define REDISMODULE_AM_CONFIG 6
+#define REDISMODULE_AM_SLOTRANGEARRAY 7
 
 /* The pool allocator block. Redis Modules can allocate memory via this special
  * allocator that will automatically release it all once the callback returns.
@@ -498,6 +499,7 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
 void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d);
 void RM_FreeServerInfo(RedisModuleCtx *ctx, RedisModuleServerInfoData *data);
 void RM_ConfigIteratorRelease(RedisModuleCtx *ctx, RedisModuleConfigIterator *iter);
+void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots);
 
 /* Helpers for RM_SetCommandInfo. */
 static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info);
@@ -2622,6 +2624,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
         case REDISMODULE_AM_DICT: RM_FreeDict(NULL,ptr); break;
         case REDISMODULE_AM_INFO: RM_FreeServerInfo(NULL,ptr); break;
         case REDISMODULE_AM_CONFIG: RM_ConfigIteratorRelease(NULL, ptr); break;
+        case REDISMODULE_AM_SLOTRANGEARRAY: RM_ClusterFreeSlotRanges(NULL, ptr); break;
         }
     }
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
@@ -9347,11 +9350,9 @@ int RM_ClusterCanAccessKeysInSlot(int slot) {
  * * ERANGE: command contains keys that are not within the migrating slot range.
  */
 int RM_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
-    UNUSED(ctx);
-
-    struct redisCommand *cmd;
+    int argc = 0, flags = 0;
     robj **argv = NULL;
-    int argc = 0, flags = 0, j;
+    struct redisCommand *cmd;
     va_list ap;
 
     if (ctx == NULL || cmdname == NULL || fmt == NULL) {
@@ -9378,11 +9379,31 @@ int RM_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname
     int saved_errno = errno;
 
     /* Release the argv. */
-    for (j = 0; j < argc; j++) decrRefCount(argv[j]);
+    for (int i = 0; i < argc; i++) decrRefCount(argv[i]);
     zfree(argv);
-    server.dirty++;
     errno = saved_errno;
     return ret == C_OK ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Returns the locally owned slot ranges for the node.
+ *
+ * An optional `ctx` can be provided to enable auto-memory management.
+ * If cluster mode is disabled, the array will include all slots (0–16383).
+ * If the node is a replica, the slot ranges of its master are returned.
+ *
+ * The returned array must be freed with RM_ClusterFreeSlotRanges().
+ */
+RedisModuleSlotRangeArray *RM_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
+    slotRangeArray *slots = clusterGetLocalSlotRanges();
+    if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
+    return (RedisModuleSlotRangeArray *)slots;
+}
+
+/* Frees a slot range array returned by RM_ClusterGetLocalSlotRanges().
+ * Pass the `ctx` pointer only if the array was created with a context. */
+void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
+    if (ctx) autoMemoryFreed(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
+    slotRangeArrayFree((slotRangeArray *)slots);
 }
 
 /* --------------------------------------------------------------------------
@@ -14922,6 +14943,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ClusterCanonicalKeyNameInSlot);
     REGISTER_API(ClusterCanAccessKeysInSlot);
     REGISTER_API(ClusterPropagateForSlotMigration);
+    REGISTER_API(ClusterGetLocalSlotRanges);
+    REGISTER_API(ClusterFreeSlotRanges);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
     REGISTER_API(DictSize);
