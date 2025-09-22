@@ -19,6 +19,7 @@
 #include "script.h"
 #include "fpconv_dtoa.h"
 #include "fmtargs.h"
+#include "memory_prefetch.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -3020,8 +3021,12 @@ int processInputBuffer(client *c) {
         /* If commands are queued up, pop from the queue first */
         if (!consumeCommandQueue(c)) {
             parseInputBuffer(c);
-            if (consumeCommandQueue(c) == 0) break;
             prepareCommandQueue(c);
+            if (consumeCommandQueue(c) == 0) break;
+
+            resetCommandsBatch();
+            addCommandToBatch(c);
+            prefetchCommands();
         }
 
         if (c->argc == 0) {

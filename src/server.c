@@ -2978,6 +2978,8 @@ void initServer(void) {
 
     if (server.maxmemory_clients != 0)
         initServerClientMemUsageBuckets();
+
+    prefetchCommandsBatchInit();
 }
 
 void initListeners(void) {
@@ -7709,11 +7711,12 @@ void prepareCommand(client *c) {
 /* Prepare all parsed commands in the client's queue. See prepareCommand(). */
 void prepareCommandQueue(client *c) {
     /* First AKA current command (c->argv). */
-    prepareCommand(c);
+    // prepareCommand(c);
 
     /* Commands in client's command queue. */
     parsedCommand *p = cmdQueueFirst(&c->cmd_queue);
     while (p != NULL) {
+        if (p->read_flags == READ_FLAGS_PARSING_INCOMPLETED) break;
         prepareCommandGeneric(c, p->argv, p->argc, &p->read_flags, &p->cmd, &p->slot);
         p = p->next;
     }

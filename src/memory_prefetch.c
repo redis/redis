@@ -369,7 +369,9 @@ void prefetchCommands(void) {
  *
  * Returns C_OK if the command was added successfully, C_ERR otherwise. */
 int addCommandToBatch(client *c) {
-    if (unlikely(!batch)) return C_ERR;
+    if (unlikely(!batch)) {
+        return C_ERR;
+    }
 
     /* If the batch is full, process it.
      * We also check the client count to handle cases where
@@ -382,18 +384,33 @@ int addCommandToBatch(client *c) {
 
     batch->clients[batch->client_count++] = c;
 
-    if (likely(c->iolookedcmd)) {
-        /* Get command's keys positions */
-        getKeysResult result = GETKEYS_RESULT_INIT;
-        int num_keys = getKeysFromCommand(c->iolookedcmd, c->argv, c->argc, &result);
+    // if (likely(c->iolookedcmd)) {
+    //     /* Get command's keys positions */
+    //     getKeysResult result = GETKEYS_RESULT_INIT;
+    //     int num_keys = getKeysFromCommand(c->iolookedcmd, c->argv, c->argc, &result);
+    //     for (int i = 0; i < num_keys && batch->key_count < batch->max_prefetch_size; i++) {
+    //         batch->keys[batch->key_count] = c->argv[result.keys[i].pos];
+    //         batch->keys_dicts[batch->key_count] =
+    //             kvstoreGetDict(c->db->keys, c->slot > 0 ? c->slot : 0);
+    //         batch->key_count++;
+    //     }
+    //     getKeysFreeResult(&result);
+    // }
+
+    parsedCommand *p = cmdQueueFirst(&c->cmd_queue);
+    while (p != NULL) {
+        if (p->read_flags == READ_FLAGS_PARSING_INCOMPLETED) break;
+        getKeysResult result = GETKEYS_RESULT_INIT;;
+        int num_keys = getKeysFromCommand(p->cmd, p->argv, p->argc, &result);
         for (int i = 0; i < num_keys && batch->key_count < batch->max_prefetch_size; i++) {
-            batch->keys[batch->key_count] = c->argv[result.keys[i].pos];
+            batch->keys[batch->key_count] = p->argv[result.keys[i].pos];
             batch->keys_dicts[batch->key_count] =
-                kvstoreGetDict(c->db->keys, c->slot > 0 ? c->slot : 0);
+                kvstoreGetDict(c->db->keys, p->slot > 0 ? p->slot : 0);
             batch->key_count++;
         }
         getKeysFreeResult(&result);
-    }
+        p = p->next;
+    } 
 
     return C_OK;
 }
