@@ -17,7 +17,6 @@ endif
 endif
 endif
 
-
 CFLAGS = -O2 -Wall -Wextra -g $(SAN) -std=c11
 LDFLAGS = -lm $(SAN)
 
