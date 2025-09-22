@@ -78,11 +78,16 @@ typedef struct parsedCommand {
     size_t argv_len_sum;
     size_t input_bytes;
     struct redisCommand *cmd;
+    /* Intrusive linked list pointers */
+    struct parsedCommand *next;
+    struct parsedCommand *prev;
 } parsedCommand;
 
 /* Queue of parsed commands with client-specific command pool. */
 typedef struct {
-    list *cmds; /* List of parsedCommand structures */
+    parsedCommand *head; /* Head of the intrusive linked list */
+    parsedCommand *tail; /* Tail of the intrusive linked list */
+    int length; /* Number of commands in the queue */
     parsedCommand *pool[16]; /* Client-specific command pool, max 16 objects */
     int pool_size; /* Current number of objects in pool */
 } cmdQueue;
@@ -3365,6 +3370,10 @@ void cmdQueueInit(cmdQueue *queue);
 void cmdQueueCleanup(cmdQueue *queue);
 parsedCommand *cmdQueueGetCommand(cmdQueue *queue);
 void cmdQueuePutCommand(cmdQueue *queue, parsedCommand *cmd);
+void cmdQueueAddTail(cmdQueue *queue, parsedCommand *cmd);
+parsedCommand *cmdQueueRemoveHead(cmdQueue *queue);
+int cmdQueueLength(cmdQueue *queue);
+parsedCommand *cmdQueueFirst(cmdQueue *queue);
 int processPendingCommandAndInputBuffer(client *c);
 int processCommandAndResetClient(client *c);
 int areCommandKeysInSameSlot(client *c, int *hashslot);

@@ -15,10 +15,12 @@
 /* Initialize a client command queue with pool */
 void cmdQueueInit(cmdQueue *queue) {
     if (!queue) return;
-    
-    queue->cmds = listCreate();
+
+    queue->head = NULL;
+    queue->tail = NULL;
+    queue->length = 0;
     queue->pool_size = 0;
-    
+
     /* Initialize pool array to NULL */
     for (int i = 0; i < 16; i++) {
         queue->pool[i] = NULL;
@@ -28,25 +30,21 @@ void cmdQueueInit(cmdQueue *queue) {
 /* Cleanup a client command queue and its pool */
 void cmdQueueCleanup(cmdQueue *queue) {
     if (!queue) return;
-    
+
     /* Free all commands in the queue */
-    if (queue->cmds) {
-        listIter iter;
-        listNode *node;
-        listRewind(queue->cmds, &iter);
-        while ((node = listNext(&iter)) != NULL) {
-            parsedCommand *cmd = listNodeValue(node);
-            if (cmd->argv) {
-                for (int j = 0; j < cmd->argc; j++) {
-                    decrRefCount(cmd->argv[j]);
-                }
-                zfree(cmd->argv);
+    parsedCommand *cmd = queue->head;
+    while (cmd) {
+        parsedCommand *next = cmd->next;
+        if (cmd->argv) {
+            for (int j = 0; j < cmd->argc; j++) {
+                decrRefCount(cmd->argv[j]);
             }
-            zfree(cmd);
+            zfree(cmd->argv);
         }
-        listRelease(queue->cmds);
+        zfree(cmd);
+        cmd = next;
     }
-    
+
     /* Free all commands in the pool */
     for (int i = 0; i < queue->pool_size; i++) {
         if (queue->pool[i]) {
@@ -60,25 +58,23 @@ void cmdQueueCleanup(cmdQueue *queue) {
 
 /* Get a parsedCommand from the client's pool */
 parsedCommand *cmdQueueGetCommand(cmdQueue *queue) {
-    if (!queue) return NULL;
-    
     parsedCommand *cmd = NULL;
-    
+
     if (queue->pool_size > 0) {
         /* Get from pool */
         cmd = queue->pool[--queue->pool_size];
         queue->pool[queue->pool_size] = NULL;
 
-        robj **argv = cmd->argv;
-        int argv_len = cmd->argv_len;
-        memset(cmd, 0, sizeof(parsedCommand));
-        cmd->argv = argv;
-        cmd->argv_len = argv_len;
+        // robj **argv = cmd->argv;
+        // int argv_len = cmd->argv_len;
+        // memset(cmd, 0, sizeof(parsedCommand));
+        // cmd->argv = argv;
+        // cmd->argv_len = argv_len;
     } else {
         /* Pool is empty, allocate new */
         cmd = zcalloc(sizeof(parsedCommand));
     }
-    
+
     return cmd;
 }
 
@@ -89,6 +85,10 @@ void cmdQueuePutCommand(cmdQueue *queue, parsedCommand *cmd) {
 
     /* If pool is not full, add to pool */
     if (queue->pool_size < 16) {
+        cmd->argc = 0;
+        cmd->argv_len_sum = 0;
+        cmd->read_flags = 0;
+        cmd->cmd = NULL;
         queue->pool[queue->pool_size++] = cmd;
     } else {
         if (cmd->argv) {
@@ -99,4 +99,49 @@ void cmdQueuePutCommand(cmdQueue *queue, parsedCommand *cmd) {
         /* Pool is full, free the command */
         zfree(cmd);
     }
+}
+
+/* Add a command to the tail of the queue */
+void cmdQueueAddTail(cmdQueue *queue, parsedCommand *cmd) {
+    cmd->next = NULL;
+    cmd->prev = queue->tail;
+
+    if (queue->tail) {
+        queue->tail->next = cmd;
+    } else {
+        /* Queue was empty */
+        queue->head = cmd;
+    }
+
+    queue->tail = cmd;
+    queue->length++;
+}
+
+/* Remove and return the head command from the queue */
+parsedCommand *cmdQueueRemoveHead(cmdQueue *queue) {
+    parsedCommand *cmd = queue->head;
+    queue->head = cmd->next;
+
+    if (queue->head) {
+        queue->head->prev = NULL;
+    } else {
+        /* Queue is now empty */
+        queue->tail = NULL;
+    }
+
+    cmd->next = NULL;
+    cmd->prev = NULL;
+    queue->length--;
+
+    return cmd;
+}
+
+/* Get the length of the command queue */
+int cmdQueueLength(cmdQueue *queue) {
+    return queue ? queue->length : 0;
+}
+
+/* Get the first command in the queue without removing it */
+parsedCommand *cmdQueueFirst(cmdQueue *queue) {
+    return queue ? queue->head : NULL;
 }
