@@ -17,23 +17,8 @@ endif
 endif
 endif
 
-# CPU feature detection
-CPU_FEATURES :=
 
-# Check for AVX2 support
-AVX2_SUPPORTED := $(shell echo | $(CC) -mavx2 -dM -E - 2>/dev/null | grep -q __AVX2__ && echo yes)
-ifeq ($(AVX2_SUPPORTED),yes)
-    CPU_FEATURES += -mavx2
-endif
-
-# Check for both AVX512F and FMA together (AVX512 code needs both)
-AVX512F_SUPPORTED := $(shell echo | $(CC) -mavx512f -mfma -dM -E - 2>/dev/null | grep -q __AVX512F__ && echo yes)
-FMA_SUPPORTED := $(shell echo | $(CC) -mavx512f -mfma -dM -E - 2>/dev/null | grep -q __FMA__ && echo yes)
-ifeq ($(AVX512F_SUPPORTED)$(FMA_SUPPORTED),yesyes)
-    CPU_FEATURES += -mavx512f -mfma
-endif
-
-CFLAGS = -O2 -Wall -Wextra -g $(SAN) -std=c11 $(CPU_FEATURES)
+CFLAGS = -O2 -Wall -Wextra -g $(SAN) -std=c11
 LDFLAGS = -lm $(SAN)
 
 # Detect OS

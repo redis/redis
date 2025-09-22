@@ -47,9 +47,8 @@
 #include "hnsw.h"
 #include "mixer.h"
 
-#if defined(__AVX2__) || defined(__AVX512F__)
-    #include <immintrin.h>
-#endif
+/* Include SIMD headers for function attributes */
+#include <immintrin.h>
 
 #if 0
 #define debugmsg printf
@@ -196,9 +195,8 @@ float pq_max_distance(pqueue *pq) {
 
 /* ============================ HNSW algorithm ============================== */
 
-#ifdef __AVX512F__
-
 /* AVX512 optimized dot product for float vectors */
+__attribute__((target("avx512f,fma")))
 float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim) {
     __m512 sum = _mm512_setzero_ps();
     uint32_t i;
@@ -220,11 +218,9 @@ float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim
     
     return 1.0f - dot;
 }
-#endif
-
-#ifdef __AVX2__
 
 /* AVX2 optimized dot product for float vectors */
+__attribute__((target("avx2,fma")))
 float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) {
     __m256 sum1 = _mm256_setzero_ps();
     __m256 sum2 = _mm256_setzero_ps();
@@ -261,13 +257,11 @@ float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) 
     
     return 1.0f - dot;
 }
-#endif
 
 /* Optimized dot product: automatically selects best available implementation 
  * Dot product: our vectors are already normalized.
  * Version for not quantized vectors of floats. */
 float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
-#ifdef __AVX512F__
     /* Check if runtime supports AVX512F */
     static int avx512_checked = 0;
     static int has_avx512 = 0;
@@ -281,9 +275,7 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
     if (has_avx512 && dim >= 16) {
         return vectors_distance_float_avx512(x, y, dim);
     }
-#endif
 
-#ifdef __AVX2__
     /* Check if runtime supports AVX2 */
     static int avx2_checked = 0;
     static int has_avx2 = 0;
@@ -296,7 +288,6 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
     if (has_avx2 && dim >= 16) {
         return vectors_distance_float_avx2(x, y, dim);
     }
-#endif
 
     /* Fallback to original scalar implementation */
     float dot0 = 0.0f, dot1 = 0.0f;

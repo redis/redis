@@ -334,25 +334,6 @@ ifneq ($(SKIP_VEC_SETS),yes)
 	vpath %.c ../modules/vector-sets
 	REDIS_VEC_SETS_OBJ=hnsw.o vset.o vset_config.o
 	FINAL_CFLAGS+=-DINCLUDE_VEC_SETS=1
-	
-	# CPU feature detection for vector-sets
-	VEC_SETS_CPU_FEATURES :=
-	
-	# Check for AVX2 support
-	VEC_SETS_AVX2_SUPPORTED := $(shell echo | $(CC) -mavx2 -dM -E - 2>/dev/null | grep -q __AVX2__ && echo yes)
-	ifeq ($(VEC_SETS_AVX2_SUPPORTED),yes)
-		VEC_SETS_CPU_FEATURES += -mavx2
-	endif
-	
-	# Check for both AVX512F and FMA together (AVX512 code needs both)
-	VEC_SETS_AVX512F_SUPPORTED := $(shell echo | $(CC) -mavx512f -mfma -dM -E - 2>/dev/null | grep -q __AVX512F__ && echo yes)
-	VEC_SETS_FMA_SUPPORTED := $(shell echo | $(CC) -mavx512f -mfma -dM -E - 2>/dev/null | grep -q __FMA__ && echo yes)
-	ifeq ($(VEC_SETS_AVX512F_SUPPORTED)$(VEC_SETS_FMA_SUPPORTED),yesyes)
-		VEC_SETS_CPU_FEATURES += -mavx512f -mfma
-	endif
-	
-	# Special compilation flags for vector-sets with detected CPU features
-	VEC_SETS_CFLAGS=$(FINAL_CFLAGS) $(VEC_SETS_CPU_FEATURES)
 endif
 
 ifndef V
@@ -481,19 +462,6 @@ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_VEC_SETS_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:
 # Because the jemalloc.h header is generated as a part of the jemalloc build,
 # building it should complete before building any other object. Instead of
 # depending on a single artifact, build all dependencies first.
-
-# Special compilation rules for vector-sets files with CPU feature detection
-ifneq ($(SKIP_VEC_SETS),yes)
-hnsw.o: ../modules/vector-sets/hnsw.c .make-prerequisites
-	$(QUIET_CC)$(CC) $(VEC_SETS_CFLAGS) -MMD -o $@ -c $<
-
-vset.o: ../modules/vector-sets/vset.c .make-prerequisites
-	$(QUIET_CC)$(CC) $(VEC_SETS_CFLAGS) -MMD -o $@ -c $<
-
-vset_config.o: ../modules/vector-sets/vset_config.c .make-prerequisites
-	$(QUIET_CC)$(CC) $(VEC_SETS_CFLAGS) -MMD -o $@ -c $<
-endif
-
 %.o: %.c .make-prerequisites
 	$(REDIS_CC) -MMD -o $@ -c $<
 
