@@ -11713,7 +11713,7 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
     -1, /* REDISMODULE_EVENT_CONFIG */
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
-    REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_ASM */
+    REDISMODULE_CLUSTER_ASM_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_ASM */
     REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_ASM_TRIM */
 };
 
@@ -12018,7 +12018,7 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED`
  *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE`
  *
- *     The data pointer can be casted to a RedisModuleClusterAsmMigrationInfo
+ *     The data pointer can be casted to a RedisModuleClusterAsmInfo
  *     structure with the following fields:
  *         char source_node_id[REDISMODULE_NODE_ID_LEN + 1];
  *         char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];

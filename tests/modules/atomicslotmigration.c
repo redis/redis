@@ -139,7 +139,7 @@ int testClusterCanAccessKeysInSlot(RedisModuleCtx *ctx, RedisModuleString **argv
 
 /* Generate a string representation of the info struct and subevent.
    e.g. 'sub: cluster-asm-import-started, task_id: aeBd..., slots: 0-100,200-300' */
-const char *clusterMigrationInfoToString(RedisModuleClusterAsmMigrationInfo *info, uint64_t sub) {
+const char *clusterAsmInfoToString(RedisModuleClusterAsmInfo *info, uint64_t sub) {
     char buf[1024] = {0};
 
     if (sub == REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED)
@@ -194,7 +194,7 @@ const char *clusterTrimInfoToString(RedisModuleClusterAsmTrimInfo *info, uint64_
     return RedisModule_Strdup(buf);
 }
 
-static void testReplicatingOutsideSlotRange(RedisModuleCtx *ctx, RedisModuleClusterAsmMigrationInfo *info) {
+static void testReplicatingOutsideSlotRange(RedisModuleCtx *ctx, RedisModuleClusterAsmInfo *info) {
     int slot = 0;
     while (slot >= 0 && slot <= 16383) {
         if (!slotRangeArrayContains(info->slots, slot)) {
@@ -225,7 +225,7 @@ static void testReplicatingUnknownCommand(RedisModuleCtx *ctx) {
     RedisModule_Assert(errno == ENOENT);
 }
 
-static void testNonFatalScenarios(RedisModuleCtx *ctx, RedisModuleClusterAsmMigrationInfo *info) {
+static void testNonFatalScenarios(RedisModuleCtx *ctx, RedisModuleClusterAsmInfo *info) {
     testReplicatingOutsideSlotRange(ctx, info);
     testReplicatingCrossslotCommand(ctx);
     testReplicatingUnknownCommand(ctx);
@@ -236,7 +236,7 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
     int ret;
 
     if (e.id == REDISMODULE_EVENT_CLUSTER_ASM) {
-        RedisModuleClusterAsmMigrationInfo *info = data;
+        RedisModuleClusterAsmInfo *info = data;
 
         if (sub == REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE) {
             /* Test some non-fatal scenarios. */
@@ -254,7 +254,7 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
         } else {
             /* Log the event. */
             if (numClusterEvents >= MAX_EVENTS) return;
-            clusterEventLog[numClusterEvents++] = clusterMigrationInfoToString(info, sub);
+            clusterEventLog[numClusterEvents++] = clusterAsmInfoToString(info, sub);
         }
     }
 }
@@ -285,6 +285,17 @@ static int keyspaceNotificationTrimmedCallback(RedisModuleCtx *ctx, int type, co
     snprintf(buf, sizeof(buf), "keyspace: trimmed, key: %s", key_str);
 
     clusterTrimEventLog[numClusterTrimEvents++] = RedisModule_Strdup(buf);
+    return REDISMODULE_OK;
+}
+
+/* ASM.PARENT SET key value  (just proxy to Redis SET) */
+static int asmParentSet(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc != 4) return RedisModule_WrongArity(ctx);
+    RedisModuleCallReply *reply = RedisModule_Call(ctx, "SET", "ss", argv[2], argv[3]);
+    if (!reply) return RedisModule_ReplyWithError(ctx, "ERR internal");
+    RedisModule_ReplyWithCallReply(ctx, reply);
+    RedisModule_FreeCallReply(reply);
+    RedisModule_ReplicateVerbatim(ctx);
     return REDISMODULE_OK;
 }
 
@@ -382,6 +393,16 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.cluster_get_local_slot_ranges", testClusterGetLocalSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.parent", NULL, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    RedisModuleCommand *parent = RedisModule_GetCommand(ctx, "asm.parent");
+    if (!parent) return REDISMODULE_ERR;
+
+    /* Subcommand: ASM.PARENT SET (write) */
+    if (RedisModule_CreateSubcommand(parent, "set", asmParentSet, "write fast", 2, 2, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsm, clusterEventCallback) == REDISMODULE_ERR)

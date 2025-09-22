@@ -67,11 +67,11 @@ struct asmManager {
     int debug_active_trim_delay;  /* Sleep before trimming each key */
 
     /* Active trim stats */
-    unsigned long long active_trim_started;      /* Number of times active trim was started */
-    unsigned long long active_trim_done;         /* Number of times active trim was completed */
-    unsigned long long active_trim_cancelled;    /* Number of times active trim was cancelled */
-    unsigned long long active_trim_keys_total;   /* Total number of keys to trim in the current job */
-    unsigned long long active_trim_keys_deleted; /* Number of keys trimmed in the current job */
+    unsigned long long active_trim_started;             /* Number of times active trim was started */
+    unsigned long long active_trim_done;                /* Number of times active trim was completed */
+    unsigned long long active_trim_cancelled;           /* Number of times active trim was cancelled */
+    unsigned long long active_trim_current_job_keys;    /* Total number of keys to trim in the current job */
+    unsigned long long active_trim_current_job_trimmed; /* Number of keys trimmed in the current job */
 };
 
 enum asmState {
@@ -298,15 +298,15 @@ sds asmCatInfoString(sds info) {
     }
 
     return sdscatprintf(info ? info : sdsempty(),
-                        "cluster_slot_migration_task_count:%d\r\n"
-                        "cluster_slot_migration_total_done_tasks:%lld\r\n"
-                        "cluster_slot_migration_sync_buffer_peak:%zu\r\n"
-                        "cluster_slot_migration_active_trim_jobs:%lu\r\n"
-                        "cluster_slot_migration_active_trim_started:%llu\r\n"
-                        "cluster_slot_migration_active_trim_done:%llu\r\n"
-                        "cluster_slot_migration_active_trim_cancelled:%llu\r\n"
-                        "cluster_slot_migration_active_trim_keys_total:%llu\r\n"
-                        "cluster_slot_migration_active_trim_keys_deleted:%llu\r\n",
+                        "slot_migration_task_count:%d\r\n"
+                        "slot_migration_total_done_tasks:%lld\r\n"
+                        "slot_migration_sync_buffer_peak:%zu\r\n"
+                        "slot_migration_active_trim_jobs:%lu\r\n"
+                        "slot_migration_active_trim_started:%llu\r\n"
+                        "slot_migration_active_trim_done:%llu\r\n"
+                        "slot_migration_active_trim_cancelled:%llu\r\n"
+                        "slot_migration_active_trim_current_job_keys:%llu\r\n"
+                        "slot_migration_active_trim_current_job_trimmed:%llu\r\n",
                         active_tasks,
                         asmManager->total_done_tasks,
                         asmGetPeakSyncBufferSize(),
@@ -314,8 +314,8 @@ sds asmCatInfoString(sds info) {
                         asmManager->active_trim_started,
                         asmManager->active_trim_done,
                         asmManager->active_trim_cancelled,
-                        asmManager->active_trim_keys_total,
-                        asmManager->active_trim_keys_deleted);
+                        asmManager->active_trim_current_job_keys,
+                        asmManager->active_trim_current_job_trimmed);
 }
 
 void asmTaskReset(asmTask *task) {
@@ -584,10 +584,6 @@ void asmFeedMigrationClient(robj **argv, int argc) {
     if (task->operation != ASM_MIGRATE) return;
     if (task->state == ASM_FAILED || task->cross_slot_during_propagating) return;
 
-    /* Check if the command belongs to the slot range. */
-    struct redisCommand *cmd = lookupCommandBySds(argv[0]->ptr);
-    serverAssert(cmd);
-
     /* Ensure all arguments are converted to string encoding if necessary,
      * since getSlotFromCommand expects them to be string-encoded.
      * Generally the arguments are string-encoded, but we may rewrite
@@ -600,6 +596,11 @@ void asmFeedMigrationClient(robj **argv, int argc) {
             decrRefCount(old);
         }
     }
+
+    /* Check if the command belongs to the slot range. */
+    struct redisCommand *cmd = lookupCommand(argv, argc);
+    serverAssert(cmd);
+
     int slot = getSlotFromCommand(cmd, argv, argc);
 
     /* If the command does not have keys, skip it now.
@@ -866,8 +867,8 @@ void clusterMigrationCommand(client *c) {
 
 /* Notify the state change to the module and the plugin. */
 void asmNotifyStateChange(asmTask *task, int state) {
-    RedisModuleClusterAsmMigrationInfo info = {
-            .version = REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
+    RedisModuleClusterAsmInfo info = {
+            .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
             .task_id = task->id,
             .slots = (RedisModuleSlotRangeArray *) task->slot_ranges
     };
@@ -1949,8 +1950,8 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
  * delivered just before the slot snapshot delivery starts. This function
  * triggers the event, collects the commands and writes them to the rio. */
 static int propagateModuleCommands(asmTask *task, rio *rdb) {
-    RedisModuleClusterAsmMigrationInfo info = {
-            .version = REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION,
+    RedisModuleClusterAsmInfo info = {
+            .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
             .task_id = task->id,
             .slots = (RedisModuleSlotRangeArray *) task->slot_ranges
     };
@@ -2872,12 +2873,13 @@ void asmActiveTrimStart(void) {
     serverAssert(asmManager->active_trim_it == NULL);
     asmManager->active_trim_it = slotRangeArrayGetIterator(slots);
     asmManager->active_trim_started++;
-    asmManager->active_trim_keys_deleted = 0;
+    asmManager->active_trim_current_job_keys = 0;
+    asmManager->active_trim_current_job_trimmed = 0;
 
     /* Count the number of keys to trim */
     for (int i = 0; i < slots->num_ranges; i++)  {
         for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++)
-            asmManager->active_trim_keys_total += kvstoreDictSize(server.db[0].keys, slot);
+            asmManager->active_trim_current_job_keys += kvstoreDictSize(server.db[0].keys, slot);
     }        
 
     RedisModuleClusterAsmTrimInfoV1 fsi = {
@@ -2925,7 +2927,7 @@ void asmActiveTrimEnd(void) {
 
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim completed for slots: %s, %llu keys trimmed.",
-              str, asmManager->active_trim_keys_deleted);
+              str, asmManager->active_trim_current_job_trimmed);
     sdsfree(str);
     listDelNode(asmManager->active_trim_jobs, listFirst(asmManager->active_trim_jobs));
     asmManager->active_trim_done++;
@@ -2960,7 +2962,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
 
     dbDelete(db, keyobj);
     notifyKeyspaceEvent(NOTIFY_TRIMMED, "trimmed", keyobj, db->id);
-    asmManager->active_trim_keys_deleted++;
+    asmManager->active_trim_current_job_trimmed++;
 
     if (static_key) decrRefCount(keyobj);
 }

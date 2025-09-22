@@ -860,9 +860,9 @@ typedef struct RedisModuleSlotRangeArray {
     RedisModuleSlotRange ranges[];
 } RedisModuleSlotRangeArray;
 
-#define REDISMODULE_CLUSTER_ASM_MIGRATIONINFO_VERSION 1
+#define REDISMODULE_CLUSTER_ASM_INFO_VERSION 1
 
-typedef struct RedisModuleClusterAsmMigrationInfo {
+typedef struct RedisModuleClusterAsmInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
@@ -870,9 +870,9 @@ typedef struct RedisModuleClusterAsmMigrationInfo {
     char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];
     const char *task_id;
     RedisModuleSlotRangeArray *slots;
-} RedisModuleClusterAsmMigrationInfoV1;
+} RedisModuleClusterAsmInfoV1;
 
-#define RedisModuleClusterAsmMigrationInfo RedisModuleClusterAsmMigrationInfoV1
+#define RedisModuleClusterAsmInfo RedisModuleClusterAsmInfoV1
 
 #define REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION 1
 

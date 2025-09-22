@@ -3495,14 +3495,7 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
         feedAppendOnlyFile(dbid,argv,argc);
     if (target & PROPAGATE_REPL) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
-
-        /* Normally, MULTI/EXEC transactions are used to replicate a command's
-         * effects in an atomic way to prevent partial state on the destination
-         * side. Though, it is unnecessary for ASM since keys aren't accessed on
-         * the destination until slot ownership transfer completes. Therefore,
-         * skip MULTI and EXEC commands. */
-        if (argc != 1 || (argv != &shared.multi && argv != &shared.exec))
-            asmFeedMigrationClient(argv, argc);
+        asmFeedMigrationClient(argv, argc);
     }
 }
 
