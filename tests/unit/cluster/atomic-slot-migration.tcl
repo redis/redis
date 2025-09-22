@@ -1881,6 +1881,24 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_equal {OK} [R 0 trimslots ranges 1 16383 16383]
         assert_error {*READONLY*} {R 3 trimslots ranges 1 16383 16383}
     }
+
+    test "Restart will clean up unowned slot keys" {
+        R 1 flushall
+
+        # generate 1000 keys belonging to slot 0
+        R 1 debug populate 1000 [slot_prefix 0] 100
+        assert {[scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] >= 1000}
+
+        # restart node-1
+        restart_server -1 true false true save
+        wait_for_cluster_propagation
+        wait_for_cluster_state "ok"
+
+        # Node-1 has no keys since unowned slot 0 keys were cleaned up during restart
+        assert {[scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] == {}}
+
+        R 1 flushall
+    }
 }
 
 set testmodule [file normalize tests/modules/atomicslotmigration.so]

@@ -5294,8 +5294,13 @@ int verifyClusterConfigWithData(void) {
         } else {
             serverLog(LL_NOTICE, "I have keys for slot %d, but the slot is "
                                     "assigned to another node. "
-                                    "Setting it to importing state.",j);
-            server.cluster->importing_slots_from[j] = server.cluster->slots[j];
+                                    "Deleting keys in the slot.", j);
+
+            /* With atomic slot migration, it is safe to drop keys from slots
+             * that are not owned. This will not result in data loss under the
+             * legacy slot migration approach either, since the importing state
+             * has already been persisted in node.conf. */
+            clusterDelKeysInSlot(j, 0);
         }
     }
     if (update_config) clusterSaveConfigOrDie(1);
@@ -6586,8 +6591,8 @@ int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
             }
             /* New config and Bump new config */
             clusterBumpConfigEpochWithoutConsensus();
-            clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             clusterSaveConfigOrDie(1);
+            clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
             clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
