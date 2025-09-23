@@ -319,7 +319,8 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
                 x[i+7] * y[i+7];
     }
 
-    /* Handle the remaining elements */
+    /* Handle the remaining elements. These are a minority in the case
+     * of a small vector, don't optimize this part. */
     for (; i < dim; i++) dot0 += x[i] * y[i];
 
     /* The following line may be counter intuitive. The dot product of
