@@ -47,8 +47,34 @@
 #include "hnsw.h"
 #include "mixer.h"
 
-/* Include SIMD headers for function attributes */
+/* Check if we can compile SIMD code with function attributes */
+#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_AVX2
+#define HAVE_AVX512
+#endif
+#endif
+
+#if defined (HAVE_AVX2)
+#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
+#else
+#define ATTRIBUTE_TARGET_AVX2
+#define VSET_USE_AVX2 0
+#endif
+
+#if defined (HAVE_AVX512)
+#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,fma")))
+#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#else
+#define ATTRIBUTE_TARGET_AVX512
+#define VSET_USE_AVX512 0
+#endif
+
+/* Include SIMD headers when supported */
+#if defined(HAVE_AVX2) || defined(HAVE_AVX512)
 #include <immintrin.h>
+#endif
 
 #if 0
 #define debugmsg printf
@@ -195,8 +221,9 @@ float pq_max_distance(pqueue *pq) {
 
 /* ============================ HNSW algorithm ============================== */
 
+#if defined(HAVE_AVX512)
 /* AVX512 optimized dot product for float vectors */
-__attribute__((target("avx512f,fma")))
+ATTRIBUTE_TARGET_AVX512
 float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim) {
     __m512 sum = _mm512_setzero_ps();
     uint32_t i;
@@ -218,9 +245,11 @@ float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim
     
     return 1.0f - dot;
 }
+#endif /* HAVE_AVX512 */
 
+#if defined(HAVE_AVX2)
 /* AVX2 optimized dot product for float vectors */
-__attribute__((target("avx2,fma")))
+ATTRIBUTE_TARGET_AVX2
 float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) {
     __m256 sum1 = _mm256_setzero_ps();
     __m256 sum2 = _mm256_setzero_ps();
@@ -257,35 +286,17 @@ float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) 
     
     return 1.0f - dot;
 }
+#endif /* HAVE_AVX2 */
 
 /* Optimized dot product: automatically selects best available implementation 
  * Dot product: our vectors are already normalized.
  * Version for not quantized vectors of floats. */
 float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
-    /* Check if runtime supports AVX512F */
-    static int avx512_checked = 0;
-    static int has_avx512 = 0;
-    
-    if (!avx512_checked) {
-        /* Simple runtime check - in production you might want to use CPUID */
-        has_avx512 = __builtin_cpu_supports("avx512f");
-        avx512_checked = 1;
-    }
-    
-    if (has_avx512 && dim >= 16) {
+    if (VSET_USE_AVX512 && dim >= 16) {
         return vectors_distance_float_avx512(x, y, dim);
     }
 
-    /* Check if runtime supports AVX2 */
-    static int avx2_checked = 0;
-    static int has_avx2 = 0;
-    
-    if (!avx2_checked) {
-        has_avx2 = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
-        avx2_checked = 1;
-    }
-    
-    if (has_avx2 && dim >= 16) {
+    if (VSET_USE_AVX2 && dim >= 16) {
         return vectors_distance_float_avx2(x, y, dim);
     }
 
