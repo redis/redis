@@ -2988,7 +2988,16 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     streamFreeNACK(nack);
                     return NULL;
                 }
+
+                pelTimeKey timeKey;
+                timeKey.delivery_time = nack->delivery_time;
+                timeKey.nack = nack;
+                raxInsert(cgroup->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
             }
+
+            printf("Pel size: %ld\n", raxSize(cgroup->pel));
+            printf("Pel by time size: %ld\n", raxSize(cgroup->pel_by_time));
+            serverAssert(raxSize(cgroup->pel) == raxSize(cgroup->pel_by_time)); /* Force size computation. */
 
             /* Now that we loaded our global PEL, we need to load the
              * consumers and their local PELs. */
@@ -3073,6 +3082,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         return NULL;
                     }
                 }
+
+                serverAssert(raxSize(cgroup->pel) == raxSize(cgroup->pel_by_time));
             }
 
             /* Verify that each PEL eventually got a consumer assigned to it. */

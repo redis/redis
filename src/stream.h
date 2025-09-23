@@ -70,6 +70,12 @@ typedef struct streamCG {
                                as processed. The key of the radix tree is the
                                ID as a 64 bit big endian number, while the
                                associated value is a streamNACK structure.*/
+    rax *pel_by_time;       /* A radix tree mapping delivery time to pending
+                                entries, so that we can query faster PEL entries
+                                by time. The key is the delivery time in milliseconds
+                                as a 64 bit big endian number. The value is pointer to
+                                the streamNACK structure associated with the pending
+                            entry. */
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
@@ -106,6 +112,12 @@ typedef struct streamPropInfo {
     robj *keyname;
     robj *groupname;
 } streamPropInfo;
+
+/* Pending entry in the consumer group's PEL, indexed by delivery time. */
+typedef struct pelTimeKey {
+    uint64_t delivery_time;
+    streamNACK *nack;
+} pelTimeKey;
 
 /* Prototypes of exported APIs. */
 struct client;
