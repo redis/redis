@@ -274,7 +274,7 @@ void putClientInPendingWriteQueue(client *c) {
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
         c->flags |= CLIENT_PENDING_WRITE;
-        listLinkNodeHead(server.clients_pending_write, &c->clients_pending_write_node);
+        listLinkNodeTail(server.clients_pending_write, &c->clients_pending_write_node);
     }
 }
 
@@ -2273,8 +2273,25 @@ int handleClientsWithPendingWrites(void) {
 
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
-        processed_clis++;
         client *c = listNodeValue(ln);
+
+        /* Each writeToClient call may cost about 5us(data transfer to socket buffer), 
+         * too many writeToClient calls may block the entire event loop and 
+         * delay the response to clients of next event loop.
+
+         * So, we make sure all of the other normal messages will be processed in this function call.
+         * But tracking messages may be delayed to be processed in the next event loop since 
+         * its lower priority.
+           
+         * If the number of processed tracking clients exceeds the 16,
+         * we suspend the following tracking clients to avoid the tracking messages storm. */
+        if (c->flags & CLIENT_TRACKING) {
+            if (processed_tracking_clis >= 16) continue;
+            else processed_tracking_clis++;
+        }
+
+        processed_clis++;
+
         c->flags &= ~CLIENT_PENDING_WRITE;
         listUnlinkNode(server.clients_pending_write,ln);
 
@@ -2284,8 +2301,6 @@ int handleClientsWithPendingWrites(void) {
 
         /* Don't write to clients that are going to be closed anyway. */
         if (c->flags & CLIENT_CLOSE_ASAP) continue;
-
-        if (c->flags & CLIENT_TRACKING) processed_tracking_clis++;
 
         /* Let IO thread handle the client if possible. */
         if (server.io_threads_num > 1 &&
@@ -2304,14 +2319,12 @@ int handleClientsWithPendingWrites(void) {
         if (clientHasPendingReplies(c)) {
             installClientWriteHandler(c);
         }
+    }
 
-        /* If the number of tracking clients to call writeToClient exceeds the limit, 
-           break the loop to avoid blocking the entire event loop for long time and 
-           respond to other events ASAP. */
-        if (processed_tracking_clis >= server.max_tracking_clients_to_write) {
-            tryRegisterClientsWriteEvent();
-            break;
-        }
+    if (listLength(server.clients_pending_write) != 0) {
+        /* suspended tracking clients will be processed in the next 
+           handleClientsWithPendingWrites call. */
+        tryRegisterClientsWriteEvent();
     }
     return processed_clis;
 }
