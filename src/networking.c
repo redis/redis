@@ -585,7 +585,7 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
                              "to its %s: '%.*s' after processing the command "
                              "'%s'", from, to, (int)len, s, cmdname ? cmdname : "<unknown>");
         if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
-            server.repl_backlog->histlen > 0)
+            !(c->flags & CLIENT_ASM_IMPORTING) && server.repl_backlog->histlen > 0)
         {
             showLatestBacklog();
         }

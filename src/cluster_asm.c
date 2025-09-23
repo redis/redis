@@ -298,7 +298,7 @@ sds asmCatInfoString(sds info) {
     }
 
     return sdscatprintf(info ? info : sdsempty(),
-                        "slot_migration_task_count:%d\r\n"
+                        "slot_migration_active_tasks:%d\r\n"
                         "slot_migration_total_done_tasks:%lld\r\n"
                         "slot_migration_sync_buffer_peak:%zu\r\n"
                         "slot_migration_active_trim_jobs:%lu\r\n"
@@ -565,8 +565,9 @@ int asmImportInProgress(void) {
 
 /* Returns 1 if the task is in a state where it can receive replication stream
 *  for the slot range, 0 otherwise. */
-int asmCanFeedMigrationClient(asmTask *task) {
+inline static int asmCanFeedMigrationClient(asmTask *task) {
     return task->operation == ASM_MIGRATE &&
+           !task->cross_slot_during_propagating &&
              (task->state == ASM_SEND_BULK_AND_STREAM ||
               task->state == ASM_SEND_STREAM ||
               task->state == ASM_HANDOFF_PREP);
@@ -579,10 +580,9 @@ void asmFeedMigrationClient(robj **argv, int argc) {
     if (server.cluster_enabled == 0 || listLength(asmManager->tasks) == 0)
         return;
 
-    /* Quick check if there is a migrate task in progress. */
+    /* Check if there is a migrate task that can receive replication stream. */
     task = listNodeValue(listFirst(asmManager->tasks));
-    if (task->operation != ASM_MIGRATE) return;
-    if (task->state == ASM_FAILED || task->cross_slot_during_propagating) return;
+    if (!asmCanFeedMigrationClient(task)) return;
 
     /* Ensure all arguments are converted to string encoding if necessary,
      * since getSlotFromCommand expects them to be string-encoded.
@@ -629,11 +629,7 @@ void asmFeedMigrationClient(robj **argv, int argc) {
 
     /* Check if the slot belongs to the task's slot range. */
     slotRange sr = {slot, slot};
-    if (!slotRangeArrayOverlaps(task->slot_ranges, &sr) ||
-        !asmCanFeedMigrationClient(task))
-    {
-        return;
-    }
+    if (!slotRangeArrayOverlaps(task->slot_ranges, &sr)) return;
 
     if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, task->state)))
         freeClientAsync(task->main_channel_client);
@@ -694,11 +690,6 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slot_ranges, s
     serverLog(LL_NOTICE, "Import task created: src=%.40s, dest=%.40s, slots=%s",
                          task->source, task->dest, slot_ranges_str);
     sdsfree(slot_ranges_str);
-
-    /* Don't start the task here since now we are in the context of executing a
-     * command, otherwise, asmStartImportTask() may delete some keys belonging
-     * to the slot range, and generate a big MULTI-EXEC, even this command itself
-     * also be part of the MULTI-EXEC. So we will do it in beforeSleep(). */
 
     return task;
 }
@@ -1109,7 +1100,7 @@ void asmRdbChannelSyncWithSource(connection *conn) {
     if (unlikely(asmDebugIsFailPointActive(ASM_IMPORT_RDB_CHANNEL, task->rdb_channel_state))) {
         char buf[1];
         /* Simulate a failure by shutting down the connection. On some operating
-         * systems (e.g. Linux), the socket’s receive buffer is not flushed
+         * systems (e.g. Linux), the socket's receive buffer is not flushed
          * immediately, so we issue a dummy read to drain any pending data and
          * surface the error condition.
          * using shutdown() instead of connShutdown() because connTLSShutdown()
@@ -1183,7 +1174,7 @@ void asmRdbChannelSyncWithSource(connection *conn) {
             c->user = NULL;
             c->task = task;
             serverLog(LL_NOTICE,
-                "Source node replied to SLOTSSNAPSHOT, syncslots snapshot can continue...");
+                "Source node replied to SLOTSSNAPSHOT, syncing slots snapshot can continue...");
         } else {
             task_error_msg = sdscatprintf(sdsempty(),
                 "Error reply to CLUSTER SYNCSLOTS RDBCHANNEL from the source: %s", err);
@@ -1563,7 +1554,7 @@ static void asmStartImportTask(asmTask *task) {
         return;
     }
 
-    /* Detect if the cluster topology is change. We should cancel the task if we can
+    /* Detect if the cluster topology is changed. We should cancel the task if we can
      * not schedule it, and update the source node if needed. */
     sds err = NULL;
     clusterNode *source = validateImportSlotRanges(task->slot_ranges, &err, task);
@@ -2229,7 +2220,6 @@ void asmSyncBufferStreamToDb(asmTask *task) {
 }
 
 void asmImportIncrAppliedBytes(struct asmTask *task, size_t bytes) {
-    serverAssert(task->operation == ASM_IMPORT);
     if (!task || task->state != ASM_WAIT_STREAM_EOF) return;
     task->dest_offset += bytes;
 }
@@ -2971,7 +2961,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
 void asmActiveTrimCycle(int type) {
     if (asmManager->debug_active_trim_delay < 0 ||
         listLength(asmManager->active_trim_jobs) == 0 ||
-        isPausedActions(PAUSE_ACTIONS_CLIENT_WRITE_SET) ||
+        isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
     {
         return;

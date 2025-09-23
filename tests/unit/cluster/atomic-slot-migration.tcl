@@ -10,6 +10,8 @@ set ::slot_prefixes [dict create \
     101 "{1j2}" \
     102 "{75V}" \
     103 "{bno}" \
+    5462 "{450}"\
+    5463 "{4dY}"\
     6000 "{4L7}" \
     6001 "{4YV}" \
     6002 "{0bx}" \
@@ -103,10 +105,10 @@ proc wait_for_asm_done {} {
 
     for {set i 0} {$i < $total_instances} {incr i} {
         wait_for_condition 1000 10 {
-            [CI $i slot_migration_task_count] == 0 &&
+            [CI $i slot_migration_active_tasks] == 0 &&
             [CI $i slot_migration_active_trim_jobs] == 0
         } else {
-            set migration_count [CI $i slot_migration_task_count]
+            set migration_count [CI $i slot_migration_active_tasks]
             set trim_count [CI $i slot_migration_active_trim_jobs]
             fail "ASM tasks did not complete on instance $i: migration_tasks=$migration_count, trim_tasks=$trim_count"
         }
@@ -338,11 +340,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Simple slot migration" {
-        set slot0_key "06S"
+        set slot0_key [slot_key 0 mykey]
         R 0 set $slot0_key "a"
-        set slot1_key "Qi"
+        set slot1_key [slot_key 1 mykey]
         R 0 set $slot1_key "b"
-        set slot101_key "1j2"
+        set slot101_key [slot_key 101 mykey]
         R 0 set $slot101_key "c"
         # 3 keys cost 3s to save
         R 0 config set rdb-key-save-delay 1000000
@@ -492,8 +494,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Migration will be successful after fail points are cleared" {
-        set slot0_key "06S"
-        set slot1_key "Qi"
+        set slot0_key [slot_key 0 mykey]
+        set slot1_key [slot_key 1 mykey]
         # we set a delay to write incremental data
         R 1 config set rdb-key-save-delay 1000000
 
@@ -524,7 +526,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Client output buffer limit is reached on source side" {
-        set r1_pid [getInfoProperty [R 1 info] process_id]
+        set r1_pid [S 1 process_id]
         R 1 debug repl-pause on-streaming-repl-buf
 
         # Set a small output buffer limit to trigger the error
@@ -541,7 +543,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         }
 
         # some write traffic is to have chance to enter streaming buffer state
-        set slot0_key "06S"
+        set slot0_key [slot_key 0 mykey]
         R 0 set $slot0_key "a" 
 
         # after 3 second, the slots snapshot (costs 2s to generate) should be transferred,
@@ -572,9 +574,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Expired key is not deleted and SCAN/KEYS/RANDOMKEY/CLUSTER GETKEYSINSLOT filter keys in importing slots" {
-        set slot0_key "{06S}X"
-        set slot1_key "Qi"
-        set slot2_key "5L5"
+        set slot0_key [slot_key 0 mykey]
+        set slot1_key [slot_key 1 mykey]
+        set slot2_key [slot_key 2 mykey]
         R 1 flushall
         R 0 flushall
 
@@ -664,11 +666,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Eviction does not evict keys in importing slots" {
-        set slot0_key "06S"
-        set slot1_key "Qi"
-        set slot2_key "5L5"
-        set slot5462_key "450"
-        set slot5463_key "4dY"
+        set slot0_key [slot_key 0 mykey]
+        set slot1_key [slot_key 1 mykey]
+        set slot2_key [slot_key 2 mykey]
+        set slot5462_key [slot_key 5462 mykey]
+        set slot5463_key [slot_key 5463 mykey]
         R 1 flushall
         R 0 flushall
 
@@ -684,7 +686,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # set maxmemory to 200kb more than current used memory,
         # redis should evict some keys if importing some big keys
-        set r1_mem_used [getInfoProperty [R 1 info memory] used_memory]
+        set r1_mem_used [S 1 used_memory]
         set r1_max_mem [expr {$r1_mem_used + 200*1024}]
         R 1 config set maxmemory $r1_max_mem
         R 1 config set maxmemory-policy allkeys-lru
@@ -712,7 +714,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # current used memory should be more than the maxmemory, since the big keys that
         # belong importing slots can not be evicted.
-        set r1_mem_used  [getInfoProperty [R 1 info memory] used_memory]
+        set r1_mem_used  [S 1 used_memory]
         assert {$r1_mem_used > $r1_max_mem + 1024*1024}
 
         wait_for_asm_done
@@ -729,7 +731,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # FAILOVER happens on the destination node, instance #3 become master, #0 become slave
         R 3 cluster failover
         wait_for_condition 1000 50 {
-            [getInfoProperty [R 3 info] role] eq {master}
+            [S 3 role] eq {master}
         } else {
             fail "Instance #3 is not a master after some time"
         }
@@ -755,7 +757,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # FAILOVER happens on the source node, instance #3 become slave, #0 become master
         R 0 cluster failover
         wait_for_condition 1000 50 {
-            [getInfoProperty [R 0 info] role] eq {master}
+            [S 0 role] eq {master}
         } else {
             fail "Instance #0 is not a master after some time"
         }
@@ -988,7 +990,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # pause the source node to make EOF wait timeout. Do not pause
         # the child process, so it can deliver slot snapshot to destination
-        set r0_process_id [getInfoProperty [R 0 info] process_id]
+        set r0_process_id [S 0 process_id]
         pause_process $r0_process_id
 
         # the destination node will fail after 7s, 5s for EOF wait and 2s for slot snapshot
@@ -1040,7 +1042,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Source node rdb channel timeout when transferring slots snapshot" {
-        set r1_pid [getInfoProperty [R 1 info] process_id]
+        set r1_pid [S 1 process_id]
         R 0 flushall
         R 0 config set save ""
         # generate several large keys, make sure the memory usage is more than
@@ -1085,7 +1087,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall
         R 0 config set repl-timeout 3   ;# 3s for main channel timeout
 
-        set r1_pid [getInfoProperty [R 1 info] process_id]
+        set r1_pid [S 1 process_id]
         # in order to have time to pause the destination node
         R 1 config set key-load-delay 100000
 
@@ -1464,7 +1466,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
 
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 0 &&
             [CI 0 slot_migration_active_trim_current_job_trimmed] == 1500 &&
             [CI 3 slot_migration_active_trim_jobs] == 0 &&
@@ -1507,7 +1509,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Migrate 1500 keys
         R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 1 &&
             [CI 3 slot_migration_active_trim_jobs] == 1
         } else {
@@ -1517,7 +1519,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Migrate another slot and verify there are two trim tasks on the source
         R 1 CLUSTER MIGRATION IMPORT 3 3
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 2 &&
             [CI 3 slot_migration_active_trim_jobs] == 2
         } else {
@@ -1587,7 +1589,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Migrate 1000 keys
         R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 1
         } else {
             fail "migrate failed"
@@ -1623,11 +1625,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Start migration and wait until trim is in progress
         R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 1 &&
             [S 0 rdb_bgsave_in_progress] == 0
         } else {
-            puts "[CI 0 slot_migration_task_count]"
+            puts "[CI 0 slot_migration_active_tasks]"
             puts "[CI 0 slot_migration_active_trim_jobs]"
             fail "trim failed"
         }
@@ -1666,10 +1668,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         R 1 CLUSTER MIGRATION IMPORT 0 1
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 1
         } else {
-            puts "[CI 0 slot_migration_task_count]"
+            puts "[CI 0 slot_migration_active_tasks]"
             puts "[CI 0 slot_migration_active_trim_jobs]"
             fail "trim failed"
         }
@@ -1711,10 +1713,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         R 1 CLUSTER MIGRATION IMPORT 0 100
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 1
         } else {
-            puts "[CI 0 slot_migration_task_count]"
+            puts "[CI 0 slot_migration_active_tasks]"
             puts "[CI 0 slot_migration_active_trim_jobs]"
             fail "trim failed"
         }
@@ -1748,11 +1750,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
             R 1 CLUSTER MIGRATION IMPORT 0 100
             wait_for_condition 1000 10 {
-                [CI 0 slot_migration_task_count] == 0 &&
+                [CI 0 slot_migration_active_tasks] == 0 &&
                 [CI 0 slot_migration_active_trim_jobs] == 0 &&
                 [CI 3 slot_migration_active_trim_jobs] == 1
             } else {
-                puts "[CI 0 slot_migration_task_count]"
+                puts "[CI 0 slot_migration_active_tasks]"
                 puts "[CI 0 slot_migration_active_trim_jobs]"
                 puts "[CI 3 slot_migration_active_trim_jobs]"
                 fail "trim failed"
@@ -1760,7 +1762,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
             R 0 CLUSTER MIGRATION IMPORT 0 100
             wait_for_condition 1000 10 {
-                [CI 0 slot_migration_task_count] == 0 &&
+                [CI 0 slot_migration_active_tasks] == 0 &&
                 [CI 0 slot_migration_active_trim_jobs] == 0 &&
                 [CI 3 slot_migration_active_trim_jobs] == 1
             } else {
@@ -1802,11 +1804,11 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
        # Wait until active trim is in progress on replica
        R 1 CLUSTER MIGRATION IMPORT 0 100
        wait_for_condition 1000 10 {
-           [CI 0 slot_migration_task_count] == 0 &&
+           [CI 0 slot_migration_active_tasks] == 0 &&
            [CI 0 slot_migration_active_trim_jobs] == 0 &&
            [CI 3 slot_migration_active_trim_jobs] == 1
        } else {
-           puts "[CI 0 slot_migration_task_count]"
+           puts "[CI 0 slot_migration_active_tasks]"
            puts "[CI 0 slot_migration_active_trim_jobs]"
            puts "[CI 3 slot_migration_active_trim_jobs]"
            fail "trim failed"
@@ -1815,7 +1817,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
        # Get slots back
        R 0 CLUSTER MIGRATION IMPORT 0 100
        wait_for_condition 1000 20 {
-           [CI 0 slot_migration_task_count] == 1 &&
+           [CI 0 slot_migration_active_tasks] == 1 &&
            [CI 0 slot_migration_active_trim_jobs] == 0 &&
            [CI 3 slot_migration_active_trim_jobs] == 1
        } else {
@@ -1959,7 +1961,7 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
         assert_equal 0 [R 4 asm.cluster_can_access_keys_in_slot 100]
 
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_task_count] == 0 &&
+            [CI 0 slot_migration_active_tasks] == 0 &&
             [CI 0 slot_migration_active_trim_jobs] == 1 &&
             [CI 3 slot_migration_active_trim_jobs] == 1
         } else {
