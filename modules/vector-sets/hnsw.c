@@ -99,9 +99,6 @@
                              * needed sometimes to reconnect nodes that remain
                              * orphaned of one link. */
 
-float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim);
-float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim);
-                             
 static void (*hfree)(void *p) = free;
 static void *(*hmalloc)(size_t s) = malloc;
 static void *(*hrealloc)(void *old, size_t s) = realloc;
@@ -121,6 +118,8 @@ void hnsw_set_allocator(void (*free_ptr)(void*), void *(*malloc_ptr)(size_t),
 
 /* ============================== Prototypes ================================ */
 void hnsw_cursor_element_deleted(HNSW *index, hnswNode *deleted);
+float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim);
+float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim);
 
 /* ============================ Priority queue ================================
  * We need a priority queue to take an ordered list of candidates. Right now
