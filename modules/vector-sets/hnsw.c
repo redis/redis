@@ -99,6 +99,9 @@
                              * needed sometimes to reconnect nodes that remain
                              * orphaned of one link. */
 
+float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim);
+float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim);
+                             
 static void (*hfree)(void *p) = free;
 static void *(*hmalloc)(size_t s) = malloc;
 static void *(*hrealloc)(void *old, size_t s) = realloc;
