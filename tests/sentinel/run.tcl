@@ -12,6 +12,7 @@ source ../instances.tcl
 
 set ::instances_count 5 ; # How many instances we use at max.
 set ::tlsdir "../../tls"
+set ::setup_second_master 0
 
 proc main {} {
     parse_options
@@ -22,12 +23,14 @@ proc main {} {
         "sentinel deny-scripts-reconfig no"
         "enable-protected-configs yes"
         "enable-debug-command yes"
+        "loglevel debug"
     } "../tests/includes/sentinel.conf"
 
     spawn_instance redis $::redis_base_port $::instances_count {
         "enable-protected-configs yes"
         "enable-debug-command yes"
         "save ''"
+        "loglevel debug"
     }
     run_tests
     cleanup

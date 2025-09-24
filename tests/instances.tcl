@@ -69,12 +69,14 @@ proc exec_instance {type dirname cfgfile} {
 
 # Spawn a redis or sentinel instance, depending on 'type'.
 proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
+    set current_instances_count [llength [set ::${type}_instances]]
     for {set j 0} {$j < $count} {incr j} {
+        set instance_id [expr $current_instances_count + $j]
         set port [find_available_port $base_port $::redis_port_count]
         # plaintext port (only used for TLS cluster)
         set pport 0
         # Create a directory for this instance.
-        set dirname "${type}_${j}"
+        set dirname "${type}_${instance_id}"
         lappend ::dirs $dirname
         catch {exec rm -rf $dirname}
         file mkdir $dirname
@@ -136,7 +138,7 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
 
             # Check availability
             if {[server_is_up 127.0.0.1 $port 100] == 0} {
-                puts "Starting $type #$j at port $port failed, try another"
+                puts "Starting $type #$instance_id at port $port failed, try another"
                 incr retry -1
                 set port [find_available_port $base_port $::redis_port_count]
                 set cfg [open $cfgfile a+]
@@ -149,7 +151,7 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
                 }
                 close $cfg
             } else {
-                puts "Starting $type #$j at port $port"
+                puts "Starting $type #$instance_id at port $port"
                 lappend ::pids $pid
                 break
             }
@@ -159,7 +161,7 @@ proc spawn_instance {type base_port count {conf {}} {base_conf_file ""}} {
         if {[server_is_up $::host $port 100] == 0} {
             set logfile [file join $dirname log.txt]
             puts [exec tail $logfile]
-            abort_sentinel_test "Problems starting $type #$j: ping timeout, maybe server start failed, check $logfile"
+            abort_sentinel_test "Problems starting $type #$instance_id: ping timeout, maybe server start failed, check $logfile"
         }
 
         # Push the instance into the right list
@@ -256,9 +258,11 @@ proc cleanup {} {
     if {$::dont_clean} {
         return
     }
-    foreach dir $::dirs {
-        catch {exec rm -rf $dir}
-    }
+#    if {$::failed == 0} {
+#        foreach dir $::dirs {
+#            catch {exec rm -rf $dir}
+#        }
+#    }
 }
 
 proc abort_sentinel_test msg {
@@ -610,28 +614,38 @@ proc set_instance_attrib {type id attrib newval} {
 }
 
 # Create a master-slave cluster of the given number of total instances.
-# The first instance "0" is the master, all others are configured as
-# slaves.
-proc create_redis_master_slave_cluster n {
-    foreach_redis_id id {
-        if {$id == 0} {
-            # Our master.
+# The first instance (default ID is 0) is the master, all others are
+# configured as slaves.
+proc create_redis_master_slave_cluster { n {master_id 0} } {
+    for {set id $master_id} {$id < [expr $master_id + $n]} {incr id} {
+        if {$id == $master_id} {
             R $id slaveof no one
             R $id flushall
-        } elseif {$id < $n} {
-            R $id slaveof [get_instance_attrib redis 0 host] \
-                          [get_instance_attrib redis 0 port]
         } else {
-            # Instances not part of the cluster.
-            R $id slaveof no one
+            R $id slaveof [get_instance_attrib redis $master_id host] \
+                          [get_instance_attrib redis $master_id port]
         }
     }
+#    foreach_redis_id id {
+#        if {$id == $master_id} {
+#            # Our master.
+#            R $id slaveof no one
+#            R $id flushall
+#        } elseif { $id < [expr $master_id + $n] } {
+#            R $id slaveof [get_instance_attrib redis $master_id host] \
+#                          [get_instance_attrib redis $master_id port]
+#        } else {
+#            # Instances not part of the cluster.
+#            R $id slaveof no one
+#        }
+#    }
     # Wait for all the slaves to sync.
-    wait_for_condition 1000 50 {
-        [RI 0 connected_slaves] == ($n-1)
+    wait_for_condition 100 50 {
+        [RI $master_id connected_slaves] == ($n-1)
     } else {
-        fail "Unable to create a master-slaves cluster."
+        fail "Unable to create a master-slaves cluster. Only connected [RI $master_id connected_slaves] slaves. Expected [expr $n-1]"
     }
+    puts "Successfully created a master-slave cluster of $n instances with master ID $master_id"
 }
 
 proc get_instance_id_by_port {type port} {
