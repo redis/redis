@@ -43,6 +43,114 @@ start_server {
         r XGROUP CREATE mystream mygroup $ MKSTREAM
     } {OK}
 
+    test {XREADGROUP parameter validation setup} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+    }
+
+    test {XREADGROUP: basic argument count validation} {
+        # Too few arguments
+        assert_error "*wrong number of arguments*" {r XREADGROUP}
+        assert_error "*wrong number of arguments*" {r XREADGROUP GROUP}
+        assert_error "*wrong number of arguments*" {r XREADGROUP GROUP mygroup}
+        assert_error "*wrong number of arguments*" {r XREADGROUP GROUP mygroup consumer}
+        assert_error "*wrong number of arguments*" {r XREADGROUP GROUP mygroup consumer STREAMS}
+    }
+
+    test {XREADGROUP: GROUP keyword validation} {
+        # Missing GROUP keyword entirely - wrong syntax
+        assert_error "*wrong number of arguments*" {r XREADGROUP mygroup consumer STREAMS mystream >}
+        
+        # Wrong keyword instead of GROUP
+        assert_error "*syntax error*" {r XREADGROUP GROUPS mygroup consumer STREAMS mystream >}
+    }
+
+    test {XREADGROUP: empty group name handling} {
+        # Empty group name should give NOGROUP error
+        assert_error "*NOGROUP*" {r XREADGROUP GROUP "" consumer STREAMS mystream >}
+    }
+
+    test {XREADGROUP: STREAMS keyword validation} {
+        # Missing STREAMS keyword
+        assert_error "*wrong number of arguments*" {r XREADGROUP GROUP mygroup consumer mystream >}
+        
+        # Wrong keyword
+        assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer STREAM mystream >}
+    }
+
+    test {XREADGROUP: stream and ID pairing} {
+        # Missing stream ID
+        assert_error "*wrong number of arguments*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream}
+        
+        # Unbalanced streams and IDs
+        r DEL stream2
+        r XADD stream2 * field value
+        r XGROUP CREATE stream2 mygroup $
+        
+        assert_error "*Unbalanced*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream > stream2}
+        assert_error "*Unbalanced*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream stream2 >}
+        
+        r DEL stream2
+    }
+
+    test {XREADGROUP: COUNT parameter validation} {
+        # Non-numeric count
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer COUNT abc STREAMS mystream >}
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer COUNT 1.5 STREAMS mystream >}
+    }
+
+    test {XREADGROUP: BLOCK parameter validation} {
+        # Non-numeric block timeout
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer BLOCK abc STREAMS mystream >}
+        assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer BLOCK 1.5 STREAMS mystream >}
+        
+        # Missing BLOCK value
+        assert_error "*ERR timeout is not an integer or out of range*" {r XREADGROUP GROUP mygroup consumer BLOCK STREAMS mystream >}
+        
+        # Negative timeout (typically not allowed)
+        assert_error "*ERR timeout is negative*" {r XREADGROUP GROUP mygroup consumer BLOCK -1 STREAMS mystream >}
+    }
+
+    test {XREADGROUP: stream ID format validation} {
+        # Invalid ID formats should error
+        assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream invalid-id}
+        assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream 123-}
+        assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream -123}
+        assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream abc-def}
+        assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream --}
+        assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream 123-abc}
+    }
+
+    test {XREADGROUP: nonexistent group} {
+        assert_error "*NOGROUP*" {r XREADGROUP GROUP nonexistent consumer STREAMS mystream >}
+    }
+
+    test {XREADGROUP: nonexistent stream with existing group} {
+        # Group doesn't exist on the nonexistent stream
+        assert_error "*NOGROUP*" {r XREADGROUP GROUP mygroup consumer STREAMS nonexistent >}
+    }
+
+    test {XREADGROUP: wrong key type} {
+        r SET wrongtype "not a stream"
+        assert_error "*WRONGTYPE*" {r XREADGROUP GROUP mygroup consumer STREAMS wrongtype >}
+        r DEL wrongtype
+    }
+
+    test {XREADGROUP: boundary value validation} {
+        # Test COUNT boundaries - values that are too large
+        assert_error "*value is not an integer or out of range*" {r XREADGROUP GROUP mygroup consumer COUNT 18446744073709551616 STREAMS mystream >}
+        
+        # Test BLOCK timeout boundaries - values that are too large  
+        assert_error "*timeout is not an integer or out of range*" {r XREADGROUP GROUP mygroup consumer BLOCK 18446744073709551616 STREAMS mystream >}
+    }
+
+    test {XREADGROUP: malformed parameter syntax} {
+        # Unknown parameters
+        assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer INVALID param STREAMS mystream >}
+        assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer TIMEOUT 1000 STREAMS mystream >}
+    }
+
     test {XREADGROUP will return only new elements} {
         r XADD mystream * a 1
         r XADD mystream * b 2

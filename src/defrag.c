@@ -878,16 +878,19 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
     newnack = activeDefragAlloc(nack);
     if (newnack) {
         /* update consumer group pointer to the nack */
+        streamID id;
+        streamDecodeID(ri->key, &id);
+
         void *prev;
         raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
         if(prev) {
             streamNACK *prevNack = prev;
             timeKey.delivery_time = prevNack->delivery_time;
-            timeKey.nack = prevNack;
+            timeKey.id = id;
             raxRemove(ctx->cg->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL);
         }
         timeKey.delivery_time = newnack->delivery_time;
-        timeKey.nack = newnack;
+        timeKey.id = id;
         raxInsert(ctx->cg->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
         serverAssert(prev==nack);
     }

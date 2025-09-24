@@ -116,7 +116,7 @@ typedef struct streamPropInfo {
 /* Pending entry in the consumer group's PEL, indexed by delivery time. */
 typedef struct pelTimeKey {
     uint64_t delivery_time;
-    streamNACK *nack;
+    streamID id;
 } pelTimeKey;
 
 /* Prototypes of exported APIs. */
@@ -132,7 +132,7 @@ struct client;
 stream *streamNew(void);
 void freeStream(stream *s);
 unsigned long streamLength(const robj *subject);
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount);
+size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, long long min_idle_time, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount);
 void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamID *end, int rev);
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields);
 void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsigned char **valueptr, int64_t *fieldlen, int64_t *valuelen);

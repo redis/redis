@@ -64,6 +64,12 @@
                 "optional": true
             },
             {
+                "token": "CLAIM",
+                "name": "min-idle-time",
+                "type": "integer",
+                "optional": true
+            },
+            {
                 "name": "noack",
                 "token": "NOACK",
                 "type": "pure-token",

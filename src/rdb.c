@@ -2989,9 +2989,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     return NULL;
                 }
 
+                streamID id;
+                streamDecodeID(rawid, &id);
+
                 pelTimeKey timeKey;
                 timeKey.delivery_time = nack->delivery_time;
-                timeKey.nack = nack;
+                timeKey.id = id;
                 raxInsert(cgroup->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
             }
 

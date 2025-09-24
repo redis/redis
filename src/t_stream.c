@@ -211,9 +211,12 @@ robj *streamDup(robj *o) {
             new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, ri_cg_pel.key);
             raxInsert(new_cg->pel, ri_cg_pel.key, sizeof(streamID), new_nack, NULL);
 
+            streamID id;
+            streamDecodeID(ri_cg_pel.key, &id);
+
             pelTimeKey timeKey;
             timeKey.delivery_time = new_nack->delivery_time;
-            timeKey.nack = new_nack;
+            timeKey.id = id;
             raxInsert(new_cg->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
         }
         raxStop(&ri_cg_pel);
@@ -1795,7 +1798,8 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
 #define STREAM_RWR_RAWENTRIES (1<<1)    /* Do not emit protocol for array
                                            boundaries, just the entries. */
 #define STREAM_RWR_HISTORY (1<<2)       /* Only serve consumer local PEL. */
-size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount) {
+#define STREAM_RWR_CLAIMED (1<<3)       /* Only serve claimed entries from PEL. */
+size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end, size_t count, int rev, long long min_idle_time, streamCG *group, streamConsumer *consumer, int flags, streamPropInfo *spi, unsigned long *propCount) {
     void *arraylen_ptr = NULL;
     size_t arraylen = 0;
     streamIterator si;
@@ -1807,6 +1811,111 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
     if (propCount) *propCount = 0;
 
+    if(group && min_idle_time != -1) {
+        arraylen_ptr = addReplyDeferredLen(c);
+
+        list *eligible_pels = listCreate();
+        raxIterator ri;
+        raxStart(&ri, group->pel_by_time);
+        raxSeek(&ri, "^", NULL, 0);
+        while(raxNext(&ri)) {
+            pelTimeKey *pelKey = (pelTimeKey*)ri.key;
+            uint64_t idle = commandTimeSnapshot() - pelKey->delivery_time;
+            if(idle < (uint64_t)min_idle_time)
+                break;
+
+            /* Store a copy of the key for later processing */
+            pelTimeKey *keyCopy = zmalloc(sizeof(pelTimeKey));
+            memcpy(keyCopy, pelKey, sizeof(pelTimeKey));
+            listAddNodeTail(eligible_pels, keyCopy);
+            
+            if (count && listLength(eligible_pels) >= count) break;
+        }
+        raxStop(&ri);
+
+        listIter li;
+        listNode *ln;
+        listRewind(eligible_pels, &li);
+        while((ln = listNext(&li))) {
+            pelTimeKey *pelKey = (pelTimeKey*)listNodeValue(ln);
+
+            unsigned char buf[sizeof(streamID)];
+            streamEncodeID(buf, &pelKey->id);
+
+            void *result;
+            streamNACK *nack = NULL;
+            uint64_t delivery_count = 0;
+            if (raxFind(group->pel,buf,sizeof(buf),&result)) {
+                nack = (streamNACK*)result;
+                delivery_count = nack->delivery_count;
+            }
+
+            streamID pel_id;
+            streamIteratorStart(&si,s,&pelKey->id,&pelKey->id,rev);
+            if(streamIteratorGetID(&si,&pel_id,&numfields)) {
+                /* Emit a four elements array: ID, array of field-value pairs,
+                 * idle time and delivery count. */
+                addReplyArrayLen(c,4);
+                addReplyStreamID(c,&pel_id);
+                addReplyArrayLen(c,numfields*2);
+
+                /* Emit the field-value pairs. */
+                while(numfields--) {
+                    unsigned char *key, *value;
+                    int64_t key_len, value_len;
+                    streamIteratorGetField(&si,&key,&value,&key_len,&value_len);
+                    addReplyBulkCBuffer(c,key,key_len);
+                    addReplyBulkCBuffer(c,value,value_len);
+                }
+
+                uint64_t idle = commandTimeSnapshot() - pelKey->delivery_time;
+                addReplyBulkLongLong(c, idle);
+                addReplyBulkLongLong(c, delivery_count);
+
+                /* Remove the NACK from old consumer.*/
+                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                /* Remove the NACK from the PEL by time. */
+                timeKey.delivery_time = nack->delivery_time;
+                timeKey.id = pel_id;
+                serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL) == 1);
+                /* Update the consumer and NACK metadata. */
+                nack->consumer = consumer;
+                nack->delivery_time = commandTimeSnapshot();
+                nack->delivery_count++;
+                /* Add the entry in the new consumer local PEL. */
+                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                
+
+                /* Add updated NACK in PEL by time. */
+                timeKey.delivery_time = nack->delivery_time;
+                timeKey.id = pel_id;
+                raxInsert(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
+
+                consumer->active_time = commandTimeSnapshot();
+
+                /* Propagate as XCLAIM. */
+                if (spi) {
+                    robj *idarg = createObjectFromStreamID(&pel_id);
+                    streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
+                    decrRefCount(idarg);
+                    if (propCount) (*propCount)++;
+                }
+
+                printf("Pel size: %ld\n", raxSize(group->pel));
+                printf("Pel by time size: %ld\n", raxSize(group->pel_by_time));
+                serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
+
+                arraylen++;
+                if (count && count == arraylen) break;
+            }
+            streamIteratorStop(&si);   
+        }
+        listRewind(eligible_pels, &li);
+        while((ln = listNext(&li))) {
+            zfree(listNodeValue(ln));
+        }
+        listRelease(eligible_pels);
+    }
     /* If the client is asking for some history, we serve it using a
      * different function, so that we return entries *solely* from its
      * own PEL. This ensures each consumer will always and only see
@@ -1817,7 +1926,12 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                                                    group, consumer);
     }
 
-    if (!(flags & STREAM_RWR_RAWENTRIES))
+    if (group && (flags & STREAM_RWR_CLAIMED)) {
+        if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
+        return arraylen;
+    }
+
+    if (!(flags & STREAM_RWR_RAWENTRIES) && !arraylen_ptr)
         arraylen_ptr = addReplyDeferredLen(c);
     streamIteratorStart(&si,s,start,end,rev);
     while(streamIteratorGetID(&si,&id,&numfields)) {
@@ -1843,11 +1957,16 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             propagate_last_id = 1;
         }
 
-        /* Emit a two elements array for each item. The first is
-         * the ID, the second is an array of field-value pairs. */
-        addReplyArrayLen(c,2);
+        if(min_idle_time != -1) {
+            /* If min-idle-time is specified, we emit a four elements
+             * array: ID, array of field-value pairs, idle time and delivery count. */
+            addReplyArrayLen(c,4);
+        } else {
+            /* Emit a two elements array for each item. The first is
+             * the ID, the second is an array of field-value pairs. */
+            addReplyArrayLen(c,2);
+        }
         addReplyStreamID(c,&id);
-
         addReplyArrayLen(c,numfields*2);
 
         /* Emit the field-value pairs. */
@@ -1858,6 +1977,13 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             addReplyBulkCBuffer(c,key,key_len);
             addReplyBulkCBuffer(c,value,value_len);
         }
+
+        if(min_idle_time != -1) {
+            /* For new entries idle time and delivery count is 0. */
+            addReplyBulkLongLong(c, 0);
+            addReplyBulkLongLong(c, 0);
+        }
+
 
         /* If a group is passed, we need to create an entry in the
          * PEL (pending entries list) of this group *and* this consumer.
@@ -1893,7 +2019,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 /* Remove old entry from the PEL by time. */
                 timeKey.delivery_time = nack->delivery_time;
-                timeKey.nack = nack;
+                timeKey.id = id;
                 serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL) == 1);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
@@ -1909,7 +2035,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
             /* We have new NACK or updated existing one. */
             timeKey.delivery_time = nack->delivery_time;
-            timeKey.nack = nack;
+            timeKey.id = id;
             raxInsert(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
 
             consumer->active_time = commandTimeSnapshot();
@@ -1969,7 +2095,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
         if (end && memcmp(ri.key,end,ri.key_len) > 0) break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
-        if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,NULL,NULL,
+        if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
                                  STREAM_RWR_RAWENTRIES,NULL,NULL) == 0)
         {
             /* Note that we may have a not acknowledged entry in the PEL
@@ -1983,7 +2109,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             streamNACK *nack = ri.data;
             pelTimeKey timeKey;
             timeKey.delivery_time = nack->delivery_time;
-            timeKey.nack = nack;
+            timeKey.id = thisid;
             raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL);
 
             nack->delivery_time = commandTimeSnapshot();
@@ -2297,7 +2423,7 @@ void xrangeGenericCommand(client *c, int rev) {
         addReplyNullArray(c);
     } else {
         if (count == -1) count = 0;
-        streamReplyWithRange(c,s,&startid,&endid,count,rev,NULL,NULL,0,NULL,NULL);
+        streamReplyWithRange(c,s,&startid,&endid,count,rev,-1,NULL,NULL,0,NULL,NULL);
     }
 }
 
@@ -2505,11 +2631,13 @@ void xreadCommand(client *c) {
     /* Try to serve the client synchronously. */
     size_t arraylen = 0;
     void *arraylen_ptr = NULL;
+    uint64_t min_pel_delivery_time = UINT64_MAX;
     for (int i = 0; i < streams_count; i++) {
         kvobj *o = lookupKeyRead(c->db, c->argv[streams_arg + i]);
         if (o == NULL) continue;
         stream *s = o->ptr;
         streamID *gt = ids+i; /* ID must be greater than this. */
+        int serve_claimed = 0;
         int serve_synchronously = 0;
         int serve_history = 0; /* True for XREADGROUP with ID != ">". */
         streamConsumer *consumer = NULL; /* Unused if XREAD */
@@ -2518,6 +2646,24 @@ void xreadCommand(client *c) {
         /* Check if there are the conditions to serve the client
          * synchronously. */
         if (groups) {
+            if(min_idle_time != -1) {
+                raxIterator ri;
+                raxStart(&ri, groups[i]->pel_by_time);
+                raxSeek(&ri, "^", NULL, 0);
+                if(raxNext(&ri)) {
+                    pelTimeKey *timeKey = (pelTimeKey*)ri.key;
+                    if (timeKey->delivery_time < min_pel_delivery_time) {
+                        min_pel_delivery_time = timeKey->delivery_time;
+                    }
+
+                    uint64_t idle = commandTimeSnapshot() - timeKey->delivery_time;
+                    if(idle >= (uint64_t)min_idle_time) {
+                        serve_claimed = 1;
+                    }
+                }
+                raxStop(&ri);
+            }
+
             /* If the consumer is blocked on a group, we always serve it
              * synchronously (serving its local history) if the ID specified
              * was not the special ">" ID. */
@@ -2558,6 +2704,12 @@ void xreadCommand(client *c) {
             }
         }
 
+        int flags = 0;
+        if(!serve_synchronously && serve_claimed) {
+            serve_synchronously = 1;
+            flags |= STREAM_RWR_CLAIMED;
+        }
+
         if (serve_synchronously) {
             arraylen++;
             if (arraylen == 1) arraylen_ptr = addReplyDeferredLen(c);
@@ -2572,11 +2724,10 @@ void xreadCommand(client *c) {
             if (c->resp == 2) addReplyArrayLen(c,2);
             addReplyBulk(c,c->argv[streams_arg+i]);
             
-            int flags = 0;
             unsigned long propCount = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
-            streamReplyWithRange(c,s,&start,NULL,count,0,
+            streamReplyWithRange(c,s,&start,NULL,count,0, min_idle_time,
                                  groups ? groups[i] : NULL,
                                  consumer, flags, &spi, &propCount);
             if (propCount) server.dirty++;
@@ -2710,7 +2861,7 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         raxRemove(group->pel, buf, sizeof(buf), NULL);
         pelTimeKey timeKey;
         timeKey.delivery_time = nack->delivery_time;
-        timeKey.nack = nack;
+        timeKey.id = *id;
         serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL) == 1);
         raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
         /* Since we're removing all references from the cgroups_ref, we can directly
@@ -2909,9 +3060,13 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
         streamNACK *nack = ri.data;
         streamUnlinkEntryFromCGroupRef(s, nack, ri.key);
         streamFreeNACK(nack);
+
+        streamID id;
+        streamDecodeID(ri.key, &id);
+
         pelTimeKey timeKey;
         timeKey.delivery_time = nack->delivery_time;
-        timeKey.nack = nack;
+        timeKey.id = id;
         raxRemove(cg->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
     }
@@ -3229,7 +3384,7 @@ void xackCommand(client *c) {
             streamNACK *nack = result;
             pelTimeKey timeKey;
             timeKey.delivery_time = nack->delivery_time;
-            timeKey.nack = nack;
+            timeKey.id = ids[j-3];
             serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL) == 1);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
@@ -3305,7 +3460,7 @@ void xackdelCommand(client *c) {
             streamNACK *nack = result;
             pelTimeKey timeKey;
             timeKey.delivery_time = nack->delivery_time;
-            timeKey.nack = nack;
+            timeKey.id = *id;
             serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL) == 1);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
@@ -3743,7 +3898,7 @@ void xclaimCommand(client *c) {
                 server.dirty++;
                 /* Release the NACK */
                 timeKey.delivery_time = nack->delivery_time;
-                timeKey.nack = nack;
+                timeKey.id = id;
                 raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL);
                 serverAssert(raxRemove(group->pel, buf,sizeof(buf),NULL) == 1);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
@@ -3762,7 +3917,7 @@ void xclaimCommand(client *c) {
             nack = streamCreateNACK(NULL);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
             timeKey.delivery_time = nack->delivery_time;
-            timeKey.nack = nack;
+            timeKey.id = id;
             raxInsert(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
             nack->cgroup_ref_node = streamLinkCGroupToEntry(o->ptr, group, buf);
         }
@@ -3788,7 +3943,7 @@ void xclaimCommand(client *c) {
             }
 
             timeKey.delivery_time = nack->delivery_time;
-            timeKey.nack = nack;
+            timeKey.id = id;
             raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL);
 
             nack->delivery_time = deliverytime;
@@ -3812,7 +3967,7 @@ void xclaimCommand(client *c) {
             if (justid) {
                 addReplyStreamID(c,&id);
             } else {
-                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
+                serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,-1,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
             }
             arraylen++;
 
@@ -3953,7 +4108,7 @@ void xautoclaimCommand(client *c) {
             server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
             timeKey.delivery_time = nack->delivery_time;
-            timeKey.nack = nack;
+            timeKey.id = id;
             serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL) == 1);
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
@@ -3981,7 +4136,7 @@ void xautoclaimCommand(client *c) {
 
         /* Update the consumer and idle time. */
         timeKey.delivery_time = nack->delivery_time;
-        timeKey.nack = nack;
+        timeKey.id = id;
         serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL) == 1);
 
         nack->delivery_time = now;
@@ -4003,7 +4158,7 @@ void xautoclaimCommand(client *c) {
         if (justid) {
             addReplyStreamID(c,&id);
         } else {
-            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
+            serverAssert(streamReplyWithRange(c,o->ptr,&id,&id,1,0,-1,NULL,NULL,STREAM_RWR_RAWENTRIES,NULL,NULL) == 1);
         }
         arraylen++;
         count--;
@@ -4333,11 +4488,11 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         start.ms = start.seq = 0;
         end.ms = end.seq = UINT64_MAX;
         addReplyBulkCString(c,"first-entry");
-        emitted = streamReplyWithRange(c,s,&start,&end,1,0,NULL,NULL,
+        emitted = streamReplyWithRange(c,s,&start,&end,1,0,-1,NULL,NULL,
                                        STREAM_RWR_RAWENTRIES,NULL,NULL);
         if (!emitted) addReplyNull(c);
         addReplyBulkCString(c,"last-entry");
-        emitted = streamReplyWithRange(c,s,&start,&end,1,1,NULL,NULL,
+        emitted = streamReplyWithRange(c,s,&start,&end,1,1,-1,NULL,NULL,
                                        STREAM_RWR_RAWENTRIES,NULL,NULL);
         if (!emitted) addReplyNull(c);
     } else {
@@ -4345,7 +4500,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
 
         /* Stream entries */
         addReplyBulkCString(c,"entries");
-        streamReplyWithRange(c,s,NULL,NULL,count,0,NULL,NULL,0,NULL,NULL);
+        streamReplyWithRange(c,s,NULL,NULL,count,0,-1,NULL,NULL,0,NULL,NULL);
 
         /* Consumer groups */
         addReplyBulkCString(c,"groups");
