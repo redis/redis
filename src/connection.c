@@ -68,6 +68,8 @@ int connTypeInitialize(void) {
     /* may fail if without BUILD_TLS=yes */
     RedisRegisterConnectionTypeTLS();
 
+    RedisRegisterConnectionTypeCompression();
+
     return C_OK;
 }
 

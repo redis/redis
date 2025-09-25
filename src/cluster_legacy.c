@@ -1224,7 +1224,7 @@ void setClusterNodeToInboundClusterLink(clusterNode *node, clusterLink *link) {
          * one of the links. The existing link is more likely the outdated one, but it's
          * possible the other node may need to open another link. */
         serverLog(LL_DEBUG, "Replacing inbound link fd %d from node %.40s with fd %d",
-                node->inbound_link->conn->fd, node->name, link->conn->fd);
+                connGetFd(node->inbound_link->conn), node->name, connGetFd(link->conn));
         freeClusterLink(node->inbound_link);
     }
     serverAssert(!node->inbound_link);

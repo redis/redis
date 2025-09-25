@@ -76,7 +76,17 @@ start_server {} {
         # replication buffer, so all replicas output memory is not
         # more than double of replication buffer.
         set repl_buf_mem [s mem_total_replication_buffers]
-        set extra_mem [expr {[s used_memory]-$before_used-1024*1024}]
+        set repl_full_sync_buf_mem [s mem_replica_full_sync_buffer]
+
+        set compression_extra_mem 0
+        if {$::compression} {
+            # each replica holds 2 temp user-space buffers of size 128Kb related
+            # to compression
+            set numreplicas 3
+            set compression_extra_mem [expr {(2 * 128) * 1024 * $numreplicas}]
+        }
+        set extra_mem [expr {[s used_memory] - $before_used - 1024*1024 - $compression_extra_mem}]
+
         if {$rdbchannel == "yes"} {
             # master's replication buffers should not grow
             assert {$extra_mem < 1024*1024}
@@ -162,6 +172,15 @@ start_server {} {
         # Generating RDB will take 1000 seconds
         $master config set rdb-key-save-delay 1000000
         populate 1000 master 10000
+
+        # When compression is enabled the repl buffer may be consumed by the
+        # compression library faster than the data is actually send. We still
+        # trim the replication buffer in that case. In order for the following
+        # test to work we rely on replica2 being slow. If repl-rdb-channel is
+        # enabled though the repl buffer may be consumed faster than we expect.
+        if {$::compression} {
+            $replica2 config set repl-rdb-channel no
+        }
         $replica2 replicaof $master_host $master_port
         # Make sure replica2 is waiting bgsave
         wait_for_condition 5000 100 {
@@ -174,6 +193,11 @@ start_server {} {
         # the slow replica2 kept replication buffer.
         populate 20000 master 10000
         assert {[s repl_backlog_histlen] > [expr 10000*10000]}
+
+        # revert the config
+        if {$::compression} {
+            $replica2 config set repl-rdb-channel no
+        }
     }
 
     # Wait replica1 catch up with the master
@@ -224,10 +248,12 @@ start_server {} {
 
         # Since we trim replication backlog inrementally, replication backlog
         # memory may take time to be reclaimed.
-        wait_for_condition 1000 100 {
-            [s repl_backlog_histlen] < [expr 10000*10000]
-        } else {
-            fail "Replication backlog memory is not smaller"
+        if {!$::compression} {
+            wait_for_condition 1000 100 {
+                [s repl_backlog_histlen] < [expr 10000*10000]
+            } else {
+                fail "Replication backlog memory is not smaller"
+            }
         }
         resume_process $replica2_pid
     }

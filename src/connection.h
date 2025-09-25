@@ -40,6 +40,7 @@ typedef enum {
 #define CONN_TYPE_SOCKET            "tcp"
 #define CONN_TYPE_UNIX              "unix"
 #define CONN_TYPE_TLS               "tls"
+#define CONN_TYPE_COMPRESSION       "compression"
 #define CONN_TYPE_MAX               8           /* 8 is enough to be extendable */
 
 typedef void (*ConnectionCallbackFunc)(struct connection *conn);
@@ -81,6 +82,8 @@ typedef struct ConnectionType {
     ssize_t (*sync_write)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_read)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
     ssize_t (*sync_readline)(struct connection *conn, char *ptr, ssize_t size, long long timeout);
+    size_t (*get_last_read)(struct connection *conn);
+    size_t (*get_last_written)(struct connection *conn);
 
     /* event loop */
     void (*unbind_event_loop)(struct connection *conn);
@@ -95,6 +98,17 @@ typedef struct ConnectionType {
 
     /* Get peer username based on connection type */
     sds (*get_peer_username)(connection *conn);
+
+    aeEventLoop* (*get_event_loop)(connection *conn);
+    void (*unset_event_loop)(connection *conn);
+    int (*get_fd)(connection *conn);
+    int (*get_iovcnt)(connection *conn);
+    ConnectionState (*get_state)(connection *conn);
+    int (*get_last_errno)(connection *conn);
+    int (*has_read_handler)(connection *conn);
+    int (*has_write_handler)(connection *conn);
+    void (*set_private_data)(connection *conn, void *data);
+    void* (*get_private_data)(connection *conn);
 } ConnectionType;
 
 struct connection {
@@ -257,13 +271,33 @@ static inline ssize_t connSyncReadLine(connection *conn, char *ptr, ssize_t size
     return conn->type->sync_readline(conn, ptr, size, timeout);
 }
 
+/* If connection type has a special way to get last read bytes from connection
+ * save the value in last_read and return 1. Otherwise return 0.
+ * F.e when compression is enabled we read compressed data from socket inside
+ * connRead but it returns the number of bytes decompressed. In order to get the
+ * number of bytes read from socket we call connCheckLastRead. */
+static inline int connCheckLastRead(connection *conn, size_t *last_read) {
+    if (!conn->type->get_last_read) return 0;
+    *last_read = conn->type->get_last_read(conn);
+    return 1;
+}
+
+/* If connection type has a special way to get last written bytes to connection
+ * save the value in last_written and return 1. Otherwise return 0. */
+static inline int connCheckLastWritten(connection *conn, size_t *last_written) {
+    if (!conn->type->get_last_written) return 0;
+    *last_written = conn->type->get_last_written(conn);
+    return 1;
+}
+
 /* Return CONN_TYPE_* for the specified connection */
 static inline const char *connGetType(connection *conn) {
     return conn->type->get_type(conn);
 }
 
 static inline int connLastErrorRetryable(connection *conn) {
-    return conn->last_errno == EINTR;
+    int last_errno = conn->type->get_last_errno ? conn->type->get_last_errno(conn) : conn->last_errno;
+    return last_errno == EINTR;
 }
 
 /* Get address information of a connection.
@@ -314,34 +348,52 @@ static inline int connIsLocal(connection *conn) {
     return -1;
 }
 
-static inline int connGetState(connection *conn) {
-    return conn->state;
+static inline ConnectionState connGetState(connection *conn) {
+    return conn->type->get_state ? conn->type->get_state(conn) : conn->state;
+}
+
+static inline int connGetFd(connection *conn) {
+    return conn->type->get_fd ? conn->type->get_fd(conn) : conn->fd;
+}
+
+static inline int connGetIovcnt(connection *conn) {
+    return conn->type->get_iovcnt ? conn->type->get_iovcnt(conn) : conn->iovcnt;
 }
 
 /* Returns true if a write handler is registered */
 static inline int connHasWriteHandler(connection *conn) {
-    return conn->write_handler != NULL;
+    return conn->type->has_write_handler ?
+           conn->type->has_write_handler(conn) :
+           (conn->write_handler != NULL);
 }
 
 /* Returns true if a read handler is registered */
 static inline int connHasReadHandler(connection *conn) {
-    return conn->read_handler != NULL;
+    return conn->type->has_read_handler ?
+           conn->type->has_read_handler(conn) :
+           (conn->read_handler != NULL);
 }
 
 /* Returns true if the connection is bound to an event loop */
 static inline int connHasEventLoop(connection *conn) {
-    return conn->el != NULL;
+    return conn->type->get_event_loop ?
+           (conn->type->get_event_loop(conn) != NULL) :
+           (conn->el != NULL);
 }
 
 /* Unbind the current event loop from the connection, so that it can be
  * rebind to a different event loop in the future. */
 static inline void connUnbindEventLoop(connection *conn) {
-    if (conn->el == NULL) return;
+    if (!connHasEventLoop(conn)) return;
     connSetReadHandler(conn, NULL);
     connSetWriteHandler(conn, NULL);
     if (conn->type->unbind_event_loop)
         conn->type->unbind_event_loop(conn);
-    conn->el = NULL;
+
+    if (conn->type->unset_event_loop)
+        conn->type->unset_event_loop(conn);
+    else
+        conn->el = NULL;
 }
 
 /* Rebind the connection to another event loop, read/write handlers must not
@@ -352,12 +404,17 @@ static inline int connRebindEventLoop(connection *conn, aeEventLoop *el) {
 
 /* Associate a private data pointer with the connection */
 static inline void connSetPrivateData(connection *conn, void *data) {
-    conn->private_data = data;
+    if (conn->type->set_private_data)
+        conn->type->set_private_data(conn, data);
+    else
+        conn->private_data = data;
 }
 
 /* Get the associated private data pointer */
 static inline void *connGetPrivateData(connection *conn) {
-    return conn->private_data;
+    return conn->type->get_private_data ?
+           conn->type->get_private_data(conn) :
+           conn->private_data;
 }
 
 /* Return a text that describes the connection, suitable for inclusion
@@ -366,7 +423,8 @@ static inline void *connGetPrivateData(connection *conn) {
  * For sockets, we always return "fd=<fdnum>" to maintain compatibility.
  */
 static inline const char *connGetInfo(connection *conn, char *buf, size_t buf_len) {
-    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : conn->fd);
+    int fd = conn ? connGetFd(conn) : -1;
+    snprintf(buf, buf_len-1, "fd=%i", conn == NULL ? -1 : fd);
     return buf;
 }
 
@@ -462,6 +520,7 @@ sds getListensInfoString(sds info);
 int RedisRegisterConnectionTypeSocket(void);
 int RedisRegisterConnectionTypeUnix(void);
 int RedisRegisterConnectionTypeTLS(void);
+int RedisRegisterConnectionTypeCompression(void);
 
 /* Return 1 if connection is using TLS protocol, 0 if otherwise. */
 static inline int connIsTLS(connection *conn) {

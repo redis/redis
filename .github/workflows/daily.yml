@@ -11,7 +11,7 @@ on:
     inputs:
       skipjobs:
         description: 'jobs to skip (delete the ones you wanna keep, do not leave empty)'
-        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC,defrag,vectorset,assert-keyspace,arm'
+        default: 'valgrind,sanitizer,tls,freebsd,macos,alpine,32bit,iothreads,ubuntu,centos,malloc,specific,fortify,reply-schema,oldTC,defrag,vectorset,assert-keyspace,arm,compression'
       skiptests:
         description: 'tests to skip (delete the ones you wanna keep, do not leave empty)'
         default: 'redis,modules,sentinel,cluster,unittest'
@@ -52,7 +52,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
+      run: |
+        sudo apt-get install -y libzstd-dev
+        make REDIS_CFLAGS='-Werror -DREDIS_TEST -DDEBUG_ASSERTIONS'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -240,7 +242,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        apt-get update && apt-get install -y make gcc
+        apt-get update && apt-get install -y make gcc libzstd-dev
         # Also enables jemalloc's sized deallocation checks to catch sdallocx()/zfree_with_size() misuse.
         make CC=gcc REDIS_CFLAGS='-Werror -DREDIS_TEST -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3' JEMALLOC_CONFIGURE_OPTS='--enable-opt-size-checks'
     - name: testprep
@@ -279,7 +281,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make MALLOC=libc REDIS_CFLAGS='-Werror'
+      run: |
+        sudo apt-get install -y libzstd-dev
+        make MALLOC=libc REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -313,7 +317,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE REDIS_CFLAGS='-Werror'
+      run: |
+        sudo apt-get install -y libzstd-dev
+        make MALLOC=libc CFLAGS=-DNO_MALLOC_USABLE_SIZE REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -348,7 +354,8 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib
+        sudo dpkg --add-architecture i386
+        sudo apt-get update && sudo apt-get install libc6-dev-i386 gcc-multilib libzstd-dev:i386
         make 32bit REDIS_CFLAGS='-Werror -DREDIS_TEST'
         make -C tests/modules 32bit # the script below doesn't have an argument, we must build manually ahead of time
     - name: testprep
@@ -388,6 +395,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
+        sudo apt-get install -y libzstd-dev
         make BUILD_TLS=yes REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
@@ -428,6 +436,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
+        sudo apt-get install -y libzstd-dev
         make BUILD_TLS=yes REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
@@ -468,6 +477,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
+        sudo apt-get install -y libzstd-dev
         make REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
@@ -477,6 +487,43 @@ jobs:
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster --config io-threads 4 ${{github.event.inputs.cluster_test_args}}
+
+  test-ubuntu-client-compression:
+    runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
+      !contains(github.event.inputs.skipjobs, 'compression')
+    timeout-minutes: 14400
+    steps:
+    - name: prep
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo "GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}" >> $GITHUB_ENV
+        echo "GITHUB_HEAD_REF=${{github.event.inputs.use_git_ref}}" >> $GITHUB_ENV
+        echo "skipjobs: ${{github.event.inputs.skipjobs}}"
+        echo "skiptests: ${{github.event.inputs.skiptests}}"
+        echo "test_args: ${{github.event.inputs.test_args}}"
+        echo "cluster_test_args: ${{github.event.inputs.cluster_test_args}}"
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ env.GITHUB_REPOSITORY }}
+        ref: ${{ env.GITHUB_HEAD_REF }}
+    - name: make
+      run: |
+        sudo apt-get install -y libzstd-dev
+        make REDIS_CFLAGS='-Werror'
+    - name: testprep
+      run: sudo apt-get install tcl8.6 tclx
+    - name: test
+      if: true && !contains(github.event.inputs.skiptests, 'redis')
+      # Running with less than default(16) clients as compression slows down
+      # replication and some tests start to fail because of timing errors.
+      # This is similar to why we run tsan with only 1 client which is even
+      # more extreme case
+      run: ./runtest --clients 4 --config io-threads 4 --config repl-compression 1 --compression --accurate --verbose --tags "repl network iothreads psync2" --dump-logs ${{github.event.inputs.test_args}}
+    - name: cluster tests
+      if: true && !contains(github.event.inputs.skiptests, 'cluster')
+      run: ./runtest-cluster --config io-threads 4 --config repl-compression 1 --compression ${{github.event.inputs.cluster_test_args}}
 
   test-ubuntu-reclaim-cache:
     runs-on: ubuntu-latest
@@ -500,6 +547,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
+        sudo apt-get install -y libzstd-dev
         make REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
@@ -577,7 +625,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: |
+        sudo apt-get update && sudo apt-get install -y libzstd-dev
+        make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: |
         sudo apt-get update
@@ -610,7 +660,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: |
+        sudo apt-get update && sudo apt-get install -y libzstd-dev
+        make valgrind REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: |
         sudo apt-get update
@@ -642,7 +694,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
+      run: |
+        sudo apt-get update && sudo apt-get install -y libzstd-dev
+        make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
         sudo apt-get update
@@ -672,7 +726,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
+      run: |
+        sudo apt-get update && sudo apt-get install -y libzstd-dev
+        make valgrind CFLAGS="-DNO_MALLOC_USABLE_SIZE -DREDIS_TEST" REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
         sudo apt-get update
@@ -709,7 +765,9 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        run: |
+          sudo apt-get install -y libzstd-dev
+          make SANITIZER=address REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
         run: |
           sudo apt-get update
@@ -750,7 +808,9 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=memory REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        run: |
+          sudo apt-get install -y libzstd-dev
+          make SANITIZER=memory REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
         run: |
           sudo apt-get update
@@ -794,7 +854,9 @@ jobs:
           repository: ${{ env.GITHUB_REPOSITORY }}
           ref: ${{ env.GITHUB_HEAD_REF }}
       - name: make
-        run: make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' SKIP_VEC_SETS=yes LUA_DEBUG=yes # we (ab)use this flow to also check Lua C API violations
+        run: |
+          sudo apt-get install -y libzstd-dev
+          make SANITIZER=undefined REDIS_CFLAGS='-DREDIS_TEST -Werror' SKIP_VEC_SETS=yes LUA_DEBUG=yes # we (ab)use this flow to also check Lua C API violations
       - name: testprep
         run: |
           sudo apt-get update
@@ -841,7 +903,9 @@ jobs:
       - name: make
         # TODO Investigate why jemalloc with clang TSan crash on start;
         # with gcc TSan, jemalloc works modulo sentinel tests hanging.
-        run: make SANITIZER=thread USE_JEMALLOC=no REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
+        run: |
+          sudo apt-get install -y libzstd-dev
+          make SANITIZER=thread USE_JEMALLOC=no REDIS_CFLAGS='-DREDIS_TEST -Werror -DDEBUG_ASSERTIONS'
       - name: testprep
         run: |
           sudo apt-get update
@@ -879,7 +943,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        dnf -y install which gcc make
+        dnf -y install which gcc make libzstd-devel
         make REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
@@ -918,7 +982,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        dnf -y install which gcc make openssl-devel openssl
+        dnf -y install which gcc make openssl-devel openssl libzstd-devel
         make BUILD_TLS=module REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
@@ -961,7 +1025,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-        dnf -y install which gcc make openssl-devel openssl
+        dnf -y install which gcc make openssl-devel openssl libzstd-devel
         make BUILD_TLS=module REDIS_CFLAGS='-Werror'
     - name: testprep
       run: |
@@ -1002,7 +1066,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror'
+      run: |
+        brew install zstd
+        make REDIS_CFLAGS='-Werror'
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
       run: ./runtest --accurate --verbose --clients 1 --no-latency --dump-logs ${{github.event.inputs.test_args}}
@@ -1028,7 +1094,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror'
+      run: |
+        brew install zstd
+        make REDIS_CFLAGS='-Werror'
     - name: sentinel tests
       if: true && !contains(github.event.inputs.skiptests, 'sentinel')
       run: ./runtest-sentinel ${{github.event.inputs.cluster_test_args}}
@@ -1054,7 +1122,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror'
+      run: |
+        brew install zstd
+        make REDIS_CFLAGS='-Werror'
     - name: cluster tests
       if: true && !contains(github.event.inputs.skiptests, 'cluster')
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
@@ -1086,7 +1156,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: |
+        brew install zstd
+        make REDIS_CFLAGS='-Werror -DREDIS_TEST'
 
   test-freebsd:
     runs-on: ubuntu-latest
@@ -1112,7 +1184,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc zstd devel/pkgconf
           gmake
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
@@ -1138,7 +1210,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-          apk add build-base
+          apk add build-base zstd-dev
           make REDIS_CFLAGS='-Werror'
     - name: testprep
       run: apk add tcl procps tclx
@@ -1174,7 +1246,7 @@ jobs:
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
       run: |
-          apk add build-base
+          apk add build-base zstd-dev
           make REDIS_CFLAGS='-Werror' USE_JEMALLOC=no CFLAGS=-DUSE_MALLOC_USABLE_SIZE
     - name: testprep
       run: apk add tcl procps tclx
@@ -1209,7 +1281,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
+      run: |
+        sudo apt-get install -y libzstd-dev
+        make REDIS_CFLAGS='-Werror -DLOG_REQ_RES'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -1262,7 +1336,7 @@ jobs:
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
         apt-get update
-        apt-get install -y make gcc-4.8
+        apt-get install -y make gcc-4.8 libzstd-dev
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         make CC=gcc REDIS_CFLAGS='-Werror'
     - name: testprep
@@ -1307,7 +1381,7 @@ jobs:
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
         apt-get update
-        apt-get install -y make gcc-4.8 openssl libssl-dev
+        apt-get install -y make gcc-4.8 openssl libssl-dev libzstd-dev
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         make CC=gcc BUILD_TLS=module REDIS_CFLAGS='-Werror'
     - name: testprep
@@ -1357,7 +1431,7 @@ jobs:
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 40976EAF437D05B5
         apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 3B4FE6ACC0B21F32
         apt-get update
-        apt-get install -y make gcc-4.8 openssl libssl-dev
+        apt-get install -y make gcc-4.8 openssl libssl-dev libzstd-dev
         update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 100
         make BUILD_TLS=module CC=gcc REDIS_CFLAGS='-Werror'
     - name: testprep
@@ -1398,7 +1472,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
+      run: |
+        sudo apt-get install -y libzstd-dev
+        make SANITIZER=address DEBUG_DEFRAG=force REDIS_CFLAGS='-Werror'
     - name: testprep
       run: sudo apt-get install tcl8.6 tclx
     - name: test
@@ -1426,7 +1502,9 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: make
-      run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
+      run: |
+        sudo apt-get install -y libzstd-dev
+        make REDIS_CFLAGS='-Werror -DREDIS_TEST'
     - name: testprep
       run: |
         sudo apt-get install tcl8.6 tclx
