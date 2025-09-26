@@ -1926,7 +1926,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                                                    group, consumer);
     }
 
-    if (group && (flags & STREAM_RWR_CLAIMED)) {
+    if ((group && (flags & STREAM_RWR_CLAIMED)) || (count && count == arraylen)) {
         if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
         return arraylen;
     }
@@ -2479,6 +2479,7 @@ void xreadCommand(client *c) {
                 return;
             }
             i++;
+            min_idle_time = -1;
             if (getLongLongFromObjectOrReply(c, c->argv[i], &min_idle_time, 
                     "min-idle-time is not an integer or out of range") != C_OK)
                 return;
@@ -2705,7 +2706,14 @@ void xreadCommand(client *c) {
         }
 
         int flags = 0;
-        if(!serve_synchronously && serve_claimed) {
+        if(serve_history) {
+            /* CLAIM option is ignored when we server from consumer history.*/
+            min_idle_time = -1;
+        }
+        else if(!serve_synchronously && serve_claimed) {
+            /* We serve the client synchronously if the CLAIM option was
+             * specified and there are messages in the PEL that are idle
+             * enough. */
             serve_synchronously = 1;
             flags |= STREAM_RWR_CLAIMED;
         }
