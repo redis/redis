@@ -691,37 +691,35 @@ proc get_system_name {} {
 
 proc pause_process pid {
     exec kill -SIGSTOP $pid
-    set system_name [get_system_name]
 
-    if {$system_name eq {sunos}} {
-        set ps_cmd "ps -o s= -p $pid"
-        set debug_cmd "ps -l -p $pid"
+    if {[get_system_name] eq {sunos}} {
+        set proc_state_cmd "ps -o s= -p $pid"
+        set proc_job_cmd "ps -l -p $pid"
     } else {
-        set ps_cmd "ps -o state= -p $pid"
-        set debug_cmd "ps j $pid"
+        set proc_state_cmd "ps -o state= -p $pid"
+        set proc_job_cmd "ps j $pid"
     }
 
     wait_for_condition 50 100 {
-        [string match "T*" [exec {*}$ps_cmd]]
+        [string match "T*" [exec {*}$proc_state_cmd]]
     } else {
-        puts [exec {*}$debug_cmd]
+        puts [exec {*}$proc_job_cmd]
         fail "process didn't stop"
     }
 }
 
 proc resume_process pid {
-    set system_name [get_system_name]
-    if {$system_name eq {sunos}} {
-        set ps_cmd "ps -o s= -p $pid"
-        set debug_cmd "ps -l -p $pid"
+    if {[get_system_name] eq {sunos}} {
+        set proc_state_cmd "ps -o s= -p $pid"
+        set proc_job_cmd "ps -l -p $pid"
     } else {
-        set ps_cmd "ps -o state= -p $pid"
-        set debug_cmd "ps j $pid"
+        set proc_state_cmd "ps -o state= -p $pid"
+        set proc_job_cmd "ps j $pid"
     }
     wait_for_condition 50 1000 {
-        [string match "T*" [exec {*}$ps_cmd]]
+        [string match "T*" [exec {*}$proc_state_cmd]]
     } else {
-        puts [exec {*}$debug_cmd]
+        puts [exec {*}$proc_job_cmd]
         fail "process was not stopped"
     }
     exec kill -SIGCONT $pid
