@@ -1,9 +1,0 @@
-{
-    "PUBSUB": {
-        "summary": "A container for Pub/Sub commands.",
-        "complexity": "Depends on subcommand.",
-        "group": "pubsub",
-        "since": "2.8.0",
-        "arity": -2
-    }
-}

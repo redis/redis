@@ -1,9 +1,0 @@
-{
-    "FUNCTION": {
-        "summary": "A container for function commands.",
-        "complexity": "Depends on subcommand.",
-        "group": "scripting",
-        "since": "7.0.0",
-        "arity": -2
-    }
-}

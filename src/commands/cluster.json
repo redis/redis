@@ -1,9 +1,0 @@
-{
-    "CLUSTER": {
-        "summary": "A container for Redis Cluster commands.",
-        "complexity": "Depends on subcommand.",
-        "group": "cluster",
-        "since": "3.0.0",
-        "arity": -2
-    }
-}

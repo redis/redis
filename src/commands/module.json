@@ -1,9 +1,0 @@
-{
-    "MODULE": {
-        "summary": "A container for module commands.",
-        "complexity": "Depends on subcommand.",
-        "group": "server",
-        "since": "4.0.0",
-        "arity": -2
-    }
-}
