@@ -1,0 +1,28 @@
+{
+    "SHARDNUMSUB": {
+        "summary": "Returns the count of subscribers of shard channels.",
+        "complexity": "O(N) for the SHARDNUMSUB subcommand, where N is the number of requested shard channels",
+        "group": "pubsub",
+        "since": "7.0.0",
+        "arity": -2,
+        "container": "PUBSUB",
+        "function": "pubsubCommand",
+        "command_flags": [
+            "PUBSUB",
+            "LOADING",
+            "STALE"
+        ],
+        "arguments": [
+            {
+                "name": "shardchannel",
+                "type": "string",
+                "optional": true,
+                "multiple": true
+            }
+        ],
+        "reply_schema": {
+            "description": "the number of subscribers per shard channel, each even element (including 0th) is channel name, each odd element is the number of subscribers",
+            "type": "array"
+        }
+    }
+}

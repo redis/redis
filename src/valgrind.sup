@@ -1,0 +1,26 @@
+{
+   <lzf_uninitialized_hash_table>
+   Memcheck:Cond
+   fun:lzf_compress
+}
+
+{
+   <lzf_uninitialized_hash_table>
+   Memcheck:Value4
+   fun:lzf_compress
+}
+
+{
+   <lzf_uninitialized_hash_table>
+   Memcheck:Value8
+   fun:lzf_compress
+}
+
+{
+   <negative size allocatoin, see integration/corrupt-dump>
+   Memcheck:FishyValue
+   malloc(size)
+   fun:malloc
+   fun:ztrymalloc_usable
+   fun:ztrymalloc
+}

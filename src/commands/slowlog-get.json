@@ -1,0 +1,74 @@
+{
+    "GET": {
+        "summary": "Returns the slow log's entries.",
+        "complexity": "O(N) where N is the number of entries returned",
+        "group": "server",
+        "since": "2.2.12",
+        "arity": -2,
+        "container": "SLOWLOG",
+        "function": "slowlogCommand",
+        "history": [
+            [
+                "4.0.0",
+                "Added client IP address, port and name to the reply."
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "LOADING",
+            "STALE"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_NODES",
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "Entries from the slow log in chronological order.",
+            "uniqueItems": true,
+            "items": {
+                "type": "array",
+                "minItems": 6,
+                "maxItems": 6,
+                "items": [
+                    {
+                        "type": "integer",
+                        "description": "Slow log entry ID."
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The unix timestamp at which the logged command was processed.",
+                        "minimum": 0
+                    },
+                    {
+                        "type": "integer",
+                        "description": "The amount of time needed for its execution, in microseconds.",
+                        "minimum": 0
+                    },
+                    {
+                        "type": "array",
+                        "description": "The arguments of the command.",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "type": "string",
+                        "description": "Client IP address and port."
+                    },
+                    {
+                        "type": "string",
+                        "description": "Client name if set via the CLIENT SETNAME command."
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            }
+        ]
+    }
+}
