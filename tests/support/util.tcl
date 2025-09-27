@@ -685,42 +685,44 @@ proc process_is_alive pid {
     }
 }
 
+proc get_system_name {} {
+    return [string tolower [exec uname -s]]
+}
+
 proc pause_process pid {
     exec kill -SIGSTOP $pid
-    set system_name [string tolower [exec uname -s]]
+    set system_name [get_system_name]
+
     if {$system_name eq {sunos}} {
-        wait_for_condition 50 100 {
-            [string match {*T*} [lindex [exec ps -l -p $pid] 15]]
-        } else {
-            puts [exec ps -l -p $pid]
-            fail "process didn't stop"
-        }
+        set ps_cmd "ps -o s= -p $pid"
+        set debug_cmd "ps -l -p $pid"
     } else {
-        wait_for_condition 50 100 {
-            [string match {*T*} [lindex [exec ps j $pid] 16]]
-        } else {
-            puts [exec ps j $pid]
-            fail "process didn't stop"
-        }
+        set ps_cmd "ps -o state= -p $pid"
+        set debug_cmd "ps j $pid"
+    }
+
+    wait_for_condition 50 100 {
+        [string match "T*" [exec {*}$ps_cmd]]
+    } else {
+        puts [exec {*}$debug_cmd]
+        fail "process didn't stop"
     }
 }
 
 proc resume_process pid {
-    set system_name [string tolower [exec uname -s]]
+    set system_name [get_system_name]
     if {$system_name eq {sunos}} {
-        wait_for_condition 50 1000 {
-            [string match "T*" [exec ps -o s= -p $pid]]
-        } else {
-            puts [exec ps -l -p $pid]
-            fail "process was not stopped"
-        }
+        set ps_cmd "ps -o s= -p $pid"
+        set debug_cmd "ps -l -p $pid"
     } else {
-        wait_for_condition 50 1000 {
-            [string match "T*" [exec ps -o state= -p $pid]]
-        } else {
-            puts [exec ps j $pid]
-            fail "process was not stopped"
-        }
+        set ps_cmd "ps -o state= -p $pid"
+        set debug_cmd "ps j $pid"
+    }
+    wait_for_condition 50 1000 {
+        [string match "T*" [exec {*}$ps_cmd]]
+    } else {
+        puts [exec {*}$debug_cmd]
+        fail "process was not stopped"
     }
     exec kill -SIGCONT $pid
 }
@@ -1228,7 +1230,7 @@ proc system_backtrace_supported {} {
         return 0
     }
 
-    set system_name [string tolower [exec uname -s]]
+    set system_name [get_system_name]
     if {$system_name eq {darwin}} {
         return 1
     } elseif {$system_name ne {linux}} {
