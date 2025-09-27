@@ -1,0 +1,111 @@
+{
+    "HELLO": {
+        "summary": "Handshakes with the Redis server.",
+        "complexity": "O(1)",
+        "group": "connection",
+        "since": "6.0.0",
+        "arity": -1,
+        "function": "helloCommand",
+        "history": [
+            [
+                "6.2.0",
+                "`protover` made optional; when called without arguments the command reports the current connection's context."
+            ]
+        ],
+        "command_flags": [
+            "NOSCRIPT",
+            "LOADING",
+            "STALE",
+            "FAST",
+            "NO_AUTH",
+            "SENTINEL",
+            "ALLOW_BUSY"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "server": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                },
+                "proto": {
+                    "const": 3
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "mode": {
+                    "type": "string"
+                },
+                "role": {
+                    "type": "string"
+                },
+                "modules": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                            "name": {
+                                "type": "string"
+                            },
+                            "ver": {
+                                "type": "integer"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "args": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "arguments": [
+            {
+                "name": "arguments",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "protover",
+                        "type": "integer"
+                    },
+                    {
+                        "token": "AUTH",
+                        "name": "auth",
+                        "type": "block",
+                        "optional": true,
+                        "arguments": [
+                            {
+                                "name": "username",
+                                "type": "string"
+                            },
+                            {
+                                "name": "password",
+                                "type": "string"
+                            }
+                        ]
+                    },
+                    {
+                        "token": "SETNAME",
+                        "name": "clientname",
+                        "type": "string",
+                        "optional": true
+                    }
+                ]
+            }
+        ]
+    }
+}

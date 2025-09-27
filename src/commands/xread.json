@@ -1,0 +1,107 @@
+{
+    "XREAD": {
+        "summary": "Returns messages from multiple streams with IDs greater than the ones requested. Blocks until a message is available otherwise.",
+        "group": "stream",
+        "since": "5.0.0",
+        "arity": -4,
+        "function": "xreadCommand",
+        "get_keys_function": "xreadGetKeys",
+        "command_flags": [
+            "BLOCKING",
+            "READONLY"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RO",
+                    "ACCESS"
+                ],
+                "begin_search": {
+                    "keyword": {
+                        "keyword": "STREAMS",
+                        "startfrom": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": -1,
+                        "step": 1,
+                        "limit": 2
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "token": "COUNT",
+                "name": "count",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "BLOCK",
+                "name": "milliseconds",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "name": "streams",
+                "token": "STREAMS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "key",
+                        "type": "key",
+                        "key_spec_index": 0,
+                        "multiple": true
+                    },
+                    {
+                        "name": "ID",
+                        "type": "string",
+                        "multiple": true
+                    }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "A map of key-value elements when each element composed of key name and the entries reported for that key",
+                    "type": "object",
+                    "patternProperties": {
+                        "^.*$": {
+                            "description": "The entries reported for that key",
+                            "type": "array",
+                            "items": {
+                                "type": "array",
+                                "minItems": 2,
+                                "maxItems": 2,
+                                "items": [
+                                    {
+                                        "description": "entry id",
+                                        "type": "string",
+                                        "pattern": "[0-9]+-[0-9]+"
+                                    },
+                                    {
+                                        "description": "array of field-value pairs",
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                },
+                {
+                    "description": "If BLOCK option is given, and a timeout occurs, or there is no stream we can serve",
+                    "type": "null"
+                }
+            ]
+        }
+    }
+}

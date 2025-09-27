@@ -1,0 +1,49 @@
+{
+    "LATEST": {
+        "summary": "Returns the latest latency samples for all events.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "2.8.13",
+        "arity": 2,
+        "container": "LATENCY",
+        "function": "latencyCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT",
+            "REQUEST_POLICY:ALL_NODES",
+            "RESPONSE_POLICY:SPECIAL"
+        ],
+        "reply_schema": {
+            "type": "array",
+            "description": "An array where each element is a four elements array representing the event's name, timestamp, latest and all-time latency measurements.",
+            "items": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": [
+                    {
+                        "type": "string",
+                        "description": "Event name."
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Timestamp."
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Latest latency in milliseconds."
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max latency in milliseconds."
+                    }
+                ]
+            }
+        }
+    }
+}

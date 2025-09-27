@@ -1,0 +1,60 @@
+{
+    "ZREM": {
+        "summary": "Removes one or more members from a sorted set. Deletes the sorted set if all members were removed.",
+        "complexity": "O(M*log(N)) with N being the number of elements in the sorted set and M the number of elements to be removed.",
+        "group": "sorted_set",
+        "since": "1.2.0",
+        "arity": -3,
+        "function": "zremCommand",
+        "history": [
+            [
+                "2.4.0",
+                "Accepts multiple elements."
+            ]
+        ],
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "SORTEDSET"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "DELETE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "The number of members removed from the sorted set, not including non existing members.",
+            "type": "integer",
+            "minimum": 0
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "member",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,36 @@
+{
+    "GET": {
+        "summary": "Returns the effective values of configuration parameters.",
+        "complexity": "O(N) when N is the number of configuration parameters provided",
+        "group": "server",
+        "since": "2.0.0",
+        "arity": -3,
+        "container": "CONFIG",
+        "function": "configGetCommand",
+        "history": [
+            [
+                "7.0.0",
+                "Added the ability to pass multiple pattern parameters in one call"
+            ]
+        ],
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT",
+            "LOADING",
+            "STALE"
+        ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            }
+        },
+        "arguments": [
+            {
+                "name": "parameter",
+                "type": "string",
+                "multiple": true
+            }
+        ]
+    }
+}

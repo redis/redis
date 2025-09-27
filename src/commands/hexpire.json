@@ -1,0 +1,118 @@
+{
+    "HEXPIRE": {
+        "summary": "Set expiry for hash field using relative time to expire (seconds)",
+        "complexity": "O(N) where N is the number of specified fields",
+        "group": "hash",
+        "since": "7.4.0",
+        "arity": -6,
+        "function": "hexpireCommand",
+        "history": [],
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "HASH"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 1
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "reply_schema": {
+            "description": "Array of results. Returns empty array if the key does not exist.",
+            "type": "array",
+            "minItems": 0,
+            "maxItems": 4294967295,
+            "items": {
+                "oneOf": [
+                    {
+                        "description": "The field does not exist.",
+                        "const": -2
+                    },
+                    {
+                        "description": "Specified NX | XX | GT | LT condition not met",
+                        "const": 0
+                    },
+                    {
+                        "description": "Expiration time was set or updated.",
+                        "const": 1
+                    },
+                    {
+                        "description": "Field deleted because the specified expiration time is in the past.",
+                        "const": 2
+                    }
+                ]
+            }
+        },
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "seconds",
+                "type": "integer"
+            },
+            {
+                "name": "condition",
+                "type": "oneof",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "nx",
+                        "type": "pure-token",
+                        "token": "NX"
+                    },
+                    {
+                        "name": "xx",
+                        "type": "pure-token",
+                        "token": "XX"
+                    },
+                    {
+                        "name": "gt",
+                        "type": "pure-token",
+                        "token": "GT"
+                    },
+                    {
+                        "name": "lt",
+                        "type": "pure-token",
+                        "token": "LT"
+                    }
+                ]
+            },
+            {
+                "name": "fields",
+                "token": "FIELDS",
+                "type": "block",
+                "arguments": [
+                    {
+                        "name": "numfields",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "field",
+                        "type": "string",
+                        "multiple": true
+                    }
+                ]
+            }
+        ]
+    }
+}

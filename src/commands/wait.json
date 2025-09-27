@@ -1,0 +1,35 @@
+{
+    "WAIT": {
+        "summary": "Blocks until the asynchronous replication of all preceding write commands sent by the connection is completed.",
+        "complexity": "O(1)",
+        "group": "generic",
+        "since": "3.0.0",
+        "arity": 3,
+        "function": "waitCommand",
+        "command_flags": [
+            "BLOCKING"
+        ],
+        "acl_categories": [
+            "CONNECTION"
+        ],
+        "command_tips": [
+            "REQUEST_POLICY:ALL_SHARDS",
+            "RESPONSE_POLICY:AGG_MIN"
+        ],
+        "reply_schema": {
+            "type": "integer",
+            "description": "The number of replicas reached by all the writes performed in the context of the current connection.",
+            "minimum": 0
+        },
+        "arguments": [
+            {
+                "name": "numreplicas",
+                "type": "integer"
+            },
+            {
+                "name": "timeout",
+                "type": "integer"
+            }
+        ]
+    }
+}
