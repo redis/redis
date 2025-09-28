@@ -691,41 +691,35 @@ proc get_system_name {} {
 
 proc get_proc_state {pid} {
     if {[get_system_name] eq {sunos}} {
-        return "ps -o s= -p $pid"
+        return [exec ps -o s= -p $pid]
     } else {
-        return "ps -o state= -p $pid"
+        return [exec ps -o state= -p $pid]
     }
 }
 
 proc get_proc_job {pid} {
     if {[get_system_name] eq {sunos}} {
-        return "ps -l -p $pid"
+        return [exec ps -l -p $pid]
     } else {
-        return "ps j $pid"
+        return [exec ps j $pid]
     }
 }
 
-proc pause_process pid {
+proc pause_process {pid} {
     exec kill -SIGSTOP $pid
-    set proc_state_cmd [get_proc_state $pid]
-    set proc_job_cmd [get_proc_job $pid]
-
     wait_for_condition 50 100 {
-        [string match "T*" [exec {*}$proc_state_cmd]]
+        [string match "T*" [get_proc_state $pid]]
     } else {
-        puts [exec {*}$proc_job_cmd]
+        puts [get_proc_job $pid]
         fail "process didn't stop"
     }
 }
 
-proc resume_process pid {
-    set proc_state_cmd [get_proc_state $pid]
-    set proc_job_cmd [get_proc_job $pid]
-
+proc resume_process {pid} {
     wait_for_condition 50 1000 {
-        [string match "T*" [exec {*}$proc_state_cmd]]
+        [string match "T*" [get_proc_state $pid]]
     } else {
-        puts [exec {*}$proc_job_cmd]
+        puts [get_proc_job $pid]
         fail "process was not stopped"
     }
     exec kill -SIGCONT $pid
