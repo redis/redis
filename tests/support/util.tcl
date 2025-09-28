@@ -685,21 +685,41 @@ proc process_is_alive pid {
     }
 }
 
-proc pause_process pid {
+proc get_system_name {} {
+    return [string tolower [exec uname -s]]
+}
+
+proc get_proc_state {pid} {
+    if {[get_system_name] eq {sunos}} {
+        return [exec ps -o s= -p $pid]
+    } else {
+        return [exec ps -o state= -p $pid]
+    }
+}
+
+proc get_proc_job {pid} {
+    if {[get_system_name] eq {sunos}} {
+        return [exec ps -l -p $pid]
+    } else {
+        return [exec ps j $pid]
+    }
+}
+
+proc pause_process {pid} {
     exec kill -SIGSTOP $pid
     wait_for_condition 50 100 {
-        [string match {*T*} [lindex [exec ps j $pid] 16]]
+        [string match "T*" [get_proc_state $pid]]
     } else {
-        puts [exec ps j $pid]
+        puts [get_proc_job $pid]
         fail "process didn't stop"
     }
 }
 
-proc resume_process pid {
+proc resume_process {pid} {
     wait_for_condition 50 1000 {
-        [string match "T*" [exec ps -o state= -p $pid]]
+        [string match "T*" [get_proc_state $pid]]
     } else {
-        puts [exec ps j $pid]
+        puts [get_proc_job $pid]
         fail "process was not stopped"
     }
     exec kill -SIGCONT $pid
@@ -1208,7 +1228,7 @@ proc system_backtrace_supported {} {
         return 0
     }
 
-    set system_name [string tolower [exec uname -s]]
+    set system_name [get_system_name]
     if {$system_name eq {darwin}} {
         return 1
     } elseif {$system_name ne {linux}} {
