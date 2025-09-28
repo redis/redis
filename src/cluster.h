@@ -179,6 +179,7 @@ slotRangeArray *slotRangeArrayCreate(int num_ranges);
 slotRangeArray *slotRangeArrayDup(slotRangeArray *sra);
 void slotRangeArraySet(slotRangeArray *sra, int idx, int start, int end);
 sds slotRangeArrayToString(slotRangeArray *sra);
+slotRangeArray *slotRangeArrayFromString(sds data);
 int slotRangeArrayIsEqual(slotRangeArray *sra1, slotRangeArray *sra2);
 slotRangeArray *slotRangeArrayAppend(slotRangeArray *sra, int slot);
 int slotRangeArrayContains(slotRangeArray *sra, unsigned int slot);

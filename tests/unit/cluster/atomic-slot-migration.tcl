@@ -1391,6 +1391,42 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 flushall
     }
 
+    test "Test bgtrim after a FAILOVER on destination side" {
+        R 1 debug asm-trim-method bg
+        R 4 debug asm-trim-method bg
+
+        set loglines [count_log_lines -4]
+
+        # Fill slot 0 on node-0 and migrate it to node-1 (with some delay)
+        R 0 flushall
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
+        after 1000 ;# wait some time so that some keys are moved
+
+        # Trigger a failover with force to simulate unreachable master and
+        # verify unowned keys are trimmed once replica becomes master.
+        R 4 cluster failover
+        wait_for_log_messages -4 {"*Detected keys in slots that does not belong*Scheduling trim*"} $loglines 1000 10
+        wait_for_condition 1000 10 {
+            [R 1 dbsize] == 0 &&
+            [R 4 dbsize] == 0
+        } else {
+            fail "Background trim did not happen"
+        }
+
+        # cleanup
+        wait_for_cluster_propagation
+        R 1 cluster failover
+        wait_for_condition 1000 10 {
+            [getInfoProperty [R 1 info] role] eq {master}
+        } else {
+            fail "Instance #0 is not a master after some time"
+        }
+        R 0 config set rdb-key-save-delay 0
+        R 1 debug asm-trim-method default
+        R 4 debug asm-trim-method default
+        wait_for_asm_done
+    }
+
     test "CLUSTER SETSLOT is not allowed if there is a pending trim job" {
         R 0 debug asm-trim-method bg
         R 3 debug asm-trim-method bg
@@ -1410,45 +1446,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Unpause the server, trim will be triggered and SETSLOT will be allowed
         R 1 client unpause
         R 1 CLUSTER SETSLOT 0 STABLE
-    }
-
-    test "After a failover verify trim is triggered on the next ASM operation" {
-        # Trimming is skipped on failover to avoid data loss with legacy
-        # migration. Failover during import may leave keys in unowned slots and
-        # once a replica becomes master we cannot tell if legacy method or ASM
-        # was used, since replicas are unaware of migrations. Admin may also
-        # mark unowned slots as migrating to continue the legacy migration.
-        # So, ASM defers trimming unowned slots until the next ASM operation.
-
-        R 0 flushall
-        R 1 flushall
-        set loglines [count_log_lines -4]
-
-        # Fill slots on node-0 and migrate it to node-1 (with some delay)
-        set task_id [setup_slot_migration_with_delay 0 1 0 100 10000 1000]
-        after 1000 ;# wait some time so that some keys are moved
-
-        # Trigger a failover on destination side and verify unowned keys are not
-        # trimmed once replica becomes master.
-        R 4 cluster failover
-        wait_for_failover 4
-        assert {[scan [regexp -inline {keys\=([\d]*)} [R 4 info keyspace]] keys=%d] >= 0}
-
-        # Start next import op on the new master and verify trim is triggered
-        R 0 config set rdb-key-save-delay 0
-        set task_id [setup_slot_migration_with_delay 0 4 0 100 0 0]
-        wait_for_asm_done
-        wait_for_log_messages -4 {"*Detected keys in slots that does not belong*Scheduling trim*"} $loglines 1000 10
-        assert {[scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] == 10000}
-
-        # cleanup
-        R 1 cluster failover
-        wait_for_failover 1
-        R 0 flushall
-        R 1 flushall
-        R 1 config set rdb-key-save-delay 0
-        R 0 cluster migration import 0 100
-        wait_for_asm_done
     }
 }
 
@@ -1575,6 +1572,46 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 debug asm-trim-method default
         R 4 debug asm-trim-method default
         R 0 config set rdb-key-save-delay 0
+    }
+
+    test "Test active-trim clears partially imported keys on failover" {
+        R 1 debug asm-trim-method active
+        R 4 debug asm-trim-method active
+
+        # Rdb delivery will take 10 seconds
+        R 0 config set rdb-key-save-delay 10000
+
+        populate_slot 250 -slot 0
+        populate_slot 250 -slot 1
+        populate_slot 250 -slot 3
+        populate_slot 250 -slot 4
+
+        set prev_trim_started_1 [CI 1 slot_migration_active_trim_started]
+        set prev_trim_started_4 [CI 4 slot_migration_active_trim_started]
+
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        after 2000
+        R 4 CLUSTER FAILOVER
+        wait_for_failover 4
+        wait_for_asm_done
+
+        # Verify there is at least one trim job started
+        assert_morethan [CI 1 slot_migration_active_trim_started] $prev_trim_started_1
+        assert_morethan [CI 4 slot_migration_active_trim_started] $prev_trim_started_4
+
+        assert_equal 1000 [R 0 dbsize]
+        assert_equal 1000 [R 3 dbsize]
+        assert_equal 0 [R 1 dbsize]
+        assert_equal 0 [R 4 dbsize]
+
+        # Cleanup
+        R 1 CLUSTER FAILOVER
+        wait_for_failover 1
+        R 1 debug asm-trim-method default
+        R 4 debug asm-trim-method default
+        R 0 config set rdb-key-save-delay 0
+        R 0 flushall
+        R 1 flushall
     }
 
     test "Test import task does not start if active trim is in progress for the same slots" {
@@ -1891,15 +1928,18 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
 set testmodule [file normalize tests/modules/atomicslotmigration.so]
 
-start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
+start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
     # Helper function to clear module internal event logs
     proc clear_module_event_log {} {
-        R 0 asm.clear_event_log
-        R 1 asm.clear_event_log
-        R 2 asm.clear_event_log
-        R 3 asm.clear_event_log
-        R 4 asm.clear_event_log
-        R 5 asm.clear_event_log
+        for {set i 0} {$i < 9} {incr i} {
+            R $i asm.clear_event_log
+        }
+    }
+
+    proc reset_default_trim_mothod {} {
+        for {set i 0} {$i < 9} {incr i} {
+            R $i debug asm-trim-method default
+        }
     }
 
     test "Module api sanity" {
@@ -2000,6 +2040,7 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             clear_module_event_log
             R 0 debug asm-trim-method $trim_method
             R 3 debug asm-trim-method $trim_method
+            R 6 debug asm-trim-method $trim_method
 
             # Set a key in the slot range
             set key [slot_key 0 mykey]
@@ -2007,23 +2048,32 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
 
             # Migrate the slot ranges
             set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100 200 300]
-            wait_for_ofs_sync [Rn 0] [Rn 3]
             wait_for_asm_done
 
             set src_id [R 0 cluster myid]
             set dest_id [R 1 cluster myid]
 
-            # Verify the events on source
-            assert_equal [list \
+            # Verify the events on source, both master and replica
+            set migrate_event_log [list \
                 "sub: cluster-asm-migrate-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
                 "sub: cluster-asm-migrate-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
-            ] [R 0 asm.get_cluster_event_log]
+            ]
+            assert_equal [R 0 asm.get_cluster_event_log] $migrate_event_log
+            assert_equal [R 3 asm.get_cluster_event_log] {}
+            assert_equal [R 6 asm.get_cluster_event_log] {}
 
-            # Verify the events on destination
-            assert_equal [list \
+            # Verify the events on destination, both master and replica
+            set import_event_log [list \
                 "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
                 "sub: cluster-asm-import-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
-            ] [R 1 asm.get_cluster_event_log]
+            ]
+            wait_for_condition 500 10 {
+                [R 1 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 4 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 7 asm.get_cluster_event_log] eq $import_event_log
+            } else {
+                fail "ASM import event not received"
+            }
 
             # Verify the trim events
             if {$trim_method eq "active"} {
@@ -2037,15 +2087,19 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
                     "sub: cluster-asm-trim-background, slots:0-100,200-300" \
                 ]
             }
-            assert_equal $trim_event_log [R 0 asm.get_cluster_trim_event_log]
-            assert_equal $trim_event_log [R 3 asm.get_cluster_trim_event_log]
+            wait_for_condition 500 10 {
+                [R 0 asm.get_cluster_trim_event_log] eq $trim_event_log &&
+                [R 3 asm.get_cluster_trim_event_log] eq $trim_event_log &&
+                [R 6 asm.get_cluster_trim_event_log] eq $trim_event_log
+            } else {
+                fail "ASM source trim event not received"
+            }
 
             # cleanup
             R 0 CLUSTER MIGRATION IMPORT 0 100 200 300
             wait_for_asm_done
             clear_module_event_log
-            R 0 debug asm-trim-method default
-            R 3 debug asm-trim-method default
+            reset_default_trim_mothod
             R 0 flushall
             R 1 flushall
         }
@@ -2054,6 +2108,7 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             clear_module_event_log
             R 1 debug asm-trim-method $trim_method
             R 4 debug asm-trim-method $trim_method
+            R 7 debug asm-trim-method $trim_method
 
             # Set a key in the slot range
             set key [slot_key 0 mykey]
@@ -2069,22 +2124,31 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
             }
             R 1 CLUSTER MIGRATION CANCEL ID $task_id
             wait_for_asm_done
-            wait_for_ofs_sync [Rn 0] [Rn 3]
 
             set src_id [R 0 cluster myid]
             set dest_id [R 1 cluster myid]
 
-            # Verify the events on source
-            assert_equal [list \
+            # Verify the events on source, both master and replica
+            set migrate_event_log [list \
                 "sub: cluster-asm-migrate-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
                 "sub: cluster-asm-migrate-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-            ] [R 0 asm.get_cluster_event_log]
+            ]
+            assert_equal [R 0 asm.get_cluster_event_log] $migrate_event_log
+            assert_equal [R 3 asm.get_cluster_event_log] {}
+            assert_equal [R 6 asm.get_cluster_event_log] {}
 
-            # Verify the events on destination
-            assert_equal [list \
+            # Verify the events on destination, both master and replica
+            set import_event_log [list \
                 "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
                 "sub: cluster-asm-import-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-            ] [R 1 asm.get_cluster_event_log]
+            ]
+            wait_for_condition 500 10 {
+                [R 1 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 4 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 7 asm.get_cluster_event_log] eq $import_event_log
+            } else {
+                fail "ASM import event not received"
+            }
 
             # Verify the trim events on destination (partially imported keys are trimmed)
             if {$trim_method eq "active"} {
@@ -2098,15 +2162,239 @@ start_cluster 3 3 [list tags {external:skip cluster modules} config_lines [list 
                     "sub: cluster-asm-trim-background, slots:0-100" \
                 ]
             }
-            assert_equal $trim_event_log [R 1 asm.get_cluster_trim_event_log]
-            assert_equal $trim_event_log [R 4 asm.get_cluster_trim_event_log]
+            wait_for_condition 500 10 {
+                [R 1 asm.get_cluster_trim_event_log] eq $trim_event_log &&
+                [R 4 asm.get_cluster_trim_event_log] eq $trim_event_log &&
+                [R 7 asm.get_cluster_trim_event_log] eq $trim_event_log
+            } else {
+                fail "ASM destination trim event not received"
+            }
 
             # cleanup
             clear_module_event_log
-            R 1 debug asm-trim-method default
-            R 4 debug asm-trim-method default
+            reset_default_trim_mothod
             wait_for_asm_done
+            R 0 flushall
+            R 1 flushall
         }
+
+        test "Test cluster module notifications on failover ($trim_method-trim)" {
+            clear_module_event_log
+            R 1 debug asm-trim-method $trim_method
+            R 4 debug asm-trim-method $trim_method
+            R 7 debug asm-trim-method $trim_method
+
+            # Set a key in the slot range
+            set key [slot_key 0 mykey]
+            R 0 set $key "value"
+
+            # Start migration
+            set task_id [setup_slot_migration_with_delay 0 1 0 100 0 2000000]
+            # Wait until at least one key is moved to destination
+            wait_for_condition 1000 10 {
+                [scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] >= 1
+            } else {
+                fail "Key not moved to destination"
+            }
+
+            R 4 CLUSTER FAILOVER TAKEOVER
+            wait_for_failover 4
+            wait_for_cluster_propagation
+            wait_for_asm_done
+
+            set src_id [R 0 cluster myid]
+            set dest_id [R 1 cluster myid]
+
+            # Verify the events on source, both master and replica
+            set migrate_event_log [list \
+                "sub: cluster-asm-migrate-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+                "sub: cluster-asm-migrate-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+            ]
+            assert_equal [R 0 asm.get_cluster_event_log] $migrate_event_log
+            assert_equal [R 3 asm.get_cluster_event_log] {}
+            assert_equal [R 6 asm.get_cluster_event_log] {}
+
+            # Verify the events on destination, both master and replica
+            set import_event_log [list \
+                "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+                "sub: cluster-asm-import-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+            ]
+            wait_for_condition 500 10 {
+                [R 1 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 4 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 7 asm.get_cluster_event_log] eq $import_event_log
+            } else {
+                fail "ASM import event not received"
+            }
+
+            # Verify the trim events on destination (partially imported keys are trimmed)
+            # NOTE: only slot 0 has data, so only slot 0 is trimmed
+            if {$trim_method eq "active"} {
+                set trim_event_log [list \
+                    "sub: cluster-asm-trim-started, slots:0-0" \
+                    "keyspace: trimmed, key: $key" \
+                    "sub: cluster-asm-trim-completed, slots:0-0" \
+                ]
+            } else {
+                set trim_event_log [list \
+                    "sub: cluster-asm-trim-background, slots:0-0" \
+                ]
+            }
+            wait_for_condition 500 10 {
+                [R 1 asm.get_cluster_trim_event_log] eq $trim_event_log &&
+                [R 4 asm.get_cluster_trim_event_log] eq $trim_event_log &&
+                [R 7 asm.get_cluster_trim_event_log] eq $trim_event_log
+            } else {
+                fail "ASM destination trim event not received"
+            }
+
+            # cleanup
+            R 1 CLUSTER FAILOVER TAKEOVER
+            wait_for_failover 1
+            wait_for_cluster_propagation
+            clear_module_event_log
+            reset_default_trim_mothod
+            R 0 flushall
+            R 1 flushall
+        }
+    }
+    
+    foreach with_rdb {"with" "without"} {
+        test "Test cluster module notifications when replica restart $with_rdb RDB during importing" {
+            clear_module_event_log
+            R 1 debug asm-trim-method $trim_method
+            R 4 debug asm-trim-method $trim_method
+            R 7 debug asm-trim-method $trim_method
+            R 4 config set save ""
+
+            set src_id [R 0 cluster myid]
+            set dest_id [R 1 cluster myid]
+
+            # Set a key in the slot range
+            set key [slot_key 0 mykey]
+            R 0 set $key "value"
+
+            # Start migration, 2s delay
+            set task_id [setup_slot_migration_with_delay 0 1 0 100 0 2000000]
+            # Wait until at least one key is moved to destination
+            wait_for_condition 1000 10 {
+                [scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] >= 1
+            } else {
+                fail "Key not moved to destination"
+            }
+            wait_for_ofs_sync [Rn 1] [Rn 4]
+
+            # restart node 4
+            if {$with_rdb eq "with"} {
+                restart_server -4 true false true save ;# rdb save
+                # the asm task info in rdb will fire module event
+                assert_equal  [list \
+                    "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+                ] [R 4 asm.get_cluster_event_log]
+            } else {                
+                restart_server -4 true false true nosave ;# no rdb saved
+            }
+            wait_for_cluster_propagation
+
+            wait_for_asm_done
+
+            # started and completed are paired, and not duplicated
+            set import_event_log [list \
+                "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+                "sub: cluster-asm-import-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+            ]
+            wait_for_condition 500 10 {
+                [R 1 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 4 asm.get_cluster_event_log] eq $import_event_log &&
+                [R 7 asm.get_cluster_event_log] eq $import_event_log
+            } else {
+                fail "ASM import event not received"
+            }
+
+            R 0 CLUSTER MIGRATION IMPORT 0 100
+            wait_for_asm_done
+            R 4 save ;# save an empty rdb to override previous one
+            clear_module_event_log
+            reset_default_trim_mothod
+            R 0 flushall
+            R 1 flushall
+        }
+    }
+
+    test "Test cluster module notifications when replica is disconnected and full resync after importing" {
+        clear_module_event_log
+        R 1 debug asm-trim-method $trim_method
+        R 4 debug asm-trim-method $trim_method
+        R 7 debug asm-trim-method $trim_method
+
+        set src_id [R 0 cluster myid]
+        set dest_id [R 1 cluster myid]
+
+        # Set a key in the slot range
+        set key [slot_key 0 mykey]
+        R 0 set $key "value"
+
+        # Start migration, 2s delay
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 0 2000000]
+        # Wait until at least one key is moved to destination
+        wait_for_condition 1000 10 {
+            [scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] >= 1
+        } else {
+            fail "Key not moved to destination"
+        }
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+
+        # puase node-4
+        set r4_pid [S 4 process_id]
+        pause_process $r4_pid
+
+        # set a small repl-backlog-size and write some commands to make node-4
+        # full resync when reconnecting after waking up
+        set r1_full_sync [S 1 sync_full]
+        R 1 config set repl-backlog-size 16kb
+        R 1 client kill type replica
+        set 1k_str [string repeat "a" 1024]
+        for {set i 0} {$i < 2000} {incr i} {
+            R 1 set [slot_key 6000] $1k_str
+        }
+
+        # after ASM task is completed, wake up node-4
+        wait_for_condition 1000 10 {
+            [CI 1 slot_migration_active_tasks] == 0 &&
+            [CI 1 slot_migration_active_trim_jobs] == 0
+        } else {
+            fail "ASM tasks did not completed"
+        }
+        resume_process $r4_pid
+
+        # make sure full resync happens
+        wait_for_sync [Rn 4]
+        wait_for_ofs_sync [Rn 1] [Rn 4]
+        assert_morethan [S 1 sync_full] $r1_full_sync
+
+        # started and completed are paired, and not duplicated
+        set import_event_log [list \
+            "sub: cluster-asm-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+            "sub: cluster-asm-import-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
+        ]
+        wait_for_condition 500 10 {
+            [R 1 asm.get_cluster_event_log] eq $import_event_log &&
+            [R 4 asm.get_cluster_event_log] eq $import_event_log &&
+            [R 7 asm.get_cluster_event_log] eq $import_event_log
+        } else {
+            fail "ASM import event not received"
+        }
+
+        # since ASM task is completed on node-1 before node-4 reconnects,
+        # no trim event should be received on node-4
+        assert_equal {} [R 4 asm.get_cluster_trim_event_log]
+
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        clear_module_event_log
+        reset_default_trim_mothod
+        R 0 flushall
+        R 1 flushall
     }
 
     test "Test module replicates commands at the beginning of slot migration " {

@@ -13,6 +13,21 @@
 #
 
 # Cluster helper functions
+# Normalize cluster slots configuration by sorting replicas by node ID
+proc normalize_cluster_slots {slots_config} {
+    set normalized {}
+    foreach slot_range $slots_config {
+        if {[llength $slot_range] <= 3} {
+            lappend normalized $slot_range
+        } else {
+            # Sort replicas (index 3+) by node ID, keep start/end/master unchanged
+            set replicas [lrange $slot_range 3 end]
+            set sorted_replicas [lsort -index 2 $replicas]
+            lappend normalized [concat [lrange $slot_range 0 2] $sorted_replicas]
+        }
+    }
+    return $normalized
+}
 
 # Check if cluster configuration is consistent.
 proc cluster_config_consistent {} {
@@ -20,8 +35,12 @@ proc cluster_config_consistent {} {
         if {$j == 0} {
             set base_cfg [R $j cluster slots]
             set base_secret [R $j debug internal_secret]
+            set normalized_base_cfg [normalize_cluster_slots $base_cfg]
         } else {
-            if {[R $j cluster slots] != $base_cfg || [R $j debug internal_secret] != $base_secret} {
+            set cfg [R $j cluster slots]
+            set secret [R $j debug internal_secret]
+            set normalized_cfg [normalize_cluster_slots $cfg]
+            if {$normalized_cfg != $normalized_base_cfg || $secret != $base_secret} {
                 return 0
             }
         }

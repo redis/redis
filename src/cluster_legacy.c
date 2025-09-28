@@ -1078,6 +1078,7 @@ void clusterReset(int hard) {
 
     /* Turn into master. */
     if (nodeIsSlave(myself)) {
+        asmFinalizeMasterTask();
         clusterSetNodeAsMaster(myself);
         replicationUnsetMaster();
         emptyData(-1,EMPTYDB_NO_FLAGS,NULL);
@@ -4271,6 +4272,9 @@ void clusterFailoverReplaceYourMaster(void) {
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
+
+    /* 6) Handle the ASM task from previous master. */
+    asmFinalizeMasterTask();
 }
 
 /* This function is called if we are a slave node and our master serving
@@ -6560,6 +6564,7 @@ int clusterAllowFailoverCmd(client *c) {
 
 void clusterPromoteSelfToMaster(void) {
     replicationUnsetMaster();
+    asmFinalizeMasterTask();
 }
 
 int clusterAsmOnEvent(const char *task_id, int event, void *arg) {

@@ -5177,6 +5177,8 @@ void failoverCommand(client *c) {
     
     server.force_failover = force_flag;
     server.failover_state = FAILOVER_WAIT_FOR_SYNC;
+    /* Cancel all ASM tasks when starting failover */
+    clusterAsmCancel(NULL, "failover requested");
     /* Cluster failover will unpause eventually */
     pauseActions(PAUSE_DURING_FAILOVER,
                  LLONG_MAX,

@@ -1744,6 +1744,45 @@ sds slotRangeArrayToString(slotRangeArray *sra) {
     return s;
 }
 
+/* Parse a slot range string in the format "1000-2000 3000-4000 ..." into a slotRangeArray.
+ * Returns a new slotRangeArray on success, NULL on failure. */
+slotRangeArray *slotRangeArrayFromString(sds data) {
+    int num_ranges;
+    long long start, end;
+    slotRangeArray *sra = NULL;
+    if (!data || sdslen(data) == 0) return NULL;
+
+    sds *parts = sdssplitlen(data, sdslen(data), " ", 1, &num_ranges);
+    if (num_ranges <= 0) goto err;
+
+    sra = slotRangeArrayCreate(num_ranges);
+
+    /* Parse each slot range */
+    for (int i = 0; i < num_ranges; i++) {
+        char *dash = strchr(parts[i], '-');
+        if (!dash) goto err;
+
+        if (string2ll(parts[i], dash - parts[i], &start) == 0 ||
+            string2ll(dash + 1, sdslen(parts[i]) - (dash - parts[i]) - 1, &end) == 0)
+            goto err;
+        slotRangeArraySet(sra, i, start, end);
+    }
+
+    /* Validate all ranges */
+    sds err_msg = NULL;
+    if (validateSlotRanges(sra, &err_msg) != C_OK) {
+        if (err_msg) sdsfree(err_msg);
+        goto err;
+    }
+    sdsfreesplitres(parts, num_ranges);
+    return sra;
+
+err:
+    if (sra) slotRangeArrayFree(sra);
+    sdsfreesplitres(parts, num_ranges);
+    return NULL;
+}
+
 static int compareSlotRange(const void *a, const void *b) {
     const slotRange *sa = a;
     const slotRange *sb = b;

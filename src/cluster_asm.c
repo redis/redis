@@ -59,6 +59,7 @@ struct asmManager {
     slotRangeArrayIter *active_trim_it; /* Iterator of the current active trim job */
     size_t sync_buffer_peak;            /* Peak size of sync buffer */
     long long total_done_tasks;         /* Total number of completed tasks */
+    asmTask *master_task;               /* The task that is currently active on the master */
 
     /* Fail point injection for debugging */
     int debug_failed_channel;     /* Channel where the task failed */
@@ -140,6 +141,8 @@ int asmTrimJobIsPending(void);
 void asmTriggerActiveTrim(slotRangeArray *slots);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
+void asmTrimSlotsIfNotOwned(slotRangeArray *sra);
+void asmNotifyStateChange(asmTask *task, int event);
 
 void clusterAsmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
@@ -148,6 +151,7 @@ void clusterAsmInit(void) {
     asmManager->pending_trim_jobs = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->total_done_tasks = 0;
+    asmManager->master_task = NULL;
     asmManager->debug_failed_channel = 0;
     asmManager->debug_failed_state = 0;
     asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
@@ -363,6 +367,161 @@ void asmTaskFree(asmTask *task) {
     zfree(task->slot_ranges);
     sdsfree(task->error);
     zfree(task);
+}
+
+/* Convert the task state to the corresponding event. */
+int asmTaskStateToEvent(asmTask *task) {
+    if (task->operation == ASM_IMPORT) {
+        if (task->state == ASM_DONE) return ASM_EVENT_IMPORT_COMPLETED;
+        else if (task->state == ASM_FAILED) return ASM_EVENT_IMPORT_FAILED;
+        else return ASM_EVENT_IMPORT_STARTED;
+    } else {
+        if (task->state == ASM_DONE) return ASM_EVENT_MIGRATE_COMPLETED;
+        else if (task->state == ASM_FAILED) return ASM_EVENT_MIGRATE_FAILED;
+        else return ASM_EVENT_MIGRATE_STARTED;
+    }
+}
+
+/* Serialize ASM task information into a string for transmission to slaves.
+ * Format: "task_id:source_node:dest_node:operation:state:slot_ranges"
+ * Where slot_ranges is in the format "1000-2000 3000-4000 ..." */
+sds asmTaskSerialize(asmTask *task) {
+    sds serialized = sdsempty();
+
+    /* Add task ID */
+    serialized = sdscatprintf(serialized, "%s:", task->id);
+
+    /* Add source node ID (40 chars) */
+    serialized = sdscatlen(serialized, task->source, CLUSTER_NAMELEN);
+    serialized = sdscat(serialized, ":");
+
+    /* Add destination node ID (40 chars) */
+    serialized = sdscatlen(serialized, task->dest, CLUSTER_NAMELEN);
+    serialized = sdscat(serialized, ":");
+
+    /* Add operation type */
+    serialized = sdscatprintf(serialized, "%s:", task->operation == ASM_IMPORT ?
+                                                 "import" : "migrate");
+
+    /* Add current state */
+    serialized = sdscatprintf(serialized, "%s:", asmTaskStateToString(task->state));
+
+    /* Add slot ranges sds */
+    sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
+    serialized = sdscatprintf(serialized, "%s", slot_ranges_str);
+    sdsfree(slot_ranges_str);
+
+    return serialized;
+}
+
+/* Deserialize ASM task information from a string and create a complete asmTask.
+ * Format: "task_id:source_node:dest_node:operation:state:slot_ranges"
+ * Returns a new asmTask on success, NULL on failure. */
+asmTask *asmTaskDeserialize(sds data) {
+    int count, idx = 0;
+    asmTask *task = NULL;
+    if (!data || sdslen(data) == 0) return NULL;
+
+    sds *parts = sdssplitlen(data, sdslen(data), ":", 1, &count);
+    if (count < 6) goto err;
+
+    /* Parse task ID */
+    if (sdslen(parts[idx]) == 0) goto err;
+    task = asmTaskCreate(parts[idx]);
+    if (!task) goto err;
+    idx++;
+
+    /* Parse source node ID */
+    if (sdslen(parts[idx]) != CLUSTER_NAMELEN) goto err;
+    memcpy(task->source, parts[idx], CLUSTER_NAMELEN);
+    idx++;
+
+    /* Parse destination node ID */
+    if (sdslen(parts[idx]) != CLUSTER_NAMELEN) goto err;
+    memcpy(task->dest, parts[idx], CLUSTER_NAMELEN);
+    idx++;
+
+    /* Parse operation type */
+    if (!strcasecmp(parts[idx], "import")) {
+        task->operation = ASM_IMPORT;
+    } else if (!strcasecmp(parts[idx], "migrate")) {
+        task->operation = ASM_MIGRATE;
+    } else {
+        goto err;
+    }
+    idx++;
+
+    /* Parse state */
+    task->state = ASM_NONE; /* Default state */
+    for (int state = ASM_NONE; state <= ASM_RDBCHANNEL_TRANSFER; state++) {
+        if (!strcasecmp(parts[idx], asmTaskStateToString(state))) {
+            task->state = state;
+            break;
+        }
+    }
+    idx++;
+
+    /* Parse slot ranges */
+    task->slot_ranges = slotRangeArrayFromString(parts[idx]);
+    if (!task->slot_ranges) goto err;
+    idx++;
+
+    sdsfreesplitres(parts, count);
+    return task;
+
+err:
+    if (task) asmTaskFree(task);
+    sdsfreesplitres(parts, count);
+    return NULL;
+}
+
+/* Notify slaves about ASM task information to maintain consistency during slot migration.
+ * This function sends a CLUSTER SYNCSLOTS CONF ASM-TASK command to all connected slaves
+ * with the serialized task information. */
+void asmNotifySlavesStateChange(struct asmTask *task) {
+    if (!server.cluster_enabled || !clusterNodeIsMaster(getMyClusterNode())) return;
+
+    /* Do not propagate migrate task to slaves, as slaves never migrate data. */
+    if (task->operation == ASM_MIGRATE) return;
+
+    /* Create command arguments for CLUSTER SYNCSLOTS CONF ASM-TASK */
+    robj *argv[5];
+    argv[0] = createStringObject("CLUSTER", 7);
+    argv[1] = createStringObject("SYNCSLOTS", 9);
+    argv[2] = createStringObject("CONF", 4);
+    argv[3] = createStringObject("ASM-TASK", 8);
+    argv[4] = createObject(OBJ_STRING, asmTaskSerialize(task));
+
+    /* Send the command to all slaves */
+    replicationFeedSlaves(server.slaves, -1, argv, 5);
+
+    /* Clean up command objects */
+    for (int i = 0; i < 5; i++) {
+        decrRefCount(argv[i]);
+    }
+}
+
+/* Dump the active import ASM task information. */
+sds asmDumpActiveImportTask(void) {
+    if (!server.cluster_enabled) return NULL;
+
+    /* For slave, dump the master active task. */
+    if (clusterNodeIsSlave(getMyClusterNode()) &&
+        asmManager->master_task &&
+        asmManager->master_task->state != ASM_FAILED &&
+        asmManager->master_task->state != ASM_DONE)
+    {
+        return asmTaskSerialize(asmManager->master_task);
+    }
+
+    /* For master, dump the first active task. */
+    if (!asmManager || listLength(asmManager->tasks) == 0) return NULL;
+    asmTask *task = listNodeValue(listFirst(asmManager->tasks));
+    if (task->operation == ASM_MIGRATE) return NULL;
+    if (task->state == ASM_NONE || task->state == ASM_FAILED ||
+        task->state == ASM_DONE) return NULL;
+
+    return asmTaskSerialize(task);
 }
 
 size_t asmGetPeakSyncBufferSize(void) {
@@ -857,7 +1016,7 @@ void clusterMigrationCommand(client *c) {
 }
 
 /* Notify the state change to the module and the plugin. */
-void asmNotifyStateChange(asmTask *task, int state) {
+void asmNotifyStateChange(asmTask *task, int event) {
     RedisModuleClusterAsmInfo info = {
             .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
             .task_id = task->id,
@@ -867,16 +1026,24 @@ void asmNotifyStateChange(asmTask *task, int state) {
     memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
 
     int module_event = -1;
-    if (state == ASM_EVENT_IMPORT_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED;
-    else if (state == ASM_EVENT_IMPORT_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED;
-    else if (state == ASM_EVENT_IMPORT_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED;
-    else if (state == ASM_EVENT_MIGRATE_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED;
-    else if (state == ASM_EVENT_MIGRATE_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED;
-    else if (state == ASM_EVENT_MIGRATE_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED;
+    if (event == ASM_EVENT_IMPORT_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED;
+    else if (event == ASM_EVENT_IMPORT_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED;
+    else if (event == ASM_EVENT_IMPORT_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED;
+    else if (event == ASM_EVENT_MIGRATE_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED;
+    else if (event == ASM_EVENT_MIGRATE_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED;
+    else if (event == ASM_EVENT_MIGRATE_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED;
     serverAssert(module_event != -1);
 
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM, module_event, &info);
-    clusterAsmOnEvent(task->id, state, task->slot_ranges);
+    serverLog(LL_DEBUG, "Fire cluster asm module event, task: id=%s, state=%s",
+                        task->id, asmTaskStateToString(task->state));
+
+    if (clusterNodeIsMaster(getMyClusterNode())) {
+        /* Notify the plugin only if it is a real active import task. */
+        if (task != asmManager->master_task)
+            clusterAsmOnEvent(task->id, event, task->slot_ranges);
+        asmNotifySlavesStateChange(task); /* Propagate state change to replicas */
+    }
 }
 
 void asmImportSetFailed(asmTask *task) {
@@ -919,8 +1086,10 @@ void asmImportSetFailed(asmTask *task) {
 
     /* Mark the task as failed and notify the cluster */
     task->state = ASM_FAILED;
-    asmTrimJobSchedule(task->slot_ranges);
     asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
+    /* This node may become replica, only master can setup new slot trimming jobs. */
+    if (clusterNodeIsMaster(getMyClusterNode()))
+        asmTrimJobSchedule(task->slot_ranges);
 }
 
 void asmMigrateSetFailed(asmTask *task) {
@@ -964,9 +1133,9 @@ void asmTaskSetFailed(asmTask *task, const char *fmt, ...) {
 
     /* Log the error */
     sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
-    serverLog(LL_WARNING, "%s task failed. slots=%s, err=%s",
+    serverLog(LL_WARNING, "%s task failed. id=%s, slots=%s, err=%s",
               task->operation == ASM_IMPORT ? "Import" : "Migrate",
-              slot_ranges_str, task->error);
+              task->id, slot_ranges_str, task->error);
     sdsfree(slot_ranges_str);
 
     if (task->operation == ASM_IMPORT)
@@ -1524,13 +1693,11 @@ static void asmStartImportTask(asmTask *task) {
     if (task->operation != ASM_IMPORT || task->state != ASM_NONE) return;
     sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
 
-    /* Trimming is skipped on failover to avoid data loss with legacy
-     * migration. Failover during import may leave keys in unowned slots and
-     * once a replica becomes master we cannot tell if legacy method or ASM
-     * was used, since replicas are unaware of migrations. Admin may also
-     * mark unowned slots as migrating to continue the legacy migration.
-     * So, ASM defers trimming unowned slots until the next ASM operation.*/
-    asmTrimSlotsIfNotOwned();
+    /* Sanity check: Clean up any keys that exist in slots not owned by this node.
+     * This handles cases where users previously migrated slots using legacy method
+     * but left behind orphaned keys, or maybe cluster missed cleaning up during
+     * previous operations, which could interfere with the ASM import process. */
+    asmTrimSlotsIfNotOwned(task->slot_ranges);
 
     /* Check if there is any trim job in progress for the slot ranges.
      * We can't start the import task since the trim job will modify the data.*/
@@ -1586,8 +1753,9 @@ static void asmStartImportTask(asmTask *task) {
               task->source, task->dest, slot_ranges_str);
     sdsfree(slot_ranges_str);
 
-    asmNotifyStateChange(task, ASM_EVENT_IMPORT_STARTED);
+    task->state = ASM_CONNECTING;
     task->start_time = server.mstime;
+    asmNotifyStateChange(task, ASM_EVENT_IMPORT_STARTED);
 
     task->main_channel_conn = connCreate(server.el, connTypeOfReplication());
     char *ip = clusterNodeIp(task->source_node);
@@ -1601,7 +1769,6 @@ static void asmStartImportTask(asmTask *task) {
         return;
     }
     connSetPrivateData(task->main_channel_conn, task);
-    task->state = ASM_CONNECTING;
 }
 
 void clusterSyncSlotsCommand(client *c) {
@@ -1615,7 +1782,7 @@ void clusterSyncSlotsCommand(client *c) {
     }
 
     /* On replica, only allow master client to execute CONF subcommand. */
-    if (server.masterhost) {
+    if (!clusterNodeIsMaster(getMyClusterNode())) {
         if (!(c->flags & CLIENT_MASTER)) {
             /* Not master client, reject all subcommands and close the connection. */
             addReplyError(c, "CLUSTER SYNCSLOTS subcommands are only allowed for master");
@@ -1885,6 +2052,18 @@ void clusterSyncSlotsCommand(client *c) {
 
                 sdsfreesplitres(parts, count);
                 addReply(c, shared.ok);
+            } else if (!strcasecmp(c->argv[j]->ptr, "asm-task")) {
+                /* asm-task task_id:source_node:dest_node:operation:state:slot_ranges */
+                if (clusterNodeIsMaster(getMyClusterNode())) {
+                    addReplyError(c, "CLUSTER SYNCSLOTS CONF ASM-TASK only allowed on replica");
+                    return;
+                }
+                if (asmReplicaHandleMasterTask(c->argv[j + 1]->ptr) == C_OK) {
+                    addReply(c, shared.ok);
+                } else {
+                    addReplyErrorFormat(c, "Failed to handle master task: %s",
+                                           (char *)c->argv[j + 1]->ptr);
+                }
             } else {
                 addReplyErrorFormat(c, "Unknown option %s", (char *)c->argv[j]->ptr);
             }
@@ -2722,32 +2901,124 @@ void asmTrimJobProcessPending(void) {
 }
 
 /* Trim keys in slots not owned by this node (if any). */
-void asmTrimSlotsIfNotOwned(void) {
-    if (!server.cluster_enabled || server.masterhost != NULL) return;
+void asmTrimSlotsIfNotOwned(slotRangeArray *sra) {
+    if (!server.cluster_enabled || !clusterNodeIsMaster(getMyClusterNode())) return;
 
     size_t num_keys = 0;
-    slotRangeArray *sra = NULL;
-    for (int i = 0; i < CLUSTER_SLOTS; i++) {
-        /* Skip slots that are owned, empty, or already in a trim job. */
-        if (clusterIsMySlot(i) ||
-            kvstoreDictSize(server.db[0].keys, i) == 0 ||
-            isSlotInTrimJob(i))
-        {
-            continue;
-        }
-        sra = slotRangeArrayAppend(sra, i);
-        num_keys += kvstoreDictSize(server.db[0].keys, i);
-    }
-    if (!sra) return;
+    slotRangeArray *trim_sra = NULL;
+    for (int i = 0; i < sra->num_ranges; i++) {
+        for (int j = sra->ranges[i].start; j <= sra->ranges[i].end; j++) {
+            if (clusterIsMySlot(j) ||
+                kvstoreDictSize(server.db[0].keys, j) == 0 ||
+                isSlotInTrimJob(j))
+            {
+                continue;
+            }
 
-    sds str = slotRangeArrayToString(sra);
+            trim_sra = slotRangeArrayAppend(trim_sra, j);
+            num_keys += kvstoreDictSize(server.db[0].keys, j);
+        }
+    }
+    if (!trim_sra) return;
+
+    sds str = slotRangeArrayToString(trim_sra);
     serverLog(LL_NOTICE,
               "Detected keys in slots that does not belong to this node. "
               "Scheduling trim for %zu keys in slots: %s", num_keys, str);
     sdsfree(str);
 
-    asmTrimJobSchedule(sra);
-    slotRangeArrayFree(sra);
+    asmTrimJobSchedule(trim_sra);
+    slotRangeArrayFree(trim_sra);
+}
+
+/* Handle the master task when it is no longer used. And trim unowned
+ * slots when the task is failed and this node is master. */
+void asmFinalizeMasterTask(void) {
+    if (!server.cluster_enabled) return;
+
+    asmTask *task = asmManager->master_task;
+    if (task == NULL) return;
+    serverAssert(task->operation == ASM_IMPORT);
+
+    sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
+    serverLog(LL_WARNING, "Failed import task from old master. id=%s, slots=%s",
+                           task->id, slot_ranges_str);
+    sdsfree(slot_ranges_str);
+
+    /* Check if there is an ASM task that master did not finish. */
+    if (task->state != ASM_DONE && task->state != ASM_FAILED) {
+        /* Mark the task as failed and notify the replicas. */
+        task->state = ASM_FAILED;
+        asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
+    }
+
+    /* Trim the slots if the import task is failed. */
+    if (clusterNodeIsMaster(getMyClusterNode()) && task->state == ASM_FAILED)
+        asmTrimSlotsIfNotOwned(task->slot_ranges);
+
+    /* Clear the master task since it is not the master anymore. */
+    asmTaskFree(asmManager->master_task);
+    asmManager->master_task = NULL;
+}
+
+/* The replicas handle the master import ASM task information. */
+int asmReplicaHandleMasterTask(sds task_info) {
+    if (!server.cluster_enabled || !clusterNodeIsSlave(getMyClusterNode())) return C_ERR;
+
+    /* If the master task is empty, it means the master finished the task, the replica
+     * should check the slot ownership to decide to raise completed or failed event. */
+    if (!task_info || sdslen(task_info) == 0) {
+        asmTask *task = asmManager->master_task;
+        if (task && task->state != ASM_DONE && task->state != ASM_FAILED) {
+            /* Check if the slots are owned by the master. */
+            int owned_by_master = 1;
+            for (int i = 0; i < task->slot_ranges->num_ranges; i++) {
+                slotRange *sr = &task->slot_ranges->ranges[i];
+                for (int j = sr->start; j <= sr->end; j++) {
+                    clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
+                    if (!master || !clusterNodeCoversSlot(master, j)) {
+                        owned_by_master = 0;
+                        break;
+                    }
+                }
+            }
+            if (owned_by_master) {
+                task->state = ASM_DONE;
+                asmNotifyStateChange(task, ASM_EVENT_IMPORT_COMPLETED);
+            } else {
+                task->state = ASM_FAILED;
+                asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
+            }
+        }
+        return C_OK;
+    }
+
+    asmTask *task = asmTaskDeserialize(task_info);
+    if (!task) return C_ERR;
+    if (task->operation != ASM_IMPORT) {
+        asmTaskFree(task);
+        return C_ERR;
+    }
+
+    int notify_event = 0;
+    int event = asmTaskStateToEvent(task);
+    if (asmManager->master_task) {
+        /* Notify when the task or event is changed, to avoid duplicated notification. */
+        if (strcmp(task->id, asmManager->master_task->id) != 0 ||
+            event != asmTaskStateToEvent(asmManager->master_task))
+        {
+            notify_event = 1;
+        }
+        asmTaskFree(asmManager->master_task);
+    } else {
+        /* Ignore done or failed task when there is no active master task. */
+        if (task->state != ASM_FAILED && task->state != ASM_DONE)
+            notify_event = 1;
+    }
+
+    asmManager->master_task = task;
+    if (notify_event) asmNotifyStateChange(task, event);
+    return C_OK;
 }
 
 /* If this node is a replica and there is an active trim job, we cannot
