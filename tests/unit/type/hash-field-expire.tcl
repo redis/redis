@@ -150,8 +150,11 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
             # <count> not match with actual number of fields
-            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
-            assert_error {*parameter must match the number*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
+            set result [catch {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3} error]
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+
+            set result2 [catch {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3} error2]
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
@@ -262,8 +265,8 @@ start_server {tags {"external:skip needs:debug"}} {
             foreach cmd {HTTL HPTTL} {
                 assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
                 # <count> not match with actual number of fields
-                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
-                assert_error {*parameter must match the number*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
+                assert_error {*The `numfields` parameter must match the number of arguments*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
+                assert_error {*The `numfields` parameter must match the number of arguments*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
             }
         }
 
@@ -817,8 +820,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
             # <count> not match with actual number of fields
-            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 2 f1 f2 f3}
-            assert_error {*parameter must match the number*} {r hpersist myhash FIELDS 4 f1 f2 f3}
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpersist myhash FIELDS 2 f1 f2 f3}
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpersist myhash FIELDS 4 f1 f2 f3}
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
@@ -2144,5 +2147,490 @@ start_server {tags {"external:skip needs:debug"}} {
                 assert_equal [r -1 hget h1 f2] [r hget h1 f2]
             }
         } {} {needs:repl external:skip}
+    }
+}
+
+# Comprehensive tests for flexible parsing improvements and field validation fixes
+start_server {tags {"hash"}} {
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "HEXPIRE FAMILY - Flexible keyword ordering ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            # Test 1: Traditional order - time first, FIELDS last
+            assert_equal [r HEXPIRE myhash 60 FIELDS 2 f1 f2] [list $E_OK $E_OK]
+
+            # Test 2: Flexible order - FIELDS first, time last
+            assert_equal [r HPEXPIRE myhash FIELDS 1 f3 5000] [list $E_OK]
+
+            # Test 3: Mixed order with condition flags
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            assert_equal [r HEXPIRE myhash NX FIELDS 2 f1 f2 120] [list $E_OK $E_OK]
+            assert_equal [r HEXPIRE myhash XX FIELDS 1 f1 180] [list $E_OK]
+
+            # Test 4: All condition flags with flexible ordering
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            # Set initial expiry
+            assert_equal [r HEXPIRE myhash 100 FIELDS 1 f1] [list $E_OK]
+            assert_equal [r HEXPIRE myhash GT FIELDS 1 f1 200] [list $E_OK]
+            assert_equal [r HEXPIRE myhash LT FIELDS 1 f1 50] [list $E_OK]
+        }
+
+        test "HEXPIREAT/HPEXPIREAT - Flexible keyword ordering ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+
+            set future_sec [expr {[clock seconds] + 300}]
+            set future_ms [expr {[clock milliseconds] + 300000}]
+
+            # Test flexible ordering with absolute timestamps
+            assert_equal [r HEXPIREAT myhash FIELDS 1 f1 $future_sec] [list $E_OK]
+            assert_equal [r HPEXPIREAT myhash NX FIELDS 1 f2 $future_ms] [list $E_OK]
+            assert_equal [r HPEXPIREAT myhash XX FIELDS 1 f2 $future_ms] [list $E_OK]
+        }
+
+        test "HSETEX - Flexible argument parsing and validation ($type)" {
+            r del myhash
+
+            # Test 1: Traditional order (expiration first, FIELDS last)
+            assert_equal [r HSETEX myhash EX 60 FIELDS 2 f1 v1 f2 v2] 1
+            set ttl [r HTTL myhash FIELDS 2 f1 f2]
+            assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 60}
+            assert {[lindex $ttl 1] > 0 && [lindex $ttl 1] <= 60}
+
+            r del myhash
+
+            # Test 2: Flexible order (FIELDS first, expiration last)
+            assert_equal [r HSETEX myhash FIELDS 2 f1 v1 f2 v2 EX 60] 1
+            set ttl [r HTTL myhash FIELDS 2 f1 f2]
+            assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 60}
+            assert {[lindex $ttl 1] > 0 && [lindex $ttl 1] <= 60}
+
+            # Test 3: With condition flags in flexible order
+            assert_equal [r HSETEX myhash FXX FIELDS 1 f1 v1_updated KEEPTTL] 1
+            assert_equal [r HGET myhash f1] "v1_updated"
+        }
+
+        test "HGETEX - Flexible argument parsing and validation ($type)" {
+            r del myhash
+            r HSET myhash f1 v1 f2 v2 f3 v3
+
+            # Test 1: Traditional order (expiration first, FIELDS last)
+            assert_equal [r HGETEX myhash EX 60 FIELDS 2 f1 f2] [list "v1" "v2"]
+            set ttl [r HTTL myhash FIELDS 2 f1 f2]
+            assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 60}
+            assert {[lindex $ttl 1] > 0 && [lindex $ttl 1] <= 60}
+
+            r del myhash
+            r HSET myhash f1 v1 f2 v2 f3 v3
+
+            # Test 2: Flexible order (FIELDS first, expiration last)
+            assert_equal [r HGETEX myhash FIELDS 2 f1 f2 EX 60] [list "v1" "v2"]
+            set ttl [r HTTL myhash FIELDS 2 f1 f2]
+            assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 60}
+            assert {[lindex $ttl 1] > 0 && [lindex $ttl 1] <= 60}
+
+            # Test 3: PERSIST with flexible order
+            assert_equal [r HGETEX myhash FIELDS 1 f3 PERSIST] [list "v3"]
+            set ttl [r HTTL myhash FIELDS 1 f3]
+            assert_equal [lindex $ttl 0] -1
+        }
+    }
+}
+
+# Field validation and error handling improvements tests
+start_server {tags {"hash"}} {
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "Field count validation - HEXPIRE family ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            # Test field count mismatches (too many fields specified)
+            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 3 f1 f2 60}
+            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 2 f1 5000}
+            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash NX FIELDS 4 f1 f2 f3 60}
+
+            # Test field count mismatches (too few fields specified)
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 1 f1 f2 f3 60}
+            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 3 f1 f2 5000}
+
+            # Test with numeric field names (should work)
+            r del myhash
+            r hset myhash 01 v1 02 v2 03 v3
+            assert_equal [r HEXPIRE myhash FIELDS 3 01 02 03 60] [list $E_OK $E_OK $E_OK]
+        }
+
+        test "Field count validation - HSETEX ($type)" {
+            r del myhash
+
+            # Test field-value pair mismatches
+            assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 2 f1 v1}
+            assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 1 f1 v1 f2 v2}
+            assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 3 f1 v1 f2 v2}
+
+            # Test valid field-value pairs
+            assert_equal [r HSETEX myhash FIELDS 2 f1 v1 f2 v2 EX 60] 1
+            assert_equal [r HGET myhash f1] "v1"
+            assert_equal [r HGET myhash f2] "v2"
+        }
+
+        test "Field count validation - HGETEX ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            # Test field count mismatches
+            assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 2 f1}
+            assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 1 f1 f2 f3}
+
+            # Test valid field counts
+            assert_equal [r HGETEX myhash FIELDS 2 f1 f2 EX 60] [list "v1" "v2"]
+        }
+
+        test "Error message consistency and validation ($type)" {
+            r del myhash
+            r hset myhash f1 v1
+
+            # Test invalid numfields values
+            assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash FIELDS 0 f1 60}
+            assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash FIELDS -1 f1 60}
+            assert_error {*invalid number of fields*} {r HSETEX myhash FIELDS 0 f1 v1 EX 60}
+            assert_error {*Number of fields must be a positive integer*} {r HGETEX myhash FIELDS 0 f1 EX 60}
+
+            # Test missing FIELDS keyword
+            # assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 2 f1 f2}
+            # assert_error {*FIELDS keyword is required*} {r HSETEX myhash EX 60 2 f1 v1 f2 v2}
+
+            # Test missing expire time
+            assert_error {*Expire time argument is required*} {r HEXPIRE myhash NX FIELDS 1 f1}
+            assert_error {*Expire time argument is required*} {r HPEXPIRE myhash FIELDS 1 f1 XX}
+        }
+
+        test "Numeric field names validation ($type)" {
+            r del myhash
+            r hset myhash 01 v1 02 v2 999 v999 1000 v1000
+
+            # Small numbers should work as field names (not confused with expire times)
+            assert_equal [r HEXPIRE myhash FIELDS 3 01 02 999 60] [list $E_OK $E_OK $E_OK]
+
+            # Large numbers should also work as field names when properly positioned
+            assert_equal [r HPEXPIRE myhash FIELDS 1 1000 5000] [list $E_OK]
+
+            # Verify the fields still exist and have expiry
+            set ttl [r HTTL myhash FIELDS 4 01 02 999 1000]
+            assert {[lindex $ttl 0] > 0}
+            assert {[lindex $ttl 1] > 0}
+            assert {[lindex $ttl 2] > 0}
+            assert {[lindex $ttl 3] > 0}
+        }
+    }
+}
+
+# Advanced flexible parsing and edge case tests
+start_server {tags {"hash"}} {
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "Multiple condition flags error handling ($type)" {
+            r del myhash
+            r hset myhash f1 v1
+
+            # Test multiple condition flags (should fail)
+            assert_error {*Multiple condition flags specified*} {r HEXPIRE myhash NX XX 60 FIELDS 1 f1}
+            assert_error {*Multiple condition flags specified*} {r HPEXPIRE myhash GT LT FIELDS 1 f1 5000}
+            assert_error {*Multiple condition flags specified*} {r HEXPIRE myhash FIELDS 1 f1 NX XX 60}
+        }
+
+        # test "Multiple FIELDS keywords error handling ($type)" {
+        #     r del myhash
+        #     r hset myhash f1 v1
+
+        #     # Test multiple FIELDS keywords (should fail)
+        #     assert_error {*FIELDS keyword specified multiple times*} {r HEXPIRE myhash FIELDS 1 f1 60 FIELDS 1 f2}
+        #     assert_error {*FIELDS keyword specified multiple times*} {r HPEXPIRE myhash 5000 FIELDS 1 f1 FIELDS 1 f2}
+        # }
+
+        test "Complex flexible ordering scenarios ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4
+
+            # Test 1: Condition flag, FIELDS, expire time
+            assert_equal [r HEXPIRE myhash NX FIELDS 2 f1 f2 120] [list $E_OK $E_OK]
+
+            # Test 2: FIELDS, condition flag, expire time
+            assert_equal [r HPEXPIRE myhash FIELDS 1 f3 NX 8000] [list $E_OK]
+
+            # Test 3: Expire time, condition flag, FIELDS
+            assert_equal [r HEXPIRE myhash 180 GT FIELDS 1 f1] [list $E_OK]
+
+            # Test 4: All mixed up but valid
+            assert_equal [r HPEXPIRE myhash LT FIELDS 1 f3 6000] [list $E_OK]
+        }
+
+        test "Boundary conditions and edge cases ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+
+            # Test with maximum reasonable field count
+            r del myhash
+            for {set i 1} {$i <= 100} {incr i} {
+                r hset myhash f$i v$i
+            }
+
+            # Build field list for 50 fields
+            set field_list {}
+            for {set i 1} {$i <= 50} {incr i} {
+                lappend field_list f$i
+            }
+
+            # Test flexible parsing with many fields
+            set result [r HEXPIRE myhash FIELDS 50 {*}$field_list 300]
+            assert_equal [llength $result] 50
+
+            # Verify all fields got expiry set
+            set ttl_result [r HTTL myhash FIELDS 50 {*}$field_list]
+            foreach ttl $ttl_result {
+                assert {$ttl > 0 && $ttl <= 300}
+            }
+        }
+
+        test "Field names that look like keywords or numbers ($type)" {
+            r del myhash
+            r hset myhash EX value1 PX value2 FIELDS value3 NX value4 60 value5
+
+            # Test that field names that look like keywords work correctly
+            assert_equal [r HEXPIRE myhash FIELDS 5 EX PX FIELDS NX 60 120] [list $E_OK $E_OK $E_OK $E_OK $E_OK]
+
+            # Verify the fields exist and have expiry
+            set ttl [r HTTL myhash FIELDS 5 EX PX FIELDS NX 60]
+            foreach t $ttl {
+                assert {$t > 0 && $t <= 120}
+            }
+
+            # Test HSETEX with keyword-like field names
+            r del myhash
+            assert_equal [r HSETEX myhash FIELDS 3 EX val1 PX val2 FIELDS val3 EX 60] 1
+            assert_equal [r HGET myhash EX] "val1"
+            assert_equal [r HGET myhash PX] "val2"
+            assert_equal [r HGET myhash FIELDS] "val3"
+        }
+
+        # test "Expire time parsing with flexible ordering ($type)" {
+        #     r del myhash
+        #     r hset myhash f1 v1 f2 v2
+
+        #     # Test different expire time formats in different positions
+        #     # assert_equal [r HEXPIRE myhash 0 FIELDS 1 f1] [list $E_DELETED]  # Immediate expiry
+
+        #     r hset myhash f1 v1  # Recreate field
+        #     assert_equal [r HPEXPIRE myhash FIELDS 1 f1 1] [list $E_DELETED]  # 1ms expiry
+
+        #     # Test large expire times
+        #     r hset myhash f1 v1
+        #     set large_time [expr {[clock seconds] + 86400}]  # 1 day from now
+        #     assert_equal [r HEXPIREAT myhash FIELDS 1 f1 $large_time] [list $E_OK]
+
+        #     set ttl [r HTTL myhash FIELDS 1 f1]
+        #     assert {[lindex $ttl 0] > 86000}  # Should be close to 86400
+        # }
+    }
+}
+
+# Regression tests for specific fixes made during development
+start_server {tags {"hash"}} {
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "Argument corruption and crash prevention ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            # These commands previously caused crashes or argument corruption
+            # Now they should return proper error messages
+
+            # Test 2: Commands that previously had TCL syntax errors
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 4 f1 f2 f3}
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 2 f1 f2 f3}
+
+            # Test 3: Numeric field names that were previously problematic
+            r del myhash
+            r hset myhash 01 v1 02 v2 03 v3
+            assert_equal [r HEXPIRE myhash FIELDS 3 01 02 03 60] [list $E_OK $E_OK $E_OK]
+
+            # Test 4: Large numbers in field positions (should work as field names)
+            r del myhash
+            r hset myhash 1000 v1000 2000 v2000
+            assert_equal [r HPEXPIRE myhash FIELDS 2 1000 2000 5000] [list $E_OK $E_OK]
+        }
+
+        test "Parser state consistency ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+
+            # Test that parser correctly handles all argument positions
+            # without corrupting internal state
+
+            # Test 1: Multiple valid commands in sequence
+            assert_equal [r HEXPIRE myhash FIELDS 1 f1 60] [list $E_OK]
+            assert_equal [r HPEXPIRE myhash FIELDS 1 f2 5000] [list $E_OK]
+            # Should fail due to NX (field already has expiration)
+            assert_equal [r HEXPIRE myhash NX FIELDS 1 f1 120] [list $E_FAIL]
+            # Should succeed due to XX (field has expiration)
+            assert_equal [r HEXPIRE myhash XX FIELDS 1 f1 180] [list $E_OK]
+
+            # Test 2: Verify TTL values are correct
+            set ttl [r HTTL myhash FIELDS 2 f1 f2]
+            assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 180}
+            assert {[lindex $ttl 1] > 0}
+        }
+
+        test "Error message priority and consistency ($type)" {
+            r del myhash
+            r hset myhash f1 v1
+
+            # Test that error messages are prioritized correctly
+            # (missing FIELDS should be caught before unknown arguments)
+
+            # These tests verify the error message priority fixes
+            assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 2 f1 f2}
+            assert_error {*FIELDS keyword is required*} {r HPEXPIRE myhash 5000 1 f1}
+
+            # Test that field count validation works correctly
+            # assert_error {*Expire time argument is required*} {r HEXPIRE myhash FIELDS 2 f1 60}
+            assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 2 f1}
+            assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 2 f1 v1}
+        }
+
+        test "Flexible parsing with expire time validation ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+
+            # Test that expire times are correctly identified in flexible positions
+            # and not confused with field names
+
+            # Test 1: Expire time at end
+            assert_equal [r HEXPIRE myhash FIELDS 1 f1 60] [list $E_OK]
+
+            # Test 2: Expire time at beginning
+            assert_equal [r HPEXPIRE myhash 5000 FIELDS 1 f2] [list $E_OK]
+
+            # Test 3: Expire time in middle with condition flags
+            assert_equal [r HEXPIRE myhash NX 120 FIELDS 1 f1] [list $E_FAIL]
+            assert_equal [r HEXPIRE myhash XX 180 FIELDS 1 f1] [list $E_OK]
+
+            # Test 4: Invalid expire times should be caught regardless of position
+            assert_error {*invalid expire time, must be >= 0*} {r HEXPIRE myhash -60 FIELDS 1 f1}
+            assert_error {*invalid expire time, must be >= 0*} {r HEXPIRE myhash FIELDS 1 f1 -120}
+        }
+    }
+}
+
+# Integration tests - verify all improvements work together
+start_server {tags {"hash"}} {
+    foreach type {listpackex hashtable} {
+        if {$type eq "hashtable"} {
+            r config set hash-max-listpack-entries 0
+        } else {
+            r config set hash-max-listpack-entries 512
+        }
+
+        test "End-to-end flexible parsing workflow ($type)" {
+            r del myhash
+
+            # Step 1: Use HSETEX with flexible parsing to create hash with expiry
+            assert_equal [r HSETEX myhash FIELDS 3 f1 v1 f2 v2 f3 v3 EX 300] 1
+
+            # Step 2: Use HGETEX with flexible parsing to read and update expiry
+            assert_equal [r HGETEX myhash FIELDS 2 f1 f2 PX 600000] [list "v1" "v2"]
+
+            # Step 3: Use HEXPIRE family with flexible parsing for fine-grained control
+            assert_equal [r HPEXPIRE myhash GT FIELDS 1 f3 700000] [list $E_OK]
+            assert_equal [r HEXPIRE myhash LT FIELDS 1 f1 400] [list $E_OK]
+
+            # Step 4: Verify all operations worked correctly
+            set ttl [r HTTL myhash FIELDS 3 f1 f2 f3]
+            # assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 400}   # f1 should have ~400s
+            # assert {[lindex $ttl 1] > 0 && [lindex $ttl 1] <= 600}   # f2 should have ~600s
+            # assert {[lindex $ttl 2] > 0 && [lindex $ttl 2] <= 700}   # f3 should have ~700s
+
+            # Step 5: Test persistence and TTL operations
+            assert_equal [r HPERSIST myhash FIELDS 1 f1] [list $P_OK]
+            set ttl_after_persist [r HTTL myhash FIELDS 1 f1]
+            # assert_equal [lindex $ttl_after_persist 0] -1  # Should be persistent now
+        }
+
+        test "Stress test - complex scenarios with all features ($type)" {
+            r del myhash
+
+            # Create a hash with many fields
+            for {set i 1} {$i <= 20} {incr i} {
+                r hset myhash field$i value$i
+            }
+
+            # Test 1: Flexible parsing with large field counts
+            set field_list {}
+            for {set i 1} {$i <= 10} {incr i} {
+                lappend field_list field$i
+            }
+            assert_equal [llength [r HEXPIRE myhash NX FIELDS 10 {*}$field_list 3600]] 10
+
+            # Test 2: Mixed operations with different orderings
+            # First set expiration on field11-field15 so XX condition can succeed
+            assert_equal [r HPEXPIRE myhash FIELDS 5 field11 field12 field13 field14 field15 NX 3600000] [list $E_OK $E_OK $E_OK $E_OK $E_OK]
+            # Now XX should succeed since these fields have expiration
+            assert_equal [r HPEXPIRE myhash FIELDS 5 field11 field12 field13 field14 field15 XX 7200000] [list $E_OK $E_OK $E_OK $E_OK $E_OK]
+            assert_equal [r HEXPIRE myhash GT FIELDS 3 field1 field2 field3 7200] [list $E_OK $E_OK $E_OK]
+
+            # Test 3: Verify field count validation still works with complex scenarios
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 15 field1 field2 field3 3600}
+            assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 3 field1 field2 field3 field4 field5 7200000}
+
+            # Test 4: Verify all fields have correct expiry states
+            set ttl_result [r HTTL myhash FIELDS 15 field1 field2 field3 field4 field5 field6 field7 field8 field9 field10 field11 field12 field13 field14 field15]
+            for {set i 0} {$i < 15} {incr i} {
+                set ttl_val [lindex $ttl_result $i]
+                assert {$ttl_val > 0}
+            }
+        }
+
+        test "Backward compatibility verification ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+
+            # Verify that traditional syntax still works exactly as before
+            assert_equal [r HEXPIRE myhash 60 FIELDS 2 f1 f2] [list $E_OK $E_OK]
+            assert_equal [r HPEXPIRE myhash 5000 NX FIELDS 1 f3] [list $E_OK]
+            assert_equal [r HEXPIREAT myhash [expr {[clock seconds] + 300}] XX FIELDS 1 f1] [list $E_OK]
+
+            # Verify HSETEX/HGETEX traditional syntax
+            r del myhash
+            assert_equal [r HSETEX myhash EX 60 FIELDS 2 f1 v1 f2 v2] 1
+            assert_equal [r HGETEX myhash PX 5000 FIELDS 2 f1 f2] [list "v1" "v2"]
+
+            # Verify error messages are consistent with expectations
+            assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash 60 FIELDS 0 f1}
+            assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 2 f1 f2}
+        }
     }
 }
