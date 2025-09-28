@@ -689,16 +689,26 @@ proc get_system_name {} {
     return [string tolower [exec uname -s]]
 }
 
+proc get_proc_state {pid} {
+    if {[get_system_name] eq {sunos}} {
+        return "ps -o s= -p $pid"
+    } else {
+        return "ps -o state= -p $pid"
+    }
+}
+
+proc get_proc_job {pid} {
+    if {[get_system_name] eq {sunos}} {
+        return "ps -l -p $pid"
+    } else {
+        return "ps j $pid"
+    }
+}
+
 proc pause_process pid {
     exec kill -SIGSTOP $pid
-
-    if {[get_system_name] eq {sunos}} {
-        set proc_state_cmd "ps -o s= -p $pid"
-        set proc_job_cmd "ps -l -p $pid"
-    } else {
-        set proc_state_cmd "ps -o state= -p $pid"
-        set proc_job_cmd "ps j $pid"
-    }
+    set proc_state_cmd [get_proc_state $pid]
+    set proc_job_cmd [get_proc_job $pid]
 
     wait_for_condition 50 100 {
         [string match "T*" [exec {*}$proc_state_cmd]]
@@ -709,13 +719,9 @@ proc pause_process pid {
 }
 
 proc resume_process pid {
-    if {[get_system_name] eq {sunos}} {
-        set proc_state_cmd "ps -o s= -p $pid"
-        set proc_job_cmd "ps -l -p $pid"
-    } else {
-        set proc_state_cmd "ps -o state= -p $pid"
-        set proc_job_cmd "ps j $pid"
-    }
+    set proc_state_cmd [get_proc_state $pid]
+    set proc_job_cmd [get_proc_job $pid]
+
     wait_for_condition 50 1000 {
         [string match "T*" [exec {*}$proc_state_cmd]]
     } else {
