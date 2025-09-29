@@ -139,7 +139,7 @@ void clusterInit(void) {
 }
 
 void clusterCron(void) {
-    /* TODO: asmCron */
+    asmCron();
     clusterPlugin->clusterCron();
 }
 
