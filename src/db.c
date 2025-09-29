@@ -1071,12 +1071,12 @@ void flushAllDataAndResetRDB(int flags) {
  * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
  */
 void flushallSyncBgDone(uint64_t client_id, void *userdata) {
-    slotRangeArray *sra = userdata;
+    slotRangeArray *slots = userdata;
     client *c = lookupClientByID(client_id);
 
     /* Verify that client still exists and being blocked. */
     if (!(c && c->flags & CLIENT_BLOCKED)) {
-        slotRangeArrayFree(sra);
+        slotRangeArrayFree(slots);
         return;
     }
 
@@ -1087,9 +1087,9 @@ void flushallSyncBgDone(uint64_t client_id, void *userdata) {
     /* Don't update blocked_us since command was processed in bg by lazy_free thread */
     updateStatsOnUnblock(c, 0 /*blocked_us*/, elapsedUs(c->bstate.lazyfreeStartTime), 0);
 
-    /* Only SFLUSH command pass userdata pointer. */
-    if (sra)
-        replySlotsFlushAndFree(c, sra);
+    /* Only SFLUSH command pass user data pointer. */
+    if (slots)
+        replySlotsFlushAndFree(c, slots);
     else
         addReply(c, shared.ok);
 
@@ -1116,11 +1116,11 @@ void flushallSyncBgDone(uint64_t client_id, void *userdata) {
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
  *
- * sra - provided only by SFLUSH command, otherwise NULL. Will be used on
- *       completion to reply with the slots flush result. Ownership is passed
- *       to the completion job in case of `blocking_async`.
+ * slots - provided only by SFLUSH command, otherwise NULL. Will be used on
+ *         completion to reply with the slots flush result. Ownership is passed
+ *         to the completion job in case of `blocking_async`.
  */
-int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sra) {
+int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1131,7 +1131,7 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sra) {
     }
 
     /* Cancel all ASM tasks that overlap with the given slot ranges. */
-    clusterAsmCancelBySlotRangeArray(sra, c->argv[0]->ptr);
+    clusterAsmCancelBySlotRangeArray(slots, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
@@ -1155,7 +1155,7 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *sra) {
          * avoid command from being reset during unblock. */
         c->flags |= CLIENT_PENDING_COMMAND;
         blockClient(c,BLOCKED_LAZYFREE);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, sra);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, slots);
     }
 
 #if defined(USE_JEMALLOC)
@@ -2170,9 +2170,10 @@ void scanDatabaseForReadyKeys(redisDb *db) {
     dictResetIterator(&di);
 }
 
-/* Since we are unblocking XREADGROUP clients in the event the
- * key was deleted/overwritten we must do the same in case the
- * database was flushed/swapped. */
+/* Since we are unblocking XREADGROUP clients in the event the key was
+ * deleted/overwritten we must do the same in case the database was
+ * flushed/swapped. If 'slots' is not NULL, only keys in the specified slot
+ * range are considered. */
 void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, slotRangeArray *slots) {
     dictEntry *de;
     dictIterator di;
@@ -2591,9 +2592,9 @@ int confAllowsExpireDel(void) {
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
 
-    /* TODO: We don't actively expire from slots that are waiting to be trimmed.
-     * Though, can a module try to access keys that are in the process of
-     * being trimmed? So, we need lazy trimming in this case. */
+    /* NOTE: Keys in slots scheduled for trimming can still exist for a while.
+     * If a module touches one of these keys, we remove it right away and
+     * return KEY_DELETED. */
     if (asmActiveTrimDelIfNeeded(db, key, kv)) return KEY_DELETED;
 
     if ((server.allow_access_expired) ||

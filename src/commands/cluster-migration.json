@@ -92,7 +92,7 @@
                             "id": {
                                 "type": "string"
                             },
-                            "slots_range": {
+                            "slots": {
                                 "type": "string"
                             },
                             "source": {
@@ -104,10 +104,10 @@
                             "operation": {
                                 "oneOf": [
                                     {
-                                        "const": "importing"
+                                        "const": "import"
                                     },
                                     {
-                                        "const": "migrating"
+                                        "const": "migrate"
                                     }
                                 ]
                             },

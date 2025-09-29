@@ -4347,8 +4347,8 @@ int getClientType(client *c) {
 }
 
 static inline int clientTypeIsSlave(client *c) {
-    /* Even though MONITOR clients and ASM destination RDB/main channels are marked
-     * as replicas, we want the expose them as normal clients. */
+    /* Even though MONITOR clients and ASM destination RDB/main channels are
+     * marked as replicas, we want to expose them as normal clients. */
     if (unlikely((c->flags & CLIENT_SLAVE) &&
         !(c->flags & (CLIENT_MONITOR | CLIENT_ASM_MIGRATING))))
     {

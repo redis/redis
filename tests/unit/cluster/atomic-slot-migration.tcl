@@ -1403,7 +1403,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Trigger a failover with force to simulate unreachable master and
         # verify unowned keys are trimmed once replica becomes master.
         R 4 cluster failover
-        wait_for_log_messages -4 {"*Detected keys in slots that does not belong*Scheduling trim*"} $loglines 1000 10
+        wait_for_log_messages -4 {"*Detected keys in slots that do not belong*Scheduling trim*"} $loglines 1000 10
         wait_for_condition 1000 10 {
             [R 1 dbsize] == 0 &&
             [R 4 dbsize] == 0

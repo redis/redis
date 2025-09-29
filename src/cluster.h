@@ -171,28 +171,28 @@ typedef struct slotRangeArray {
     slotRange ranges[];
 } slotRangeArray;
 typedef struct slotRangeArrayIter {
-    slotRangeArray *sra; /* the array we’re iterating */
-    int range_index;     /* current range index */
-    int cur_slot;        /* current slot within the range */
+    slotRangeArray *slots; /* the array we’re iterating */
+    int range_index;       /* current range index */
+    int cur_slot;          /* current slot within the range */
 } slotRangeArrayIter;
 slotRangeArray *slotRangeArrayCreate(int num_ranges);
-slotRangeArray *slotRangeArrayDup(slotRangeArray *sra);
-void slotRangeArraySet(slotRangeArray *sra, int idx, int start, int end);
-sds slotRangeArrayToString(slotRangeArray *sra);
+slotRangeArray *slotRangeArrayDup(slotRangeArray *slots);
+void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end);
+sds slotRangeArrayToString(slotRangeArray *slots);
 slotRangeArray *slotRangeArrayFromString(sds data);
-int slotRangeArrayIsEqual(slotRangeArray *sra1, slotRangeArray *sra2);
-slotRangeArray *slotRangeArrayAppend(slotRangeArray *sra, int slot);
-int slotRangeArrayContains(slotRangeArray *sra, unsigned int slot);
-void slotRangeArrayFree(slotRangeArray *sra);
-slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *sra);
+int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2);
+slotRangeArray *slotRangeArrayAppend(slotRangeArray *slots, int slot);
+int slotRangeArrayContains(slotRangeArray *slots, unsigned int slot);
+void slotRangeArrayFree(slotRangeArray *slots);
+slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots);
 int slotRangeArrayNext(slotRangeArrayIter *it);
 int slotRangeArrayGetCurrentSlot(slotRangeArrayIter *it);
 void slotRangeArrayIteratorFree(slotRangeArrayIter *it);
-int validateSlotRanges(slotRangeArray *sra, sds *err);
+int validateSlotRanges(slotRangeArray *slots, sds *err);
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos);
 
 unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command);
-unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *sra, int by_command);
+unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *slots, int by_command);
 
 void clusterGenNodesSlotsInfo(int filter);
 void clusterFreeNodesSlotsInfo(clusterNode *n);
@@ -289,15 +289,13 @@ int clusterNodeTlsPort(clusterNode *node);
  *      getRandomHexChars(task_id, CLUSTER_NAMELEN);
  *      task_id[CLUSTER_NAMELEN] = '\0';
  *
- *      slotRangeArray *sra  = zmalloc(sizeof(*sra) + sizeof(slotRange));
- *      sra->num_ranges = 1;
- *      sra->ranges[0].start = 0;
- *      sra->ranges[0].end = 1000;
+ *      slotRangeArray *slots  = slotRangeArrayCreate(1);
+ *      slotRangeArraySet(slots, 0, 0, 1000);
  *
  *      const char *err = NULL;
- *      int ret = clusterAsmProcess(task_id, ASM_EVENT_IMPORT_START, sra, &err);
- *      free(task_id);
- *      free(sra);
+ *      int ret = clusterAsmProcess(task_id, ASM_EVENT_IMPORT_START, slots, &err);
+ *      zfree(task_id);
+ *      slotRangeArrayFree(slots);
  *
  *      if (ret != C_OK) {
  *          perror(err);

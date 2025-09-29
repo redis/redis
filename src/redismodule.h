@@ -236,7 +236,7 @@ This flag should not be used directly by the module.
 #define REDISMODULE_NOTIFY_NEW (1<<14)        /* n, new key notification */
 #define REDISMODULE_NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification */
 #define REDISMODULE_NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification */
-#define REDISMODULE_NOTIFY_TRIMMED (1<<17) /* trimmed by reshard trimming */
+#define REDISMODULE_NOTIFY_TRIMMED (1<<17) /* module only key space notification, indicates a key trimmed during slot migration */
 
 /* Next notification flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.

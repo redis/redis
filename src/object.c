@@ -1513,10 +1513,10 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->bytes_per_key = mh->total_keys ? (mh->dataset / mh->total_keys) : 0;
 
     /* Cluster atomic slot migration buffers. */
-    mh->asm_importing_buffer = asmGetImportingBufferSize();
-    mh->asm_migrating_buffer = asmGetMigratingBufferSize();
-    mem_total += mh->asm_importing_buffer;
-    mem_total += mh->asm_migrating_buffer;
+    mh->asm_import_input_buffer = asmGetImportInputBufferSize();
+    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
+    mem_total += mh->asm_import_input_buffer;
+    mem_total += mh->asm_migrate_output_buffer;
 
     return mh;
 }

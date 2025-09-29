@@ -82,7 +82,7 @@ unsigned long long estimateObjectIdleTime(robj *o) {
 }
 
 /* During atomic slot migration, keys that are being imported are in an
- * intermediate state. we cannot evict them and therefore skip them. */
+ * intermediate state. We cannot evict them and therefore skip them. */
 static int randomEvictionShouldSkipDictIndex(int didx) {
     return !clusterCanAccessKeysInSlot(didx);
 }

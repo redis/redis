@@ -208,7 +208,7 @@ void unblockClient(client *c, int queue_for_reprocessing) {
      * we'll process new commands in its query buffer ASAP. */
     if (!(c->flags & CLIENT_MODULE)) server.blocked_clients--; /* We count blocked client stats on regular clients and not on module clients */
     server.blocked_clients_by_type[c->bstate.btype]--;
-    c->flags &= ~(CLIENT_BLOCKED);
+    c->flags &= ~CLIENT_BLOCKED;
     c->bstate.btype = BLOCKED_NONE;
     c->bstate.unblock_on_nokey = 0;
     removeClientFromTimeoutTable(c);

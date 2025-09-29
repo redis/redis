@@ -2391,10 +2391,10 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             if (isSlotUnclaimed(j) ||
                 server.cluster->slots[j]->configEpoch < senderConfigEpoch)
             {
-                /* After compelting slot ranges migration, the destination node
+                /* After completing slot ranges migration, the destination node
                  * will broadcast a PONG message to all the nodes. We need to
                  * detect that the slot was moved from us to the sender, and
-                 * send ASM_REQUEST_CONFIG_UPDATED request to ASM later. */
+                 * call asmNotifyConfigUpdated() to notify the ASM state machine. */
                 if (server.cluster->slots[j] == myself && sender != myself)
                     sra = slotRangeArrayAppend(sra, j);
 

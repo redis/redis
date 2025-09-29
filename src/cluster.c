@@ -1651,10 +1651,10 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
 }
 
 /* Delete the keys in the slot ranges. Returns the number of deleted items */
-unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *sra, int by_command) {
+unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *slots, int by_command) {
     unsigned int j = 0;
-    for (int i = 0; i < sra->num_ranges; i++) {
-        for (int slot = sra->ranges[i].start; slot <= sra->ranges[i].end; slot++) {
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
             j += clusterDelKeysInSlot(slot, by_command);
         }
     }
@@ -1665,46 +1665,46 @@ int clusterIsMySlot(int slot) {
     return getMyClusterNode() == getNodeBySlot(slot);
 }
 
-void replySlotsFlushAndFree(client *c, slotRangeArray *sra) {
-    addReplyArrayLen(c, sra->num_ranges);
-    for (int i = 0 ; i < sra->num_ranges ; i++) {
+void replySlotsFlushAndFree(client *c, slotRangeArray *slots) {
+    addReplyArrayLen(c, slots->num_ranges);
+    for (int i = 0 ; i < slots->num_ranges ; i++) {
         addReplyArrayLen(c, 2);
-        addReplyLongLong(c, sra->ranges[i].start);
-        addReplyLongLong(c, sra->ranges[i].end);
+        addReplyLongLong(c, slots->ranges[i].start);
+        addReplyLongLong(c, slots->ranges[i].end);
     }
-    slotRangeArrayFree(sra);
+    slotRangeArrayFree(slots);
 }
 
 /* Checks that slot ranges are well-formed and non-overlapping. */
-int validateSlotRanges(slotRangeArray *sra, sds *err) {
-    unsigned char slots[CLUSTER_SLOTS] = {0};
+int validateSlotRanges(slotRangeArray *slots, sds *err) {
+    unsigned char used_slots[CLUSTER_SLOTS] = {0};
 
-    if (sra->num_ranges <= 0 || sra->num_ranges >= CLUSTER_SLOTS) {
-        *err = sdscatprintf(sdsempty(), "invalid number of slot ranges: %d", sra->num_ranges);
+    if (slots->num_ranges <= 0 || slots->num_ranges >= CLUSTER_SLOTS) {
+        *err = sdscatprintf(sdsempty(), "invalid number of slot ranges: %d", slots->num_ranges);
         return C_ERR;
     }
 
-    for (int i = 0; i < sra->num_ranges; i++) {
-        if (sra->ranges[i].start >= CLUSTER_SLOTS ||
-            sra->ranges[i].end >= CLUSTER_SLOTS)
+    for (int i = 0; i < slots->num_ranges; i++) {
+        if (slots->ranges[i].start >= CLUSTER_SLOTS ||
+            slots->ranges[i].end >= CLUSTER_SLOTS)
         {
             *err = sdscatprintf(sdsempty(), "slot range is out of range: %d-%d",
-                                sra->ranges[i].start, sra->ranges[i].end);
+                                slots->ranges[i].start, slots->ranges[i].end);
             return C_ERR;
         }
 
-        if (sra->ranges[i].start > sra->ranges[i].end) {
+        if (slots->ranges[i].start > slots->ranges[i].end) {
             *err = sdscatprintf(sdsempty(), "start slot number %d is greater than end slot number %d",
-                                sra->ranges[i].start, sra->ranges[i].end);
+                                slots->ranges[i].start, slots->ranges[i].end);
             return C_ERR;
         }
 
-        for (int j = sra->ranges[i].start; j <= sra->ranges[i].end; j++) {
-            if (slots[j]) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+            if (used_slots[j]) {
                 *err = sdscatprintf(sdsempty(), "Slot %d specified multiple times", j);
                 return C_ERR;
             }
-            slots[j]++;
+            used_slots[j]++;
         }
     }
     return C_OK;
@@ -1712,30 +1712,30 @@ int validateSlotRanges(slotRangeArray *sra, sds *err) {
 
 /* Create a slot range array with the specified number of ranges. */
 slotRangeArray *slotRangeArrayCreate(int num_ranges) {
-    slotRangeArray *sra = zcalloc(sizeof(slotRangeArray) + num_ranges * sizeof(slotRange));
-    sra->num_ranges = num_ranges;
-    return sra;
+    slotRangeArray *slots = zcalloc(sizeof(slotRangeArray) + num_ranges * sizeof(slotRange));
+    slots->num_ranges = num_ranges;
+    return slots;
 }
 
 /* Duplicate the slot range array. */
-slotRangeArray *slotRangeArrayDup(slotRangeArray *sra) {
-    slotRangeArray *dup = slotRangeArrayCreate(sra->num_ranges);
-    memcpy(dup->ranges, sra->ranges, sizeof(slotRange) * sra->num_ranges);
+slotRangeArray *slotRangeArrayDup(slotRangeArray *slots) {
+    slotRangeArray *dup = slotRangeArrayCreate(slots->num_ranges);
+    memcpy(dup->ranges, slots->ranges, sizeof(slotRange) * slots->num_ranges);
     return dup;
 }
 
 /* Set the slot range at the specified index. */
-void slotRangeArraySet(slotRangeArray *sra, int idx, int start, int end) {
-    sra->ranges[idx].start = start;
-    sra->ranges[idx].end = end;
+void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end) {
+    slots->ranges[idx].start = start;
+    slots->ranges[idx].end = end;
 }
 
 /* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
-sds slotRangeArrayToString(slotRangeArray *sra) {
+sds slotRangeArrayToString(slotRangeArray *slots) {
     sds s = sdsempty();
 
-    for (int i = 0; i < sra->num_ranges; i++) {
-        slotRange *sr = &sra->ranges[i];
+    for (int i = 0; i < slots->num_ranges; i++) {
+        slotRange *sr = &slots->ranges[i];
         s = sdscatprintf(s, "%d-%d ", sr->start, sr->end);
     }
     sdssetlen(s, sdslen(s) - 1);
@@ -1749,13 +1749,13 @@ sds slotRangeArrayToString(slotRangeArray *sra) {
 slotRangeArray *slotRangeArrayFromString(sds data) {
     int num_ranges;
     long long start, end;
-    slotRangeArray *sra = NULL;
+    slotRangeArray *slots = NULL;
     if (!data || sdslen(data) == 0) return NULL;
 
     sds *parts = sdssplitlen(data, sdslen(data), " ", 1, &num_ranges);
     if (num_ranges <= 0) goto err;
 
-    sra = slotRangeArrayCreate(num_ranges);
+    slots = slotRangeArrayCreate(num_ranges);
 
     /* Parse each slot range */
     for (int i = 0; i < num_ranges; i++) {
@@ -1765,20 +1765,20 @@ slotRangeArray *slotRangeArrayFromString(sds data) {
         if (string2ll(parts[i], dash - parts[i], &start) == 0 ||
             string2ll(dash + 1, sdslen(parts[i]) - (dash - parts[i]) - 1, &end) == 0)
             goto err;
-        slotRangeArraySet(sra, i, start, end);
+        slotRangeArraySet(slots, i, start, end);
     }
 
     /* Validate all ranges */
     sds err_msg = NULL;
-    if (validateSlotRanges(sra, &err_msg) != C_OK) {
+    if (validateSlotRanges(slots, &err_msg) != C_OK) {
         if (err_msg) sdsfree(err_msg);
         goto err;
     }
     sdsfreesplitres(parts, num_ranges);
-    return sra;
+    return slots;
 
 err:
-    if (sra) slotRangeArrayFree(sra);
+    if (slots) slotRangeArrayFree(slots);
     sdsfreesplitres(parts, num_ranges);
     return NULL;
 }
@@ -1792,16 +1792,16 @@ static int compareSlotRange(const void *a, const void *b) {
 }
 
 /* Compare two slot range arrays, return 1 if equal, 0 otherwise */
-int slotRangeArrayIsEqual(slotRangeArray *sra1, slotRangeArray *sra2) {
-    if (sra1->num_ranges != sra2->num_ranges) return 0;
+int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2) {
+    if (slots1->num_ranges != slots2->num_ranges) return 0;
 
     /* Sort slot ranges first */
-    qsort(sra1->ranges, sra1->num_ranges, sizeof(slotRange), compareSlotRange);
-    qsort(sra2->ranges, sra2->num_ranges, sizeof(slotRange), compareSlotRange);
+    qsort(slots1->ranges, slots1->num_ranges, sizeof(slotRange), compareSlotRange);
+    qsort(slots2->ranges, slots2->num_ranges, sizeof(slotRange), compareSlotRange);
 
-    for (int i = 0; i < sra1->num_ranges; i++) {
-        if (sra1->ranges[i].start != sra2->ranges[i].start ||
-            sra1->ranges[i].end != sra2->ranges[i].end) {
+    for (int i = 0; i < slots1->num_ranges; i++) {
+        if (slots1->ranges[i].start != slots2->ranges[i].start ||
+            slots1->ranges[i].end != slots2->ranges[i].end) {
             return 0;
         }
     }
@@ -1810,80 +1810,80 @@ int slotRangeArrayIsEqual(slotRangeArray *sra1, slotRangeArray *sra2) {
 
 /* Add a slot to the slot range array.
  * Usage:
- *     slotRangeArray *sra = NULL
- *     sra = slotRangeArrayAppend(sra, 1000);
- *     sra = slotRangeArrayAppend(sra, 1001);
- *     sra = slotRangeArrayAppend(sra, 1003);
- *     sra = slotRangeArrayAppend(sra, 1004);
- *     sra = slotRangeArrayAppend(sra, 1005);
+ *     slotRangeArray *slots = NULL
+ *     slots = slotRangeArrayAppend(slots, 1000);
+ *     slots = slotRangeArrayAppend(slots, 1001);
+ *     slots = slotRangeArrayAppend(slots, 1003);
+ *     slots = slotRangeArrayAppend(slots, 1004);
+ *     slots = slotRangeArrayAppend(slots, 1005);
  *
  *     Result: 1000-1001, 1003-1005
  *     Note: `slot` must be greater than the previous slot.
  * */
-slotRangeArray *slotRangeArrayAppend(slotRangeArray *sra, int slot) {
-    if (sra == NULL) {
-        sra = slotRangeArrayCreate(4);
-        sra->ranges[0].start = slot;
-        sra->ranges[0].end = slot;
-        sra->num_ranges = 1;
-        return sra;
+slotRangeArray *slotRangeArrayAppend(slotRangeArray *slots, int slot) {
+    if (slots == NULL) {
+        slots = slotRangeArrayCreate(4);
+        slots->ranges[0].start = slot;
+        slots->ranges[0].end = slot;
+        slots->num_ranges = 1;
+        return slots;
     }
 
-    serverAssert(sra->num_ranges >= 0 && sra->num_ranges <= CLUSTER_SLOTS);
-    serverAssert(slot > sra->ranges[sra->num_ranges - 1].end);
+    serverAssert(slots->num_ranges >= 0 && slots->num_ranges <= CLUSTER_SLOTS);
+    serverAssert(slot > slots->ranges[slots->num_ranges - 1].end);
 
     /* Check if we can extend the last range */
-    slotRange *last = &sra->ranges[sra->num_ranges - 1];
+    slotRange *last = &slots->ranges[slots->num_ranges - 1];
     if (slot == last->end + 1) {
         last->end = slot;
-        return sra;
+        return slots;
     }
 
     /* Calculate current capacity and reallocate if needed */
-    int cap = (int) ((zmalloc_size(sra) - sizeof(slotRangeArray)) / sizeof(slotRange));
-    if (sra->num_ranges >= cap)
-        sra = zrealloc(sra, sizeof(slotRangeArray) + sizeof(slotRange) * cap * 2);
+    int cap = (int) ((zmalloc_size(slots) - sizeof(slotRangeArray)) / sizeof(slotRange));
+    if (slots->num_ranges >= cap)
+        slots = zrealloc(slots, sizeof(slotRangeArray) + sizeof(slotRange) * cap * 2);
 
     /* Add new single-slot range */
-    sra->ranges[sra->num_ranges].start = slot;
-    sra->ranges[sra->num_ranges].end = slot;
-    sra->num_ranges++;
+    slots->ranges[slots->num_ranges].start = slot;
+    slots->ranges[slots->num_ranges].end = slot;
+    slots->num_ranges++;
 
-    return sra;
+    return slots;
 }
 
 /* Returns 1 if the slot range array contains the given slot, 0 otherwise. */
-int slotRangeArrayContains(slotRangeArray *sra, unsigned int slot) {
-    for (int i = 0; i < sra->num_ranges; i++)
-        if (sra->ranges[i].start <= slot && sra->ranges[i].end >= slot)
+int slotRangeArrayContains(slotRangeArray *slots, unsigned int slot) {
+    for (int i = 0; i < slots->num_ranges; i++)
+        if (slots->ranges[i].start <= slot && slots->ranges[i].end >= slot)
             return 1;
     return 0;
 }
 
 /* Free the slot range array. */
-void slotRangeArrayFree(slotRangeArray *sra) {
-    zfree(sra);
+void slotRangeArrayFree(slotRangeArray *slots) {
+    zfree(slots);
 }
 
 /* Slot range array iterator */
-slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *sra) {
+slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots) {
     slotRangeArrayIter *it = zmalloc(sizeof(*it));
-    it->sra = sra;
+    it->slots = slots;
     it->range_index = 0;
-    it->cur_slot = sra->num_ranges > 0 ? sra->ranges[0].start : -1;
+    it->cur_slot = slots->num_ranges > 0 ? slots->ranges[0].start : -1;
     return it;
 }
 
 /* Returns the next slot in the array, or -1 if there are no more slots. */
 int slotRangeArrayNext(slotRangeArrayIter *it) {
-    if (it->range_index >= it->sra->num_ranges) return -1;
+    if (it->range_index >= it->slots->num_ranges) return -1;
 
-    if (it->cur_slot < it->sra->ranges[it->range_index].end) {
+    if (it->cur_slot < it->slots->ranges[it->range_index].end) {
         it->cur_slot++;
     } else {
         it->range_index++;
-        if (it->range_index < it->sra->num_ranges)
-            it->cur_slot = it->sra->ranges[it->range_index].start;
+        if (it->range_index < it->slots->num_ranges)
+            it->cur_slot = it->slots->ranges[it->range_index].start;
         else
             it->cur_slot = -1; /* finished */
     }
@@ -1901,33 +1901,33 @@ void slotRangeArrayIteratorFree(slotRangeArrayIter *it) {
 /* Parse slot ranges from the command arguments. Returns NULL on error. */
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     int start, end, count;
-    slotRangeArray *sra;
+    slotRangeArray *slots;
 
     serverAssert(pos <= argc);
     serverAssert((argc - pos) % 2 == 0);
 
     count = (argc - pos) / 2;
-    sra = slotRangeArrayCreate(count);
-    sra->num_ranges = 0;
+    slots = slotRangeArrayCreate(count);
+    slots->num_ranges = 0;
 
     for (int j = pos; j < argc; j += 2) {
         if ((start = getSlotOrReply(c, c->argv[j])) == -1 ||
             (end = getSlotOrReply(c, c->argv[j + 1])) == -1)
         {
-            slotRangeArrayFree(sra);
+            slotRangeArrayFree(slots);
             return NULL;
         }
-        slotRangeArraySet(sra, sra->num_ranges, start, end);
-        sra->num_ranges++;
+        slotRangeArraySet(slots, slots->num_ranges, start, end);
+        slots->num_ranges++;
     }
 
     sds err = NULL;
-    if (validateSlotRanges(sra, &err) != C_OK) {
+    if (validateSlotRanges(slots, &err) != C_OK) {
         addReplyErrorSds(c, err);
-        slotRangeArrayFree(sra);
+        slotRangeArrayFree(slots);
         return NULL;
     }
-    return sra;
+    return slots;
 }
 
 /* Return 1 if the keys in the slot can be accessed, 0 otherwise. */
@@ -2009,8 +2009,8 @@ void sflushCommand(client *c) {
     }
 
     /* Parse slot ranges from the command arguments. */
-    slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, argc, 1);
-    if (!slot_ranges) return;
+    slotRangeArray *slots = parseSlotRangesOrReply(c, argc, 1);
+    if (!slots) return;
 
     /* Iterate and find the slot ranges that belong to this node. Save them in
      * a new slotRangeArray. It is allocated on heap since there is a chance
@@ -2018,8 +2018,8 @@ void sflushCommand(client *c) {
      * with slot ranges */
     unsigned char slots_to_flush[CLUSTER_SLOTS] = {0}; /* Requested slots to flush */
     slotRangeArray *myslots = NULL;
-    for (int i = 0; i < slot_ranges->num_ranges; i++) {
-        for (int j = slot_ranges->ranges[i].start; j <= slot_ranges->ranges[i].end; j++) {
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
             if (clusterIsMySlot(j)) {
                 myslots = slotRangeArrayAppend(myslots, j);
                 slots_to_flush[j] = 1;
@@ -2037,11 +2037,11 @@ void sflushCommand(client *c) {
     }
     if (myslots == NULL || !all_slots_covered) {
         addReplyArrayLen(c, 0);
-        slotRangeArrayFree(slot_ranges);
+        slotRangeArrayFree(slots);
         slotRangeArrayFree(myslots);
         return;
     }
-    slotRangeArrayFree(slot_ranges);
+    slotRangeArrayFree(slots);
 
     /* Flush selected slots. If not flush as blocking async, then reply immediately */
     if (flushCommandCommon(c, FLUSH_TYPE_SLOTS, flags, myslots) == 0)

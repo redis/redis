@@ -22,33 +22,33 @@
 #define ASM_DEBUG_TRIM_ACTIVE 3
 
 typedef struct asmTask {
-    sds id;                             /* Task ID */
-    int operation;                      /* Either ASM_IMPORT or ASM_MIGRATE */
-    slotRangeArray *slot_ranges;        /* List of slot ranges for this migration task */
-    int state;                          /* Current state of the task */
-    int dest_state;                     /* Destination node's main state (approximate) */
-    char source[CLUSTER_NAMELEN];       /* Source node name */
-    char dest[CLUSTER_NAMELEN];         /* Destination node name */
-    clusterNode *source_node;           /* Source node */
-    connection *main_channel_conn;      /* Main channel connection */
-    connection *rdb_channel_conn;       /* RDB channel connection */
-    int rdb_channel_state;              /* State of the RDB channel */
-    unsigned long long dest_offset;     /* Destination offset */
-    unsigned long long source_offset;   /* Source offset */
-    int cross_slot_during_propagating;  /* If cross-slot commands are encountered during propagating */
-    int stream_eof_during_streaming;    /* If STREAM-EOF is received during streaming buffer */
-    replDataBuf sync_buffer;            /* Buffer for the stream */
-    client *main_channel_client;        /* Client for the main channel on the source side */
-    client *rdb_channel_client;         /* Client for the RDB channel on the source side */
-    long long retry_count;              /* Number of retries for this task */
-    mstime_t create_time;               /* Task creation time */
-    mstime_t start_time;                /* Task start time */
+    sds id;                                 /* Task ID */
+    int operation;                          /* Either ASM_IMPORT or ASM_MIGRATE */
+    slotRangeArray *slots;                  /* List of slot ranges for this migration task */
+    int state;                              /* Current state of the task */
+    int dest_state;                         /* Destination node's main state (approximate) */
+    char source[CLUSTER_NAMELEN];           /* Source node name */
+    char dest[CLUSTER_NAMELEN];             /* Destination node name */
+    clusterNode *source_node;               /* Source node */
+    connection *main_channel_conn;          /* Main channel connection */
+    connection *rdb_channel_conn;           /* RDB channel connection */
+    int rdb_channel_state;                  /* State of the RDB channel */
+    unsigned long long dest_offset;         /* Destination offset */
+    unsigned long long source_offset;       /* Source offset */
+    int cross_slot_during_propagating;      /* If cross-slot commands are encountered during propagating */
+    int stream_eof_during_streaming;        /* If STREAM-EOF is received during streaming buffer */
+    replDataBuf sync_buffer;                /* Buffer for the stream */
+    client *main_channel_client;            /* Client for the main channel on the source side */
+    client *rdb_channel_client;             /* Client for the RDB channel on the source side */
+    long long retry_count;                  /* Number of retries for this task */
+    mstime_t create_time;                   /* Task creation time */
+    mstime_t start_time;                    /* Task start time */
     mstime_t end_time;                  /* Task end time */
-    mstime_t paused_time;               /* The time when the slot writes were paused */
-    mstime_t dest_slots_snapshot_time;  /* The time when the destination starts applying the slot snapshot */
-    mstime_t dest_accum_applied_time;   /* The time when the destination finishes applying the accumulated buffer */
-    sds error;                          /* Error message for this task */
-    redisOpArray *module_commands;      /* Module commands to be propagated at the beginning of slot migration */
+    mstime_t paused_time;                   /* The time when the slot writes were paused */
+    mstime_t dest_slots_snapshot_time;      /* The time when the destination starts applying the slot snapshot */
+    mstime_t dest_accum_applied_time;       /* The time when the destination finishes applying the accumulated buffer */
+    sds error;                              /* Error message for this task */
+    redisOpArray *pre_snapshot_module_cmds; /* Module commands to be propagated at the beginning of slot migration */
 } asmTask;
 
 struct asmManager {
@@ -140,7 +140,7 @@ int asmTrimJobIsPending(void);
 void asmTriggerActiveTrim(slotRangeArray *slots);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
-void asmTrimSlotsIfNotOwned(slotRangeArray *sra);
+void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
 
 void clusterAsmInit(void) {
@@ -334,14 +334,14 @@ void asmTaskReset(asmTask *task) {
     task->paused_time = 0;
     task->dest_slots_snapshot_time = 0;
     task->dest_accum_applied_time = 0;
-    task->module_commands = NULL;
+    task->pre_snapshot_module_cmds = NULL;
 }
 
 asmTask *asmTaskCreate(const char *task_id) {
     asmTask *task = zcalloc(sizeof(*task));
     task->error = sdsempty();
     asmTaskReset(task);
-    task->slot_ranges = NULL;
+    task->slots = NULL;
     task->source_node = NULL;
     task->retry_count = 0;
     task->create_time = server.mstime;
@@ -360,7 +360,7 @@ asmTask *asmTaskCreate(const char *task_id) {
 void asmTaskFree(asmTask *task) {
     replDataBufClear(&task->sync_buffer);
     sdsfree(task->id);
-    zfree(task->slot_ranges);
+    zfree(task->slots);
     sdsfree(task->error);
     zfree(task);
 }
@@ -378,7 +378,7 @@ int asmTaskStateToEvent(asmTask *task) {
     }
 }
 
-/* Serialize ASM task information into a string for transmission to slaves.
+/* Serialize ASM task information into a string for transmission to replicas.
  * Format: "task_id:source_node:dest_node:operation:state:slot_ranges"
  * Where slot_ranges is in the format "1000-2000 3000-4000 ..." */
 sds asmTaskSerialize(asmTask *task) {
@@ -403,9 +403,9 @@ sds asmTaskSerialize(asmTask *task) {
     serialized = sdscatprintf(serialized, "%s:", asmTaskStateToString(task->state));
 
     /* Add slot ranges sds */
-    sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
-    serialized = sdscatprintf(serialized, "%s", slot_ranges_str);
-    sdsfree(slot_ranges_str);
+    sds slots_str = slotRangeArrayToString(task->slots);
+    serialized = sdscatprintf(serialized, "%s", slots_str);
+    sdsfree(slots_str);
 
     return serialized;
 }
@@ -458,8 +458,8 @@ asmTask *asmTaskDeserialize(sds data) {
     idx++;
 
     /* Parse slot ranges */
-    task->slot_ranges = slotRangeArrayFromString(parts[idx]);
-    if (!task->slot_ranges) goto err;
+    task->slots = slotRangeArrayFromString(parts[idx]);
+    if (!task->slots) goto err;
     idx++;
 
     sdsfreesplitres(parts, count);
@@ -471,13 +471,13 @@ err:
     return NULL;
 }
 
-/* Notify slaves about ASM task information to maintain consistency during slot migration.
- * This function sends a CLUSTER SYNCSLOTS CONF ASM-TASK command to all connected slaves
- * with the serialized task information. */
-void asmNotifySlavesStateChange(struct asmTask *task) {
+/* Notify replicas about ASM task information to maintain consistency during
+ * slot migration. This function sends a CLUSTER SYNCSLOTS CONF ASM-TASK command
+ * to all connected replicas with the serialized task information. */
+void asmNotifyReplicasStateChange(struct asmTask *task) {
     if (!server.cluster_enabled || !clusterNodeIsMaster(getMyClusterNode())) return;
 
-    /* Do not propagate migrate task to slaves, as slaves never migrate data. */
+    /* Do not propagate migrate task to replicas, as replicas never migrate data. */
     if (task->operation == ASM_MIGRATE) return;
 
     /* Create command arguments for CLUSTER SYNCSLOTS CONF ASM-TASK */
@@ -488,7 +488,7 @@ void asmNotifySlavesStateChange(struct asmTask *task) {
     argv[3] = createStringObject("ASM-TASK", 8);
     argv[4] = createObject(OBJ_STRING, asmTaskSerialize(task));
 
-    /* Send the command to all slaves */
+    /* Send the command to all replicas */
     replicationFeedSlaves(server.slaves, -1, argv, 5);
 
     /* Clean up command objects */
@@ -501,7 +501,7 @@ void asmNotifySlavesStateChange(struct asmTask *task) {
 sds asmDumpActiveImportTask(void) {
     if (!server.cluster_enabled) return NULL;
 
-    /* For slave, dump the master active task. */
+    /* For replica, dump the master active task. */
     if (clusterNodeIsSlave(getMyClusterNode()) &&
         asmManager->master_task &&
         asmManager->master_task->state != ASM_FAILED &&
@@ -532,7 +532,7 @@ size_t asmGetPeakSyncBufferSize(void) {
     return peak;
 }
 
-size_t asmGetImportingBufferSize(void) {
+size_t asmGetImportInputBufferSize(void) {
     if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
@@ -542,7 +542,7 @@ size_t asmGetImportingBufferSize(void) {
     return 0;
 }
 
-size_t asmGetMigratingBufferSize(void) {
+size_t asmGetMigrateOutputBufferSize(void) {
     if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
 
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
@@ -572,14 +572,14 @@ asmTask *asmLookupTaskById(const char *id) {
 
 /* Returns the ASM task that is identical to the given slot range array, or NULL
  * if no such task exists. */
-asmTask *asmLookupTaskBySlotRangeArray(slotRangeArray *sra) {
+asmTask *asmLookupTaskBySlotRangeArray(slotRangeArray *slots) {
     listIter li;
     listNode *ln;
 
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        if (slotRangeArrayIsEqual(task->slot_ranges, sra))
+        if (slotRangeArrayIsEqual(task->slots, slots))
             return task;
     }
     return NULL;
@@ -590,13 +590,13 @@ slotRangeArray *asmTaskGetSlotRanges(const char *task_id) {
     asmTask *task = NULL;
     if (!task_id || (task = asmLookupTaskById(task_id)) == NULL) return NULL;
 
-    return task->slot_ranges;
+    return task->slots;
 }
 
 /* Returns 1 if the slot range array overlaps with the given slot range. */
-static int slotRangeArrayOverlaps(slotRangeArray *sra, slotRange *req) {
-    for (int i = 0; i < sra->num_ranges; i++) {
-        slotRange *sr = &sra->ranges[i];
+static int slotRangeArrayOverlaps(slotRangeArray *slots, slotRange *req) {
+    for (int i = 0; i < slots->num_ranges; i++) {
+        slotRange *sr = &slots->ranges[i];
         if (sr->start <= req->end && sr->end >= req->start)
             return 1;
     }
@@ -604,10 +604,10 @@ static int slotRangeArrayOverlaps(slotRangeArray *sra, slotRange *req) {
 }
 
 /* Returns 1 if the two slot range arrays overlap, 0 otherwise. */
-static int slotRangeArraysOverlap(slotRangeArray *sra1, slotRangeArray *sra2) {
-    for (int i = 0; i < sra1->num_ranges; i++) {
-        slotRange *sr1 = &sra1->ranges[i];
-        if (slotRangeArrayOverlaps(sra2, sr1)) return 1;
+static int slotRangeArraysOverlap(slotRangeArray *slots1, slotRangeArray *slots2) {
+    for (int i = 0; i < slots1->num_ranges; i++) {
+        slotRange *sr1 = &slots1->ranges[i];
+        if (slotRangeArrayOverlaps(slots2, sr1)) return 1;
     }
     return 0;
 }
@@ -621,7 +621,7 @@ static asmTask *lookupAsmTaskBySlotRange(slotRange *req) {
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        if (slotRangeArrayOverlaps(task->slot_ranges, req))
+        if (slotRangeArrayOverlaps(task->slots, req))
             return task;
     }
     return NULL;
@@ -636,9 +636,8 @@ static asmTask *lookupAsmTaskBySlotRange(slotRange *req) {
  *
  * Returns the source node if validation succeeds.
  * Otherwise, returns NULL and sets 'err' variable. */
-static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *err, asmTask *current) {
+static clusterNode *validateImportSlotRanges(slotRangeArray *slots, sds *err, asmTask *current) {
     clusterNode *source = NULL;
-    unsigned char *slots = zcalloc(CLUSTER_SLOTS);
 
     *err = NULL;
 
@@ -658,8 +657,8 @@ static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *e
         }
     }
 
-    for (int i = 0; i < slot_ranges->num_ranges; i++) {
-        slotRange *sr = &slot_ranges->ranges[i];
+    for (int i = 0; i < slots->num_ranges; i++) {
+        slotRange *sr = &slots->ranges[i];
 
         /* Ensure no import task overlaps with this slot range.
          * Skip check current task that is running for this slot range. */
@@ -689,7 +688,6 @@ static clusterNode *validateImportSlotRanges(slotRangeArray *slot_ranges, sds *e
     }
 
 out:
-    zfree(slots);
     return *err ? NULL : source;
 }
 
@@ -784,7 +782,7 @@ void asmFeedMigrationClient(robj **argv, int argc) {
 
     /* Check if the slot belongs to the task's slot range. */
     slotRange sr = {slot, slot};
-    if (!slotRangeArrayOverlaps(task->slot_ranges, &sr)) return;
+    if (!slotRangeArrayOverlaps(task->slots, &sr)) return;
 
     if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, task->state)))
         freeClientAsync(task->main_channel_client);
@@ -801,13 +799,13 @@ void asmFeedMigrationClient(robj **argv, int argc) {
     task->source_offset += (getNormalClientPendingReplyBytes(c) - prev_bytes);
 }
 
-asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slot_ranges, sds *err) {
+asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *err) {
     clusterNode *source;
 
     *err = NULL;
     /* Validate that the slot ranges are valid and that migration can be
      * initiated for them. */
-    source = validateImportSlotRanges(slot_ranges, err, NULL);
+    source = validateImportSlotRanges(slots, err, NULL);
     if (!source)
         return NULL;
 
@@ -833,7 +831,7 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slot_ranges, s
 
     /* Create a slot migration task */
     asmTask *task = asmTaskCreate(task_id);
-    task->slot_ranges = slotRangeArrayDup(slot_ranges);
+    task->slots = slotRangeArrayDup(slots);
     task->state = ASM_NONE;
     task->operation = ASM_IMPORT;
     task->source_node = source;
@@ -841,10 +839,10 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slot_ranges, s
     memcpy(task->dest, getMyClusterId(), CLUSTER_NAMELEN);
 
     listAddNodeTail(asmManager->tasks, task);
-    sds slot_ranges_str = slotRangeArrayToString(slot_ranges);
+    sds slots_str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Import task created: src=%.40s, dest=%.40s, slots=%s",
-                         task->source, task->dest, slot_ranges_str);
-    sdsfree(slot_ranges_str);
+                         task->source, task->dest, slots_str);
+    sdsfree(slots_str);
 
     return task;
 }
@@ -860,12 +858,12 @@ static void clusterMigrationCommandImport(client *c) {
         return;
     }
 
-    slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, c->argc, 3);
-    if (!slot_ranges) return;
+    slotRangeArray *slots = parseSlotRangesOrReply(c, c->argc, 3);
+    if (!slots) return;
 
     sds err = NULL;
-    asmTask *task = asmCreateImportTask(NULL, slot_ranges, &err);
-    zfree(slot_ranges);
+    asmTask *task = asmCreateImportTask(NULL, slots, &err);
+    slotRangeArrayFree(slots);
     if (!task) {
         addReplyErrorSds(c, err);
         return;
@@ -916,8 +914,8 @@ static void replyTaskStatus(client *c, asmTask *task) {
     addReplyMapLen(c, 12);
     addReplyBulkCString(c, "id");
     addReplyBulkCString(c, task->id);
-    addReplyBulkCString(c, "slot_ranges");
-    addReplyBulkSds(c, slotRangeArrayToString(task->slot_ranges));
+    addReplyBulkCString(c, "slots");
+    addReplyBulkSds(c, slotRangeArrayToString(task->slots));
     addReplyBulkCString(c, "source");
     addReplyBulkCBuffer(c, task->source, CLUSTER_NAMELEN);
     addReplyBulkCString(c, "dest");
@@ -1016,7 +1014,7 @@ void asmNotifyStateChange(asmTask *task, int event) {
     RedisModuleClusterAsmInfo info = {
             .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
             .task_id = task->id,
-            .slots = (RedisModuleSlotRangeArray *) task->slot_ranges
+            .slots = (RedisModuleSlotRangeArray *) task->slots
     };
     memcpy(info.source_node_id, task->source, CLUSTER_NAMELEN);
     memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
@@ -1037,8 +1035,8 @@ void asmNotifyStateChange(asmTask *task, int event) {
     if (clusterNodeIsMaster(getMyClusterNode())) {
         /* Notify the plugin only if it is a real active import task. */
         if (task != asmManager->master_task)
-            clusterAsmOnEvent(task->id, event, task->slot_ranges);
-        asmNotifySlavesStateChange(task); /* Propagate state change to replicas */
+            clusterAsmOnEvent(task->id, event, task->slots);
+        asmNotifyReplicasStateChange(task); /* Propagate state change to replicas */
     }
 }
 
@@ -1085,7 +1083,7 @@ void asmImportSetFailed(asmTask *task) {
     asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
     /* This node may become replica, only master can setup new slot trimming jobs. */
     if (clusterNodeIsMaster(getMyClusterNode()))
-        asmTrimJobSchedule(task->slot_ranges);
+        asmTrimJobSchedule(task->slots);
 }
 
 void asmMigrateSetFailed(asmTask *task) {
@@ -1128,11 +1126,11 @@ void asmTaskSetFailed(asmTask *task, const char *fmt, ...) {
     task->error = error;
 
     /* Log the error */
-    sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
+    sds slots_str = slotRangeArrayToString(task->slots);
     serverLog(LL_WARNING, "%s task failed. id=%s, slots=%s, err=%s",
               task->operation == ASM_IMPORT ? "Import" : "Migrate",
-              task->id, slot_ranges_str, task->error);
-    sdsfree(slot_ranges_str);
+              task->id, slots_str, task->error);
+    sdsfree(slots_str);
 
     if (task->operation == ASM_IMPORT)
         asmImportSetFailed(task);
@@ -1365,8 +1363,8 @@ write_error: /* Handle sendCommand() errors. */
 
 char *asmSendSlotRangesSync(connection *conn, asmTask *task) {
     /* Prepare CLUSTER SYNCSLOTS SYNC command */
-    serverAssert(task->slot_ranges->num_ranges <= CLUSTER_SLOTS);
-    int argc = task->slot_ranges->num_ranges*2 + 4;
+    serverAssert(task->slots->num_ranges <= CLUSTER_SLOTS);
+    int argc = task->slots->num_ranges * 2 + 4;
     char **args = zcalloc(sizeof(char*) * argc);
     size_t *lens = zcalloc(sizeof(size_t) * argc);
 
@@ -1380,8 +1378,8 @@ char *asmSendSlotRangesSync(connection *conn, asmTask *task) {
     lens[3] = sdslen(task->id);
 
     int i = 4;
-    for (int j = 0; j < task->slot_ranges->num_ranges; j++) {
-        slotRange *sr = &task->slot_ranges->ranges[j];
+    for (int j = 0; j < task->slots->num_ranges; j++) {
+        slotRange *sr = &task->slots->ranges[j];
         args[i] = sdscatprintf(sdsempty(), "%d", sr->start);
         lens[i] = sdslen(args[i]);
         args[i+1] = sdscatprintf(sdsempty(), "%d", sr->end);
@@ -1662,7 +1660,7 @@ void clusterSyncSlotsStreamEOF(client *c) {
 
     if (task->state == ASM_STREAMING_BUF) {
         /* We are still streaming the buffer to DB, mark the EOF received, and we
-         * can takeover after streaming is EOF. Since we may release the context
+         * can take over after streaming is EOF. Since we may release the context
          * in asmImportTakeover, this breaks the context for streaming buffer. */
         task->stream_eof_during_streaming = 1;
         serverLog(LL_NOTICE, "CLUSTER SYNCSLOTS STREAM-EOF received during streaming buffer");
@@ -1684,20 +1682,20 @@ void clusterSyncSlotsStreamEOF(client *c) {
 /* Start the import task. */
 static void asmStartImportTask(asmTask *task) {
     if (task->operation != ASM_IMPORT || task->state != ASM_NONE) return;
-    sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
+    sds slots_str = slotRangeArrayToString(task->slots);
 
     /* Sanity check: Clean up any keys that exist in slots not owned by this node.
      * This handles cases where users previously migrated slots using legacy method
      * but left behind orphaned keys, or maybe cluster missed cleaning up during
      * previous operations, which could interfere with the ASM import process. */
-    asmTrimSlotsIfNotOwned(task->slot_ranges);
+    asmTrimSlotsIfNotOwned(task->slots);
 
     /* Check if there is any trim job in progress for the slot ranges.
      * We can't start the import task since the trim job will modify the data.*/
-    int trim_in_progress = asmIsAnyTrimJobOverlaps(task->slot_ranges);
+    int trim_in_progress = asmIsAnyTrimJobOverlaps(task->slots);
 
-    /* Cannot start import task since pause action is performed. Otherwise, we will
-     * break the promise that no writes are performed during the pause. */
+    /* Cannot start import task since pause action is performed. Otherwise, we
+     * will break the promise that no writes are performed during the pause. */
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         trim_in_progress)
@@ -1707,31 +1705,31 @@ static void asmStartImportTask(asmTask *task) {
                                                 "server paused";
         if (server.unixtime - last_log >= 5) { /* Log every 5 seconds to avoid spam */
             serverLog(LL_NOTICE, "Can not start import task for slots: %s since %s",
-                                 slot_ranges_str, reason);
+                                 slots_str, reason);
             last_log = server.unixtime;
         }
-        sdsfree(slot_ranges_str);
+        sdsfree(slots_str);
         return;
     }
 
-    /* Detect if the cluster topology is changed. We should cancel the task if we can
-     * not schedule it, and update the source node if needed. */
+    /* Detect if the cluster topology is changed. We should cancel the task if
+     * we can not schedule it, and update the source node if needed. */
     sds err = NULL;
-    clusterNode *source = validateImportSlotRanges(task->slot_ranges, &err, task);
+    clusterNode *source = validateImportSlotRanges(task->slots, &err, task);
     if (!source) {
-        serverLog(LL_WARNING, "Cancel the import task for slots: %s, occur error: %s",
-                              slot_ranges_str, err);
+        serverLog(LL_WARNING, "Cancelling the import task for slots: %s, due to error: %s",
+                              slots_str, err);
         asmTaskCancel(task, "slots configuration updated");
-        sdsfree(slot_ranges_str);
+        sdsfree(slots_str);
         sdsfree(err);
         return;
     }
     /* Now I'm the owner of the slot range, cancel the import task. */
     if (source == getMyClusterNode()) {
         serverLog(LL_NOTICE, "Cancel the import task for slots: %s, since this node is"
-                             " already the owner of the slot range", slot_ranges_str);
+                             " already the owner of the slot range", slots_str);
         asmTaskCancel(task, "slots owned by myself");
-        sdsfree(slot_ranges_str);
+        sdsfree(slots_str);
         return;
     }
     /* Change the source node if needed. */
@@ -1739,12 +1737,12 @@ static void asmStartImportTask(asmTask *task) {
         task->source_node = source;
         memcpy(task->source, source->name, CLUSTER_NAMELEN);
         serverLog(LL_NOTICE, "Import slots %s task source node changed to %.40s",
-                             slot_ranges_str, source->name);
+                             slots_str, source->name);
     }
 
     serverLog(LL_NOTICE, "Import task starting: src=%.40s, dest=%.40s, slots=%s",
-              task->source, task->dest, slot_ranges_str);
-    sdsfree(slot_ranges_str);
+              task->source, task->dest, slots_str);
+    sdsfree(slots_str);
 
     task->state = ASM_CONNECTING;
     task->start_time = server.mstime;
@@ -1794,23 +1792,23 @@ void clusterSyncSlotsCommand(client *c) {
             return;
         }
 
-        slotRangeArray *slot_ranges = parseSlotRangesOrReply(c, c->argc, 4);
-        if (!slot_ranges) return;
+        slotRangeArray *slots = parseSlotRangesOrReply(c, c->argc, 4);
+        if (!slots) return;
 
         /* Validate that the slot ranges are valid and that migration can be
          * initiated for them. */
         sds err = NULL;
-        clusterNode *source = validateImportSlotRanges(slot_ranges, &err, NULL);
+        clusterNode *source = validateImportSlotRanges(slots, &err, NULL);
         if (!source) {
             addReplyErrorSds(c, err);
-            zfree(slot_ranges);
+            slotRangeArrayFree(slots);
             return;
         }
 
         /* Check if the source node is the same as the current node. */
         if (source != getMyClusterNode()) {
             addReplyError(c, "This node is not the owner of the slots");
-            zfree(slot_ranges);
+            slotRangeArrayFree(slots);
             return;
         }
 
@@ -1819,12 +1817,12 @@ void clusterSyncSlotsCommand(client *c) {
                             listNodeValue(listFirst(asmManager->tasks));
         if (task && !strcmp(task->id, task_id) &&
             task->operation == ASM_MIGRATE && task->state == ASM_FAILED &&
-            slotRangeArrayIsEqual(slot_ranges, task->slot_ranges) &&
+            slotRangeArrayIsEqual(slots, task->slots) &&
             memcmp(task->dest, c->node_id, CLUSTER_NAMELEN) == 0)
         {
             /* Reuse the failed task */
             asmTaskReset(task);
-            zfree(task->slot_ranges); /* Will be set again later */
+            slotRangeArrayFree(task->slots); /* Will be set again later */
             task->retry_count++;
         } else if (task) {
             if (task->state == ASM_FAILED) {
@@ -1834,7 +1832,7 @@ void clusterSyncSlotsCommand(client *c) {
                 task = NULL;
             } else {
                 addReplyError(c, "Another ASM task is already in progress");
-                zfree(slot_ranges);
+                slotRangeArrayFree(slots);
                 return;
             }
         }
@@ -1848,7 +1846,7 @@ void clusterSyncSlotsCommand(client *c) {
             listAddNodeTail(asmManager->tasks, task);
         }
 
-        task->slot_ranges = slot_ranges;
+        task->slots = slots;
         task->operation = ASM_MIGRATE;
         memcpy(task->source, clusterNodeGetName(getMyClusterNode()), CLUSTER_NAMELEN);
         if (c->node_id) memcpy(task->dest, c->node_id, CLUSTER_NAMELEN);
@@ -1857,22 +1855,22 @@ void clusterSyncSlotsCommand(client *c) {
         c->task = task;
 
         /* We mark the main channel client as a replica, so this client is limited
-         * by the client output buffer settings for replicas. The replstate has no
-         * real significance, just to prevent it from going online. */
+         * by the client output buffer settings for replicas. The replstate has
+         * no real significance, just to prevent it from going online. */
         c->flags |= (CLIENT_SLAVE | CLIENT_ASM_MIGRATING);
         c->replstate = SLAVE_STATE_WAIT_RDB_CHANNEL;
         if (server.repl_disable_tcp_nodelay)
-            connDisableTcpNoDelay(c->conn);  /* Non critical if it fails. */
+            connDisableTcpNoDelay(c->conn);  /* Non-critical if it fails. */
         listAddNodeTail(server.slaves, c);
         createReplicationBacklogIfNeeded();
 
         /* Wait for RDB channel to be ready */
         task->state = ASM_WAIT_RDBCHANNEL;
 
-        sds slot_ranges_str = slotRangeArrayToString(slot_ranges);
+        sds slots_str = slotRangeArrayToString(slots);
         serverLog(LL_NOTICE, "Migrate task created: src=%.40s, dest=%.40s, slots=%s",
-                              task->source, task->dest, slot_ranges_str);
-        sdsfree(slot_ranges_str);
+                              task->source, task->dest, slots_str);
+        sdsfree(slots_str);
 
         asmNotifyStateChange(task, ASM_EVENT_MIGRATE_STARTED);
 
@@ -1920,7 +1918,7 @@ void clusterSyncSlotsCommand(client *c) {
         c->replstate = SLAVE_STATE_WAIT_BGSAVE_START;
         c->repldbfd = -1;
         if (server.repl_disable_tcp_nodelay)
-            connDisableTcpNoDelay(c->conn); /* Non critical if it fails. */
+            connDisableTcpNoDelay(c->conn); /* Non-critical if it fails. */
         listAddNodeTail(server.slaves, c);
 
         /* Wait for bgsave to start for slots sync */
@@ -1980,7 +1978,7 @@ void clusterSyncSlotsCommand(client *c) {
                                          task->source_offset - task->dest_offset,
                                          server.asm_handoff_max_lag_bytes);
                     task->state = ASM_HANDOFF_PREP;
-                    clusterAsmOnEvent(task->id, ASM_EVENT_HANDOFF_PREP, task->slot_ranges);
+                    clusterAsmOnEvent(task->id, ASM_EVENT_HANDOFF_PREP, task->slots);
                 }
             }
 
@@ -2115,12 +2113,12 @@ static int propagateModuleCommands(asmTask *task, rio *rdb) {
     RedisModuleClusterAsmInfo info = {
             .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
             .task_id = task->id,
-            .slots = (RedisModuleSlotRangeArray *) task->slot_ranges
+            .slots = (RedisModuleSlotRangeArray *) task->slots
     };
     memcpy(info.source_node_id, task->source, CLUSTER_NAMELEN);
     memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
 
-    task->module_commands = zcalloc(sizeof(*task->module_commands));
+    task->pre_snapshot_module_cmds = zcalloc(sizeof(*task->pre_snapshot_module_cmds));
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM,
                           REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE,
                           &info
@@ -2128,8 +2126,8 @@ static int propagateModuleCommands(asmTask *task, rio *rdb) {
 
     int ret = C_OK;
     /* Write the module commands to the rio */
-    for (int i = 0; i < task->module_commands->numops; i++) {
-        redisOp *op = &task->module_commands->ops[i];
+    for (int i = 0; i < task->pre_snapshot_module_cmds->numops; i++) {
+        redisOp *op = &task->pre_snapshot_module_cmds->ops[i];
         if (rioWriteBulkCount(rdb, '*', op->argc) == 0) {
             ret = C_ERR;
             break;
@@ -2140,9 +2138,9 @@ static int propagateModuleCommands(asmTask *task, rio *rdb) {
                 break;
             }
     }
-    redisOpArrayFree(task->module_commands);
-    zfree(task->module_commands);
-    task->module_commands = NULL;
+    redisOpArrayFree(task->pre_snapshot_module_cmds);
+    zfree(task->pre_snapshot_module_cmds);
+    task->pre_snapshot_module_cmds = NULL;
     return ret;
 }
 
@@ -2197,8 +2195,8 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
 
         /* Iterate all slot ranges, and generate the DUMP encoded
          * representation of each key in the DB. */
-        for (int j = 0; j < task->slot_ranges->num_ranges; j++) {
-            slotRange *sr = &task->slot_ranges->ranges[j];
+        for (int j = 0; j < task->slots->num_ranges; j++) {
+            slotRange *sr = &task->slots->ranges[j];
             /* Iterate all keys in the slot range */
             for (int k = sr->start; k <= sr->end; k++) {
                 int send_slot_info = 0;
@@ -2364,7 +2362,7 @@ void asmSyncBufferStreamToDb(asmTask *task) {
 
     if (ret == C_OK) {
         if (task->stream_eof_during_streaming) {
-            /* STREAM-EOF received during streaming, we can takeover now. */
+            /* STREAM-EOF received during streaming, we can take over now. */
             asmImportTakeover(task);
             return;
         }
@@ -2480,7 +2478,7 @@ void asmBeforeSleep(void) {
 }
 
 void asmCron(void) {
-    static long long asm_cron_runs = 0;
+    static unsigned long long asm_cron_runs = 0;
     asm_cron_runs++;
 
     if (listLength(asmManager->tasks) == 0) return;
@@ -2576,8 +2574,8 @@ int clusterAsmCancel(const char *task_id, const char *reason) {
 }
 
 /* Cancel all tasks that overlap with the given slot ranges.
- * If slot_ranges is NULL, cancel all tasks. */
-int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slot_ranges, const char *reason) {
+ * If slots is NULL, cancel all tasks. */
+int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slots, const char *reason) {
     if (asmManager == NULL) return 0;
 
     int num_cancelled = 0;
@@ -2586,7 +2584,7 @@ int clusterAsmCancelBySlotRangeArray(struct slotRangeArray *slot_ranges, const c
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        if (!slot_ranges || slotRangeArraysOverlap(task->slot_ranges, slot_ranges)) {
+        if (!slots || slotRangeArraysOverlap(task->slots, slots)) {
             asmTaskCancel(task, reason);
             num_cancelled++;
         }
@@ -2643,7 +2641,7 @@ int isSlotInAsmTask(int slot) {
     listRewind(asmManager->tasks, &li);
     while ((ln = listNext(&li)) != NULL) {
         asmTask *task = listNodeValue(ln);
-        if (slotRangeArrayOverlaps(task->slot_ranges, &req))
+        if (slotRangeArrayOverlaps(task->slots, &req))
             return 1;
     }
     return 0;
@@ -2718,7 +2716,7 @@ int asmNotifyConfigUpdated(asmTask *task, sds *err) {
 
     /* Trim the slots after the migrate task is completed. */
     if (event == ASM_EVENT_MIGRATE_COMPLETED)
-        asmTrimJobSchedule(task->slot_ranges);
+        asmTrimJobSchedule(task->slots);
 
     return C_OK;
 }
@@ -2884,22 +2882,22 @@ void asmTrimJobProcessPending(void) {
     listNode *ln;
     listRewind(asmManager->pending_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *sra = listNodeValue(ln);
-        asmTrimSlots(sra);
-        propagateTrimSlots(sra);
+        slotRangeArray *slots = listNodeValue(ln);
+        asmTrimSlots(slots);
+        propagateTrimSlots(slots);
         listDelNode(asmManager->pending_trim_jobs, ln);
-        slotRangeArrayFree(sra);
+        slotRangeArrayFree(slots);
     }
 }
 
 /* Trim keys in slots not owned by this node (if any). */
-void asmTrimSlotsIfNotOwned(slotRangeArray *sra) {
+void asmTrimSlotsIfNotOwned(slotRangeArray *slots) {
     if (!server.cluster_enabled || !clusterNodeIsMaster(getMyClusterNode())) return;
 
     size_t num_keys = 0;
-    slotRangeArray *trim_sra = NULL;
-    for (int i = 0; i < sra->num_ranges; i++) {
-        for (int j = sra->ranges[i].start; j <= sra->ranges[i].end; j++) {
+    slotRangeArray *trim_slots = NULL;
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
             if (clusterIsMySlot(j) ||
                 kvstoreDictSize(server.db[0].keys, j) == 0 ||
                 isSlotInTrimJob(j))
@@ -2907,20 +2905,20 @@ void asmTrimSlotsIfNotOwned(slotRangeArray *sra) {
                 continue;
             }
 
-            trim_sra = slotRangeArrayAppend(trim_sra, j);
+            trim_slots = slotRangeArrayAppend(trim_slots, j);
             num_keys += kvstoreDictSize(server.db[0].keys, j);
         }
     }
-    if (!trim_sra) return;
+    if (!trim_slots) return;
 
-    sds str = slotRangeArrayToString(trim_sra);
+    sds str = slotRangeArrayToString(trim_slots);
     serverLog(LL_NOTICE,
-              "Detected keys in slots that does not belong to this node. "
+              "Detected keys in slots that do not belong to this node. "
               "Scheduling trim for %zu keys in slots: %s", num_keys, str);
     sdsfree(str);
 
-    asmTrimJobSchedule(trim_sra);
-    slotRangeArrayFree(trim_sra);
+    asmTrimJobSchedule(trim_slots);
+    slotRangeArrayFree(trim_slots);
 }
 
 /* Handle the master task when it is no longer used. And trim unowned
@@ -2932,10 +2930,10 @@ void asmFinalizeMasterTask(void) {
     if (task == NULL) return;
     serverAssert(task->operation == ASM_IMPORT);
 
-    sds slot_ranges_str = slotRangeArrayToString(task->slot_ranges);
+    sds slots_str = slotRangeArrayToString(task->slots);
     serverLog(LL_WARNING, "Failed import task from old master. id=%s, slots=%s",
-                           task->id, slot_ranges_str);
-    sdsfree(slot_ranges_str);
+                           task->id, slots_str);
+    sdsfree(slots_str);
 
     /* Check if there is an ASM task that master did not finish. */
     if (task->state != ASM_COMPLETED && task->state != ASM_FAILED) {
@@ -2946,7 +2944,7 @@ void asmFinalizeMasterTask(void) {
 
     /* Trim the slots if the import task is failed. */
     if (clusterNodeIsMaster(getMyClusterNode()) && task->state == ASM_FAILED)
-        asmTrimSlotsIfNotOwned(task->slot_ranges);
+        asmTrimSlotsIfNotOwned(task->slots);
 
     /* Clear the master task since it is not the master anymore. */
     asmTaskFree(asmManager->master_task);
@@ -2957,15 +2955,16 @@ void asmFinalizeMasterTask(void) {
 int asmReplicaHandleMasterTask(sds task_info) {
     if (!server.cluster_enabled || !clusterNodeIsSlave(getMyClusterNode())) return C_ERR;
 
-    /* If the master task is empty, it means the master finished the task, the replica
-     * should check the slot ownership to decide to raise completed or failed event. */
+    /* If the master task is empty, it means the master finished the task, the
+     * replica should check the slot ownership to decide to raise completed or
+     * failed event. */
     if (!task_info || sdslen(task_info) == 0) {
         asmTask *task = asmManager->master_task;
         if (task && task->state != ASM_COMPLETED && task->state != ASM_FAILED) {
             /* Check if the slots are owned by the master. */
             int owned_by_master = 1;
-            for (int i = 0; i < task->slot_ranges->num_ranges; i++) {
-                slotRange *sr = &task->slot_ranges->ranges[i];
+            for (int i = 0; i < task->slots->num_ranges; i++) {
+                slotRange *sr = &task->slots->ranges[i];
                 for (int j = sr->start; j <= sr->end; j++) {
                     clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
                     if (!master || !clusterNodeCoversSlot(master, j)) {
@@ -3039,9 +3038,9 @@ void asmCancelTrimJobs(void) {
     listNode *ln;
     listRewind(asmManager->pending_trim_jobs, &li);
     while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *sra = listNodeValue(ln);
+        slotRangeArray *slots = listNodeValue(ln);
         listDelNode(asmManager->pending_trim_jobs, ln);
-        slotRangeArrayFree(sra);
+        slotRangeArrayFree(slots);
     }
 
     /* Cancel active trim jobs */
@@ -3096,7 +3095,7 @@ void trimslotsCommand(client *c) {
          * trimmed. We have to trim the keys synchronously. */
         clusterDelKeysInSlotRangeArray(slots, 1);
     } else {
-        /* We can not trim the slot that this node is serving. */
+        /* We cannot trim any slot served by this node. */
         if (clusterNodeIsMaster(getMyClusterNode())) {
             for (int i = 0; i < slots->num_ranges; i++) {
                 for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
@@ -3209,7 +3208,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
     if (asmManager->debug_active_trim_delay > 0)
         debugDelay(asmManager->debug_active_trim_delay);
 
-    /* The key needs to be converted from static to heap before deleted */
+    /* The key needs to be converted from static to heap before deletion. */
     int static_key = keyobj->refcount == OBJ_STATIC_REFCOUNT;
     if (static_key) keyobj = createStringObject(keyobj->ptr, sdslen(keyobj->ptr));
 
@@ -3317,8 +3316,8 @@ int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv) {
 }
 
 /* Modules can use RM_ClusterPropagateForSlotMigration() during the
- * CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event to propagate commands that should be
- * delivered just before the slot snapshot delivery starts. */
+ * CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event to propagate commands that should
+ * be delivered just before the slot snapshot delivery starts. */
 int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc) {
     /* This API is only called in the fork child. */
     if (server.cluster_enabled == 0 ||
@@ -3333,7 +3332,7 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
     if (task->operation != ASM_MIGRATE ||
         task->state != ASM_SEND_BULK_AND_STREAM ||
-        task->module_commands == NULL)
+        task->pre_snapshot_module_cmds == NULL)
     {
         errno = EBADF;
         return C_ERR;
@@ -3359,7 +3358,7 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
 
     /* Allow no-keys commands or if keys are in the slot range. */
     slotRange sr = {slot, slot};
-    if (slot != GETSLOT_NOKEYS && !slotRangeArrayOverlaps(task->slot_ranges, &sr)) {
+    if (slot != GETSLOT_NOKEYS && !slotRangeArrayOverlaps(task->slots, &sr)) {
         errno = ERANGE;
         return C_ERR;
     }
@@ -3370,6 +3369,6 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
         incrRefCount(argv[i]);
     }
 
-    redisOpArrayAppend(task->module_commands, 0, argvcopy, argc, 0);
+    redisOpArrayAppend(task->pre_snapshot_module_cmds, 0, argvcopy, argc, 0);
     return C_OK;
 }

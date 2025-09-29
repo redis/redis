@@ -1498,8 +1498,8 @@ typedef struct replDataBufToDbCtx {
     void *privdata;                     /* Private data of context */
     client *client;                     /* Client to process commands */
     size_t applied_offset;              /* Offset applied to the database */
-    int  (*should_continue)(void *ctx); /* Check if should continue */
-    void (*yield_callback)(void *ctx);  /* Yield to event loop */
+    int  (*should_continue)(void *ctx); /* Check if we should continue */
+    void (*yield_callback)(void *ctx);  /* Yield to the event loop */
 } replDataBufToDbCtx;
 
 /* ACL information */
@@ -1646,8 +1646,8 @@ struct redisMemOverhead {
     size_t overhead_db_hashtable_lut;
     size_t overhead_db_hashtable_rehashing;
     unsigned long db_dict_rehashing_count;
-    size_t asm_importing_buffer;
-    size_t asm_migrating_buffer;
+    size_t asm_import_input_buffer;
+    size_t asm_migrate_output_buffer;
     struct {
         size_t dbid;
         size_t overhead_ht_main;
@@ -3731,7 +3731,7 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_ALL   0
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
-void replySlotsFlushAndFree(client *c, struct slotRangeArray *ranges);
+void replySlotsFlushAndFree(client *c, struct slotRangeArray *slots);
 int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *ranges);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
