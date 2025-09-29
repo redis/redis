@@ -576,26 +576,25 @@ void freeStreamObject(robj *o) {
 
 void incrRefCount(robj *o) {
     if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
-        o->refcount++;
-    } else {
-        if (o->refcount == OBJ_SHARED_REFCOUNT) {
-            /* Nothing to do: this refcount is immutable. */
-        } else if (o->refcount == OBJ_STATIC_REFCOUNT) {
-            serverPanic("You tried to retain an object allocated in the stack");
-        }
-    }
+		unsigned short ref_count = __atomic_add_fetch(&o->refcount, 1,__ATOMIC_RELAXED);
+		serverAssert(ref_count < OBJ_FIRST_SPECIAL_REFCOUNT);
+    } else if (o->refcount == OBJ_SHARED_REFCOUNT) {
+		/* Nothing to do: this refcount is immutable. */
+	} else if (o->refcount == OBJ_STATIC_REFCOUNT) {
+		serverPanic("You tried to retain an object allocated in the stack");
+	}
 }
-
+int shouldSendObjectByReference(int type, size_t len) {
+	return type == OBJ_STRING && len >= server.send_by_reference_min_size;
+}
 void decrRefCount(robj *o) {
-    if (o->refcount == OBJ_SHARED_REFCOUNT)
+    if (o->refcount == OBJ_SHARED_REFCOUNT) {
         return; /* Nothing to do: this refcount is immutable. */
-
-    if (unlikely(o->refcount <= 0)) {
-        serverPanic("illegal decrRefCount for object with: type %u, encoding %u, refcount %d",
-            o->type, o->encoding, o->refcount);
-    }
-
-    if (--(o->refcount) == 0) {
+	}
+	
+	unsigned short ref_count = __atomic_sub_fetch(&o->refcount, 1,__ATOMIC_RELAXED);
+	serverAssert(ref_count < OBJ_FIRST_SPECIAL_REFCOUNT);
+	if (ref_count == 0) {
         if (o->ptr != NULL) {
             switch(o->type) {
             case OBJ_STRING: freeStringObject(o); break;

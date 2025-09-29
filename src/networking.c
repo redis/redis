@@ -84,6 +84,11 @@ void *dupClientReplyValue(void *o) {
 }
 
 void freeClientReplyValue(void *o) {
+    clientReplyBlock *cb = o;
+	if (cb->sendByRef) {
+		void **b = (void **)cb->buf;
+		decrRefCount(b[1]);
+	}
     zfree(o);
 }
 
@@ -370,6 +375,7 @@ void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
         tail = zmalloc_usable(size + sizeof(clientReplyBlock), &usable_size);
         /* take over the allocation's internal fragmentation */
+		tail->sendByRef = 0;
         tail->size = usable_size - sizeof(clientReplyBlock);
         tail->used = len;
         memcpy(tail->buf, s, len);
@@ -439,16 +445,102 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
     if (len > reply_len) _addReplyProtoToList(c,c->reply,s+reply_len,len-reply_len);
 }
 
+
 /* -----------------------------------------------------------------------------
  * Higher level functions to queue data on the client output buffer.
  * The following functions are the ones that commands implementations will call.
  * -------------------------------------------------------------------------- */
 
-/* Add the object 'obj' string representation to the client output buffer. */
+/* Add the object 'obj' by reference
+   allow for partial data to be sent 
+   this method increase the ref count and when the send is done it decreases it back
+   
+ */
+static inline void _addReplyLongLongSharedHdr(client *c, long long ll, char prefix,
+                                              robj *shared_hdr[OBJ_SHARED_BULKHDR_LEN])
+{
+    char buf[128];
+    int len;
+    const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
+
+    if (opt_hdr) {
+        _addReplyToBufferOrList(c, shared_hdr[ll]->ptr, OBJ_SHARED_HDR_STRLEN(ll));
+        return;
+    }
+
+    buf[0] = prefix;
+    len = ll2string(buf + 1, sizeof(buf) - 1, ll);
+    buf[len + 1] = '\r';
+    buf[len + 2] = '\n';
+    _addReplyToBufferOrList(c, buf, len + 3);
+}
+
+
+static inline void _addReplyLongLongMBulk(client *c, long long ll) {
+    _addReplyLongLongSharedHdr(c, ll, '*', shared.mbulkhdr);
+}
+
+/* Add a long long as integer reply or bulk len / multi bulk count.
+ * Basically this is used to output <prefix><long long><crlf>. */
+static void _addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
+    char buf[128];
+    int len;
+
+    /* Things like $3\r\n or *2\r\n are emitted very often by the protocol
+     * so we have a few shared objects to use if the integer is small
+     * like it is most of the times. */
+    const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
+    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);
+    if (prefix == '*' && opt_hdr) {
+        _addReplyToBufferOrList(c, shared.mbulkhdr[ll]->ptr, hdr_len);
+        return;
+    } else if (prefix == '$' && opt_hdr) {
+        _addReplyToBufferOrList(c, shared.bulkhdr[ll]->ptr, hdr_len);
+        return;
+    } else if (prefix == '%' && opt_hdr) {
+        _addReplyToBufferOrList(c, shared.maphdr[ll]->ptr, hdr_len);
+        return;
+    } else if (prefix == '~' && opt_hdr) {
+        _addReplyToBufferOrList(c, shared.sethdr[ll]->ptr, hdr_len);
+        return;
+    }
+
+    buf[0] = prefix;
+    len = ll2string(buf + 1, sizeof(buf) - 1, ll);
+    buf[len + 1] = '\r';
+    buf[len + 2] = '\n';
+    _addReplyToBufferOrList(c, buf, len + 3);
+}
+
+static inline void _addReplyLongLongBulk(client *c, long long ll) {
+    _addReplyLongLongSharedHdr(c, ll, '$', shared.bulkhdr);
+}
+
+
+void sendByReference(client *c, void *data, size_t len, robj *obj)
+{
+    if (_prepareClientToWrite(c) != C_OK) return;
+	
+	_addReplyLongLongBulk(c, len);
+	
+	incrRefCount(obj);
+	clientReplyBlock *msg = zmalloc(sizeof(void *) *2 + sizeof(clientReplyBlock));
+	msg->sendByRef = 1;
+	msg->size = len;
+	msg->used = len;
+	void ** tmp = (void **)msg->buf;
+	*tmp = data;
+	*(tmp+1) = obj;
+	listAddNodeTail(c->reply, msg);
+	c->reply_bytes += msg->size;
+	_addReplyToBufferOrList(c,"\r\n",2);
+		
+	closeClientOnOutputBufferLimitReached(c, 1);	
+}
+
 void addReply(client *c, robj *obj) {
     if (_prepareClientToWrite(c) != C_OK) return;
-
-    if (sdsEncodedObject(obj)) {
+	if (sdsEncodedObject(obj)) {
         _addReplyToBufferOrList(c,obj->ptr,sdslen(obj->ptr));
     } else if (obj->encoding == OBJ_ENCODING_INT) {
         /* For integer encoded strings we just convert it into a string
@@ -482,9 +574,12 @@ void addReplySds(client *c, sds s) {
  * if not needed. The object will only be created by calling
  * _addReplyProtoToList() if we fail to extend the existing tail object
  * in the list of objects. */
+/* (Hilik) this method accept an object if the object is not null it assume the
+   data has to be sent by reference (and not been copied) and that the object
+   referce count increases */
 void addReplyProto(client *c, const char *s, size_t len) {
     if (_prepareClientToWrite(c) != C_OK) return;
-    _addReplyToBufferOrList(c,s,len);
+	_addReplyToBufferOrList(c,s,len);
 }
 
 /* Low level function called by the addReplyError...() functions.
@@ -727,7 +822,8 @@ void trimReplyUnusedTailSpace(client *c) {
      * allocation), otherwise there's a high chance realloc will NOP.
      * Also, to avoid large memmove which happens as part of realloc, we only do
      * that if the used part is small.  */
-    if (tail->size - tail->used > tail->size / 4 &&
+    if (!tail->sendByRef && 
+		tail->size - tail->used > tail->size / 4 &&
         tail->used < PROTO_REPLY_CHUNK_BYTES)
     {
         size_t usable_size;
@@ -820,6 +916,7 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         size_t usable_size;
         clientReplyBlock *buf = zmalloc_usable(length + sizeof(clientReplyBlock), &usable_size);
         /* Take over the allocation's internal fragmentation */
+		buf->sendByRef = 0;
         buf->size = usable_size - sizeof(clientReplyBlock);
         buf->used = length;
         memcpy(buf->buf, s, length);
@@ -950,64 +1047,6 @@ void addReplyHumanLongDouble(client *c, long double d) {
     }
 }
 
-static inline void _addReplyLongLongSharedHdr(client *c, long long ll, char prefix,
-                                              robj *shared_hdr[OBJ_SHARED_BULKHDR_LEN])
-{
-    char buf[128];
-    int len;
-    const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
-
-    if (opt_hdr) {
-        _addReplyToBufferOrList(c, shared_hdr[ll]->ptr, OBJ_SHARED_HDR_STRLEN(ll));
-        return;
-    }
-
-    buf[0] = prefix;
-    len = ll2string(buf + 1, sizeof(buf) - 1, ll);
-    buf[len + 1] = '\r';
-    buf[len + 2] = '\n';
-    _addReplyToBufferOrList(c, buf, len + 3);
-}
-
-static inline void _addReplyLongLongBulk(client *c, long long ll) {
-    _addReplyLongLongSharedHdr(c, ll, '$', shared.bulkhdr);
-}
-
-static inline void _addReplyLongLongMBulk(client *c, long long ll) {
-    _addReplyLongLongSharedHdr(c, ll, '*', shared.mbulkhdr);
-}
-
-/* Add a long long as integer reply or bulk len / multi bulk count.
- * Basically this is used to output <prefix><long long><crlf>. */
-static void _addReplyLongLongWithPrefix(client *c, long long ll, char prefix) {
-    char buf[128];
-    int len;
-
-    /* Things like $3\r\n or *2\r\n are emitted very often by the protocol
-     * so we have a few shared objects to use if the integer is small
-     * like it is most of the times. */
-    const int opt_hdr = ll < OBJ_SHARED_BULKHDR_LEN && ll >= 0;
-    const size_t hdr_len = OBJ_SHARED_HDR_STRLEN(ll);
-    if (prefix == '*' && opt_hdr) {
-        _addReplyToBufferOrList(c, shared.mbulkhdr[ll]->ptr, hdr_len);
-        return;
-    } else if (prefix == '$' && opt_hdr) {
-        _addReplyToBufferOrList(c, shared.bulkhdr[ll]->ptr, hdr_len);
-        return;
-    } else if (prefix == '%' && opt_hdr) {
-        _addReplyToBufferOrList(c, shared.maphdr[ll]->ptr, hdr_len);
-        return;
-    } else if (prefix == '~' && opt_hdr) {
-        _addReplyToBufferOrList(c, shared.sethdr[ll]->ptr, hdr_len);
-        return;
-    }
-
-    buf[0] = prefix;
-    len = ll2string(buf + 1, sizeof(buf) - 1, ll);
-    buf[len + 1] = '\r';
-    buf[len + 2] = '\n';
-    _addReplyToBufferOrList(c, buf, len + 3);
-}
 
 void addReplyLongLong(client *c, long long ll) {
     if (ll == 0)
@@ -2033,9 +2072,11 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
             listDelNode(c->reply, next);
             offset = 0;
             continue;
-        }
-
-        iov[iovcnt].iov_base = o->buf + offset;
+        } if (o->sendByRef) {
+			iov[iovcnt].iov_base = *(void **)o->buf;			
+		} else {
+			iov[iovcnt].iov_base = o->buf + offset;
+		}
         iov[iovcnt].iov_len = o->used - offset;
         iov_bytes_len += iov[iovcnt++].iov_len;
         offset = 0;

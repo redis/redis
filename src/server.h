@@ -187,7 +187,7 @@ struct hdr_histogram;
 
 /* Protocol and I/O related defines */
 #define PROTO_IOBUF_LEN         (1024*16)  /* Generic I/O buffer size */
-#define PROTO_REPLY_CHUNK_BYTES (16*1024) /* 16k output buffer */
+#define PROTO_REPLY_CHUNK_BYTES (1024*16) /* 16k output buffer */
 #define PROTO_INLINE_MAX_SIZE   (1024*64) /* Max size of inline reads */
 #define PROTO_MBULK_BIG_ARG     (1024*32)
 #define PROTO_RESIZE_THRESHOLD  (1024*32) /* Threshold for determining whether to resize query buffer */
@@ -1034,7 +1034,7 @@ struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
-#define OBJ_REFCOUNT_BITS 30
+#define OBJ_REFCOUNT_BITS 16
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
@@ -1045,10 +1045,13 @@ struct redisObject {
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
+	unsigned short refcount; /* in order to make it thread safe it must be a known type */	
     unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
     unsigned expirable : 1; /* 1 if this key has expiration time attached.
                              * If set, then this object is of type kvobj */
-    unsigned refcount : OBJ_REFCOUNT_BITS;
+	unsigned spares : 14;
+	
+	
     void *ptr;
 };
 
@@ -1075,7 +1078,9 @@ struct evictionPoolEntry; /* Defined in evict.c */
 /* This structure is used in order to represent the output buffer of a client,
  * which is actually a linked list of blocks like that, that is: client->reply. */
 typedef struct clientReplyBlock {
-    size_t size, used;
+	size_t sendByRef : 1;
+    size_t size : 63;
+	size_t used;
     char buf[];
 } clientReplyBlock;
 
@@ -2171,6 +2176,7 @@ struct redisServer {
     time_t repl_total_disconnect_time;       /* The total cumulative time we've been disconnected as a replica, visible when the link is up too. */
     /* Limits */
     unsigned int maxclients;            /* Max number of simultaneous clients */
+	size_t send_by_reference_min_size; /* send data by reference if data size exceeds this value */
     unsigned long long maxmemory;   /* Max number of memory bytes to use */
     ssize_t maxmemory_clients;       /* Memory limit for total client buffers */
     int maxmemory_policy;           /* Policy for key eviction */
@@ -2849,6 +2855,7 @@ void addReplyBulkCString(client *c, const char *s);
 void addReplyBulkCBuffer(client *c, const void *p, size_t len);
 void addReplyBulkLongLong(client *c, long long ll);
 void addReply(client *c, robj *obj);
+void sendByReference(client *c, void *data, size_t len, robj *obj);
 void addReplyStatusLength(client *c, const char *s, size_t len);
 void addReplySds(client *c, sds s);
 void addReplyBulkSds(client *c, sds s);
@@ -3033,6 +3040,9 @@ void execCommandAbort(client *c, sds error);
 /* Redis object implementation */
 void decrRefCount(robj *o);
 void incrRefCount(robj *o);
+/* sending object by reference for now only for large enough strings */
+int shouldSendObjectByReference(int type, size_t len);
+
 robj *makeObjectShared(robj *o);
 void freeStringObject(robj *o);
 void freeListObject(robj *o);

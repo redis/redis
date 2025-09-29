@@ -3299,7 +3299,8 @@ standardConfig static_configs[] = {
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
     createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),
-
+    createSizeTConfig("send-by-reference-min-size", NULL, MODIFIABLE_CONFIG, 1, LONG_MAX, server.send_by_reference_min_size, 1024, INTEGER_CONFIG, NULL, NULL),
+	
     /* NULL Terminator, this is dropped when we convert to the runtime array. */
     {NULL}
 };
