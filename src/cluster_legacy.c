@@ -6131,7 +6131,7 @@ int clusterCommandSpecial(client *c) {
             addReplyErrorFormat(c, "There is a pending trim job for slot %d. "
                 "Most probably, this is due to a failed atomic slot migration. "
                 "CLUSTER SETSLOT cannot be used at this time. "
-                "Please retry later once the trim job is done. ", slot);
+                "Please retry later once the trim job is completed.", slot);
             return 1;
         }
 

@@ -126,7 +126,7 @@
                             "start_time": {
                                 "type": "integer"
                             },
-                            "done_time": {
+                            "end_time": {
                                 "type": "integer"
                             },
                             "write_pause_ms": {

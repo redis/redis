@@ -243,8 +243,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert_error {*overlapping import exists*} {R 0 CLUSTER MIGRATION IMPORT 6500 7500}
 
         wait_for_condition 1000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
+            [string match {*completed*} [migration_status 0 $task_id state]] &&
+            [string match {*completed*} [migration_status 1 $task_id state]]
         } else {
             fail "ASM task did not start"
         }
@@ -619,7 +619,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             assert_equal [R $id dbsize] 0
 
             # but we can see the number of keys is increased in INFO KEYSPACE
-            if {$::verbose} { puts [R $id info keyspace] }
             assert {[scan [regexp -inline {keys\=([\d]*)} [R $id info keyspace]] keys=%d] >= 1}
             assert {[scan [regexp -inline {expires\=([\d]*)} [R $id info keyspace]] expires=%d] >= 1}
         }
@@ -707,7 +706,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # but other keys (slot5462_key and slot5463_key) should be evicted
         after 2200
         for {set j 0} {$j < 100} {incr j} { R 1 ping } ;# trigger eviction
-        if {$::verbose} { puts [R 1 info keyspace] }
         assert_equal 0 [R 1 exists $slot5462_key]
         assert_equal 0 [R 1 exists $slot5463_key]
         assert {[scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] >= 2}
@@ -781,7 +779,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             # start slot migration from 1 to 0
             set task_id [setup_slot_migration_with_delay 1 0 0 100]
 
-            if {$::verbose} { puts "flush command: $flushcmd"}
+            if {$::verbose} { puts "Testing flush command: $flushcmd"}
             if {$flushcmd == "flushall"} {
                 R 0 flushall
             } elseif {$flushcmd == "flushdb"} {
@@ -901,8 +899,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # the importing task on #0 will be retried, and eventually succeed
         # since now #0 is back in the cluster
         wait_for_condition 2000 50 {
-            [string match {*done*} [migration_status 0 $task_id state]] &&
-            [string match {*done*} [migration_status 1 $task_id state]]
+            [string match {*completed*} [migration_status 0 $task_id state]] &&
+            [string match {*completed*} [migration_status 1 $task_id state]]
         } else {
             fail "ASM task did not finish"
         }
@@ -1126,7 +1124,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
     test "Source server paused timeout" {
         # set timeout to 0, so the task will fail immediately when checking timeout
-        R 0 config set slot-migration-pause-write-timeout 0
+        R 0 config set slot-migration-write-pause-timeout 0
 
         # start migration from node 0 to 1
         set task_id [setup_slot_migration_with_delay 0 1 0 100]
@@ -1147,7 +1145,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         stop_write_load $load_handle
 
         # reset config
-        R 0 config set slot-migration-pause-write-timeout 10000
+        R 0 config set slot-migration-write-pause-timeout 10000
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
     }
@@ -1155,7 +1153,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     test "Sync buffer drain timeout" {
         # set a very small gap size, so the gap between source and destination will
         # not be less than the threshold if we continue writing the source.
-        R 0 config set slot-migration-pause-write-max-gap-size 0
+        R 0 config set slot-migration-handoff-max-lag-bytes 0
         R 0 config set slot-migration-sync-buffer-drain-timeout 5000
 
         set r1_pid [S 1 process_id]
@@ -1189,7 +1187,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         resume_process $r1_pid
 
         # reset config
-        R 0 config set slot-migration-pause-write-max-gap-size 1mb
+        R 0 config set slot-migration-handoff-max-lag-bytes 1mb
         R 0 config set slot-migration-sync-buffer-drain-timeout 60000
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
@@ -1885,7 +1883,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 debug asm-trim-method active 0
         R 1 flushall
 
-        set prev_trim_done [CI 1 slot_migration_active_trim_done]
+        set prev_trim_done [CI 1 slot_migration_active_trim_completed]
 
         R 1 debug populate 1000 [slot_prefix 0] 100
         R 1 debug populate 1000 [slot_prefix 1] 100
@@ -1898,7 +1896,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 exec
 
         wait_for_condition 1000 10 {
-            [CI 1 slot_migration_active_trim_done] == $prev_trim_done + 3
+            [CI 1 slot_migration_active_trim_completed] == $prev_trim_done + 3
         } else {
             fail "active trim failed"
         }
