@@ -2259,14 +2259,8 @@ start_server {tags {"hash"}} {
             r del myhash
             r hset myhash f1 v1 f2 v2 f3 v3
 
-            # Test field count mismatches (too many fields specified)
-            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 3 f1 f2 60}
-            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 2 f1 5000}
-            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash NX FIELDS 4 f1 f2 f3 60}
-
             # Test field count mismatches (too few fields specified)
             assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 1 f1 f2 f3 60}
-            # assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 3 f1 f2 5000}
 
             # Test with numeric field names (should work)
             r del myhash
@@ -2311,8 +2305,8 @@ start_server {tags {"hash"}} {
             assert_error {*Number of fields must be a positive integer*} {r HGETEX myhash FIELDS 0 f1 EX 60}
 
             # Test missing FIELDS keyword
-            # assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 2 f1 f2}
-            # assert_error {*FIELDS keyword is required*} {r HSETEX myhash EX 60 2 f1 v1 f2 v2}
+            assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 2 f1 f2}
+            assert_error {*FIELDS keyword is required*} {r HSETEX myhash EX 60 2 f1 v1 f2 v2}
 
             # Test missing expire time
             assert_error {*Expire time argument is required*} {r HEXPIRE myhash NX FIELDS 1 f1}
@@ -2358,14 +2352,14 @@ start_server {tags {"hash"}} {
             assert_error {*Multiple condition flags specified*} {r HEXPIRE myhash FIELDS 1 f1 NX XX 60}
         }
 
-        # test "Multiple FIELDS keywords error handling ($type)" {
-        #     r del myhash
-        #     r hset myhash f1 v1
+        test "Multiple FIELDS keywords error handling ($type)" {
+            r del myhash
+            r hset myhash f1 v1
 
-        #     # Test multiple FIELDS keywords (should fail)
-        #     assert_error {*FIELDS keyword specified multiple times*} {r HEXPIRE myhash FIELDS 1 f1 60 FIELDS 1 f2}
-        #     assert_error {*FIELDS keyword specified multiple times*} {r HPEXPIRE myhash 5000 FIELDS 1 f1 FIELDS 1 f2}
-        # }
+            # Test multiple FIELDS keywords (should fail)
+            assert_error {*FIELDS keyword specified multiple times*} {r HEXPIRE myhash FIELDS 1 f1 60 FIELDS 1 f2}
+            assert_error {*FIELDS keyword specified multiple times*} {r HPEXPIRE myhash 5000 FIELDS 1 f1 FIELDS 1 f2}
+        }
 
         test "Complex flexible ordering scenarios ($type)" {
             r del myhash
@@ -2431,25 +2425,6 @@ start_server {tags {"hash"}} {
             assert_equal [r HGET myhash PX] "val2"
             assert_equal [r HGET myhash FIELDS] "val3"
         }
-
-        # test "Expire time parsing with flexible ordering ($type)" {
-        #     r del myhash
-        #     r hset myhash f1 v1 f2 v2
-
-        #     # Test different expire time formats in different positions
-        #     # assert_equal [r HEXPIRE myhash 0 FIELDS 1 f1] [list $E_DELETED]  # Immediate expiry
-
-        #     r hset myhash f1 v1  # Recreate field
-        #     assert_equal [r HPEXPIRE myhash FIELDS 1 f1 1] [list $E_DELETED]  # 1ms expiry
-
-        #     # Test large expire times
-        #     r hset myhash f1 v1
-        #     set large_time [expr {[clock seconds] + 86400}]  # 1 day from now
-        #     assert_equal [r HEXPIREAT myhash FIELDS 1 f1 $large_time] [list $E_OK]
-
-        #     set ttl [r HTTL myhash FIELDS 1 f1]
-        #     assert {[lindex $ttl 0] > 86000}  # Should be close to 86400
-        # }
     }
 }
 
@@ -2513,11 +2488,10 @@ start_server {tags {"hash"}} {
             # (missing FIELDS should be caught before unknown arguments)
 
             # These tests verify the error message priority fixes
-            assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 2 f1 f2}
-            assert_error {*FIELDS keyword is required*} {r HPEXPIRE myhash 5000 1 f1}
+            assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 3 f1 f2 f3}
+            assert_error {*FIELDS keyword is required*} {r HPEXPIRE myhash 5000 3 f1 f2 f3}
 
             # Test that field count validation works correctly
-            # assert_error {*Expire time argument is required*} {r HEXPIRE myhash FIELDS 2 f1 60}
             assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 2 f1}
             assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 2 f1 v1}
         }
@@ -2570,14 +2544,15 @@ start_server {tags {"hash"}} {
 
             # Step 4: Verify all operations worked correctly
             set ttl [r HTTL myhash FIELDS 3 f1 f2 f3]
-            # assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 400}   # f1 should have ~400s
-            # assert {[lindex $ttl 1] > 0 && [lindex $ttl 1] <= 600}   # f2 should have ~600s
-            # assert {[lindex $ttl 2] > 0 && [lindex $ttl 2] <= 700}   # f3 should have ~700s
+            assert {[lindex $ttl 0] > 0 && [lindex $ttl 0] <= 400}
+            assert {[lindex $ttl 1] > 0 && [lindex $ttl 1] <= 600}
+            assert {[lindex $ttl 2] > 0 && [lindex $ttl 2] <= 700}
 
             # Step 5: Test persistence and TTL operations
             assert_equal [r HPERSIST myhash FIELDS 1 f1] [list $P_OK]
             set ttl_after_persist [r HTTL myhash FIELDS 1 f1]
-            # assert_equal [lindex $ttl_after_persist 0] -1  # Should be persistent now
+            # Should be persistent now
+            assert_equal [lindex $ttl_after_persist 0] -1
         }
 
         test "Stress test - complex scenarios with all features ($type)" {
