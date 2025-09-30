@@ -1640,12 +1640,24 @@ int loadSingleAppendOnlyFile(char *filename) {
         if (fakeClient->flags & CLIENT_MULTI &&
             fakeClient->cmd->proc != execCommand)
         {
+            /* queueMultiCommand requires a pendingCommand, so we create a "fake" one here
+             * for it to consume */
+            pendingCommand *pcmd = zmalloc(sizeof(pendingCommand));
+            initPendingCommand(pcmd);
+            addPengingCommand(&fakeClient->pending_cmds, pcmd);
+
+            pcmd->argc = argc;
+            pcmd->argv_len = argc;
+            pcmd->argv = argv;
+            pcmd->cmd = cmd;
+
             /* Note: we don't have to attempt calling evalGetCommandFlags,
              * since this is AOF, the checks in processCommand are not made
              * anyway.*/
             queueMultiCommand(fakeClient, cmd->flags);
         } else {
             cmd->proc(fakeClient);
+            fakeClient->all_argv_len_sum = 0; /* Otherwise no one cleans this up and we reach cleanup with it non-zero */
         }
 
         /* The fake client should not have a reply */

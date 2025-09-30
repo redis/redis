@@ -29,7 +29,7 @@ start_cluster 1 1 {tags {external:skip cluster}} {
         $primary MULTI
         $primary SPUBLISH ch1 "hello"
         $primary GET foo
-        catch {[$primary EXEC]} err
+        catch {$primary EXEC} err
         assert_match {CROSSSLOT*} $err
     }
 

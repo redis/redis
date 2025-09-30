@@ -974,7 +974,8 @@ cleanup:
     c->argc = c->argv_len = 0;
     c->user = NULL;
     c->argv = NULL;
-    resetClient(c);
+    c->all_argv_len_sum = 0;
+    resetClient(c, 1);
     inuse--;
 
     if (raise_error) {

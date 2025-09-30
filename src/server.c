@@ -872,23 +872,6 @@ int clientsCronResizeQueryBuffer(client *c) {
     return 0;
 }
 
-/* If the client has been idle for too long, free the client's arguments. */
-int clientsCronFreeArgvIfIdle(client *c) {
-    /* If the client is in the middle of parsing a command, or if argv is in use
-     * (e.g. parsed in the IO thread but not yet executed, or blocked), exit ASAP. */
-    if (!c->argv || c->multibulklen || c->argc) return 0;
-
-    /* Free argv if the client has been idle for more than 2 seconds or if argv
-     * size is too large. */
-    time_t idletime = server.unixtime - c->lastinteraction;
-    if (idletime > 2 || c->argv_len > 128) {
-        c->argv_len = 0;
-        zfree(c->argv);
-        c->argv = NULL;
-    }
-    return 0;
-}
-
 /* The client output buffer can be adjusted to better fit the memory requirements.
  *
  * the logic is:
@@ -960,7 +943,7 @@ int CurrentPeakMemUsageSlot = 0;
 int clientsCronTrackExpansiveClients(client *c) {
     size_t qb_size = c->querybuf ? sdsZmallocSize(c->querybuf) : 0;
     size_t argv_size = c->argv ? zmalloc_size(c->argv) : 0;
-    size_t in_usage = qb_size + c->argv_len_sum + argv_size;
+    size_t in_usage = qb_size + c->all_argv_len_sum + argv_size;
     size_t out_usage = getClientOutputBufferMemoryUsage(c);
 
     /* Track the biggest values observed so far in this slot. */
@@ -1112,7 +1095,6 @@ int clientsCronRunClient(client *c) {
      * terminated. */
     if (clientsCronHandleTimeout(c,now)) return 1;
     if (clientsCronResizeQueryBuffer(c)) return 1;
-    if (clientsCronFreeArgvIfIdle(c)) return 1;
     if (clientsCronResizeOutputBuffer(c,now)) return 1;
 
     if (clientsCronTrackExpansiveClients(c)) return 1;
@@ -2980,6 +2962,8 @@ void initServer(void) {
 
     if (server.maxmemory_clients != 0)
         initServerClientMemUsageBuckets();
+
+    prefetchCommandsBatchInit();
 }
 
 void initListeners(void) {
@@ -4061,6 +4045,52 @@ uint64_t getCommandFlags(client *c) {
     return cmd_flags;
 }
 
+void preprocessCommand(client *c, pendingCommand *pcmd) {
+    pcmd->slot = INVALID_CLUSTER_SLOT;
+    if (pcmd->argc == 0)
+        return;
+
+    /* Check if we can reuse the last command instead of looking it up.
+     * The last command is either the penultimate pending command (if it exists), or c->lastcmd. */
+    struct redisCommand *last_cmd = c->pending_cmds.tail->prev ? c->pending_cmds.head->cmd : c->lastcmd;
+
+    if (isCommandReusable(last_cmd, pcmd->argv[0]))
+        pcmd->cmd = last_cmd;
+    else
+        pcmd->cmd = lookupCommand(pcmd->argv, pcmd->argc);
+
+    if (!pcmd->cmd) {
+        pcmd->flags = CLIENT_READ_COMMAND_NOT_FOUND;
+        return;
+    }
+
+    if ((pcmd->cmd->arity > 0 && pcmd->cmd->arity != pcmd->argc) ||
+        (pcmd->argc < -pcmd->cmd->arity))
+    {
+        pcmd->flags = CLIENT_READ_BAD_ARITY;
+        return;
+    }
+
+    if (server.cluster_enabled) {
+        getKeysResult result = (getKeysResult)GETKEYS_RESULT_INIT;
+        int numkeys = getKeysFromCommand(pcmd->cmd, pcmd->argv, pcmd->argc, &result); 
+        for (int i = 0; i < numkeys; i++) {
+            robj *thiskey = pcmd->argv[result.keys[i].pos];
+            int thisslot = (int)keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
+            if (pcmd->slot == INVALID_CLUSTER_SLOT) {
+                pcmd->slot = thisslot;
+            } else if (pcmd->slot != thisslot) {
+                serverLog(LL_NOTICE, "preprocessCommand: CROSS SLOT ERROR");
+                /* Invalidate the slot to indicate that there is a cross-slot error */
+                pcmd->slot = INVALID_CLUSTER_SLOT;
+                /* Cross slot error. */
+                break;
+            }
+        }
+        getKeysFreeResult(&result);
+    }
+}
+
 /* If this function gets called we already read a whole
  * command, arguments are in the client argv/argc fields.
  * processCommand() execute the command or prepare the
@@ -4104,11 +4134,17 @@ int processCommand(client *c) {
      * we do not have to repeat the same checks */
     if (!client_reprocessing_command) {
         /* check if we can reuse the last command instead of looking up if we already have that info */
-        struct redisCommand *cmd = NULL;
-        if (isCommandReusable(c->lastcmd, c->argv[0]))
-            cmd = c->lastcmd;
-        else
-            cmd = c->iolookedcmd ? c->iolookedcmd : lookupCommand(c->argv, c->argc);
+        struct redisCommand *cmd = c->lookedcmd;
+
+        /* The command may have been modified by modules (e.g., in CommandFilters callbacks),
+         * so we need to look it up again. */
+        if (!cmd) {
+            if (isCommandReusable(c->lastcmd, c->argv[0]))
+                cmd = c->lastcmd;
+            else
+                cmd = lookupCommand(c->argv, c->argc);
+        }
+
         if (!cmd) {
             /* Handle possible security attacks. */
             if (!strcasecmp(c->argv[0]->ptr,"host:") || !strcasecmp(c->argv[0]->ptr,"post")) {
@@ -4441,9 +4477,9 @@ int areCommandKeysInSameSlot(client *c, int *hashslot) {
     /* If client is in multi-exec, we need to check the slot of all keys
      * in the transaction. */
     for (int i = 0; i < (ms ? ms->count : 1); i++) {
-        struct redisCommand *cmd = ms ? ms->commands[i].cmd : c->cmd;
-        robj **argv = ms ? ms->commands[i].argv : c->argv;
-        int argc = ms ? ms->commands[i].argc : c->argc;
+        struct redisCommand *cmd = ms ? ms->commands[i]->cmd : c->cmd;
+        robj **argv = ms ? ms->commands[i]->argv : c->argv;
+        int argc = ms ? ms->commands[i]->argc : c->argc;
 
         getKeysResult result = GETKEYS_RESULT_INIT;
         int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
@@ -6965,7 +7001,7 @@ void dismissClientMemory(client *c) {
     dismissMemory(c->buf, c->buf_usable_size);
     if (c->querybuf) dismissSds(c->querybuf);
     /* Dismiss argv array only if we estimate it contains a big buffer. */
-    if (c->argc && c->argv_len_sum/c->argc >= server.page_size) {
+    if (c->argc && c->all_argv_len_sum/c->argc >= server.page_size) {
         for (int i = 0; i < c->argc; i++) {
             dismissObject(c->argv[i], 0);
         }

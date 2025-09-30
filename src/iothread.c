@@ -467,10 +467,12 @@ int processClientsFromIOThread(IOThread *t) {
         /* Process the pending command and input buffer. */
         if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             c->flags |= CLIENT_PENDING_COMMAND;
+            c->flags |= CLIENT_IN_PREFETCH;
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
                 continue;
             }
+            c->flags &= ~CLIENT_IN_PREFETCH;
         }
 
         /* We may have pending replies if io thread may not finish writing
@@ -729,7 +731,6 @@ void initThreadedIO(void) {
         exit(1);
     }
 
-    prefetchCommandsBatchInit();
 
     /* Spawn and initialize the I/O threads. */
     for (int i = 1; i < server.io_threads_num; i++) {

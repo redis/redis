@@ -674,11 +674,12 @@ void moduleReleaseTempClient(client *c) {
     listEmpty(c->reply);
     c->reply_bytes = 0;
     c->duration = 0;
-    resetClient(c);
+    resetClient(c, -1);
+    serverAssert(c->all_argv_len_sum == 0);
     c->bufpos = 0;
     c->flags = CLIENT_MODULE;
     c->user = NULL; /* Root user */
-    c->cmd = c->lastcmd = c->realcmd = c->iolookedcmd = NULL;
+    c->cmd = c->lastcmd = c->realcmd = NULL;
     if (c->bstate.async_rm_call_handle) {
         RedisModuleAsyncRMCallPromise *promise = c->bstate.async_rm_call_handle;
         promise->c = NULL; /* Remove the client from the promise so it will no longer be possible to abort it. */
@@ -11035,12 +11036,21 @@ void moduleCallCommandFilters(client *c) {
     }
 
     /* If the filter sets a new command, including command or subcommand,
-     * the command looked up in IO threads will be invalid. */
-    c->iolookedcmd = NULL;
+     * the command looked up will be invalid. */
+    c->lookedcmd = NULL;
 
     c->argv = filter.argv;
     c->argv_len = filter.argv_len;
     c->argc = filter.argc;
+
+    /* Update pending command if it exists. */
+    pendingCommand *pcmd = c->current_pending_cmd;
+    if (pcmd) {
+        pcmd->argv = filter.argv;
+        pcmd->argc = filter.argc;
+        pcmd->argv_len = filter.argv_len;
+        pcmd->cmd = NULL;
+    }
 }
 
 /* Return the number of arguments a filtered command has.  The number of

@@ -1113,7 +1113,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     robj *firstkey = NULL;
     int multiple_keys = 0;
     multiState *ms, _ms;
-    multiCmd mc;
+    pendingCommand mc;
+    pendingCommand *mcp = &mc;
     int i, slot = 0, migrating_slot = 0, importing_slot = 0, missing_keys = 0,
             existing_keys = 0;
     int pubsubshard_included = 0; /* Flag to indicate if a pubsub shard cmd is included. */
@@ -1141,8 +1142,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
          * structure if the client is not in MULTI/EXEC state, this way
          * we have a single codepath below. */
         ms = &_ms;
-        _ms.commands = &mc;
+        _ms.commands = &mcp;
         _ms.count = 1;
+
+        /* Properly initialize the fake pendingCommand */
+        initPendingCommand(&mc);
         mc.argv = argv;
         mc.argc = argc;
         mc.cmd = cmd;
@@ -1156,9 +1160,11 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         int margc, numkeys, j;
         keyReference *keyindex;
 
-        mcmd = ms->commands[i].cmd;
-        margc = ms->commands[i].argc;
-        margv = ms->commands[i].argv;
+        pendingCommand *pcmd = ms->commands[i];
+
+        mcmd = pcmd->cmd;
+        margc = pcmd->argc;
+        margv = pcmd->argv;
 
         /* Only valid for sharded pubsub as regular pubsub can operate on any node and bypasses this layer. */
         if (!pubsubshard_included &&

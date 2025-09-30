@@ -76,6 +76,10 @@ run_solo {defrag} {
     }
 
     proc test_active_defrag {type} {
+
+    # note: Disabling lookahead because it changes the number and order of allocations which interferes with defrag and causes tests to fail
+    r config set lookahead 1
+
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
             r config set hz 100
@@ -777,6 +781,7 @@ run_solo {defrag} {
             if {$::verbose} {
                 puts "frag $frag"
             }
+            puts 1111
 
             assert {$frag >= $expected_frag}
             r config set latency-monitor-threshold 5
