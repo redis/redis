@@ -722,7 +722,7 @@ proc resume_process {pid} {
             set stopped 1
             break
         }
-        after 20
+        after 1000
     }
     if {$stopped} {
         exec kill -SIGCONT $pid
