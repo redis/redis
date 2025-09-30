@@ -1697,7 +1697,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Try to migrate slots back
         R 0 CLUSTER MIGRATION IMPORT 0 1
-        wait_for_log_messages 0 {"*Can not start import task for slots: 0-1 since trim in progress for some of the slots*"} 0 1000 10
+        wait_for_log_messages 0 {"*Can not start import task*trim in progress for some of the slots*"} 0 1000 10
 
         # Enabled active trim and verify slots are imported back
         R 0 debug asm-trim-method active 0
