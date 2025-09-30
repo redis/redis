@@ -3047,8 +3047,7 @@ int processInputBuffer(client *c) {
             }
         }
 
-        if (c->read_error && c->read_error != CLIENT_READ_COMMAND_NOT_FOUND &&
-            c->read_error != CLIENT_READ_BAD_ARITY) {
+        if (isClientReadErrorFatal(c->read_error)) {
             break;
         }
 
