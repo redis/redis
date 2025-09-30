@@ -870,6 +870,7 @@ typedef struct {
 } PendingEntryContext;
 
 void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
+    uint64_t keyBuf[3];
     pelTimeKey timeKey;
     PendingEntryContext *ctx = privdata;
     streamNACK *nack = ri->data, *newnack;
@@ -887,11 +888,13 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
             streamNACK *prevNack = prev;
             timeKey.delivery_time = prevNack->delivery_time;
             timeKey.id = id;
-            raxRemove(ctx->cg->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL);
+            encodePelTimeKey(&keyBuf, &timeKey);
+            raxRemove(ctx->cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
         }
         timeKey.delivery_time = newnack->delivery_time;
         timeKey.id = id;
-        raxInsert(ctx->cg->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
+        encodePelTimeKey(&keyBuf, &timeKey);
+        raxInsert(ctx->cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
         serverAssert(prev==nack);
     }
 

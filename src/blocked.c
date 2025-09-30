@@ -753,6 +753,9 @@ void blockedBeforeSleep(void) {
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();
 
+    /* Handle for expired pending entries. */
+    handleExpiredPendingEntries();
+
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT or WAITAOF. */
     if (listLength(server.clients_waiting_acks))

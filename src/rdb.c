@@ -2992,10 +2992,12 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 streamID id;
                 streamDecodeID(rawid, &id);
 
+                uint64_t keyBuf[3];
                 pelTimeKey timeKey;
                 timeKey.delivery_time = nack->delivery_time;
                 timeKey.id = id;
-                raxInsert(cgroup->pel_by_time, (unsigned char*)&timeKey, sizeof(timeKey), NULL, NULL);
+                encodePelTimeKey(&keyBuf, &timeKey);
+                raxInsert(cgroup->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
             }
 
             printf("Pel size: %ld\n", raxSize(cgroup->pel));

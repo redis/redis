@@ -2357,7 +2357,7 @@ start_server {
             # Create consumer groups
             r XGROUP CREATE mystream group1 0
 
-            # Read one message
+            # Read all messages
             r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
 
             after 100
@@ -2374,7 +2374,7 @@ start_server {
             # Create consumer groups
             r XGROUP CREATE mystream group1 0
 
-            # Read one message
+            # Read all messages
             r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
 
             after 100
@@ -2383,6 +2383,214 @@ start_server {
             lassign [lindex $claim_result 0] stream_name messages
             assert_equal $stream_name "mystream"
             assert_equal [llength $messages] 3
+        }
+
+        test "XREADGROUP CLAIM verify ownership transfer and delivery count updates" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v2
+
+            # Create consumer groups
+            r XGROUP CREATE mystream group1 0
+
+            # Read one message
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+
+            after 100
+
+            # Transfer ownership to consumer2
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 3
+
+            # Verify ownership transfer and delivery count updates
+            set pending_info [r XPENDING mystream group1 - + 10]
+
+            assert_equal [llength $pending_info] 3
+            
+            # Check first message entry
+            assert_equal [lindex $pending_info 0 0] "1-0"
+            assert_equal [lindex $pending_info 0 1] "consumer2"
+            assert_equal [lindex $pending_info 0 3] 2
+            
+            # Check second message entry
+            assert_equal [lindex $pending_info 1 0] "2-0"
+            assert_equal [lindex $pending_info 1 1] "consumer2"
+            assert_equal [lindex $pending_info 1 3] 2
+            
+            # Check third message entry
+            assert_equal [lindex $pending_info 2 0] "3-0"
+            assert_equal [lindex $pending_info 2 1] "consumer2"
+            assert_equal [lindex $pending_info 2 3] 2
+        }
+
+        test "XREADGROUP CLAIM verify XACK removes messages from CLAIM pool" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v2
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+
+            # Read all three messages with consumer1
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+
+            # Acknowledge messages 1-0 and 3-0, leaving 2-0 pending
+            r XACK mystream group1 1-0 3-0
+
+            after 100
+
+            # Claim pending messages older than 50ms for consumer2
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+
+            # Should claim only message 2-0 (the unacknowledged one)
+            assert_equal [llength $messages] 1
+            assert_equal [lindex $messages 0 0] 2-0
+
+            # Acknowledge message 2-0
+            r XACK mystream group1 2-0
+
+            after 100
+
+            # Attempt to claim again - should return nothing since all messages are acknowledged
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            assert_equal [llength $claim_result] 0
+        }
+
+        test "XREADGROUP CLAIM verify that XCLAIM updates delivery count" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v2
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+
+            # Read all three messages with consumer1 (delivery count becomes 1 for all)
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+
+            after 100
+
+            # This increments delivery count to 2 for these messages
+            r XCLAIM mystream group1 consumer3 50 2-0 3-0
+
+            after 100
+
+            # This should claim all three messages and increment their delivery counts
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 3
+
+            puts "messages: $messages"
+
+            # Message 1-0: only claimed once via XREADGROUP (delivery count = 1)
+            assert_equal [lindex $messages 0 0] 1-0
+            assert_equal [lindex $messages 0 3] 1
+
+            # Message 2-0: claimed via XCLAIM then XREADGROUP (delivery count = 2)
+            assert_equal [lindex $messages 1 0] 2-0
+            assert_equal [lindex $messages 1 3] 2
+
+            # Message 3-0: claimed via XCLAIM then XREADGROUP (delivery count = 2)
+            assert_equal [lindex $messages 2 0] 3-0
+            assert_equal [lindex $messages 2 3] 2
+        }
+
+        test "XREADGROUP CLAIM verify forced entries are claimable" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v2
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+
+            r XCLAIM mystream group1 consumer3 0 1-0 2-0 FORCE JUSTID
+
+            # This should claim all three messages and increment their delivery counts
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 0 COUNT 2 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 2
+
+            # Message 1-0: only claimed once via XREADGROUP (delivery count = 1)
+            assert_equal [lindex $messages 0 0] 1-0
+            assert_equal [lindex $messages 0 3] 1
+
+            # Message 2-0: claimed via XCLAIM then XREADGROUP (delivery count = 2)
+            assert_equal [lindex $messages 1 0] 2-0
+            assert_equal [lindex $messages 1 3] 1
+        }
+
+        test "XREADGROUP CLAIM with BLOCK zero" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v2
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+
+            # Read all three messages with consumer1
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+
+            set claim_result [r XREADGROUP GROUP group1 consumer1 BLOCK 1 STREAMS mystream >]
+            assert_equal [llength $claim_result] 0
+
+            set claim_result [r XREADGROUP GROUP group1 consumer1 BLOCK 100 CLAIM 500 STREAMS mystream >]
+            assert_equal [llength $claim_result] 0
+
+            after 100
+
+            set claim_result [r XREADGROUP GROUP group1 consumer1 BLOCK 10000 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 3
+
+            after 100
+
+            set claim_result [r XREADGROUP GROUP group1 consumer1 BLOCK 0 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 3
+        }
+
+        test "XREADGROUP CLAIM with two blocked clients" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XDEL mystream 1-0
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0 MKSTREAM
+
+            # Create two deferring clients for blocking reads
+            set rd1 [redis_deferring_client]
+            set rd2 [redis_deferring_client]
+            
+            # Both clients issue blocking XREADGROUP commands
+            $rd1 XREADGROUP GROUP group1 consumer1 BLOCK 0 STREAMS mystream ">"
+            $rd2 XREADGROUP GROUP group1 consumer2 BLOCK 0 CLAIM 100 STREAMS mystream ">"
+            
+            # Wait for both clients to be blocked
+            wait_for_blocked_clients_count 2
+
+            r XADD mystream 2-0 f v2
+
+            set result1 [$rd1 read]
+            assert_equal [llength $result1] 1
+
+            set result2 [$rd2 read]
+            assert_equal [llength $result2] 1
+
+            # Clean up
+            $rd1 close
+            $rd2 close   
         }
     }
 }

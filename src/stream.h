@@ -162,4 +162,7 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
+void encodePelTimeKey(void* buf, pelTimeKey *timeKey);
+void decodePelTimeKey(void *buf, pelTimeKey *timeKey);
+
 #endif
