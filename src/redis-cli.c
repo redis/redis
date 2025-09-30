@@ -5191,7 +5191,12 @@ static int clusterManagerMigrateKeysInSlot(clusterManagerNode *source,
                     clusterManagerLogWarn("*** Slot was not served, setting "
                                           "owner to node %s:%d.\n",
                                           target->ip, target->port);
-                    clusterManagerSetSlot(source, target, slot, "node", NULL);
+                    int setslot_ok = clusterManagerSetSlot(source, target, slot, "node", NULL);
+                    if (!setslot_ok) {
+                    clusterManagerLogErr("*** Failed to set slot owner for slot%d", slot);
+                    success = 0;
+                    goto next;
+                    }  
                 }
                 /* If the key already exists in the target node (BUSYKEY),
                  * check whether its value is the same in both nodes.
