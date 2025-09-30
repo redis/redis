@@ -202,6 +202,16 @@ char *asmTaskStateToString(int state) {
     serverAssert(0); /* Unreachable */
 }
 
+const char *asmChannelToString(int channel) {
+    switch (channel) {
+        case ASM_IMPORT_MAIN_CHANNEL: return "import-main-channel";
+        case ASM_IMPORT_RDB_CHANNEL: return "import-rdb-channel";
+        case ASM_MIGRATE_MAIN_CHANNEL: return "migrate-main-channel";
+        case ASM_MIGRATE_RDB_CHANNEL: return "migrate-rdb-channel";
+        default: return "unknown";
+    }
+}
+
 int asmDebugSetFailPoint(char * channel, char *state) {
     if (!asmManager) {
         serverLog(LL_WARNING, "ASM manager is not initialized");
@@ -215,40 +225,24 @@ int asmDebugSetFailPoint(char * channel, char *state) {
         return C_OK;
     }
 
-    if (!strcasecmp(channel, "import-main-channel")) asmManager->debug_failed_channel = ASM_IMPORT_MAIN_CHANNEL;
-    else if (!strcasecmp(channel, "import-rdb-channel")) asmManager->debug_failed_channel = ASM_IMPORT_RDB_CHANNEL;
-    else if (!strcasecmp(channel, "migrate-main-channel")) asmManager->debug_failed_channel = ASM_MIGRATE_MAIN_CHANNEL;
-    else if (!strcasecmp(channel, "migrate-rdb-channel")) asmManager->debug_failed_channel = ASM_MIGRATE_RDB_CHANNEL;
-    else return C_ERR;
+    for (int i = ASM_IMPORT_MAIN_CHANNEL; i <= ASM_MIGRATE_RDB_CHANNEL; i++) {
+        if (!strcasecmp(channel, asmChannelToString(i))) {
+            asmManager->debug_failed_channel = i;
+            break;
+        }
+    }
+    if (asmManager->debug_failed_channel == 0) return C_ERR;
 
-    if (!strcasecmp(state, "connecting")) asmManager->debug_failed_state = ASM_CONNECTING;
-    else if (!strcasecmp(state, "auth-reply")) asmManager->debug_failed_state = ASM_AUTH_REPLY;
-    else if (!strcasecmp(state, "handshake-reply")) asmManager->debug_failed_state = ASM_HANDSHAKE_REPLY;
-    else if (!strcasecmp(state, "syncslots-reply")) asmManager->debug_failed_state = ASM_SYNCSLOTS_REPLY;
-    else if (!strcasecmp(state, "accumulate-buffer")) asmManager->debug_failed_state = ASM_ACCUMULATE_BUF;
-    else if (!strcasecmp(state, "streaming-buffer")) asmManager->debug_failed_state = ASM_STREAMING_BUF;
-    else if (!strcasecmp(state, "wait-stream-eof")) asmManager->debug_failed_state = ASM_WAIT_STREAM_EOF;
-    else if (!strcasecmp(state, "wait-rdbchannel")) asmManager->debug_failed_state = ASM_WAIT_RDBCHANNEL;
-    else if (!strcasecmp(state, "wait-bgsave-start")) asmManager->debug_failed_state = ASM_WAIT_BGSAVE_START;
-    else if (!strcasecmp(state, "send-bulk-and-stream")) asmManager->debug_failed_state = ASM_SEND_BULK_AND_STREAM;
-    else if (!strcasecmp(state, "send-stream")) asmManager->debug_failed_state = ASM_SEND_STREAM;
-    else if (!strcasecmp(state, "handoff")) asmManager->debug_failed_state = ASM_HANDOFF;
-    else if (!strcasecmp(state, "rdbchannel-reply")) asmManager->debug_failed_state = ASM_RDBCHANNEL_REPLY;
-    else if (!strcasecmp(state, "rdbchannel-transfer")) asmManager->debug_failed_state = ASM_RDBCHANNEL_TRANSFER;
-    else return C_ERR;
+    for (int i = ASM_NONE; i <= ASM_RDBCHANNEL_TRANSFER; i++) {
+        if (!strcasecmp(state, asmTaskStateToString(i))) {
+            asmManager->debug_failed_state = i;
+            break;
+        }
+    }
+    if (asmManager->debug_failed_state == 0) return C_ERR;
 
     serverLog(LL_NOTICE, "ASM fail point set: channel=%s, state=%s", channel, state);
     return C_OK;
-}
-
-const char *asmChannelToString(int channel) {
-    switch (channel) {
-        case ASM_IMPORT_MAIN_CHANNEL: return "import-main-channel";
-        case ASM_IMPORT_RDB_CHANNEL: return "import-rdb-channel";
-        case ASM_MIGRATE_MAIN_CHANNEL: return "migrate-main-channel";
-        case ASM_MIGRATE_RDB_CHANNEL: return "migrate-rdb-channel";
-        default: return "unknown";
-    }
 }
 
 int asmDebugSetTrimMethod(const char *method, int active_trim_delay) {
@@ -1695,41 +1689,38 @@ static void asmStartImportTask(asmTask *task) {
      * We can't start the import task since the trim job will modify the data.*/
     int trim_in_progress = asmIsAnyTrimJobOverlaps(task->slots);
 
+    static int start_blocked_logged = 0;
     /* Cannot start import task since pause action is performed. Otherwise, we
      * will break the promise that no writes are performed during the pause. */
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         trim_in_progress)
     {
-        static time_t last_log = 0;
         const char *reason = trim_in_progress ? "trim in progress for some of the slots" :
                                                 "server paused";
-        if (server.unixtime - last_log >= 5) { /* Log every 5 seconds to avoid spam */
-            serverLog(LL_NOTICE, "Can not start import task for slots: %s since %s",
-                                 slots_str, reason);
-            last_log = server.unixtime;
+        if (start_blocked_logged == 0) {
+            serverLog(LL_WARNING, "Can not start import task for slots: %s since %s",
+                                  slots_str, reason);
+            start_blocked_logged = 1;
         }
         sdsfree(slots_str);
         return;
     }
+    start_blocked_logged = 0; /* Reset the log flag */
 
     /* Detect if the cluster topology is changed. We should cancel the task if
      * we can not schedule it, and update the source node if needed. */
     sds err = NULL;
     clusterNode *source = validateImportSlotRanges(task->slots, &err, task);
     if (!source) {
-        serverLog(LL_WARNING, "Cancelling the import task for slots: %s, due to error: %s",
-                              slots_str, err);
-        asmTaskCancel(task, "slots configuration updated");
+        asmTaskCancel(task, err);
         sdsfree(slots_str);
         sdsfree(err);
         return;
     }
     /* Now I'm the owner of the slot range, cancel the import task. */
     if (source == getMyClusterNode()) {
-        serverLog(LL_NOTICE, "Cancel the import task for slots: %s, since this node is"
-                             " already the owner of the slot range", slots_str);
-        asmTaskCancel(task, "slots owned by myself");
+        asmTaskCancel(task, "slots owned by myself now");
         sdsfree(slots_str);
         return;
     }

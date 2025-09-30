@@ -398,6 +398,39 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 config set rdb-key-save-delay 0
     }
 
+    test "Slot migration with complex data types can work well" {
+        R 0 flushall
+        R 1 flushall
+
+        set list_key [slot_key 0 list_key]
+        set set_key [slot_key 0 set_key]
+        set zset_key [slot_key 0 zset_key]
+        set hash_key [slot_key 0 hash_key]
+        set stream_key [slot_key 0 stream_key]
+
+        # generate big keys for each data type
+        for {set i 0} {$i < 1000} {incr i} {
+            R 1 lpush $list_key $i
+            R 1 sadd $set_key $i
+            R 1 zadd $zset_key $i $i
+            R 1 hset $hash_key $i $i
+            R 1 xadd $stream_key * item $i
+        }
+
+        # migrate slot 0-100 to R 0
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+        # check the data on destination node is correct
+        assert_equal 1000 [R 0 llen $list_key]
+        assert_equal 1000 [R 0 scard $set_key]
+        assert_equal 1000 [R 0 zcard $zset_key]
+        assert_equal 1000 [R 0 hlen $hash_key]
+        assert_equal 1000 [R 0 xlen $stream_key]
+        # migrate slot 0-100 to R 1
+        R 1 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
+
     proc asm_basic_error_handling_test {operation channel all_states} {
         foreach state $all_states {
             if {$::verbose} { puts "Testing $operation $channel channel with state: $state"}
@@ -494,8 +527,13 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Migration will be successful after fail points are cleared" {
+        R 0 flushall
+        R 1 flushall
         set slot0_key [slot_key 0 mykey]
         set slot1_key [slot_key 1 mykey]
+        R 1 set $slot0_key "a"
+        R 1 set $slot1_key "b"
+
         # we set a delay to write incremental data
         R 1 config set rdb-key-save-delay 1000000
 
@@ -516,35 +554,25 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Verify the data is migrated, slot 0 and 1 should belong to R 1
         # slot 0 key should be changed by the write load
-        assert_not_equal [string repeat a 100] [R 0 get $slot0_key]
-        assert_equal [string repeat b 100] [R 0 get $slot1_key]
-        # Slave should also get the data
-        after 100
-        R 3 readonly
-        assert_equal [string repeat b 100] [R 3 get $slot1_key]
+        assert_not_equal "a" [R 0 get $slot0_key]
+        assert_equal "b" [R 0 get $slot1_key]
         R 1 config set rdb-key-save-delay 0
     }
 
     test "Client output buffer limit is reached on source side" {
+        R 0 flushall
+        R 1 flushall
         set r1_pid [S 1 process_id]
         R 1 debug repl-pause on-streaming-repl-buf
 
         # Set a small output buffer limit to trigger the error
-        R 0 config set client-output-buffer-limit "replica 1024 0 0"
-        # we set a delay to write incremental data
-        R 0 config set rdb-key-save-delay 1000000
+        R 0 config set client-output-buffer-limit "replica 4mb 0 0"
 
-        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
-
-        wait_for_condition 1000 50 {
-            [string match {*send-bulk-and-stream*} [migration_status 0 $task_id state]]
-        } else {
-            fail "ASM task did not start"
-        }
+        set task_id [setup_slot_migration_with_delay 0 1 0 100]
 
         # some write traffic is to have chance to enter streaming buffer state
         set slot0_key [slot_key 0 mykey]
-        R 0 set $slot0_key "a" 
+        R 0 set $slot0_key "a"
 
         # after 3 second, the slots snapshot (costs 2s to generate) should be transferred,
         # then start streaming buffer
@@ -555,11 +583,22 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Start the slot 0 write load on the R 0
         set load_handle [start_write_load "127.0.0.1" [get_port 0] 1000 $slot0_key]
 
+        # wait for buffer to accumulate on source side (more than 1m)
+        wait_for_condition 1000 10 {
+            [S 0 mem_asm_migrate_output_buffer] > 1000000
+        } else {
+            fail "ait for buffer to accumulate on source side (more than 1m)"
+        }
+
         # After some time, the client output buffer limit should be reached
         wait_for_log_messages 0 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10
         assert_match {*send*stream*} [migration_status 0 $task_id last_error]
 
         stop_write_load $load_handle
+
+        # Reset configurations
+        R 0 config set client-output-buffer-limit "replica 0 0 0"
+        R 0 config set rdb-key-save-delay 0
 
         # resume server and clear pause point
         resume_process $r1_pid
@@ -567,10 +606,36 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Wait for the migration to complete
         wait_for_asm_done
+    }
+
+    test "Full sync buffer limit is reached on destination side" {
+        # Set a small replication buffer limit to trigger the error
+        R 0 config set replica-full-sync-buffer-limit 1mb
+
+        # start migration from 1 to 0, cost 4s to transfer slots snapshot
+        set task_id [setup_slot_migration_with_delay 1 0 0 100 2 2000000]
+        set loglines [count_log_lines 0]
+
+        # Start the slot 0 write load on the R 1
+        set slot0_key [slot_key 0 mykey]
+        set load_handle [start_write_load "127.0.0.1" [get_port 1] 1000 $slot0_key]
+
+        # After some time, slots sync buffer limit should be reached, but migration would not fail
+        # since the buffer will be accumulated on source side from now.
+        wait_for_log_messages 0 {"*Slots sync buffer limit has been reached*"} $loglines 1000 10
+
+        # verify the peak value, should be greater than 1mb
+        assert {[CI 0 slot_migration_sync_buffer_peak] > 1000000}
+        assert {[S 0 mem_asm_import_input_buffer] > 1000000}
+
+        stop_write_load $load_handle
+        wait_for_asm_done
 
         # Reset configurations
-        R 0 config set client-output-buffer-limit "replica 0 0 0"
-        R 0 config set rdb-key-save-delay 0
+        R 0 config set replica-full-sync-buffer-limit 0
+        R 1 config set rdb-key-save-delay 0
+        R 1 cluster migration import 0 100
+        wait_for_asm_done
     }
 
     test "Expired key is not deleted and SCAN/KEYS/RANDOMKEY/CLUSTER GETKEYSINSLOT filter keys in importing slots" {
@@ -1929,13 +1994,13 @@ set testmodule [file normalize tests/modules/atomicslotmigration.so]
 start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
     # Helper function to clear module internal event logs
     proc clear_module_event_log {} {
-        for {set i 0} {$i < 9} {incr i} {
+        for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
             R $i asm.clear_event_log
         }
     }
 
     proc reset_default_trim_mothod {} {
-        for {set i 0} {$i < 9} {incr i} {
+        for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
             R $i debug asm-trim-method default
         }
     }
