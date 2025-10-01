@@ -3009,7 +3009,6 @@ int processInputBuffer(client *c) {
                 }
             } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
                 int incomplete = (c->pending_cmds.len != c->pending_cmds.ready_len);
-                // int incomplete = c->pending_cmds.tail && c->pending_cmds.tail->parsing_incomplete;
                 if (unlikely(incomplete)) {
                     pcmd = popPendingCommandFromTail(&c->pending_cmds);
                 } else {
