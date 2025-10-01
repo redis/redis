@@ -731,7 +731,6 @@ void initThreadedIO(void) {
         exit(1);
     }
 
-
     /* Spawn and initialize the I/O threads. */
     for (int i = 1; i < server.io_threads_num; i++) {
         IOThread *t = &IOThreads[i];

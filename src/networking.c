@@ -2543,6 +2543,17 @@ static void setProtocolError(const char *errstr, client *c) {
     c->flags |= (CLIENT_CLOSE_AFTER_REPLY|CLIENT_PROTOCOL_ERROR);
 }
 
+/* Process the query buffer for client 'c', setting up the client argument
+ * vector for command execution. Returns C_OK if after running the function
+ * the client has a well-formed ready to be processed command, otherwise
+ * C_ERR if there is still to read more buffer to get the full command.
+ * The function also returns C_ERR when there is a protocol error: in such a
+ * case the client structure is setup to reply with the error and close
+ * the connection.
+ *
+ * This function is called if processInputBuffer() detects that the next
+ * command is in RESP format, so the first byte in the command is found
+ * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
 static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
     char *newline = NULL;
     int ok;
