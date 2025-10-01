@@ -3100,7 +3100,6 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
     while(raxNext(&ri)) {
         streamNACK *nack = ri.data;
         streamUnlinkEntryFromCGroupRef(s, nack, ri.key);
-        streamFreeNACK(nack);
 
         streamID id;
         streamDecodeID(ri.key, &id);
@@ -3112,6 +3111,8 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
         encodePelTimeKey(buf, &timeKey);
         raxRemove(cg->pel_by_time, (unsigned char*)&buf, sizeof(buf), NULL);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
+
+        streamFreeNACK(nack);
     }
     raxStop(&ri);
 

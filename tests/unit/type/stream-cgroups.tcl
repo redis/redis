@@ -2487,8 +2487,6 @@ start_server {
             assert_equal $stream_name "mystream"
             assert_equal [llength $messages] 3
 
-            puts "messages: $messages"
-
             # Message 1-0: only claimed once via XREADGROUP (delivery count = 1)
             assert_equal [lindex $messages 0 0] 1-0
             assert_equal [lindex $messages 0 3] 1
@@ -2591,6 +2589,155 @@ start_server {
             # Clean up
             $rd1 close
             $rd2 close   
+        }
+
+        test "XREADGROUP CLAIM messages become claimable during block" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            # Consumer1 reads but doesn't ack
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            # Consumer2 blocks with CLAIM - message not yet claimable
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP group1 consumer2 BLOCK 5000 CLAIM 100 STREAMS mystream >
+            
+            wait_for_blocked_client
+            
+            # Wait for message to become claimable (>100ms)
+            after 150
+            
+            # Should unblock and return the now-claimable message
+            set result [$rd read]
+            assert_equal [llength $result] 1
+            
+            $rd close
+        }
+
+        test "XREADGROUP CLAIM block times out with no claimable messages" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            # Read and immediately try to claim (not idle enough)
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            set start [clock milliseconds]
+            set result [r XREADGROUP GROUP group1 consumer2 BLOCK 100 CLAIM 500 STREAMS mystream >]
+            set elapsed [expr {[clock milliseconds] - $start}]
+            
+            # Should timeout and return empty
+            assert_equal [llength $result] 0
+            assert_range $elapsed 100 300
+        }
+
+        test "XREADGROUP CLAIM block with multiple streams, mixed claimable" {
+            r DEL stream1 stream2
+            r XADD stream1 1-0 f v1
+            r XADD stream2 2-0 f v2
+            
+            r XGROUP CREATE stream1 group1 0
+            r XGROUP CREATE stream2 group1 0
+            
+            # Reads from both
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS stream1 stream2 > >
+            
+            after 100
+            
+            # Blocks with CLAIM - should get all messages
+            set result [r XREADGROUP GROUP group1 consumer2 BLOCK 1000 CLAIM 50 STREAMS stream1 stream2 > >]
+            
+            assert_equal [llength $result] 2
+            # stream1 should have claimable message
+            lassign [lindex $result 0] stream_name messages
+            assert_equal $stream_name "stream1"
+            assert_equal [llength $messages] 1
+            
+            # stream2 should be empty (message not yet read)
+            lassign [lindex $result 1] stream_name messages
+            assert_equal $stream_name "stream2"
+            assert_equal [llength $messages] 1
+        }
+
+        test "XREADGROUP CLAIM claims all pending immediately" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            # Consumer1 reads
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            # Consumer2 immediately tries to claim with min-idle-time=0
+            set result [r XREADGROUP GROUP group1 consumer2 BLOCK 1000 CLAIM 0 STREAMS mystream >]
+            
+            # Should immediately return without blocking
+            lassign [lindex $result 0] stream_name messages
+            assert_equal [llength $messages] 1
+        }
+
+        test "XREADGROUP CLAIM with BLOCK and NOACK" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            # Consumer1 reads without ack
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            after 100
+            
+            # Consumer2 tries to claim with NOACK
+            set result [r XREADGROUP GROUP group1 consumer2 BLOCK 1000 CLAIM 50 NOACK STREAMS mystream >]
+            
+            lassign [lindex $result 0] stream_name messages
+            assert_equal [llength $messages] 1
+            
+            # Verify message still pending
+            set pending [r XPENDING mystream group1 - + 10]
+            assert_equal [llength $pending] 1
+        }
+
+        test "XREADGROUP CLAIM delivery count increments replicated correctly" {
+            start_server {tags {"stream repl"}} {
+                set master [srv 0 client]
+                set master_host [srv 0 host]
+                set master_port [srv 0 port]
+                
+                start_server {} {
+                    set replica [srv 0 client]
+                    
+                    $replica replicaof $master_host $master_port
+                    wait_for_sync $replica
+                    
+                    # Setup
+                    $master DEL mystream
+                    $master XADD mystream 1-0 f v1
+                    $master XGROUP CREATE mystream group1 0
+                    
+                    # First read
+                    $master XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+                    wait_for_ofs_sync $master $replica
+                    
+                    # Check initial delivery count on replica
+                    set replica_pending [$replica XPENDING mystream group1 - + 1]
+                    set delivery_count [lindex [lindex $replica_pending 0] 3]
+                    assert_equal $delivery_count 1
+                    
+                    # Claim multiple times on master
+                    after 50
+                    $master XREADGROUP GROUP group1 consumer2 CLAIM 10 STREAMS mystream >
+                    wait_for_ofs_sync $master $replica
+                    
+                    after 50
+                    $master XREADGROUP GROUP group1 consumer3 CLAIM 10 STREAMS mystream >
+                    wait_for_ofs_sync $master $replica
+                    
+                    # Check delivery count incremented on replica
+                    set replica_pending [$replica XPENDING mystream group1 - + 1]
+                    set delivery_count [lindex [lindex $replica_pending 0] 3]
+                    assert_equal $delivery_count 3
+                }
+            }
         }
     }
 }
