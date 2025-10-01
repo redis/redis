@@ -256,7 +256,6 @@ robj *streamDup(robj *o) {
             raxStop(&ri_cpel);
         }
         raxStop(&ri_consumers);
-        serverAssert(raxSize(new_cg->pel) == raxSize(new_cg->pel_by_time));
     }
     raxStop(&ri_cgroups);
     return sobj;
@@ -1825,12 +1824,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         while(raxNext(&ri)) {
             pelTimeKey pelKey;
             decodePelTimeKey(ri.key, &pelKey);
-            printf("Delivery time: %lu, id: %lu-%lu, idle: %llu\n", 
-                pelKey.delivery_time,
-                pelKey.id.ms,
-                pelKey.id.seq,
-                commandTimeSnapshot() - pelKey.delivery_time);
-
             uint64_t idle = commandTimeSnapshot() - pelKey.delivery_time;
             if(idle < (uint64_t)min_idle_time)
                 break;
@@ -1849,11 +1842,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         listRewind(eligible_pels, &li);
         while((ln = listNext(&li))) {
             pelTimeKey *pelKey = (pelTimeKey*)listNodeValue(ln);
-            printf("2. Delivery time: %lu, id: %lu-%lu\n", 
-                pelKey->delivery_time,
-                pelKey->id.ms,
-                pelKey->id.seq);
-
             unsigned char buf[sizeof(streamID)];
             streamEncodeID(buf, &pelKey->id);
 
@@ -1893,7 +1881,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 timeKey.delivery_time = nack->delivery_time;
                 timeKey.id = pel_id;
                 encodePelTimeKey(&keyBuf, &timeKey);
-                serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL) == 1);
+                raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
                 nack->delivery_time = commandTimeSnapshot();
@@ -1916,10 +1904,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                     decrRefCount(idarg);
                     if (propCount) (*propCount)++;
                 }
-
-                printf("Pel size: %ld\n", raxSize(group->pel));
-                printf("Pel by time size: %ld\n", raxSize(group->pel_by_time));
-                serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
 
                 arraylen++;
                 if (count && count == arraylen) break;
@@ -2037,7 +2021,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 timeKey.delivery_time = nack->delivery_time;
                 timeKey.id = id;
                 encodePelTimeKey(&keyBuf, &timeKey);
-                serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL) == 1);
+                raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
                 nack->delivery_time = commandTimeSnapshot();
@@ -2065,10 +2049,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 decrRefCount(idarg);
                 if (propCount) (*propCount)++;
             }
-
-            printf("Pel size: %ld\n", raxSize(group->pel));
-            printf("Pel by time size: %ld\n", raxSize(group->pel_by_time));
-            serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
         }
 
         arraylen++;
@@ -2143,8 +2123,6 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     }
     raxStop(&ri);
     setDeferredArrayLen(c,arraylen_ptr,arraylen);
-
-    serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
     return arraylen;
 }
 
@@ -2799,7 +2777,6 @@ void xreadCommand(client *c) {
                 pel_expire_time += min_pel_delivery_time;
             else
                 pel_expire_time += commandTimeSnapshot();
-            printf("Setting pel_expire_time to %lu\n", pel_expire_time);
             watchForExpiredPendingEntries(c, c->argv+streams_arg, streams_count, pel_expire_time);
         }
         blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout, xreadgroup);
@@ -2903,14 +2880,11 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         timeKey.delivery_time = nack->delivery_time;
         timeKey.id = *id;
         encodePelTimeKey(keyBuf, &timeKey);
-        serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL) == 1);
+        raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
         raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
         streamFreeNACK(nack);
-        printf("Pel size: %ld\n", raxSize(group->pel));
-        printf("Pel by time size: %ld\n", raxSize(group->pel_by_time));
-        serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
     }
 
     raxRemove(s->cgroups_ref, buf, sizeof(streamID), NULL);
@@ -3120,8 +3094,6 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
     raxRemove(cg->consumers,(unsigned char*)consumer->name,
               sdslen(consumer->name),NULL);
     streamFreeConsumer(consumer);
-
-    serverAssert(raxSize(cg->pel) == raxSize(cg->pel_by_time));
 }
 
 /* -----------------------------------------------------------------------
@@ -3431,7 +3403,7 @@ void xackCommand(client *c) {
             timeKey.delivery_time = nack->delivery_time;
             timeKey.id = ids[j-3];
             encodePelTimeKey(keyBuf, &timeKey);
-            serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL) == 1);
+            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(kv->ptr, nack, buf);
@@ -3441,9 +3413,6 @@ void xackCommand(client *c) {
     }
     addReplyLongLong(c,acknowledged);
 cleanup:
-    fprintf(stderr, "Pel size: %ld\n", raxSize(group->pel));
-    fprintf(stderr, "Pel by time size: %ld\n", raxSize(group->pel_by_time));
-    serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
     if (ids != static_ids) zfree(ids);
 }
 
@@ -3509,7 +3478,7 @@ void xackdelCommand(client *c) {
             timeKey.delivery_time = nack->delivery_time;
             timeKey.id = *id;
             encodePelTimeKey(keyBuf, &timeKey);
-            serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL) == 1);
+            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(s, nack, buf);
@@ -3560,9 +3529,6 @@ void xackdelCommand(client *c) {
 
 cleanup:
     if (ids != static_ids) zfree(ids);
-    printf("Pel size: %ld\n", raxSize(group->pel));
-    printf("Pel by time size: %ld\n", raxSize(group->pel_by_time));
-    serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
 }
 
 /* XPENDING <key> <group> [[IDLE <idle>] <start> <stop> <count> [<consumer>]]
@@ -3950,7 +3916,7 @@ void xclaimCommand(client *c) {
                 timeKey.id = id;
                 encodePelTimeKey(keyBuf, &timeKey);
                 raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
-                serverAssert(raxRemove(group->pel, buf,sizeof(buf),NULL) == 1);
+                raxRemove(group->pel, buf,sizeof(buf),NULL);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 streamDestroyNACK(o->ptr, nack, buf);
             }
@@ -4040,10 +4006,6 @@ void xclaimCommand(client *c) {
     preventCommandPropagation(c);
 cleanup:
     if (ids != static_ids) zfree(ids);
-    printf("Pel size: %ld\n", raxSize(group->pel));
-    printf("Pel by time size: %ld\n", raxSize(group->pel_by_time));
-    serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
-
 }
 
 /* XAUTOCLAIM <key> <group> <consumer> <min-idle-time> <start> [COUNT <count>] [JUSTID]
@@ -4164,7 +4126,7 @@ void xautoclaimCommand(client *c) {
             timeKey.delivery_time = nack->delivery_time;
             timeKey.id = id;
             encodePelTimeKey(keyBuf, &timeKey);
-            serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL) == 1);
+            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
             streamDestroyNACK(o->ptr, nack, ri.key);
@@ -4193,7 +4155,7 @@ void xautoclaimCommand(client *c) {
         timeKey.delivery_time = nack->delivery_time;
         timeKey.id = id;
         encodePelTimeKey(keyBuf, &timeKey);
-        serverAssert(raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL) == 1);
+        raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
 
         nack->delivery_time = now;
 
@@ -4250,10 +4212,6 @@ void xautoclaimCommand(client *c) {
     zfree(deleted_ids);
 
     preventCommandPropagation(c);
-
-    printf("Pel size: %ld\n", raxSize(group->pel));
-    printf("Pel by time size: %ld\n", raxSize(group->pel_by_time));
-    serverAssert(raxSize(group->pel) == raxSize(group->pel_by_time));
 }
 
 /* XDEL <key> [<ID1> <ID2> ... <IDN>]
@@ -4936,10 +4894,6 @@ void handleExpiredPendingEntries(void) {
             robj *key = dictGetKey(de);
             uint64_t expire_time = dictGetUnsignedIntegerVal(de);
             kvobj *kv = dbFind(&server.db[j], key->ptr);
-
-            printf("Checking key %s expire time %llu vs current time %llu\n",
-                   (char*)key->ptr, (unsigned long long)expire_time,
-                   (unsigned long long)server.mstime);
 
             if (!kv || kv->type != OBJ_STREAM)
                 continue;
