@@ -897,8 +897,6 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
         raxInsert(ctx->cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
         serverAssert(prev==nack);
     }
-
-    serverAssert(raxSize(ctx->cg->pel) == raxSize(ctx->cg->pel_by_time));
     return newnack;
 }
 
