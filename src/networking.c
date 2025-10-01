@@ -2938,65 +2938,6 @@ void handleClientReadError(client *c) {
     }
 }
 
-void parseInputBuffer(client *c) {
-    /* We limit the lookahead for unauthenticated connections to 1.
-     * This is both to reduce memory overhead, and to prevent errors: AUTH can
-     * affect the handling of succeeding commands. Parsing of "large"
-     * unauthenticated multibulk commands is rejected, which would cause those
-     * commands to incorrectly return an error to the client. */
-    const int lookahead = authRequired(c) ? 1 : server.lookahead;
-
-    /* Parse up to lookahead commands */
-    while (c->pending_cmds.ready_len < lookahead && c->querybuf && c->qb_pos < sdslen(c->querybuf)) {
-        /* Determine request type when unknown. */
-        if (!c->reqtype) {
-            if (c->querybuf[c->qb_pos] == '*') {
-                c->reqtype = PROTO_REQ_MULTIBULK;
-            } else {
-                c->reqtype = PROTO_REQ_INLINE;
-            }
-        }
-
-        pendingCommand *pcmd = NULL;
-        if (c->reqtype == PROTO_REQ_INLINE) {
-            pcmd = zmalloc(sizeof(pendingCommand));
-            initPendingCommand(pcmd);
-            if (parseInlineBuffer(c, pcmd) == C_ERR && !pcmd->flags) {
-                /* If it fails but there are no errors, it means that it might just be
-                 * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
-                freePendingCommand(c, pcmd);
-                return;
-            }
-        } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-            int incomplete = c->pending_cmds.tail && c->pending_cmds.tail->parsing_incomplete;
-            if (unlikely(incomplete)) {
-                pcmd = popPendingCommandFromHead(&c->pending_cmds);
-            } else {
-                pcmd = zmalloc(sizeof(pendingCommand));
-                initPendingCommand(pcmd);
-            }
-
-            if (parseMultibulk(c, pcmd) == C_ERR && !pcmd->flags) {
-                /* If it fails but there are no errors, it means that it might just be
-                 * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
-                freePendingCommand(c, pcmd);
-                return;
-            }
-        } else {
-            serverPanic("Unknown request type");
-        }
-
-        addPengingCommand(&c->pending_cmds, pcmd);
-        if (unlikely(pcmd->flags || pcmd->parsing_incomplete))
-            break;
-
-        if (!pcmd->parsing_incomplete) {
-            pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
-            preprocessCommand(c, pcmd);
-            resetClientQbufState(c);
-        }
-    }
-}
 
 /* Helper function to check if a read error is fatal (should stop processing) */
 static inline int isClientReadErrorFatal(int read_error) {
@@ -3034,19 +2975,83 @@ int processInputBuffer(client *c) {
          * The same applies for clients we want to terminate ASAP. */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
-        /* If commands are queued up, pop from the queue first */
-        if (!consumePendingCommand(c)) {
-            parseInputBuffer(c);
-            if (consumePendingCommand(c) == 0) break;
+        /* We limit the lookahead for unauthenticated connections to 1.
+         * This is both to reduce memory overhead, and to prevent errors: AUTH can
+         * affect the handling of succeeding commands. Parsing of "large"
+         * unauthenticated multibulk commands is rejected, which would cause those
+         * commands to incorrectly return an error to the client. */
+        const int lookahead = authRequired(c) ? 1 : server.lookahead;
 
-            if (c->running_tid == IOTHREAD_MAIN_THREAD_ID && !(c->flags & CLIENT_IN_PREFETCH)) {
-                /* Prefetch the commands. */
-                resetCommandsBatch();
-                addCommandToBatch(c);
-                prefetchCommands();
+        /* Determine if we need to parse more commands from the query buffer.
+         * Only parse when there are no ready commands waiting to be processed. */
+        const int parse_more = !c->pending_cmds.ready_len;
+
+        /* Parse up to lookahead commands only if we don't have enough ready commands */
+        while (parse_more && c->pending_cmds.ready_len < lookahead &&
+               c->querybuf && c->qb_pos < sdslen(c->querybuf))
+        {
+            /* Determine request type when unknown. */
+            if (!c->reqtype) {
+                if (c->querybuf[c->qb_pos] == '*') {
+                    c->reqtype = PROTO_REQ_MULTIBULK;
+                } else {
+                    c->reqtype = PROTO_REQ_INLINE;
+                }
+            }
+
+            pendingCommand *pcmd = NULL;
+            if (c->reqtype == PROTO_REQ_INLINE) {
+                pcmd = zmalloc(sizeof(pendingCommand));
+                initPendingCommand(pcmd);
+                if (parseInlineBuffer(c, pcmd) == C_ERR && !pcmd->flags) {
+                    /* If it fails but there are no errors, it means that it might just be
+                     * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
+                    freePendingCommand(c, pcmd);
+                    break;
+                }
+            } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
+                int incomplete = c->pending_cmds.tail && c->pending_cmds.tail->parsing_incomplete;
+                if (unlikely(incomplete)) {
+                    pcmd = popPendingCommandFromHead(&c->pending_cmds);
+                } else {
+                    pcmd = zmalloc(sizeof(pendingCommand));
+                    initPendingCommand(pcmd);
+                }
+
+                if (parseMultibulk(c, pcmd) == C_ERR && !pcmd->flags) {
+                    /* If it fails but there are no errors, it means that it might just be
+                     * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
+                    freePendingCommand(c, pcmd);
+                    break;
+                }
+            } else {
+                serverPanic("Unknown request type");
+            }
+
+            addPengingCommand(&c->pending_cmds, pcmd);
+            if (unlikely(pcmd->flags || pcmd->parsing_incomplete))
+                break;
+
+            if (!pcmd->parsing_incomplete) {
+                pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+                preprocessCommand(c, pcmd);
+                resetClientQbufState(c);
             }
         }
 
+        /* Try to consume the next ready command from the pending command list. */
+        if (!consumePendingCommand(c)) break;
+
+        /* Prefetch the command if we are in the main thread. If running in an IO thread,
+         * jprefetch will be deferred until the client is processed by the main thread. */
+        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID && !(c->flags & CLIENT_IN_PREFETCH)) {
+            /* Prefetch the commands. */
+            resetCommandsBatch();
+            addCommandToBatch(c);
+            prefetchCommands();
+        }
+
+        /* Check if the client has a fatal read error that requires stopping processing. */
         if (isClientReadErrorFatal(c->read_error)) {
             break;
         }
