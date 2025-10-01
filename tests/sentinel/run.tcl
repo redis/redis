@@ -30,14 +30,12 @@ proc main {} {
         "sentinel deny-scripts-reconfig no"
         "enable-protected-configs yes"
         "enable-debug-command yes"
-        "loglevel debug"
     } "../tests/includes/sentinel.conf"
 
     spawn_instance redis $::redis_base_port $::instances_count {
         "enable-protected-configs yes"
         "enable-debug-command yes"
         "save ''"
-        "loglevel debug"
     }
     run_tests
     cleanup
