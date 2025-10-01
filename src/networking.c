@@ -2552,7 +2552,7 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
     size_t querybuf_len = sdslen(c->querybuf); /* Cache sdslen */
 
     if (c->multibulklen == 0) {
-        /* TODO: The client should have been reset */
+        /* The pending command should have been reset */
         serverAssertWithInfo(c,NULL,pcmd->argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
