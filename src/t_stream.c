@@ -3078,12 +3078,12 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
         streamID id;
         streamDecodeID(ri.key, &id);
 
-        uint64_t buf[3];
+        uint64_t keyBuf[3];
         pelTimeKey timeKey;
         timeKey.delivery_time = nack->delivery_time;
         timeKey.id = id;
-        encodePelTimeKey(buf, &timeKey);
-        raxRemove(cg->pel_by_time, (unsigned char*)&buf, sizeof(buf), NULL);
+        encodePelTimeKey(keyBuf, &timeKey);
+        raxRemove(cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
 
         streamFreeNACK(nack);
