@@ -2328,7 +2328,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer groups
             r XGROUP CREATE mystream group1 0
@@ -2352,7 +2352,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer groups
             r XGROUP CREATE mystream group1 0
@@ -2369,7 +2369,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer groups
             r XGROUP CREATE mystream group1 0
@@ -2389,7 +2389,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer groups
             r XGROUP CREATE mystream group1 0
@@ -2430,7 +2430,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer group
             r XGROUP CREATE mystream group1 0
@@ -2466,7 +2466,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer group
             r XGROUP CREATE mystream group1 0
@@ -2504,7 +2504,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer group
             r XGROUP CREATE mystream group1 0
@@ -2530,7 +2530,7 @@ start_server {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
-            r XADD mystream 3-0 f v2
+            r XADD mystream 3-0 f v3
 
             # Create consumer group
             r XGROUP CREATE mystream group1 0
@@ -2738,6 +2738,65 @@ start_server {
                     assert_equal $delivery_count 3
                 }
             }
+        }
+
+        test "XREADGROUP CLAIM verify claiming order" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v3
+            r XADD mystream 4-0 f v4
+            r XADD mystream 5-0 f v5
+            r XADD mystream 6-0 f v6
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+
+            # Read all six messages with consumer1
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
+
+            after 50
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream > 
+
+            after 50
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
+
+            after 50
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
+
+            after 50
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
+
+            after 50
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
+
+            # At this point the idle time of 1-0 will be 250ms and for 2-0 will be 200ms
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 180 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 2
+
+            # Message 1-0: claimed by consumer2 (delivery count = 2)
+            assert_equal [lindex $messages 0 0] 1-0
+            assert_equal [lindex $messages 0 3] 1
+
+            # Message 2-0: claimed by consumer2 (delivery count = 2)
+            assert_equal [lindex $messages 1 0] 2-0
+            assert_equal [lindex $messages 1 3] 1
+
+            # At this point the idle time of 3-0 will be 150ms and for 4-0 will be 100ms
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 80 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 2
+
+            # Message 3-0: claimed by consumer2 (delivery count = 2)
+            assert_equal [lindex $messages 0 0] 3-0
+            assert_equal [lindex $messages 0 3] 1
+
+            # Message 4-0: claimed by consumer2 (delivery count = 2)
+            assert_equal [lindex $messages 1 0] 4-0
+            assert_equal [lindex $messages 1 3] 1
         }
     }
 }
