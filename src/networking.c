@@ -2422,7 +2422,7 @@ void unprotectClient(client *c) {
  * have a well formed command. The function also returns C_ERR when there is
  * a protocol error: in such a case the client structure is setup to reply
  * with the error and close the connection. */
-int parseInlineBuffer(client *c, pendingCommand *pcmd) {
+int processInlineBuffer(client *c, pendingCommand *pcmd) {
     char *newline;
     int argc, j, linefeed_chars = 1;
     sds *argv, aux;
@@ -2543,7 +2543,7 @@ static void setProtocolError(const char *errstr, client *c) {
     c->flags |= (CLIENT_CLOSE_AFTER_REPLY|CLIENT_PROTOCOL_ERROR);
 }
 
-static int parseMultibulk(client *c, pendingCommand *pcmd) {
+static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
     char *newline = NULL;
     int ok;
     long long ll;
@@ -3001,7 +3001,7 @@ int processInputBuffer(client *c) {
             if (c->reqtype == PROTO_REQ_INLINE) {
                 pcmd = zmalloc(sizeof(pendingCommand));
                 initPendingCommand(pcmd);
-                if (parseInlineBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
+                if (processInlineBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
                     /* If it fails but there are no errors, it means that it might just be
                      * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
                     freePendingCommand(c, pcmd);
@@ -3016,7 +3016,7 @@ int processInputBuffer(client *c) {
                     initPendingCommand(pcmd);
                 }
 
-                if (parseMultibulk(c, pcmd) == C_ERR && !pcmd->read_error) {
+                if (processMultibulkBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
                     /* If it fails but there are no errors, it means that it might just be
                      * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
                     freePendingCommand(c, pcmd);
