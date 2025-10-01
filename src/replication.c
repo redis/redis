@@ -1862,6 +1862,7 @@ void updateSlavesWaitingBgsave(int bgsaveerr, int type) {
 void changeReplicationId(void) {
     getRandomHexChars(server.replid,CONFIG_RUN_ID_SIZE);
     server.replid[CONFIG_RUN_ID_SIZE] = '\0';
+    serverLog(LL_NOTICE, "Changed replication ID to %s", server.port, server.replid);
 }
 
 /* Clear (invalidate) the secondary replication ID. This happens, for
