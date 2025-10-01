@@ -434,7 +434,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_REEXECUTING_COMMAND (1ULL<<50) /* The client is re-executing the command. */
 #define CLIENT_REPL_RDB_CHANNEL (1ULL<<51)      /* Client which is used for rdb delivery as part of rdb channel replication */
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
-#define CLIENT_IN_PREFETCH (1ULL<<53) /* The client is in the prefetching batch. */
+#define CLIENT_IN_MEMORY_PREFETCH (1ULL<<53) /* The client is in the prefetching batch to avoid nested prefetch. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
 #define CLIENT_AVOID_BLOCKING_ASYNC_FLUSH (CLIENT_DENY_BLOCKING|CLIENT_MULTI|CLIENT_LUA_DEBUG|CLIENT_LUA_DEBUG_SYNC|CLIENT_MODULE)

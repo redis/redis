@@ -3043,8 +3043,8 @@ int processInputBuffer(client *c) {
         if (!consumePendingCommand(c)) break;
 
         /* Prefetch the command if we are in the main thread. If running in an IO thread,
-         * jprefetch will be deferred until the client is processed by the main thread. */
-        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID && !(c->flags & CLIENT_IN_PREFETCH)) {
+         * prefetch will be deferred until the client is processed by the main thread. */
+        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID && !(c->flags & CLIENT_IN_MEMORY_PREFETCH)) {
             /* Prefetch the commands. */
             resetCommandsBatch();
             addCommandToBatch(c);

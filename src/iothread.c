@@ -467,12 +467,12 @@ int processClientsFromIOThread(IOThread *t) {
         /* Process the pending command and input buffer. */
         if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             c->flags |= CLIENT_PENDING_COMMAND;
-            c->flags |= CLIENT_IN_PREFETCH;
+            c->flags |= CLIENT_IN_MEMORY_PREFETCH;
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
                 continue;
             }
-            c->flags &= ~CLIENT_IN_PREFETCH;
+            c->flags &= ~CLIENT_IN_MEMORY_PREFETCH;
         }
 
         /* We may have pending replies if io thread may not finish writing
