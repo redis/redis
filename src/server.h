@@ -2350,6 +2350,11 @@ typedef struct {
 } getKeysResult;
 #define GETKEYS_RESULT_INIT { 0, MAX_KEYS_BUFFER, {{0}}, NULL }
 
+/* pendingCommand flags */
+enum {
+    PENDING_CMD_FLAG_INCOMPLETE = 1 << 0,   /* Command parsing is incomplete, still waiting for more data */
+};
+
 /* Parser state and parse result of a command from a client's input buffer. */
 struct pendingCommand {
     int argc;                 /* Num of arguments of current command. */
@@ -2358,12 +2363,11 @@ struct pendingCommand {
     size_t argv_len_sum;      /* Sum of lengths of objects in argv list. */
     unsigned long long input_bytes;
     struct redisCommand *cmd;
-    // getKeysResult keys_result;
     long long reploff;         /* c->reploff should be set to this value when the command is processed */
+    int flags;
     int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT if no slot is being used or if 
                          the command has a cross slot error */
-    uint8_t flags;
-    int parsing_incomplete;
+    uint8_t read_error;
 
     struct pendingCommand *next;
     struct pendingCommand *prev;

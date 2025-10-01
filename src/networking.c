@@ -2436,7 +2436,7 @@ int parseInlineBuffer(client *c, pendingCommand *pcmd) {
     /* Nothing to do without a \r\n */
     if (newline == NULL) {
         if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-            c->read_error = CLIENT_READ_TOO_BIG_INLINE_REQUEST;
+            pcmd->read_error = CLIENT_READ_TOO_BIG_INLINE_REQUEST;
         }
         return C_ERR;
     }
@@ -2451,7 +2451,7 @@ int parseInlineBuffer(client *c, pendingCommand *pcmd) {
     argv = sdssplitargs(aux,&argc);
     sdsfree(aux);
     if (argv == NULL) {
-        c->read_error = CLIENT_READ_UNBALANCED_QUOTES;
+        pcmd->read_error = CLIENT_READ_UNBALANCED_QUOTES;
         return C_ERR;
     }
 
@@ -2470,7 +2470,7 @@ int parseInlineBuffer(client *c, pendingCommand *pcmd) {
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
-        c->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCAL;
+        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCAL;
         return C_ERR;
     }
 
@@ -2559,7 +2559,7 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
         newline = memchr(c->querybuf+c->qb_pos,'\r',sdslen(c->querybuf) - c->qb_pos);
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                pcmd->flags = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
+                pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
             }
             return C_ERR;
         }
@@ -2574,10 +2574,10 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
         size_t multibulklen_slen = newline - (c->querybuf + 1 + c->qb_pos);
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
-            pcmd->flags = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
+            pcmd->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
             return C_ERR;
         } else if (ll > 10 && authRequired(c)) {
-            pcmd->flags = CLIENT_READ_UNAUTH_MBUCK_COUNT;
+            pcmd->read_error = CLIENT_READ_UNAUTH_MBUCK_COUNT;
             return C_ERR;
         }
 
@@ -2634,7 +2634,7 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
             newline = memchr(c->querybuf+c->qb_pos,'\r',sdslen(c->querybuf) - c->qb_pos);
             if (newline == NULL) {
                 if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                    pcmd->flags = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
+                    pcmd->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
                     return C_ERR;
                 }
                 break;
@@ -2645,7 +2645,7 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
                 break;
 
             if (c->querybuf[c->qb_pos] != '$') {
-                pcmd->flags = CLIENT_READ_EXPECTED_DOLLAR;
+                pcmd->read_error = CLIENT_READ_EXPECTED_DOLLAR;
                 return C_ERR;
             }
 
@@ -2653,10 +2653,10 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
-                pcmd->flags = CLIENT_READ_INVALID_BUCK_LENGTH;
+                pcmd->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
                 return C_ERR;
             } else if (ll > 16384 && authRequired(c)) {
-                pcmd->flags = CLIENT_READ_UNAUTH_BUCK_LENGTH;
+                pcmd->read_error = CLIENT_READ_UNAUTH_BUCK_LENGTH;
                 return C_ERR;
             }
 
@@ -2692,7 +2692,7 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
             /* Per-slot network bytes-in calculation, 2nd component. */
             pcmd->input_bytes += (bulklen_slen + 3);
         } else {
-            serverAssert(pcmd->parsing_incomplete);
+            serverAssert(pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE);
         }
 
         /* Read bulk argument */
@@ -2742,12 +2742,12 @@ static int parseMultibulk(client *c, pendingCommand *pcmd) {
     if (c->multibulklen == 0) {
         /* Per-slot network bytes-in calculation, 3rd and 4th components. */
         pcmd->input_bytes += (pcmd->argv_len_sum + (pcmd->argc * 2));
-        pcmd->parsing_incomplete = 0;
+        pcmd->flags &= ~PENDING_CMD_FLAG_INCOMPLETE;
         return C_OK;
     }
 
     /* Still not ready to process the command */
-    pcmd->parsing_incomplete = 1;
+    pcmd->flags |= PENDING_CMD_FLAG_INCOMPLETE;
     return C_OK;
 }
 
@@ -3003,22 +3003,23 @@ int processInputBuffer(client *c) {
             if (c->reqtype == PROTO_REQ_INLINE) {
                 pcmd = zmalloc(sizeof(pendingCommand));
                 initPendingCommand(pcmd);
-                if (parseInlineBuffer(c, pcmd) == C_ERR && !pcmd->flags) {
+                if (parseInlineBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
                     /* If it fails but there are no errors, it means that it might just be
                      * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
                     freePendingCommand(c, pcmd);
                     break;
                 }
             } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-                int incomplete = c->pending_cmds.tail && c->pending_cmds.tail->parsing_incomplete;
+                int incomplete = (c->pending_cmds.len != c->pending_cmds.ready_len);
+                // int incomplete = c->pending_cmds.tail && c->pending_cmds.tail->parsing_incomplete;
                 if (unlikely(incomplete)) {
-                    pcmd = popPendingCommandFromHead(&c->pending_cmds);
+                    pcmd = popPendingCommandFromTail(&c->pending_cmds);
                 } else {
                     pcmd = zmalloc(sizeof(pendingCommand));
                     initPendingCommand(pcmd);
                 }
 
-                if (parseMultibulk(c, pcmd) == C_ERR && !pcmd->flags) {
+                if (parseMultibulk(c, pcmd) == C_ERR && !pcmd->read_error) {
                     /* If it fails but there are no errors, it means that it might just be
                      * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
                     freePendingCommand(c, pcmd);
@@ -3029,14 +3030,12 @@ int processInputBuffer(client *c) {
             }
 
             addPengingCommand(&c->pending_cmds, pcmd);
-            if (unlikely(pcmd->flags || pcmd->parsing_incomplete))
+            if (unlikely(pcmd->read_error || (pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)))
                 break;
 
-            if (!pcmd->parsing_incomplete) {
-                pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
-                preprocessCommand(c, pcmd);
-                resetClientQbufState(c);
-            }
+            pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+            preprocessCommand(c, pcmd);
+            resetClientQbufState(c);
         }
 
         /* Try to consume the next ready command from the pending command list. */
@@ -4309,7 +4308,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
         is_mstate = 0;
         if (c->pending_cmds.ready_len > 0) {
             pcmd = c->pending_cmds.head;
-            serverAssert(!pcmd->parsing_incomplete);
+            serverAssert(!(pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE));
         }
     } else {
         is_mstate = 1;
@@ -4922,7 +4921,7 @@ void addPengingCommand(pendingCommandList *queue, pendingCommand *cmd) {
 
     queue->tail = cmd;
     queue->len++;
-    if (!cmd->parsing_incomplete) queue->ready_len++;
+    if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) queue->ready_len++;
 }
 
 pendingCommand *popPendingCommandFromHead(pendingCommandList *list) {
@@ -4939,7 +4938,7 @@ pendingCommand *popPendingCommandFromHead(pendingCommandList *list) {
 
     cmd->next = cmd->prev = NULL;
     list->len--;
-    if (!cmd->parsing_incomplete) list->ready_len--;
+    if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) list->ready_len--;
     return cmd;
 }
 
@@ -4957,7 +4956,7 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
 
     cmd->next = cmd->prev = NULL;
     list->len--;
-    if (!cmd->parsing_incomplete) list->ready_len--;
+    if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) list->ready_len--;
     return cmd;
 }
 
@@ -4967,7 +4966,7 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
  * or head command is still parsing). */
 static int consumePendingCommand(client *c) {
     pendingCommand *curcmd = c->pending_cmds.head;
-    if (!curcmd || curcmd->parsing_incomplete) return 0;
+    if (!curcmd || (curcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) return 0;
 
     c->argc = curcmd->argc;
     c->argv = curcmd->argv;
@@ -4976,7 +4975,7 @@ static int consumePendingCommand(client *c) {
     c->reploff_next = curcmd->reploff;
     c->slot = curcmd->slot;
     c->lookedcmd = curcmd->cmd;
-    c->read_error = curcmd->flags;
+    c->read_error = curcmd->read_error;
     c->current_pending_cmd = curcmd;
     return 1;
 }

@@ -4060,14 +4060,14 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
         pcmd->cmd = lookupCommand(pcmd->argv, pcmd->argc);
 
     if (!pcmd->cmd) {
-        pcmd->flags = CLIENT_READ_COMMAND_NOT_FOUND;
+        pcmd->read_error = CLIENT_READ_COMMAND_NOT_FOUND;
         return;
     }
 
     if ((pcmd->cmd->arity > 0 && pcmd->cmd->arity != pcmd->argc) ||
         (pcmd->argc < -pcmd->cmd->arity))
     {
-        pcmd->flags = CLIENT_READ_BAD_ARITY;
+        pcmd->read_error = CLIENT_READ_BAD_ARITY;
         return;
     }
 
