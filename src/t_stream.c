@@ -4866,6 +4866,31 @@ void decodePelTimeKey(void *buf, pelTimeKey *key) {
     key->id.seq = ntohu64(e[2]);
 }
 
+/* Register stream keys for monitoring of expired pending entries to enable
+ * reactive blocking behavior for XREADGROUP commands with CLAIM. When a client
+ * blocks waiting for either new messages or expired pending entries, this
+ * function records the earliest timestamp when pending entries will expire
+ * (satisfy the min-idle-time requirement).
+ *
+ * For multi-client coordination, when multiple clients are blocked on the same
+ * stream with different min-idle-time values, the dictionary stores the minimum
+ * (earliest) expire_time across all clients to ensure the earliest possible
+ * wakeup when any pending entry expires and becomes available for claiming.
+ *
+ * 'c' is the client that is blocking on the stream(s).
+ * 'keys' is an array of stream key objects to monitor.
+ * 'numkeys' is the number of keys in the array.
+ * 'expire_time' is the absolute timestamp (in milliseconds) when the next
+ *   pending entry will expire for this client, calculated as
+ *   next_delivery_time + min_idle_time, where next_delivery_time is the
+ *   delivery timestamp of the oldest pending entry in the stream.
+ *
+ * For new entries, the key is added with the given expire_time and the
+ * reference count is incremented. For existing entries, the expire_time
+ * is updated to the minimum value if the new expire_time is earlier,
+ * ensuring the earliest wakeup time is preserved for multi-client scenarios.
+ * Note that the reference count is only incremented for newly added keys,
+ * not for updates to existing entries. */
 void watchForExpiredPendingEntries(client *c, robj **keys, int numkeys, uint64_t expire_time) {
     dictEntry *db_watch_entry, *db_watch_existing_entry;
     uint64_t old_expire_time;
@@ -4885,6 +4910,17 @@ void watchForExpiredPendingEntries(client *c, robj **keys, int numkeys, uint64_t
     }
 }
 
+/* Check and wake clients waiting for expired pending entries. This function
+ * is invoked regularly from blockedBeforeSleep() to monitor all streams being
+ * watched for expired pending entries and wake up blocked clients when
+ * entries expire and become available for claiming.
+ *
+ * The function iterates through all databases and their watching_pending_keys
+ * dictionaries. For each watched stream, it compares the registered expire_time
+ * against the current server time. When expire_time <= current_time, the pending
+ * entry has expired and the stream is signaled as ready via signalKeyAsReady(),
+ * which wakes all blocked clients waiting on that stream. The entry is then
+ * removed from watching_pending_keys. */
 void handleExpiredPendingEntries(void) {
     for (int j = 0; j < server.dbnum; j++) {
         dictEntry *de;
