@@ -3000,10 +3000,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 raxInsert(cgroup->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
             }
 
-            printf("Pel size: %ld\n", raxSize(cgroup->pel));
-            printf("Pel by time size: %ld\n", raxSize(cgroup->pel_by_time));
-            serverAssert(raxSize(cgroup->pel) == raxSize(cgroup->pel_by_time)); /* Force size computation. */
-
             /* Now that we loaded our global PEL, we need to load the
              * consumers and their local PELs. */
             uint64_t consumers_num = rdbLoadLen(rdb,NULL);
@@ -3087,8 +3083,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         return NULL;
                     }
                 }
-
-                serverAssert(raxSize(cgroup->pel) == raxSize(cgroup->pel_by_time));
             }
 
             /* Verify that each PEL eventually got a consumer assigned to it. */
