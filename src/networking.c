@@ -2960,6 +2960,13 @@ int isClientReadErrorFatal(int read_error) {
  * pending query buffer, already representing a full command, to process.
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
+    /* We limit the lookahead for unauthenticated connections to 1.
+     * This is both to reduce memory overhead, and to prevent errors: AUTH can
+     * affect the handling of succeeding commands. Parsing of "large"
+     * unauthenticated multibulk commands is rejected, which would cause those
+     * commands to incorrectly return an error to the client. */
+    const int lookahead = authRequired(c) ? 1 : server.lookahead;
+
     /* Keep processing while there is something in the input buffer */
     while ((c->querybuf && c->qb_pos < sdslen(c->querybuf)) ||
            c->pending_cmds.ready_len > 0) {
@@ -2982,13 +2989,6 @@ int processInputBuffer(client *c) {
          *
          * The same applies for clients we want to terminate ASAP. */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
-
-        /* We limit the lookahead for unauthenticated connections to 1.
-         * This is both to reduce memory overhead, and to prevent errors: AUTH can
-         * affect the handling of succeeding commands. Parsing of "large"
-         * unauthenticated multibulk commands is rejected, which would cause those
-         * commands to incorrectly return an error to the client. */
-        const int lookahead = authRequired(c) ? 1 : server.lookahead;
 
         /* Determine if we need to parse more commands from the query buffer.
          * Only parse when there are no ready commands waiting to be processed. */
