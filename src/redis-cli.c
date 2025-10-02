@@ -8567,66 +8567,66 @@ static void latencyDistMode(void) {
  * the query vector is the component of a random source vector), then uses
  * VSIM and VSIM TRUTH to test for recall percentage.
  *--------------------------------------------------------------------------- */
-
 static void vsetRecallMode(void) {
     redisReply *reply, *vsim_reply, *truth_reply;
     int ele_count = config.vset_recall_ele_count;
     int vsim_count = config.vset_recall_vsim_count;
     int vsim_ef = config.vset_recall_vsim_ef;
     unsigned long long queries = 0, total_overlap = 0;
-    double min_recall = 100.0, max_recall = 0.0;
     long long refresh_time = mstime();
+    struct hdr_histogram *recall_histogram;
 
     if (!context) exit(1);
 
-    /* Get vector dimension first. */
+    /* HDR histogram requires minimum value >= 1 for some reason.
+     * We store recall percentages as:
+     * (recall% * 100) + 1, giving us range 1 to 10001.
+     * This maps: 0.00% -> 1, 50.00% -> 5001, 100.00% -> 10001
+     * Precision: 2 significant figures = 0.01% accuracy. */
+    if (hdr_init(1, 10001, 2, &recall_histogram)) {
+        fprintf(stderr, "Failed to initialize recall histogram\n");
+        exit(1);
+    }
+
+    /* Get vector dimension. */
     reply = reconnectingRedisCommand(context, "VDIM %s",
-            config.vset_recall_key);
+        config.vset_recall_key);
     if (reply == NULL || reply->type != REDIS_REPLY_INTEGER) {
-        fprintf(stderr,
-            "Error: Cannot get dimension for key %s\n", config.vset_recall_key);
+        fprintf(stderr, "Error: Cannot get dimension for key %s\n",
+                config.vset_recall_key);
         exit(1);
     }
     unsigned int dim = reply->integer;
     freeReplyObject(reply);
 
-    /* Start the recalling loop. */
-    printf("\n"
-           "# Testing recall for vector set: %s (dimension: %d)\n"
-           "# Mixing %d random elements vectors, top %d results, EF=%d\n\n",
-            config.vset_recall_key, dim,
-            ele_count, vsim_count, vsim_ef);
+    printf("\n# Testing recall for vector set: %s (dimension: %d)\n",
+           config.vset_recall_key, dim);
+    printf("# Mixing %d random element vectors, top %d results, EF=%d\n\n",
+           ele_count, vsim_count, vsim_ef);
 
-    /* Trap Ctrl-C to print the final stats. */
     signal(SIGINT, longStatLoopModeStop);
 
+    /* Do the same recall test again and again. */
     while (force_cancel_loop == 0) {
-        /* Get random members and their vectors. */
+        /* Get random members. */
         reply = reconnectingRedisCommand(context, "VRANDMEMBER %s %d",
-            config.vset_recall_key, ele_count);
+                                        config.vset_recall_key, ele_count);
         if (reply == NULL || reply->type != REDIS_REPLY_ARRAY ||
-            reply->elements == 0)
-        {
+            reply->elements == 0) {
             fprintf(stderr, "Error fetching random members\n");
             exit(1);
         }
 
-        /* Store vectors for mixing. */
+        /* Fetch and store vectors. */
         double **vectors = zmalloc(reply->elements * sizeof(double*));
         int valid_vectors = 0;
 
         for (size_t i = 0; i < reply->elements; i++) {
-            /* For each element, fetch its associated vector using
-             * the VEMB command. */
             redisReply *vemb = reconnectingRedisCommand(context, "VEMB %s %s",
-                                                        config.vset_recall_key,
-                                                        reply->element[i]->str);
-            /* The reply from the server is likely correct but let's check
-             * for sanity. */
-            if (vemb &&
-                vemb->type == REDIS_REPLY_ARRAY &&
-                vemb->elements == dim)
-            {
+                                                       config.vset_recall_key,
+                                                       reply->element[i]->str);
+            if (vemb && vemb->type == REDIS_REPLY_ARRAY &&
+                vemb->elements == dim) {
                 vectors[valid_vectors] = zmalloc(dim * sizeof(double));
                 for (unsigned int j = 0; j < dim; j++) {
                     vectors[valid_vectors][j] = atof(vemb->element[j]->str);
@@ -8643,34 +8643,33 @@ static void vsetRecallMode(void) {
             continue;
         }
 
-        /* Create mixed query vector. */
-        float *query = zmalloc(sizeof(float)*dim);
+        /* Create mixed query vector by randomly selecting components. */
+        float *query = zmalloc(sizeof(float) * dim);
         for (unsigned int i = 0; i < dim; i++) {
             int src = rand() % valid_vectors;
             query[i] = vectors[src][i];
         }
 
-        /* Free original vectors. */
         for (int i = 0; i < valid_vectors; i++) zfree(vectors[i]);
         zfree(vectors);
 
-        /* Perform the VSIM query. */
+        /* Execute VSIM query with HNSW. */
         vsim_reply = reconnectingRedisCommand(context,
-                    "VSIM %s FP32 %b COUNT %d EF %d",
-                    config.vset_recall_key, query,
-                    sizeof(float)*dim, vsim_count, vsim_ef);
+                                     "VSIM %s FP32 %b COUNT %d EF %d",
+                                     config.vset_recall_key, query,
+                                     sizeof(float)*dim, vsim_count, vsim_ef);
         if (vsim_reply == NULL || vsim_reply->type != REDIS_REPLY_ARRAY) {
             zfree(query);
             if (vsim_reply) freeReplyObject(vsim_reply);
             continue;
         }
 
-        /* Perform the VSIM TRUTH query, to have the actual top-K vectors. */
+        /* Execute ground truth query (brute force using TRUTH). */
         truth_reply = reconnectingRedisCommand(context,
-                    "VSIM %s FP32 %b COUNT %d TRUTH",
-                    config.vset_recall_key, query,
-                    sizeof(float)*dim, vsim_count);
-        zfree(query); // Query vector no longer needed.
+                                      "VSIM %s FP32 %b COUNT %d TRUTH",
+                                      config.vset_recall_key, query,
+                                      sizeof(float)*dim, vsim_count);
+        zfree(query);
 
         if (truth_reply == NULL || truth_reply->type != REDIS_REPLY_ARRAY) {
             freeReplyObject(vsim_reply);
@@ -8678,69 +8677,106 @@ static void vsetRecallMode(void) {
             continue;
         }
 
-        /* Build dict of truth results, so we can easily check for
-         * intersection among the two result sets (TRUTH vs greedy search). */
+        /* Build dictionary of ground truth results for fast lookup. */
         dictType dtype = {
-            dictSdsHash,
-            NULL,
-            NULL,
-            dictSdsKeyCompare,
-            dictSdsDestructor,
-            NULL,
-            NULL
+            dictSdsHash, NULL, NULL, dictSdsKeyCompare,
+            dictSdsDestructor, NULL, NULL
         };
-        dict *truth_dict = dictCreate(&dtype);
+        dict *truth_set = dictCreate(&dtype);
 
-        /* Add the top-k ground truth elements inside the dictionary. */
         for (size_t i = 0; i < truth_reply->elements; i++) {
             sds key = sdsnew(truth_reply->element[i]->str);
-            dictAdd(truth_dict, key, NULL);
+            dictAdd(truth_set, key, NULL);
         }
 
-        /* Count overlapping elements. */
+        /* Count overlap between HNSW results and ground truth. */
         int overlap = 0;
         for (size_t i = 0; i < vsim_reply->elements; i++) {
-            sds vsim_ele = sdsnew(vsim_reply->element[i]->str);
-            if (dictFind(truth_dict, vsim_ele) != NULL) {
+            sds vsim_key = sdsnew(vsim_reply->element[i]->str);
+            if (dictFind(truth_set, vsim_key) != NULL) {
                 overlap++;
             }
-            sdsfree(vsim_ele);
+            sdsfree(vsim_key);
         }
 
-        dictRelease(truth_dict);
+        dictRelease(truth_set);
         freeReplyObject(vsim_reply);
         freeReplyObject(truth_reply);
 
-        /* Update statistics. */
+        /* Calculate recall percentage (overlap / expected * 100). */
+        double recall = (double)overlap / vsim_count * 100.0;
+
+        /* Cap at 100% against rounding errors. */
+        if (recall > 100.0) recall = 100.0;
+
         queries++;
         total_overlap += overlap;
-        double recall = (double)overlap / vsim_count * 100.0;
-        if (recall < min_recall) min_recall = recall;
-        if (recall > max_recall) max_recall = recall;
 
-        /* Display stats if TTY or at intervals. */
-        if (mstime() > refresh_time + REFRESH_INTERVAL ||
-            !IS_TTY_OR_FAKETTY())
+        /* Store in histogram: convert to integer by multiplying by 100,
+         * then add 1 to shift into valid range [1, 10001] */
+        int64_t recall_value = (int64_t)(recall * 100.0) + 1;
+        hdr_record_value(recall_histogram, recall_value);
+
+        /* Display progresses. */
+        if (mstime() > refresh_time + REFRESH_INTERVAL || !IS_TTY_OR_FAKETTY())
         {
             refresh_time = mstime();
-            double avg_recall = (double)total_overlap / (queries * vsim_count) * 100.0;
+            double avg_recall = (double)total_overlap / (queries * vsim_count)
+                                    * 100.0;
 
-            if (IS_TTY_OR_FAKETTY()) printf("\x1b[0G\x1b[2K"); /* Clear line */
-            printf("Queries: %llu | Recall: %.2f%% (min: %.2f%%, max: %.2f%%)",
-                   queries, avg_recall, min_recall, max_recall);
+            if (IS_TTY_OR_FAKETTY()) printf("\x1b[0G\x1b[2K");
+            printf("Queries: %llu | Avg recall: %.2f%%", queries, avg_recall);
             if (!IS_TTY_OR_FAKETTY()) printf("\n");
             fflush(stdout);
         }
         if (config.interval) usleep(config.interval);
     }
 
-    /* Final stats, after Ctrl+C is pressed. */
-    printf("\n\nFinal Statistics:\n");
-    printf("Total queries: %llu\n", queries);
-    printf("Average recall: %.2f%%\n",
-        (double)total_overlap / (queries * vsim_count) * 100.0);
-    printf("Min recall: %.2f%%\n", min_recall);
-    printf("Max recall: %.2f%%\n", max_recall);
+    /* Final statistics. */
+    printf("\n\n");
+    printf("====================================\n");
+    printf("       Recall Test Results\n");
+    printf("====================================\n\n");
+    printf("Total queries:   %llu\n", queries);
+    printf("Average recall:  %.2f%%\n",
+           (double)total_overlap / (queries * vsim_count) * 100.0);
+
+    /* Convert histogram statistics back to percentages. */
+    printf("Mean recall:     %.2f%%\n", (hdr_mean(recall_histogram)-1)/100.0);
+    printf("Median recall:   %.2f%%\n",
+           (hdr_value_at_percentile(recall_histogram, 50.0)-1)/100.0);
+    printf("StdDev:          %.2f%%\n", hdr_stddev(recall_histogram)/100.0);
+    printf("Min recall:      %.2f%%\n", (hdr_min(recall_histogram)-1)/100.0);
+    printf("Max recall:      %.2f%%\n", (hdr_max(recall_histogram)-1)/100.0);
+
+    /* Display recall threshold distribution. */
+    printf("\n--- Recall Thresholds ---\n");
+    printf("At least    %% of queries\n");
+    printf("--------    ------------\n");
+
+    double recall_thresholds[] = {0, 50, 60, 70, 80, 85, 90, 95, 99, 100};
+    int num_thresholds = sizeof(recall_thresholds) / sizeof(recall_thresholds[0]);
+    for (int i = 0; i < num_thresholds; i++) {
+	double target_recall = recall_thresholds[i];
+	/* Convert target recall to histogram value. */
+	int64_t target_value = (int64_t)(target_recall * 100.0) + 1;
+
+	/* Find what percentile this value is at. */
+	double percentile = 0.0;
+	for (double p = 0.0; p <= 100.0; p += 0.1) {
+	    int64_t value_at_p = hdr_value_at_percentile(recall_histogram, p);
+	    if (value_at_p >= target_value) {
+		percentile = p;
+		break;
+	    }
+	}
+
+	/* Percentage achieving AT LEAST this recall is (100 - percentile) */
+	double pct_achieving = 100.0 - percentile;
+	printf("%6.1f%%     %10.2f%%\n", target_recall, pct_achieving);
+    }
+
+    hdr_close(recall_histogram);
     exit(0);
 }
 
