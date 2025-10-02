@@ -2949,7 +2949,7 @@ void handleClientReadError(client *c) {
 
 
 /* Helper function to check if a read error is fatal (should stop processing) */
-static inline int isClientReadErrorFatal(int read_error) {
+int isClientReadErrorFatal(int read_error) {
     return read_error != 0 &&
            read_error != CLIENT_READ_COMMAND_NOT_FOUND &&
            read_error != CLIENT_READ_BAD_ARITY;
@@ -3060,11 +3060,9 @@ int processInputBuffer(client *c) {
 
         /* Check if the client has a fatal read error that requires stopping processing. */
         if (isClientReadErrorFatal(c->read_error)) {
-            break;
-        }
-
-        if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error) {
-            enqueuePendingClientsToMainThread(c, 0);
+            if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+                enqueuePendingClientsToMainThread(c, 0);
+            }
             break;
         }
 

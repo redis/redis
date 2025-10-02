@@ -465,7 +465,7 @@ int processClientsFromIOThread(IOThread *t) {
         }
 
         /* Process the pending command and input buffer. */
-        if (!c->read_error && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
+        if (!isClientReadErrorFatal(c->read_error) && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             c->flags |= CLIENT_PENDING_COMMAND;
             c->flags |= CLIENT_IN_MEMORY_PREFETCH;
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
@@ -674,20 +674,20 @@ void IOThreadClientsCron(IOThread *t) {
     /* Process at least a few clients while we are at it, even if we need
      * to process less than CLIENTS_CRON_MIN_ITERATIONS to meet our contract
      * of processing each client once per second. */
-    int iterations = listLength(t->clients) / CONFIG_DEFAULT_HZ;
-    if (iterations < CLIENTS_CRON_MIN_ITERATIONS) {
-        iterations = CLIENTS_CRON_MIN_ITERATIONS;
-    }
-
-    listIter li;
-    listNode *ln;
-    listRewind(t->clients, &li);
-    while ((ln = listNext(&li)) && iterations--) {
-        client *c = listNodeValue(ln);
-        /* Mark the client as pending cron, main thread will process it. */
-        c->io_flags |= CLIENT_IO_PENDING_CRON;
-        enqueuePendingClientsToMainThread(c, 0);
-    }
+//    int iterations = listLength(t->clients) / CONFIG_DEFAULT_HZ;
+//    if (iterations < CLIENTS_CRON_MIN_ITERATIONS) {
+//        iterations = CLIENTS_CRON_MIN_ITERATIONS;
+//    }
+//
+//    listIter li;
+//    listNode *ln;
+//    listRewind(t->clients, &li);
+//    while ((ln = listNext(&li)) && iterations--) {
+//        client *c = listNodeValue(ln);
+//        /* Mark the client as pending cron, main thread will process it. */
+//        c->io_flags |= CLIENT_IO_PENDING_CRON;
+//        enqueuePendingClientsToMainThread(c, 0);
+//    }
 }
 
 /* This is the IO thread timer interrupt, CONFIG_DEFAULT_HZ times per second.
