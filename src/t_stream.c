@@ -1848,10 +1848,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             void *result;
             streamNACK *nack = NULL;
             uint64_t delivery_count = 0;
-            if (raxFind(group->pel,buf,sizeof(buf),&result)) {
-                nack = (streamNACK*)result;
-                delivery_count = nack->delivery_count;
-            }
+            if (!raxFind(group->pel,buf,sizeof(buf),&result))
+                continue;
+
+            nack = (streamNACK*)result;
+            delivery_count = nack->delivery_count;
 
             streamID pel_id;
             streamIteratorStart(&si,s,&pelKey->id,&pelKey->id,rev);
@@ -2650,9 +2651,12 @@ void xreadCommand(client *c) {
                 raxIterator ri;
                 raxStart(&ri, groups[i]->pel_by_time);
                 raxSeek(&ri, "^", NULL, 0);
-                if(raxNext(&ri)) {
+                while(raxNext(&ri)) {
                     pelTimeKey timeKey;
                     decodePelTimeKey(ri.key, &timeKey);
+                    if(!streamEntryExists(s, &timeKey.id))
+                        continue;
+
                     if (timeKey.delivery_time < min_pel_delivery_time) {
                         min_pel_delivery_time = timeKey.delivery_time;
                     }
@@ -2661,6 +2665,7 @@ void xreadCommand(client *c) {
                     if(idle >= (uint64_t)min_idle_time) {
                         serve_claimed = 1;
                     }
+                    break;
                 }
                 raxStop(&ri);
             }

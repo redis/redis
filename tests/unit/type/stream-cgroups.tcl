@@ -2697,6 +2697,30 @@ start_server {
             assert_equal [llength $pending] 1
         }
 
+        test "XREADGROUP CLAIM BLOCK wakes on new message before min-idle-time reached" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            set rd [redis_deferring_client]
+            $rd XREADGROUP GROUP group1 consumer2 BLOCK 5000 CLAIM 1000 STREAMS mystream >
+            
+            wait_for_blocked_client
+            
+            after 100  # Before min-idle-time
+            r XADD mystream 2-0 f v2
+            
+            set result [$rd read]
+
+            # Unblock with new message immediately, not wait for CLAIM threshold
+            lassign [lindex $result 0] stream_name messages
+            assert_equal [llength $messages] 1
+            
+            $rd close
+        }
+
         test "XREADGROUP CLAIM delivery count increments replicated correctly" {
             start_server {tags {"stream repl"}} {
                 set master [srv 0 client]
@@ -2797,6 +2821,120 @@ start_server {
             # Message 4-0: claimed by consumer2 (delivery count = 2)
             assert_equal [lindex $messages 1 0] 4-0
             assert_equal [lindex $messages 1 3] 1
+        }
+
+        test "XREADGROUP CLAIM after consumer deleted with pending messages" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+            
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            r XGROUP DELCONSUMER mystream group1 consumer1
+            
+            set pending [r XPENDING mystream group1 - + 10]
+            assert_equal [llength $pending] 0
+
+            after 100
+
+            # Orphaned pending messages are deleted.
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            assert_equal [llength $claim_result] 0
+        }
+
+        test "XREADGROUP CLAIM after XGROUP SETID moves past pending messages" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+            
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            r XGROUP SETID mystream group1 2-0
+            
+            after 100
+
+            # Pending messages are still claimable
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 2
+        }
+
+        test "XREADGROUP CLAIM after XGROUP SETID moves before pending messages" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+            
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            r XREADGROUP GROUP group1 consumer2 CLAIM 0 STREAMS mystream >
+            r XGROUP SETID mystream group1 0
+            
+            after 100
+
+            # Pending messages are still claimable
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 4
+
+            # Message 1-0: claimed by consumer2 (delivery count = 2)
+            assert_equal [lindex $messages 0 0] 1-0
+            assert_equal [lindex $messages 0 3] 2
+
+            # Message 2-0: claimed by consumer2 (delivery count = 2)
+            assert_equal [lindex $messages 1 0] 2-0
+            assert_equal [lindex $messages 1 3] 2
+
+            # Message 1-0: claimed by consumer2 (delivery count = 0)
+            assert_equal [lindex $messages 2 0] 1-0
+            assert_equal [lindex $messages 2 3] 0
+
+            # Message 2-0: claimed by consumer2 (delivery count = 0)
+            assert_equal [lindex $messages 3 0] 2-0
+            assert_equal [lindex $messages 3 3] 0
+
+            after 100
+
+            # Verify that pending messages are not doubled
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 2
+
+            # Message 1-0: claimed by consumer2 (delivery count = 1)
+            assert_equal [lindex $messages 0 0] 1-0
+            assert_equal [lindex $messages 0 3] 1
+
+            # Message 2-0: claimed by consumer2 (delivery count = 1)
+            assert_equal [lindex $messages 1 0] 2-0
+            assert_equal [lindex $messages 1 3] 1
+        }
+
+        test "XREADGROUP CLAIM when pending messages get trimmed" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v3
+
+            # Create consumer group
+            r XGROUP CREATE mystream group1 0
+            
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            # Trim away the pending messages
+            r XTRIM mystream MAXLEN 0
+            
+            after 100
+
+            # Pending list still references trimmed messages but it does't exist. we cant return it.
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
+            assert_equal [llength $claim_result] 0
         }
     }
 }
