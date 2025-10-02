@@ -2932,7 +2932,7 @@ start_server {
             
             after 100
 
-            # Pending list still references trimmed messages but it does't exist. we cant return it.
+            # Pending list still references trimmed messages but they don't exist. We can't return them.
             set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
             assert_equal [llength $claim_result] 0
         }
