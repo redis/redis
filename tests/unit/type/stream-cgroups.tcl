@@ -2723,47 +2723,59 @@ start_server {
         }
 
         test "XREADGROUP CLAIM delivery count increments replicated correctly" {
-            start_server {tags {"stream repl"}} {
+            start_server {tags {"stream"}} {
                 set master [srv 0 client]
                 set master_host [srv 0 host]
                 set master_port [srv 0 port]
                 
-                start_server {} {
+                start_server {tags {"stream"}} {
                     set replica [srv 0 client]
                     
+                    # Setup replication
                     $replica replicaof $master_host $master_port
                     wait_for_sync $replica
                     
-                    # Setup
+                    # Setup stream and consumer group on master
                     $master DEL mystream
                     $master XADD mystream 1-0 f v1
                     $master XGROUP CREATE mystream group1 0
                     
-                    # First read
+                    # Wait for replication
+                    wait_for_ofs_sync $master $replica
+                    
+                    # First read on master
                     $master XREADGROUP GROUP group1 consumer1 STREAMS mystream >
                     wait_for_ofs_sync $master $replica
                     
                     # Check initial delivery count on replica
                     set replica_pending [$replica XPENDING mystream group1 - + 1]
+                    assert_equal [llength $replica_pending] 1
                     set delivery_count [lindex [lindex $replica_pending 0] 3]
                     assert_equal $delivery_count 1
                     
-                    # Claim multiple times on master
-                    after 50
-                    $master XREADGROUP GROUP group1 consumer2 CLAIM 10 STREAMS mystream >
+                    # First claim on master
+                    after 100
+                    set claim_result1 [$master XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
                     wait_for_ofs_sync $master $replica
                     
-                    after 50
-                    $master XREADGROUP GROUP group1 consumer3 CLAIM 10 STREAMS mystream >
-                    wait_for_ofs_sync $master $replica
-                    
-                    # Check delivery count incremented on replica
+                    # Check delivery count after first claim
                     set replica_pending [$replica XPENDING mystream group1 - + 1]
+                    set delivery_count [lindex [lindex $replica_pending 0] 3]
+                    assert_equal $delivery_count 2
+                    
+                    # Second claim on master
+                    after 100
+                    set claim_result2 [$master XREADGROUP GROUP group1 consumer3 CLAIM 50 STREAMS mystream >]
+                    wait_for_ofs_sync $master $replica
+                    
+                    # Check final delivery count on replica
+                    set replica_pending [$replica XPENDING mystream group1 - + 1]
+                    assert_equal [llength $replica_pending] 1
                     set delivery_count [lindex [lindex $replica_pending 0] 3]
                     assert_equal $delivery_count 3
                 }
             }
-        } {} {needs:repl}
+        }
 
         test "XREADGROUP CLAIM verify claiming order" {
             r DEL mystream
