@@ -2936,5 +2936,153 @@ start_server {
             set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >]
             assert_equal [llength $claim_result] 0
         }
+
+        test "XREADGROUP CLAIM state persists across RDB save/load" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            r XADD mystream 3-0 f v3
+            
+            r XGROUP CREATE mystream group1 0
+            
+            # Read messages to create pending entries
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            after 100
+            
+            # Claim some messages to increment delivery count
+            r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >
+            
+            # Trigger RDB save and restart
+            r SAVE
+            r DEBUG RELOAD
+            
+            # Verify pending state restored
+            set pending_info [r XPENDING mystream group1 - + 10]
+            assert_equal [llength $pending_info] 3
+            
+            # Check first message entry
+            assert_equal [lindex $pending_info 0 0] "1-0"
+            assert_equal [lindex $pending_info 0 1] "consumer2"
+            assert_equal [lindex $pending_info 0 3] 2
+
+            # Check second message entry
+            assert_equal [lindex $pending_info 1 0] "2-0"
+            assert_equal [lindex $pending_info 1 1] "consumer2"
+            assert_equal [lindex $pending_info 1 3] 2
+
+            # Check third message entry
+            assert_equal [lindex $pending_info 2 0] "3-0"
+            assert_equal [lindex $pending_info 2 1] "consumer2"
+            assert_equal [lindex $pending_info 2 3] 2
+            
+            # Verify can still claim after reload
+            after 100
+            set claim_result [r XREADGROUP GROUP group1 consumer3 CLAIM 50 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 3
+
+            # Message 1-0: claimed by consumer3 (delivery count = 2)
+            assert_equal [lindex $messages 0 0] 1-0
+            assert_equal [lindex $messages 0 3] 2
+
+            # Message 2-0: claimed by consumer3 (delivery count = 2)
+            assert_equal [lindex $messages 1 0] 2-0
+            assert_equal [lindex $messages 1 3] 2
+
+            # Message 2-0: claimed by consumer3 (delivery count = 2)
+            assert_equal [lindex $messages 2 0] 3-0
+            assert_equal [lindex $messages 2 3] 2
+        }
+
+        test "XREADGROUP CLAIM idle time resets after RDB reload" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            after 200
+            
+            # Before reload: message should be claimable
+            set claim_before [r XREADGROUP GROUP group1 consumer2 CLAIM 100 STREAMS mystream >]
+            assert_equal [llength [lindex $claim_before 0 1]] 1
+            
+            r SAVE
+            r DEBUG RELOAD
+            
+            # After reload: idle time resets, message not immediately claimable
+            set claim_after [r XREADGROUP GROUP group1 consumer3 CLAIM 100 STREAMS mystream >]
+            assert_equal [llength $claim_after] 0
+        }
+
+        test "XREADGROUP CLAIM multiple groups persist correctly" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XADD mystream 2-0 f v2
+            
+            r XGROUP CREATE mystream group1 0
+            r XGROUP CREATE mystream group2 0
+            
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
+            r XREADGROUP GROUP group2 consumer1 STREAMS mystream >
+            
+            after 100
+            r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >
+            
+            r SAVE
+            r DEBUG RELOAD
+            
+            # Verify both groups maintained separately
+            set pending1 [r XPENDING mystream group1]
+            set pending2 [r XPENDING mystream group2]
+            
+            assert_equal [lindex $pending1 0] 2  ;# group1 has 2 pending
+            assert_equal [lindex $pending2 0] 2  ;# group2 has 2 pending
+        }
+
+        test "XREADGROUP CLAIM NOACK state not persisted" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            after 100
+            r XREADGROUP GROUP group1 consumer1 NOACK CLAIM 50 STREAMS mystream >
+            
+            set pending_before [r XPENDING mystream group1]
+            assert_equal [lindex $pending_before 0] 0
+            
+            r SAVE
+            r DEBUG RELOAD
+            
+            set pending_after [r XPENDING mystream group1]
+            assert_equal [lindex $pending_after 0] 0
+        }
+
+        test "XREADGROUP CLAIM high delivery counts persist in RDB" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            # Claim multiple times to increase delivery count
+            for {set i 0} {$i < 10} {incr i} {
+                after 20
+                r XREADGROUP GROUP group1 consumer2 CLAIM 10 STREAMS mystream >
+            }
+            
+            set pending_before [r XPENDING mystream group1 - + 1]
+            set delivery_before [lindex $pending_before 0 3]
+            
+            r SAVE
+            r DEBUG RELOAD
+
+            set pending_after [r XPENDING mystream group1 - + 1]
+            set delivery_after [lindex $pending_after 0 3]
+            
+            assert_equal $delivery_before $delivery_after
+        }
     }
 }
