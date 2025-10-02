@@ -33,7 +33,6 @@ static inline int _clientHasPendingRepliesSlave(client *c);
 static inline int _clientHasPendingRepliesNonSlave(client *c);
 static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
-static int consumePendingCommand(client *c);
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
 __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
@@ -3047,7 +3046,20 @@ int processInputBuffer(client *c) {
         }
 
         /* Try to consume the next ready command from the pending command list. */
-        if (!consumePendingCommand(c)) break;
+        if (!c->pending_cmds.ready_len)
+            break;
+        pendingCommand *curcmd = c->pending_cmds.head;
+
+        /* We populate the old client fields so we don't have to modify all existing logic to work with pendingCommands */
+        c->argc = curcmd->argc;
+        c->argv = curcmd->argv;
+        c->argv_len = curcmd->argv_len;
+        c->net_input_bytes_curr_cmd += curcmd->input_bytes;
+        c->reploff_next = curcmd->reploff;
+        c->slot = curcmd->slot;
+        c->lookedcmd = curcmd->cmd;
+        c->read_error = curcmd->read_error;
+        c->current_pending_cmd = curcmd;
 
         /* Prefetch the command if we are in the main thread. If running in an IO thread,
          * prefetch will be deferred until the client is processed by the main thread. */
@@ -4964,24 +4976,4 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
     list->len--;
     if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) list->ready_len--;
     return cmd;
-}
-
-/* Consumes the first ready command from the pending command list and sets it as
- * the client's current command. The command remains in the list but is marked as
- * current. Returns 1 on success, 0 if no ready command is available (empty list
- * or head command is still parsing). */
-static int consumePendingCommand(client *c) {
-    pendingCommand *curcmd = c->pending_cmds.head;
-    if (!curcmd || (curcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) return 0;
-
-    c->argc = curcmd->argc;
-    c->argv = curcmd->argv;
-    c->argv_len = curcmd->argv_len;
-    c->net_input_bytes_curr_cmd += curcmd->input_bytes;
-    c->reploff_next = curcmd->reploff;
-    c->slot = curcmd->slot;
-    c->lookedcmd = curcmd->cmd;
-    c->read_error = curcmd->read_error;
-    c->current_pending_cmd = curcmd;
-    return 1;
 }
