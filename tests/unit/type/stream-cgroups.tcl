@@ -2234,6 +2234,7 @@ start_server {
             assert_error "*ERR min-idle-time is not an integer*" {r XREADGROUP GROUP group1 consumer1 CLAIM *10 STREAMS mystream >}
             assert_error "*ERR min-idle-time is not an integer*" {r XREADGROUP GROUP group1 consumer1 CLAIM 10/2 STREAMS mystream >}
             assert_error "*ERR min-idle-time is not an integer*" {r XREADGROUP GROUP group1 consumer1 CLAIM 10*2 STREAMS mystream >}
+            assert_error "*ERR min-idle-time is not an integer*" {r XREADGROUP GROUP group1 consumer1 CLAIM 10€ STREAMS mystream >}
         }
 
         test "XREADGROUP CLAIM with negative integer for min-idle-time" {
@@ -3083,6 +3084,58 @@ start_server {
             set delivery_after [lindex $pending_after 0 3]
             
             assert_equal $delivery_before $delivery_after
+        }
+
+        test "XREADGROUP CLAIM usage stability with repeated claims" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            # Claim same message many times between consumers
+            for {set i 0} {$i < 1000} {incr i} {
+                after 2
+                set consumer_id [expr {$i % 10 + 1}]
+                r XREADGROUP GROUP group1 consumer$consumer_id CLAIM 1 STREAMS mystream >
+            }
+            
+            # Verify no memory leaks - PEL should still have only 1 message
+            set pending [r XPENDING mystream group1]
+            assert_equal [lindex $pending 0] 1
+        }
+
+        test "XREADGROUP CLAIM with large number of PEL messages" {
+            r DEL mystream
+            r XGROUP CREATE mystream group1 0 MKSTREAM
+            
+            # Create large PEL
+            for {set i 0} {$i < 10000} {incr i} {
+                r XADD mystream * field $i
+            }
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            after 100
+            
+            set result [r XREADGROUP GROUP group1 consumer2 CLAIM 50 COUNT 1000 STREAMS mystream >]
+            assert_equal [llength [lindex $result 0 1]] 1000
+        }
+
+        test "XREADGROUP CLAIM within MULTI/EXEC transaction" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+            r XGROUP CREATE mystream group1 0
+            r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
+            
+            after 100
+            
+            r MULTI
+            r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >
+            r XPENDING mystream group1
+            set results [r EXEC]
+            
+            # Verify transaction atomicity
+            assert_equal [llength [lindex $results 0 0 1]] 1
+            assert_equal [lindex $results 1 0] 1
         }
     }
 }
