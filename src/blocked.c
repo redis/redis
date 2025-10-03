@@ -200,6 +200,10 @@ void unblockClient(client *c, int queue_for_reprocessing) {
          * unblockClientOnKey is called, which eventually calls processCommand,
          * which calls reqresAppendResponse) */
         prepareForNextCommand(c);
+    } else if (c->bstate.btype == BLOCKED_SHUTDOWN) {
+        /* Free the current pending command to prevent it from being executed again
+         * when the client is unblocked from shutdown state. */
+        freeClientPendingCommands(c, 1);
     }
 
     /* Clear the flags, and put the client in the unblocked list so that
