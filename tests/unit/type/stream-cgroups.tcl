@@ -2162,33 +2162,33 @@ start_server {
         }
 
         test "XREADGROUP CLAIM with multiple streams" {
-            r DEL mystream{1}
-            r XADD mystream{1} 1-0 f v1
-            r XADD mystream{1} 2-0 f v2
+            r DEL mystream{tag}1
+            r XADD mystream{tag}1 1-0 f v1
+            r XADD mystream{tag}1 2-0 f v2
 
-            r DEL mystream{2}
-            r XADD mystream{2} 3-0 f v1
-            r XADD mystream{2} 4-0 f v2
+            r DEL mystream{tag}2
+            r XADD mystream{tag}2 3-0 f v1
+            r XADD mystream{tag}2 4-0 f v2
 
-            r DEL mystream{3}
-            r XADD mystream{3} 5-0 f v1
-            r XADD mystream{3} 6-0 f v2
+            r DEL mystream{tag}3
+            r XADD mystream{tag}3 5-0 f v1
+            r XADD mystream{tag}3 6-0 f v2
 
             # Create consumer groups
-            r XGROUP CREATE mystream{1} group1 0
-            r XGROUP CREATE mystream{2} group1 0
-            r XGROUP CREATE mystream{3} group1 0
+            r XGROUP CREATE mystream{tag}1 group1 0
+            r XGROUP CREATE mystream{tag}2 group1 0
+            r XGROUP CREATE mystream{tag}3 group1 0
 
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream{1} mystream{2} mystream{3} > > >
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream{tag}1 mystream{tag}2 mystream{tag}3 > > >
 
             after 100
 
             # Claim messages from multiply streams.
-            set claim_result [r XREADGROUP GROUP group1 consumer1 CLAIM 50 STREAMS mystream{1} mystream{2} mystream{3} > > >]
+            set claim_result [r XREADGROUP GROUP group1 consumer1 CLAIM 50 STREAMS mystream{tag}1 mystream{tag}2 mystream{tag}3 > > >]
 
             # We expect two messages from the first stream. One pending and one new.
             lassign [lindex $claim_result 0] stream_name messages
-            assert_equal $stream_name "mystream{1}"
+            assert_equal $stream_name "mystream{tag}1"
             assert_equal [llength $messages] 2
             # Pending message. 
             assert_equal [lindex $messages 0 0] 1-0
@@ -2199,7 +2199,7 @@ start_server {
 
             # We expect two messages from the second stream. One pending and one new.
             lassign [lindex $claim_result 1] stream_name messages
-            assert_equal $stream_name "mystream{2}"
+            assert_equal $stream_name "mystream{tag}2"
             assert_equal [llength $messages] 2
             # Pending message. 
             assert_equal [lindex $messages 0 0] 3-0
@@ -2210,7 +2210,7 @@ start_server {
 
             # We expect two messages from the third stream. One pending and one new.
             lassign [lindex $claim_result 2] stream_name messages
-            assert_equal $stream_name "mystream{3}"
+            assert_equal $stream_name "mystream{tag}3"
             assert_equal [llength $messages] 2
             # Pending message. 
             assert_equal [lindex $messages 0 0] 5-0
@@ -3008,7 +3008,7 @@ start_server {
             # Message 2-0: claimed by consumer3 (delivery count = 2)
             assert_equal [lindex $messages 2 0] 3-0
             assert_equal [lindex $messages 2 3] 2
-        }
+        } {} {external:skip needs:debug}
 
         test "XREADGROUP CLAIM idle time resets after RDB reload" {
             r DEL mystream
@@ -3029,7 +3029,7 @@ start_server {
             # After reload: idle time resets, message not immediately claimable
             set claim_after [r XREADGROUP GROUP group1 consumer3 CLAIM 100 STREAMS mystream >]
             assert_equal [llength $claim_after] 0
-        }
+        } {} {external:skip needs:debug}
 
         test "XREADGROUP CLAIM multiple groups persist correctly" {
             r DEL mystream
@@ -3054,7 +3054,7 @@ start_server {
             
             assert_equal [lindex $pending1 0] 2  ;# group1 has 2 pending
             assert_equal [lindex $pending2 0] 2  ;# group2 has 2 pending
-        }
+        } {} {external:skip needs:debug}
 
         test "XREADGROUP CLAIM NOACK state not persisted" {
             r DEL mystream
@@ -3072,7 +3072,7 @@ start_server {
             
             set pending_after [r XPENDING mystream group1]
             assert_equal [lindex $pending_after 0] 0
-        }
+        } {} {external:skip needs:debug}
 
         test "XREADGROUP CLAIM high delivery counts persist in RDB" {
             r DEL mystream
@@ -3097,7 +3097,7 @@ start_server {
             set delivery_after [lindex $pending_after 0 3]
             
             assert_equal $delivery_before $delivery_after
-        }
+        } {} {external:skip needs:debug}
 
         test "XREADGROUP CLAIM usage stability with repeated claims" {
             r DEL mystream
