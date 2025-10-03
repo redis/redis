@@ -2162,33 +2162,33 @@ start_server {
         }
 
         test "XREADGROUP CLAIM with multiple streams" {
-            r DEL mystream{tag}1
-            r XADD mystream{tag}1 1-0 f v1
-            r XADD mystream{tag}1 2-0 f v2
+            r DEL mystream1
+            r XADD mystream1 1-0 f v1
+            r XADD mystream1 2-0 f v2
 
-            r DEL mystream{tag}2
-            r XADD mystream{tag}2 3-0 f v1
-            r XADD mystream{tag}2 4-0 f v2
+            r DEL mystream2
+            r XADD mystream2 3-0 f v1
+            r XADD mystream2 4-0 f v2
 
-            r DEL mystream{tag}3
-            r XADD mystream{tag}3 5-0 f v1
-            r XADD mystream{tag}3 6-0 f v2
+            r DEL mystream3
+            r XADD mystream3 5-0 f v1
+            r XADD mystream3 6-0 f v2
 
             # Create consumer groups
-            r XGROUP CREATE mystream{tag}1 group1 0
-            r XGROUP CREATE mystream{tag}2 group1 0
-            r XGROUP CREATE mystream{tag}3 group1 0
+            r XGROUP CREATE mystream1 group1 0
+            r XGROUP CREATE mystream2 group1 0
+            r XGROUP CREATE mystream3 group1 0
 
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream{tag}1 mystream{tag}2 mystream{tag}3 > > >
+            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream1 mystream2 mystream3 > > >
 
             after 100
 
             # Claim messages from multiply streams.
-            set claim_result [r XREADGROUP GROUP group1 consumer1 CLAIM 50 STREAMS mystream{tag}1 mystream{tag}2 mystream{tag}3 > > >]
+            set claim_result [r XREADGROUP GROUP group1 consumer1 CLAIM 50 STREAMS mystream1 mystream2 mystream3 > > >]
 
             # We expect two messages from the first stream. One pending and one new.
             lassign [lindex $claim_result 0] stream_name messages
-            assert_equal $stream_name "mystream{tag}1"
+            assert_equal $stream_name "mystream1"
             assert_equal [llength $messages] 2
             # Pending message. 
             assert_equal [lindex $messages 0 0] 1-0
@@ -2199,7 +2199,7 @@ start_server {
 
             # We expect two messages from the second stream. One pending and one new.
             lassign [lindex $claim_result 1] stream_name messages
-            assert_equal $stream_name "mystream{tag}2"
+            assert_equal $stream_name "mystream2"
             assert_equal [llength $messages] 2
             # Pending message. 
             assert_equal [lindex $messages 0 0] 3-0
@@ -2210,7 +2210,7 @@ start_server {
 
             # We expect two messages from the third stream. One pending and one new.
             lassign [lindex $claim_result 2] stream_name messages
-            assert_equal $stream_name "mystream{tag}3"
+            assert_equal $stream_name "mystream3"
             assert_equal [llength $messages] 2
             # Pending message. 
             assert_equal [lindex $messages 0 0] 5-0
@@ -2218,7 +2218,7 @@ start_server {
             # New message
             assert_equal [lindex $messages 1 0] 6-0
             assert_equal [lindex $messages 1 3] 0
-        }
+        } {} {external:skip}
 
         test "XREADGROUP CLAIM with min-idle-time equal to zero" {
             r DEL mystream
@@ -2715,7 +2715,7 @@ start_server {
             lassign [lindex $result 1] stream_name messages
             assert_equal $stream_name "stream2"
             assert_equal [llength $messages] 1
-        }
+        } {} {external:skip}
 
         test "XREADGROUP CLAIM claims all pending immediately" {
             r DEL mystream
