@@ -204,6 +204,10 @@ void unblockClient(client *c, int queue_for_reprocessing) {
         /* Free the current pending command to prevent it from being executed again
          * when the client is unblocked from shutdown state. */
         freeClientPendingCommands(c, 1);
+        c->argv = NULL;
+        c->argc = 0;
+        c->argv_len = 0;
+        c->current_pending_cmd = NULL;
     }
 
     /* Clear the flags, and put the client in the unblocked list so that
