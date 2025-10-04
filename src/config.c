@@ -362,6 +362,7 @@ void queueLoadModule(sds path, sds *argv, int argc) {
     loadmod->argv = argc ? zmalloc(sizeof(robj*)*argc) : NULL;
     loadmod->path = sdsnew(path);
     loadmod->argc = argc;
+    loadmod->conf = 1;
     for (i = 0; i < argc; i++) {
         loadmod->argv[i] = createRawStringObject(argv[i],sdslen(argv[i]));
     }
@@ -1570,6 +1571,8 @@ void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
         struct RedisModule *module = dictGetVal(de);
         /* Internal modules doesn't have path and are not part of the configuration file */
         if (sdslen(module->loadmod->path) == 0) continue;
+        /* ignore when loaded from config */
+        if (module->loadmod->conf) continue;
 
         line = sdsnew("loadmodule ");
         line = sdscatsds(line, module->loadmod->path);
