@@ -112,12 +112,9 @@ static void clientSetDefaultAuth(client *c) {
 
 int authRequired(client *c) {
     /* Check if the user is authenticated. This check is skipped in case
-     * the default user is flagged as "nopass" and is active.
-     * 
-     * Note that reading DefaultUser flags atomically to minimize race condition.
-     * In the worst case, we might get a slightly stale value, but this won't
-     * cause security issues, just potentially one extra command parsing. */
-    uint32_t default_flags = DefaultUser->flags;
+     * the default user is flagged as "nopass" and is active. */
+    uint32_t default_flags;
+    atomicGet(DefaultUser->flags, default_flags);
     int auth_required = (!(default_flags & USER_FLAG_NOPASS) ||
                           (default_flags & USER_FLAG_DISABLED)) &&
                         !c->authenticated;

@@ -1243,7 +1243,7 @@ typedef struct pendingCommandList {
 
 typedef struct {
     sds name;       /* The username as an SDS string. */
-    uint32_t flags; /* See USER_FLAG_* */
+    redisAtomic uint32_t flags; /* See USER_FLAG_* */
     list *passwords; /* A list of SDS valid passwords for this user. */
     list *selectors; /* A list of selectors this user validates commands
                         against. This list will always contain at least

@@ -421,8 +421,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED;
-    u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
+    atomicSet(u->flags, USER_FLAG_DISABLED | USER_FLAG_SANITIZE_PAYLOAD);
     u->passwords = listCreate();
     u->acl_string = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
@@ -1289,22 +1288,18 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
     if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
     if (!strcasecmp(op,"on")) {
-        u->flags |= USER_FLAG_ENABLED;
-        u->flags &= ~USER_FLAG_DISABLED;
+        atomicSet(u->flags, (u->flags | USER_FLAG_ENABLED) & ~USER_FLAG_DISABLED);
     } else if (!strcasecmp(op,"off")) {
-        u->flags |= USER_FLAG_DISABLED;
-        u->flags &= ~USER_FLAG_ENABLED;
+        atomicSet(u->flags, (u->flags | USER_FLAG_DISABLED) & ~USER_FLAG_ENABLED);
     } else if (!strcasecmp(op,"skip-sanitize-payload")) {
-        u->flags |= USER_FLAG_SANITIZE_PAYLOAD_SKIP;
-        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD;
+        atomicSet(u->flags, (u->flags | USER_FLAG_SANITIZE_PAYLOAD_SKIP) & ~USER_FLAG_SANITIZE_PAYLOAD);
     } else if (!strcasecmp(op,"sanitize-payload")) {
-        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD_SKIP;
-        u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
+        atomicSet(u->flags, (u->flags | USER_FLAG_SANITIZE_PAYLOAD) & ~USER_FLAG_SANITIZE_PAYLOAD_SKIP);
     } else if (!strcasecmp(op,"nopass")) {
-        u->flags |= USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags | USER_FLAG_NOPASS);
         listEmpty(u->passwords);
     } else if (!strcasecmp(op,"resetpass")) {
-        u->flags &= ~USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags & ~USER_FLAG_NOPASS);
         listEmpty(u->passwords);
     } else if (op[0] == '>' || op[0] == '#') {
         sds newpass;
@@ -1324,7 +1319,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             listAddNodeTail(u->passwords,newpass);
         else
             sdsfree(newpass);
-        u->flags &= ~USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags & ~USER_FLAG_NOPASS);
     } else if (op[0] == '<' || op[0] == '!') {
         sds delpass;
         if (op[0] == '<') {
