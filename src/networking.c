@@ -2766,10 +2766,13 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
  * 1. Append the response, if necessary.
  * 2. Reset the client.
  * 3. Update the all_argv_len_sum counter and advance the pending_cmd cyclic buffer.
+ * 4. Update the cluster slot stats, if necessary.
  */
-void prepareForNextCommand(client *c) {
+void prepareForNextCommand(client *c, int update_slot_stats) {
     reqresAppendResponse(c);
     resetClientInternal(c, 1);
+    if (update_slot_stats)
+        clusterSlotStatsAddNetworkBytesInForUserClient(c);
 }
 
 /* Perform necessary tasks after a command was executed:
@@ -2787,8 +2790,7 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (c->flags & CLIENT_BLOCKED) return;
 
-    clusterSlotStatsAddNetworkBytesInForUserClient(c);
-    prepareForNextCommand(c);
+    prepareForNextCommand(c, 1);
 
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
@@ -3084,7 +3086,7 @@ int processInputBuffer(client *c) {
         if (!c->argc) {
             /* A naked newline can be sent from masters as a keep-alive, or from slaves to refresh
              * the last ACK time. In that case there's no command to actually execute. */
-            prepareForNextCommand(c);
+            prepareForNextCommand(c, 0);
         } else {
             /* If we are in the context of an I/O thread, we can't really
              * execute the command here. All we can do is to flag the client

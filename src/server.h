@@ -3383,7 +3383,7 @@ uint64_t getCommandFlags(client *c);
 void preprocessCommand(client *c, pendingCommand *pcmd);
 int processCommand(client *c);
 void commandProcessed(client *c);
-void prepareForNextCommand(client *c);
+void prepareForNextCommand(client *c, int update_slot_stats);
 
 int processPendingCommandAndInputBuffer(client *c);
 int processCommandAndResetClient(client *c);
