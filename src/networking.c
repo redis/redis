@@ -2770,9 +2770,11 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
  */
 void prepareForNextCommand(client *c, int update_slot_stats) {
     reqresAppendResponse(c);
-    resetClientInternal(c, 1);
-    if (update_slot_stats)
+    if (update_slot_stats) {
+        /* We should do this before reset client. */
         clusterSlotStatsAddNetworkBytesInForUserClient(c);
+    }
+    resetClientInternal(c, 1);
 }
 
 /* Perform necessary tasks after a command was executed:
