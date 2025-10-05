@@ -2430,7 +2430,7 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
     size_t querylen;
 
     /* Search for end of line */
-    newline = memchr(c->querybuf+c->qb_pos,'\n',sdslen(c->querybuf) - c->qb_pos);
+    newline = strchr(c->querybuf+c->qb_pos,'\n');
 
     /* Nothing to do without a \r\n */
     if (newline == NULL) {
@@ -2566,7 +2566,7 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         serverAssertWithInfo(c,NULL,pcmd->argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
-        newline = memchr(c->querybuf+c->qb_pos,'\r',sdslen(c->querybuf) - c->qb_pos);
+        newline = strchr(c->querybuf+c->qb_pos,'\r');
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
                 pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
