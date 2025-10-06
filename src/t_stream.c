@@ -42,7 +42,7 @@ int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq)
 int streamEntryIsReferenced(stream *s, streamID *id);
 void streamCleanupEntryCGroupRefs(stream *s, streamID *id);
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
-void watchForExpiredPendingEntries(client *c, robj **keys, int numkeys, uint64_t expire_time);
+void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -2782,7 +2782,7 @@ void xreadCommand(client *c) {
                 pel_expire_time += min_pel_delivery_time;
             else
                 pel_expire_time += commandTimeSnapshot();
-            watchForExpiredPendingEntries(c, c->argv+streams_arg, streams_count, pel_expire_time);
+            trackStreamClaimTimeouts(c, c->argv+streams_arg, streams_count, pel_expire_time);
         }
         blockForKeys(c, BLOCKED_STREAM, c->argv+streams_arg, streams_count, timeout, xreadgroup);
         goto cleanup;
@@ -4896,13 +4896,13 @@ void decodePelTimeKey(void *buf, pelTimeKey *key) {
  * ensuring the earliest wakeup time is preserved for multi-client scenarios.
  * Note that the reference count is only incremented for newly added keys,
  * not for updates to existing entries. */
-void watchForExpiredPendingEntries(client *c, robj **keys, int numkeys, uint64_t expire_time) {
+void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time) {
     dictEntry *db_watch_entry, *db_watch_existing_entry;
     uint64_t old_expire_time;
     int j;
 
     for (j = 0; j < numkeys; j++) {
-        db_watch_entry = dictAddRaw(c->db->watching_pending_keys, keys[j], &db_watch_existing_entry);
+        db_watch_entry = dictAddRaw(c->db->stream_claim_pending_keys, keys[j], &db_watch_existing_entry);
         if (db_watch_entry != NULL) {
             dictSetUnsignedIntegerVal(db_watch_entry, expire_time);
             incrRefCount(keys[j]);
@@ -4920,17 +4920,17 @@ void watchForExpiredPendingEntries(client *c, robj **keys, int numkeys, uint64_t
  * watched for expired pending entries and wake up blocked clients when
  * entries expire and become available for claiming.
  *
- * The function iterates through all databases and their watching_pending_keys
+ * The function iterates through all databases and their stream_claim_pending_keys
  * dictionaries. For each watched stream, it compares the registered expire_time
  * against the current server time. When expire_time <= current_time, the pending
  * entry has expired and the stream is signaled as ready via signalKeyAsReady(),
  * which wakes all blocked clients waiting on that stream. The entry is then
- * removed from watching_pending_keys. */
-void handleExpiredPendingEntries(void) {
+ * removed from stream_claim_pending_keys. */
+void handleClaimableStreamEntries(void) {
     for (int j = 0; j < server.dbnum; j++) {
         dictEntry *de;
         dictIterator di;
-        dictInitSafeIterator(&di, server.db[j].watching_pending_keys);
+        dictInitSafeIterator(&di, server.db[j].stream_claim_pending_keys);
         while((de = dictNext(&di)) != NULL) {
             robj *key = dictGetKey(de);
             uint64_t expire_time = dictGetUnsignedIntegerVal(de);
@@ -4941,7 +4941,7 @@ void handleExpiredPendingEntries(void) {
 
             if(expire_time < (uint64_t)server.mstime) {
                 signalKeyAsReady(&server.db[j], key, kv->type);
-                dictDelete(server.db[j].watching_pending_keys, key);
+                dictDelete(server.db[j].stream_claim_pending_keys, key);
             }
         }
         dictResetIterator(&di);

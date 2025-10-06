@@ -754,7 +754,7 @@ void blockedBeforeSleep(void) {
     handleBlockedClientsTimeout();
 
     /* Handle for expired pending entries. */
-    handleExpiredPendingEntries();
+    handleClaimableStreamEntries();
 
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT or WAITAOF. */
