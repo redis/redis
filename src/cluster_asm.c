@@ -22,6 +22,8 @@
 #define ASM_DEBUG_TRIM_BG 2
 #define ASM_DEBUG_TRIM_ACTIVE 3
 
+#define ASM_AOF_MIN_ITEMS_PER_KEY 512 /* Minimum number of items per key to use AOF format encoding */
+
 typedef struct asmTask {
     sds id;                                 /* Task ID */
     int operation;                          /* Either ASM_IMPORT or ASM_MIGRATE */
@@ -355,7 +357,7 @@ asmTask *asmTaskCreate(const char *task_id) {
 void asmTaskFree(asmTask *task) {
     replDataBufClear(&task->sync_buffer);
     sdsfree(task->id);
-    zfree(task->slots);
+    slotRangeArrayFree(task->slots);
     sdsfree(task->error);
     zfree(task);
 }
@@ -2007,7 +2009,6 @@ void clusterSyncSlotsCommand(client *c) {
 
                 if (c->node_id) sdsfree(c->node_id);
                 c->node_id = sdsdup(node_id);
-                addReply(c, shared.ok);
             } else if (!strcasecmp(c->argv[j]->ptr, "slot-info")) {
                 /* slot-info slot:key_size:expire_size */
                 int count;
@@ -2033,23 +2034,23 @@ void clusterSyncSlotsCommand(client *c) {
                 kvstoreDictExpand(db->expires, slot, expire_size);
 
                 sdsfreesplitres(parts, count);
-                addReply(c, shared.ok);
             } else if (!strcasecmp(c->argv[j]->ptr, "asm-task")) {
                 /* asm-task task_id:source_node:dest_node:operation:state:slot_ranges */
                 if (clusterNodeIsMaster(getMyClusterNode())) {
                     addReplyError(c, "CLUSTER SYNCSLOTS CONF ASM-TASK only allowed on replica");
                     return;
                 }
-                if (asmReplicaHandleMasterTask(c->argv[j + 1]->ptr) == C_OK) {
-                    addReply(c, shared.ok);
-                } else {
+                if (asmReplicaHandleMasterTask(c->argv[j + 1]->ptr) != C_OK) {
                     addReplyErrorFormat(c, "Failed to handle master task: %s",
-                                           (char *)c->argv[j + 1]->ptr);
+                                        (char *)c->argv[j + 1]->ptr);
                 }
+            } else if (!strcasecmp(c->argv[j]->ptr, "capa")) {
+                /* Ignore unrecognized capabilities. This is for future extensions. */
             } else {
                 addReplyErrorFormat(c, "Unknown option %s", (char *)c->argv[j]->ptr);
             }
         }
+        addReply(c, shared.ok);
     } else {
         addReplyErrorObject(c, shared.syntaxerr);
     }
@@ -2070,7 +2071,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
      * block in the destination if the object is too large, so fall back
      * to AOF format if necessary. */
     if ((o->type == OBJ_MODULE) ||
-        (o->type != OBJ_STRING && getObjectLength(o) <= AOF_REWRITE_ITEMS_PER_CMD))
+        (o->type != OBJ_STRING && getObjectLength(o) <= ASM_AOF_MIN_ITEMS_PER_KEY))
     {
         if (rioWriteBulkCount(rdb, '*', 5) == 0) return C_ERR;
         if (rioWriteBulkString(rdb, "RESTORE", 7) == 0) return C_ERR;
