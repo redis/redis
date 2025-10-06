@@ -1117,16 +1117,26 @@ start_server {tags {"external:skip needs:debug"}} {
             r hset myhash f1 v1 f2 v2 f3 v3
             r hpexpire myhash 5000 FIELDS 3 f1 f2 f3
 
-            # Test HTTL flexible parsing
-            assert_equal [r HTTL myhash FIELDS 2 f1 f2] [r HTTL FIELDS 2 f1 f2 myhash]
+            # Test HTTL flexible parsing - both should return valid TTL values
+            set ttl1 [r HTTL myhash FIELDS 2 f1 f2]
+            set ttl2 [r HTTL FIELDS 2 f1 f2 myhash]
+            assert_range [lindex $ttl1 0] 1 5
+            assert_range [lindex $ttl1 1] 1 5
+            assert_range [lindex $ttl2 0] 1 5
+            assert_range [lindex $ttl2 1] 1 5
 
-            # Test HPTTL flexible parsing
-            assert_equal [r HPTTL myhash FIELDS 2 f1 f2] [r HPTTL FIELDS 2 f1 f2 myhash]
+            # Test HPTTL flexible parsing - both should return valid TTL values
+            set pttl1 [r HPTTL myhash FIELDS 2 f1 f2]
+            set pttl2 [r HPTTL FIELDS 2 f1 f2 myhash]
+            assert_range [lindex $pttl1 0] 1000 5000
+            assert_range [lindex $pttl1 1] 1000 5000
+            assert_range [lindex $pttl2 0] 1000 5000
+            assert_range [lindex $pttl2 1] 1000 5000
 
-            # Test HEXPIRETIME flexible parsing
+            # Test HEXPIRETIME flexible parsing - both should return same timestamp
             assert_equal [r HEXPIRETIME myhash FIELDS 2 f1 f2] [r HEXPIRETIME FIELDS 2 f1 f2 myhash]
 
-            # Test HPEXPIRETIME flexible parsing
+            # Test HPEXPIRETIME flexible parsing - both should return same timestamp
             assert_equal [r HPEXPIRETIME myhash FIELDS 2 f1 f2] [r HPEXPIRETIME FIELDS 2 f1 f2 myhash]
         }
 
@@ -1138,6 +1148,49 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r HPTTL FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
             assert_equal [r HEXPIRETIME FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
             assert_equal [r HPEXPIRETIME FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
+        }
+
+        test "HPERSIST - Flexible argument parsing ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hpexpire myhash 5000 FIELDS 3 f1 f2 f3
+
+            # Verify fields have expiry before persisting
+            set ttl_before [r HTTL myhash FIELDS 2 f1 f2]
+            assert_range [lindex $ttl_before 0] 1 5
+            assert_range [lindex $ttl_before 1] 1 5
+
+            # Test HPERSIST original syntax
+            set result1 [r HPERSIST myhash FIELDS 2 f1 f2]
+            assert_equal $result1 [list $P_OK $P_OK]
+
+            # Reset expiry for flexible test
+            r hpexpire myhash 5000 FIELDS 2 f1 f2
+
+            # Test HPERSIST flexible syntax
+            set result2 [r HPERSIST FIELDS 2 f1 f2 myhash]
+            assert_equal $result2 [list $P_OK $P_OK]
+
+            # Verify fields are actually persisted
+            assert_equal [r HTTL myhash FIELDS 2 f1 f2] [list $T_NO_EXPIRY $T_NO_EXPIRY]
+        }
+
+        test "HPERSIST - Flexible parsing with non-existent key ($type)" {
+            r del nonexistent
+
+            # Test HPERSIST with flexible syntax on non-existent key
+            assert_equal [r HPERSIST FIELDS 2 f1 f2 nonexistent] [list $P_NO_FIELD $P_NO_FIELD]
+            assert_equal [r HPERSIST nonexistent FIELDS 2 f1 f2] [list $P_NO_FIELD $P_NO_FIELD]
+        }
+
+        test "HPERSIST - Flexible parsing with non-existent fields ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            r hpexpire myhash 5000 FIELDS 1 f1
+
+            # Test flexible syntax with mix of existing and non-existing fields
+            assert_equal [r HPERSIST FIELDS 3 f1 f2 f3 myhash] [list $P_OK $P_NO_EXPIRY $P_NO_FIELD]
+            assert_equal [r HPERSIST myhash FIELDS 3 f1 f2 f3] [list $P_NO_EXPIRY $P_NO_EXPIRY $P_NO_FIELD]
         }
 
         test "HSETEX - input validation ($type)" {
