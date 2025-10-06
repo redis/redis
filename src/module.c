@@ -12354,7 +12354,7 @@ void moduleLoadFromQueue(void) {
     listRewind(server.loadmodule_queue,&li);
     while((ln = listNext(&li))) {
         struct moduleLoadQueueEntry *loadmod = ln->value;
-        if (moduleLoad(loadmod->path,(void **)loadmod->argv, loadmod->argc, 0, loadmod->conf)
+        if (moduleLoad(loadmod->path,(void **)loadmod->argv, loadmod->argc, 0, loadmod->from_include)
             == C_ERR)
         {
             serverLog(LL_WARNING,
@@ -12543,7 +12543,7 @@ void moduleUnregisterCleanup(RedisModule *module) {
 
 /* Load a module by path and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
-int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex, int is_config) {
+int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loadex, int from_include) {
     int (*onload)(void *, void **, int);
     void *handle;
 
@@ -12570,12 +12570,12 @@ int moduleLoad(const char *path, void **module_argv, int module_argc, int is_loa
         return C_ERR;
     }
 
-    return moduleOnLoad(onload, path, handle, module_argv, module_argc, is_loadex, is_config);
+    return moduleOnLoad(onload, path, handle, module_argv, module_argc, is_loadex, from_include);
 }
 
 /* Load a module by its 'onload' callback and initialize it. On success C_OK is returned, otherwise
  * C_ERR is returned. */
-int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex, int is_config) {
+int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *handle, void **module_argv, int module_argc, int is_loadex, int from_include) {
     RedisModuleCtx ctx;
     moduleCreateContext(&ctx, NULL, REDISMODULE_CTX_TEMP_CLIENT); /* We pass NULL since we don't have a module yet. */
     if (onload((void*)&ctx,module_argv,module_argc) == REDISMODULE_ERR) {
@@ -12599,7 +12599,7 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
     ctx.module->loadmod->path = sdsnew(path);
     ctx.module->loadmod->argv = module_argc ? zmalloc(sizeof(robj*)*module_argc) : NULL;
     ctx.module->loadmod->argc = module_argc;
-    ctx.module->loadmod->conf = is_config;
+    ctx.module->loadmod->from_include = from_include;
 
     for (int i = 0; i < module_argc; i++) {
         ctx.module->loadmod->argv[i] = module_argv[i];
