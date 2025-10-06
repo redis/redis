@@ -38,6 +38,21 @@ proc change_master { slave_id new_master_id } {
                         [get_instance_attrib redis $new_master_id port]
 }
 
+# After a slave finishes syncing data with the new master,
+# we need to wait for sentinels to fully observe such change.
+# At this point, sentinels should have two copies of this slave,
+# one under the new cluster and the other under the old cluster,
+# because sentinels won't prune any slaves and thus they still
+# believe the slave is following the old master.
+# So we need to wait for sentinels to see the slave's new replid
+# matches with the new master.
+proc is_change_master_finished { sentinel_id new_master_name old_master_name } {
+    set slave [lindex [S $sentinel_id SENTINEL REPLICAS $old_master_name] 0]
+    set slave_master_replid [dict get $slave "master-replid"]
+    set new_master_replid [get_info_field [S $sentinel_id SENTINEL INFO-CACHE $new_master_name] "master_replid"]
+    return [expr {$new_master_replid eq $slave_master_replid}]
+}
+
 proc wait_for_sentinel_confirm_new_master { master_name master_port } {
     foreach_sentinel_id id {
         wait_for_condition 200 100 {
@@ -48,27 +63,37 @@ proc wait_for_sentinel_confirm_new_master { master_name master_port } {
     }
 }
 
-# TODO(zhijun): This test has flakiness. The correct ordering is:
-# 1. the slave in the second cluster updates replid after following
-#    the master in the first cluster;
-# 2. sentinels monitoring this slave instance notices the new replid
-# 3. manual failover starts
-# If step 3 happens before 2, this test case would fail.
-test "Cannot failover when there's no good slave" {
-    set old_port [RPort $master_b_id]
+test "The second cluster works" {
     # Put a simple string into the database
     R $master_b_id SET "mykey" "myvalue"
+
+    wait_for_condition 100 50 {
+        [get_info_field [S 0 SENTINEL INFO-CACHE $master_b_name] "connected_slaves"] == 1
+    } else {
+        fail "The slave and master in the second cluster cannot sync"
+    }
+    assert_equal [R $slave_id GET "mykey"] "myvalue"
+}
+
+test "Cannot failover when there's no good slave" {
+    set old_port [RPort $master_b_id]
 
     # This cluster has only one slave. Let's reconfigure the slave to
     # follow the default master instead, so that it will update its
     # replication ID.
     change_master $slave_id $master_a_id
 
+    # The correct order of events is:
+    # 1. the slave in the second cluster updates replid after following
+    #    the master in the first cluster;
+    # 2. sentinels sees the new replid
+    # 3. manual failover starts
+    # The following wait condition is to strictly guarantee such order.
     foreach_sentinel_id id {
-        wait_for_condition 100 50 {
-            [get_info_field [S $id SENTINEL INFO-CACHE $master_b_name] "connected_slaves"] == 0
+        wait_for_condition 200 50 {
+            [is_change_master_finished $id $master_a_name $master_b_name] == 1
         } else {
-            fail "Sentinel $id should see the only slave in the second cluster gone by now"
+            fail "Sentinel $id should see the slave has new replid now"
         }
     }
 
@@ -122,7 +147,7 @@ test "Original master (now slave) gets promoted after the new master (previous s
 }
 
 # After the master goes down and reboots, it gets assigned a new
-# replid different its slave's. We make sure the failover still
+# replid different from its slave's. We make sure the failover still
 # works in such situation.
 test "Slave selection works when the master reboots immediately" {
     # Turn the master into reboot state with a new replid

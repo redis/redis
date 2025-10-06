@@ -3024,7 +3024,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
 
                 sentinelEvent(LL_WARNING,"+config-update-from",si,"%@");
                 sentinelEvent(LL_WARNING,"+switch-master",
-                    master,"%s %s %d %s %d",
+                    master,"%s from %s %d to %s %d",
                     master->name,
                     announceSentinelAddr(master->addr), master->addr->port,
                     token[5], master_port);
@@ -3600,6 +3600,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkLongLong(c,ri->quorum);
         fields++;
 
+        addReplyBulkCString(c, "master-replid");
+        addReplyBulkCString(c, ri->master_replid);
+        fields++;
+
         addReplyBulkCString(c,"failover-timeout");
         addReplyBulkLongLong(c,ri->failover_timeout);
         fields++;
@@ -3640,6 +3644,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 
         addReplyBulkCString(c,"master-port");
         addReplyBulkLongLong(c,ri->slave_master_port);
+        fields++;
+
+        addReplyBulkCString(c, "master-replid");
+        addReplyBulkCString(c, ri->slave_master_replid);
         fields++;
 
         addReplyBulkCString(c,"slave-priority");
@@ -5172,7 +5180,7 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         if (slave->slave_priority == 0) continue;
 
         /* It's possible that the sentinel has just detected the slave
-         * instance and hasn't got the chance to verify its replciation
+         * instance and hasn't got the chance to verify its replication
          * ID before the failover process starts. */
         if (slave->is_relevant_to_master == REPLID_UNVERIFIED) {
             slave->is_relevant_to_master = isSlaveRelevant(slave, master);
