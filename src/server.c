@@ -7600,7 +7600,7 @@ int main(int argc, char **argv) {
     redisAsciiArt();
     checkTcpBacklogSettings();
     if (server.cluster_enabled) {
-        server.cluster_slot_stats = zmalloc(CLUSTER_SLOTS*sizeof(*server.cluster_slot_stats));
+        server.cluster_slot_stats = zmalloc(CLUSTER_SLOTS*sizeof(clusterSlotStat));
         clusterInit();
     }
     if (!server.sentinel_mode) {

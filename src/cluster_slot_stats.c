@@ -203,7 +203,7 @@ void clusterSlotStatReset(int slot) {
 }
 
 void clusterSlotStatResetAll(void) {
-    memset(server.cluster_slot_stats, 0, CLUSTER_SLOTS * sizeof(*server.cluster_slot_stats));
+    memset(server.cluster_slot_stats, 0, CLUSTER_SLOTS * sizeof(clusterSlotStat));
 }
 
 /* For cpu-usec accumulation, nested commands within EXEC, EVAL, FCALL are skipped.
