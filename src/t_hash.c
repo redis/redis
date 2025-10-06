@@ -729,11 +729,11 @@ GetFieldRes hashTypeGetFromHashTable(robj *o, sds field, sds *value, uint64_t *e
  *                If *vll is populated *vstr is set to NULL, so the caller can
  *                always check the function return by checking the return value
  *                for GETF_OK and checking if vll (or vstr) is NULL.
- * expiredAt    - if the field has an expiration time, it will be set to the expiration
+ * expiredAt    - if the field has an expiration time, it will be set to the expiration 
  *                time of the field. Otherwise, will be set to EB_EXPIRE_TIME_INVALID.
  */
 GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **vstr,
-                                   unsigned int *vlen, long long *vll,
+                                   unsigned int *vlen, long long *vll, 
                                    int hfeFlags, uint64_t *expiredAt)
 {
     sds key = kvobjGetKey(o);
@@ -766,7 +766,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         serverPanic("Unknown hash encoding");
     }
 
-    if ((*expiredAt >= (uint64_t) commandTimeSnapshot()) ||
+    if ((*expiredAt >= (uint64_t) commandTimeSnapshot()) || 
         (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
         return GETF_OK;
 
@@ -830,9 +830,9 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
  *                 in the hash, then the hash will as well be deleted. In this case,
  *                 isHashDeleted will be set to 1.
  * val           - If the field is found, then val will be set to the value object.
- * expireTime    - If the field exists (`GETF_OK`) then expireTime will be set to
+ * expireTime    - If the field exists (`GETF_OK`) then expireTime will be set to 
  *                 the expiration time of the field. Otherwise, it will be set to 0.
- *
+ *                 
  * Returns 1 if the field exists, and 0 when it doesn't.
  */
 int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
@@ -843,11 +843,11 @@ int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
 
     if (isHashDeleted) *isHashDeleted = 0;
     if (val) *val = NULL;
-    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll,
+    GetFieldRes res = hashTypeGetValue(db,o,field,&vstr,&vlen,&vll, 
                                                    hfeFlags, expireTime);
 
     if (res == GETF_OK) {
-        /* expireTime set to 0 if the field has no expiration time */
+        /* expireTime set to 0 if the field has no expiration time */ 
         if (expireTime && (*expireTime == EB_EXPIRE_TIME_INVALID))
             *expireTime = 0;
         
@@ -867,7 +867,7 @@ int hashTypeGetValueObject(redisDb *db, kvobj *o, sds field, int hfeFlags,
 }
 
 /* Test if the specified field exists in the given hash. If the field is
- * expired (HFE), then it will be lazy deleted unless HFE_LAZY_AVOID_FIELD_DEL
+ * expired (HFE), then it will be lazy deleted unless HFE_LAZY_AVOID_FIELD_DEL 
  * hfeFlags is set.
  *
  * hfeFlags      - Lookup HFE_LAZY_* flags
@@ -882,7 +882,7 @@ int hashTypeExists(redisDb *db, kvobj *o, sds field, int hfeFlags, int *isHashDe
     unsigned int vlen = UINT_MAX;
     long long vll = LLONG_MAX;
 
-    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll,
+    GetFieldRes res = hashTypeGetValue(db, o, field, &vstr, &vlen, &vll, 
                                              hfeFlags, NULL);
     if (isHashDeleted)
         *isHashDeleted = (res == GETF_EXPIRED_HASH) ? 1 : 0;
@@ -1234,8 +1234,6 @@ static int validateFieldsKeywordRequired(client *c) {
     }
     return C_OK;
 }
-
-
 
 void hashTypeSetExDone(HashTypeSetEx *ex) {
 
@@ -3740,7 +3738,6 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     /* update keysizes */
     unsigned long l = hashTypeLength(expCtx->hashObj, 0);
     updateKeysizesHist(expCtx->db, getKeySlot(key), OBJ_HASH, l, l - 1);
-
     serverAssert(hashTypeDelete(expCtx->hashObj, hf, 0) == 1);
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(expCtx->db, getKeySlot(key), oldsize, hashTypeAllocSize(kv));
@@ -4180,8 +4177,6 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
         rewriteClientCommandArgument(c, args.fieldsPos + 1, newFieldCount);
         decrRefCount(newFieldCount);
     }
-
-
 }
 
 /* HPEXPIRE key milliseconds [ NX | XX | GT | LT] FIELDS numfields <field [field ...]> */
