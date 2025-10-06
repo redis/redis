@@ -1112,6 +1112,34 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
+        test "TTL Commands - Flexible argument parsing ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3
+            r hpexpire myhash 5000 FIELDS 3 f1 f2 f3
+
+            # Test HTTL flexible parsing
+            assert_equal [r HTTL myhash FIELDS 2 f1 f2] [r HTTL FIELDS 2 f1 f2 myhash]
+
+            # Test HPTTL flexible parsing
+            assert_equal [r HPTTL myhash FIELDS 2 f1 f2] [r HPTTL FIELDS 2 f1 f2 myhash]
+
+            # Test HEXPIRETIME flexible parsing
+            assert_equal [r HEXPIRETIME myhash FIELDS 2 f1 f2] [r HEXPIRETIME FIELDS 2 f1 f2 myhash]
+
+            # Test HPEXPIRETIME flexible parsing
+            assert_equal [r HPEXPIRETIME myhash FIELDS 2 f1 f2] [r HPEXPIRETIME FIELDS 2 f1 f2 myhash]
+        }
+
+        test "TTL Commands - Flexible parsing with non-existent key ($type)" {
+            r del nonexistent
+
+            # Test all TTL commands with flexible syntax on non-existent key
+            assert_equal [r HTTL FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
+            assert_equal [r HPTTL FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
+            assert_equal [r HEXPIRETIME FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
+            assert_equal [r HPEXPIRETIME FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
+        }
+
         test "HSETEX - input validation ($type)" {
             assert_error {*wrong number of arguments*} {r hsetex myhash}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields}

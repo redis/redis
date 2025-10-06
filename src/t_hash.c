@@ -3777,6 +3777,8 @@ typedef struct {
     int expireCondition;    /* HFE_NX, HFE_XX, HFE_GT, HFE_LT */
 } HashCommandArgs;
 
+
+
 /* Parser for HEXPIRE family commands with flexible keyword ordering.
  * Returns C_OK on success, C_ERR on error (with reply sent). */
 static int parseHashCommandArgs(client *c, HashCommandArgs *args,
@@ -3903,33 +3905,65 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
 static void httlGenericCommand(client *c, const char *cmd, long long basetime, int unit) {
     UNUSED(cmd);
     kvobj *hashObj;
-    long numFields = 0, numFieldsAt = 3;
+    long numFields = 0;
+    int fieldsPos, keyPos = 1, firstFieldPos;
 
-    /* Read the hash object */
-    hashObj = lookupKeyRead(c->db, c->argv[1]);
-    if (checkType(c, hashObj, OBJ_HASH))
-        return;
-
-    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
-        /* Check if FIELDS exists elsewhere to provide a better error message */
-        if (findKeywordPosition(c, "FIELDS") != -1) {
-            addReplyError(c, "Mandatory argument FIELDS is not at the right position");
-        } else {
-            addReplyError(c, "Mandatory argument FIELDS is missing");
+    /* Find FIELDS keyword position - search from position 1 for flexibility */
+    fieldsPos = -1;
+    for (int i = 1; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr, "FIELDS")) {
+            fieldsPos = i;
+            break;
         }
+    }
+
+    if (fieldsPos == -1) {
+        addReplyError(c, "FIELDS keyword is required");
         return;
     }
 
-    /* Read number of fields */
-    if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
-                                      &numFields, "Number of fields must be a positive integer") != C_OK)
-        return;
+    /* Determine key position - if FIELDS comes before position 2, key is after FIELDS block */
+    if (fieldsPos == 1) {
+        /* FIELDS is at position 1, so key comes after FIELDS block */
+        if (fieldsPos + 1 >= c->argc) {
+            addReplyError(c, "Number of fields missing after FIELDS keyword");
+            return;
+        }
+        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
+                                          &numFields, "Number of fields must be a positive integer") != C_OK)
+            return;
 
-    /* Verify `numFields` is consistent with number of arguments */
-    if (numFields != (c->argc - numFieldsAt - 1)) {
+        firstFieldPos = fieldsPos + 2;
+        keyPos = firstFieldPos + numFields;
+
+        if (keyPos >= c->argc) {
+            addReplyError(c, "Key argument is missing");
+            return;
+        }
+    } else {
+        /* Key is at position 1, FIELDS comes after */
+        keyPos = 1;
+        firstFieldPos = fieldsPos + 2;
+
+        if (fieldsPos + 1 >= c->argc) {
+            addReplyError(c, "Number of fields missing after FIELDS keyword");
+            return;
+        }
+        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
+                                          &numFields, "Number of fields must be a positive integer") != C_OK)
+            return;
+    }
+
+    /* Validate field count */
+    if (numFields != (c->argc - firstFieldPos - (fieldsPos == 1 ? 1 : 0))) {
         addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
+
+    /* Read the hash object */
+    hashObj = lookupKeyRead(c->db, c->argv[keyPos]);
+    if (checkType(c, hashObj, OBJ_HASH))
+        return;
 
     /* Non-existing keys and empty hashes are the same thing. It also means
      * fields in the command don't exist in the hash key. */
@@ -3946,7 +3980,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[numFieldsAt+1+i]->ptr;
+            sds field = c->argv[firstFieldPos+i]->ptr;
             void *fptr = lpFirst(lp);
             if (fptr != NULL)
                 fptr = lpFind(lp, fptr, (unsigned char *) field, sdslen(field), 1);
@@ -3963,7 +3997,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
             long long expire;
-            sds field = c->argv[numFieldsAt+1+i]->ptr;
+            sds field = c->argv[firstFieldPos+i]->ptr;
             void *fptr = lpFirst(lpt->lp);
             if (fptr != NULL)
                 fptr = lpFind(lpt->lp, fptr, (unsigned char *) field, sdslen(field), 2);
@@ -4000,7 +4034,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[numFieldsAt+1+i]->ptr;
+            sds field = c->argv[firstFieldPos+i]->ptr;
             dictEntry *de = dictFind(d, field);
             if (de == NULL) {
                 addReplyLongLong(c, HFE_GET_NO_FIELD);
