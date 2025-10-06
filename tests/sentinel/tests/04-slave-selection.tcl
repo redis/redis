@@ -5,6 +5,14 @@
 # 2) That among the available slaves, the one with better offset is picked.
 
 source ../tests/includes/init-tests.tcl
+
+foreach_sentinel_id id {
+    S $id SENTINEL DEBUG ping-period 500
+    S $id SENTINEL DEBUG ask-period 500
+    S $id SENTINEL DEBUG info-period 500
+    S $id SENTINEL DEBUG default-down-after 1000
+}
+
 # This unit is the only one in the whole sentinel test suite that
 # requires two clusters. Here we will mainly operate on the second cluster.
 
@@ -25,13 +33,6 @@ set slave_id [expr $master_b_id + 1]
 
 # Create the second cluster
 init_cluster $master_b_name $master_b_id $num_instances
-
-foreach_sentinel_id id {
-    S $id SENTINEL DEBUG ping-period 500
-    S $id SENTINEL DEBUG ask-period 500
-    S $id SENTINEL DEBUG info-period 500
-    S $id SENTINEL DEBUG default-down-after 1000
-}
 
 proc change_master { slave_id new_master_id } {
     R $slave_id slaveof [get_instance_attrib redis $new_master_id host] \
