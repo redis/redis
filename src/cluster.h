@@ -39,6 +39,13 @@
 typedef struct _clusterNode clusterNode;
 struct clusterState;
 
+/* Struct used for storing slot statistics. */
+typedef struct clusterSlotStat {
+    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
+    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
+    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
+} clusterSlotStat;
+
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
  * system on top of Redis Cluster message bus, using modules. */
