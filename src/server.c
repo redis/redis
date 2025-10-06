@@ -1214,7 +1214,7 @@ void databasesCron(void) {
 
     /* Handle active-trim */
     if (server.cluster_enabled)
-        asmActiveTrimCycle(ACTIVE_EXPIRE_CYCLE_SLOW);
+        asmActiveTrimCycle();
 
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
@@ -1834,9 +1834,6 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * ASAP if a fast cycle is not needed). */
     if (server.active_expire_enabled && iAmMaster())
         activeExpireCycle(ACTIVE_EXPIRE_CYCLE_FAST);
-
-    if (server.cluster_enabled)
-        asmActiveTrimCycle(ACTIVE_EXPIRE_CYCLE_FAST);
 
     if (moduleCount()) {
         moduleFireServerEvent(REDISMODULE_EVENT_EVENTLOOP,

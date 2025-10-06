@@ -263,7 +263,7 @@ void clusterTrimEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t 
     REDISMODULE_NOT_USED(ctx);
     if (e.id == REDISMODULE_EVENT_CLUSTER_ASM_TRIM) {
         /* Log the event. */
-        if (numClusterEvents >= MAX_EVENTS) return;
+        if (numClusterTrimEvents >= MAX_EVENTS) return;
         RedisModuleClusterAsmTrimInfo *info = data;
         clusterTrimEventLog[numClusterTrimEvents++] = clusterTrimInfoToString(info, sub);
     }

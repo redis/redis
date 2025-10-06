@@ -2285,8 +2285,6 @@ struct redisServer {
     unsigned long long cluster_link_msg_queue_limit_bytes;  /* Memory usage limit on individual link msg queue */
     int cluster_drop_packet_filter; /* Debug config that allows tactically
                                    * dropping packets of a specific type */
-    int asm_trim_slow_cycle_time_perc; /* % time to invest in server cron. */
-    int asm_trim_fast_cycle_duration;  /* microseconds to invest in beforeSleep. */
     int cluster_slot_stats_enabled; /* Cluster slot usage statistics tracking enabled. */
     /* Scripting */
     unsigned int lua_arena;         /* eval lua arena used in jemalloc. */

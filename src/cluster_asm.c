@@ -3222,7 +3222,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
 }
 
 /* Trim keys in the active trim job. */
-void asmActiveTrimCycle(int type) {
+void asmActiveTrimCycle(void) {
     if (asmManager->debug_active_trim_delay < 0 ||
         listLength(asmManager->active_trim_jobs) == 0 ||
         isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
@@ -3239,22 +3239,14 @@ void asmActiveTrimCycle(int type) {
 
     /* This works in a similar way to activeExpireCycle, in the sense that
      * we do incremental work across calls. */
-    static long long last_fast_cycle = 0; /* When last fast cycle ran. */
-    long long start = ustime(), timelimit;
-
-    /* See activeExpireCycle for how timelimit is handled. */
-    timelimit = 1000000 * server.asm_trim_slow_cycle_time_perc / server.hz / 100;
-    if (timelimit <= 0) timelimit = 1;
-    if (type == ACTIVE_EXPIRE_CYCLE_FAST) {
-        if (start < last_fast_cycle + server.asm_trim_fast_cycle_duration * 2 ||
-            !server.asm_trim_fast_cycle_duration)
-            return;
-        last_fast_cycle = start;
-        timelimit = server.asm_trim_fast_cycle_duration; /* in microseconds. */
-    }
-
-    unsigned long long num_deleted = 0;
+    const int trim_cycle_time_perc = 25;
     int time_exceeded = 0;
+    long long start = ustime(), timelimit;
+    unsigned long long num_deleted = 0;
+
+    /* Calculate the time limit in microseconds for this cycle. */
+    timelimit = 1000000 * trim_cycle_time_perc / server.hz / 100;
+    if (timelimit <= 0) timelimit = 1;
 
     serverAssert(asmManager->active_trim_it);
     int slot = slotRangeArrayGetCurrentSlot(asmManager->active_trim_it);
@@ -3292,8 +3284,7 @@ void asmActiveTrimCycle(int type) {
     }
 
     long long elapsed = ustime() - start;
-    latencyAddSampleIfNeeded(type == ACTIVE_EXPIRE_CYCLE_FAST ?
-                            "trim-cycle-fast": "trim-cycle-slow", elapsed / 1000);
+    latencyAddSampleIfNeeded("trim-cycle-slow", elapsed / 1000);
 }
 
 /* Trim a specific key if trimming is pending or in progress for its slot.
