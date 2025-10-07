@@ -1006,7 +1006,7 @@ void clusterMigrationCommand(client *c) {
     }
 }
 
-/* Notify the state change to the module and the plugin. */
+/* Notify the state change to the module and the cluster implementation. */
 void asmNotifyStateChange(asmTask *task, int event) {
     RedisModuleClusterAsmInfo info = {
             .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
@@ -1030,7 +1030,7 @@ void asmNotifyStateChange(asmTask *task, int event) {
                         task->id, asmTaskStateToString(task->state));
 
     if (clusterNodeIsMaster(getMyClusterNode())) {
-        /* Notify the plugin only if it is a real active import task. */
+        /* Notify the cluster impl only if it is a real active import task. */
         if (task != asmManager->master_task)
             clusterAsmOnEvent(task->id, event, task->slots);
         asmNotifyReplicasStateChange(task); /* Propagate state change to replicas */
@@ -2701,7 +2701,7 @@ int asmNotifyConfigUpdated(asmTask *task, sds *err) {
 
     /* Reset per-slot statistics for the migrated/imported ranges.
      * Note: cluster_legacy.c also cleans up, so this may run twice, but
-     * required if a cluster plugin is in use. */
+     * required if an alternative cluster impl is in use. */
     for (int i = 0; i < task->slots->num_ranges; i++) {
         slotRange *sr = &task->slots->ranges[i];
         for (int j = sr->start; j <= sr->end; j++)

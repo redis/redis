@@ -214,7 +214,7 @@ clusterNode *clusterShardNodeFirst(void *shard);
 int clusterNodeTcpPort(clusterNode *node);
 int clusterNodeTlsPort(clusterNode *node);
 
-/* API for implementation/plugin
+/* API for the alternative cluster implementation
  *
  * - On destination side, implementation calls clusterAsmProcess(ASM_EVENT_IMPORT_START)
  *   to start the import operation.
@@ -224,15 +224,15 @@ int clusterNodeTlsPort(clusterNode *node);
  * - Implementation stops the traffic to the slots and calls clusterAsmProcess(ASM_EVENT_HANDOFF)
  * - On the destination side, Redis calls clusterAsmOnEvent(ASM_EVENT_TAKEOVER)
  *   when destination node is ready to take over the slot, waiting for config change.
- * - Plugin updates the config and calls clusterAsmProcess(ASM_EVENT_DONE)
+ * - Cluster implementation updates the config and calls clusterAsmProcess(ASM_EVENT_DONE)
  *   to notify Redis that the config is updated.
  *
  * Sequence diagram for import:
- *   - Note: shows only the events that plugin needs to react.
+ *   - Note: shows only the events that cluster implementation needs to react.
  *
  * ┌───────────────┐              ┌───────────────┐         ┌───────────────┐             ┌───────────────┐
  * │ Destination   │              │ Destination   │         │    Source     │             │ Source        │
- * │ Cluster plugin│              │ Master        │         │    Master     │             │ Cluster plugin│
+ * │ Cluster impl  │              │ Master        │         │    Master     │             │ Cluster impl  │
  * └───────┬───────┘              └───────┬───────┘         └───────┬───────┘             └───────┬───────┘
  *         │                              │                         │                             │
  *         │     ASM_EVENT_IMPORT_START   │                         │                             │
@@ -274,7 +274,7 @@ int clusterNodeTlsPort(clusterNode *node);
 #define ASM_EVENT_MIGRATE_COMPLETED 12 /* Migrate completed (config updated) */
 
 
-/* Called by plugin/implementation to request an ASM operation. (plugin --> redis)
+/* Called by cluster implementation to request an ASM operation. (cluster impl --> redis)
  * Valid values for 'event':
  *  ASM_EVENT_IMPORT_START
  *  ASM_EVENT_CANCEL
@@ -318,7 +318,7 @@ int clusterNodeTlsPort(clusterNode *node);
  **/
 int clusterAsmProcess(const char *task_id, int event, void *arg, char **err);
 
-/* Called when an ASM event occurs to notify implementation/plugin. (redis --> plugin)
+/* Called when an ASM event occurs to notify the cluster implementation. (redis --> cluster impl)
  *
  * `arg` will point to a `slotRangeArray` for the following events:
  *  ASM_EVENT_IMPORT_STARTED
