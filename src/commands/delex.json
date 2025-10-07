@@ -60,22 +60,22 @@
                 "type": "oneof",
                 "arguments": [
                     {
-                        "name": "ifeq-match-value",
+                        "name": "ifeq-value",
                         "type": "string",
                         "token": "IFEQ"
                     },
                     {
-                        "name": "ifne-match-value",
+                        "name": "ifne-value",
                         "type": "string",
                         "token": "IFNE"
                     },
                     {
-                        "name": "ifdeq-match-digest",
+                        "name": "ifdeq-digest",
                         "type": "integer",
                         "token": "IFDEQ"
                     },
                     {
-                        "name": "ifdne-match-digest",
+                        "name": "ifdne-digest",
                         "type": "integer",
                         "token": "IFDNE"
                     }

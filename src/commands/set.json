@@ -58,7 +58,7 @@
         "reply_schema": {
             "anyOf":[
                 {
-                    "description": "`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX` options).",
+                    "description": "`GET` not given: Operation was aborted (conflict with one of the `XX`/`NX`/`IFEQ`/`IFDEQ` options or condition not met).",
                     "type": "null"
                 },
                 {
@@ -144,6 +144,38 @@
                         "type": "pure-token",
                         "token": "KEEPTTL",
                         "since": "6.0.0"
+                    }
+                ]
+            },
+            {
+                "name": "cas",
+                "type": "oneof",
+                "optional": true,
+                "since": "8.4.0",
+                "arguments": [
+                    {
+                        "name": "ifeq-value",
+                        "type": "string",
+                        "token": "IFEQ",
+                        "since": "8.4.0"
+                    },
+                    {
+                        "name": "ifne-value",
+                        "type": "string",
+                        "token": "IFNE",
+                        "since": "8.4.0"
+                    },
+                    {
+                        "name": "ifdeq-digest",
+                        "type": "integer",
+                        "token": "IFDEQ",
+                        "since": "8.4.0"
+                    },
+                    {
+                        "name": "ifdne-digest",
+                        "type": "integer",
+                        "token": "IFDNE",
+                        "since": "8.4.0"
                     }
                 ]
             }

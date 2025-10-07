@@ -10649,10 +10649,10 @@ keySpec DELEX_Keyspecs[1] = {
 
 /* DELEX condition argument table */
 struct COMMAND_ARG DELEX_condition_Subargs[] = {
-{MAKE_ARG("ifeq-match-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifne-match-value",ARG_TYPE_STRING,-1,"IFNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdeq-match-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("ifdne-match-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* DELEX argument table */
@@ -11075,6 +11075,14 @@ struct COMMAND_ARG SET_expiration_Subargs[] = {
 {MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"6.0.0",CMD_ARG_NONE,0,NULL)},
 };
 
+/* SET cas argument table */
+struct COMMAND_ARG SET_cas_Subargs[] = {
+{MAKE_ARG("ifeq-value",ARG_TYPE_STRING,-1,"IFEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifne-value",ARG_TYPE_STRING,-1,"IFNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdeq-digest",ARG_TYPE_INTEGER,-1,"IFDEQ",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("ifdne-digest",ARG_TYPE_INTEGER,-1,"IFDNE",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+};
+
 /* SET argument table */
 struct COMMAND_ARG SET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -11082,6 +11090,7 @@ struct COMMAND_ARG SET_Args[] = {
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,"2.6.12",CMD_ARG_OPTIONAL,2,NULL),.subargs=SET_condition_Subargs},
 {MAKE_ARG("get",ARG_TYPE_PURE_TOKEN,-1,"GET",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("expiration",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,5,NULL),.subargs=SET_expiration_Subargs},
+{MAKE_ARG("cas",ARG_TYPE_ONEOF,-1,NULL,NULL,"8.4.0",CMD_ARG_OPTIONAL,4,NULL),.subargs=SET_cas_Subargs},
 };
 
 /********** SETEX ********************/
@@ -11568,7 +11577,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("mset","Atomically creates or modifies the string values of one or more keys.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSET_History,0,MSET_Tips,2,msetCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSET_Keyspecs,1,NULL,1),.args=MSET_Args},
 {MAKE_CMD("msetnx","Atomically modifies the string values of one or more keys only when all keys don't exist.","O(N) where N is the number of keys to set.","1.0.1",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,MSETNX_History,0,MSETNX_Tips,0,msetnxCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,MSETNX_Keyspecs,1,NULL,1),.args=MSETNX_Args},
 {MAKE_CMD("psetex","Sets both string value and expiration time in milliseconds of a key. The key is created if it doesn't exist.","O(1)","2.6.0",CMD_DOC_DEPRECATED,"`SET` with the `PX` argument","2.6.12","string",COMMAND_GROUP_STRING,PSETEX_History,0,PSETEX_Tips,0,psetexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,PSETEX_Keyspecs,1,NULL,3),.args=PSETEX_Args},
-{MAKE_CMD("set","Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,5),.args=SET_Args},
+{MAKE_CMD("set","Sets the string value of a key, ignoring its type. The key is created if it doesn't exist.","O(1)","1.0.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SET_History,4,SET_Tips,0,setCommand,-3,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SET_Keyspecs,1,setGetKeys,6),.args=SET_Args},
 {MAKE_CMD("setex","Sets the string value and expiration time of a key. Creates the key if it doesn't exist.","O(1)","2.0.0",CMD_DOC_DEPRECATED,"`SET` with the `EX` argument","2.6.12","string",COMMAND_GROUP_STRING,SETEX_History,0,SETEX_Tips,0,setexCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETEX_Keyspecs,1,NULL,3),.args=SETEX_Args},
 {MAKE_CMD("setnx","Set the string value of a key only when the key doesn't exist.","O(1)","1.0.0",CMD_DOC_DEPRECATED,"`SET` with the `NX` argument","2.6.12","string",COMMAND_GROUP_STRING,SETNX_History,0,SETNX_Tips,0,setnxCommand,3,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STRING,SETNX_Keyspecs,1,NULL,2),.args=SETNX_Args},
 {MAKE_CMD("setrange","Overwrites a part of a string value with another by an offset. Creates the key if it doesn't exist.","O(1), not counting the time taken to copy the new string in place. Usually, this string is very small so the amortized complexity is O(1). Otherwise, complexity is O(M) with M being the length of the value argument.","2.2.0",CMD_DOC_NONE,NULL,NULL,"string",COMMAND_GROUP_STRING,SETRANGE_History,0,SETRANGE_Tips,0,setrangeCommand,4,CMD_WRITE|CMD_DENYOOM,ACL_CATEGORY_STRING,SETRANGE_Keyspecs,1,NULL,3),.args=SETRANGE_Args},

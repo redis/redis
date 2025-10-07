@@ -1083,4 +1083,321 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal 1 [r delex key2 IFEQ "123"]
         assert_equal 0 [r exists key2]
     }
+
+    test {Extended SET with IFEQ - key exists and matches} {
+        r set mykey "hello"
+        assert_equal "OK" [r set mykey "world" IFEQ "hello"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFEQ - key exists but doesn't match} {
+        r set mykey "hello"
+        assert_equal {} [r set mykey "world" IFEQ "different"]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFEQ - key doesn't exist} {
+        r del mykey
+        assert_equal {} [r set mykey "world" IFEQ "hello"]
+        assert_equal 0 [r exists mykey]
+    }
+
+    test {Extended SET with IFNE - key exists and doesn't match} {
+        r set mykey "hello"
+        assert_equal "OK" [r set mykey "world" IFNE "different"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFNE - key exists and matches} {
+        r set mykey "hello"
+        assert_equal {} [r set mykey "world" IFNE "hello"]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFNE - key doesn't exist} {
+        r del mykey
+        assert_equal "OK" [r set mykey "world" IFNE "hello"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFDEQ - key exists and digest matches} {
+        r set mykey "hello"
+        set digest [r digest mykey]
+        assert_equal "OK" [r set mykey "world" IFDEQ $digest]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFDEQ - key exists but digest doesn't match} {
+        r set mykey "hello"
+        set wrong_digest [expr [r digest mykey] + 1]
+        assert_equal {} [r set mykey "world" IFDEQ $wrong_digest]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFDEQ - key doesn't exist} {
+        r del mykey
+        set digest 1234567890
+        assert_equal {} [r set mykey "world" IFDEQ $digest]
+        assert_equal 0 [r exists mykey]
+    }
+
+    test {Extended SET with IFDNE - key exists and digest doesn't match} {
+        r set mykey "hello"
+        set wrong_digest [expr [r digest mykey] + 1]
+        assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFDNE - key exists and digest matches} {
+        r set mykey "hello"
+        set digest [r digest mykey]
+        assert_equal {} [r set mykey "world" IFDNE $digest]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFDNE - key doesn't exist} {
+        r del mykey
+        set digest 1234567890
+        assert_equal "OK" [r set mykey "world" IFDNE $digest]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFEQ and GET - key exists and matches} {
+        r set mykey "hello"
+        assert_equal "hello" [r set mykey "world" IFEQ "hello" GET]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFEQ and GET - key exists but doesn't match} {
+        r set mykey "hello"
+        assert_equal "hello" [r set mykey "world" IFEQ "different" GET]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFEQ and GET - key doesn't exist} {
+        r del mykey
+        assert_equal {} [r set mykey "world" IFEQ "hello" GET]
+        assert_equal 0 [r exists mykey]
+    }
+
+    test {Extended SET with IFNE and GET - key exists and doesn't match} {
+        r set mykey "hello"
+        assert_equal "hello" [r set mykey "world" IFNE "different" GET]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFNE and GET - key exists and matches} {
+        r set mykey "hello"
+        assert_equal "hello" [r set mykey "world" IFNE "hello" GET]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFNE and GET - key doesn't exist} {
+        r del mykey
+        assert_equal {} [r set mykey "world" IFNE "hello" GET]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFDEQ and GET - key exists and digest matches} {
+        r set mykey "hello"
+        set digest [r digest mykey]
+        assert_equal "hello" [r set mykey "world" IFDEQ $digest GET]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFDEQ and GET - key exists but digest doesn't match} {
+        r set mykey "hello"
+        set wrong_digest [expr [r digest mykey] + 1]
+        assert_equal "hello" [r set mykey "world" IFDEQ $wrong_digest GET]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFDEQ and GET - key doesn't exist} {
+        r del mykey
+        set digest 1234567890
+        assert_equal {} [r set mykey "world" IFDEQ $digest GET]
+        assert_equal 0 [r exists mykey]
+    }
+
+    test {Extended SET with IFDNE and GET - key exists and digest doesn't match} {
+        r set mykey "hello"
+        set wrong_digest [expr [r digest mykey] + 1]
+        assert_equal "hello" [r set mykey "world" IFDNE $wrong_digest GET]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFDNE and GET - key exists and digest matches} {
+        r set mykey "hello"
+        set digest [r digest mykey]
+        assert_equal "hello" [r set mykey "world" IFDNE $digest GET]
+        assert_equal "hello" [r get mykey]
+    }
+
+    test {Extended SET with IFDNE and GET - key doesn't exist} {
+        r del mykey
+        set digest 1234567890
+        assert_equal {} [r set mykey "world" IFDNE $digest GET]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with IFEQ and expiration} {
+        r set mykey "hello"
+        assert_equal "OK" [r set mykey "world" IFEQ "hello" EX 10]
+        assert_equal "world" [r get mykey]
+        assert_range [r ttl mykey] 5 10
+    }
+
+    test {Extended SET with IFNE and expiration} {
+        r set mykey "hello"
+        assert_equal "OK" [r set mykey "world" IFNE "different" EX 10]
+        assert_equal "world" [r get mykey]
+        assert_range [r ttl mykey] 5 10
+    }
+
+    test {Extended SET with IFDEQ and expiration} {
+        r set mykey "hello"
+        set digest [r digest mykey]
+        assert_equal "OK" [r set mykey "world" IFDEQ $digest EX 10]
+        assert_equal "world" [r get mykey]
+        assert_range [r ttl mykey] 5 10
+    }
+
+    test {Extended SET with IFDNE and expiration} {
+        r set mykey "hello"
+        set wrong_digest [expr [r digest mykey] + 1]
+        assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest EX 10]
+        assert_equal "world" [r get mykey]
+        assert_range [r ttl mykey] 5 10
+    }
+
+    test {Extended SET with IFEQ against wrong type} {
+        r del mylist
+        r lpush mylist "element"
+        assert_error "*WRONGTYPE*" {r set mylist "value" IFEQ "element"}
+    }
+
+    test {Extended SET with IFNE against wrong type} {
+        r del myhash
+        r hset myhash field value
+        assert_error "*WRONGTYPE*" {r set myhash "value" IFNE "value"}
+    }
+
+    test {Extended SET with IFDEQ against wrong type} {
+        r del myset
+        r sadd myset member
+        assert_error "*WRONGTYPE*" {r set myset "value" IFDEQ 1234567890}
+    }
+
+    test {Extended SET with IFDNE against wrong type} {
+        r del myzset
+        r zadd myzset 1 member
+        assert_error "*WRONGTYPE*" {r set myzset "value" IFDNE 1234567890}
+    }
+
+    test {Extended SET with integer-encoded value and IFEQ} {
+        r set mykey 12345
+        assert_encoding int mykey
+        assert_equal "OK" [r set mykey "world" IFEQ "12345"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with integer-encoded value and IFNE} {
+        r set mykey 12345
+        assert_encoding int mykey
+        assert_equal "OK" [r set mykey "world" IFNE "54321"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with binary data and IFEQ} {
+        r set mykey "\x00\x01\x02\x03\xff\xfe"
+        assert_equal "OK" [r set mykey "world" IFEQ "\x00\x01\x02\x03\xff\xfe"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with unicode characters and IFEQ} {
+        r set mykey "Hello 世界"
+        assert_equal "OK" [r set mykey "world" IFEQ "Hello 世界"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with empty string and IFEQ} {
+        r set mykey ""
+        assert_equal "OK" [r set mykey "world" IFEQ ""]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with empty string and IFNE} {
+        r set mykey ""
+        assert_equal {} [r set mykey "world" IFNE ""]
+        assert_equal "" [r get mykey]
+    }
+
+    test {Extended SET case insensitive conditions} {
+        r set mykey "hello"
+        assert_equal "OK" [r set mykey "world" ifeq "hello"]
+        assert_equal "world" [r get mykey]
+        
+        r set mykey "hello"
+        assert_equal "OK" [r set mykey "world" IfEq "hello"]
+        assert_equal "world" [r get mykey]
+        
+        r set mykey "hello"
+        assert_equal "OK" [r set mykey "world" IFEQ "hello"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with special characters and IFEQ} {
+        r set mykey "  spaces  \t\n\r"
+        assert_equal "OK" [r set mykey "world" IFEQ "  spaces  \t\n\r"]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET digest consistency with same content} {
+        r set key1 "identical"
+        r set key2 "identical"
+        set digest1 [r digest key1]
+        set digest2 [r digest key2]
+        assert_equal $digest1 $digest2
+        
+        # Both should be settable with the same digest
+        assert_equal "OK" [r set key1 "new1" IFDEQ $digest1]
+        assert_equal "OK" [r set key2 "new2" IFDEQ $digest2]
+        assert_equal "new1" [r get key1]
+        assert_equal "new2" [r get key2]
+    }
+
+    test {Extended SET digest with different content} {
+        r set key1 "value1"
+        r set key2 "value2"
+        set digest1 [r digest key1]
+        set digest2 [r digest key2]
+        assert {$digest1 != $digest2}
+        
+        # Should not be able to set with wrong digest
+        assert_equal {} [r set key1 "new1" IFDEQ $digest2]
+        assert_equal {} [r set key2 "new2" IFDEQ $digest1]
+        assert_equal "value1" [r get key1]
+        assert_equal "value2" [r get key2]
+        
+        # Should be able to set with correct digest
+        assert_equal "OK" [r set key1 "new1" IFDEQ $digest1]
+        assert_equal "OK" [r set key2 "new2" IFDEQ $digest2]
+        assert_equal "new1" [r get key1]
+        assert_equal "new2" [r get key2]
+    }
+
+    test {Extended SET with very long string and IFEQ} {
+        set longstring [string repeat "Lorem ipsum dolor sit amet. " 1000]
+        r set mykey $longstring
+        assert_equal "OK" [r set mykey "world" IFEQ $longstring]
+        assert_equal "world" [r get mykey]
+    }
+
+    test {Extended SET with negative digest} {
+        r set mykey "test"
+        set digest [r digest mykey]
+        set wrong_digest -1234567890
+        assert_equal "OK" [r set mykey "world" IFDNE $wrong_digest]
+        assert_equal "world" [r get mykey]
+    }
 }
