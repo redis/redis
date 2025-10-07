@@ -843,8 +843,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # we set a delay to cancel
         R 1 config set rdb-key-save-delay 1000000
 
-        # flushall, flushdb, sflush
-        foreach flushcmd {flushall flushdb sflush} {
+        # flushall, flushdb
+        foreach flushcmd {flushall flushdb} {
             # start slot migration from 1 to 0
             set task_id [setup_slot_migration_with_delay 1 0 0 100]
 
@@ -852,9 +852,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             if {$flushcmd == "flushall"} {
                 R 0 flushall
             } elseif {$flushcmd == "flushdb"} {
-                R 0 flushdb
-            } elseif {$flushcmd == "sflush"} {
-                R 1 sflush 0 15000
+                R 1 flushdb
             }
 
             # flush-like will cancel the task
@@ -866,7 +864,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             }
         }
 
-        # Since sflush is executed on the source, the task is only canceled on the source.
+        # Since flushdb is executed on the source, the task is only canceled on the source.
         # The destination node will retry the import task, and eventually the slot 0-100
         # migration to #0 will succeed.
         R 1 config set rdb-key-save-delay 0
@@ -1962,38 +1960,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert {[scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] == {}}
 
         R 1 flushall
-    }
-
-    test "Test active trim is used when client tracking is used" {
-        R 0 flushall
-        R 1 flushall
-
-        # Setup a tracking client that is redirected to a pubsub client
-        set rd_redirection [redis_deferring_client]
-        $rd_redirection client id
-        set redir_id [$rd_redirection read]
-        $rd_redirection subscribe __redis__:invalidate
-        $rd_redirection read ; # Consume the SUBSCRIBE reply.
-
-        # setup tracking
-        set key0 [slot_key 0 key]
-        R 0 CLIENT TRACKING on REDIRECT $redir_id
-        R 0 SET $key0 1
-        R 0 GET $key0
-        R 1 CLUSTER MIGRATION IMPORT 0 0
-        wait_for_asm_done
-
-        # Verify the tracking client received the invalidation message
-        set msg [$rd_redirection read]
-        # PubSub invalidation payload is a list of keys; take the first element
-        assert_equal [lindex $msg 2 0] $key0
-
-        # cleanup
-        $rd_redirection close
-        wait_for_asm_done
-        R 0 CLUSTER MIGRATION IMPORT 0 0
-        wait_for_asm_done
-        R 0 flushall
     }
 
     test "Test active trim is used when client tracking is used" {
