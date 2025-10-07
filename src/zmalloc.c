@@ -342,70 +342,74 @@ static inline void *ztryrealloc_usable_internal(void *ptr, size_t size, size_t *
 #ifndef HAVE_MALLOC_SIZE
     void *realptr;
 #endif
-    size_t oldsize;
+    size_t oldsize, dummy;
     void *newptr;
+
+    if (!usable) usable = &dummy;
+    if (!old_usable) old_usable = &dummy;
 
     /* not allocating anything, just redirect to free. */
     if (size == 0 && ptr != NULL) {
         zfree_usable(ptr, &oldsize);
-        if (usable) *usable = 0;
-        if (old_usable) *old_usable = oldsize;
+        *usable = 0;
+        *old_usable = oldsize;
         return NULL;
     }
     /* Not freeing anything, just redirect to malloc. */
     if (ptr == NULL) {
-        if (old_usable) *old_usable = 0;
+        *old_usable = 0;
         return ztrymalloc_usable(size, usable);
     }
 
     /* Possible overflow, return NULL, so that the caller can panic or handle a failed allocation. */
     if (size >= SIZE_MAX/2) {
         zfree_usable(ptr, &oldsize);
-        if (usable) *usable = 0;
-        if (old_usable) *usable = oldsize;
+        *usable = 0;
+        *old_usable = oldsize;
         return NULL;
     }
 #ifdef HAVE_ALLOC_WITH_USIZE
     newptr = realloc_with_usize(ptr, size, &oldsize, &size);
     if (newptr == NULL) {
-        if (usable) *usable = 0;
-        if (old_usable) *old_usable = oldsize;
+        *usable = 0;
+        *old_usable = oldsize;
         return NULL;
     }
     update_zmalloc_stat_free(oldsize);
     update_zmalloc_stat_alloc(size);
-    if (usable) *usable = size;
-    if (old_usable) *old_usable = oldsize;
+    *usable = size;
+    *old_usable = oldsize;
     return newptr;
 #elif HAVE_MALLOC_SIZE
     oldsize = zmalloc_size(ptr);
     newptr = realloc(ptr,size);
     if (newptr == NULL) {
-        if (usable) *usable = 0;
-        if (old_usable) *old_usable = oldsize;
+        *usable = 0;
+        *old_usable = oldsize;
         return NULL;
     }
 
     update_zmalloc_stat_free(oldsize);
     size = zmalloc_size(newptr);
     update_zmalloc_stat_alloc(size);
-    if (usable) *usable = size;
-    if (old_usable) *old_usable = oldsize;
+    *usable = size;
+    *old_usable = oldsize;
     return newptr;
 #else
     realptr = (char*)ptr-PREFIX_SIZE;
     oldsize = *((size_t*)realptr);
     newptr = realloc(realptr,size+PREFIX_SIZE);
     if (newptr == NULL) {
-        if (usable) *usable = 0;
+        *usable = 0;
+        *old_usable = oldsize;
         return NULL;
     }
 
     *((size_t*)newptr) = size;
     update_zmalloc_stat_free(oldsize);
     update_zmalloc_stat_alloc(size);
-    if (usable) *usable = size;
-    if (old_usable) *old_usable = oldsize;
+    *usable = size;
+    *old_usable = oldsize;
     return (char*)newptr+PREFIX_SIZE;
 #endif
 }
