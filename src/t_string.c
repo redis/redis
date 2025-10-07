@@ -57,6 +57,10 @@ static int checkStringLength(client *c, long long size, long long append) {
 #define OBJ_EXAT (1<<6)            /* Set if timestamp in second is given */
 #define OBJ_PXAT (1<<7)            /* Set if timestamp in ms is given */
 #define OBJ_PERSIST (1<<8)         /* Set if we need to remove the ttl */
+#define OBJ_SET_IFEQ (1<<9)        /* Set if value equals match value */
+#define OBJ_SET_IFNE (1<<10)       /* Set if value does not equal match value */
+#define OBJ_SET_IFDEQ (1<<11)      /* Set if current digest equals match digest */
+#define OBJ_SET_IFDNE (1<<12)      /* Set if current digest does not equal match digest */
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
@@ -281,6 +285,14 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
             *unit = UNIT_MILLISECONDS;
             *expire = next;
             j++;
+        } else if (!strcasecmp(opt, "ifeq")) {
+            *flags |= OBJ_SET_IFEQ;
+        } else if (!strcasecmp(opt, "ifne")) {
+            *flags |= OBJ_SET_IFNE;
+        } else if (!strcasecmp(opt, "ifdeq")) {
+            *flags |= OBJ_SET_IFDEQ;
+        } else if (!strcasecmp(opt, "ifdne")) {
+            *flags |= OBJ_SET_IFDNE;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
             return C_ERR;
@@ -960,5 +972,98 @@ cleanup:
     if (obja) decrRefCount(obja);
     if (objb) decrRefCount(objb);
     return;
+}
+
+long long stringDigest(robj *o) {
+    serverAssert(o && o->type == OBJ_STRING);
+
+    XXH64_hash_t hash = 0;
+    if (sdsEncodedObject(o)) {
+        hash = XXH3_64bits(o->ptr, sdslen(o->ptr));
+    } else if (o->encoding == OBJ_ENCODING_INT) {
+        char buf[34];
+        size_t len = ll2string(buf,sizeof(buf),(long long)o->ptr);
+        hash = XXH3_64bits(buf, len);
+    } else {
+        serverPanic("Wrong obj->encoding stringDigest()");
+    }
+
+    return (long long)hash;
+}
+
+void digestCommand(client *c) {
+    kvobj *o;
+
+    if ((o = lookupKeyReadOrReply(c, c->argv[1], shared.null[c->resp])) == NULL)
+        return;
+
+    if (checkType(c,o,OBJ_STRING))
+        return;
+
+    addReplyLongLong(c, stringDigest(o));
+}
+
+void delexCommand(client *c) {
+    kvobj *o;
+    int deleted = 0;
+
+    robj *key = c->argv[1];
+    o = lookupKeyRead(c->db, c->argv[1]);
+    if (o == NULL) {
+        addReplyLongLong(c, 0);
+        return;
+    }
+
+    if (checkType(c, o, OBJ_STRING)) {
+        return;
+    }
+
+    char *condition = c->argv[2]->ptr;
+    if (!strcasecmp("ifeq", condition)) {
+        robj *valueobj = getDecodedObject(o);
+        sds match_value = c->argv[3]->ptr;
+        if (sdscmp(valueobj->ptr, match_value) == 0) {
+            deleted = dbSyncDelete(c->db, key);
+        }
+
+        decrRefCount(valueobj);
+    } else if (!strcasecmp("ifne", condition)) {
+        robj *valueobj = getDecodedObject(o);
+        sds match_value = c->argv[3]->ptr;
+        if (sdscmp(valueobj->ptr, match_value) != 0) {
+            deleted = dbSyncDelete(c->db, key);
+        }
+
+        decrRefCount(valueobj);
+    } else if (!strcasecmp("ifdeq", condition)) {
+        long long current_digest = stringDigest(o);
+        long long match_digest;
+        if (getLongLongFromObjectOrReply(c, c->argv[3], &match_digest, NULL) != C_OK) {
+            return;
+        }
+        if (current_digest == match_digest) {
+            deleted = dbSyncDelete(c->db, key);
+        }
+    } else if (!strcasecmp("ifdne", condition)) {
+        long long current_digest = stringDigest(o);
+        long long match_digest;
+        if (getLongLongFromObjectOrReply(c, c->argv[3], &match_digest, NULL) != C_OK) {
+            return;
+        }
+        if (current_digest != match_digest) {
+            deleted = dbSyncDelete(c->db, key);
+        }
+    } else {
+        addReplyError(c, "Invalid condition. Use IFEQ, IFNE, IFDEQ, or IFDNE");
+        return;
+    }
+
+    if (deleted) {
+        rewriteClientCommandVector(c, 2, shared.del, c->argv[1]);
+        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        server.dirty++;
+    }
+    addReplyLongLong(c, deleted);
 }
 
