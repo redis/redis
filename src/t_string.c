@@ -1078,7 +1078,7 @@ long long stringDigest(robj *o) {
         hash = XXH3_64bits(o->ptr, sdslen(o->ptr));
     } else if (o->encoding == OBJ_ENCODING_INT) {
         char buf[34];
-        size_t len = ll2string(buf,sizeof(buf),(long long)o->ptr);
+        size_t len = ll2string(buf,sizeof(buf),(long)o->ptr);
         hash = XXH3_64bits(buf, len);
     } else {
         serverPanic("Wrong obj->encoding stringDigest()");

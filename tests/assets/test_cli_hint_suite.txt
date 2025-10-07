@@ -67,18 +67,18 @@
 "ZRANGE k 1 2 rev " "[BYSCORE|BYLEX] [LIMIT offset count] [WITHSCORES]"
 "ZRANGE k 1 2 WITHSCORES " "[BYSCORE|BYLEX] [REV] [LIMIT offset count]"
 
-# Optional one-of args with parameters: SET key value [NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]
-"SET key value " "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
-"SET key value EX" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
-"SET key value EX " "seconds [NX|XX] [GET]"
-"SET key value EX 23 " "[NX|XX] [GET]"
-"SET key value EXAT" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
-"SET key value EXAT " "unix-time-seconds [NX|XX] [GET]"
-"SET key value PX" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
-"SET key value PX " "milliseconds [NX|XX] [GET]"
-"SET key value PXAT" "[NX|XX] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
-"SET key value PXAT " "unix-time-milliseconds [NX|XX] [GET]"
-"SET key value KEEPTTL " "[NX|XX] [GET]"
+# Optional one-of args with parameters: SET key value [NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]
+"SET key value " "[NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value EX" "[NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value EX " "seconds [NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET]"
+"SET key value EX 23 " "[NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET]"
+"SET key value EXAT" "[NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value EXAT " "unix-time-seconds [NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET]"
+"SET key value PX" "[NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value PX " "milliseconds [NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET]"
+"SET key value PXAT" "[NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
+"SET key value PXAT " "unix-time-milliseconds [NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET]"
+"SET key value KEEPTTL " "[NX|XX|IFEQ ifeq-value|IFNE ifne-value|IFDEQ ifdeq-digest|IFDNE ifdne-digest] [GET]"
 "SET key value XX " "[GET] [EX seconds|PX milliseconds|EXAT unix-time-seconds|PXAT unix-time-milliseconds|KEEPTTL]"
 
 # If an input word can't be matched, stop hinting.
