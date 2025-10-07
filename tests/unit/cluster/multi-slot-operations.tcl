@@ -108,7 +108,7 @@ test "DELSLOTSRANGE command with several boundary conditions test suite" {
 }
 } cluster_allocate_with_continuous_slots_local
 
-start_cluster 2 0 {tags {external:skip cluster}} {
+start_cluster 2 0 {tags {external:skip cluster experimental}} {
 
 set master1 [srv 0 "client"]
 set master2 [srv -1 "client"]
