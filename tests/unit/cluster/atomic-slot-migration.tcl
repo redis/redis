@@ -376,6 +376,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # wait until migration of 0-100 successful
         wait_for_asm_done
 
+        # verify task state became completed
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+
         # the appended 99 times should also be migrated
         assert_equal [string repeat a 100] [R 1 get $slot0_key]
         assert_equal [string repeat b 100] [R 1 get $slot1_key]
