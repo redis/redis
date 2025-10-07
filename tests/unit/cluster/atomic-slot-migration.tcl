@@ -2560,6 +2560,21 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         R 1 flushall
     }
 
+    test "Verify trimmed key value can be read in the server event callback" {
+        R 0 flushall
+        set key [slot_key 0]
+        set value "value123random"
+        R 0 set $key $value
+
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+        assert_equal "keyevent: key: $key, value: $value" [R 0 asm.get_last_deleted_key]
+
+        # cleanup
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
+
     test "Test RM_ClusterGetLocalSlotRanges" {
        assert_equal [R 0 asm.cluster_get_local_slot_ranges] {{0 5461}}
        assert_equal [R 3 asm.cluster_get_local_slot_ranges] {{0 5461}}

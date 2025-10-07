@@ -14,6 +14,9 @@ int numClusterEvents = 0;
 const char *clusterTrimEventLog[MAX_EVENTS];
 int numClusterTrimEvents = 0;
 
+/* Log of last deleted key event. */
+const char *lastDeletedKeyLog = NULL;
+
 int replicateModuleCommand = 0;   /* Enable or disable module command replication. */
 RedisModuleString *moduleCommandKeyName = NULL; /* Key name to replicate. */
 RedisModuleString *moduleCommandKeyVal = NULL;  /* Key value to replicate. */
@@ -382,6 +385,48 @@ int subscribeTrimmedEvent(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_OK;
 }
 
+void keyEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(e);
+
+    if (sub == REDISMODULE_SUBEVENT_KEY_DELETED) {
+        RedisModuleKeyInfoV1 *ei = data;
+        RedisModuleKey *kp = ei->key;
+        RedisModuleString *key = (RedisModuleString *) RedisModule_GetKeyNameFromModuleKey(kp);
+        size_t keylen;
+        const char *keyname = RedisModule_StringPtrLen(key, &keylen);
+
+        /* Verify value can be read. It will be used to verify key's value can
+         * be read in a trim callback. */
+        size_t valuelen = 0;
+        const char *value = "";
+        RedisModuleKey *mk = RedisModule_OpenKey(ctx, key, REDISMODULE_READ);
+        if (RedisModule_KeyType(mk) == REDISMODULE_KEYTYPE_STRING) {
+            value = RedisModule_StringDMA(mk, &valuelen, 0);
+        }
+        RedisModule_CloseKey(mk);
+
+        char buf[1024] = {0};
+        snprintf(buf, sizeof(buf), "keyevent: key: %.*s, value: %.*s", (int) keylen, keyname, (int)valuelen, value);
+
+        if (lastDeletedKeyLog) RedisModule_Free((void *)lastDeletedKeyLog);
+        lastDeletedKeyLog = RedisModule_Strdup(buf);
+    }
+}
+
+int getLastDeletedKey(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    if (lastDeletedKeyLog) {
+        RedisModule_ReplyWithStringBuffer(ctx, lastDeletedKeyLog, strlen(lastDeletedKeyLog));
+    } else {
+        RedisModule_ReplyWithNull(ctx);
+    }
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -422,6 +467,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.cluster_get_local_slot_ranges", testClusterGetLocalSlotRanges, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "asm.get_last_deleted_key", getLastDeletedKey, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx, "asm.parent", NULL, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
@@ -439,6 +487,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_TRIMMED, keyspaceNotificationTrimmedCallback) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, keyEventCallback) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;
