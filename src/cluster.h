@@ -214,18 +214,24 @@ clusterNode *clusterShardNodeFirst(void *shard);
 int clusterNodeTcpPort(clusterNode *node);
 int clusterNodeTlsPort(clusterNode *node);
 
-/* API for the alternative cluster implementation
+/* API for alternative cluster implementations to start and coordinate
+ * Atomic Slot Migration (ASM).
  *
+ * These two functions drive ASM for alternative cluster implementations.
+ * - clusterAsmProcess(...) impl -> redis: initiates/advances/cancels ASM operations
+ * - clusterAsmOnEvent(...) redis -> impl: notifies state changes
+ *
+ * Generic steps for an alternative implementation:
  * - On destination side, implementation calls clusterAsmProcess(ASM_EVENT_IMPORT_START)
- *   to start the import operation.
- * - Redis calls clusterAsmOnEvent() when an event occurs.
+ *   to start an import operation.
+ * - Redis calls clusterAsmOnEvent() when an ASM event occurs.
  * - On the source side, Redis will call clusterAsmOnEvent(ASM_EVENT_HANDOFF_PREP)
- *   when slots are ready to be handed off  and the write pause is needed.
+ *   when slots are ready to be handed off and the write pause is needed.
  * - Implementation stops the traffic to the slots and calls clusterAsmProcess(ASM_EVENT_HANDOFF)
  * - On the destination side, Redis calls clusterAsmOnEvent(ASM_EVENT_TAKEOVER)
- *   when destination node is ready to take over the slot, waiting for config change.
+ *   when destination node is ready to take over the slot, waiting for ownership change.
  * - Cluster implementation updates the config and calls clusterAsmProcess(ASM_EVENT_DONE)
- *   to notify Redis that the config is updated.
+ *   to notify Redis that the slots ownership has changed.
  *
  * Sequence diagram for import:
  *   - Note: shows only the events that cluster implementation needs to react.

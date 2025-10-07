@@ -2568,7 +2568,11 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
 
         R 1 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
-        assert_equal "keyevent: key: $key, value: $value" [R 0 asm.get_last_deleted_key]
+        wait_for_condition 1000 10 {
+            [R 0 asm.get_last_deleted_key] eq "keyevent: key: $key, value: $value"
+        } else {
+            fail "Last deleted key event not received"
+        }
 
         # cleanup
         R 0 CLUSTER MIGRATION IMPORT 0 0
