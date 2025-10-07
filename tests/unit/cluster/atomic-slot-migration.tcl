@@ -1426,34 +1426,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 debug asm-trim-method default
     }
 
-    test "Test bgtrim invalidates keys for tracking clients" {
-        # Setup a tracking client that is redirected to a pubsub client
-        set rd_redirection [redis_deferring_client]
-        $rd_redirection client id
-        set redir_id [$rd_redirection read]
-        $rd_redirection subscribe __redis__:invalidate
-        $rd_redirection read ; # Consume the SUBSCRIBE reply.
-
-        # setup tracking
-        set key0 [slot_key 0 key]
-        R 0 CLIENT TRACKING on REDIRECT $redir_id
-        R 0 SET $key0 1
-        R 0 GET $key0
-        R 1 CLUSTER MIGRATION IMPORT 0 0
-        wait_for_asm_done
-
-        # Verify the tracking client received the invalidation message
-        set msg [$rd_redirection read]
-        assert {[lindex msg 2] eq {} }
-
-        # cleanup
-        $rd_redirection close
-        wait_for_asm_done
-        R 0 CLUSTER MIGRATION IMPORT 0 0
-        wait_for_asm_done
-        R 0 flushall
-    }
-
     test "Test bgtrim after a FAILOVER on destination side" {
         R 1 debug asm-trim-method bg
         R 4 debug asm-trim-method bg
@@ -1986,6 +1958,80 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert {[scan [regexp -inline {keys\=([\d]*)} [R 1 info keyspace]] keys=%d] == {}}
 
         R 1 flushall
+    }
+
+    test "Test active trim is used when client tracking is used" {
+        R 0 flushall
+        R 1 flushall
+
+        # Setup a tracking client that is redirected to a pubsub client
+        set rd_redirection [redis_deferring_client]
+        $rd_redirection client id
+        set redir_id [$rd_redirection read]
+        $rd_redirection subscribe __redis__:invalidate
+        $rd_redirection read ; # Consume the SUBSCRIBE reply.
+
+        # setup tracking
+        set key0 [slot_key 0 key]
+        R 0 CLIENT TRACKING on REDIRECT $redir_id
+        R 0 SET $key0 1
+        R 0 GET $key0
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+
+        # Verify the tracking client received the invalidation message
+        set msg [$rd_redirection read]
+        # PubSub invalidation payload is a list of keys; take the first element
+        assert_equal [lindex $msg 2 0] $key0
+
+        # cleanup
+        $rd_redirection close
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+        R 0 flushall
+    }
+
+    test "Test active trim is used when client tracking is used" {
+        R 0 flushall
+        R 1 flushall
+        R 0 debug asm-trim-method default
+        R 1 debug asm-trim-method default
+
+        set prev_active_trim [CI 0 slot_migration_active_trim_completed]
+
+        # Setup a tracking client that is redirected to a pubsub client
+        set rd_redirection [redis_deferring_client]
+        $rd_redirection client id
+        set redir_id [$rd_redirection read]
+        $rd_redirection subscribe __redis__:invalidate
+        $rd_redirection read ; # Consume the SUBSCRIBE reply.
+
+        # setup tracking
+        set key0 [slot_key 0 key]
+        R 0 CLIENT TRACKING on REDIRECT $redir_id
+        R 0 SET $key0 1
+        R 0 GET $key0
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+
+        wait_for_condition 1000 10 {
+            [CI 0 slot_migration_active_trim_completed] == [expr $prev_active_trim + 1]
+        } else {
+            fail "active trim did not happen"
+        }
+
+        # Verify the tracking client received the invalidation message
+        set msg [$rd_redirection read]
+        # PubSub invalidation payload is a list of keys; take the first element
+        assert_equal [lindex $msg 2 0] $key0
+
+        # cleanup
+        $rd_redirection close
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+        R 0 flushall
     }
 }
 

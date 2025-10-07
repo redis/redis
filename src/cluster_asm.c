@@ -46,7 +46,7 @@ typedef struct asmTask {
     long long retry_count;                  /* Number of retries for this task */
     mstime_t create_time;                   /* Task creation time */
     mstime_t start_time;                    /* Task start time */
-    mstime_t end_time;                  /* Task end time */
+    mstime_t end_time;                      /* Task end time */
     mstime_t paused_time;                   /* The time when the slot writes were paused */
     mstime_t dest_slots_snapshot_time;      /* The time when the destination starts applying the slot snapshot */
     mstime_t dest_accum_applied_time;       /* The time when the destination finishes applying the accumulated buffer */
@@ -2816,9 +2816,7 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
                           REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND,
                           &fsi);
-    /* TODO: This is going to send invalidation message for all the keys for
-     * the tracking clients. We need to consider how we can do that for only
-     * the keys in the slots we are trimming. */
+
     signalFlushedDb(0, 1, slots);
 
     /* Create temp kvstores and estore, move relevant slot dicts/ebuckets into them,
@@ -2851,8 +2849,16 @@ void asmTrimSlots(slotRangeArray *slots) {
     if (asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
         return;
 
-    /* TODO: Is that two event enough or shall we check for zero subscribers? */
-    int activetrim = (asmManager->debug_trim_method == ASM_DEBUG_TRIM_ACTIVE) ||
+    /* Trigger active trim for the following cases:
+     * 1. Debug override: trim method is set to 'active'.
+     * 2. There are clients using client side caching (client tracking is enabled):
+     *   There is no way to invalidate specific slots in the client tracking
+     *   protocol. For now, we just use active trim to trim the slots.
+     * 3. Module subscribers: If any module is subscribed to TRIMMED event, we
+     *   assume module needs per key notification and cannot use background trim.
+     */
+    int activetrim = server.tracking_clients != 0 ||
+                     (asmManager->debug_trim_method == ASM_DEBUG_TRIM_ACTIVE) ||
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT &&
                       moduleHasSubscribersForKeyspaceEvent(NOTIFY_GENERIC | NOTIFY_TRIMMED));
     if (activetrim)
@@ -3215,7 +3221,12 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
     if (static_key) keyobj = createStringObject(keyobj->ptr, sdslen(keyobj->ptr));
 
     dbDelete(db, keyobj);
-    notifyKeyspaceEvent(NOTIFY_TRIMMED, "trimmed", keyobj, db->id);
+    signalModifiedKey(NULL, db, keyobj);
+    /* The keys are not actually logically deleted from the database, just moved
+     * to another node. The modules need to know that these keys are no longer
+     * available locally, so just send the keyspace notification to the modules,
+     * but not to clients. */
+    moduleNotifyKeyspaceEvent(NOTIFY_TRIMMED, "trimmed", keyobj, db->id);
     asmManager->active_trim_current_job_trimmed++;
 
     if (static_key) decrRefCount(keyobj);
