@@ -2860,7 +2860,7 @@ void asmTrimSlots(slotRangeArray *slots) {
     int activetrim = server.tracking_clients != 0 ||
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_ACTIVE) ||
                      (asmManager->debug_trim_method == ASM_DEBUG_TRIM_DEFAULT &&
-                      moduleHasSubscribersForKeyspaceEvent(NOTIFY_GENERIC | NOTIFY_TRIMMED));
+                      moduleHasSubscribersForKeyspaceEvent(NOTIFY_KEY_TRIMMED));
     if (activetrim)
         asmTriggerActiveTrim(slots);
     else
@@ -3226,7 +3226,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
      * to another node. The modules need to know that these keys are no longer
      * available locally, so just send the keyspace notification to the modules,
      * but not to clients. */
-    moduleNotifyKeyspaceEvent(NOTIFY_TRIMMED, "trimmed", keyobj, db->id);
+    moduleNotifyKeyspaceEvent(NOTIFY_KEY_TRIMMED, "key_trimmed", keyobj, db->id);
     asmManager->active_trim_current_job_trimmed++;
 
     if (static_key) decrRefCount(keyobj);

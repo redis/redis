@@ -272,8 +272,8 @@ void clusterTrimEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t 
 static int keyspaceNotificationTrimmedCallback(RedisModuleCtx *ctx, int type, const char *event, RedisModuleString *key) {
     REDISMODULE_NOT_USED(ctx);
 
-    RedisModule_Assert(type == REDISMODULE_NOTIFY_TRIMMED);
-    RedisModule_Assert(strcmp(event, "trimmed") == 0);
+    RedisModule_Assert(type == REDISMODULE_NOTIFY_KEY_TRIMMED);
+    RedisModule_Assert(strcmp(event, "key_trimmed") == 0);
 
     if (numClusterTrimEvents >= MAX_EVENTS) return REDISMODULE_OK;
 
@@ -282,7 +282,7 @@ static int keyspaceNotificationTrimmedCallback(RedisModuleCtx *ctx, int type, co
     const char *key_str = RedisModule_StringPtrLen(key, &len);
 
     char buf[1024] = {0};
-    snprintf(buf, sizeof(buf), "keyspace: trimmed, key: %s", key_str);
+    snprintf(buf, sizeof(buf), "keyspace: key_trimmed, key: %s", key_str);
 
     clusterTrimEventLog[numClusterTrimEvents++] = RedisModule_Strdup(buf);
     return REDISMODULE_OK;
@@ -358,6 +358,30 @@ int readkeylessCmdVal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+int subscribeTrimmedEvent(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(ctx);
+    if (argc != 2)
+        return RedisModule_WrongArity(ctx);
+
+    long long subscribe = 0;
+    if (RedisModule_StringToLongLong(argv[1], &subscribe) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, "ERR subscribe value");
+        return REDISMODULE_OK;
+    }
+
+    if (subscribe) {
+        /* Unsubscribe first to avoid duplicate subscription. */
+        RedisModule_UnsubscribeFromKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_TRIMMED, keyspaceNotificationTrimmedCallback);
+        int ret = RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_TRIMMED, keyspaceNotificationTrimmedCallback);
+        RedisModule_Assert(ret == REDISMODULE_OK);
+    } else {
+        int ret = RedisModule_UnsubscribeFromKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_TRIMMED, keyspaceNotificationTrimmedCallback);
+        RedisModule_Assert(ret == REDISMODULE_OK);
+    }
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -386,6 +410,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.sanity", sanity, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "asm.subscribe_trimmed_event", subscribeTrimmedEvent, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx, "asm.replicate_module_command", replicate_module_command, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
@@ -411,7 +438,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterAsmTrim, clusterTrimEventCallback) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_TRIMMED, keyspaceNotificationTrimmedCallback) == REDISMODULE_ERR)
+    if (RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_KEY_TRIMMED, keyspaceNotificationTrimmedCallback) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

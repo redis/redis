@@ -2015,7 +2015,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         }
     }
 
-    proc reset_default_trim_mothod {} {
+    proc reset_default_trim_method {} {
         for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
             R $i debug asm-trim-method default
         }
@@ -2158,7 +2158,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             if {$trim_method eq "active"} {
                 set trim_event_log [list \
                     "sub: cluster-asm-trim-started, slots:0-100,200-300" \
-                    "keyspace: trimmed, key: $key" \
+                    "keyspace: key_trimmed, key: $key" \
                     "sub: cluster-asm-trim-completed, slots:0-100,200-300" \
                 ]
             } else {
@@ -2178,7 +2178,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             R 0 CLUSTER MIGRATION IMPORT 0 100 200 300
             wait_for_asm_done
             clear_module_event_log
-            reset_default_trim_mothod
+            reset_default_trim_method
             R 0 flushall
             R 1 flushall
         }
@@ -2233,7 +2233,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             if {$trim_method eq "active"} {
                 set trim_event_log [list \
                     "sub: cluster-asm-trim-started, slots:0-100" \
-                    "keyspace: trimmed, key: $key" \
+                    "keyspace: key_trimmed, key: $key" \
                     "sub: cluster-asm-trim-completed, slots:0-100" \
                 ]
             } else {
@@ -2251,7 +2251,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
 
             # cleanup
             clear_module_event_log
-            reset_default_trim_mothod
+            reset_default_trim_method
             wait_for_asm_done
             R 0 flushall
             R 1 flushall
@@ -2311,7 +2311,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             if {$trim_method eq "active"} {
                 set trim_event_log [list \
                     "sub: cluster-asm-trim-started, slots:0-0" \
-                    "keyspace: trimmed, key: $key" \
+                    "keyspace: key_trimmed, key: $key" \
                     "sub: cluster-asm-trim-completed, slots:0-0" \
                 ]
             } else {
@@ -2332,7 +2332,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             wait_for_failover 1
             wait_for_cluster_propagation
             clear_module_event_log
-            reset_default_trim_mothod
+            reset_default_trim_method
             R 0 flushall
             R 1 flushall
         }
@@ -2394,7 +2394,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             wait_for_asm_done
             R 4 save ;# save an empty rdb to override previous one
             clear_module_event_log
-            reset_default_trim_mothod
+            reset_default_trim_method
             R 0 flushall
             R 1 flushall
         }
@@ -2471,7 +2471,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done
         clear_module_event_log
-        reset_default_trim_mothod
+        reset_default_trim_method
         R 0 flushall
         R 1 flushall
     }
@@ -2525,6 +2525,39 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         # cleanup
         R 0 cluster migration import 0 100
         wait_for_asm_done
+    }
+
+    test "Test trim method selection based on module keyspace subscription" {
+        R 0 debug asm-trim-method default
+        R 1 debug asm-trim-method default
+
+        R 0 flushall
+        R 1 flushall
+
+        populate_slot 10 -idx 0 -slot 0
+
+        # Make sure module is subscribed to NOTIFY_KEY_TRIMMED event. In this
+        # case, active trim must be used.
+        R 0 asm.subscribe_trimmed_event 1
+        set loglines [count_log_lines 0]
+        R 1 CLUSTER MIGRATION IMPORT 0 15
+        wait_for_asm_done
+        wait_for_log_messages 0 {"*Active trim scheduled for slots: 0-15*"} $loglines 1000 10
+
+        # Move slots back to node-0. Make sure module is not subscribed to
+        # NOTIFY_KEY_TRIMMED event. In this case, background trim must be used.
+        R 1 asm.subscribe_trimmed_event 0
+        set loglines [count_log_lines -1]
+        R 0 CLUSTER MIGRATION IMPORT 0 15
+        wait_for_asm_done
+        wait_for_log_messages -1 {"*Background trim started for slots: 0-15"} $loglines 1000 10
+
+        # cleanup
+        wait_for_asm_done
+        R 0 asm.subscribe_trimmed_event 1
+        R 1 asm.subscribe_trimmed_event 1
+        R 0 flushall
+        R 1 flushall
     }
 
     test "Test RM_ClusterGetLocalSlotRanges" {
