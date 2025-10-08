@@ -884,7 +884,7 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
 
         void *prev;
         raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
-        if(prev) {
+        if (prev) {
             streamNACK *prevNack = prev;
             timeKey.delivery_time = prevNack->delivery_time;
             timeKey.id = id;
