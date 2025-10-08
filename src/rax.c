@@ -193,7 +193,7 @@ rax *raxNew(void) {
 }
 
 /* Allocate a new rax with metadata */
-rax *raxNewWithMetadata(int flags, int metaSize) {
+rax *raxNewWithMetadata(int metaSize, int flags) {
     assert(!(flags & RAX_ACCOUNT_ALLOC_SIZE) ||
            (size_t)metaSize >= sizeof(size_t));
     size_t usable;
@@ -2065,7 +2065,7 @@ int raxTest(int argc, char **argv, int flags) {
     int err = 0;
 
     TEST("verify raxAllocSize() after raxInsert()/raxRemove()") {
-        rax *r = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+        rax *r = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
 
         /* Insert values and verify accounting */
         void *val1 = createTestValue(100);
@@ -2090,7 +2090,7 @@ int raxTest(int argc, char **argv, int flags) {
     }
 
     TEST("verify raxAllocSize() when replacing existing key") {
-        rax *r = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+        rax *r = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
 
         void *val1 = createTestValue(100);
         assert(raxInsert(r, (unsigned char*)"key", 3, val1, NULL) == 1);

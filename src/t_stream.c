@@ -53,7 +53,7 @@ stream *streamNew(void) {
     size_t usable;
     stream *s = zmalloc_usable(sizeof(*s), &usable);
     s->alloc_size = usable;
-    s->rax = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    s->rax = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
     s->alloc_size += raxAllocSize(s->rax);
     s->length = 0;
     s->first_id.ms = 0;
@@ -239,7 +239,7 @@ robj *streamDup(robj *o) {
             new_s->alloc_size += usable;
             new_consumer->name = sdsdup(consumer->name);
             new_s->alloc_size += sdsAllocSize(new_consumer->name);
-            new_consumer->pel = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+            new_consumer->pel = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
             raxInsert(new_cg->consumers,(unsigned char *)new_consumer->name,
                         sdslen(new_consumer->name), new_consumer, NULL);
             new_consumer->seen_time = consumer->seen_time;
@@ -2891,7 +2891,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
 
     if (!s->cgroups_ref) {
-        s->cgroups_ref = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+        s->cgroups_ref = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
         s->alloc_size += raxAllocSize(s->cgroups_ref);
     }
     
@@ -3066,7 +3066,7 @@ void streamFreeConsumerGeneric(void *sc, void *s) {
  * consumer group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
     if (s->cgroups == NULL) {
-        s->cgroups = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+        s->cgroups = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
         s->alloc_size += raxAllocSize(s->cgroups);
     }
     if (raxFind(s->cgroups,(unsigned char*)name,namelen,NULL))
@@ -3075,10 +3075,10 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
     size_t usable;
     streamCG *cg = zmalloc_usable(sizeof(*cg), &usable);
     s->alloc_size += usable;
-    cg->pel = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    cg->pel = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
     s->alloc_size += raxAllocSize(cg->pel);
-    cg->pel_by_time = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
-    cg->consumers = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    cg->pel_by_time = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
+    cg->consumers = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
     s->alloc_size += raxAllocSize(cg->consumers);
     cg->last_id.ms = 0;
     cg->last_id.seq = 0;
@@ -3152,7 +3152,7 @@ streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *ke
     s->alloc_size += raxAllocSize(cg->consumers);
     consumer->name = sdsdup(name);
     s->alloc_size += sdsAllocSize(consumer->name);
-    consumer->pel = raxNewWithMetadata(RAX_ACCOUNT_ALLOC_SIZE, sizeof(size_t));
+    consumer->pel = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
     s->alloc_size += raxAllocSize(consumer->pel);
     consumer->active_time = -1;
     consumer->seen_time = commandTimeSnapshot();
