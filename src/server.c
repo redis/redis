@@ -4084,6 +4084,7 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
                 /* Invalidate the slot to indicate that there is a cross-slot error */
                 pcmd->slot = INVALID_CLUSTER_SLOT;
                 /* Cross slot error. */
+                pcmd->read_error = CLIENT_READ_CROSS_SLOT;
                 break;
             }
         }

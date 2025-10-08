@@ -1150,6 +1150,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.argv = argv;
         mc.argc = argc;
         mc.cmd = cmd;
+        mc.slot = hashslot ? *hashslot : INVALID_CLUSTER_SLOT;
     }
 
     /* Check that all the keys are in the same hash slot, and obtain this
@@ -1178,9 +1179,18 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         keyindex = result.keys;
 
         for (j = 0; j < numkeys; j++) {
+            /* The command has keys and was checked for cross-slot between its keys in preprocessCommand() */
+            if (pcmd->read_error == CLIENT_READ_CROSS_SLOT) {
+                /* Error: multiple keys from different slots. */
+                if (error_code)
+                    *error_code = CLUSTER_REDIR_CROSS_SLOT;
+                return NULL;
+            }
+
             robj *thiskey = margv[keyindex[j].pos];
-            int thisslot = keyHashSlot((char*)thiskey->ptr,
-                                       sdslen(thiskey->ptr));
+            int thisslot = pcmd->slot;
+            if (thisslot == INVALID_CLUSTER_SLOT)
+                thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
 
             if (firstkey == NULL) {
                 /* This is the first key we see. Check what is the slot

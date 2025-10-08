@@ -467,6 +467,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_READ_REACHED_MAX_QUERYBUF 13
 #define CLIENT_READ_COMMAND_NOT_FOUND 14
 #define CLIENT_READ_BAD_ARITY 15
+#define CLIENT_READ_CROSS_SLOT 16
 
 /* Client block type (btype field in client structure)
  * if CLIENT_BLOCKED flag is set. */
@@ -2363,6 +2364,7 @@ struct pendingCommand {
     size_t argv_len_sum;      /* Sum of lengths of objects in argv list. */
     unsigned long long input_bytes;
     struct redisCommand *cmd;
+    getKeysResult keys_result;
     long long reploff;         /* c->reploff should be set to this value when the command is processed */
     int flags;
     int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT if no slot is being used or if 
