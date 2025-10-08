@@ -2379,7 +2379,7 @@ start_server {
             assert_error "*ERR Unbalanced*" {r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream > CLAIM}
             assert_error "*ERR syntax error*" {r XREADGROUP GROUP group1 CLAIM 50 consumer1 STREAMS mystream >}
             assert_error "*ERR min-idle-time is not an integer*" {r XREADGROUP GROUP group1 consumer1 CLAIM STREAMS mystream >}
-        }
+        } {} {external:skip}
 
         test "XREADGROUP CLAIM with specific ID" {
             r DEL mystream
