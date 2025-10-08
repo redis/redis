@@ -830,7 +830,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
  *                 in the hash, then the hash will as well be deleted. In this case,
  *                 isHashDeleted will be set to 1.
  * val           - If the field is found, then val will be set to the value object.
- * expireTime    - If the field exists (`GETF_OK`) then expireTime will be set to 
+ * expireTime    - If the field exists (`GETF_OK`) then expireTime will be set to  
  *                 the expiration time of the field. Otherwise, it will be set to 0.
  *                 
  * Returns 1 if the field exists, and 0 when it doesn't.
@@ -2876,7 +2876,7 @@ void hgetdelCommand(client *c) {
     }
 
     if (fieldsPos == -1) {
-        addReplyError(c, "FIELDS keyword is required");
+        addReplyError(c, "argument FIELDS is missing");
         return;
     }
 
@@ -4325,7 +4325,7 @@ void hpersistCommand(client *c) {
     }
 
     if (fieldsPos == -1) {
-        addReplyError(c, "FIELDS keyword is required");
+        addReplyError(c, "argument FIELDS is missing");
         return;
     }
 
