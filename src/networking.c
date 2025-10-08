@@ -2941,6 +2941,7 @@ void handleClientReadError(client *c) {
         }
         case CLIENT_READ_COMMAND_NOT_FOUND:
         case CLIENT_READ_BAD_ARITY:
+        case CLIENT_READ_CROSS_SLOT:
             /* These are command validation errors, not protocol errors.
              * They are handled in processCommand() via commandCheckExistence()
              * and commandCheckArity(), which generate appropriate error responses.
