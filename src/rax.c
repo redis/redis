@@ -1298,6 +1298,12 @@ void raxRecursiveFreeWithCtx(rax *rax, raxNode *n,
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
     raxRecursiveFree(rax,rax->head,free_callback);
     assert(rax->numnodes == 0);
+#ifdef REDIS_TEST
+    if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
+        size_t *alloc_size = (size_t *)rax->metadata;
+        debugAssert(*alloc_size == rax_malloc_usable_size(rax));
+    }
+#endif
     rax_free(rax);
 }
 
@@ -1307,6 +1313,12 @@ void raxFreeWithCbAndContext(rax *rax,
                              void (*free_callback)(void *item, void *ctx), void *ctx) {
     raxRecursiveFreeWithCtx(rax,rax->head,free_callback,ctx);
     assert(rax->numnodes == 0);
+#ifdef REDIS_TEST
+    if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
+        size_t *alloc_size = (size_t *)rax->metadata;
+        debugAssert(*alloc_size == rax_malloc_usable_size(rax));
+    }
+#endif
     rax_free(rax);
 }
 
@@ -1869,7 +1881,7 @@ uint64_t raxSize(rax *rax) {
 
 /* Return cached total memory used (in bytes) */
 size_t raxAllocSize(rax *rax) {
-    assert(rax->flags & RAX_ACCOUNT_ALLOC_SIZE);
+    debugAssert(rax->flags & RAX_ACCOUNT_ALLOC_SIZE);
     size_t *alloc_size = (size_t *)rax->metadata;
     return *alloc_size;
 }
