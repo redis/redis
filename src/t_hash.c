@@ -2832,6 +2832,28 @@ void hmgetCommand(client *c) {
     }
 }
 
+/* Helper function to build canonical HDEL command for HGETDEL propagation */
+static void buildCanonicalHdelCommand(client *c, int key_pos, int first_field_pos, int field_count) {
+    /* Build canonical HDEL command: HDEL key field1 field2 ... */
+    int canonical_argc = 2 + field_count; /* cmd + key + fields */
+    robj **canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
+    int idx = 0;
+
+    canonical_argv[idx++] = shared.hdel;
+    incrRefCount(shared.hdel);
+    canonical_argv[idx++] = c->argv[key_pos]; /* key */
+    incrRefCount(c->argv[key_pos]);
+
+    /* Add all fields */
+    for (int i = 0; i < field_count; i++) {
+        canonical_argv[idx++] = c->argv[first_field_pos + i];
+        incrRefCount(c->argv[first_field_pos + i]);
+    }
+
+    /* Replace the entire command */
+    replaceClientCommandVector(c, canonical_argc, canonical_argv);
+}
+
 /* Get and delete the value of one or more fields of a given hash key.
  * HGETDEL <key> FIELDS <numfields> field1 field2 ...
  * Reply: list of the value associated with each field or nil if the field
@@ -2842,31 +2864,63 @@ void hgetdelCommand(client *c) {
     int64_t oldlen = -1; /* not exists as long as it is not set */
     long num_fields = 0;
     size_t oldsize = 0;
+    int fieldsPos, keyPos = 1, firstFieldPos;
 
-    kvobj *o = lookupKeyWrite(c->db, c->argv[1]);
-    if (checkType(c, o, OBJ_HASH))
-        return;
-
-    if (strcasecmp(c->argv[2]->ptr, "FIELDS") != 0) {
-        /* Check if FIELDS exists elsewhere to provide a better error message */
-        if (findKeywordPosition(c, "FIELDS") != -1) {
-            addReplyError(c, "Mandatory argument FIELDS is not at the right position");
-        } else {
-            addReplyError(c, "Mandatory argument FIELDS is missing");
+    /* Find FIELDS keyword position - search from position 1 for flexibility */
+    fieldsPos = -1;
+    for (int i = 1; i < c->argc; i++) {
+        if (!strcasecmp(c->argv[i]->ptr, "FIELDS")) {
+            fieldsPos = i;
+            break;
         }
+    }
+
+    if (fieldsPos == -1) {
+        addReplyError(c, "FIELDS keyword is required");
         return;
     }
 
-    /* Read number of fields */
-    if (getRangeLongFromObjectOrReply(c, c->argv[3], 1, LONG_MAX, &num_fields,
-                                      "Number of fields must be a positive integer") != C_OK)
-        return;
+    /* Determine key position - if FIELDS comes before position 2, key is after FIELDS block */
+    if (fieldsPos == 1) {
+        /* FIELDS is at position 1, so key comes after FIELDS block */
+        if (fieldsPos + 1 >= c->argc) {
+            addReplyError(c, "Number of fields missing after FIELDS keyword");
+            return;
+        }
+        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
+                                          &num_fields, "Number of fields must be a positive integer") != C_OK)
+            return;
 
-    /* Verify `numFields` is consistent with number of arguments */
-    if (num_fields != c->argc - 4) {
+        firstFieldPos = fieldsPos + 2;
+        keyPos = firstFieldPos + num_fields;
+
+        if (keyPos >= c->argc) {
+            addReplyError(c, "Key argument is missing");
+            return;
+        }
+    } else {
+        /* Key is at position 1, FIELDS comes after */
+        keyPos = 1;
+        firstFieldPos = fieldsPos + 2;
+
+        if (fieldsPos + 1 >= c->argc) {
+            addReplyError(c, "Number of fields missing after FIELDS keyword");
+            return;
+        }
+        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
+                                          &num_fields, "Number of fields must be a positive integer") != C_OK)
+            return;
+    }
+
+    /* Validate field count */
+    if (num_fields != (c->argc - firstFieldPos - (fieldsPos == 1 ? 1 : 0))) {
         addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
+
+    kvobj *o = lookupKeyWrite(c->db, c->argv[keyPos]);
+    if (checkType(c, o, OBJ_HASH))
+        return;
 
     /* Hash field expiration is optimized to avoid frequent update global HFE DS
      * for each field deletion. Eventually active-expiration will run and update
@@ -2882,18 +2936,18 @@ void hgetdelCommand(client *c) {
     }
 
     addReplyArrayLen(c, num_fields);
-    for (int i = 4; i < c->argc; i++) {
+    for (int i = 0; i < num_fields; i++) {
         const int flags = HFE_LAZY_NO_NOTIFICATION |
                           HFE_LAZY_NO_SIGNAL |
                           HFE_LAZY_AVOID_HASH_DEL |
                           HFE_LAZY_NO_UPDATE_KEYSIZES |
                           HFE_LAZY_NO_UPDATE_ALLOCSIZES;
-        res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
+        res = addHashFieldToReply(c, o, c->argv[firstFieldPos + i]->ptr, flags);
         expired += (res == GETF_EXPIRED);
         /* Try to delete only if it's found and not expired lazily. */
         if (res == GETF_OK) {
             deleted++;
-            serverAssert(hashTypeDelete(o, c->argv[i]->ptr, 1) == 1);
+            serverAssert(hashTypeDelete(o, c->argv[firstFieldPos + i]->ptr, 1) == 1);
         }
     }
 
@@ -2903,20 +2957,19 @@ void hgetdelCommand(client *c) {
 
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
-    signalModifiedKey(c, c->db, c->argv[1]);
+    signalModifiedKey(c, c->db, c->argv[keyPos]);
 
     if (expired)
-        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[keyPos], c->db->id);
+    /* Save key reference before command rewriting */
+    robj *keyObj = c->argv[keyPos];
+
     if (deleted) {
-        notifyKeyspaceEvent(NOTIFY_HASH, "hdel", c->argv[1], c->db->id);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hdel", keyObj, c->db->id);
         server.dirty += deleted;
 
-        /* Propagate as HDEL command.
-         * Orig: HGETDEL <key> FIELDS <numfields> field1 field2 ...
-         * Repl: HDEL <key> field1 field2 ... */
-        rewriteClientCommandArgument(c, 0, shared.hdel);
-        rewriteClientCommandArgument(c, 2, NULL);  /* Delete FIELDS arg */
-        rewriteClientCommandArgument(c, 2, NULL);  /* Delete <numfields> arg */
+        /* Propagate as HDEL command using canonical format */
+        buildCanonicalHdelCommand(c, keyPos, firstFieldPos, num_fields);
     }
 
     /* Key may have become empty because of deleting fields or lazy expire. */
@@ -2924,8 +2977,8 @@ void hgetdelCommand(client *c) {
     if (newlen == 0) {
         newlen = -1;
         /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
-        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
+        dbDeleteSkipKeysizesUpdate(c->db, keyObj);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, c->db->id);
     } else {
         if (hfe && (hashTypeIsFieldsWithExpire(o) == 0)) { /*is it last HFE*/
             estoreRemove(c->db->subexpires, getKeySlot(kvobjGetKey(o)), o);
@@ -2933,9 +2986,11 @@ void hgetdelCommand(client *c) {
     }
 
     if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
+        updateKeysizesHist(c->db, getKeySlot(keyObj->ptr), OBJ_HASH,
                            oldlen, newlen);
 }
+
+
 
 /* Helper function to build canonical commands for HGETEX propagation */
 static void buildCanonicalHgetexCommand(client *c, int is_persist, long long expire_time,
@@ -4424,8 +4479,8 @@ void hpersistCommand(client *c) {
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
     if (changed) {
-        notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
-        signalModifiedKey(c, c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[keyPos], c->db->id);
+        signalModifiedKey(c, c->db, c->argv[keyPos]);
         server.dirty++;
     }
 }

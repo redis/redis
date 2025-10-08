@@ -1193,6 +1193,45 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r HPERSIST myhash FIELDS 3 f1 f2 f3] [list $P_NO_EXPIRY $P_NO_EXPIRY $P_NO_FIELD]
         }
 
+        test "HGETDEL - Flexible argument parsing ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4
+
+            # Test HGETDEL original syntax
+            set result1 [r HGETDEL myhash FIELDS 2 f1 f2]
+            assert_equal $result1 [list "v1" "v2"]
+
+            # Test HGETDEL flexible syntax
+            set result2 [r HGETDEL FIELDS 2 f3 f4 myhash]
+            assert_equal $result2 [list "v3" "v4"]
+
+            # Verify fields were actually deleted
+            assert_equal [r HGET myhash f1] {}
+            assert_equal [r HGET myhash f2] {}
+            assert_equal [r HGET myhash f3] {}
+            assert_equal [r HGET myhash f4] {}
+        }
+
+        test "HGETDEL - Flexible parsing with non-existent key ($type)" {
+            r del nonexistent
+
+            # Test HGETDEL with flexible syntax on non-existent key
+            assert_equal [r HGETDEL FIELDS 2 f1 f2 nonexistent] [list {} {}]
+            assert_equal [r HGETDEL nonexistent FIELDS 2 f1 f2] [list {} {}]
+        }
+
+        test "HGETDEL - Flexible parsing with mixed fields ($type)" {
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+
+            # Test flexible syntax with mix of existing and non-existing fields
+            assert_equal [r HGETDEL FIELDS 3 f1 f2 f3 myhash] [list "v1" "v2" {}]
+
+            # Verify existing fields were deleted
+            assert_equal [r HGET myhash f1] {}
+            assert_equal [r HGET myhash f2] {}
+        }
+
         test "HSETEX - input validation ($type)" {
             assert_error {*wrong number of arguments*} {r hsetex myhash}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields}
