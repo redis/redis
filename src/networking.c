@@ -2939,14 +2939,6 @@ void handleClientReadError(client *c) {
             sdsfree(bytes);
             break;
         }
-        case CLIENT_READ_COMMAND_NOT_FOUND:
-        case CLIENT_READ_BAD_ARITY:
-        case CLIENT_READ_CROSS_SLOT:
-            /* These are command validation errors, not protocol errors.
-             * They are handled in processCommand() via commandCheckExistence()
-             * and commandCheckArity(), which generate appropriate error responses.
-             * No action needed here. */
-            break;
         default:
             serverPanic("Unknown client read error: %d", c->read_error);
             break;
@@ -2955,11 +2947,11 @@ void handleClientReadError(client *c) {
 
 
 /* Helper function to check if a read error is fatal (should stop processing) */
-int isClientReadErrorFatal(int read_error) {
-    return read_error != 0 &&
-           read_error != CLIENT_READ_COMMAND_NOT_FOUND &&
-           read_error != CLIENT_READ_BAD_ARITY &&
-           read_error != CLIENT_READ_CROSS_SLOT;
+int isClientReadErrorFatal(client *c) {
+    return c->read_error != 0 &&
+           c->read_error != CLIENT_READ_COMMAND_NOT_FOUND &&
+           c->read_error != CLIENT_READ_BAD_ARITY &&
+           c->read_error != CLIENT_READ_CROSS_SLOT;
 }
 
 /* This function is called every time, in the client structure 'c', there is
@@ -3079,7 +3071,7 @@ int processInputBuffer(client *c) {
         }
 
         /* Check if the client has a fatal read error that requires stopping processing. */
-        if (isClientReadErrorFatal(c->read_error)) {
+        if (isClientReadErrorFatal(c)) {
             if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
                 enqueuePendingClientsToMainThread(c, 0);
             }
@@ -3269,7 +3261,7 @@ void readQueryFromClient(connection *conn) {
          c = NULL;
 
 done:
-    if (c && c->read_error) {
+    if (c && isClientReadErrorFatal(c)) {
         if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
             handleClientReadError(c);
         }

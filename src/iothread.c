@@ -444,7 +444,7 @@ int processClientsFromIOThread(IOThread *t) {
 
         /* If a read error occurs, handle it in the main thread first, since we
          * want to print logs about client information before freeing. */
-        if (c->read_error) handleClientReadError(c);
+        if (isClientReadErrorFatal(c)) handleClientReadError(c);
 
         /* The client is asked to close in IO thread. */
         if (c->io_flags & CLIENT_IO_CLOSE_ASAP) {
@@ -465,7 +465,7 @@ int processClientsFromIOThread(IOThread *t) {
         }
 
         /* Process the pending command and input buffer. */
-        if (!isClientReadErrorFatal(c->read_error) && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
+        if (!isClientReadErrorFatal(c) && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             c->flags |= CLIENT_PENDING_COMMAND;
             c->flags |= CLIENT_IN_MEMORY_PREFETCH;
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
