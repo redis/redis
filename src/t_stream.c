@@ -1758,6 +1758,13 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
  *
  * The function returns the number of entries emitted.
  *
+ * If 'min_idle_time' is not -1 and a group is specified, the function first
+ * processes pending entries (from the group's PEL) that have been idle for at
+ * least 'min_idle_time' milliseconds, claiming them for the specified consumer.
+ * Each claimed entry is returned as a four-element array: ID, field-value pairs,
+ * idle time, and delivery count. The NACK is transferred from the previous
+ * consumer to the new consumer with updated delivery metadata.
+ *
  * If group and consumer are not NULL, the function performs additional work:
  * 1. It updates the last delivered ID in the group in case we are
  *    sending IDs greater than the current last ID.
@@ -1778,6 +1785,9 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
  *                        and return the number of entries emitted as usually.
  *                        This is used when the function is just used in order
  *                        to emit data and there is some higher level logic.
+ * STREAM_RWR_HISTORY: Return entries from the consumer's own PEL history only.
+ * STREAM_RWR_CLAIMED: Return only claimable entries from the PEL. New entries
+ *                     from the stream are not returned.
  *
  * The final argument 'spi' (stream propagation info pointer) is a structure
  * filled with information needed to propagate the command execution to AOF
@@ -1794,8 +1804,7 @@ void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds 
  * consumer pending entries list. However such a function will then call
  * streamReplyWithRange() in order to emit single entries (found in the
  * PEL by ID) to the client. This is the use case for the STREAM_RWR_RAWENTRIES
- * flag.
- */
+ * flag. */
 #define STREAM_RWR_NOACK (1<<0)         /* Do not create entries in the PEL. */
 #define STREAM_RWR_RAWENTRIES (1<<1)    /* Do not emit protocol for array
                                            boundaries, just the entries. */
@@ -1816,7 +1825,21 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
     if(group && min_idle_time != -1) {
         arraylen_ptr = addReplyDeferredLen(c);
-
+        /* Scan the group's pending entries list (PEL) to find messages that have been
+         * idle for at least min_idle_time milliseconds. The pel_by_time radix tree
+         * stores entries ordered by their last delivery timestamp, allowing us to
+         * efficiently iterate from oldest to newest.
+         *
+         * We collect eligible entries into a temporary list rather than processing
+         * them inline because:
+         * 1. We cannot safely modify a radix tree while iterating over it
+         * 2. The claiming process requires removing and re-inserting entries in
+         *    both pel_by_time and the consumer PELs
+         *
+         * The iteration can terminate early in two cases:
+         * 1. We find an entry that hasn't been idle long enough - due to time-based
+         *    ordering, all subsequent entries will be even newer
+         * 2. We've collected enough entries to satisfy the requested count limit */
         list *eligible_pels = listCreate();
         raxIterator ri;
         raxStart(&ri, group->pel_by_time);
@@ -1837,6 +1860,13 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         }
         raxStop(&ri);
 
+        /* Process each eligible pending entry, claiming it for the current consumer.
+         * For each entry we:
+         * 1. Verify it still exists in the PEL (it may have been acknowledged meanwhile)
+         * 2. Fetch the actual message data from the stream
+         * 3. Send the message to the client with metadata (idle time, delivery count)
+         * 4. Transfer ownership from the previous consumer to the current consumer
+         * 5. Update all relevant data structures and propagate the claim operation */
         listIter li;
         listNode *ln;
         listRewind(eligible_pels, &li);
@@ -1927,6 +1957,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                                                    group, consumer);
     }
 
+    /* Stop here if client only wants claimed entries or count is satisfied. */
     if ((group && (flags & STREAM_RWR_CLAIMED)) || (count && count == arraylen)) {
         if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
         return arraylen;
@@ -2647,6 +2678,10 @@ void xreadCommand(client *c) {
         /* Check if there are the conditions to serve the client
          * synchronously. */
         if (groups) {
+            /* If min_idle_time is set we need to check is there any pending
+             * message in the PEL idle enough to be claimed. Also we need to 
+             * get the minimum delivery time in the PEL, in order to use it 
+             * later if block option is set. */
             if(min_idle_time != -1) {
                 raxIterator ri;
                 raxStart(&ri, groups[i]->pel_by_time);
@@ -2776,6 +2811,11 @@ void xreadCommand(client *c) {
                 decrRefCount(argv_streamid);
             }
         }
+        /* If min_idle_time is set we need to unblock client if PEL entry became claimable
+        * before new messages arrive. min_pel_delivery_time is the minimum delivery time of all
+        * entries in the PELs of different streams specified in the command. We add it to 
+        * min_idle_time to get the earliest time when an entry will be eligible for claiming.
+        * If there are no entries in the PELs we will unblock the client after min_idle_time. */
         if(min_idle_time != -1) {
             uint64_t pel_expire_time = min_idle_time;
             if(min_pel_delivery_time != UINT64_MAX)
