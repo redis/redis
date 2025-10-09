@@ -14,6 +14,7 @@
 #include "server.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "redisassert.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -532,6 +533,11 @@ void freeListObject(robj *o) {
 void freeSetObject(robj *o) {
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
+#ifdef REDIS_TEST
+        dictEmpty((dict *) o->ptr, NULL);
+        size_t *alloc_size = (size_t *)dictMetadata((dict *) o->ptr);
+        debugAssert(*alloc_size == 0);
+#endif
         dictRelease((dict*) o->ptr);
         break;
     case OBJ_ENCODING_INTSET:

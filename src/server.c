@@ -401,9 +401,9 @@ void dictSdsDestructor(dict *d, void *val)
 }
 
 void setSdsDestructor(dict *d, void *val) {
-    size_t usable, *alloc_size = (size_t *)dictMetadata(d);
-    sdsfreeusable(val, &usable);
-    *alloc_size -= usable;
+    size_t *alloc_size = (size_t *)dictMetadata(d);
+    *alloc_size -= sdsAllocSize(val);
+    sdsfree(val);
 }
 
 size_t setDictMetadataBytes(dict *d) {
