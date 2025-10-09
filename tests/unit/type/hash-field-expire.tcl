@@ -1238,12 +1238,12 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 1}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 2 a b}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 2 a b c}
-            assert_error {*wrong number of arguments*} {r hsetex myhash fields 2 a b c d e}
+            assert_error {*unknown argument*} {r hsetex myhash fields 2 a b c d e}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b c d}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b c d e}
-            assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b c d e f g}
+            assert_error {*unknown argument*} {r hsetex myhash fields 3 a b c d e f g}
             assert_error {*wrong number of arguments*} {r hsetex myhash fields 3 a b}
-            assert_error {*wrong number of arguments*} {r hsetex myhash fields 1 a b unknown}
+            assert_error {*unknown argument*} {r hsetex myhash fields 1 a b c}
             assert_error {*unknown argument*} {r hsetex myhash nx fields 1 a b}
             assert_error {*unknown argument*} {r hsetex myhash 1 fields 1 a b}
 
@@ -2393,7 +2393,7 @@ start_server {tags {"hash"}} {
 
             # Test field-value pair mismatches
             assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 2 f1 v1}
-            assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 1 f1 v1 f2 v2}
+            assert_error {*unknown argument*} {r HSETEX myhash FIELDS 1 f1 v1 f2 v2}
             assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 3 f1 v1 f2 v2}
 
             # Test valid field-value pairs

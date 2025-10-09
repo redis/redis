@@ -2323,34 +2323,10 @@ static int hsetexParseArgs(client *c, int *flags,
             *first_field_pos = i + 2;
             *field_count = (int) val;
 
-            /* Check if we have exactly the right number of field-value pairs */
-            int expectedFieldValueEnd = *first_field_pos + (*field_count * 2);
-
-            /* Make sure we don't go beyond argc (too few field-value pairs) */
-            if (expectedFieldValueEnd > c->argc) {
+            /* Validate field count - check for too few field-value pairs */
+            if (*first_field_pos + (*field_count * 2) > c->argc) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
-            }
-
-            /* Check if we have too many field-value pairs */
-            if (expectedFieldValueEnd < c->argc) {
-                char *nextArg = c->argv[expectedFieldValueEnd]->ptr;
-
-                /* Check if it's a valid keyword */
-                int isValidKeyword = (!strcasecmp(nextArg, "EX") || !strcasecmp(nextArg, "PX") ||
-                                     !strcasecmp(nextArg, "EXAT") || !strcasecmp(nextArg, "PXAT") ||
-                                     !strcasecmp(nextArg, "KEEPTTL") || !strcasecmp(nextArg, "FXX") ||
-                                     !strcasecmp(nextArg, "FNX"));
-
-                /* Also check if it could be a valid expire time */
-                int couldBeExpireTime = 0;
-                long long dummy;
-                couldBeExpireTime = (string2ll(nextArg, strlen(nextArg), &dummy) && dummy >= 0);
-
-                if (!isValidKeyword && !couldBeExpireTime) {
-                    addReplyError(c, "wrong number of arguments");
-                    return C_ERR;
-                }
             }
 
             /* Skip over numfields and all field-value pairs */
