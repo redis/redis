@@ -61,7 +61,7 @@ make
 # Clean build artifacts
 make clean
 
-# Run comprehensive test suite (86 tests)
+# Run comprehensive test suite (93 tests)
 make test
 
 # Build with debug information
@@ -77,11 +77,26 @@ gcc -shared -o redis_table.so redis_table.o
 
 ### Step 2: Start Redis with the Module
 
+**Basic (default configuration):**
 ```bash
-# From the redistable directory
 cd /home/ubuntu/Projects/REDIS/redis
 ./src/redis-server --loadmodule modules/redistable/redis_table.so
 ```
+
+**With custom scan limit:**
+```bash
+# For analytics workloads (500K row scan limit)
+./src/redis-server --loadmodule modules/redistable/redis_table.so max_scan_limit 500000
+
+# For large-scale production (1M row scan limit)
+./src/redis-server --loadmodule modules/redistable/redis_table.so max_scan_limit 1000000
+```
+
+**Configuration Parameters:**
+- `max_scan_limit` - Maximum rows to scan per query (default: 100,000)
+  - **Min**: 1,000
+  - **Max**: 10,000,000
+  - **Default**: 100,000
 
 ### Step 3: Connect to Redis
 
@@ -1714,29 +1729,103 @@ TABLE.CREATE mydb.users NAME:string:true AGE:integer:true
 
 ## Limitations
 
-### Current Limitations
+### Performance Considerations
 
-1. **Maximum 1000 rows** per WHERE clause (array limit)
-2. **No compound indexes** (one index per column)
-3. **No LIKE/pattern matching**
-4. **No JOIN operations**
-5. **No transactions**
-6. **Date format**: YYYY-MM-DD only (no time component)
-7. **Float precision**: Limited by string conversion
+1. **Configurable scan limit per query operation**
+   - Default: 100,000 rows (configurable from 1,000 to 10,000,000)
+   - Prevents Redis from blocking on huge datasets during WHERE clause evaluation
+   - This is a scan limit, not a result limit
+   - Error: "ERR query scan limit exceeded (max 100000 rows)"
+   - See Configuration section for tuning guidance
+
+2. **Non-blocking schema operations**
+   - `TABLE.NAMESPACE.VIEW` and `TABLE.SCHEMA.ALTER DROP INDEX` use SCAN command
+   - Cursor-based iteration prevents Redis blocking
+   - Safe for production use with any number of tables or indexes
+
+### Concurrency Considerations
+
+⚠️ **Known Limitation (will be fixed in v2.2):**
+
+**Race Condition: DROP INDEX During Active Queries**
+
+**Problem**: The current implementation removes index metadata before deleting all index keys, creating a race window.
+
+**Example Scenario**:
+```bash
+# Terminal 1: Start query
+TABLE.SELECT users WHERE age=30  
+# Checks: is age indexed? → YES
+# Fetches from: idx:users:age:30
+
+# Terminal 2: During query execution
+TABLE.SCHEMA.ALTER users DROP INDEX age
+# Immediately: SREM idx:meta:users age  (metadata removed)
+# Then: SCAN and DEL idx:users:age:*    (keys deleted incrementally)
+
+# Terminal 1: Query result
+# If index fetch happens after metadata removed → Empty result ❌
+# Should either: use index correctly OR fall back to full scan
+```
+
+**Impact**:
+- **Incorrect Results**: Queries may return empty set instead of actual data
+- **No Error**: Silent failure (query succeeds but returns wrong data)
+- **Race Window**: Milliseconds to seconds depending on index size
+
+**When It Happens**:
+- Concurrent `DROP INDEX` and `SELECT/UPDATE/DELETE` operations
+- Multiple clients modifying same table schema
+- Schema changes during active query workload
+
+**Workarounds**:
+1. **Maintenance Windows**: Run schema changes during low-traffic periods
+2. **Application Coordination**: Use application-level locking for schema changes
+3. **Monitoring**: Watch for unexpected empty query results after schema operations
+4. **Avoid DROP INDEX**: Consider keeping indexes (minimal overhead if not queried)
+
+**Planned Fix (v2.2)**:
+- **Option A**: Reverse deletion order (delete keys first, metadata last)
+- **Option B**: Soft-delete with tombstone pattern (mark index as "deleting")
+- **Option C**: Atomic operation with proper locking
+
+**Current Recommendation**: 
+- ✅ `ADD INDEX` is safe (builds incrementally, visible only when complete)
+- ⚠️ `DROP INDEX` should be done during maintenance windows
+- ✅ Query operations are safe (read-only, no schema modification)
+
+### Data Constraints
+
+3. **Maximum 64 characters** for namespace and table names
+   - Error: "ERR incorrect namespace/table name, it exceeds the limit of 64 characters"
+
+4. **Date format**: YYYY-MM-DD only (no time component)
+
+5. **Float precision**: Limited by string conversion
+
+### Query Limitations
+
+6. **No compound indexes** (one index per column)
+7. **No LIKE/pattern matching**
+8. **No JOIN operations**
+9. **No transactions**
+10. **Comparison operators** (>, <, >=, <=) require full table scan (up to 100K limit)
+11. **Equality (=) search** requires indexed columns
 
 ### Workarounds
 
-**Large result sets**:
-- Use more selective WHERE clauses
-- Split queries into smaller batches
+**Large datasets**:
+- Use indexed columns for equality searches
+- Add more specific WHERE conditions to reduce scan size
+- Consider partitioning data across multiple tables
 
 **Pattern matching**:
-- Use Redis KEYS command on underlying data
-- Implement application-level filtering
+- Implement application-level filtering after SELECT
+- Consider using Redis Search module for advanced patterns
 
 **Joins**:
 - Perform multiple queries and join in application
-- Denormalize data into single table
+- Denormalize data into single table when possible
 
 \newpage
 

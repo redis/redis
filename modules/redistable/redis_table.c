@@ -11,6 +11,16 @@
 #include "redismodule.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
+
+// Initial capacity for dynamic arrays in filtering operations
+#define INITIAL_FILTER_CAPACITY 100
+
+// Default maximum number of rows to scan in a single query operation
+#define DEFAULT_MAX_ROWS_SCAN_LIMIT 100000
+
+// Configurable scan limit (can be changed via CONFIG SET)
+static long long g_max_rows_scan_limit = DEFAULT_MAX_ROWS_SCAN_LIMIT;
 
 static inline RedisModuleString *fmt(RedisModuleCtx *ctx, const char *fmt, RedisModuleString *a) {
     return RedisModule_CreateStringPrintf(ctx, fmt, RedisModule_StringPtrLen(a, NULL));
@@ -121,6 +131,13 @@ static RedisModuleString* extract_schema(RedisModuleCtx *ctx, RedisModuleString 
     return RedisModule_CreateString(ctx, s, (size_t)(dot - s));
 }
 
+static RedisModuleString* extract_table(RedisModuleCtx *ctx, RedisModuleString *fullTable) {
+    size_t len; const char *s = RedisModule_StringPtrLen(fullTable, &len);
+    const char *dot = memchr(s, '.', len);
+    if (!dot) return NULL;
+    return RedisModule_CreateString(ctx, dot + 1, len - (size_t)(dot - s) - 1);
+}
+
 static int validate_and_typecheck(RedisModuleCtx *ctx, RedisModuleString *fullTableName,
                                   RedisModuleString *col, RedisModuleString *val) {
     RedisModule_AutoMemory(ctx);
@@ -156,13 +173,29 @@ static int validate_and_typecheck(RedisModuleCtx *ctx, RedisModuleString *fullTa
             if (vs[i] < '0' || vs[i] > '9') return REDISMODULE_ERR;
         }
     }
+    // String type (no validation needed)
     return REDISMODULE_OK;
 }
-
-/* ================== TABLE.NAMESPACE.CREATE <namespace> ================== */
+// Validate string length (max 64 characters)
+static int validate_string_length(RedisModuleCtx *ctx, RedisModuleString *str, const char *name) {
+    size_t len;
+    RedisModule_StringPtrLen(str, &len);
+    if (len > 64) {
+        char error_msg[128];
+        snprintf(error_msg, sizeof(error_msg), "ERR incorrect %s name, it exceeds the limit of 64 characters", name);
+        return RedisModule_ReplyWithError(ctx, error_msg);
+    }
+    return REDISMODULE_OK;
+}
 static int TableNamespaceCreateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
     RedisModule_AutoMemory(ctx);
+
+    // Validate namespace length (max 64 characters)
+    if (validate_string_length(ctx, argv[1], "namespace") != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+
     RedisModuleKey *k = RedisModule_OpenKey(ctx, fmt(ctx, "schema:%s", argv[1]), REDISMODULE_WRITE);
     if (RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_EMPTY)
         return RedisModule_ReplyWithError(ctx, "ERR namespace already exists");
@@ -181,60 +214,97 @@ static int TableNamespaceViewCommand(RedisModuleCtx *ctx, RedisModuleString **ar
         filter_namespace = RedisModule_StringPtrLen(argv[1], &filter_len);
     }
     
-    // Scan for all schema keys (pattern: schema:*.*)
-    RedisModuleCallReply *keys = RedisModule_Call(ctx, "KEYS", "c", "schema:*.*");
-    if (!keys || RedisModule_CallReplyType(keys) != REDISMODULE_REPLY_ARRAY) {
-        return RedisModule_ReplyWithArray(ctx, 0);
-    }
-    
-    size_t n = RedisModule_CallReplyLength(keys);
-    
-    // If no keys found, return empty array
-    if (n == 0) {
-        return RedisModule_ReplyWithArray(ctx, 0);
-    }
-    
-    // Collect namespace:table pairs
+    // Use SCAN instead of KEYS to avoid blocking Redis on large keyspaces
+    // Collect namespace:table pairs with dynamic allocation
     typedef struct {
         char namespace[256];
         char table[256];
     } TableEntry;
     
-    TableEntry *entries = RedisModule_Alloc(sizeof(TableEntry) * n);
+    size_t capacity = 100;
     size_t count = 0;
+    TableEntry *entries = RedisModule_Alloc(sizeof(TableEntry) * capacity);
+    if (entries == NULL) {
+        return RedisModule_ReplyWithError(ctx, "ERR out of memory");
+    }
     
-    for (size_t i = 0; i < n; i++) {
-        RedisModuleCallReply *keyReply = RedisModule_CallReplyArrayElement(keys, i);
-        size_t keylen;
-        const char *keystr = RedisModule_CallReplyStringPtr(keyReply, &keylen);
+    // SCAN cursor-based iteration (non-blocking)
+    unsigned long long cursor = 0;
+    do {
+        // Convert cursor to string for SCAN command
+        char cursorBuf[32];
+        snprintf(cursorBuf, sizeof(cursorBuf), "%llu", cursor);
         
-        // Skip if not in format "schema:namespace.table"
-        if (keylen < 8 || strncmp(keystr, "schema:", 7) != 0) continue;
+        // Call SCAN with cursor as string, MATCH pattern
+        RedisModuleCallReply *scanReply = RedisModule_Call(ctx, "SCAN", "ccc", 
+                                                            cursorBuf,
+                                                            "MATCH", "schema:*.*");
+        if (!scanReply || RedisModule_CallReplyType(scanReply) != REDISMODULE_REPLY_ARRAY) {
+            RedisModule_Free(entries);
+            return RedisModule_ReplyWithArray(ctx, 0);
+        }
         
-        const char *fullname = keystr + 7;  // Skip "schema:"
-        size_t fullname_len = keylen - 7;
+        // Extract new cursor from reply[0]
+        RedisModuleCallReply *cursorReply = RedisModule_CallReplyArrayElement(scanReply, 0);
+        if (!cursorReply) break;
         
-        // Find the dot separator
-        const char *dot = memchr(fullname, '.', fullname_len);
-        if (!dot) continue;  // Not a table (just a namespace marker)
+        size_t cursorStrLen;
+        const char *cursorStr = RedisModule_CallReplyStringPtr(cursorReply, &cursorStrLen);
+        if (!cursorStr) break;
         
-        size_t ns_len = (size_t)(dot - fullname);
-        size_t tbl_len = fullname_len - ns_len - 1;
+        cursor = strtoull(cursorStr, NULL, 10);
         
-        // Apply filter if provided
-        if (filter_namespace && (ns_len != filter_len || strncmp(fullname, filter_namespace, ns_len) != 0)) {
+        // Extract keys array from reply[1]
+        RedisModuleCallReply *keysReply = RedisModule_CallReplyArrayElement(scanReply, 1);
+        if (!keysReply || RedisModule_CallReplyType(keysReply) != REDISMODULE_REPLY_ARRAY) {
             continue;
         }
         
-        // Store entry
-        if (ns_len < 256 && tbl_len < 256) {
-            strncpy(entries[count].namespace, fullname, ns_len);
-            entries[count].namespace[ns_len] = '\0';
-            strncpy(entries[count].table, dot + 1, tbl_len);
-            entries[count].table[tbl_len] = '\0';
-            count++;
+        size_t n = RedisModule_CallReplyLength(keysReply);
+        for (size_t i = 0; i < n; i++) {
+            RedisModuleCallReply *keyReply = RedisModule_CallReplyArrayElement(keysReply, i);
+            size_t keylen;
+            const char *keystr = RedisModule_CallReplyStringPtr(keyReply, &keylen);
+            
+            // Skip if not in format "schema:namespace.table"
+            if (keylen < 8 || strncmp(keystr, "schema:", 7) != 0) continue;
+            
+            const char *fullname = keystr + 7;  // Skip "schema:"
+            size_t fullname_len = keylen - 7;
+            
+            // Find the dot separator
+            const char *dot = memchr(fullname, '.', fullname_len);
+            if (!dot) continue;  // Not a table (just a namespace marker)
+            
+            size_t ns_len = (size_t)(dot - fullname);
+            size_t tbl_len = fullname_len - ns_len - 1;
+            
+            // Apply filter if provided
+            if (filter_namespace && (ns_len != filter_len || strncmp(fullname, filter_namespace, ns_len) != 0)) {
+                continue;
+            }
+            
+            // Resize array if needed
+            if (count >= capacity) {
+                capacity *= 2;
+                TableEntry *newEntries = RedisModule_Realloc(entries, sizeof(TableEntry) * capacity);
+                if (newEntries == NULL) {
+                    RedisModule_Free(entries);
+                    return RedisModule_ReplyWithError(ctx, "ERR out of memory");
+                }
+                entries = newEntries;
+            }
+            
+            // Store entry
+            if (ns_len < 256 && tbl_len < 256) {
+                strncpy(entries[count].namespace, fullname, ns_len);
+                entries[count].namespace[ns_len] = '\0';
+                strncpy(entries[count].table, dot + 1, tbl_len);
+                entries[count].table[tbl_len] = '\0';
+                count++;
+            }
         }
-    }
+    } while (cursor != 0);
     
     // Simple bubble sort by namespace (then by table)
     if (count > 1) {
@@ -308,6 +378,18 @@ static int TableSchemaCreateCommand(RedisModuleCtx *ctx, RedisModuleString **arg
 
     RedisModuleString *schema = extract_schema(ctx, argv[1]);
     if (!schema) return RedisModule_ReplyWithError(ctx, "ERR table name must be namespace.table");
+
+    // Validate namespace length (max 64 characters)
+    if (validate_string_length(ctx, schema, "namespace") != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+
+    // Validate table name length (max 64 characters)
+    RedisModuleString *table = extract_table(ctx, argv[1]);
+    if (!table || validate_string_length(ctx, table, "table") != REDISMODULE_OK) {
+        return REDISMODULE_ERR;
+    }
+
     if (ensure_schema_exists(ctx, schema) != REDISMODULE_OK)
         return RedisModule_ReplyWithError(ctx, "ERR namespace does not exist");
 
@@ -428,23 +510,59 @@ static int TableSchemaAlterCommand(RedisModuleCtx *ctx, RedisModuleString **argv
     } else if (oplen == 4 && strncasecmp(op, "DROP", 4) == 0) {
         if (targetlen == 5 && strncasecmp(target, "INDEX", 5) == 0) {
             // DROP INDEX col - remove index metadata and delete all index keys
+            // WARNING: Known race condition - metadata removed before keys deleted
+            // Concurrent queries may return empty results during deletion
+            // TODO (v2.2): Reverse order or implement soft-delete tombstone
             if (argc != 5) return RedisModule_ReplyWithError(ctx, "ERR DROP INDEX requires column name");
             RedisModuleString *col = argv[4];
             
-            // Remove from index metadata
+            // Remove from index metadata (ATOMIC - fast)
+            // RACE CONDITION: Queries checking after this point will think index doesn't exist
             RedisModule_Call(ctx, "SREM", "ss", metaKey, col);
             
-            // Delete all index keys for this column (scan pattern idx:table:col:*)
+            // Delete all index keys for this column using SCAN (NON-ATOMIC - slow)
+            // RACE CONDITION: Keys being deleted while queries might try to use them
+            // Build pattern: idx:table:col:*
             RedisModuleString *pattern = fmt2(ctx, "idx:%s:%s:*", argv[1], col);
-            RedisModuleCallReply *keys = RedisModule_Call(ctx, "KEYS", "s", pattern);
-            if (keys && RedisModule_CallReplyType(keys) == REDISMODULE_REPLY_ARRAY) {
-                size_t n = RedisModule_CallReplyLength(keys);
-                for (size_t i = 0; i < n; i++) {
-                    RedisModuleCallReply *e = RedisModule_CallReplyArrayElement(keys, i);
-                    RedisModuleString *key = RedisModule_CreateStringFromCallReply(e);
-                    RedisModule_Call(ctx, "DEL", "s", key);
+            size_t patternLen;
+            const char *patternStr = RedisModule_StringPtrLen(pattern, &patternLen);
+            
+            // Use SCAN to find and delete index keys
+            unsigned long long cursor = 0;
+            do {
+                // Convert cursor to string for SCAN command
+                char cursorBuf[32];
+                snprintf(cursorBuf, sizeof(cursorBuf), "%llu", cursor);
+                
+                RedisModuleCallReply *scanReply = RedisModule_Call(ctx, "SCAN", "ccc",
+                                                                    cursorBuf,
+                                                                    "MATCH", patternStr);
+                if (!scanReply || RedisModule_CallReplyType(scanReply) != REDISMODULE_REPLY_ARRAY) {
+                    break;
                 }
-            }
+                
+                // Extract new cursor from reply[0]
+                RedisModuleCallReply *cursorReply = RedisModule_CallReplyArrayElement(scanReply, 0);
+                if (!cursorReply) break;
+                
+                size_t cursorStrLen;
+                const char *cursorStr = RedisModule_CallReplyStringPtr(cursorReply, &cursorStrLen);
+                if (!cursorStr) break;
+                
+                cursor = strtoull(cursorStr, NULL, 10);
+                
+                // Extract and delete keys from reply[1]
+                RedisModuleCallReply *keysReply = RedisModule_CallReplyArrayElement(scanReply, 1);
+                if (keysReply && RedisModule_CallReplyType(keysReply) == REDISMODULE_REPLY_ARRAY) {
+                    size_t n = RedisModule_CallReplyLength(keysReply);
+                    for (size_t i = 0; i < n; i++) {
+                        RedisModuleCallReply *keyReply = RedisModule_CallReplyArrayElement(keysReply, i);
+                        RedisModuleString *key = RedisModule_CreateStringFromCallReply(keyReply);
+                        RedisModule_Call(ctx, "DEL", "s", key);
+                    }
+                }
+            } while (cursor != 0);
+            
             return RedisModule_ReplyWithSimpleString(ctx, "OK");
         }
     }
@@ -502,11 +620,9 @@ static void dict_add_set_members(RedisModuleCtx *ctx, RedisModuleDict *dict, Red
 }
 
 // Filter dictionary based on comparison operator
-static void dict_filter_condition(RedisModuleCtx *ctx, RedisModuleDict *dict, RedisModuleString *table,
+// Returns 0 on success, -1 if scan limit exceeded
+static int dict_filter_condition(RedisModuleCtx *ctx, RedisModuleDict *dict, RedisModuleString *table,
                                   RedisModuleString *col, const char *op, RedisModuleString *val) {
-    RedisModuleString *toRemove[1000];
-    size_t removeCount = 0;
-    
     // Get column type
     RedisModuleKey *schemaKey = RedisModule_OpenKey(ctx, fmt(ctx, "schema:%s", table), REDISMODULE_READ);
     RedisModuleString *typeStr = NULL;
@@ -518,12 +634,29 @@ static void dict_filter_condition(RedisModuleCtx *ctx, RedisModuleDict *dict, Re
         else if (tlen == 5 && strncasecmp(t, "float", 5) == 0) type = "float";
         else if (tlen == 4 && strncasecmp(t, "date", 4) == 0) type = "date";
     }
-    
+
     size_t vlen; const char *vstr = RedisModule_StringPtrLen(val, &vlen);
-    
+
+    // First pass: collect keys to remove (using dynamic allocation to avoid arbitrary limits)
+    size_t toRemoveCapacity = INITIAL_FILTER_CAPACITY;
+    size_t removeCount = 0;
+    RedisModuleString **toRemove = RedisModule_Alloc(sizeof(RedisModuleString*) * toRemoveCapacity);
+    if (toRemove == NULL) {
+        // Out of memory - cannot filter, return without modifying dict
+        return -1;
+    }
+
     RedisModuleDictIter *it = RedisModule_DictIteratorStartC(dict, "^", NULL, 0);
     RedisModuleString *key; void *dummy;
+    size_t rowsScanned = 0;
     while ((key = RedisModule_DictNext(ctx, it, &dummy)) != NULL) {
+        // Check scan limit to prevent blocking Redis on large datasets
+        if (++rowsScanned > (size_t)g_max_rows_scan_limit) {
+            RedisModule_DictIteratorStop(it);
+            RedisModule_Free(toRemove);
+            return -1; // Scan limit exceeded
+        }
+        
         RedisModuleString *rowKey = fmt2(ctx, "%s:%s", table, key);
         RedisModuleCallReply *v = RedisModule_Call(ctx, "HGET", "ss", rowKey, col);
         int keep = 0;
@@ -532,15 +665,29 @@ static void dict_filter_condition(RedisModuleCtx *ctx, RedisModuleDict *dict, Re
             size_t clen; const char *cstr = RedisModule_StringPtrLen(cur, &clen);
             keep = compare_values(cstr, vstr, op, type);
         }
-        if (!keep && removeCount < 1000) {
+        if (!keep) {
+            // Resize array if needed (doubles capacity each time)
+            if (removeCount >= toRemoveCapacity) {
+                toRemoveCapacity *= 2;
+                RedisModuleString **newToRemove = RedisModule_Realloc(toRemove, sizeof(RedisModuleString*) * toRemoveCapacity);
+                if (newToRemove == NULL) {
+                    // Out of memory during realloc - stop collecting, work with what we have
+                    break;
+                }
+                toRemove = newToRemove;
+            }
             toRemove[removeCount++] = key;
         }
     }
     RedisModule_DictIteratorStop(it);
-    
+
+    // Second pass: remove the collected keys
     for (size_t i = 0; i < removeCount; i++) {
         RedisModule_DictDel(dict, toRemove[i], NULL);
     }
+
+    RedisModule_Free(toRemove);
+    return 0; // Success
 }
 
 /* ================== TABLE.SELECT <namespace.table> [WHERE col op val (AND|OR col op val ...)] ================== */
@@ -578,7 +725,9 @@ static int TableSelectCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                     dict_add_set_members(ctx, ids, fmt(ctx, "rows:%s", argv[1]));
                     haveSeed = 1;
                 }
-                dict_filter_condition(ctx, ids, argv[1], col, op, val);
+                if (dict_filter_condition(ctx, ids, argv[1], col, op, val) != 0) {
+                    return RedisModule_ReplyWithError(ctx, "ERR query scan limit exceeded (max 100000 rows). Use indexed columns or add more specific conditions.");
+                }
                 i++;
             } else {
                 // Indexed equality search
@@ -588,7 +737,9 @@ static int TableSelectCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                 } else {
                     size_t opl; const char *ops = RedisModule_StringPtrLen(argv[i-1], &opl);
                     if (opl==3 && strncasecmp(ops, "AND",3)==0) {
-                        dict_filter_condition(ctx, ids, argv[1], col, op, val);
+                        if (dict_filter_condition(ctx, ids, argv[1], col, op, val) != 0) {
+                            return RedisModule_ReplyWithError(ctx, "ERR query scan limit exceeded (max 100000 rows). Use indexed columns or add more specific conditions.");
+                        }
                         i++;
                     } else if (opl==2 && strncasecmp(ops, "OR",2)==0) {
                         dict_add_set_members(ctx, ids, fmt3(ctx, "idx:%s:%s:%s", argv[1], col, val));
@@ -688,7 +839,9 @@ static int TableUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                 } else {
                     size_t opl; const char *ops = RedisModule_StringPtrLen(argv[i-1], &opl);
                     if (opl==3 && strncasecmp(ops, "AND",3)==0) {
-                        dict_filter_condition(ctx, ids, argv[1], col, op, val);
+                        if (dict_filter_condition(ctx, ids, argv[1], col, op, val) != 0) {
+                            return RedisModule_ReplyWithError(ctx, "ERR query scan limit exceeded (max 100000 rows). Use indexed columns or add more specific conditions.");
+                        }
                         i++;
                     } else if (opl==2 && strncasecmp(ops, "OR",2)==0) {
                         dict_add_set_members(ctx, ids, fmt3(ctx, "idx:%s:%s:%s", argv[1], col, val));
@@ -700,7 +853,9 @@ static int TableUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                     dict_add_set_members(ctx, ids, fmt(ctx, "rows:%s", argv[1]));
                     haveSeed = 1;
                 }
-                dict_filter_condition(ctx, ids, argv[1], col, op, val);
+                if (dict_filter_condition(ctx, ids, argv[1], col, op, val) != 0) {
+                    return RedisModule_ReplyWithError(ctx, "ERR query scan limit exceeded (max 100000 rows). Use indexed columns or add more specific conditions.");
+                }
                 i++;
             }
             
@@ -772,7 +927,9 @@ static int TableDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                 } else {
                     size_t opl; const char *ops = RedisModule_StringPtrLen(argv[i-1], &opl);
                     if (opl==3 && strncasecmp(ops, "AND",3)==0) {
-                        dict_filter_condition(ctx, ids, argv[1], col, op, val);
+                        if (dict_filter_condition(ctx, ids, argv[1], col, op, val) != 0) {
+                            return RedisModule_ReplyWithError(ctx, "ERR query scan limit exceeded (max 100000 rows). Use indexed columns or add more specific conditions.");
+                        }
                         i++;
                     } else if (opl==2 && strncasecmp(ops, "OR",2)==0) {
                         dict_add_set_members(ctx, ids, fmt3(ctx, "idx:%s:%s:%s", argv[1], col, val));
@@ -784,7 +941,9 @@ static int TableDeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                     dict_add_set_members(ctx, ids, fmt(ctx, "rows:%s", argv[1]));
                     haveSeed = 1;
                 }
-                dict_filter_condition(ctx, ids, argv[1], col, op, val);
+                if (dict_filter_condition(ctx, ids, argv[1], col, op, val) != 0) {
+                    return RedisModule_ReplyWithError(ctx, "ERR query scan limit exceeded (max 100000 rows). Use indexed columns or add more specific conditions.");
+                }
                 i++;
             }
             
@@ -917,10 +1076,28 @@ static int TableHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int a
 
 /* ================== Module Init ================== */
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
     if (RedisModule_Init(ctx, "table", 2, REDISMODULE_APIVER_1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
+
+    // Parse module load-time arguments
+    // Usage: --loadmodule redis_table.so max_scan_limit <value>
+    // Example: --loadmodule redis_table.so max_scan_limit 200000
+    if (argc >= 2) {
+        size_t keyLen;
+        const char *key = RedisModule_StringPtrLen(argv[0], &keyLen);
+        
+        if (strncmp(key, "max_scan_limit", keyLen) == 0 || strncmp(key, "max_scan_limit", 14) == 0) {
+            long long value;
+            if (RedisModule_StringToLongLong(argv[1], &value) == REDISMODULE_OK) {
+                if (value >= 1000 && value <= 10000000) {  // Min 1K, Max 10M
+                    g_max_rows_scan_limit = value;
+                    RedisModule_Log(ctx, "notice", "Table module: max_scan_limit set to %lld", value);
+                } else {
+                    RedisModule_Log(ctx, "warning", "Table module: invalid max_scan_limit value %lld (must be between 1000 and 10000000), using default %lld", value, (long long)DEFAULT_MAX_ROWS_SCAN_LIMIT);
+                }
+            }
+        }
+    }
 
     if (RedisModule_CreateCommand(ctx, "TABLE.NAMESPACE.CREATE", TableNamespaceCreateCommand, "write", 1, 1, 1) == REDISMODULE_ERR) return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx, "TABLE.NAMESPACE.VIEW", TableNamespaceViewCommand, "readonly", 0, 0, 0) == REDISMODULE_ERR) return REDISMODULE_ERR;

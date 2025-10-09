@@ -535,19 +535,64 @@ else
 fi
 
 # ============================================
+# TEST SUITE 16: Character Limit Validation
+# ============================================
+echo -e "\n${YELLOW}=== TEST SUITE 16: Character Limit Validation ===${NC}"
+
+test_start "Create namespace with exactly 64 characters"
+long_namespace=$(printf 'a%.0s' {1..64})
+result=$($REDIS_CLI TABLE.NAMESPACE.CREATE "$long_namespace")
+assert_equals "OK" "$result" "Namespace with exactly 64 characters should succeed"
+
+test_start "Create namespace exceeding 64 characters"
+very_long_namespace=$(printf 'a%.0s' {1..65})
+result=$($REDIS_CLI TABLE.NAMESPACE.CREATE "$very_long_namespace" 2>&1)
+assert_error "incorrect namespace name, it exceeds the limit of 64 characters" "$result" "Namespace over 64 characters should fail"
+
+test_start "Create table with namespace exactly 64 characters"
+long_ns=$(printf 'b%.0s' {1..64})
+$REDIS_CLI TABLE.NAMESPACE.CREATE "$long_ns" > /dev/null
+result=$($REDIS_CLI TABLE.SCHEMA.CREATE "$long_ns".testtable NAME:string)
+assert_equals "OK" "$result" "Table with 64-char namespace should succeed"
+
+test_start "Create table with table name exactly 64 characters"
+# Ensure testdb namespace exists for this test
+$REDIS_CLI TABLE.NAMESPACE.CREATE testdb > /dev/null 2>&1
+long_table=$(printf 'c%.0s' {1..64})
+result=$($REDIS_CLI TABLE.SCHEMA.CREATE testdb."$long_table" NAME:string)
+assert_equals "OK" "$result" "Table with 64-char name should succeed"
+
+test_start "Create table with namespace exceeding 64 characters"
+very_long_ns=$(printf 'd%.0s' {1..65})
+result=$($REDIS_CLI TABLE.SCHEMA.CREATE "$very_long_ns".testtable NAME:string 2>&1)
+assert_error "incorrect namespace name, it exceeds the limit of 64 characters" "$result" "Table with long namespace should fail"
+
+test_start "Create table with table name exceeding 64 characters"
+very_long_table=$(printf 'e%.0s' {1..65})
+result=$($REDIS_CLI TABLE.SCHEMA.CREATE testdb."$very_long_table" NAME:string 2>&1)
+assert_error "incorrect table name, it exceeds the limit of 64 characters" "$result" "Table with long name should fail"
+
+test_start "Create table with both namespace and table name over 64 characters"
+very_long_ns=$(printf 'f%.0s' {1..65})
+very_long_table=$(printf 'g%.0s' {1..65})
+result=$($REDIS_CLI TABLE.SCHEMA.CREATE "$very_long_ns"."$very_long_table" NAME:string 2>&1)
+assert_error "incorrect namespace name, it exceeds the limit of 64 characters" "$result" "Table with both names too long should fail (namespace checked first)"
+
+# Clean up for next tests
+# Note: Don't flush here as Complex Scenarios tests depend on company.employees table
+
+# ============================================
 # TEST SUITE 15: Complex Scenarios
 # ============================================
 echo -e "\n${YELLOW}=== TEST SUITE 15: Complex Scenarios ===${NC}"
 
-$REDIS_CLI FLUSHALL > /dev/null
-$REDIS_CLI TABLE.NAMESPACE.CREATE company > /dev/null
-$REDIS_CLI TABLE.SCHEMA.CREATE company.employees EMPID:string:true NAME:string:true DEPT:string:true SALARY:float:false AGE:integer:false HIREDATE:date:true > /dev/null
-
-test_start "Complex scenario: Insert multiple employees"
-$REDIS_CLI TABLE.INSERT company.employees EMPID=E001 NAME=John DEPT=Engineering SALARY=50000.50 AGE=30 HIREDATE=2020-01-15 > /dev/null
-$REDIS_CLI TABLE.INSERT company.employees EMPID=E002 NAME=Jane DEPT=Marketing SALARY=55000.75 AGE=28 HIREDATE=2021-03-20 > /dev/null
-$REDIS_CLI TABLE.INSERT company.employees EMPID=E003 NAME=Bob DEPT=Engineering SALARY=60000.00 AGE=35 HIREDATE=2019-06-10 > /dev/null
-$REDIS_CLI TABLE.INSERT company.employees EMPID=E004 NAME=Alice DEPT=Sales SALARY=58000.25 AGE=32 HIREDATE=2020-11-05 > /dev/null
+# Ensure company namespace and employees table exist for these tests
+$REDIS_CLI TABLE.NAMESPACE.CREATE company > /dev/null 2>&1
+$REDIS_CLI TABLE.SCHEMA.CREATE company.employees EMPID:string:true NAME:string:true DEPT:string:true SALARY:float:false AGE:integer:false HIREDATE:date:true > /dev/null 2>&1
+$REDIS_CLI TABLE.INSERT company.employees EMPID=E001 NAME=John DEPT=Engineering SALARY=50000.50 AGE=30 HIREDATE=2020-01-15 > /dev/null 2>&1
+$REDIS_CLI TABLE.INSERT company.employees EMPID=E002 NAME=Jane DEPT=Marketing SALARY=55000.75 AGE=28 HIREDATE=2021-03-20 > /dev/null 2>&1
+$REDIS_CLI TABLE.INSERT company.employees EMPID=E003 NAME=Bob DEPT=Engineering SALARY=60000.00 AGE=35 HIREDATE=2019-06-10 > /dev/null 2>&1
+$REDIS_CLI TABLE.INSERT company.employees EMPID=E004 NAME=Alice DEPT=Sales SALARY=58000.25 AGE=32 HIREDATE=2020-11-05 > /dev/null 2>&1
 result=$($REDIS_CLI TABLE.SELECT company.employees)
 row_count=$(echo "$result" | grep -o "EMPID" | wc -l)
 if [ "$row_count" -eq 4 ]; then

@@ -464,16 +464,38 @@ SMEMBERS idx:mydb.employees:DEPT:Engineering
 
 ## Testing
 
-The module includes a comprehensive test suite with 86 tests covering all functionality:
+### Core Tests
+
+Run the test suite:
 
 ```bash
-# Run all tests (recommended)
-make test
-
-# Or run tests manually
-cd tests
-./run_tests.sh
+make test          # 93 unit tests
+make test-clients  # Client compatibility tests (optional)
+make test-memory   # Memory leak detection tests
+make test-all      # All tests
 ```
+
+### Memory Leak Testing
+
+The module includes comprehensive memory leak detection:
+
+```bash
+# Basic memory leak tests (shell-based)
+make test-memory
+
+# Advanced memory profiler (Python-based, requires python3-redis)
+make test-memory-profiler
+```
+
+**Test Coverage**:
+- Schema creation/deletion cycles
+- Table creation/drop cycles  
+- Schema alterations (ADD/DROP COLUMN/INDEX)
+- Query operations (SELECT)
+- CRUD operation cycles
+- Memory fragmentation analysis
+
+📖 **See [tests/MEMORY_TESTING.md](tests/MEMORY_TESTING.md) for detailed memory testing guide.**
 
 ### Test Coverage
 - ✅ Namespace management (4 tests)
@@ -526,17 +548,127 @@ TABLE.SELECT test.users WHERE AGE=30  # Now works!
 - `ERR column does not exist` - Column not in table schema (when adding index)
 - `ERR format: <col:type> or <col:type:index>` - Invalid CREATE syntax
 - `ERR index must be 'true' or 'false'` - Invalid index value
+- `ERR incorrect namespace name, it exceeds the limit of 64 characters` - Namespace name too long
+- `ERR incorrect table name, it exceeds the limit of 64 characters` - Table name too long
+- `ERR query scan limit exceeded (max 100000 rows)` - Query would scan too many rows (prevents blocking)
+- `ERR out of memory` - Memory allocation failed during operation
+
+## Client Compatibility
+
+The module uses special characters in command arguments (colons, equals, operators). **All major Redis clients are compatible** when arguments are passed as arrays/lists.
+
+**Quick Example (Python)**:
+```python
+import redis
+r = redis.Redis(decode_responses=True)
+
+# ✅ CORRECT - Arguments as separate strings
+r.execute_command('TABLE.INSERT', 'mydb.users', 'NAME=John', 'AGE=30')
+
+# ❌ WRONG - Concatenated into single string
+r.execute_command('TABLE.INSERT mydb.users NAME=John AGE=30')
+```
+
+**Verified Compatible Clients**:
+- ✅ redis-cli, redis-py, node-redis, ioredis
+- ✅ go-redis, Jedis, StackExchange.Redis
+- ✅ redis-rs (Rust), phpredis
+
+**Automated Tests Available**:
+```bash
+# Run client compatibility tests (optional)
+make test-clients
+
+# Install dependencies to enable tests (optional)
+sudo apt install python3-redis  # For Python tests (Ubuntu/Debian)
+# OR: python3 -m venv venv && source venv/bin/activate && pip install redis
+npm install redis               # For Node.js tests
+```
+
+**Note**: Client tests are optional and will be skipped if dependencies are missing.
+
+📖 **See [CLIENT_COMPATIBILITY.md](CLIENT_COMPATIBILITY.md) for detailed examples in 9+ languages and test suite.**
+
+---
+
+## Configuration
+
+### Module Load-time Configuration
+
+You can configure the scan limit when loading the module:
+
+```bash
+redis-server --loadmodule redis_table.so max_scan_limit 200000
+```
+
+**Parameters:**
+- `max_scan_limit` - Maximum rows to scan per query operation (default: 100,000)
+  - **Minimum**: 1,000 rows
+  - **Maximum**: 10,000,000 rows
+  - **Default**: 100,000 rows
+
+**Example:**
+```bash
+# Default (100K limit)
+redis-server --loadmodule redis_table.so
+
+# Custom limit for analytics workloads (500K limit)
+redis-server --loadmodule redis_table.so max_scan_limit 500000
+
+# Large-scale production (1M limit)
+redis-server --loadmodule redis_table.so max_scan_limit 1000000
+```
+
+**When to increase the limit:**
+- Analytics queries on large tables
+- Batch processing operations
+- Data migration tasks
+- Lower traffic periods
+
+**When to keep default:**
+- High-traffic production environments
+- Shared Redis instances
+- Strict latency requirements
 
 ## Limitations
 
-- Maximum 1000 rows per WHERE clause (array limit in filter functions)
-- Comparison operators require full table scan
+### Performance Considerations
+- **Configurable scan limit per query operation** - Default 100,000 rows, configurable from 1,000 to 10,000,000
+  - Prevents Redis from blocking on huge datasets during WHERE clause evaluation
+  - Can be adjusted at module load time based on your workload
+
+### Concurrency Considerations
+
+⚠️ **Known Limitation (will be fixed in v2.2):**
+
+**Concurrent DROP INDEX operations may cause race conditions:**
+
+- **Issue**: `DROP INDEX` removes metadata before deleting all index keys
+- **Impact**: Queries starting during index deletion may return incorrect results (empty set)
+- **Scenario**: 
+  1. Client A: `SELECT WHERE indexed_col=value` (checks index exists)
+  2. Client B: `DROP INDEX indexed_col` (removes metadata immediately)
+  3. Client A: Tries to use index → finds missing keys → returns empty
+  
+**Workaround**:
+- Run `DROP INDEX` operations during maintenance windows
+- Avoid concurrent schema modifications
+- Monitor for unexpected empty query results after schema changes
+
+**Planned Fix (v2.2)**: Reverse deletion order (delete index keys before metadata) or implement soft-delete tombstone pattern.
+
+### Data Constraints
+- **Maximum 64 characters** for namespace and table names
+- Date format must be YYYY-MM-DD (no time component)
+- Float stored as string (precision limited by string conversion)
+
+### Query Limitations
+- Comparison operators (>, <, >=, <=) require full table scan (up to 100K row limit)
+- Equality (=) search requires indexed columns
 - No compound indexes (index per column only)
 - No LIKE/pattern matching
 - No JOIN operations
 - No transactions
-- Date format must be YYYY-MM-DD (no time component)
-- Float stored as string (precision limited by string conversion)
 
 ## Migration from V1
 

@@ -78,9 +78,9 @@ Test 1: Create namespace
 ========================================
 Test Summary
 ========================================
-Passed: 86
+Passed: 93
 Failed: 0
-Total:  86
+Total:  93
 ========================================
 All tests completed successfully!
 
@@ -92,7 +92,7 @@ Redis server stopped
 
 ## Test Suite Overview
 
-The test suite contains **14 comprehensive test suites** with **86 individual tests** covering all module functionality:
+The test suite contains **16 comprehensive test suites** with **93 individual tests** covering all module functionality:
 
 ### Test Suite 1: Namespace Management (4 tests)
 - ✅ Create namespace
@@ -195,7 +195,16 @@ The test suite contains **14 comprehensive test suites** with **86 individual te
 - ✅ Add index and query
 - ✅ Update salary and verify
 
-**Total: 86 individual test cases**
+### Test Suite 16: Character Limit Validation (7 tests)
+- ✅ Create namespace with exactly 64 characters
+- ✅ Create namespace exceeding 64 characters
+- ✅ Create table with namespace exactly 64 characters
+- ✅ Create table with table name exactly 64 characters
+- ✅ Create table with namespace exceeding 64 characters
+- ✅ Create table with table name exceeding 64 characters
+- ✅ Create table with both names over 64 characters
+
+**Total: 93 individual test cases**
 
 ---
 
@@ -616,7 +625,7 @@ When modifying the module:
 The Redis Table Module test suite provides:
 
 - ✅ **Comprehensive coverage** of all commands and features
-- ✅ **86 individual test cases** across 14 test suites
+- ✅ **93 individual test cases** across 16 test suites
 - ✅ **Automated testing** with clear pass/fail indicators
 - ✅ **Integrated Makefile** with `make test` target
 - ✅ **Manual testing procedures** for development and debugging
@@ -629,7 +638,7 @@ For questions or issues, refer to the main [README.md](../README.md) or examine 
 
 ---
 
-**Last Updated:** 2025-10-03  
-**Test Suite Version:** 2.0  
-**Module Version:** 2.0  
+**Last Updated:** 2025-10-09  
+**Test Suite Version:** 2.1  
+**Module Version:** 2.1  
 **Build System:** Fully integrated with Makefile

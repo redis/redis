@@ -9,7 +9,8 @@
 # Convenience script to start Redis, run tests, and clean up
 
 REDIS_DIR="../../.."
-MODULE_PATH="$(pwd)/../redis_table.so"
+SCRIPT_DIR="$(dirname $(readlink -f $0))"
+MODULE_PATH="$SCRIPT_DIR/../redis_table.so"
 REDIS_PID_FILE="/tmp/redis_table_test.pid"
 
 # Colors
@@ -42,8 +43,14 @@ fi
 
 echo -e "${GREEN}Starting Redis server with table module...${NC}"
 cd $REDIS_DIR
+echo "Redis dir: $(pwd)"
+echo "Module path: $MODULE_PATH"
+if [ ! -f "$MODULE_PATH" ]; then
+    echo -e "${RED}Error: Module file not found at $MODULE_PATH${NC}"
+    exit 1
+fi
 ./src/redis-server --loadmodule $MODULE_PATH --daemonize yes --pidfile $REDIS_PID_FILE
-sleep 1
+sleep 2
 cd - > /dev/null
 
 # Verify Redis started
@@ -51,6 +58,17 @@ if ! pgrep -x redis-server > /dev/null; then
     echo -e "${RED}Error: Failed to start Redis server${NC}"
     exit 1
 fi
+
+# Verify module is loaded
+echo -e "${YELLOW}Verifying module is loaded...${NC}"
+MODULE_CHECK=$($REDIS_DIR/src/redis-cli MODULE LIST 2>/dev/null | grep -i table || echo "")
+if [[ -z "$MODULE_CHECK" ]]; then
+    echo -e "${RED}Error: Table module not loaded properly${NC}"
+    echo "MODULE LIST output:"
+    $REDIS_DIR/src/redis-cli MODULE LIST 2>/dev/null || echo "Could not connect to Redis"
+    exit 1
+fi
+
 echo -e "${GREEN}Redis server started successfully${NC}\n"
 
 # Clean database before tests
