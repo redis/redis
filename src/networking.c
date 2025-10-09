@@ -4913,6 +4913,8 @@ void freePendingCommand(client *c, pendingCommand *pcmd) {
     if (!pcmd)
         return;
 
+    getKeysFreeResult(&pcmd->keys_result);
+
     if (pcmd->argv) {
         for (int j = 0; j < pcmd->argc; j++)
             decrRefCount(pcmd->argv[j]);

@@ -2354,6 +2354,7 @@ typedef struct {
 /* pendingCommand flags */
 enum {
     PENDING_CMD_FLAG_INCOMPLETE = 1 << 0,   /* Command parsing is incomplete, still waiting for more data */
+    PENDING_CMD_KEYRESULT_INVALID = 1 << 1, /* Key result is invalid, needs to be recomputed */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */

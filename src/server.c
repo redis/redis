@@ -4071,11 +4071,17 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
         return;
     }
 
+    pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(pcmd->cmd, pcmd->argv, pcmd->argc, &pcmd->keys_result); 
+    if (numkeys < 0) {
+        pcmd->flags |= PENDING_CMD_KEYRESULT_INVALID;
+        /* We skip the checks below since We expect the command to be rejected in this case */
+        return;
+    }
+
     if (server.cluster_enabled) {
-        getKeysResult result = (getKeysResult)GETKEYS_RESULT_INIT;
-        int numkeys = getKeysFromCommand(pcmd->cmd, pcmd->argv, pcmd->argc, &result); 
         for (int i = 0; i < numkeys; i++) {
-            robj *thiskey = pcmd->argv[result.keys[i].pos];
+            robj *thiskey = pcmd->argv[pcmd->keys_result.keys[i].pos];
             int thisslot = (int)keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
             if (pcmd->slot == INVALID_CLUSTER_SLOT) {
                 pcmd->slot = thisslot;
@@ -4088,7 +4094,6 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
                 break;
             }
         }
-        getKeysFreeResult(&result);
     }
 }
 
@@ -4242,8 +4247,11 @@ int processCommand(client *c) {
           c->cmd->proc != execCommand))
     {
         int error_code;
+        pendingCommand *pcmd = c->pending_cmds.head;
+        getKeysResult *key_result = (pcmd->flags & PENDING_CMD_KEYRESULT_INVALID) ? NULL : &pcmd->keys_result;
+        // getKeysResult *key_result = NULL;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-                                        &c->slot,cmd_flags,&error_code);
+                                        &c->slot,key_result,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);

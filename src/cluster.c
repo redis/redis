@@ -1107,7 +1107,7 @@ void clusterCommand(client *c) {
  *
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, uint64_t cmd_flags, int *error_code) {
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, getKeysResult *keys_result, uint64_t cmd_flags, int *error_code) {
     clusterNode *myself = getMyClusterNode();
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -1151,6 +1151,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.argc = argc;
         mc.cmd = cmd;
         mc.slot = hashslot ? *hashslot : INVALID_CLUSTER_SLOT;
+        if (keys_result)
+            mc.keys_result = *keys_result;
+        else
+            mc.flags |= PENDING_CMD_KEYRESULT_INVALID;
     }
 
     /* Check that all the keys are in the same hash slot, and obtain this
@@ -1158,7 +1162,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     for (i = 0; i < ms->count; i++) {
         struct redisCommand *mcmd;
         robj **margv;
-        int margc, numkeys, j;
+        int margc, j;
         keyReference *keyindex;
 
         pendingCommand *pcmd = ms->commands[i];
@@ -1175,10 +1179,13 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         }
 
         getKeysResult result = GETKEYS_RESULT_INIT;
-        numkeys = getKeysFromCommand(mcmd,margv,margc,&result);
+        if (pcmd->flags & PENDING_CMD_KEYRESULT_INVALID)
+            getKeysFromCommand(mcmd,margv,margc,&result);
+        else
+            result = pcmd->keys_result;
         keyindex = result.keys;
 
-        for (j = 0; j < numkeys; j++) {
+        for (j = 0; j < result.numkeys; j++) {
             /* The command has keys and was checked for cross-slot between its keys in preprocessCommand() */
             if (pcmd->read_error == CLIENT_READ_CROSS_SLOT) {
                 /* Error: multiple keys from different slots. */
@@ -1204,7 +1211,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * not trapped earlier in processCommand(). Report the same
                  * error to the client. */
                 if (n == NULL) {
-                    getKeysFreeResult(&result);
+                    if (!keys_result) getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_DOWN_UNBOUND;
                     return NULL;
@@ -1227,7 +1234,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * the same key/channel as the first we saw. */
                 if (slot != thisslot) {
                     /* Error: multiple keys from different slots. */
-                    getKeysFreeResult(&result);
+                    if (!keys_result) getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_CROSS_SLOT;
                     return NULL;
@@ -1252,7 +1259,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 else existing_keys++;
             }
         }
-        getKeysFreeResult(&result);
+        if (!keys_result) getKeysFreeResult(&result);
     }
 
     /* No key at all in command? then we can serve the request

@@ -781,7 +781,6 @@ run_solo {defrag} {
             if {$::verbose} {
                 puts "frag $frag"
             }
-            puts 1111
 
             assert {$frag >= $expected_frag}
             r config set latency-monitor-threshold 5

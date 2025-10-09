@@ -6657,7 +6657,7 @@ RedisModuleCallReply *RM_Call(RedisModuleCtx *ctx, const char *cmdname, const ch
         c->flags &= ~(CLIENT_READONLY|CLIENT_ASKING);
         c->flags |= ctx->client->flags & (CLIENT_READONLY|CLIENT_ASKING);
         const uint64_t cmd_flags = getCommandFlags(c);
-        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,cmd_flags,&error_code) !=
+        if (getNodeByQuery(c,c->cmd,c->argv,c->argc,NULL,NULL,cmd_flags,&error_code) !=
                            getMyClusterNode())
         {
             sds msg = NULL;
@@ -11050,6 +11050,10 @@ void moduleCallCommandFilters(client *c) {
         pcmd->argc = filter.argc;
         pcmd->argv_len = filter.argv_len;
         pcmd->cmd = NULL;
+        pcmd->slot = INVALID_CLUSTER_SLOT;
+        pcmd->flags |= PENDING_CMD_KEYRESULT_INVALID;
+        getKeysFreeResult(&pcmd->keys_result);
+        pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
     }
 }
 
