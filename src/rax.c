@@ -22,6 +22,8 @@
 
 #include RAX_MALLOC_INCLUDE
 
+#define UNUSED(x) (void)(x)
+
 /* -------------------------------- Debugging ------------------------------ */
 
 void raxDebugShowNode(const char *msg, raxNode *n);
@@ -1301,6 +1303,7 @@ void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
 #ifdef REDIS_TEST
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
         size_t *alloc_size = (size_t *)rax->metadata;
+        UNUSED(alloc_size);
         debugAssert(*alloc_size == rax_malloc_usable_size(rax));
     }
 #endif
@@ -1316,6 +1319,7 @@ void raxFreeWithCbAndContext(rax *rax,
 #ifdef REDIS_TEST
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
         size_t *alloc_size = (size_t *)rax->metadata;
+        UNUSED(alloc_size);
         debugAssert(*alloc_size == rax_malloc_usable_size(rax));
     }
 #endif
@@ -2015,8 +2019,6 @@ unsigned long raxTouch(raxNode *n) {
 #ifdef REDIS_TEST
 #include "testhelp.h"
 #include <stdlib.h>
-
-#define UNUSED(x) (void)(x)
 
 #define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
 
