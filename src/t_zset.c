@@ -43,6 +43,7 @@
 #include "fast_float_strtod.h"
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "redisassert.h"
 #include <math.h>
 
 /*-----------------------------------------------------------------------------
@@ -93,8 +94,10 @@ zskiplist *zslCreate(void) {
  * this function. */
 void zslFreeNode(zskiplist *zsl, zskiplistNode *node) {
     size_t usable;
-    sdsfreeusable(node->ele, &usable);
-    zsl->alloc_size -= usable;
+    if (node->ele) {
+        zsl->alloc_size -= sdsAllocSize(node->ele);
+        sdsfree(node->ele);
+    }
     zfree_usable(node, &usable);
     zsl->alloc_size -= usable;
 }
@@ -102,13 +105,16 @@ void zslFreeNode(zskiplist *zsl, zskiplistNode *node) {
 /* Free a whole skiplist. */
 void zslFree(zskiplist *zsl) {
     zskiplistNode *node = zsl->header->level[0].forward, *next;
+    size_t usable;
 
-    zfree(zsl->header);
+    zfree_usable(zsl->header, &usable);
+    zsl->alloc_size -= usable;
     while(node) {
         next = node->level[0].forward;
         zslFreeNode(zsl, node);
         node = next;
     }
+    debugAssert(zsl->alloc_size == zmalloc_usable_size(zsl));
     zfree(zsl);
 }
 
@@ -296,6 +302,7 @@ zskiplistNode *zslUpdateScore(zskiplist *zsl, double curscore, sds ele, double n
     zskiplistNode *newnode = zslInsert(zsl,newscore,x->ele);
     /* We reused the old node x->ele SDS string, free the node now
      * since zslInsert created a new one. */
+    if (x->ele) zsl->alloc_size -= sdsAllocSize(x->ele);
     x->ele = NULL;
     zslFreeNode(zsl, x);
     return newnode;
