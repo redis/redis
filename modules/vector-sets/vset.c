@@ -2566,7 +2566,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     RedisModuleCommandInfo vrange_info = {
         .version = REDISMODULE_COMMAND_INFO_VERSION,
         .summary = "Return vector set elements in a lex range",
-        .since = "8.3.0",
+        .since = "8.4.0",
         .arity = -4,
         .args = vrange_args,
     };
