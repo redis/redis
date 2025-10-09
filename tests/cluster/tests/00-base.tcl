@@ -89,5 +89,5 @@ test "CLUSTER SLAVES and CLUSTER REPLICAS with zero replicas" {
 }
 
 test "CLUSTER FORGET with invalid node ID" {
-    assert_error {*ERR Unknown node*} {r cluster forget 1}
+    assert_error {*ERR Unknown node*} {R 0 cluster forget 1}
 }
