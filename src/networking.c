@@ -3061,9 +3061,12 @@ int processInputBuffer(client *c) {
         c->read_error = curcmd->read_error;
         c->current_pending_cmd = curcmd;
 
-        /* Prefetch the command if we are in the main thread. If running in an IO thread,
-         * prefetch will be deferred until the client is processed by the main thread. */
-        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID && !(c->flags & CLIENT_IN_MEMORY_PREFETCH)) {
+        /* Prefetch the command only when more commands have been parsed and we
+         * are in the main thread. If running in an IO thread, prefetch will be
+         * deferred until the client is processed by the main thread. */
+        if (parse_more && c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+            !(c->flags & CLIENT_IN_MEMORY_PREFETCH))
+        {
             /* Prefetch the commands. */
             resetCommandsBatch();
             addCommandToBatch(c);
