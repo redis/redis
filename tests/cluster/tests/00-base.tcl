@@ -87,3 +87,7 @@ test "CLUSTER SLAVES and CLUSTER REPLICAS with zero replicas" {
     assert_equal {} [R 0 cluster slaves [R 0 CLUSTER MYID]]
     assert_equal {} [R 0 cluster replicas [R 0 CLUSTER MYID]]
 }
+
+test "CLUSTER FORGET with invalid node ID" {
+    assert_error {*ERR Unknown node*} {R 0 cluster forget 1}
+}
