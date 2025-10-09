@@ -4249,7 +4249,6 @@ int processCommand(client *c) {
         int error_code;
         pendingCommand *pcmd = c->pending_cmds.head;
         getKeysResult *key_result = (pcmd->flags & PENDING_CMD_KEYRESULT_INVALID) ? NULL : &pcmd->keys_result;
-        // getKeysResult *key_result = NULL;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
                                         &c->slot,key_result,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
