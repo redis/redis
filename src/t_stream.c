@@ -10,6 +10,7 @@
 #include "server.h"
 #include "endianconv.h"
 #include "stream.h"
+#include "redisassert.h"
 
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
@@ -71,13 +72,26 @@ stream *streamNew(void) {
     return s;
 }
 
+static void streamLpFreeGeneric(void *lp, void *str) {
+    stream *s = str;
+    size_t usable = 0;
+    lpFreeUsable(lp, &usable);
+    s->alloc_size -= usable;
+}
+
 /* Free a stream, including the listpacks stored inside the radix tree. */
 void freeStream(stream *s) {
-    raxFreeWithCallback(s->rax, lpFreeGeneric);
-    if (s->cgroups)
+    s->alloc_size -= raxAllocSize(s->rax);
+    raxFreeWithCbAndContext(s->rax, streamLpFreeGeneric, s);
+    if (s->cgroups) {
+        s->alloc_size -= raxAllocSize(s->cgroups);
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
-    if (s->cgroups_ref)
+    }
+    if (s->cgroups_ref) {
+        s->alloc_size -= raxAllocSize(s->cgroups_ref);
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
+    }
+    debugAssert(s->alloc_size == zmalloc_usable_size(s));
     zfree(s);
 }
 
@@ -557,7 +571,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
         if (new_node) {
             /* Shrink extra pre-allocated memory */
-            size_t usable, old_usable;
+            size_t usable = 0, old_usable = 0;
             lp = lpShrinkToFitUsable(lp, &usable, &old_usable);
             s->alloc_size -= old_usable;
             s->alloc_size += usable;
@@ -1431,7 +1445,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     stream *s = si->stream;
     unsigned char *lp = si->lp;
     int64_t aux;
-    size_t usable, old_usable;
+    size_t usable = 0, old_usable = 0;
 
     /* We do not really delete the entry here. Instead we mark it as
      * deleted by flagging it, and also incrementing the count of the
@@ -3049,8 +3063,8 @@ void streamFreeConsumer(stream *s, streamConsumer *sc) {
     s->alloc_size -= raxAllocSize(sc->pel);
     raxFree(sc->pel); /* No value free callback: the PEL entries are shared
                          between the consumer and the main stream PEL. */
-    sdsfreeusable(sc->name, &usable);
-    s->alloc_size -= usable;
+    s->alloc_size -= sdsAllocSize(sc->name);
+    sdsfree(sc->name);
     zfree_usable(sc, &usable);
     s->alloc_size -= usable;
 }

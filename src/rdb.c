@@ -273,7 +273,7 @@ int rdbEncodeInteger(long long value, unsigned char *enc) {
 /* Loads an integer-encoded object with the specified encoding type "enctype".
  * The returned value changes according to the flags, see
  * rdbGenericLoadStringObject() for more info. */
-void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
+void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr, size_t *usable) {
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
     int hfldFlag = flags & (RDB_LOAD_HFLD|RDB_LOAD_HFLD_TTL);
@@ -307,11 +307,12 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr) {
         int len = ll2string(buf,sizeof(buf),val);
         if (lenptr) *lenptr = len;
         if (plainFlag) {
-            p = zmalloc(len);
+            p = zmalloc_usable(len, usable);
         } else if (sdsFlag) {
             p = sdsnewlen(SDS_NOINIT,len);
+            if (usable) *usable = sdsAllocSize(buf);
         } else { /* hfldFlag */
-            p = hfieldNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1, NULL);
+            p = hfieldNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1, usable);
         }
         memcpy(p,buf,len);
         return p;
@@ -380,7 +381,7 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
 /* Load an LZF compressed string in RDB format. The returned value
  * changes according to 'flags'. For more info check the
  * rdbGenericLoadStringObject() function. */
-void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
+void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable) {
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
     int hfldFlag = flags & (RDB_LOAD_HFLD | RDB_LOAD_HFLD_TTL);
@@ -399,11 +400,12 @@ void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr) {
 
     /* Allocate our target according to the uncompressed size. */
     if (plainFlag) {
-        val = ztrymalloc(len);
+        val = ztrymalloc_usable(len, usable);
     } else if (sdsFlag || robjFlag) {
         val = sdstrynewlen(SDS_NOINIT,len);
+        if (usable) *usable = sdsAllocSize(val);
     } else { /* hfldFlag */
-        val = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1, NULL);
+        val = hfieldTryNew(NULL, len, (flags&RDB_LOAD_HFLD) ? 0 : 1, usable);
     }
 
     if (!val) {
@@ -533,9 +535,9 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
         case RDB_ENC_INT8:
         case RDB_ENC_INT16:
         case RDB_ENC_INT32:
-            return rdbLoadIntegerObject(rdb,len,flags,lenptr);
+            return rdbLoadIntegerObject(rdb,len,flags,lenptr,usable);
         case RDB_ENC_LZF:
-            return rdbLoadLzfStringObject(rdb,flags,lenptr);
+            return rdbLoadLzfStringObject(rdb,flags,lenptr,usable);
         default:
             rdbReportCorruptRDB("Unknown RDB string encoding type %llu",len);
             return NULL;
@@ -2812,7 +2814,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             return NULL;
         }
 
-        s->alloc_size -= raxAllocSize(s->rax);
         while(listpacks--) {
             /* Get the master ID, the one we'll use as key of the radix tree
              * node: the entries inside the listpack itself are delta-encoded
@@ -2849,7 +2850,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 zfree(lp);
                 return NULL;
             }
-            s->alloc_size += usable;
 
             unsigned char *first = lpFirst(lp);
             if (first == NULL) {
@@ -2864,8 +2864,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Insert the key in the radix tree. */
+            s->alloc_size -= raxAllocSize(s->rax);
             int retval = raxTryInsert(s->rax,
                 (unsigned char*)nodekey,sizeof(streamID),lp,NULL);
+            s->alloc_size += raxAllocSize(s->rax);
             sdsfree(nodekey);
             if (!retval) {
                 rdbReportCorruptRDB("Listpack re-added with existing key");
@@ -2873,8 +2875,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 zfree(lp);
                 return NULL;
             }
+            s->alloc_size += usable;
         }
-        s->alloc_size += raxAllocSize(s->rax);
         /* Load total number of items inside the stream. */
         s->length = rdbLoadLen(rdb,NULL);
 
@@ -2982,7 +2984,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 decrRefCount(o);
                 return NULL;
             }
-            s->alloc_size -= raxAllocSize(cgroup->pel);
             while(pel_size--) {
                 unsigned char rawid[sizeof(streamID)];
                 if (rioRead(rdb,rawid,sizeof(rawid)) == 0) {
@@ -3000,7 +3001,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
+                s->alloc_size -= raxAllocSize(cgroup->pel);
+                int retval = raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL);
+                s->alloc_size += raxAllocSize(cgroup->pel);
+                if (!retval) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
                     streamFreeNACK(s,nack);
@@ -3012,7 +3016,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 streamDecodeID(rawid, &id);
                 raxInsertPelByTime(cgroup->pel_by_time, nack->delivery_time, &id);
             }
-            s->alloc_size += raxAllocSize(cgroup->pel);
 
             /* Now that we loaded our global PEL, we need to load the
              * consumers and their local PELs. */
@@ -3067,7 +3070,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                s->alloc_size -= raxAllocSize(consumer->pel);
                 while(pel_size--) {
                     unsigned char rawid[sizeof(streamID)];
                     if (rioRead(rdb,rawid,sizeof(rawid)) == 0) {
@@ -3089,7 +3091,10 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
                     nack->consumer = consumer;
-                    if (!raxTryInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL)) {
+                    s->alloc_size -= raxAllocSize(consumer->pel);
+                    int retval = raxTryInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL);
+                    s->alloc_size += raxAllocSize(consumer->pel);
+                    if (!retval) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
@@ -3098,7 +3103,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                         return NULL;
                     }
                 }
-                s->alloc_size += raxAllocSize(consumer->pel);
             }
 
             /* Verify that each PEL eventually got a consumer assigned to it. */
