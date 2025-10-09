@@ -1135,7 +1135,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         raise_error = 1;
     } else {
         int keyidxptr;
-        if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
+        if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, NULL, &keyidxptr) != ACL_OK) {
             lua_pushboolean(lua, 0);
         } else {
             lua_pushboolean(lua, 1);

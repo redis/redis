@@ -1788,7 +1788,7 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
  * granted in addition to the access required by the command. Returns 1 
  * if the user has access or 0 otherwise.
  */
-int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int flags) {
     listIter li;
     listNode *ln;
     int local_idxptr;
@@ -1800,6 +1800,10 @@ int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, 
      * calls to prevent duplicate lookups. */
     aclKeyResultCache cache;
     initACLKeyResultCache(&cache);
+    if (key_result) {
+        cache.keys = *key_result;
+        cache.keys_init = 1;
+    }
 
     /* Check each selector sequentially */
     listRewind(u->selectors,&li);
@@ -1807,11 +1811,11 @@ int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, 
         aclSelector *s = (aclSelector *) listNodeValue(ln);
         int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
         if (acl_retval == ACL_OK && ACLSelectorHasUnrestrictedKeyAccess(s, flags)) {
-            cleanupACLKeyResultCache(&cache);
+            if (!key_result) cleanupACLKeyResultCache(&cache);
             return 1;
         }
     }
-    cleanupACLKeyResultCache(&cache);
+    if (!key_result) cleanupACLKeyResultCache(&cache);
     return 0;
 }
 
@@ -1847,7 +1851,7 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
  * If the command fails an ACL check, idxptr will be to set to the first argv entry that
  * causes the failure, either 0 if the command itself fails or the idx of the key/channel
  * that causes the failure */
-int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
+int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int *idxptr) {
     listIter li;
     listNode *ln;
 
@@ -1864,6 +1868,10 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
      * calls to prevent duplicate lookups. */
     aclKeyResultCache cache;
     initACLKeyResultCache(&cache);
+    if (key_result) {
+        cache.keys = *key_result;
+        cache.keys_init = 1;
+    }
 
     /* Check each selector sequentially */
     listRewind(u->selectors,&li);
@@ -1871,7 +1879,7 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
         aclSelector *s = (aclSelector *) listNodeValue(ln);
         int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
         if (acl_retval == ACL_OK) {
-            cleanupACLKeyResultCache(&cache);
+            if (!key_result) cleanupACLKeyResultCache(&cache);
             return ACL_OK;
         }
         if (acl_retval > relevant_error ||
@@ -1883,13 +1891,13 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     }
 
     *idxptr = last_idx;
-    cleanupACLKeyResultCache(&cache);
+    if (!key_result) cleanupACLKeyResultCache(&cache);
     return relevant_error;
 }
 
 /* High level API for checking if a client can execute the queued up command */
 int ACLCheckAllPerm(client *c, int *idxptr) {
-    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
+    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, NULL, idxptr);
 }
 
 /* If 'new' can access all channels 'original' could then return NULL;
@@ -3139,7 +3147,7 @@ void aclCommand(client *c) {
         }
 
         int idx;
-        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
+        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, NULL, &idx);
         if (result != ACL_OK) {
             sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, 1);
             addReplyBulkSds(c, err);

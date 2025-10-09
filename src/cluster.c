@@ -1151,10 +1151,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.argc = argc;
         mc.cmd = cmd;
         mc.slot = hashslot ? *hashslot : INVALID_CLUSTER_SLOT;
-        if (keys_result)
+        if (keys_result) {
             mc.keys_result = *keys_result;
-        else
-            mc.flags |= PENDING_CMD_KEYRESULT_INVALID;
+            mc.flags |= PENDING_CMD_KEYRESULT_VALID;
+        }
     }
 
     /* Check that all the keys are in the same hash slot, and obtain this
@@ -1179,10 +1179,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         }
 
         getKeysResult result = GETKEYS_RESULT_INIT;
-        if (pcmd->flags & PENDING_CMD_KEYRESULT_INVALID)
-            getKeysFromCommand(mcmd,margv,margc,&result);
-        else
+        if (likely(pcmd->flags & PENDING_CMD_KEYRESULT_VALID))
             result = pcmd->keys_result;
+        else
+            getKeysFromCommand(mcmd,margv,margc,&result);
         keyindex = result.keys;
 
         for (j = 0; j < result.numkeys; j++) {

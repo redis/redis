@@ -2354,7 +2354,7 @@ typedef struct {
 /* pendingCommand flags */
 enum {
     PENDING_CMD_FLAG_INCOMPLETE = 1 << 0,   /* Command parsing is incomplete, still waiting for more data */
-    PENDING_CMD_KEYRESULT_INVALID = 1 << 1, /* Key result is invalid, needs to be recomputed */
+    PENDING_CMD_KEYRESULT_VALID = 1 << 1, /* Command's keys_result is valid and cached */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */
@@ -2977,6 +2977,7 @@ void unprotectClient(client *c);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
+getKeysResult *getClientCachedKeyResult(client *c);
 /* reply macros */
 #define ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c, str) addReplyBulkCBuffer(c, str, strlen(str))
 
@@ -3289,8 +3290,8 @@ void ACLClearCommandID(void);
 user *ACLGetUserByName(const char *name, size_t namelen);
 int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags);
 int ACLUserCheckChannelPerm(user *u, sds channel, int literal);
-int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr);
-int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags);
+int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int *idxptr);
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int flags);
 int ACLCheckAllPerm(client *c, int *idxptr);
 int ACLSetUser(user *u, const char *op, ssize_t oplen);
 sds ACLStringSetUser(user *u, sds username, sds *argv, int argc);

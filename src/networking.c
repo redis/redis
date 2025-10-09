@@ -4982,3 +4982,9 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
     if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) list->ready_len--;
     return cmd;
 }
+
+getKeysResult *getClientCachedKeyResult(client *c) {
+    if (c->current_pending_cmd && c->current_pending_cmd->flags & PENDING_CMD_KEYRESULT_VALID)
+        return &c->current_pending_cmd->keys_result;
+    return NULL;
+}
