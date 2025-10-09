@@ -204,18 +204,22 @@ size_t quicklistAllocSize(const quicklist *ql) { return ql->alloc_size; }
 void quicklistRelease(quicklist *quicklist) {
     unsigned long len;
     quicklistNode *current, *next;
+    size_t usable;
 
     current = quicklist->head;
     len = quicklist->len;
     while (len--) {
         next = current->next;
 
-        zfree(current->entry);
-        zfree(current);
+        zfree_usable(current->entry, &usable);
+        quicklist->alloc_size -= usable;
+        zfree_usable(current, &usable);
+        quicklist->alloc_size -= usable;
 
         current = next;
     }
     quicklistBookmarksClear(quicklist);
+    debugAssert(quicklist->alloc_size == zmalloc_usable_size(quicklist));
     zfree(quicklist);
 }
 
