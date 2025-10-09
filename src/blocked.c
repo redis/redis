@@ -122,8 +122,7 @@ void processUnblockedClients(void) {
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~CLIENT_UNBLOCKED;
 
-        /* Reset the client for a new query, unless the client has pending command to process
-         * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
+        /* Reset the client for a new query, unless the client has pending command to process. */
         if (!(c->flags & CLIENT_PENDING_COMMAND)) {
             freeClientOriginalArgv(c);
             /* Clients that are not blocked on keys are not reprocessed so we must
