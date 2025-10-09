@@ -1216,24 +1216,9 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
  * After calling hashTypeSetEx() for setting fields or their expiry, call this
  * function to update global HFE DS.
  */
-/* Helper function to find position of a keyword in command arguments */
-static int findKeywordPosition(client *c, const char *keyword) {
-    for (int i = 2; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr, keyword)) {
-            return i;
-        }
-    }
-    return -1;
-}
 
-/* Helper function to validate FIELDS keyword is present when required */
-static int validateFieldsKeywordRequired(client *c) {
-    if (findKeywordPosition(c, "FIELDS") == -1) {
-        addReplyError(c, "FIELDS keyword is required");
-        return C_ERR;
-    }
-    return C_OK;
-}
+
+
 
 void hashTypeSetExDone(HashTypeSetEx *ex) {
 
@@ -2206,11 +2191,6 @@ static int hgetexParseArgs(client *c, int *flags,
     *field_count = -1;
     *expire_time_pos = -1;
 
-    /* Early validation: FIELDS keyword is required for all commands */
-    if (validateFieldsKeywordRequired(c) != C_OK) {
-        return C_ERR;
-    }
-
     for (int i = 2; i < c->argc; i++) {
 
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
@@ -2227,34 +2207,10 @@ static int hgetexParseArgs(client *c, int *flags,
             *first_field_pos = i + 2;
             *field_count = (int) val;
 
-            /* Check if we have exactly the right number of field arguments */
-            int expectedFieldsEnd = *first_field_pos + *field_count;
-
-            /* Make sure we don't go beyond argc (too few fields) */
-            if (expectedFieldsEnd > c->argc) {
+            /* Validate field count - check for too few fields */
+            if (*first_field_pos + *field_count > c->argc) {
                 addReplyError(c, "The `numfields` parameter must match the number of arguments");
                 return C_ERR;
-            }
-
-            /* Check if we have too many fields by looking at what comes after the expected fields */
-            if (expectedFieldsEnd < c->argc) {
-                char *nextArg = c->argv[expectedFieldsEnd]->ptr;
-
-                /* Check if it's a valid keyword */
-                int isValidKeyword = (!strcasecmp(nextArg, "EX") || !strcasecmp(nextArg, "PX") ||
-                                     !strcasecmp(nextArg, "EXAT") || !strcasecmp(nextArg, "PXAT") ||
-                                     !strcasecmp(nextArg, "PERSIST"));
-
-                /* Also check if it could be a valid expire time (numeric value >= 0) */
-                int couldBeExpireTime = 0;
-                long long dummy;
-                couldBeExpireTime = (string2ll(nextArg, strlen(nextArg), &dummy) && dummy >= 0);
-
-                /* If the next argument is neither a valid keyword nor a potential expire time, we have too many fields */
-                if (!isValidKeyword && !couldBeExpireTime) {
-                    addReplyError(c, "The `numfields` parameter must match the number of arguments");
-                    return C_ERR;
-                }
             }
 
             /* Skip over numfields and all fields */
@@ -2323,6 +2279,11 @@ static int hgetexParseArgs(client *c, int *flags,
                 goto err_expiration;
             *flags |= HFE_PERSIST;
         } else {
+            /* If FIELDS not yet seen, any unexpected argument triggers required FIELDS error */
+            if (*field_count == -1) {
+                addReplyError(c, "FIELDS keyword is required");
+                return C_ERR;
+            }
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
         }
@@ -2479,7 +2440,7 @@ static int hsetexParseArgs(client *c, int *flags,
         /* Check if this command looks like it's trying to use new syntax */
         /* If we have expiration flags but no FIELDS, it's likely new syntax */
         if (*flags & (HFE_EX | HFE_PX | HFE_EXAT | HFE_PXAT | HFE_KEEPTTL | HFE_FXX | HFE_FNX)) {
-            addReplyError(c, "FIELDS keyword is required");
+            addReplyError(c, "argument FIELDS is missing");
             return C_ERR;
         }
         /* Otherwise, fall back to old syntax parsing */
@@ -3842,10 +3803,7 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
     args->fieldsPos = -1;
     args->expireTimePos = -1;
 
-    /* Early validation: FIELDS keyword is required for all commands */
-    if (validateFieldsKeywordRequired(c) != C_OK) {
-        return C_ERR;
-    }
+
 
     /* Scan through arguments to find keywords */
     for (int i = 2; i < c->argc; i++) {

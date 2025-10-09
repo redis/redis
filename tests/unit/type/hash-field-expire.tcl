@@ -2408,7 +2408,7 @@ start_server {tags {"hash"}} {
 
             # Test field count mismatches
             assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 2 f1}
-            assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 1 f1 f2 f3}
+            assert_error {*unknown argument*} {r HGETEX myhash FIELDS 1 f1 f2 f3}
 
             # Test valid field counts
             assert_equal [r HGETEX myhash FIELDS 2 f1 f2 EX 60] [list "v1" "v2"]
