@@ -257,9 +257,9 @@ static void dictHfieldDestructor(dict *d, void *field) {
 }
 
 static void hashSdsDestructor(dict *d, void *val) {
-    size_t usable, *alloc_size = (size_t *)dictMetadata(d);
-    sdsfreeusable(val, &usable);
-    *alloc_size -= usable;
+    size_t *alloc_size = (size_t *)dictMetadata(d);
+    *alloc_size -= sdsAllocSize(val);
+    sdsfree(val);
 }
 
 static size_t hashDictMetadataBytes(dict *d) {
@@ -999,8 +999,9 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
                 hfieldPersist(o, oldField);
             }
             /* Free the old value */
-            sdsfreeusable(dictGetVal(*link), &usable);
-            *alloc_size -= usable;
+            sds val = dictGetVal(*link);
+            *alloc_size -= sdsAllocSize(val);
+            sdsfree(val);
             update = 1;
             de = *link;
         }
@@ -1999,6 +2000,11 @@ void hashTypeFree(robj *o) {
                 dictExpireMetadata *m = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
                 serverAssert(m->expireMeta.trash == 1);
             }
+#ifdef REDIS_TEST
+            dictEmpty((dict *) o->ptr, NULL);
+            size_t *alloc_size = (size_t *)dictMetadata((dict *) o->ptr);
+            debugAssert(*alloc_size == 0);
+#endif
             dictRelease((dict*) o->ptr);
             break;
         case OBJ_ENCODING_LISTPACK:
