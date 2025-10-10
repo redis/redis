@@ -12,7 +12,6 @@ source ../instances.tcl
 
 set ::instances_count 5 ; # How many instances we use at max.
 set ::tlsdir "../../tls"
-set ::setup_second_master 0
 
 proc main {} {
     set start [clock milliseconds]
