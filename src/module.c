@@ -11051,10 +11051,10 @@ void moduleCallCommandFilters(client *c) {
         pcmd->argv_len = filter.argv_len;
         pcmd->cmd = NULL;
         pcmd->slot = INVALID_CLUSTER_SLOT;
+        pcmd->flags = 0;
 
         /* Reset keys result */
         getKeysFreeResult(&pcmd->keys_result);
-        pcmd->flags &= ~PENDING_CMD_KEYRESULT_VALID;
         pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
     }
 }
