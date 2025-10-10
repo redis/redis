@@ -1211,7 +1211,8 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
  * signal the iteration terminated. */
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
     while(1) { /* Will stop when element > stop_key or end of radix tree. */
-        /* Used to verify that prev entry boundary doesn't exceed current entry for reverse iteration. */
+        /* Tracks the boundary of the previous entry during reverse iteration.
+         * This ensures the iterator does not move beyond the current entry when stepping backwards. */
         unsigned char *rev_entry_boundary = NULL;
         /* If the current listpack is set to NULL, this is the start of the
          * iteration or the previous listpack was completely iterated.
