@@ -412,5 +412,35 @@
         "type": "string"
       }
     ]
+  },
+  "VRANGE": {
+    "summary": "Return elements in a lexicographical range",
+    "complexity": "O(log(K)+M) where K is the number of elements in the start prefix, and M is the number of elements returned. In practical terms, the command is just O(M)",
+    "group": "vector_set",
+    "since": "8.4.0",
+    "arity": -4,
+    "function": "vrangeCommand",
+    "command_flags": [
+      "READONLY"
+    ],
+    "arguments": [
+      {
+        "name": "key",
+        "type": "key"
+      },
+      {
+        "name": "start",
+        "type": "string"
+      },
+      {
+        "name": "end",
+        "type": "string"
+      },
+      {
+        "name": "count",
+        "type": "integer",
+        "optional": true
+      }
+    ]
   }
 }

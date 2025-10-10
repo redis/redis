@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/keyspace_events.so]
 
 tags "modules external:skip" {
-    start_server [list overrides [list loadmodule "$testmodule"] tags {"external:skip"}] {
+    start_server [list overrides [list loadmodule "$testmodule"]] {
 
         # avoid using shared integers, to increase the chance of detection heap issues
         r config set maxmemory-policy allkeys-lru
@@ -125,7 +125,7 @@ tags "modules external:skip" {
         }
     }
 
-    start_server {tags {"external:skip"}} {
+    start_server {} {
         test {OnLoad failure will handle un-registration} {
             catch {r module load $testmodule noload}
             r set x 1
