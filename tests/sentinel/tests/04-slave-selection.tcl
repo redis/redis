@@ -69,7 +69,7 @@ test "The second cluster works" {
     R $master_b_id SET "mykey" "myvalue"
 
     wait_for_condition 100 50 {
-        assert_equal [R $slave_id GET "mykey"] "myvalue"
+        [R $slave_id GET "mykey"] == "myvalue"
     } else {
         fail "The slave and master in the second cluster cannot sync"
     }
