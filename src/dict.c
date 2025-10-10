@@ -704,6 +704,11 @@ void dictFreeUnlinkedEntry(dict *d, dictEntry *he) {
     if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
 }
 
+void dictFreeUnlinkedEntryOnly(dictEntry *he) {
+    if (he == NULL) return;
+    if (!entryIsKey(he)) zfree(decodeMaskedPtr(he));
+}
+
 /* Destroy an entire dictionary */
 int _dictClear(dict *d, int htidx, void(callback)(dict*)) {
     unsigned long i;

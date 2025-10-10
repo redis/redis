@@ -151,7 +151,7 @@ int je_get_defrag_hint(void* ptr);
 void* activeDefragAllocWithoutFree(void *ptr) {
     size_t size;
     void *newptr;
-    if(!je_get_defrag_hint(ptr)) {
+    if(!server.disable_defrag_misses && !je_get_defrag_hint(ptr)) {
         server.stat_active_defrag_misses++;
         return NULL;
     }
@@ -227,16 +227,20 @@ void activeDefragFreeRaw(void *ptr) {
  *
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
- * and should NOT be accessed. */
-sds activeDefragSds(sds sdsptr) {
+ * and should NOT be accessed (unless no_free was specified). */
+sds activeDefragSdsLogic(sds sdsptr, int no_free) {
     void* ptr = sdsAllocPtr(sdsptr);
-    void* newptr = activeDefragAlloc(ptr);
+    void* newptr = no_free ? activeDefragAllocWithoutFree(ptr) : activeDefragAlloc(ptr);
     if (newptr) {
         size_t offset = sdsptr - (char*)ptr;
         sdsptr = (char*)newptr + offset;
         return sdsptr;
     }
     return NULL;
+}
+
+sds activeDefragSds(sds sdsptr) {
+    return activeDefragSdsLogic(sdsptr, 0);
 }
 
 /* Defrag helper for hfield strings
@@ -284,14 +288,15 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
  * reference count is not 1, in these cases, the caller must explicitly pass
  * in the reference count, otherwise defragmentation will not be performed.
  * Note that the caller is responsible for updating any other references to the robj. */
-robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
+robj *activeDefragStringObEx(robj* ob, int expected_refcount, int no_free) {
+    void* (*defragAllocator)(void*) = no_free ? activeDefragAllocWithoutFree : activeDefragAlloc;
     robj *ret = NULL;
     if (ob->refcount!=expected_refcount)
         return NULL;
 
     /* try to defrag robj (only if not an EMBSTR type (handled below). */
     if (ob->type!=OBJ_STRING || ob->encoding!=OBJ_ENCODING_EMBSTR) {
-        if ((ret = activeDefragAlloc(ob))) {
+        if ((ret = defragAllocator(ob))) {
             ob = ret;
         }
     }
@@ -299,7 +304,7 @@ robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
     /* try to defrag string object */
     if (ob->type == OBJ_STRING) {
         if(ob->encoding==OBJ_ENCODING_RAW) {
-            sds newsds = activeDefragSds((sds)ob->ptr);
+            sds newsds = activeDefragSdsLogic((sds)ob->ptr, no_free);
             if (newsds) {
                 ob->ptr = newsds;
             }
@@ -307,7 +312,7 @@ robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
             /* The sds is embedded in the object allocation, calculate the
              * offset and update the pointer in the new allocation. */
             long ofs = (intptr_t)ob->ptr - (intptr_t)ob;
-            if ((ret = activeDefragAlloc(ob))) {
+            if ((ret = defragAllocator(ob))) {
                 ret->ptr = (void*)((intptr_t)ret + ofs);
             }
         } else if (ob->encoding!=OBJ_ENCODING_INT) {
@@ -323,7 +328,7 @@ robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 robj *activeDefragStringOb(robj* ob) {
-    return activeDefragStringObEx(ob, 1);
+    return activeDefragStringObEx(ob, 1, 0);
 }
 
 /* Defrag helper for lua scripts
@@ -1095,7 +1100,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
 
     /* Try to defrag the channel name. */
     serverAssert(channel->refcount == (int)dictSize(clients) + 1);
-    newchannel = activeDefragStringObEx(channel, dictSize(clients) + 1);
+    newchannel = activeDefragStringObEx(channel, dictSize(clients) + 1, 0);
     if (newchannel) {
         kvstoreDictSetKey(pubsub_channels, ctx->kvstate.slot, (dictEntry*)de, newchannel);
 

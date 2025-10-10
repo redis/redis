@@ -45,6 +45,7 @@
 #include "call_reply.h"
 #include "hdr_histogram.h"
 #include "crc16_slottable.h"
+#include "sobj.h"
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -379,6 +380,10 @@ typedef struct RedisModuleConfigIterator {
     sds pattern; /* Pattern to filter configs by name. */
     int is_glob; /* Is the pattern a glob-pattern or a fixed string? */
 } RedisModuleConfigIterator;
+
+typedef struct RedisModulePool {
+    dict *pool; /* Intern pool of same-group objects. Implemented over a lookup-set (dict w/ `.no_value = 1`) */
+} RedisModulePool;
 
 /* Flags for moduleCreateArgvFromUserFormat(). */
 #define REDISMODULE_ARGV_REPLICATE (1<<0)
@@ -2648,6 +2653,31 @@ RedisModuleString *RM_CreateString(RedisModuleCtx *ctx, const char *ptr, size_t 
     RedisModuleString *o = createStringObject(ptr,len);
     if (ctx != NULL) autoMemoryAdd(ctx,REDISMODULE_AM_STRING,o);
     return o;
+}
+
+RedisModulePool *RM_CreateSharePool(void) {
+    RedisModulePool *pool = zmalloc(sizeof(*pool));
+    pool->pool = sobj_init();
+
+    return pool;
+}
+
+void RM_ReleaseSharePool(RedisModulePool *pool) {
+    sobj_release(pool->pool);
+    zfree(pool);
+}
+
+RedisModuleString *RM_CreateSharedString(const char *ptr, size_t len, RedisModulePool *pool) {
+    return (RedisModuleString*)sobj_new(ptr, len, pool->pool);
+}
+
+void RM_FreeSharedString(RedisModuleString *str, RedisModulePool *pool) {
+    sobj_free((sobj*)str, pool->pool);
+}
+
+RedisModuleString *RM_DefragRedisModuleSharedString(RedisModuleDefragCtx *ctx, RedisModuleString *str, RedisModulePool *pool) {
+    UNUSED(ctx);
+    return (RedisModuleString*)sobj_defrag((sobj*)str, pool->pool);
 }
 
 /* Create a new module string object from a printf format and arguments.
@@ -14640,6 +14670,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateStringFromStreamID);
     REGISTER_API(CreateStringPrintf);
     REGISTER_API(FreeString);
+    REGISTER_API(CreateSharePool);
+    REGISTER_API(ReleaseSharePool);
+    REGISTER_API(CreateSharedString);
+    REGISTER_API(FreeSharedString);
     REGISTER_API(StringPtrLen);
     REGISTER_API(AutoMemory);
     REGISTER_API(Replicate);
@@ -14897,6 +14931,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(DefragAllocRaw);
     REGISTER_API(DefragFreeRaw);
     REGISTER_API(DefragRedisModuleString);
+    REGISTER_API(DefragRedisModuleSharedString);
     REGISTER_API(DefragRedisModuleDict);
     REGISTER_API(DefragShouldStop);
     REGISTER_API(DefragCursorSet);

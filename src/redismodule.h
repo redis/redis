@@ -901,6 +901,7 @@ typedef struct RedisModuleUser RedisModuleUser;
 typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
 typedef struct RedisModuleRdbStream RedisModuleRdbStream;
 typedef struct RedisModuleConfigIterator RedisModuleConfigIterator;
+typedef struct RedisModulePool RedisModulePool;
 
 typedef int (*RedisModuleCmdFunc)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 typedef void (*RedisModuleDisconnectFunc)(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc);
@@ -1034,6 +1035,10 @@ REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromString)(RedisM
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringFromStreamID)(RedisModuleCtx *ctx, const RedisModuleStreamID *id) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString * (*RedisModule_CreateStringPrintf)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR_PRINTF(2,3) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_FreeString)(RedisModuleCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
+REDISMODULE_API RedisModulePool * (*RedisModule_CreateSharePool)(void) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_ReleaseSharePool)(RedisModulePool *pool) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString * (*RedisModule_CreateSharedString)(const char *ptr, size_t len, RedisModulePool *pool) REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_FreeSharedString)(RedisModuleString *str, RedisModulePool *pool) REDISMODULE_ATTR;
 REDISMODULE_API const char * (*RedisModule_StringPtrLen)(const RedisModuleString *str, size_t *len) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithError)(RedisModuleCtx *ctx, const char *err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ReplyWithErrorFormat)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR;
@@ -1324,6 +1329,7 @@ REDISMODULE_API void *(*RedisModule_DefragAlloc)(RedisModuleDefragCtx *ctx, void
 REDISMODULE_API void *(*RedisModule_DefragAllocRaw)(RedisModuleDefragCtx *ctx, size_t size) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_DefragFreeRaw)(RedisModuleDefragCtx *ctx, void *ptr) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleString *(*RedisModule_DefragRedisModuleString)(RedisModuleDefragCtx *ctx, RedisModuleString *str) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleString *(*RedisModule_DefragRedisModuleSharedString)(RedisModuleDefragCtx *ctx, RedisModuleString *str, RedisModulePool *pool) REDISMODULE_ATTR;
 REDISMODULE_API RedisModuleDict *(*RedisModule_DefragRedisModuleDict)(RedisModuleDefragCtx *ctx, RedisModuleDict *dict, RedisModuleDefragDictValueCallback valueCB, RedisModuleString **seekTo) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DefragShouldStop)(RedisModuleDefragCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_DefragCursorSet)(RedisModuleDefragCtx *ctx, unsigned long cursor) REDISMODULE_ATTR;
@@ -1455,6 +1461,10 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(CreateStringFromStreamID);
     REDISMODULE_GET_API(CreateStringPrintf);
     REDISMODULE_GET_API(FreeString);
+    REDISMODULE_GET_API(CreateSharePool);
+    REDISMODULE_GET_API(ReleaseSharePool);
+    REDISMODULE_GET_API(CreateSharedString);
+    REDISMODULE_GET_API(FreeSharedString);
     REDISMODULE_GET_API(StringPtrLen);
     REDISMODULE_GET_API(AutoMemory);
     REDISMODULE_GET_API(Replicate);
@@ -1712,6 +1722,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(DefragAllocRaw);
     REDISMODULE_GET_API(DefragFreeRaw);
     REDISMODULE_GET_API(DefragRedisModuleString);
+    REDISMODULE_GET_API(DefragRedisModuleSharedString);
     REDISMODULE_GET_API(DefragRedisModuleDict);
     REDISMODULE_GET_API(DefragShouldStop);
     REDISMODULE_GET_API(DefragCursorSet);

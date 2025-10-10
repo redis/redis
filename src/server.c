@@ -2246,6 +2246,7 @@ void initServerConfig(void) {
     server.aof_last_incr_fsync_offset = 0;
     server.active_defrag_running = 0;
     server.active_defrag_configuration_changed = 0;
+    server.disable_defrag_misses = 0;
     server.notify_keyspace_events = 0;
     server.blocked_clients = 0;
     memset(server.blocked_clients_by_type,0,

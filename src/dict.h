@@ -222,6 +222,7 @@ int dictReplace(dict *d, void *key, void *val);
 int dictDelete(dict *d, const void *key);
 dictEntry *dictUnlink(dict *d, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
+void dictFreeUnlinkedEntryOnly(dictEntry *he);
 dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index);
 void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink llink, int table_index);
 void dictRelease(dict *d);

@@ -1969,6 +1969,7 @@ struct redisServer {
     int active_defrag_threshold_upper; /* maximum percentage of fragmentation at which we use maximum effort */
     int active_defrag_cycle_min;       /* minimal effort for defrag in CPU percentage */
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
+    int disable_defrag_misses;         /* Used to ignore je_get_defrag_hint */
     unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
@@ -1987,6 +1988,7 @@ struct redisServer {
     unsigned int max_new_conns_per_cycle; /* The maximum number of tcp connections that will be accepted during each invocation of the event loop. */
     int cluster_compatibility_sample_ratio; /* Sampling ratio for cluster mode incompatible commands. */
     int lazyexpire_nested_arbitrary_keys; /* If disabled, avoid lazy-expire from commands that touch arbitrary keys (SCAN/RANDOMKEY) within transactions */
+    int shared_strings_enabled; /* Dictates whether to use shared-strings when possible */
 
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
@@ -3407,8 +3409,10 @@ int setOOMScoreAdj(int process_class);
 void rejectCommandFormat(client *c, const char *fmt, ...);
 void *activeDefragAlloc(void *ptr);
 void *activeDefragAllocRaw(size_t size);
+void activeDefragFree(void *ptr);
 void activeDefragFreeRaw(void *ptr);
 robj *activeDefragStringOb(robj* ob);
+robj *activeDefragStringObEx(robj* ob, int expected_refcount, int no_free);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
 void dismissMemoryInChild(void);
@@ -3863,6 +3867,8 @@ int performEvictions(void);
 void startEvictionTimeProc(void);
 
 /* Keys hashing / comparison functions for dict.c hash tables. */
+int dictObjKeyCompare(dictCmpCache *cache, const void *key1, const void *key2);
+uint64_t dictObjHash(const void *key);
 uint64_t dictSdsHash(const void *key);
 uint64_t dictPtrHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
