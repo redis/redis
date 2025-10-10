@@ -1266,7 +1266,9 @@ int hashTypeDelete(robj *o, void *field, int isSdsField) {
  */
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
     unsigned long length = ULONG_MAX;
-    subtractExpiredFields &= !server.allow_access_expired;
+    if (server.allow_access_expired) {
+        subtractExpiredFields = 0;
+    }
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         length = lpLength(o->ptr) / 2;
@@ -1323,7 +1325,9 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
 /* Move to the next entry in the hash. Return C_OK when the next entry
  * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
-    skipExpiredFields &= !server.allow_access_expired;
+    if (server.allow_access_expired) {
+        skipExpiredFields = 0;
+    }
 
     hi->expire_time = EB_EXPIRE_TIME_INVALID;
     if (hi->encoding == OBJ_ENCODING_LISTPACK) {
