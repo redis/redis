@@ -7333,6 +7333,7 @@ int __test_num = 0;
 * --accurate:     Runs tests with more iterations.
 * --large-memory: Enables tests that consume more than 100mb. */
 typedef int redisTestProc(int argc, char **argv, int flags);
+int bitopsTest(int argc, char **argv, int flags);
 struct redisTest {
     char *name;
     redisTestProc *proc;
@@ -7355,6 +7356,7 @@ struct redisTest {
     {"fwtree", fwtreeTest},
     {"estore", estoreTest},
     {"ebuckets", ebucketsTest},
+    {"bitmap", bitopsTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -7645,6 +7647,7 @@ int main(int argc, char **argv) {
     redisAsciiArt();
     checkTcpBacklogSettings();
     if (server.cluster_enabled) {
+        server.cluster_slot_stats = zmalloc(CLUSTER_SLOTS*sizeof(clusterSlotStat));
         clusterInit();
     }
     if (!server.sentinel_mode) {
