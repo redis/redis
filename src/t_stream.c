@@ -1302,7 +1302,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
             }
             if (si->rev) {
-                /* Verify that current position hasn't moved beyond the next entry
+                /* Verify that current position hasn't reached the next entry
                  * boundary during reverse iteration. */
                 serverAssert(!rev_entry_boundary || si->lp_ele < rev_entry_boundary);
             }
