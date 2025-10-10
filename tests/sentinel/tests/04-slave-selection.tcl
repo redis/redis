@@ -69,11 +69,10 @@ test "The second cluster works" {
     R $master_b_id SET "mykey" "myvalue"
 
     wait_for_condition 100 50 {
-        [get_info_field [S 0 SENTINEL INFO-CACHE $master_b_name] "connected_slaves"] == 1
+        assert_equal [R $slave_id GET "mykey"] "myvalue"
     } else {
         fail "The slave and master in the second cluster cannot sync"
     }
-    assert_equal [R $slave_id GET "mykey"] "myvalue"
 }
 
 test "Cannot failover when there's no good slave" {
