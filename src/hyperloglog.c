@@ -26,6 +26,8 @@
 #include <immintrin.h>
 #endif
 
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+
 /* The Redis HyperLogLog implementation is based on the following ideas:
  *
  * * The use of a 64 bit hash function as proposed in [1], in order to estimate
@@ -1114,9 +1116,7 @@ void hllMergeDenseAVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
     uint8_t val;
     for (int i = 0; i < 8; i++) {
         HLL_DENSE_GET_REGISTER(val, reg_dense, i);
-        if (val > reg_raw[i]) {
-            reg_raw[i] = val;
-        }
+        reg_raw[i] = MAX(reg_raw[i], val);
     }
 
     /* Dense to Raw:
@@ -1185,9 +1185,7 @@ void hllMergeDenseAVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
      * as the AVX2 algorithm needs 4 padding bytes at the end */
     for (int i = HLL_REGISTERS - 24; i < HLL_REGISTERS; i++) {
         HLL_DENSE_GET_REGISTER(val, reg_dense, i);
-        if (val > reg_raw[i]) {
-            reg_raw[i] = val;
-        }
+        reg_raw[i] = MAX(reg_raw[i], val);
     }
 }
 #endif
@@ -1206,9 +1204,7 @@ void hllMergeDense(uint8_t* reg_raw, const uint8_t* reg_dense) {
     uint8_t val;
     for (int i = 0; i < HLL_REGISTERS; i++) {
         HLL_DENSE_GET_REGISTER(val, reg_dense, i);
-        if (val > reg_raw[i]) {
-            reg_raw[i] = val;
-        }
+        reg_raw[i] = MAX(reg_raw[i], val);
     }
 }
 
