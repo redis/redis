@@ -1,4 +1,4 @@
-# Everytime a master goes down and sentinels promote a slave to
+# Every time a master goes down and sentinels promote a slave to
 # be the new master, sentinels wait for a while (publish-period * 4,
 # that's 8s by default) before sending slaveof command in a +convert-to-slave
 # event to force the rebooted master to reconfigure as slave.
