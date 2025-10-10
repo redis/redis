@@ -1148,7 +1148,7 @@ typedef struct rdbLoadingCtx {
 typedef struct pendingCommand pendingCommand;
 typedef struct multiState {
     pendingCommand **commands;     /* Array of pointers to MULTI commands */
-    int executing_cmd;      /* The index of the currently exeuted transaction 
+    int executing_cmd;      /* The index of the currently executed transaction 
                                command (index in commands field) */
     int count;              /* Total number of MULTI commands */
     int cmd_flags;          /* The accumulated command flags OR-ed together.
