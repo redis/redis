@@ -4072,17 +4072,20 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     }
 
     pcmd->keys_result = (getKeysResult)GETKEYS_RESULT_INIT;
-    int numkeys = getKeysFromCommand(pcmd->cmd, pcmd->argv, pcmd->argc, &pcmd->keys_result); 
-    if (numkeys < 0) {
+    int num_keys = extractKeysAndSlot(pcmd->cmd, pcmd->argv, pcmd->argc,
+                                      &pcmd->keys_result, &pcmd->slot);
+    if (num_keys < 0) {
         /* We skip the checks below since We expect the command to be rejected in this case */
         return;
     }
     pcmd->flags |= PENDING_CMD_KEYRESULT_VALID;
 
     if (server.cluster_enabled) {
-        for (int i = 0; i < numkeys; i++) {
-            robj *thiskey = pcmd->argv[pcmd->keys_result.keys[i].pos];
+        robj **margv = pcmd->argv;
+        for (int j = 0; j < pcmd->keys_result.numkeys; j++) {
+            robj *thiskey = margv[pcmd->keys_result.keys[j].pos];
             int thisslot = (int)keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
+
             if (pcmd->slot == INVALID_CLUSTER_SLOT) {
                 pcmd->slot = thisslot;
             } else if (pcmd->slot != thisslot) {

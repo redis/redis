@@ -2971,6 +2971,38 @@ int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getK
     return 0;
 }
 
+/* Extract keys/channels from a command and calculate the cluster slot.
+ * Returns the number of keys/channels extracted.
+ * The slot number is returned by reference into *slot.
+ * If is_incomplete is not NULL, it will be set for key extraction.
+ *
+ * This function handles both regular commands (keys) and sharded pubsub
+ * commands (channels), but excludes regular pubsub commands which don't
+ * have slots.
+ */
+int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc,
+                       getKeysResult *result, int *slot) {
+    int num_keys = -1;
+
+    if (!doesCommandHaveChannelsWithFlags(cmd, CMD_CHANNEL_PUBLISH | CMD_CHANNEL_SUBSCRIBE)) {
+        num_keys = getKeysFromCommandWithSpecs(cmd, argv, argc, GET_KEYSPEC_DEFAULT, result);
+    } else {
+        /* Only extract channels for commands that have key_specs (sharded pubsub).
+         * Regular pubsub commands (PUBLISH, SUBSCRIBE) don't have slots. */
+        if (cmd->key_specs_num > 0) {
+            num_keys = getChannelsFromCommand(cmd, argv, argc, result);
+        } else {
+            num_keys = 0;
+        }
+    }
+
+    *slot = INVALID_CLUSTER_SLOT;
+    if (num_keys >= 0)
+        *slot = extractSlotFromKeysResult(argv, result);
+
+    return num_keys;
+}
+
 /* The base case is to use the keys position as given in the command table
  * (firstkey, lastkey, step).
  * This function works only on command with the legacy_range_key_spec,

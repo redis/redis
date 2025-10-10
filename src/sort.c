@@ -193,7 +193,7 @@ void sortCommandGeneric(client *c, int readonly) {
     listSetFreeMethod(operations,zfree);
     j = 2; /* options start at argv[2] */
 
-    user_has_full_key_access = ACLUserCheckCmdWithUnrestrictedKeyAccess(c->user, c->cmd, c->argv, c->argc, getClientCachedKeyResult(c), CMD_KEY_ACCESS);
+    user_has_full_key_access = ACLUserCheckCmdWithUnrestrictedKeyAccess(c->user, c->cmd, c->argv, c->argc, CMD_KEY_ACCESS);
 
     /* The SORT command has an SQL-alike syntax, parse it */
     while(j < c->argc) {

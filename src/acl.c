@@ -1788,7 +1788,7 @@ int ACLUserCheckKeyPerm(user *u, const char *key, int keylen, int flags) {
  * granted in addition to the access required by the command. Returns 1 
  * if the user has access or 0 otherwise.
  */
-int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int flags) {
+int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, robj **argv, int argc, int flags) {
     listIter li;
     listNode *ln;
     int local_idxptr;
@@ -1800,10 +1800,6 @@ int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, 
      * calls to prevent duplicate lookups. */
     aclKeyResultCache cache;
     initACLKeyResultCache(&cache);
-    if (key_result) {
-        cache.keys = *key_result;
-        cache.keys_init = 1;
-    }
 
     /* Check each selector sequentially */
     listRewind(u->selectors,&li);
@@ -1811,11 +1807,11 @@ int ACLUserCheckCmdWithUnrestrictedKeyAccess(user *u, struct redisCommand *cmd, 
         aclSelector *s = (aclSelector *) listNodeValue(ln);
         int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
         if (acl_retval == ACL_OK && ACLSelectorHasUnrestrictedKeyAccess(s, flags)) {
-            if (!key_result) cleanupACLKeyResultCache(&cache);
+            cleanupACLKeyResultCache(&cache);
             return 1;
         }
     }
-    if (!key_result) cleanupACLKeyResultCache(&cache);
+    cleanupACLKeyResultCache(&cache);
     return 0;
 }
 
@@ -1897,7 +1893,7 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
 
 /* High level API for checking if a client can execute the queued up command */
 int ACLCheckAllPerm(client *c, int *idxptr) {
-    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, NULL, idxptr);
+    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, getClientCachedKeyResult(c), idxptr);
 }
 
 /* If 'new' can access all channels 'original' could then return NULL;
