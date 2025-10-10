@@ -3036,7 +3036,7 @@ int processInputBuffer(client *c) {
                 serverPanic("Unknown request type");
             }
 
-            addPengingCommand(&c->pending_cmds, pcmd);
+            addPendingCommand(&c->pending_cmds, pcmd);
             if (unlikely(pcmd->read_error || (pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)))
                 break;
 
@@ -4932,7 +4932,7 @@ void freePendingCommand(client *c, pendingCommand *pcmd) {
 }
 
 /* Add a command to the tail of the pending command list. */
-void addPengingCommand(pendingCommandList *queue, pendingCommand *cmd) {
+void addPendingCommand(pendingCommandList *queue, pendingCommand *cmd) {
     cmd->next = NULL;
     cmd->prev = queue->tail;
 
