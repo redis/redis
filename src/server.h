@@ -2842,7 +2842,7 @@ int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 /* pcmd */
 void initPendingCommand(pendingCommand *pcmd);
 void freePendingCommand(client *c, pendingCommand *pcmd);
-void addPengingCommand(pendingCommandList *queue, pendingCommand *cmd);
+void addPendingCommand(pendingCommandList *queue, pendingCommand *cmd);
 pendingCommand *popPendingCommandFromHead(pendingCommandList *queue);
 pendingCommand *popPendingCommandFromTail(pendingCommandList *queue);
 
