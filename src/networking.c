@@ -3042,6 +3042,7 @@ int processInputBuffer(client *c) {
 
             pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
             preprocessCommand(c, pcmd);
+            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
             resetClientQbufState(c);
         }
 
@@ -4983,8 +4984,19 @@ pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
     return cmd;
 }
 
+/* Get cached key result for current pending command */
 getKeysResult *getClientCachedKeyResult(client *c) {
-    if (c->current_pending_cmd && c->current_pending_cmd->flags & PENDING_CMD_KEYRESULT_VALID)
-        return &c->current_pending_cmd->keys_result;
+    pendingCommand *pcmd = c->current_pending_cmd;
+    if (pcmd) {
+        /* Preprocess the command if needed */
+        if (!(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED)) {
+            preprocessCommand(c, pcmd);
+            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
+        } 
+
+        /* Return cached result if available */
+        if (pcmd->flags & PENDING_CMD_KEYRESULT_VALID)
+            return &c->current_pending_cmd->keys_result;
+    }
     return NULL;
 }
