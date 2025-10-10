@@ -571,10 +571,10 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
         if (new_node) {
             /* Shrink extra pre-allocated memory */
-            size_t usable = 0, old_usable = 0;
-            lp = lpShrinkToFitUsable(lp, &usable, &old_usable);
-            s->alloc_size -= old_usable;
-            s->alloc_size += usable;
+            UsableSizes usable;
+            lp = lpShrinkToFitUsable(lp, &usable);
+            s->alloc_size -= usable.oldval;
+            s->alloc_size += usable.val;
             if (ri.data != lp)
                 raxSetData(ri.node, lp);
             lp = NULL;
@@ -583,7 +583,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     int flags = STREAM_ITEM_FLAG_NONE;
     if (lp == NULL) {
-        size_t usable;
+        UsableSizes usable;
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields.
@@ -604,8 +604,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             sds field = argv[i*2]->ptr;
             lp = lpAppend(lp,(unsigned char*)field,sdslen(field));
         }
-        lp = lpAppendIntegerUsable(lp,0,&usable,NULL); /* Master entry zero terminator. */
-        s->alloc_size += usable;
+        lp = lpAppendIntegerUsable(lp,0,&usable); /* Master entry zero terminator. */
+        s->alloc_size += usable.val;
         s->alloc_size -= raxAllocSize(s->rax);
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
         s->alloc_size += raxAllocSize(s->rax);
@@ -670,8 +670,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * in reverse order: we can just start from the end of the listpack, read
      * the entry, and jump back N times to seek the "flags" field to read
      * the stream full entry. */
-    size_t usable, old_usable;
-    lp = lpAppendIntegerUsable(lp,flags, NULL, &old_usable);
+    UsableSizes usable, old_usable;
+    lp = lpAppendIntegerUsable(lp,flags,&old_usable);
     lp = lpAppendInteger(lp,id.ms - master_id.ms);
     lp = lpAppendInteger(lp,id.seq - master_id.seq);
     if (!(flags & STREAM_ITEM_FLAG_SAMEFIELDS))
@@ -690,9 +690,9 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
          * the values, and an additional num-fields field. */
         lp_count += numfields+1;
     }
-    lp = lpAppendIntegerUsable(lp,lp_count,&usable,NULL);
-    s->alloc_size += usable;
-    s->alloc_size -= old_usable;
+    lp = lpAppendIntegerUsable(lp,lp_count,&usable);
+    s->alloc_size += usable.val;
+    s->alloc_size -= old_usable.oldval;
 
     /* Insert back into the tree in order to update the listpack pointer. */
     if (ri.data != lp)
@@ -930,10 +930,10 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         lp = lpReplaceInteger(lp,&p,entries-deleted_from_lp);
         p = lpNext(lp,p); /* Skip deleted field. */
         int64_t marked_deleted = lpGetInteger(p);
-        size_t usable;
-        lp = lpReplaceIntegerUsable(lp,&p,marked_deleted+deleted_from_lp,&usable,NULL);
+        UsableSizes usable;
+        lp = lpReplaceIntegerUsable(lp,&p,marked_deleted+deleted_from_lp,&usable);
         p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
-        s->alloc_size += usable;
+        s->alloc_size += usable.val;
         s->alloc_size -= old_usable;
 
         /* Here we should perform garbage collection in case at this point
@@ -1445,7 +1445,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     stream *s = si->stream;
     unsigned char *lp = si->lp;
     int64_t aux;
-    size_t usable = 0, old_usable = 0;
+    UsableSizes usable, old_usable;
 
     /* We do not really delete the entry here. Instead we mark it as
      * deleted by flagging it, and also incrementing the count of the
@@ -1454,17 +1454,18 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
      * We start flagging: */
     int64_t flags = lpGetInteger(si->lp_flags);
     flags |= STREAM_ITEM_FLAG_DELETED;
-    lp = lpReplaceIntegerUsable(lp,&si->lp_flags,flags,NULL,&old_usable);
+    lp = lpReplaceIntegerUsable(lp,&si->lp_flags,flags,&old_usable);
 
     /* Change the valid/deleted entries count in the master entry. */
     unsigned char *p = lpFirst(lp);
     aux = lpGetInteger(p);
 
     if (aux == 1) {
+        size_t usable_sz;
         /* If this is the last element in the listpack, we can remove the whole
          * node. */
-        lpFreeUsable(lp, &usable);
-        s->alloc_size -= usable;
+        lpFreeUsable(lp, &usable_sz);
+        s->alloc_size -= usable_sz;
         s->alloc_size -= raxAllocSize(s->rax);
         raxRemove(s->rax,si->ri.key,si->ri.key_len,NULL);
         s->alloc_size += raxAllocSize(s->rax);
@@ -1473,9 +1474,9 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         lp = lpReplaceInteger(lp,&p,aux-1);
         p = lpNext(lp,p); /* Seek deleted field. */
         aux = lpGetInteger(p);
-        lp = lpReplaceIntegerUsable(lp,&p,aux+1,&usable,NULL);
-        s->alloc_size += usable;
-        s->alloc_size -= old_usable;
+        lp = lpReplaceIntegerUsable(lp,&p,aux+1,&usable);
+        s->alloc_size += usable.val;
+        s->alloc_size -= old_usable.oldval;
 
         /* Update the listpack with the new pointer. */
         if (si->lp != lp)
