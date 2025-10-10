@@ -121,7 +121,7 @@ static mstime_t sentinel_default_failover_timeout = 60*3*1000;
 /* Flags used to verify slaves' replication lineage */
 #define REPLID_UNVERIFIED 0
 #define REPLID_RELEVANT 1
-#define REPLID_NOT_RELEVANT 2
+#define REPLID_IRRELEVANT 2
 
 /* The link to a sentinelRedisInstance. When we have the same set of Sentinels
  * monitoring many masters, we have different instances representing the
@@ -2706,16 +2706,19 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     ri->info_refresh = mstime();
     sdsfreesplitres(lines,numlines);
     if (ri->flags & SRI_SLAVE) {
-        /* We should not claim a slave irrelevant immediately after the
-         * master reboots and gets a new replid. */
         mstime_t wait_time = sentinel_publish_period*4;
         if (isSlaveRelevant(ri, ri->master)) {
             ri->is_relevant_to_master = REPLID_RELEVANT;
-        } else if (sentinelMasterLooksSane(ri->master) &&
+        } else if (ri->is_relevant_to_master == REPLID_UNVERIFIED) {
+            ri->is_relevant_to_master = REPLID_IRRELEVANT;
+        }
+        /* We should not claim a slave irrelevant immediately after the
+         * master reboots and gets a new replid. */
+        else if (sentinelMasterLooksSane(ri->master) &&
             sentinelRedisInstanceNoDownFor(ri->master, wait_time) &&
             (ri->master->master_reboot_since_time == 0 ||
                 mstime() - ri->master->master_reboot_since_time > wait_time)) {
-            ri->is_relevant_to_master = REPLID_NOT_RELEVANT;
+            ri->is_relevant_to_master = REPLID_IRRELEVANT;
         }
     }
 
@@ -5179,13 +5182,12 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         if (mstime() - slave->link->last_avail_time > sentinel_ping_period*5) continue;
         if (slave->slave_priority == 0) continue;
 
-        /* It's possible that the sentinel has just detected the slave
-         * instance and hasn't got the chance to verify its replication
-         * ID before the failover process starts. */
-        if (slave->is_relevant_to_master == REPLID_UNVERIFIED) {
-            slave->is_relevant_to_master = isSlaveRelevant(slave, master);
-        }
-        if (slave->is_relevant_to_master == REPLID_NOT_RELEVANT) continue;
+        /* The flag might be uninitialized, because it's possible that
+         * the sentinel has just discovered the slave instance and hasn't
+         * got the chance to verify its replication ID before the failover
+         * process starts. The flag could also be set irrelevant. Either
+         * way we shouldn't consider this slave instance qualified. */
+        if (slave->is_relevant_to_master != REPLID_RELEVANT) continue;
 
         /* If the master is in SDOWN state we get INFO for slaves every second.
          * Otherwise we get it with the usual period so we need to account for
