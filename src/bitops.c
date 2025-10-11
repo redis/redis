@@ -48,7 +48,11 @@
 #define BITOP_USE_AARCH64_NEON 0
 #endif
 
-/* Shared lookup table for bit counting - maps each byte value to its popcount */
+/* -----------------------------------------------------------------------------
+ * Helpers and low level bit functions.
+ * -------------------------------------------------------------------------- */
+
+ /* Shared lookup table for bit counting - maps each byte value to its popcount */
 static const uint8_t bitsinbyte[256] = {
     #define B2(n) n, n+1, n+1, n+2
     #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
@@ -59,11 +63,25 @@ static const uint8_t bitsinbyte[256] = {
     #undef B2
 };
 
-
-
-/* -----------------------------------------------------------------------------
- * Helpers and low level bit functions.
- * -------------------------------------------------------------------------- */
+/* Automatically select the best available popcount implementation */
+static inline long long redisPopcountAuto(const unsigned char *p, long count) {
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        return redisPopCountAvx512((void*)p, count);
+    }
+#endif
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        return redisPopCountAvx2((void*)p, count);
+    }
+#endif
+#ifdef HAVE_AARCH64_NEON
+    if (BITOP_USE_AARCH64_NEON) {
+        return redisPopCountAarch64((void*)p, count);
+    }
+#endif
+    return redisPopcount((void*)p, count);
+}
 
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
@@ -1520,24 +1538,7 @@ void bitcountCommand(client *c) {
         long long count;
 
         /* Use the best available popcount implementation */
-#ifdef HAVE_AVX512
-        if (BITOP_USE_AVX512) {
-            count = redisPopCountAvx512(p+start,bytes);
-        } else
-#endif
-#ifdef HAVE_AVX2
-        if (BITOP_USE_AVX2) {
-            count = redisPopCountAvx2(p+start,bytes);
-        } else
-#endif
-#ifdef HAVE_AARCH64_NEON
-        if (BITOP_USE_AARCH64_NEON) {
-            count = redisPopCountAarch64(p+start,bytes);
-        } else
-#endif
-        {
-            count = redisPopcount(p+start,bytes);
-        }
+        count = redisPopcountAuto(p+start, bytes);
 
         if (first_byte_neg_mask != 0 || last_byte_neg_mask != 0) {
             unsigned char firstlast[2] = {0, 0};
@@ -1548,24 +1549,7 @@ void bitcountCommand(client *c) {
             if (last_byte_neg_mask != 0) firstlast[1] = p[end] & last_byte_neg_mask;
 
             /* Use the same popcount implementation for consistency */
-#ifdef HAVE_AVX512
-            if (BITOP_USE_AVX512) {
-                count -= redisPopCountAvx512(firstlast,2);
-            } else
-#endif
-#ifdef HAVE_AVX2
-            if (BITOP_USE_AVX2) {
-                count -= redisPopCountAvx2(firstlast,2);
-            } else
-#endif
-#ifdef HAVE_AARCH64_NEON
-            if (BITOP_USE_AARCH64_NEON) {
-                count -= redisPopCountAarch64(firstlast,2);
-            } else
-#endif
-            {
-                count -= redisPopcount(firstlast,2);
-            }
+            count -= redisPopcountAuto(firstlast, 2);
         }
         addReplyLongLong(c,count);
     }
