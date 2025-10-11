@@ -35,18 +35,13 @@
 #define BITOP_USE_AVX2 0
 #endif
 
+/* AArch64 NEON support is determined at compile time via HAVE_AARCH64_NEON */
 #ifdef HAVE_AVX512
 #define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
 #define BITOP_USE_AVX512 0
 #endif
 
-#ifdef HAVE_AARCH64_NEON
-/* AArch64 always has NEON, but check for specific features */
-#define BITOP_USE_AARCH64_NEON 1
-#else
-#define BITOP_USE_AARCH64_NEON 0
-#endif
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
@@ -63,25 +58,7 @@ static const uint8_t bitsinbyte[256] = {
     #undef B2
 };
 
-/* Automatically select the best available popcount implementation */
-static inline long long redisPopcountAuto(const unsigned char *p, long count) {
-#ifdef HAVE_AVX512
-    if (BITOP_USE_AVX512) {
-        return redisPopCountAvx512((void*)p, count);
-    }
-#endif
-#ifdef HAVE_AVX2
-    if (BITOP_USE_AVX2) {
-        return redisPopCountAvx2((void*)p, count);
-    }
-#endif
-#ifdef HAVE_AARCH64_NEON
-    if (BITOP_USE_AARCH64_NEON) {
-        return redisPopCountAarch64((void*)p, count);
-    }
-#endif
-    return redisPopcount((void*)p, count);
-}
+
 
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
@@ -387,6 +364,24 @@ long long redisPopCountAvx2(void *s, long count) {
     return bits;
 }
 #endif
+
+/* Automatically select the best available popcount implementation */
+static inline long long redisPopcountAuto(const unsigned char *p, long count) {
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        return redisPopCountAvx512((void*)p, count);
+    }
+#endif
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        return redisPopCountAvx2((void*)p, count);
+    }
+#endif
+#ifdef HAVE_AARCH64_NEON
+    return redisPopCountAarch64((void*)p, count);
+#endif
+    return redisPopcount((void*)p, count);
+}
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
@@ -2023,7 +2018,7 @@ int popcountTest(int argc, char **argv, int flags) {
 #endif
 
 #ifdef HAVE_AARCH64_NEON
-    if (BITOP_USE_AARCH64_NEON) {
+    {
         long long result_aarch64 = redisPopCountAarch64(test_data, sizeof(test_data));
         printf("AArch64 NEON popcount: %lld (expected: %d)\n", result_aarch64, expected_bits);
 
@@ -2031,11 +2026,9 @@ int popcountTest(int argc, char **argv, int flags) {
             printf("FAIL: AArch64 NEON popcount mismatch\n");
             return 1;
         }
-    } else {
-        printf("AArch64 NEON not supported on this CPU\n");
     }
 #else
-    printf("AArch64 NEON not compiled in\n");
+    printf("AArch64 NEON not available\n");
 #endif
     printf("All popcount tests passed!\n");
     return 0;
