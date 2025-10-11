@@ -1325,9 +1325,9 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
 /* Move to the next entry in the hash. Return C_OK when the next entry
  * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
-    if (server.allow_access_expired) {
+    /* If expired field access is allowed, don't skip expired fields during iteration */
+    if (server.allow_access_expired)
         skipExpiredFields = 0;
-    }
 
     hi->expire_time = EB_EXPIRE_TIME_INVALID;
     if (hi->encoding == OBJ_ENCODING_LISTPACK) {
