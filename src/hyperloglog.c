@@ -1441,15 +1441,76 @@ void hllDenseCompressAVX2(uint8_t *reg_dense, const uint8_t *reg_raw) {
 }
 #endif
 
+#ifdef HAVE_AARCH64_NEON
+/* A specialized version of hllDenseCompress, optimized for default configurations.
+ * Based on the AVX2 version.
+ * 
+ * Requirements:
+ * 1) HLL_REGISTERS == 16384 && HLL_BITS == 6
+ * 2) Aarch64 CPU supports NEON (checked at runtime in hllDenseCompress)
+ *
+ * reg_dense: pointer to the dense representation array (12288 bytes, 6 bits per register)
+ * reg_raw: pointer to the raw representation array (16384 bytes, one byte per register)
+ */
+void hllDenseCompressAarch64(uint8_t *reg_dense, const uint8_t *reg_raw) {
+    const uint8_t *r = reg_raw;
+    uint8_t *t = reg_dense;
+
+    const uint8x16_t shuffle = {
+        0, 1, 2,
+        4, 5, 6,
+        8, 9, 10,
+        12, 13, 14,
+        -1, -1, -1
+    };
+
+    for (int i = 0; i < HLL_REGISTERS / 16 - 1; ++i) {
+        const uint32x4_t x = vld1q_u32((const uint32_t *)r);
+
+        uint32x4_t a1, a2, a3, a4;
+        a1 = vandq_u32(x, vdupq_n_u32(0x0000003f));
+        a2 = vandq_u32(x, vdupq_n_u32(0x00003f00));
+        a3 = vandq_u32(x, vdupq_n_u32(0x003f0000));
+        a4 = vandq_u32(x, vdupq_n_u32(0x3f000000));
+
+        a2 = vshrq_n_u32(a2, 2);
+        a3 = vshrq_n_u32(a3, 4);
+        a4 = vshrq_n_u32(a4, 6);
+
+        uint32x4_t y32 = vorrq_u32(vorrq_u32(a1, a2), vorrq_u32(a3, a4));
+        uint8x16_t y = vreinterpretq_u8_u32(y32);
+        y = vqtbl1q_u8(y, shuffle);
+
+        vst1q_u8(t, y);
+
+        r += 16;
+        t += 12;
+    }
+
+    /* Merge the last 16 registers normally 
+     * as the NEON algorithm needs 4 padding bytes at the end */
+    for (int i = HLL_REGISTERS - 16; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_SET_REGISTER(reg_dense, i, reg_raw[i]);
+    }
+}
+#endif
+
 /* Compress raw registers to dense representation. */
 void hllDenseCompress(uint8_t *reg_dense, const uint8_t *reg_raw) {
+#if HLL_REGISTERS == 16384 && HLL_BITS == 6
 #ifdef HAVE_AVX2
-    if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
-        if (HLL_USE_AVX2) {
-            hllDenseCompressAVX2(reg_dense, reg_raw);
-            return;
-        }
+    if (HLL_USE_AVX2) {
+        hllDenseCompressAVX2(reg_dense, reg_raw);
+        return;
     }
+#endif
+
+#ifdef HAVE_AARCH64_NEON
+    if (HLL_USE_NEON) {
+        hllDenseCompressAarch64(reg_dense, reg_raw);
+        return;
+    }
+#endif
 #endif
 
     for (int i = 0; i < HLL_REGISTERS; i++) {
