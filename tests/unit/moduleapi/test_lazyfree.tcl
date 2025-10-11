@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/test_lazyfree.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test "modules allocated memory can be reclaimed in the background" {

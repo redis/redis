@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/defragtest.so]
 
-start_server {tags {"modules"} overrides {{save ""}}} {
+start_server {tags {"modules external:skip debug_defrag:skip"} overrides {{save ""}}} {
     r module load $testmodule
     r config set hz 100
     r config set active-defrag-ignore-bytes 1
@@ -54,14 +54,14 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             r frag.create key2 10000 100 1000
 
             r config set activedefrag yes
-            wait_for_condition 200 50 {
-                [getInfoProperty [r info defragtest_stats] defragtest_defrag_ended] > 0
+            wait_for_condition 1000 50 {
+                [getInfoProperty [r info defragtest_stats] defragtest_defrag_ended] > 0 &&
+                [getInfoProperty [r info defragtest_stats] defragtest_datatype_resumes] > 10
             } else {
                 fail "Unable to wait for a complete defragmentation cycle to finish"
             }
 
             set info [r info defragtest_stats]
-            assert {[getInfoProperty $info defragtest_datatype_resumes] > 10}
             assert_equal 0 [getInfoProperty $info defragtest_datatype_wrong_cursor]
             assert_morethan [getInfoProperty $info defragtest_datatype_raw_defragged] 0
             assert_morethan [getInfoProperty $info defragtest_defrag_started] 0
@@ -81,7 +81,7 @@ start_server {tags {"modules"} overrides {{save ""}}} {
             r frag.create_frag_global 50000
             r config set activedefrag yes
 
-            wait_for_condition 200 50 {
+            wait_for_condition 1000 50 {
                 [getInfoProperty [r info defragtest_stats] defragtest_defrag_ended] > 0
             } else {
                 fail "Unable to wait for a complete defragmentation cycle to finish"

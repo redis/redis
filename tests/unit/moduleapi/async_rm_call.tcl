@@ -2,7 +2,7 @@ set testmodule [file normalize tests/modules/blockedclient.so]
 set testmodule2 [file normalize tests/modules/postnotifications.so]
 set testmodule3 [file normalize tests/modules/blockonkeys.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {Locked GIL acquisition from async RM_Call} {
@@ -222,7 +222,7 @@ start_server {tags {"modules"}} {
     }
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {Test basic replication stream on unblock handler} {
@@ -299,7 +299,7 @@ start_server {tags {"modules"}} {
     }
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
     r module load $testmodule2
 
@@ -416,7 +416,7 @@ start_server {tags {"modules"}} {
     }
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
     r module load $testmodule3
 

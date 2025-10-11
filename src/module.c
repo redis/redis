@@ -1165,7 +1165,8 @@ int64_t commandFlagsFromString(char *s) {
         else if (!strcasecmp(t,"no-cluster")) flags |= CMD_MODULE_NO_CLUSTER;
         else if (!strcasecmp(t,"no-mandatory-keys")) flags |= CMD_NO_MANDATORY_KEYS;
         else if (!strcasecmp(t,"allow-busy")) flags |= CMD_ALLOW_BUSY;
-        else if (!strcasecmp(t, "internal")) flags |= (CMD_INTERNAL|CMD_NOSCRIPT); /* We also disallow internal commands in scripts. */
+        else if (!strcasecmp(t,"internal")) flags |= (CMD_INTERNAL|CMD_NOSCRIPT); /* We also disallow internal commands in scripts. */
+        else if (!strcasecmp(t,"touches-arbitrary-keys")) flags |= CMD_TOUCHES_ARBITRARY_KEYS;
         else break;
     }
     sdsfreesplitres(tokens,count);
@@ -1253,6 +1254,8 @@ RedisModuleCommand *moduleCreateCommandProxy(struct RedisModule *module, sds dec
  * * **"internal"**: Internal command, one that should not be exposed to the user connections.
  *                   For example, module commands that are called by the modules,
  *                   commands that do not perform ACL validations (relying on earlier checks)
+ * * **"touches-arbitrary-keys"**: This command may modify arbitrary keys (i.e. not provided via argv).
+ *                   This flag is used so we don't wrap the replicated commands with MULTI/EXEC.
  *
  * The last three parameters specify which arguments of the new command are
  * Redis keys. See https://redis.io/commands/command for more information.

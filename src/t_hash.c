@@ -8,6 +8,7 @@
  */
 
 #include "server.h"
+#include "redisassert.h"
 #include "ebuckets.h"
 #include <math.h>
 
@@ -37,21 +38,12 @@ typedef enum GetFieldRes {
                              * it was the last field in the hash. */
 } GetFieldRes;
 
-/* ActiveExpireCtx passed to hashTypeActiveExpire() */
-typedef struct ExpireCtx {
-    uint32_t fieldsToExpireQuota;
-    redisDb *db;
-} ExpireCtx;
-
 typedef listpackEntry CommonEntry; /* extend usage beyond lp */
 
 /* hash field expiration (HFE) funcs */
 static ExpireAction onFieldExpire(eItem item, void *ctx);
 static ExpireMeta* hfieldGetExpireMeta(const eItem field);
-static ExpireMeta *hashGetExpireMeta(const eItem hash);
 static void hexpireGenericCommand(client *c, long long basetime, int unit);
-static ExpireAction hashTypeActiveExpire(eItem hashObj, void *ctx);
-static uint64_t hashTypeExpire(kvobj *kv, ExpireCtx *expireCtx, int updateGlobalHFE);
 static void hfieldPersist(robj *hashObj, hfield field);
 static void propagateHashFieldDeletion(redisDb *db, sds key, char *field, size_t fieldLen);
 
@@ -104,16 +96,11 @@ dictType mstrHashDictTypeWithHFE = {
  * private ebuckets DS. In order to support HFE active expire cycle across hash
  * instances, hashes with associated HFE will be also registered in a global
  * ebuckets DS with expiration time value that reflects their next minimum
- * time to expire. The global HFE Active expiration will be triggered from
- * activeExpireCycle() function and will invoke "local" HFE Active expiration
- * for each hash instance that has expired fields.
- *
- * hashExpireBucketsType - ebuckets-type to be used at the global space
- * (db->hexpires) to register hashes that have one or more fields with time-Expiration.
- * The hashes will be registered in with the expiration time of the earliest field
- * in the hash.
+ * time to expire (db->subexpires). The global HFE Active expiration will be
+ * triggered from activeExpireCycle() function and in turn will invoke "local"
+ * HFE Active sub-expiration for each hash instance that has expired fields.
  *----------------------------------------------------------------------------*/
-EbucketsType hashExpireBucketsType = {
+EbucketsType subexpiresBucketsType = {
     .onDeleteItem = NULL,
     .getExpireMeta = hashGetExpireMeta,   /* get ExpireMeta attached to each hash */
     .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
@@ -603,7 +590,7 @@ unsigned char *hashTypeListpackGetLp(robj *o) {
 /* Check the length of a number of objects to see if we need to convert a
  * listpack to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
-void hashTypeTryConversion(redisDb *db, robj *o, robj **argv, int start, int end) {
+void hashTypeTryConversion(redisDb *db, kvobj *o, robj **argv, int start, int end) {
     int i;
     size_t sum = 0;
 
@@ -615,7 +602,7 @@ void hashTypeTryConversion(redisDb *db, robj *o, robj **argv, int start, int end
      * might over allocate memory if there are duplicates. */
     size_t new_fields = (end - start + 1) / 2;
     if (new_fields > server.hash_max_listpack_entries) {
-        hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+        hashTypeConvert(db, o, OBJ_ENCODING_HT);
         dictExpand(o->ptr, new_fields);
         return;
     }
@@ -625,13 +612,14 @@ void hashTypeTryConversion(redisDb *db, robj *o, robj **argv, int start, int end
             continue;
         size_t len = sdslen(argv[i]->ptr);
         if (len > server.hash_max_listpack_value) {
-            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
             return;
         }
         sum += len;
     }
-    if (!lpSafeToAdd(hashTypeListpackGetLp(o), sum))
-        hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+    if (!lpSafeToAdd(hashTypeListpackGetLp(o), sum)) {
+        hashTypeConvert(db, o, OBJ_ENCODING_HT);
+    }
 }
 
 /* Get the value from a listpack encoded hash, identified by field. */
@@ -889,7 +877,7 @@ int hashTypeExists(redisDb *db, kvobj *o, sds field, int hfeFlags, int *isHashDe
 #define HASH_SET_TAKE_FIELD  (1<<0)
 #define HASH_SET_TAKE_VALUE  (1<<1)
 #define HASH_SET_KEEP_TTL (1<<2)
-int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
+int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
     int update = 0;
 
     /* Check if the field is too long for listpack, and convert before adding the item.
@@ -898,7 +886,7 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
     if (o->encoding == OBJ_ENCODING_LISTPACK  ||
         o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         if (sdslen(field) > server.hash_max_listpack_value || sdslen(value) > server.hash_max_listpack_value)
-            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
     }
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -932,7 +920,7 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
 
         /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         unsigned char *fptr = NULL, *vptr = NULL, *tptr = NULL;
         listpackEx *lpt = o->ptr;
@@ -971,7 +959,7 @@ int hashTypeSet(redisDb *db, robj *o, sds field, sds value, int flags) {
 
         /* Check if the listpack needs to be converted to a hash table */
         if (hashTypeLength(o, 0) > server.hash_max_listpack_entries)
-            hashTypeConvert(o, OBJ_ENCODING_HT, &db->hexpires);
+            hashTypeConvert(db, o, OBJ_ENCODING_HT);
 
     } else if (o->encoding == OBJ_ENCODING_HT) {
         dict *ht = o->ptr;
@@ -1156,7 +1144,7 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
 
     /* Take care that HASH support expiration */
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        hashTypeConvert(o, OBJ_ENCODING_LISTPACK_EX, &c->db->hexpires);
+        hashTypeConvert(c->db, o, OBJ_ENCODING_LISTPACK_EX);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         /* Take care dict has HFE metadata */
         if (!isDictWithMetaHFE(ht)) {
@@ -1209,10 +1197,16 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
                     (ex->minExpire - newMinExpire) : (newMinExpire - ex->minExpire);
     if (diff < HASH_NEW_EXPIRE_DIFF_THRESHOLD) return;
 
-    if (ex->minExpire != EB_EXPIRE_TIME_INVALID)
-        ebRemove(&ex->db->hexpires, &hashExpireBucketsType, ex->hashObj);
-    if (newMinExpire != EB_EXPIRE_TIME_INVALID)
-        ebAdd(&ex->db->hexpires, &hashExpireBucketsType, ex->hashObj, newMinExpire);
+    int slot = getKeySlot(ex->key->ptr);
+    if (ex->minExpire != EB_EXPIRE_TIME_INVALID) {
+        if (newMinExpire != EB_EXPIRE_TIME_INVALID)
+            estoreUpdate(ex->db->subexpires, slot, ex->hashObj, newMinExpire);
+        else
+            estoreRemove(ex->db->subexpires, slot, ex->hashObj);
+    } else {
+        if (newMinExpire != EB_EXPIRE_TIME_INVALID)
+            estoreAdd(ex->db->subexpires, slot, ex->hashObj, newMinExpire);
+    }
 }
 
 /* Delete an element from a hash.
@@ -1591,21 +1585,25 @@ void hashTypeConvertListpack(robj *o, int enc) {
     }
 }
 
-void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
+/* db can be NULL to avoid registration in subexpires */
+void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
     serverAssert(o->encoding == OBJ_ENCODING_LISTPACK_EX);
 
     if (enc == OBJ_ENCODING_LISTPACK_EX) {
         return;
     } else if (enc == OBJ_ENCODING_HT) {
-        int ret;
+        uint64_t minExpire = EB_EXPIRE_TIME_INVALID;
+        int ret, slot = -1;
         hashTypeIterator *hi;
         dict *dict;
         dictExpireMetadata *dictExpireMeta;
         listpackEx *lpt = o->ptr;
-        uint64_t minExpire = hashTypeGetMinExpire(o, 0);
 
-        if (hexpires && lpt->meta.trash != 1)
-            ebRemove(hexpires, &hashExpireBucketsType, o);
+        if (db && lpt->meta.trash != 1) {
+            minExpire = hashTypeGetMinExpire(o, 0);
+            slot = getKeySlot(kvobjGetKey(o));
+            estoreRemove(db->subexpires, slot, o);
+        }
 
         dict = dictCreate(&mstrHashDictTypeWithHFE);
         dictExpand(dict,hashTypeLength(o, 0));
@@ -1640,19 +1638,19 @@ void hashTypeConvertListpackEx(robj *o, int enc, ebuckets *hexpires) {
         o->encoding = OBJ_ENCODING_HT;
         o->ptr = dict;
 
-        if (hexpires && minExpire != EB_EXPIRE_TIME_INVALID)
-            ebAdd(hexpires, &hashExpireBucketsType, o, minExpire);
+        if (minExpire != EB_EXPIRE_TIME_INVALID)
+            estoreAdd(db->subexpires, slot, o, minExpire);
     } else {
         serverPanic("Unknown hash encoding: %d", enc);
     }
 }
 
-/* NOTE: hexpires can be NULL (Won't register in global HFE DS) */
-void hashTypeConvert(robj *o, int enc, ebuckets *hexpires) {
+/* NOTE: db can be NULL (Won't register in global HFE DS) */
+void hashTypeConvert(redisDb *db, robj *o, int enc) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         hashTypeConvertListpack(o, enc);
     } else if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        hashTypeConvertListpackEx(o, enc, hexpires);
+        hashTypeConvertListpackEx(db, o, enc);
     } else if (o->encoding == OBJ_ENCODING_HT) {
         serverPanic("Not implemented");
     } else {
@@ -1708,7 +1706,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
             dictExpireMetaDst->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
 
             /* Extract the minimum expire time of the source hash (Will be used by caller
-             * to register the new hash in the global ebuckets, i.e db->hexpires) */
+             * to register the new hash in the global subexpires DB) */
             if (dictExpireMetaSrc->expireMeta.trash == 0)
                 *minHashExpire = ebGetMetaExpTime(&dictExpireMetaSrc->expireMeta);
         }
@@ -1785,59 +1783,22 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
     }
 }
 
-/*
- * Active expiration of fields in hash
- *
- * Called by hashTypeDbActiveExpire() for each hash registered in the HFE DB
- * (db->hexpires) with an expiration-time less than or equal current time.
- *
- * This callback performs the following actions for each hash:
- * - Delete expired fields as by calling ebExpire(hash)
- * - If afterward there are future fields to expire, it will update the hash in
- *   HFE DB with the next hash-field minimum expiration time by returning
- *   ACT_UPDATE_EXP_ITEM.
- * - If the hash has no more fields to expire, it is removed from the HFE DB
- *   by returning ACT_REMOVE_EXP_ITEM.
- * - If hash has no more fields afterward, it will remove the hash from keyspace.
- */
-static ExpireAction hashTypeActiveExpire(eItem item, void *ctx) {
-    ExpireCtx *expireCtx = ctx;
-
-    /* If no more quota left for this callback, stop */
-    if (expireCtx->fieldsToExpireQuota == 0)
-        return ACT_STOP_ACTIVE_EXP;
-
-    uint64_t nextExpTime = hashTypeExpire((kvobj *) item, expireCtx, 0);
-
-    /* If hash has no more fields to expire or got deleted, indicate
-     * to remove it from HFE DB to the caller ebExpire() */
-    if (nextExpTime == EB_EXPIRE_TIME_INVALID || nextExpTime == 0) {
-        return ACT_REMOVE_EXP_ITEM;
-    } else {
-        /* Hash has more fields to expire. Update next expiration time of the hash
-         * and indicate to add it back to global HFE DS */
-        ebSetMetaExpTime(hashGetExpireMeta(item), nextExpTime);
-        return ACT_UPDATE_EXP_ITEM;
-    }
-}
-
 /* Delete all expired fields from the hash and delete the hash if left empty.
  *
- * updateGlobalHFE - If the hash should be updated in the global HFE DS with new
+ * updateSubexpires - If the hash should be updated in the subexpires DB with new
  *                   expiration time in case expired fields were deleted.
  *
  * Return next Expire time of the hash
  * - 0 if hash got deleted
  * - EB_EXPIRE_TIME_INVALID if no more fields to expire
  */
-static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalHFE) {
+uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires) {
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
-    redisDb *db = expireCtx->db;
     ExpireInfo info = {0};
 
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         info = (ExpireInfo) {
-                .maxToExpire = expireCtx->fieldsToExpireQuota,
+                .maxToExpire = *quota,
                 .now = commandTimeSnapshot(),
                 .itemsExpired = 0};
 
@@ -1851,7 +1812,7 @@ static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalH
         OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db };
 
         info = (ExpireInfo){
-            .maxToExpire = expireCtx->fieldsToExpireQuota,
+            .maxToExpire = *quota,
             .onExpireItem = onFieldExpire,
             .ctx = &onFieldExpireCtx,
             .now = commandTimeSnapshot()
@@ -1861,7 +1822,7 @@ static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalH
     }
 
     /* Update quota left */
-    expireCtx->fieldsToExpireQuota -= info.itemsExpired;
+    *quota -= info.itemsExpired;
 
     /* In some cases, a field might have been deleted without updating the global DS.
      * As a result, active-expire might not expire any fields, in such cases,
@@ -1870,17 +1831,20 @@ static uint64_t hashTypeExpire(kvobj *o, ExpireCtx *expireCtx, int updateGlobalH
         sds keystr = kvobjGetKey(o);
         robj *key = createStringObject(keystr, sdslen(keystr));
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", key, db->id);
+        int slot;
 
-        if (updateGlobalHFE)
-            ebRemove(&db->hexpires, &hashExpireBucketsType, o);
+        if (updateSubexpires) {
+            slot = getKeySlot(keystr);
+            estoreRemove(db->subexpires, slot, o);
+        }
 
         if (hashTypeLength(o, 0) == 0) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, db->id);
             dbDelete(db, key);
             noExpireLeftRes = 0;
         } else {
-            if ((updateGlobalHFE) && (info.nextExpireTime != EB_EXPIRE_TIME_INVALID))
-                ebAdd(&db->hexpires, &hashExpireBucketsType, o, info.nextExpireTime);
+            if ((updateSubexpires) && (info.nextExpireTime != EB_EXPIRE_TIME_INVALID))
+                estoreAdd(db->subexpires, slot, o, info.nextExpireTime);
         }
 
         signalModifiedKey(NULL, db, key);
@@ -1913,8 +1877,8 @@ static int hashTypeExpireIfNeeded(redisDb *db, kvobj *o) {
         return 0;
 
     /* Take care to expire all the fields */
-    ExpireCtx expireCtx = { .db = db, .fieldsToExpireQuota = UINT32_MAX };
-    nextExpireTime = hashTypeExpire(o, &expireCtx, 1);
+    uint32_t quota = UINT32_MAX;
+    nextExpireTime = hashTypeActiveExpire(db, o, &quota, 1);
     /* return 1 if the entire hash was deleted */
     return nextExpireTime == 0;
 }
@@ -1971,24 +1935,6 @@ uint64_t hashTypeGetMinExpire(robj *o, int accurate) {
     }
 }
 
-uint64_t hashTypeRemoveFromExpires(ebuckets *hexpires, robj *o) {
-    if (o->encoding == OBJ_ENCODING_LISTPACK) {
-        return EB_EXPIRE_TIME_INVALID;
-    } else if (o->encoding == OBJ_ENCODING_HT) {
-        /* If dict doesn't holds HFE metadata */
-        if (!isDictWithMetaHFE(o->ptr))
-            return EB_EXPIRE_TIME_INVALID;
-    }
-
-    uint64_t expireTime = ebGetExpireTime(&hashExpireBucketsType, o);
-
-    /* If registered in global HFE DS then remove it (not trash) */
-    if (expireTime != EB_EXPIRE_TIME_INVALID)
-        ebRemove(hexpires, &hashExpireBucketsType, o);
-
-    return expireTime;
-}
-
 int hashTypeIsFieldsWithExpire(robj *o) {
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         return 0;
@@ -2002,62 +1948,6 @@ int hashTypeIsFieldsWithExpire(robj *o) {
         dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
         return ebGetTotalItems(meta->hfe, &hashFieldExpireBucketsType) != 0;
     }
-}
-
-/* Add hash to global HFE DS and update key for notifications.
- *
- * expireTime  - expiration in msec.
- *               If eq. 0 then the hash will be added to the global HFE DS with
- *               the minimum expiration time that is already written in advance
- *               to attached metadata (which considered as trash as long as it is
- *               not attached to global HFE DS).
- *
- * Precondition: It is a hash of type listpackex or HT with HFE metadata.
- */
-void hashTypeAddToExpires(redisDb *db, kvobj *hashObj, uint64_t expireTime) {
-    if (expireTime > EB_EXPIRE_TIME_MAX)
-         return;
-
-    if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
-        listpackEx *lpt = hashObj->ptr;
-        expireTime = (expireTime) ? expireTime : ebGetMetaExpTime(&lpt->meta);
-        ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, expireTime);
-    } else if (hashObj->encoding == OBJ_ENCODING_HT) {
-        dict *d = hashObj->ptr;
-        if (isDictWithMetaHFE(d)) {
-            dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
-            expireTime = (expireTime) ? expireTime : ebGetMetaExpTime(&meta->expireMeta);
-            ebAdd(&db->hexpires, &hashExpireBucketsType, hashObj, expireTime);
-        }
-    }
-}
-
-/* DB active expire and update hashes with time-expiration on fields.
- *
- * The callback function hashTypeActiveExpire() is invoked for each hash registered
- * in the HFE DB (db->hexpires) with an expiration-time less than or equal to the
- * current time. This callback performs the following actions for each hash:
- * - If the hash has one or more fields to expire, it will delete those fields.
- * - If there are more fields to expire, it will update the hash with the next
- *   expiration time in HFE DB.
- * - If the hash has no more fields to expire, it is removed from the HFE DB.
- * - If the hash has no more fields, it is removed from the main DB.
- *
- * Returns number of fields active-expired.
- */
-uint64_t hashTypeDbActiveExpire(redisDb *db, uint32_t maxFieldsToExpire) {
-    ExpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire };
-    ExpireInfo info = {
-            .maxToExpire = UINT64_MAX, /* Only maxFieldsToExpire play a role */
-            .onExpireItem = hashTypeActiveExpire,
-            .ctx = &ctx,
-            .now = commandTimeSnapshot(),
-            .itemsExpired = 0};
-
-    ebExpire(&db->hexpires, &hashExpireBucketsType, &info);
-
-    /* Return number of fields active-expired */
-    return maxFieldsToExpire - ctx.fieldsToExpireQuota;
 }
 
 void hashTypeFree(robj *o) {
@@ -2719,7 +2609,7 @@ void hgetdelCommand(client *c) {
         dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     } else if (hfe && (hashTypeIsFieldsWithExpire(o) == 0)) { /*is it last HFE*/
-        ebRemove(&c->db->hexpires, &hashExpireBucketsType, o);
+        estoreRemove(c->db->subexpires, getKeySlot(kvobjGetKey(o)), o);
     }
 
     if (oldlen != newlen)
@@ -2920,7 +2810,7 @@ void hdelCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         } else {
             if (isHFE && (hashTypeIsFieldsWithExpire(o) == 0)) /* is it last HFE */
-                ebRemove(&c->db->hexpires, &hashExpireBucketsType, o);
+                estoreRemove(c->db->subexpires, getKeySlot(c->argv[1]->ptr), o);
             newLen = oldLen - deleted;
         }
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldLen, newLen);
@@ -3495,7 +3385,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
 
 /* Retrieve the ExpireMeta associated with the hash.
  * The caller is responsible for ensuring that it is indeed attached. */
-static ExpireMeta *hashGetExpireMeta(const eItem hash) {
+ExpireMeta *hashGetExpireMeta(const eItem hash) {
     robj *hashObj = (robj *)hash;
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK_EX) {
         listpackEx *lpt = hashObj->ptr;
