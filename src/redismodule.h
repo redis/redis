@@ -9,6 +9,8 @@
 
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleKey RedisModuleKey;
+typedef struct RedisModuleKeyMetaClass RedisModuleKeyMetaClass;
+typedef int RedisModuleKeyMetaClassId;
 
 /* -------------- Defines NOT common between core and modules ------------- */
 
@@ -44,6 +46,10 @@ typedef long long ustime_t;
 /* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
  * structure is changed, this version number needs to be changed synchronistically. */
 #define REDISMODULE_TYPE_METHOD_VERSION 5
+
+/* Version of the RedisModuleKeyMetaClassConfig structure. Once the RedisModuleKeyMetaClassConfig 
+ * structure is changed, this version number needs to be changed synchronistically. */
+#define REDISMODULE_KEY_META_VERSION    1
 
 /* API flags and constants */
 #define REDISMODULE_READ (1<<0)
@@ -940,6 +946,19 @@ typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, R
 typedef void (*RedisModuleOnUnblocked)(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data);
 typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err);
 
+typedef int (*RedisModuleKeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
+typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
+typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*RedisModuleKeyMetaFreeFunc)(const char *keyname, uint64_t meta);
+typedef int (*RedisModuleKeyMetaCopyFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaRenameFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaDefragFunc)(RedisModuleDefragCtx *ctx, RedisModuleString *keyname, uint64_t meta);
+typedef size_t (*RedisModuleKeyMetaMemUsageFunc)(RedisModuleKeyOptCtx *ctx, size_t sample_size, uint64_t meta);
+typedef size_t (*RedisModuleKeyMetaFreeEffortFunc)(RedisModuleKeyOptCtx *ctx, uint64_t meta);
+typedef void (*RedisModuleKeyMetaUnlinkFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaMoveFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+
+
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
     RedisModuleTypeLoadFunc rdb_load;
@@ -961,6 +980,94 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeCopyFunc2 copy2;
     RedisModuleTypeAuxSaveFunc aux_save2;
 } RedisModuleTypeMethods;
+
+/* Configuration for a key metadata class (Must be aligned with KeyMetaConfAllVersions) */
+typedef struct RedisModuleKeyMetaClassConfig {
+    /* Module need to set it REDISMODULE_KEY_META_VERSION. Bump when fields are
+     * added; Redis keeps backward compatibility in RM_CreateKeyMetaClass(). */
+    uint64_t version;
+
+#define REDISMODULE_META_ALLOW_IGNORE 0 /* ignore meta on RDB load, if module not avail */
+    uint64_t flags;
+
+    /* Reset meta to this value when it is being "removed" from a key. */  
+    uint64_t reset_value;
+    
+    /* Copy callback (optional).
+     * - Return 1 to attach `meta` to the new key, or 0 to skip attaching metadata.
+     * - If NULL, metadata is ignored during copy.
+     * - The `meta` value may be modified in-place to produce a different value
+     *   for the new key. */
+    RedisModuleKeyMetaCopyFunc copy;
+    
+    /* Rename callback (optional).
+     * - If NULL, then metadata is kept during rename.
+     * - The `meta` value may be modified in-place to produce a different value
+     *   for the new key. */
+    RedisModuleKeyMetaRenameFunc rename;
+    
+    /* Move callback (optional)
+     *  - Return 1 to keep metadata, 0 to drop.
+     *  - If NULL, then metadata is kept during move.
+     *  - The `meta` value may be modified in-place to produce a different value
+     *    for the new key. */
+    RedisModuleKeyMetaMoveFunc move;
+
+    /* Unlink callback (optional)
+     * - If not provided, then metadata is ignored during unlink.
+     * - Indication that key may soon be freed by bg thread.
+     * - Pointer to meta is provided for modification. If the metadata holds a pointer
+     *   or handle to resources and you free them here, you MUST set `*meta=reset_value`
+     *   to prevent the free callback from attempting to free the same resource again. */
+    RedisModuleKeyMetaUnlinkFunc unlink;
+    
+    /* Free callback (optional).
+     * Invoked when a key with this metadata is deleted/overwritten/expired,
+     * or when Redis needs to release per-key metadata during lifecycle ops.
+     * (The module should free any external allocation referenced by `meta`
+     * if it uses the 8 bytes as a handle/pointer). */
+    RedisModuleKeyMetaFreeFunc free;
+    
+    /****************************** TBD: ******************************/    
+    /* RDB load callback (optional).
+     * - Called during RDB loading when metadata for this class is encountered.
+     * - Behavior when NULL:
+     *   > If rdb_load is NULL AND REDISMODULE_META_ALLOW_IGNORE flag is set,
+     *     the metadata will be silently ignored during RDB load.
+     *   > If rdb_load is NULL AND the flag is NOT set, RDB loading will fail
+     *     if metadata for this class is encountered.
+     * - Behavior when class is not registered:
+     *   > If the class was saved with REDISMODULE_META_ALLOW_IGNORE flag but
+     *     is not registered at load time, the metadata will be silently ignored.
+     *   > Otherwise, RDB loading will fail.
+     * - Callback responsibilities:
+     *   > Read custom serialized data from `rdb` using RedisModule_Load*() APIs
+     *   > Deserialize and reconstruct the 8-byte metadata value
+     *   > Write the final 8-byte value into `*meta`
+     *   > Return 1 to attach `meta` to the key, or 0 to skip attachment
+     *   > database ID can be derived from `rdb` if needed. The associated key
+     *     will be loaded immediately after this callback returns.
+     * 
+     * Parameters:
+     * - rdb: RDB I/O context (use RedisModule_Load*() functions to read data)
+     * - meta: Pointer to 8-byte metadata slot (write your deserialized value here)
+     * - encver: Encoding version (the metadata class version at save time)
+     * 
+     * Return 1 to attach value `*meta` to the key. Or return 0 to ignore.
+     */   
+    RedisModuleKeyMetaLoadFunc rdb_load;
+
+   /* RDB save callback (optional).
+     * - If set to NULL, redis will won't save metadata to RDB
+     * - Callback should write RDB assisting functions: RedisModule_Save*()
+     */
+    RedisModuleKeyMetaSaveFunc rdb_save;
+    
+    RedisModuleKeyMetaAOFRewriteFunc aof_rewrite;
+    RedisModuleKeyMetaDefragFunc defrag;    
+    RedisModuleKeyMetaMemUsageFunc mem_usage;    
+    RedisModuleKeyMetaFreeEffortFunc free_effort;
+} RedisModuleKeyMetaClassConfig;
 
 #define REDISMODULE_GET_API(name) \
     RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))
@@ -1356,6 +1463,10 @@ REDISMODULE_API int (*RedisModule_ConfigSet)(RedisModuleCtx *ctx, const char *na
 REDISMODULE_API int (*RedisModule_ConfigSetBool)(RedisModuleCtx *ctx, const char *name, int value, RedisModuleString **err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ConfigSetEnum)(RedisModuleCtx *ctx, const char *name, RedisModuleString *value, RedisModuleString **err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ConfigSetNumeric)(RedisModuleCtx *ctx, const char *name, long long value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleKeyMetaClassId (*RedisModule_CreateKeyMetaClass)(RedisModuleCtx *ctx, const char *metaname, int metaver, RedisModuleKeyMetaClassConfig *conf) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReleaseKeyMetaClass)(RedisModuleKeyMetaClassId id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t metadata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t *metadata) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1744,6 +1855,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ConfigSetBool);
     REDISMODULE_GET_API(ConfigSetEnum);
     REDISMODULE_GET_API(ConfigSetNumeric);
+    REDISMODULE_GET_API(CreateKeyMetaClass);
+    REDISMODULE_GET_API(ReleaseKeyMetaClass);
+
+    REDISMODULE_GET_API(SetKeyMeta);
+    REDISMODULE_GET_API(GetKeyMeta);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

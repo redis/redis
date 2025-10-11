@@ -256,8 +256,15 @@ void restoreCommand(client *c) {
         return;
     }
 
+    // TODO_META: Do we want to support also RESTORE metadata
+    // Usage: RESTORE key ttl serialized-value [METADATA serialized-meta]
+    // This mean that we need to serialize also metaver 
+    KeyMetaSpec keymeta;
+    keyMetaSpecInit(&keymeta);
+    if (ttl) keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
+
     /* Create the key and set the TTL if any */
-    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, ttl ? ttl : -1);
+    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, &keymeta);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
