@@ -74,7 +74,6 @@ long long redisPopcount(void *s, long count) {
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if
                          * __builtin_cpu_supports() is not available. */
 #endif
-
     /* Count initial bytes not aligned to 64-bit when using the POPCNT instruction,
      * otherwise align to 32-bit. */
     int align = use_popcnt ? 7 : 3;
