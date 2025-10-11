@@ -26,6 +26,10 @@
 #include <immintrin.h>
 #endif
 
+#ifdef HAVE_AARCH64_NEON
+#include <arm_neon.h>
+#endif
+
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 /* The Redis HyperLogLog implementation is based on the following ideas:
@@ -201,11 +205,20 @@ struct hllhdr {
 
 static char *invalid_hll_err = "-INVALIDOBJ Corrupted HLL object detected";
 
-#ifdef HAVE_AVX2
+#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON)
 static int simd_enabled = 1;
+#endif
+
+#ifdef HAVE_AVX2
 #define HLL_USE_AVX2 (simd_enabled && __builtin_cpu_supports("avx2"))
 #else
 #define HLL_USE_AVX2 0
+#endif
+
+#ifdef HAVE_AARCH64_NEON
+#define HLL_USE_NEON (simd_enabled)
+#else
+#define HLL_USE_NEON 0
 #endif
 
 /* =========================== Low level bit macros ========================= */
@@ -1190,15 +1203,83 @@ void hllMergeDenseAVX2(uint8_t *reg_raw, const uint8_t *reg_dense) {
 }
 #endif
 
+#ifdef HAVE_AARCH64_NEON
+/* A specialized version of hllMergeDense, optimized for default configurations.
+ * Based on the AVX2 version.
+ * 
+ * Requirements:
+ * 1) HLL_REGISTERS == 16384 && HLL_BITS == 6
+ * 2) Aarch64 CPU supports NEON (checked at runtime in hllMergeDense)
+ *
+ * reg_raw: pointer to the raw representation array (16384 bytes, one byte per register)
+ * reg_dense: pointer to the dense representation array (12288 bytes, 6 bits per register)
+ */
+void hllMergeDenseAarch64(uint8_t *reg_raw, const uint8_t *reg_dense) {
+    const uint8_t *r = reg_dense;
+    uint8_t *t = reg_raw;
+
+     const uint8x16_t shuffle = {
+        0, 1, 2, -1,
+        3, 4, 5, -1,
+        6, 7, 8, -1,
+        9, 10, 11, -1
+    };
+
+    for (int i = 0; i < HLL_REGISTERS / 16 - 1; ++i) {
+        uint8x16_t x, x0;
+        x0 = vld1q_u8(r);
+        x = vqtbl1q_u8(x0, shuffle);
+
+        uint32x4_t x32 = vreinterpretq_u32_u8(x);
+
+        uint32x4_t a1, a2, a3, a4;
+        a1 = vandq_u32(x32, vdupq_n_u32(0x0000003f));
+        a2 = vandq_u32(x32, vdupq_n_u32(0x00000fc0));
+        a3 = vandq_u32(x32, vdupq_n_u32(0x0003f000));
+        a4 = vandq_u32(x32, vdupq_n_u32(0x00fc0000));
+
+        a2 = vshlq_n_u32(a2, 2);
+        a3 = vshlq_n_u32(a3, 4);
+        a4 = vshlq_n_u32(a4, 6);
+
+        uint32x4_t y32 = vorrq_u32(vorrq_u32(a1, a2), vorrq_u32(a3, a4));
+
+        uint8x16_t y = vreinterpretq_u8_u32(y32);
+
+        uint8x16_t z = vld1q_u8(t);
+
+        z = vmaxq_u8(z, y);
+
+        vst1q_u8(t, z);
+
+        r += 12;
+        t += 16;
+    }
+
+    /* Process remaining registers, we do this manually because we don't want to over-read 4 bytes */
+    uint8_t val;
+    for (int i = HLL_REGISTERS - 16; i < HLL_REGISTERS; i++) {
+        HLL_DENSE_GET_REGISTER(val, reg_dense, i);
+        reg_raw[i] = MAX(reg_raw[i], val);
+    }
+}
+#endif /* HAVE_AARCH64_NEON */
+
 /* Merge dense-encoded registers to raw registers array. */
 void hllMergeDense(uint8_t* reg_raw, const uint8_t* reg_dense) {
+#if HLL_REGISTERS == 16384 && HLL_BITS == 6
 #ifdef HAVE_AVX2
-    if (HLL_REGISTERS == 16384 && HLL_BITS == 6) {
-        if (HLL_USE_AVX2) {
-            hllMergeDenseAVX2(reg_raw, reg_dense);
-            return;
-        }
+    if (HLL_USE_AVX2) {
+        hllMergeDenseAVX2(reg_raw, reg_dense);
+        return;
     }
+#endif
+#ifdef HAVE_AARCH64_NEON
+    if (HLL_USE_NEON) {
+        hllMergeDenseAarch64(reg_raw, reg_dense);
+        return;
+    }
+#endif
 #endif
 
     uint8_t val;
@@ -1798,18 +1879,18 @@ void pfdebugCommand(client *c) {
         if (c->argc != 3) goto arityerr;
 
         if (!strcasecmp(c->argv[2]->ptr, "on")) {
-#ifdef HAVE_AVX2
+#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON)
             simd_enabled = 1;
 #endif
         } else if (!strcasecmp(c->argv[2]->ptr, "off")) {
-#ifdef HAVE_AVX2
+#if defined(HAVE_AVX2) || defined(HAVE_AARCH64_NEON)
             simd_enabled = 0;
 #endif
         } else {
             addReplyError(c, "Argument must be ON or OFF");
         }
 
-        addReplyStatus(c, HLL_USE_AVX2 ? "enabled" : "disabled");
+        addReplyStatus(c, HLL_USE_AVX2 || HLL_USE_NEON ? "enabled" : "disabled");
 
         return;
     }
