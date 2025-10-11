@@ -48,6 +48,17 @@
 #define BITOP_USE_AARCH64_NEON 0
 #endif
 
+/* Shared lookup table for bit counting - maps each byte value to its popcount */
+static const uint8_t bitsinbyte[256] = {
+    #define B2(n) n, n+1, n+1, n+2
+    #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+    #define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+    B6(0), B6(1), B6(1), B6(2)
+    #undef B6
+    #undef B4
+    #undef B2
+};
+
 
 
 /* -----------------------------------------------------------------------------
@@ -68,8 +79,7 @@ long long redisPopcount(void *s, long count) {
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if
                          * __builtin_cpu_supports() is not available. */
 #endif
-    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
-    
+
     /* Count initial bytes not aligned to 64-bit when using the POPCNT instruction,
      * otherwise align to 32-bit. */
     int align = use_popcnt ? 7 : 3;
@@ -165,16 +175,6 @@ remain:
 long long redisPopCountAarch64(void *s, long count) {
     long long bits = 0;
     const uint8_t *p = (const uint8_t*)s;
-
-    static const uint8_t bitsinbyte[256] = {
-        #define B2(n) n, n+1, n+1, n+2
-        #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-        #define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-        B6(0), B6(1), B6(1), B6(2)
-        #undef B6
-        #undef B4
-        #undef B2
-    };
 
     /* Align */
     while (((uintptr_t)p & 15) && count) {
@@ -282,7 +282,6 @@ ATTRIBUTE_TARGET_AVX512
 long long redisPopCountAvx512(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
-    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
     /* Align to 64-byte boundary for optimal AVX512 performance */
     while ((unsigned long)p & 63 && count) {
@@ -328,7 +327,6 @@ ATTRIBUTE_TARGET_AVX2
 long long redisPopCountAvx2(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
-    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
 
     /* Align to 8-byte boundary for 64-bit operations */
     while ((unsigned long)p & 7 && count) {
@@ -371,10 +369,6 @@ long long redisPopCountAvx2(void *s, long count) {
     return bits;
 }
 #endif
-
-
-
-
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
