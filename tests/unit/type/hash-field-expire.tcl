@@ -1422,10 +1422,9 @@ start_server {tags {"external:skip needs:debug"}} {
     }
 
     test "Test listpack converts to ht with allow-access-expired enabled" {
-        set prev [lindex [r config get hash-max-listpack-entries] 1]
         r debug set-active-expire 0
         r debug set-allow-access-expired 1
-        r config set hash-max-listpack-entries 5
+        set prev [config_get_set hash-max-listpack-entries 5]
         r del myhash
 
         r hset myhash f1 v1 f2 v2 f3 v3 f4 v4
