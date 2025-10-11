@@ -1266,9 +1266,9 @@ int hashTypeDelete(robj *o, void *field, int isSdsField) {
  */
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
     unsigned long length = ULONG_MAX;
-    if (server.allow_access_expired) {
+    /* If expired field access is allowed, don't subtract expired fields from the count. */
+    if (server.allow_access_expired)
         subtractExpiredFields = 0;
-    }
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         length = lpLength(o->ptr) / 2;
