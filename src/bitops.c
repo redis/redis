@@ -268,7 +268,7 @@ long long redisPopCountAarch64(void *s, long count) {
 #ifdef HAVE_AVX512
 /* AVX512 optimized version of redisPopcount using VPOPCNTDQ instruction.
  * This function requires AVX512F and AVX512VPOPCNTDQ support. */
-ATTRIBUTE_TARGET_AVX512
+ATTRIBUTE_TARGET_AVX512_POPCOUNT
 long long redisPopCountAvx512(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
@@ -313,7 +313,7 @@ long long redisPopCountAvx512(void *s, long count) {
 #ifdef HAVE_AVX2
 /* AVX2 optimized version of redisPopcount.
  * This function requires AVX2 and POPCNT support. */
-ATTRIBUTE_TARGET_AVX2
+ATTRIBUTE_TARGET_AVX2_POPCOUNT
 long long redisPopCountAvx2(void *s, long count) {
     long long bits = 0;
     unsigned char *p = s;
@@ -916,7 +916,7 @@ void getbitCommand(client *c) {
  * 256-bit registers so if `minlen` is not a multiple of 32 some of the bytes
  * will be skipped. They will be taken care for in the unoptimized loop in the
  * main bitopCommand function. */
-ATTRIBUTE_TARGET_AVX2
+ATTRIBUTE_TARGET_AVX2_POPCOUNT
 unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res, 
                               unsigned long op, unsigned long numkeys,
                               unsigned long minlen)

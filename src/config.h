@@ -353,9 +353,15 @@ void setcpuaffinity(const char *cpulist);
 #endif
 
 #if defined (HAVE_AVX2)
-#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,popcnt")))
+#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2")))
 #else
 #define ATTRIBUTE_TARGET_AVX2
+#endif
+
+#if defined (HAVE_AVX2)
+#define ATTRIBUTE_TARGET_AVX2_POPCOUNT __attribute__((target("avx2,popcnt")))
+#else
+#define ATTRIBUTE_TARGET_AVX2_POPCOUNT
 #endif
 
 /* Check if we can compile AVX512 code */
@@ -366,9 +372,9 @@ void setcpuaffinity(const char *cpulist);
 #endif
 
 #if defined (HAVE_AVX512)
-#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,avx512vpopcntdq")))
+#define ATTRIBUTE_TARGET_AVX512_POPCOUNT __attribute__((target("avx512f,avx512vpopcntdq")))
 #else
-#define ATTRIBUTE_TARGET_AVX512
+#define ATTRIBUTE_TARGET_AVX512_POPCOUNT
 #endif
 
 /* Check for AArch64 (ARM v8) specific optimizations */
