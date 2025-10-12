@@ -3809,36 +3809,10 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
             args->fieldCount = (int)numFields;
             args->firstFieldPos = i + 2;
 
-            /* Expected position after the last field */
-            int expectedFieldsEnd = args->firstFieldPos + args->fieldCount;
-
             /* Check bounds - we must have exactly the right number of fields */
-            if (expectedFieldsEnd > c->argc) {
-                addReplyError(c, "The `numfields` parameter must match the number of arguments");
+            if (args->firstFieldPos + args->fieldCount > c->argc) {
+                addReplyError(c, "wrong number of arguments");
                 return C_ERR;
-            }
-
-            /* Validate field count by checking what comes after the expected fields */
-            if (expectedFieldsEnd < c->argc) {
-                char *nextArg = c->argv[expectedFieldsEnd]->ptr;
-
-                /* Check if the next argument is a valid keyword */
-                int isValidKeyword = (!strcasecmp(nextArg, "NX") || !strcasecmp(nextArg, "XX") ||
-                                     !strcasecmp(nextArg, "GT") || !strcasecmp(nextArg, "LT") ||
-                                     !strcasecmp(nextArg, "FIELDS"));
-
-                /* For HEXPIRE family, check if it could be a valid expire time */
-                int couldBeExpireTime = 0;
-                /* Simple check: does it start with a digit or sign? */
-                char firstChar = nextArg[0];
-                couldBeExpireTime = (firstChar >= '0' && firstChar <= '9') ||
-                                   firstChar == '+' || firstChar == '-';
-
-                /* If it's neither a keyword nor a potential expire time, it's likely an extra field */
-                if (!isValidKeyword && !couldBeExpireTime) {
-                    addReplyError(c, "The `numfields` parameter must match the number of arguments");
-                    return C_ERR;
-                }
             }
 
             /* Skip over the field arguments */
@@ -3945,7 +3919,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
     /* Validate field count */
     if (numFields != (c->argc - firstFieldPos - (fieldsPos == 1 ? 1 : 0))) {
-        addReplyError(c, "The `numfields` parameter must match the number of arguments");
+        addReplyError(c, "wrong number of arguments");
         return;
     }
 
@@ -4297,7 +4271,7 @@ void hpersistCommand(client *c) {
 
     /* Validate field count */
     if (numFields != (c->argc - firstFieldPos - (fieldsPos == 1 ? 1 : 0))) {
-        addReplyError(c, "The `numfields` parameter must match the number of arguments");
+        addReplyError(c, "wrong number of arguments");
         return;
     }
 

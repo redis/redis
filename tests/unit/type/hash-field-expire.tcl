@@ -151,10 +151,10 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*Parameter `numFields` should be greater than 0} {r hpexpire myhash 1000 NX FIELDS 0 f1 f2 f3}
             # <count> not match with actual number of fields
             set result [catch {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3} error]
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
+            assert_error {*wrong number of arguments*} {r hpexpire myhash 1000 NX FIELDS 4 f1 f2 f3}
 
             set result2 [catch {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3} error2]
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
+            assert_error {*Unrecognized argument*} {r hpexpire myhash 1000 NX FIELDS 2 f1 f2 f3}
         }
 
         test "HPEXPIRE - parameter expire-time near limit of  2^46 ($type)" {
@@ -265,8 +265,8 @@ start_server {tags {"external:skip needs:debug"}} {
             foreach cmd {HTTL HPTTL} {
                 assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
                 # <count> not match with actual number of fields
-                assert_error {*The `numfields` parameter must match the number of arguments*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
-                assert_error {*The `numfields` parameter must match the number of arguments*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
+                assert_error {*wrong number of arguments*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
+                assert_error {*wrong number of arguments*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
             }
         }
 
@@ -820,8 +820,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
             # <count> not match with actual number of fields
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpersist myhash FIELDS 2 f1 f2 f3}
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r hpersist myhash FIELDS 4 f1 f2 f3}
+            assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 2 f1 f2 f3}
+            assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 4 f1 f2 f3}
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
@@ -2380,7 +2380,7 @@ start_server {tags {"hash"}} {
             r hset myhash f1 v1 f2 v2 f3 v3
 
             # Test field count mismatches (too few fields specified)
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 1 f1 f2 f3 60}
+            assert_error {*value is not an integer or out of range*} {r HEXPIRE myhash FIELDS 1 f1 f2 f3 60}
 
             # Test with numeric field names (should work)
             r del myhash
@@ -2565,8 +2565,8 @@ start_server {tags {"hash"}} {
             # Now they should return proper error messages
 
             # Test 2: Commands that previously had TCL syntax errors
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 4 f1 f2 f3}
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 2 f1 f2 f3}
+            assert_error {*wrong number of arguments*} {r HEXPIRE myhash FIELDS 4 f1 f2 f3}
+            assert_error {*value is not an integer or out of range*} {r HPEXPIRE myhash FIELDS 2 f1 f2 f3}
 
             # Test 3: Numeric field names that were previously problematic
             r del myhash
@@ -2698,8 +2698,8 @@ start_server {tags {"hash"}} {
             assert_equal [r HEXPIRE myhash GT FIELDS 3 field1 field2 field3 7200] [list $E_OK $E_OK $E_OK]
 
             # Test 3: Verify field count validation still works with complex scenarios
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r HEXPIRE myhash FIELDS 15 field1 field2 field3 3600}
-            assert_error {*The `numfields` parameter must match the number of arguments*} {r HPEXPIRE myhash FIELDS 3 field1 field2 field3 field4 field5 7200000}
+            assert_error {*wrong number of arguments*} {r HEXPIRE myhash FIELDS 15 field1 field2 field3 3600}
+            assert_error {*value is not an integer or out of range*} {r HPEXPIRE myhash FIELDS 3 field1 field2 field3 field4 field5 7200000}
 
             # Test 4: Verify all fields have correct expiry states
             set ttl_result [r HTTL myhash FIELDS 15 field1 field2 field3 field4 field5 field6 field7 field8 field9 field10 field11 field12 field13 field14 field15]
