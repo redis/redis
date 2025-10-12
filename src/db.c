@@ -2494,7 +2494,7 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
  */
 int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     /* Don't expire anything while loading. It will be done later. */
-    if (server.loading) return 0;
+    if (server.loading || server.allow_access_expired) return 0;
     mstime_t when = getExpire(db, key, kv);
     if (when < 0) return 0; /* No expire for this key */
     const mstime_t now = commandTimeSnapshot();
@@ -2550,8 +2550,7 @@ int confAllowsExpireDel(void) {
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
-    if ((server.allow_access_expired) ||
-        (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
+    if ((flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
         return KEY_VALID;
 
