@@ -4050,9 +4050,9 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     if (pcmd->argc == 0)
         return;
 
-    /* Check if we can reuse the last command instead of looking it up.
-     * The last command is either the penultimate pending command (if it exists), or c->lastcmd. */
-    struct redisCommand *last_cmd = c->pending_cmds.tail->prev ? c->pending_cmds.head->cmd : c->lastcmd;
+    /* Check if we can reuse the previous command instead of looking it up.
+     * The previous command is either the penultimate pending command (if it exists), or c->lastcmd. */
+    struct redisCommand *last_cmd = pcmd->prev ? pcmd->prev->cmd : c->lastcmd;
 
     if (isCommandReusable(last_cmd, pcmd->argv[0]))
         pcmd->cmd = last_cmd;
