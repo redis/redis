@@ -4079,25 +4079,6 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
         return;
     }
     pcmd->flags |= PENDING_CMD_KEYRESULT_VALID;
-
-    if (server.cluster_enabled) {
-        robj **margv = pcmd->argv;
-        for (int j = 0; j < pcmd->keys_result.numkeys; j++) {
-            robj *thiskey = margv[pcmd->keys_result.keys[j].pos];
-            int thisslot = (int)keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
-
-            if (pcmd->slot == INVALID_CLUSTER_SLOT) {
-                pcmd->slot = thisslot;
-            } else if (pcmd->slot != thisslot) {
-                serverLog(LL_NOTICE, "preprocessCommand: CROSS SLOT ERROR");
-                /* Invalidate the slot to indicate that there is a cross-slot error */
-                pcmd->slot = INVALID_CLUSTER_SLOT;
-                /* Cross slot error. */
-                pcmd->read_error = CLIENT_READ_CROSS_SLOT;
-                break;
-            }
-        }
-    }
 }
 
 /* If this function gets called we already read a whole
