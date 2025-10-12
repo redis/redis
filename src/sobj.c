@@ -120,6 +120,8 @@ sobj *sobj_defrag(sobj *o, dict *pool)
     serverLog(LL_NOTICE, "After defragging shared-string (returned) %p, %d, (%p) '%s'", (void*)other, other->refcount, other->ptr, (char*)other->ptr);
     return other;
 #else
+    UNUSED(o);
+    UNUSED(pool);
     return NULL;
 #endif
 }
