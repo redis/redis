@@ -299,7 +299,7 @@ sds asmCatInfoString(sds info) {
     return sdscatprintf(info ? info : sdsempty(),
                         "slot_migration_active_tasks:%d\r\n"
                         "slot_migration_sync_buffer_peak:%zu\r\n"
-                        "slot_migration_active_trim_jobs:%lu\r\n"
+                        "slot_migration_active_trim_running:%lu\r\n"
                         "slot_migration_active_trim_started:%llu\r\n"
                         "slot_migration_active_trim_completed:%llu\r\n"
                         "slot_migration_active_trim_cancelled:%llu\r\n"
