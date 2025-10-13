@@ -57,6 +57,7 @@ static const uint8_t bitsinbyte[256] = {
     #undef B4
     #undef B2
 };
+
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
  * work with an input string length up to 512 MB or more (server.proto_max_bulk_len) */
