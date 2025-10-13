@@ -227,8 +227,9 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
-        if (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH &&
-            server.executing_client->cmd->proc != touchCommand)
+        if (((flags & LOOKUP_NOTOUCH) == 0) &&
+            (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH) &&
+            (server.executing_client && server.executing_client->cmd->proc != touchCommand))
             flags |= LOOKUP_NOTOUCH;
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
