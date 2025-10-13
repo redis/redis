@@ -374,8 +374,9 @@ static inline long long redisPopcountAuto(const unsigned char *p, long count) {
 #endif
 #ifdef HAVE_AARCH64_NEON
     return redisPopCountAarch64((void*)p, count);
-#endif
+#else
     return redisPopcount((void*)p, count);
+#endif
 }
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
