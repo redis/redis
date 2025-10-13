@@ -3150,5 +3150,12 @@ start_server {
             assert_equal [llength [lindex $results 0 0 1]] 1
             assert_equal [lindex $results 1 0] 1
         }
+
+        test "XREAD with CLAIM option" {
+            r DEL mystream
+            r XADD mystream 1-0 f v1
+
+            assert_error "*ERR The CLAIM option is only supported*" {r XREAD COUNT 2 CLAIM 10 STREAMS mystream 0-0}
+        }
     }
 }
