@@ -14,7 +14,6 @@
 #include <errno.h>
 #include <math.h>
 #include "rax.h"
-#include "redisassert.h"
 
 #ifndef RAX_MALLOC_INCLUDE
 #define RAX_MALLOC_INCLUDE "rax_malloc.h"
@@ -1881,13 +1880,6 @@ int raxEOF(raxIterator *it) {
 /* Return the number of elements inside the radix tree. */
 uint64_t raxSize(rax *rax) {
     return rax->numele;
-}
-
-/* Return cached total memory used (in bytes) */
-size_t raxAllocSize(rax *rax) {
-    debugAssert(rax->flags & RAX_ACCOUNT_ALLOC_SIZE);
-    size_t *alloc_size = (size_t *)rax->metadata;
-    return *alloc_size;
 }
 
 /* ----------------------------- Introspection ------------------------------ */

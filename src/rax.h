@@ -12,6 +12,7 @@
 #define RAX_H
 
 #include <stdint.h>
+#include "redisassert.h"
 
 /* Selective copy of ifndef from server.h instead of including it */
 #ifndef static_assert
@@ -205,13 +206,19 @@ void raxStop(raxIterator *it);
 int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 uint64_t raxSize(rax *rax);
-size_t raxAllocSize(rax *rax);
 unsigned long raxTouch(raxNode *n);
 void raxSetDebugMsg(int onoff);
 
 /* Internal API. May be used by the node callback in order to access rax nodes
  * in a low level way, so this function is exported as well. */
 void raxSetData(raxNode *n, void *data);
+
+/* Return cached total memory used (in bytes) */
+static inline size_t raxAllocSize(rax *rax) {
+    debugAssert(rax->flags & RAX_ACCOUNT_ALLOC_SIZE);
+    size_t *alloc_size = (size_t *)rax->metadata;
+    return *alloc_size;
+}
 
 #ifdef REDIS_TEST
 int raxTest(int argc, char *argv[], int flags);
