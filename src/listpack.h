@@ -42,7 +42,6 @@ typedef struct UsableSizes {
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
 void lpFreeUsable(unsigned char *lp, size_t *usable);
-void lpFreeGeneric(void *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char* lpShrinkToFitUsable(unsigned char *lp, UsableSizes *usable);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,

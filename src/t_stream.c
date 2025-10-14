@@ -72,8 +72,8 @@ stream *streamNew(void) {
     return s;
 }
 
-static void streamLpFreeGeneric(void *lp, void *str) {
-    stream *s = str;
+static void streamLpFreeGeneric(void *lp, void *stream_) {
+    stream *s = stream_;
     size_t usable = 0;
     lpFreeUsable(lp, &usable);
     s->alloc_size -= usable;
@@ -192,7 +192,7 @@ robj *streamDup(robj *o) {
         lp = ri.data;
         lp_bytes = lpBytes(lp);
         size_t usable;
-        unsigned char *new_lp = zmalloc_usable(lp_bytes,&usable);
+        unsigned char *new_lp = zmalloc_usable(lp_bytes, &usable);
         new_s->alloc_size += usable;
         memcpy(new_lp, lp, lp_bytes);
         raxInsert(new_s->rax, ri.key, ri.key_len,
