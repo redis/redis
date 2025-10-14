@@ -435,18 +435,6 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
     return s;
 }
 
-/* Return the total size of the allocation of the specified sds string,
- * including:
- * 1) The sds header before the pointer.
- * 2) The string.
- * 3) The free buffer at the end if any.
- * 4) The implicit null term.
- */
-size_t sdsAllocSize(sds s) {
-    size_t alloc = sdsalloc(s);
-    return sdsHdrSize(s[-1])+alloc+1;
-}
-
 /* Return the pointer of the actual SDS allocation (normally SDS strings
  * are referenced by the start of the string buffer). */
 void *sdsAllocPtr(sds s) {
