@@ -33,6 +33,9 @@ static inline int _clientHasPendingRepliesSlave(client *c);
 static inline int _clientHasPendingRepliesNonSlave(client *c);
 static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
+static pendingCommand *acquirePendingCommand(client *c);
+static void reclaimPendingCommand(client *c, pendingCommand *pcmd);
+
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
 __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
@@ -168,6 +171,8 @@ client *createClient(connection *conn) {
     c->all_argv_len_sum = 0;
     c->pending_cmds.head = c->pending_cmds.tail = NULL;
     c->pending_cmds.len = c->pending_cmds.ready_len = 0;
+    memset(c->pending_cmds.pool, 0, sizeof(c->pending_cmds.pool));
+    c->pending_cmds.pool_size = 0;
     c->current_pending_cmd = NULL;
     c->original_argc = 0;
     c->original_argv = NULL;
@@ -1555,8 +1560,20 @@ void freeClientPendingCommands(client *c, int num_pcmds_to_free) {
     while (num_pcmds_to_free--) {
         pendingCommand *pcmd = popPendingCommandFromHead(&c->pending_cmds);
         serverAssert(pcmd);
-        freePendingCommand(c, pcmd);
+        reclaimPendingCommand(c, pcmd);
     }
+}
+
+/* Discard all pending commands for a client and clear the command pool. */
+void discardClientPendingCommands(client *c) {
+    freeClientPendingCommands(c, -1);
+
+    /* Free all commands in the pool */
+    for (int i = 0; i < c->pending_cmds.pool_size; i++) {
+        freePendingCommand(c, c->pending_cmds.pool[i]);
+        c->pending_cmds.pool[i] = NULL;
+    }
+    c->pending_cmds.pool_size = 0;
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1658,7 +1675,7 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
-    freeClientPendingCommands(c, -1);
+    discardClientPendingCommands(c);
     c->argv_len = 0;
     c->argv = NULL;
     c->argc = 0;
@@ -2478,10 +2495,13 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
 
     /* Setup argv array on client structure */
     if (argc) {
-        zfree(pcmd->argv);
-        pcmd->argv = zmalloc(sizeof(robj*)*argc);
-        pcmd->argv_len = argc;
-        pcmd->argv_len_sum = 0;
+        /* Create new argv if space is insufficient. */
+        if (argc > pcmd->argv_len) {
+            zfree(pcmd->argv);
+            pcmd->argv = zmalloc(sizeof(robj*)*argc);
+            pcmd->argv_len = argc;
+            pcmd->argv_len_sum = 0;
+        }
     }
 
     /* Create redis objects for all arguments. */
@@ -2598,10 +2618,12 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         c->multibulklen = ll;
         c->bulklen = -1;
 
-        zfree(pcmd->argv);
-        pcmd->argv_len = min(c->multibulklen, 1024);
-        pcmd->argv = zmalloc(sizeof(robj*)*(pcmd->argv_len));
-        pcmd->argv_len_sum = 0;
+        if (c->multibulklen > pcmd->argv_len) {
+            zfree(pcmd->argv);
+            pcmd->argv_len = min(c->multibulklen, 1024);
+            pcmd->argv = zmalloc(sizeof(robj*)*(pcmd->argv_len));
+            pcmd->argv_len_sum = 0;
+        }
 
         /* Per-slot network bytes-in calculation.
          *
@@ -3009,8 +3031,7 @@ int processInputBuffer(client *c) {
 
             pendingCommand *pcmd = NULL;
             if (c->reqtype == PROTO_REQ_INLINE) {
-                pcmd = zmalloc(sizeof(pendingCommand));
-                initPendingCommand(pcmd);
+                pcmd = acquirePendingCommand(c);
                 if (processInlineBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
                     /* If it fails but there are no errors, it means that it might just be
                      * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
@@ -3022,8 +3043,7 @@ int processInputBuffer(client *c) {
                 if (unlikely(incomplete)) {
                     pcmd = popPendingCommandFromTail(&c->pending_cmds);
                 } else {
-                    pcmd = zmalloc(sizeof(pendingCommand));
-                    initPendingCommand(pcmd);
+                    pcmd = acquirePendingCommand(c);
                 }
 
                 if (processMultibulkBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
@@ -4342,6 +4362,7 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
         serverAssert(pcmd->argv == c->argv);
         pcmd->argv = argv;
         pcmd->argc = argc;
+        pcmd->argv_len = argc;
     }
     freeClientArgv(c);
     c->argv = argv;
@@ -4905,6 +4926,52 @@ void evictClients(void) {
             }
             listRewind(server.client_mem_usage_buckets[curr_bucket].clients, &bucket_iter);
         }
+    }
+}
+
+static pendingCommand *acquirePendingCommand(client *c) {
+    pendingCommandList *list = &c->pending_cmds;
+    pendingCommand *pcmd = NULL;
+
+    if (list->pool_size > 0) {
+        /* Get from pool */
+        pcmd = list->pool[--list->pool_size];
+        list->pool[list->pool_size] = NULL;
+    } else {
+        /* Pool is empty, allocate new */
+        pcmd = zmalloc(sizeof(pendingCommand));
+        initPendingCommand(pcmd);
+    }
+    return pcmd;
+}
+
+static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
+    pendingCommandList *list = &c->pending_cmds;
+
+    /* If pool is not full and command argv is small, add to pool for reuse.
+     * We avoid pooling commands with large argv arrays to prevent excessive
+     * memory usage in the pool. */
+    if (list->pool_size < PENDING_COMMAND_POOL_SIZE && cmd->argv_len < 16) {
+        for (int j = 0; j < cmd->argc; j++)
+            decrRefCount(cmd->argv[j]);
+
+        getKeysFreeResult(&cmd->keys_result);
+
+        serverAssert(c->all_argv_len_sum >= cmd->argv_len_sum); /* assert this doesn't try to go negative */
+        c->all_argv_len_sum -= cmd->argv_len_sum;
+
+        /* Reset the pending command while preserving the argv array for reuse. */
+        robj **argv = cmd->argv;
+        int argv_len = cmd->argv_len;
+        memset(cmd, 0, sizeof(pendingCommand));
+        cmd->argv = argv;
+        cmd->argv_len = argv_len;
+        cmd->slot = INVALID_CLUSTER_SLOT;
+
+        list->pool[list->pool_size++] = cmd;
+    } else {
+        /* Pool is full, free this pending command. */
+        freePendingCommand(c, cmd);
     }
 }
 

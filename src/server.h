@@ -1208,11 +1208,15 @@ typedef struct readyList {
 } readyList;
 
 /* List of pending commands. */
+#define PENDING_COMMAND_POOL_SIZE 16
 typedef struct pendingCommandList {
     pendingCommand *head;
     pendingCommand *tail;
     int len; /* Number of commands in the list */
     int ready_len; /* Number of commands that are ready to be processed */
+
+    pendingCommand *pool[PENDING_COMMAND_POOL_SIZE]; /* Pending command pool */
+    int pool_size; /* Current number of objects in pool */
 } pendingCommandList;
 
 /* This structure represents a Redis user. This is useful for ACLs, the
