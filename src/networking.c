@@ -1564,13 +1564,14 @@ void freeClientPendingCommands(client *c, int num_pcmds_to_free) {
     }
 }
 
-/* Discard all pending commands for a client and clear the command pool. */
-void discardClientPendingCommands(client *c) {
-    freeClientPendingCommands(c, -1);
-
-    /* Free all commands in the pool */
+/* Free all pooled pending commands and reset the pool */
+void freePendingCommandPool(client *c) {
     for (int i = 0; i < c->pending_cmds.pool_size; i++) {
-        freePendingCommand(c, c->pending_cmds.pool[i]);
+        pendingCommand *pcmd = c->pending_cmds.pool[i];
+        /* Only need to free the reused argv array and pending command itself,
+         * other fields were already freed during reclaim process */
+        zfree(pcmd->argv);
+        zfree(pcmd);
         c->pending_cmds.pool[i] = NULL;
     }
     c->pending_cmds.pool_size = 0;
@@ -1675,7 +1676,8 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
-    discardClientPendingCommands(c);
+    freeClientPendingCommands(c, -1);
+    freePendingCommandPool(c);
     c->argv_len = 0;
     c->argv = NULL;
     c->argc = 0;

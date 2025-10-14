@@ -2880,6 +2880,7 @@ void resetClientQbufState(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
 void freeClientPendingCommands(client *c, int num_pcmds_to_free);
+void freePendingCommandPool(client *c);
 void tryDeferFreeClientObject(client *c, robj *o);
 void freeClientDeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
