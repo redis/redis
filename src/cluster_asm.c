@@ -1691,14 +1691,19 @@ static void asmStartImportTask(asmTask *task) {
      * We can't start the import task since the trim job will modify the data.*/
     int trim_in_progress = asmIsAnyTrimJobOverlaps(task->slots);
 
+    /* Notify the cluster implementation to prepare for the import task. */
+    int impl_ret = clusterAsmOnEvent(task->id, ASM_EVENT_IMPORT_PREP, task->slots);
+
     static int start_blocked_logged = 0;
     /* Cannot start import task since pause action is performed. Otherwise, we
      * will break the promise that no writes are performed during the pause. */
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
-        trim_in_progress)
+        trim_in_progress ||
+        impl_ret != C_OK)
     {
-        const char *reason = trim_in_progress ? "trim in progress for some of the slots" :
+        const char *reason = impl_ret != C_OK ? "cluster is not ready" :
+                             trim_in_progress ? "trim in progress for some of the slots" :
                                                 "server paused";
         if (start_blocked_logged == 0) {
             serverLog(LL_WARNING, "Can not start import task %s for slots: %s due to %s",
@@ -1807,6 +1812,13 @@ void clusterSyncSlotsCommand(client *c) {
         }
 
         sds task_id = c->argv[3]->ptr;
+        /* Notify the cluster implementation to prepare for the migrate task. */
+        if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK) {
+            addReplyError(c, "Cluster is not ready right now, please retry later");
+            slotRangeArrayFree(slots);
+            return;
+        }
+
         asmTask *task = listLength(asmManager->tasks) == 0 ? NULL :
                             listNodeValue(listFirst(asmManager->tasks));
         if (task && !strcmp(task->id, task_id) &&

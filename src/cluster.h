@@ -279,12 +279,14 @@ int clusterNodeTlsPort(clusterNode *node);
 #define ASM_EVENT_TAKEOVER          5  /* Ready to take over the slot, waiting for config change (destination side) */
 #define ASM_EVENT_DONE              6  /* Notify that import/migrate is completed, config is updated (source and destination side) */
 
-#define ASM_EVENT_IMPORT_STARTED    7  /* Import started */
-#define ASM_EVENT_IMPORT_FAILED     8  /* Import failed */
-#define ASM_EVENT_IMPORT_COMPLETED  9  /* Import completed (config updated) */
-#define ASM_EVENT_MIGRATE_STARTED   10 /* Migration started */
-#define ASM_EVENT_MIGRATE_FAILED    11 /* Migration failed */
-#define ASM_EVENT_MIGRATE_COMPLETED 12 /* Migrate completed (config updated) */
+#define ASM_EVENT_IMPORT_PREP       7  /* Import is about to start, the implementation may reject by returning C_ERR */
+#define ASM_EVENT_IMPORT_STARTED    8  /* Import started */
+#define ASM_EVENT_IMPORT_FAILED     9  /* Import failed */
+#define ASM_EVENT_IMPORT_COMPLETED  10 /* Import completed (config updated) */
+#define ASM_EVENT_MIGRATE_PREP      11 /* Migrate is about to start, the implementation may reject by returning C_ERR */
+#define ASM_EVENT_MIGRATE_STARTED   12 /* Migrate started */
+#define ASM_EVENT_MIGRATE_FAILED    13 /* Migrate failed */
+#define ASM_EVENT_MIGRATE_COMPLETED 14 /* Migrate completed (config updated) */
 
 
 /* Called by cluster implementation to request an ASM operation. (cluster impl --> redis)
@@ -334,7 +336,9 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err);
 /* Called when an ASM event occurs to notify the cluster implementation. (redis --> cluster impl)
  *
  * `arg` will point to a `slotRangeArray` for the following events:
+ *  ASM_EVENT_IMPORT_PREP
  *  ASM_EVENT_IMPORT_STARTED
+ *  ASM_EVENT_MIGRATE_PREP
  *  ASM_EVENT_MIGRATE_STARTED
  *  ASM_EVENT_HANDOFF_PREP
  *
@@ -342,6 +346,9 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err);
  *  - Redis owns the `task_id` and `slotRangeArray`.
  *
  *  Returns C_OK on success.
+ *
+ *  If the cluster implementation returns C_ERR for ASM_EVENT_IMPORT_PREP or
+ *  ASM_EVENT_MIGRATE_PREP, operation will not start.
  **/
 int clusterAsmOnEvent(const char *task_id, int event, void *arg);
 

@@ -6569,9 +6569,10 @@ void clusterPromoteSelfToMaster(void) {
 
 int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
     UNUSED(arg);
+    sds str = NULL;
 
     slotRangeArray *slots = asmTaskGetSlotRanges(task_id);
-    sds str = slotRangeArrayToString(slots);
+    if (slots) str = slotRangeArrayToString(slots);
 
     switch (event) {
         case ASM_EVENT_IMPORT_STARTED:
