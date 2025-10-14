@@ -247,10 +247,10 @@ unsigned char* lpShrinkToFitUsable(unsigned char *lp, UsableSizes *usable) {
     size_t usable_size = lp_malloc_size(lp);
     UsableSizes dummy;
     if (!usable) usable = &dummy;
-    usable->val = usable_size;
-    usable->oldval = usable_size;
+    usable->newsize = usable_size;
+    usable->oldsize = usable_size;
     if (size < usable_size) {
-        return lp_realloc_usable(lp, size, &usable->val, &usable->oldval);
+        return lp_realloc_usable(lp, size, &usable->newsize, &usable->oldsize);
     } else {
         return lp;
     }
@@ -1107,8 +1107,8 @@ unsigned char *lpInsert(unsigned char *lp, unsigned char *elestr, unsigned char 
     lp_free(oldlp);
 #endif
     if (usable) {
-        usable->val = newsize;
-        usable->oldval = oldsize;
+        usable->newsize = newsize;
+        usable->oldsize = oldsize;
     }
     return lp;
 }
@@ -1603,8 +1603,8 @@ unsigned char *lpMergeUsable(unsigned char **first, unsigned char **second,
     }
 
     if (usable) {
-        usable->val = newsize;
-        usable->oldval = oldsize + oldsize2;
+        usable->newsize = newsize;
+        usable->oldsize = oldsize + oldsize2;
     }
 
     return target;

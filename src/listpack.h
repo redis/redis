@@ -35,8 +35,8 @@ typedef struct {
 } listpackEntry;
 
 typedef struct UsableSizes {
-    size_t val;
-    size_t oldval;
+    size_t newsize;
+    size_t oldsize;
 } UsableSizes;
 
 unsigned char *lpNew(size_t capacity);

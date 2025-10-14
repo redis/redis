@@ -573,8 +573,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             /* Shrink extra pre-allocated memory */
             UsableSizes usable;
             lp = lpShrinkToFitUsable(lp, &usable);
-            s->alloc_size -= usable.oldval;
-            s->alloc_size += usable.val;
+            s->alloc_size -= usable.oldsize;
+            s->alloc_size += usable.newsize;
             if (ri.data != lp)
                 raxSetData(ri.node, lp);
             lp = NULL;
@@ -605,7 +605,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             lp = lpAppend(lp,(unsigned char*)field,sdslen(field));
         }
         lp = lpAppendIntegerUsable(lp,0,&usable); /* Master entry zero terminator. */
-        s->alloc_size += usable.val;
+        s->alloc_size += usable.newsize;
         s->alloc_size -= raxAllocSize(s->rax);
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
         s->alloc_size += raxAllocSize(s->rax);
@@ -691,8 +691,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         lp_count += numfields+1;
     }
     lp = lpAppendIntegerUsable(lp,lp_count,&usable);
-    s->alloc_size += usable.val;
-    s->alloc_size -= old_usable.oldval;
+    s->alloc_size += usable.newsize;
+    s->alloc_size -= old_usable.oldsize;
 
     /* Insert back into the tree in order to update the listpack pointer. */
     if (ri.data != lp)
@@ -933,7 +933,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         UsableSizes usable;
         lp = lpReplaceIntegerUsable(lp,&p,marked_deleted+deleted_from_lp,&usable);
         p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
-        s->alloc_size += usable.val;
+        s->alloc_size += usable.newsize;
         s->alloc_size -= old_usable;
 
         /* Here we should perform garbage collection in case at this point
@@ -1475,8 +1475,8 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         p = lpNext(lp,p); /* Seek deleted field. */
         aux = lpGetInteger(p);
         lp = lpReplaceIntegerUsable(lp,&p,aux+1,&usable);
-        s->alloc_size += usable.val;
-        s->alloc_size -= old_usable.oldval;
+        s->alloc_size += usable.newsize;
+        s->alloc_size -= old_usable.oldsize;
 
         /* Update the listpack with the new pointer. */
         if (si->lp != lp)
