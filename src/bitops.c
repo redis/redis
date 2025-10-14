@@ -1981,7 +1981,6 @@ int bitopsTest(int argc, char **argv, int flags) {
         return 1;
     }
 
-int popcountTest(int argc, char **argv, int flags) {
 #ifdef HAVE_AVX2
     if (BITOP_USE_AVX2) {
         long long result_avx2 = redisPopCountAvx2(test_data, sizeof(test_data));
