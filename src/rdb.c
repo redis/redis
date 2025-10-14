@@ -2864,10 +2864,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Insert the key in the radix tree. */
-            s->alloc_size -= raxAllocSize(s->rax);
             int retval = raxTryInsert(s->rax,
                 (unsigned char*)nodekey,sizeof(streamID),lp,NULL);
-            s->alloc_size += raxAllocSize(s->rax);
             sdsfree(nodekey);
             if (!retval) {
                 rdbReportCorruptRDB("Listpack re-added with existing key");
@@ -2997,17 +2995,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 nack->cgroup_ref_node = streamLinkCGroupToEntry(s, cgroup, rawid);
                 if (rioGetReadError(rdb)) {
                     rdbReportReadError("Stream PEL NACK loading failed.");
-                    streamFreeNACK(s,nack);
+                    streamFreeNACK(s, nack);
                     decrRefCount(o);
                     return NULL;
                 }
-                s->alloc_size -= raxAllocSize(cgroup->pel);
-                int retval = raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL);
-                s->alloc_size += raxAllocSize(cgroup->pel);
-                if (!retval) {
+                if (!raxTryInsert(cgroup->pel,rawid,sizeof(rawid),nack,NULL)) {
                     rdbReportCorruptRDB("Duplicated global PEL entry "
                                             "loading stream consumer group");
-                    streamFreeNACK(s,nack);
+                    streamFreeNACK(s, nack);
                     decrRefCount(o);
                     return NULL;
                 }
@@ -3091,14 +3086,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                      * loading the global PEL. Then set the same shared
                      * NACK structure also in the consumer-specific PEL. */
                     nack->consumer = consumer;
-                    s->alloc_size -= raxAllocSize(consumer->pel);
-                    int retval = raxTryInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL);
-                    s->alloc_size += raxAllocSize(consumer->pel);
-                    if (!retval) {
+                    if (!raxTryInsert(consumer->pel,rawid,sizeof(rawid),nack,NULL)) {
                         rdbReportCorruptRDB("Duplicated consumer PEL entry "
                                                 " loading a stream consumer "
                                                 "group");
-                        streamFreeNACK(s,nack);
+                        streamFreeNACK(s, nack);
                         decrRefCount(o);
                         return NULL;
                     }

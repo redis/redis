@@ -185,7 +185,7 @@ typedef struct raxIterator {
 
 /* Exported API. */
 rax *raxNew(void);
-rax *raxNewWithMetadata(int metaSize, int flags);
+rax *raxNewWithMetadata(int metaSize, int flags, size_t *alloc_size);
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
@@ -205,7 +205,6 @@ void raxStop(raxIterator *it);
 int raxEOF(raxIterator *it);
 void raxShow(rax *rax);
 uint64_t raxSize(rax *rax);
-size_t raxAllocSize(rax *rax);
 unsigned long raxTouch(raxNode *n);
 void raxSetDebugMsg(int onoff);
 

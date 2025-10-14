@@ -172,8 +172,8 @@ raxNode *raxNewNode(rax *rax, size_t children, int datafield) {
     node->iscompr = 0;
     node->size = children;
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-        size_t *alloc_size = (size_t *)rax->metadata;
-        *alloc_size += usable;
+        size_t **alloc_size = (size_t **)rax->metadata;
+        **alloc_size += usable;
     }
     return node;
 }
@@ -183,21 +183,24 @@ void raxFreeNode(rax *rax, raxNode *n) {
     size_t usable;
     rax_free_usable(n, &usable);
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-        size_t *alloc_size = (size_t *)rax->metadata;
-        *alloc_size -= usable;
+        size_t **alloc_size = (size_t **)rax->metadata;
+        **alloc_size -= usable;
     }
 }
 
 /* Allocate a new rax and return its pointer. On out of memory the function
  * returns NULL. */
 rax *raxNew(void) {
-    return raxNewWithMetadata(0, 0);
+    return raxNewWithMetadata(0, 0, NULL);
 }
 
-/* Allocate a new rax with metadata */
-rax *raxNewWithMetadata(int metaSize, int flags) {
+/* Allocate a new rax with metadata.
+ * When RAX_ACCOUNT_ALLOC_SIZE is set in flags radix tree will account for used
+ * memory in passed `palloc_size` pointer. Note, that in this case the first
+ * sizeof(size_t *) bytes of metadata will be used for storing the pointer. */
+rax *raxNewWithMetadata(int metaSize, int flags, size_t *palloc_size) {
     assert(!(flags & RAX_ACCOUNT_ALLOC_SIZE) ||
-           (size_t)metaSize >= sizeof(size_t));
+           (size_t)metaSize >= sizeof(size_t *));
     size_t usable;
     rax *rax = rax_malloc_usable(sizeof(*rax) + metaSize, &usable);
     if (rax == NULL) return NULL;
@@ -205,11 +208,14 @@ rax *raxNewWithMetadata(int metaSize, int flags) {
     rax->numele = 0;
     rax->numnodes = 1;
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-        size_t *alloc_size = (size_t *)rax->metadata;
-        *alloc_size = usable;
+        size_t **alloc_size = (size_t **)rax->metadata;
+        *alloc_size = palloc_size;
+        *palloc_size += usable;
     }
     rax->head = raxNewNode(rax, 0, 0);
     if (rax->head == NULL) {
+        if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE)
+            *palloc_size -= usable;
         rax_free(rax);
         return NULL;
     } else {
@@ -223,9 +229,9 @@ raxNode *raxNodeRealloc(rax *rax, raxNode *n, size_t newsize) {
     raxNode *newn = rax_realloc_usable(n,newsize,&usable,&old_usable);
     if (newn == NULL) return NULL;
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-        size_t *alloc_size = (size_t *)rax->metadata;
-        *alloc_size -= old_usable;
-        *alloc_size += usable;
+        size_t **alloc_size = (size_t **)rax->metadata;
+        **alloc_size -= old_usable;
+        **alloc_size += usable;
     }
     return newn;
 }
@@ -725,8 +731,8 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             if (h->iskey && !h->isnull) nodesize += sizeof(void*);
             trimmed = rax_malloc_usable(nodesize, &usable);
             if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-                size_t *alloc_size = (size_t *)rax->metadata;
-                *alloc_size += usable;
+                size_t **alloc_size = (size_t **)rax->metadata;
+                **alloc_size += usable;
             }
         }
 
@@ -735,8 +741,8 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
                        sizeof(raxNode*);
             postfix = rax_malloc_usable(nodesize, &usable);
             if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-                size_t *alloc_size = (size_t *)rax->metadata;
-                *alloc_size += usable;
+                size_t **alloc_size = (size_t **)rax->metadata;
+                **alloc_size += usable;
             }
         }
 
@@ -816,16 +822,16 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
         if (data != NULL) nodesize += sizeof(void*);
         raxNode *postfix = rax_malloc_usable(nodesize, &usable);
         if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-            size_t *alloc_size = (size_t *)rax->metadata;
-            *alloc_size += usable;
+            size_t **alloc_size = (size_t **)rax->metadata;
+            **alloc_size += usable;
         }
 
         nodesize = sizeof(raxNode)+j+raxPadding(j)+sizeof(raxNode*);
         if (h->iskey && !h->isnull) nodesize += sizeof(void*);
         raxNode *trimmed = rax_malloc_usable(nodesize, &usable);
         if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-            size_t *alloc_size = (size_t *)rax->metadata;
-            *alloc_size += usable;
+            size_t **alloc_size = (size_t **)rax->metadata;
+            **alloc_size += usable;
         }
 
         if (postfix == NULL || trimmed == NULL) {
@@ -1210,8 +1216,8 @@ int raxRemove(rax *rax, unsigned char *s, size_t len, void **old) {
                 return 1;
             }
             if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-                size_t *alloc_size = (size_t *)rax->metadata;
-                *alloc_size += usable;
+                size_t **alloc_size = (size_t **)rax->metadata;
+                **alloc_size += usable;
             }
             new->iskey = 0;
             new->isnull = 0;
@@ -1300,14 +1306,14 @@ void raxRecursiveFreeWithCtx(rax *rax, raxNode *n,
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
     raxRecursiveFree(rax,rax->head,free_callback);
     assert(rax->numnodes == 0);
-#ifdef REDIS_TEST
+    size_t dummy, *palloc_size = &dummy;
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-        size_t *alloc_size = (size_t *)rax->metadata;
-        UNUSED(alloc_size);
-        debugAssert(*alloc_size == rax_malloc_usable_size(rax));
+        size_t **alloc_size = (size_t **)rax->metadata;
+        palloc_size = *alloc_size;
     }
-#endif
-    rax_free(rax);
+    size_t usable;
+    rax_free_usable(rax, &usable);
+    *palloc_size -= usable;
 }
 
 /* Free a whole radix tree, calling the specified callback in order to
@@ -1316,14 +1322,14 @@ void raxFreeWithCbAndContext(rax *rax,
                              void (*free_callback)(void *item, void *ctx), void *ctx) {
     raxRecursiveFreeWithCtx(rax,rax->head,free_callback,ctx);
     assert(rax->numnodes == 0);
-#ifdef REDIS_TEST
+    size_t dummy, *palloc_size = &dummy;
     if (rax->flags & RAX_ACCOUNT_ALLOC_SIZE) {
-        size_t *alloc_size = (size_t *)rax->metadata;
-        UNUSED(alloc_size);
-        debugAssert(*alloc_size == rax_malloc_usable_size(rax));
+        size_t **alloc_size = (size_t **)rax->metadata;
+        palloc_size = *alloc_size;
     }
-#endif
-    rax_free(rax);
+    size_t usable;
+    rax_free_usable(rax, &usable);
+    *palloc_size -= usable;
 }
 
 /* Free a whole radix tree. */
@@ -1883,13 +1889,6 @@ uint64_t raxSize(rax *rax) {
     return rax->numele;
 }
 
-/* Return cached total memory used (in bytes) */
-size_t raxAllocSize(rax *rax) {
-    debugAssert(rax->flags & RAX_ACCOUNT_ALLOC_SIZE);
-    size_t *alloc_size = (size_t *)rax->metadata;
-    return *alloc_size;
-}
-
 /* ----------------------------- Introspection ------------------------------ */
 
 /* This function is mostly used for debugging and learning purposes.
@@ -2032,16 +2031,16 @@ unsigned long raxTouch(raxNode *n) {
 #define TEST(name) printf("test — %s\n", name);
 
 /* Verify rax memory accounting by calculating actual memory usage */
-static int _rax_verify_alloc_size(rax *rax) {
+static int _rax_verify_alloc_size(rax *rax, size_t have) {
     int errors = 0;
-    size_t alloc_size = rax_malloc_usable_size(rax);
+    size_t want = rax_malloc_usable_size(rax);
     raxNode *node;
     raxStack stack;
 
     raxStackInit(&stack);
     raxStackPush(&stack, rax->head);
     while ((node = raxStackPop(&stack))) {
-        alloc_size += rax_malloc_usable_size(node);
+        want += rax_malloc_usable_size(node);
         if (!node->iscompr) {
             /* Non-compressed node: add all children */
             for (int i = 0; i < node->size; i++) {
@@ -2056,8 +2055,8 @@ static int _rax_verify_alloc_size(rax *rax) {
     }
     raxStackFree(&stack);
 
-    if (raxAllocSize(rax) != alloc_size) {
-        yell("rax alloc_size is wrong: expected: %zu, got: %zu\n", alloc_size, raxAllocSize(rax));
+    if (want != have) {
+        yell("rax alloc_size is wrong: want: %zu, have: %zu\n", want, have);
         errors++;
     }
 
@@ -2079,43 +2078,45 @@ int raxTest(int argc, char **argv, int flags) {
     int err = 0;
 
     TEST("verify raxAllocSize() after raxInsert()/raxRemove()") {
-        rax *r = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
+        size_t alloc_size = 0;
+        rax *r = raxNewWithMetadata(sizeof(size_t *), RAX_ACCOUNT_ALLOC_SIZE, &alloc_size);
 
         /* Insert values and verify accounting */
         void *val1 = createTestValue(100);
         assert(raxInsert(r, (unsigned char*)"key1", 4, val1, NULL) == 1);
-        err += _rax_verify_alloc_size(r);
+        err += _rax_verify_alloc_size(r, alloc_size);
 
         void *val2 = createTestValue(200);
         assert(raxInsert(r, (unsigned char*)"key2", 4, val2, NULL) == 1);
-        err += _rax_verify_alloc_size(r);
+        err += _rax_verify_alloc_size(r, alloc_size);
 
         void *val3 = createTestValue(10);
         assert(raxInsert(r, (unsigned char*)"3yek", 4, val3, NULL) == 1);
-        err += _rax_verify_alloc_size(r);
+        err += _rax_verify_alloc_size(r, alloc_size);
 
         /* Remove a value and verify */
         void *removed;
         assert(raxRemove(r, (unsigned char*)"key1", 4, &removed) == 1);
         rax_free(removed);
-        err += _rax_verify_alloc_size(r);
+        err += _rax_verify_alloc_size(r, alloc_size);
 
         raxFreeWithCallback(r, rax_free);
     }
 
     TEST("verify raxAllocSize() when replacing existing key") {
-        rax *r = raxNewWithMetadata(sizeof(size_t), RAX_ACCOUNT_ALLOC_SIZE);
+        size_t alloc_size = 0;
+        rax *r = raxNewWithMetadata(sizeof(size_t *), RAX_ACCOUNT_ALLOC_SIZE, &alloc_size);
 
         void *val1 = createTestValue(100);
         assert(raxInsert(r, (unsigned char*)"key", 3, val1, NULL) == 1);
-        err += _rax_verify_alloc_size(r);
+        err += _rax_verify_alloc_size(r, alloc_size);
 
         /* Update with different sized value */
         void *val2 = createTestValue(300);
         void *old;
         assert(raxInsert(r, (unsigned char*)"key", 3, val2, &old) == 0);
         rax_free(old);
-        err += _rax_verify_alloc_size(r);
+        err += _rax_verify_alloc_size(r, alloc_size);
 
         raxFreeWithCallback(r, rax_free);
     }
