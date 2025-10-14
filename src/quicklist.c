@@ -3582,7 +3582,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
                 UsableSizes usable;
                 node->entry = lpAppendUsable(node->entry, s, sz,
                                              &usable);
-                quicklistUpdateAllocSize(ql, usable.val, usable.oldval);
+                quicklistUpdateAllocSize(ql, usable.newsize, usable.oldsize);
                 quicklistNodeUpdateSz(node);
 
                 long long start = mstime();
