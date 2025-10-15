@@ -161,7 +161,7 @@ void clusterAsmInit(void) {
     asmManager->active_trim_started = 0;
     asmManager->active_trim_completed = 0;
     asmManager->active_trim_cancelled = 0;
-    listSetFreeMethod(asmManager->active_trim_jobs, (void (*)(void*))slotRangeArrayFree);
+    listSetFreeMethod(asmManager->active_trim_jobs, slotRangeArrayFreeGeneric);
 }
 
 char *asmTaskStateToString(int state) {
@@ -924,18 +924,18 @@ static void replyTaskStatus(client *c, asmTask *task) {
     addReplyBulkCString(c, "last_error");
     addReplyBulkCBuffer(c, task->error, sdslen(task->error));
     addReplyBulkCString(c, "retries");
-    addReplyBulkLongLong(c, task->retry_count);
+    addReplyLongLong(c, task->retry_count);
     addReplyBulkCString(c, "create_time");
-    addReplyBulkLongLong(c, task->create_time);
+    addReplyLongLong(c, task->create_time);
     addReplyBulkCString(c, "start_time");
-    addReplyBulkLongLong(c, task->start_time);
+    addReplyLongLong(c, task->start_time);
     addReplyBulkCString(c, "end_time");
-    addReplyBulkLongLong(c, task->end_time);
+    addReplyLongLong(c, task->end_time);
 
     if (task->operation == ASM_MIGRATE && task->state == ASM_COMPLETED)
         p = task->end_time - task->paused_time;
     addReplyBulkCString(c, "write_pause_ms");
-    addReplyBulkLongLong(c, p);
+    addReplyLongLong(c, p);
 }
 
 /* CLUSTER MIGRATION STATUS [ID <task-id> | ALL]
@@ -2841,8 +2841,11 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
 
+    size_t total_keys = 0;
+
     for (int i = 0; i < slots->num_ranges; i++) {
         for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++) {
+            total_keys += kvstoreDictSize(server.db[0].keys, slot);
             kvstoreMoveDict(server.db[0].keys, keys, slot);
             kvstoreMoveDict(server.db[0].expires, expires, slot);
             estoreMoveEbuckets(server.db[0].subexpires, subexpires, slot);
@@ -2852,7 +2855,7 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
     emptyDbDataAsync(keys, expires, subexpires);
 
     sds str = slotRangeArrayToString(slots);
-    serverLog(LL_NOTICE, "Background trim started for slots: %s", str);
+    serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);
     sdsfree(str);
 }
 
@@ -2895,8 +2898,12 @@ void asmTrimJobSchedule(slotRangeArray *slots) {
 /* Process any pending trim jobs. */
 void asmTrimJobProcessPending(void) {
     /* Check if there is any pending trim job and we can propagate it. */
-    if (!asmTrimJobIsPending() || !canPropagateTrimSlots())
+    if (!asmTrimJobIsPending() ||
+        !canPropagateTrimSlots() ||
+        asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
+    {
         return;
+    }
 
     listIter li;
     listNode *ln;
@@ -3164,7 +3171,8 @@ void asmActiveTrimStart(void) {
                           &fsi);
 
     sds str = slotRangeArrayToString(slots);
-    serverLog(LL_NOTICE, "Active trim initiated for slots: %s", str);
+    serverLog(LL_NOTICE, "Active trim initiated for slots: %s, to trim %llu keys.",
+              str, asmManager->active_trim_current_job_keys);
     sdsfree(str);
 }
 

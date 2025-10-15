@@ -191,6 +191,7 @@ int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2);
 slotRangeArray *slotRangeArrayAppend(slotRangeArray *slots, int slot);
 int slotRangeArrayContains(slotRangeArray *slots, unsigned int slot);
 void slotRangeArrayFree(slotRangeArray *slots);
+void slotRangeArrayFreeGeneric(void *slots);
 slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots);
 int slotRangeArrayNext(slotRangeArrayIter *it);
 int slotRangeArrayGetCurrentSlot(slotRangeArrayIter *it);

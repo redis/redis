@@ -1865,6 +1865,11 @@ void slotRangeArrayFree(slotRangeArray *slots) {
     zfree(slots);
 }
 
+/* Generic version of slotRangeArrayFree(). */
+void slotRangeArrayFreeGeneric(void *slots) {
+    slotRangeArrayFree(slots);
+}
+
 /* Slot range array iterator */
 slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots) {
     slotRangeArrayIter *it = zmalloc(sizeof(*it));
