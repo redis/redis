@@ -1969,7 +1969,6 @@ struct redisServer {
     int active_defrag_threshold_upper; /* maximum percentage of fragmentation at which we use maximum effort */
     int active_defrag_cycle_min;       /* minimal effort for defrag in CPU percentage */
     int active_defrag_cycle_max;       /* maximal effort for defrag in CPU percentage */
-    int disable_defrag_misses;         /* Used to ignore je_get_defrag_hint */
     unsigned long active_defrag_max_scan_fields; /* maximum number of fields of set/hash/zset/list to process from within the main dict scan */
     size_t client_max_querybuf_len; /* Limit for client query buffer length */
     int dbnum;                      /* Total number of configured DBs */
@@ -3412,7 +3411,7 @@ void *activeDefragAllocRaw(size_t size);
 void activeDefragFree(void *ptr);
 void activeDefragFreeRaw(void *ptr);
 robj *activeDefragStringOb(robj* ob);
-robj *activeDefragStringObEx(robj* ob, int expected_refcount, int no_free);
+robj *activeDefragStringObEx(robj* ob, int expected_refcount, int duplicate);
 void dismissSds(sds s);
 void dismissMemory(void* ptr, size_t size_hint);
 void dismissMemoryInChild(void);

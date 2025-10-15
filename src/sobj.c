@@ -14,7 +14,7 @@
 void sobj_type_destructor(dict *d, void *key)
 {
     UNUSED(d);
-    sobj_free_raw(key);
+    decrRefCount(key);
 }
 
 dictType sobj_dict_type = {
@@ -51,7 +51,7 @@ sobj *sobj_new(const char *init, size_t initlen, dict *pool)
         serverLog(LL_NOTICE, "Added new shared-string %p, %d, (%p) '%s'", (void*)new_obj, new_obj->refcount, new_obj->ptr, (char*)new_obj->ptr);
         return new_obj;
     } else { /* Same value shared-string found in the pool */
-        sobj_free_raw(new_obj);
+        decrRefCount(new_obj);
 
         sobj *existing_obj = dictGetKey(existing_de);
         incrRefCount(existing_obj);
@@ -60,27 +60,17 @@ sobj *sobj_new(const char *init, size_t initlen, dict *pool)
     }
 }
 
-void sobj_free_raw(sobj *o)
-{
-    serverAssert(o->refcount == 1);
-    serverLog(LL_NOTICE, "Freeing shared-string %p, %d, (%p) '%s'", (void*)o, o->refcount, o->ptr, (char*)o->ptr);
-    decrRefCount(o);
-}
-
 void sobj_free(sobj *o, dict *pool)
 {
     if (o == NULL)
         return;
 
-    if (o->refcount == 1) {
-        if (sobj_find(o, pool) == o) /* Usual case. If no active-defrag enabled, this clause is *always* true */
-            dictDelete(pool, o);
-        else {/* In case we active-defraged, the respective `de` was already removed (pool points only to newest shared-string) */
-            sobj_free_raw(o);
-        }
-    } else {
-        --o->refcount;
-    }
+    /* sobj_find(o, pool) == o is usually true, unless we active-defraged.
+       in that case, the respective `de` was already removed - pool points only to newest shared-string */
+    if (o->refcount == 1 && sobj_find(o, pool) == o)
+        dictDelete(pool, o);
+    else
+        decrRefCount(o);
 }
 
 sobj *sobj_defrag(sobj *o, dict *pool)
@@ -100,21 +90,15 @@ sobj *sobj_defrag(sobj *o, dict *pool)
             dictFreeUnlinkedEntryOnly(de);
         }
 
-        server.disable_defrag_misses = 1;
         other = activeDefragStringObEx(o, o->refcount, 1);
-        server.disable_defrag_misses = 0;
 
         serverAssert(other && other != o && other->ptr != o->ptr);
         other->refcount = 0;
         dictAdd(pool, other, NULL);
     }
 
-    if (o->refcount == 1) {
-        sobj_free_raw(o);
-    } else {
-        --o->refcount;
-    }
-    ++other->refcount;
+    decrRefCount(o);
+    incrRefCount(other);
 
     serverLog(LL_NOTICE, "After defragging shared-string (original) %p, %d, (%p) '%s'", (void*)o, o->refcount, o->ptr, (char*)o->ptr);
     serverLog(LL_NOTICE, "After defragging shared-string (returned) %p, %d, (%p) '%s'", (void*)other, other->refcount, other->ptr, (char*)other->ptr);

@@ -139,6 +139,20 @@ typedef struct {
     unsigned long cursor;
 } defragModuleCtx;
 
+/* Defrag helper for bare-bone allocation without freeing old pointer, and ignoring defrag hint. */
+void* activeDefragAllocWithoutHint(void *ptr) {
+    size_t size;
+    void *newptr;
+    /* move this allocation to a new allocation.
+     * make sure not to use the thread cache. so that we don't get back the same
+     * pointers we try to free */
+    size = zmalloc_usable_size(ptr);
+    newptr = zmalloc_no_tcache(size);
+    memcpy(newptr, ptr, size);
+    server.stat_active_defrag_hits++;
+    return newptr;
+}
+
 /* this method was added to jemalloc in order to help us understand which
  * pointers are worthwhile moving and which aren't */
 int je_get_defrag_hint(void* ptr);
@@ -149,20 +163,11 @@ int je_get_defrag_hint(void* ptr);
  * Note: The caller is responsible for freeing the old pointer if this function
  * returns a non-NULL value. */
 void* activeDefragAllocWithoutFree(void *ptr) {
-    size_t size;
-    void *newptr;
-    if(!server.disable_defrag_misses && !je_get_defrag_hint(ptr)) {
+    if(!je_get_defrag_hint(ptr)) {
         server.stat_active_defrag_misses++;
         return NULL;
     }
-    /* move this allocation to a new allocation.
-     * make sure not to use the thread cache. so that we don't get back the same
-     * pointers we try to free */
-    size = zmalloc_usable_size(ptr);
-    newptr = zmalloc_no_tcache(size);
-    memcpy(newptr, ptr, size);
-    server.stat_active_defrag_hits++;
-    return newptr;
+    return activeDefragAllocWithoutHint(ptr);
 }
 
 void activeDefragFree(void *ptr) {
@@ -227,10 +232,10 @@ void activeDefragFreeRaw(void *ptr) {
  *
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
- * and should NOT be accessed (unless no_free was specified). */
-sds activeDefragSdsLogic(sds sdsptr, int no_free) {
+ * and should NOT be accessed (unless duplicate was specified). */
+sds activeDefragSdsLogic(sds sdsptr, int duplicate) {
     void* ptr = sdsAllocPtr(sdsptr);
-    void* newptr = no_free ? activeDefragAllocWithoutFree(ptr) : activeDefragAlloc(ptr);
+    void* newptr = duplicate ? activeDefragAllocWithoutHint(ptr) : activeDefragAlloc(ptr);
     if (newptr) {
         size_t offset = sdsptr - (char*)ptr;
         sdsptr = (char*)newptr + offset;
@@ -288,8 +293,8 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
  * reference count is not 1, in these cases, the caller must explicitly pass
  * in the reference count, otherwise defragmentation will not be performed.
  * Note that the caller is responsible for updating any other references to the robj. */
-robj *activeDefragStringObEx(robj* ob, int expected_refcount, int no_free) {
-    void* (*defragAllocator)(void*) = no_free ? activeDefragAllocWithoutFree : activeDefragAlloc;
+robj *activeDefragStringObEx(robj* ob, int expected_refcount, int duplicate) {
+    void* (*defragAllocator)(void*) = duplicate ? activeDefragAllocWithoutHint : activeDefragAlloc;
     robj *ret = NULL;
     if (ob->refcount!=expected_refcount)
         return NULL;
@@ -304,7 +309,7 @@ robj *activeDefragStringObEx(robj* ob, int expected_refcount, int no_free) {
     /* try to defrag string object */
     if (ob->type == OBJ_STRING) {
         if(ob->encoding==OBJ_ENCODING_RAW) {
-            sds newsds = activeDefragSdsLogic((sds)ob->ptr, no_free);
+            sds newsds = activeDefragSdsLogic((sds)ob->ptr, duplicate);
             if (newsds) {
                 ob->ptr = newsds;
             }

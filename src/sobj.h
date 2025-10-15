@@ -20,7 +20,6 @@ struct dict;
 struct dict *sobj_init(void);
 void sobj_release(struct dict *pool);
 sobj *sobj_new(const char *init, size_t initlen, struct dict *pool);
-void sobj_free_raw(sobj *o);
 void sobj_free(sobj *o, struct dict *pool);
 sobj *sobj_defrag(sobj *o, struct dict *pool);
 sobj *sobj_find(sobj *o, struct dict *pool);
