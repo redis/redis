@@ -3174,6 +3174,12 @@ void asmTriggerActiveTrim(slotRangeArray *slots) {
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Active trim scheduled for slots: %s", str);
     sdsfree(str);
+
+    /* Start an active trim job if no active trim job is running. */
+    if (asmManager->active_trim_it == NULL) {
+        serverAssert(listLength(asmManager->active_trim_jobs) > 0);
+        asmActiveTrimStart();
+    }
 }
 
 /* End the active trim job. */
