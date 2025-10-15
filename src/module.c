@@ -8821,9 +8821,11 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_NEW: New key notification
  *  - REDISMODULE_NOTIFY_OVERWRITTEN: Overwritten events
  *  - REDISMODULE_NOTIFY_TYPE_CHANGED: Type-changed events
+ *  - REDISMODULE_NOTIFY_KEY_TRIMMED: Key trimmed events after a slot migration operation
  *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS,
- *                            REDISMODULE_NOTIFY_NEW, REDISMODULE_NOTIFY_OVERWRITTEN
- *                            and REDISMODULE_NOTIFY_TYPE_CHANGED)
+ *                            REDISMODULE_NOTIFY_NEW, REDISMODULE_NOTIFY_OVERWRITTEN,
+ *                            REDISMODULE_NOTIFY_TYPE_CHANGED
+ *                            and REDISMODULE_NOTIFY_KEY_TRIMMED)
  *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
  *                               indicates that the key was loaded from persistence.
  *                               Notice, when this event fires, the given key
@@ -12005,10 +12007,21 @@ static uint64_t moduleEventVersions[] = {
  *
  *         RedisModuleKey *key;    // Key name
  *
- *  * * RedisModuleEvent_ClusterSlotMigration
+ * * RedisModuleEvent_ClusterSlotMigration
  *
  *     Called when an atomic slot migration (ASM) event happens.
- *     The following sub events are available:
+ *     IMPORT events are triggered on the destination side of a slot migration
+ *     operation. These notifications let modules prepare for the upcoming
+ *     ownership change, observe successful completion once the cluster config
+ *     reflects the new owner, or detect a failure in which case slot ownership
+ *     remains with the source.
+ *
+ *     Similarly, MIGRATE events triggered on the source side of a slot
+ *     migration operation to let modules prepare for the ownership change and
+ *     observe the completion of the slot migration. MIGRATE_MODULE_PROPAGATE
+ *     event is triggered in the fork just before snapshot delivery; modules may
+ *     use it to enqueue commands that will be delivered first. See
+ *     RedisModule_ClusterPropagateForSlotMigration() for details.
  *
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED`
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED`
@@ -12018,16 +12031,28 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED`
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE`
  *
- *     The data pointer can be casted to a RedisModuleClusterAsmInfo
+ *     The data pointer can be casted to a RedisModuleClusterSlotMigrationInfo
  *     structure with the following fields:
+ *
  *         char source_node_id[REDISMODULE_NODE_ID_LEN + 1];
  *         char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];
  *         const char *task_id;               // Task ID
- *         RedisModuleSlotRangeArray* slots;  // Slot ranges
+ *         RedisModuleSlotRangeArray *slots;  // Slot ranges
  *
- *  * * RedisModuleEvent_ClusterSlotMigrationTrim
+ * * RedisModuleEvent_ClusterSlotMigrationTrim
  *
- *     Called when a cluster trim event happens.
+ *     Called when trimming keys after a slot migration. Fires on the source
+ *     after a successful migration to clean up migrated keys, or on the
+ *     destination after a failed import to discard partial imports. Two methods
+ *     are supported. In the first method, keys are deleted in a background
+ *     thread; this is reported via the TRIM_BACKGROUND event. In the second
+ *     method, Redis performs incremental deletions on the main thread via the
+ *     cron loop to avoid stalls; this is reported via the TRIM_STARTED and
+ *     TRIM_COMPLETED events. Each deletion emits REDISMODULE_NOTIFY_KEY_TRIMMED
+ *     so modules can react to individual key deletions. Redis selects the
+ *     method automatically: background by default; switches to main-thread
+ *     incremental trimming when a module subscribes to REDISMODULE_NOTIFY_KEY_TRIMMED.
+ *
  *     The following sub events are available:
  *
  *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED`
@@ -12037,7 +12062,7 @@ static uint64_t moduleEventVersions[] = {
  *     The data pointer can be casted to a RedisModuleClusterSlotMigrationTrimInfo
  *     structure with the following fields:
  *
- *         RedisModuleSlotRangeArray* slots;  // Slot ranges
+ *         RedisModuleSlotRangeArray *slots;  // Slot ranges
  *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
