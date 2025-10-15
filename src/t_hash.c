@@ -2003,8 +2003,7 @@ void hashTypeFree(robj *o) {
 #ifdef REDIS_TEST
             dictEmpty((dict *) o->ptr, NULL);
             size_t *alloc_size = (size_t *)dictMetadata((dict *) o->ptr);
-            UNUSED(alloc_size);
-            debugAssert(*alloc_size == 0);
+            serverAssert(*alloc_size == 0);
 #endif
             dictRelease((dict*) o->ptr);
             break;

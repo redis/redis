@@ -587,7 +587,6 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
     return buf;
 }
 
-
 void *rdbGenericLoadStringObject(rio *rdb, int flags, size_t *lenptr) {
     return rdbGenericLoadStringObjectUsable(rdb,flags,lenptr,NULL);
 }

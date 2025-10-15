@@ -43,7 +43,6 @@
 #include "fast_float_strtod.h"
 #include "server.h"
 #include "intset.h"  /* Compact integer set structure */
-#include "redisassert.h"
 #include <math.h>
 
 /*-----------------------------------------------------------------------------
@@ -114,7 +113,9 @@ void zslFree(zskiplist *zsl) {
         zslFreeNode(zsl, node);
         node = next;
     }
-    debugAssert(zsl->alloc_size == zmalloc_usable_size(zsl));
+#ifdef REDIS_TEST
+    serverAssert(zsl->alloc_size == zmalloc_usable_size(zsl));
+#endif
     zfree(zsl);
 }
 

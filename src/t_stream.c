@@ -10,7 +10,6 @@
 #include "server.h"
 #include "endianconv.h"
 #include "stream.h"
-#include "redisassert.h"
 
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
@@ -85,7 +84,9 @@ void freeStream(stream *s) {
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
-    debugAssert(s->alloc_size == zmalloc_usable_size(s));
+#ifdef REDIS_TEST
+    serverAssert(s->alloc_size == zmalloc_usable_size(s));
+#endif
     zfree(s);
 }
 

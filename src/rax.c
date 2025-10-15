@@ -22,8 +22,6 @@
 
 #include RAX_MALLOC_INCLUDE
 
-#define UNUSED(x) (void)(x)
-
 /* -------------------------------- Debugging ------------------------------ */
 
 void raxDebugShowNode(const char *msg, raxNode *n);
@@ -2018,6 +2016,8 @@ unsigned long raxTouch(raxNode *n) {
 #ifdef REDIS_TEST
 #include "testhelp.h"
 #include <stdlib.h>
+
+#define UNUSED(x) (void)(x)
 
 #define yell(str, ...) printf("ERROR! " str "\n\n", __VA_ARGS__)
 
