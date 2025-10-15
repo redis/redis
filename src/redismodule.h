@@ -508,8 +508,8 @@ typedef void (*RedisModuleEventLoopOneShotFunc)(void *user_data);
 #define REDISMODULE_EVENT_EVENTLOOP 15
 #define REDISMODULE_EVENT_CONFIG 16
 #define REDISMODULE_EVENT_KEY 17
-#define REDISMODULE_EVENT_CLUSTER_ASM 18
-#define REDISMODULE_EVENT_CLUSTER_ASM_TRIM 19
+#define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION 18
+#define REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM 19
 #define _REDISMODULE_EVENT_NEXT 20 /* Next event flag, should be updated if a new event added. */
 
 typedef struct RedisModuleEvent {
@@ -622,12 +622,12 @@ static const RedisModuleEvent
         REDISMODULE_EVENT_KEY,
         1
     },
-    RedisModuleEvent_ClusterAsm = {
-        REDISMODULE_EVENT_CLUSTER_ASM,
+    RedisModuleEvent_ClusterSlotMigration = {
+        REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION,
         1
     },
-    RedisModuleEvent_ClusterAsmTrim = {
-        REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
+    RedisModuleEvent_ClusterSlotMigrationTrim = {
+        REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
         1
     };
 
@@ -707,19 +707,19 @@ static const RedisModuleEvent
 #define _REDISMODULE_SUBEVENT_CRON_LOOP_NEXT 0
 #define _REDISMODULE_SUBEVENT_SWAPDB_NEXT 0
 
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED 0
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED 1
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED 2
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED 3
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED 4
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED 5
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE 6
-#define _REDISMODULE_SUBEVENT_CLUSTER_ASM_NEXT 7
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED 0
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED 1
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED 2
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED 3
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED 4
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED 5
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE 6
+#define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT 7
 
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED 0
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED 1
-#define REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND 2
-#define _REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_NEXT 3
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED 0
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED 1
+#define REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND 2
+#define _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT 3
 
 /* RedisModuleClientInfo flags. */
 #define REDISMODULE_CLIENTINFO_FLAG_SSL (1<<0)
@@ -860,9 +860,9 @@ typedef struct RedisModuleSlotRangeArray {
     RedisModuleSlotRange ranges[];
 } RedisModuleSlotRangeArray;
 
-#define REDISMODULE_CLUSTER_ASM_INFO_VERSION 1
+#define REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION 1
 
-typedef struct RedisModuleClusterAsmInfo {
+typedef struct RedisModuleClusterSlotMigrationInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
@@ -870,20 +870,20 @@ typedef struct RedisModuleClusterAsmInfo {
     char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];
     const char *task_id;
     RedisModuleSlotRangeArray *slots;
-} RedisModuleClusterAsmInfoV1;
+} RedisModuleClusterSlotMigrationInfoV1;
 
-#define RedisModuleClusterAsmInfo RedisModuleClusterAsmInfoV1
+#define RedisModuleClusterSlotMigrationInfo RedisModuleClusterSlotMigrationInfoV1
 
-#define REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION 1
+#define REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION 1
 
-typedef struct RedisModuleClusterAsmTrimInfo {
+typedef struct RedisModuleClusterSlotMigrationTrimInfo {
     uint64_t version;       /* Not used since this structure is never passed
                                from the module to the core right now. Here
                                for future compatibility. */
     RedisModuleSlotRangeArray *slots;
-} RedisModuleClusterAsmTrimInfoV1;
+} RedisModuleClusterSlotMigrationTrimInfoV1;
 
-#define RedisModuleClusterAsmTrimInfo RedisModuleClusterAsmTrimInfoV1
+#define RedisModuleClusterSlotMigrationTrimInfo RedisModuleClusterSlotMigrationTrimInfoV1
 
 typedef enum {
     REDISMODULE_ACL_LOG_AUTH = 0, /* Authentication failure */

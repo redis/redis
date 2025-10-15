@@ -9331,7 +9331,7 @@ int RM_ClusterCanAccessKeysInSlot(int slot) {
  *
  * This function allows modules to add commands that will be sent to the
  * destination node before the actual slot migration begins. It should only be
- * called during the REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event.
+ * called during the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
  *
  * This function can be called multiple times within the same event to
  * replicate multiple commands. All commands will be sent before the
@@ -9344,7 +9344,7 @@ int RM_ClusterCanAccessKeysInSlot(int slot) {
  * REDISMODULE_ERR is returned and errno is set to the following values:
  *
  * * EINVAL: function arguments or format specifiers are invalid.
- * * EBADF: not called in the correct context, e.g. not called in the REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event.
+ * * EBADF: not called in the correct context, e.g. not called in the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
  * * ENOENT: command does not exist.
  * * ENOTSUP: command is cross-slot.
  * * ERANGE: command contains keys that are not within the migrating slot range.
@@ -11713,8 +11713,8 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
     -1, /* REDISMODULE_EVENT_CONFIG */
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
-    REDISMODULE_CLUSTER_ASM_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_ASM */
-    REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_ASM_TRIM */
+    REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION */
+    REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -12005,18 +12005,18 @@ static uint64_t moduleEventVersions[] = {
  *
  *         RedisModuleKey *key;    // Key name
  *
- *  * * RedisModuleEvent_ClusterAsm
+ *  * * RedisModuleEvent_ClusterSlotMigration
  *
  *     Called when an atomic slot migration (ASM) event happens.
  *     The following sub events are available:
  *
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE`
  *
  *     The data pointer can be casted to a RedisModuleClusterAsmInfo
  *     structure with the following fields:
@@ -12025,16 +12025,16 @@ static uint64_t moduleEventVersions[] = {
  *         const char *task_id;               // Task ID
  *         RedisModuleSlotRangeArray* slots;  // Slot ranges
  *
- *  * * RedisModuleEvent_ClusterAsmTrim
+ *  * * RedisModuleEvent_ClusterSlotMigrationTrim
  *
  *     Called when a cluster trim event happens.
  *     The following sub events are available:
  *
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED`
- *     * `REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND`
  *
- *     The data pointer can be casted to a RedisModuleClusterAsmTrimInfo
+ *     The data pointer can be casted to a RedisModuleClusterSlotMigrationTrimInfo
  *     structure with the following fields:
  *
  *         RedisModuleSlotRangeArray* slots;  // Slot ranges
@@ -12207,9 +12207,9 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 selectDb(ctx.client, info->dbnum);
                 moduleInitKey(&key, &ctx, info->key, info->kv, info->mode);
                 moduledata = &ki;
-            } else if (eid == REDISMODULE_EVENT_CLUSTER_ASM) {
+            } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION) {
                 moduledata = data;
-            } else if (eid == REDISMODULE_EVENT_CLUSTER_ASM_TRIM) {
+            } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM) {
                 moduledata = data;
             }
 
