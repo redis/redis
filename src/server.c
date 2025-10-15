@@ -872,15 +872,6 @@ int clientsCronResizeQueryBuffer(client *c) {
     return 0;
 }
 
-/* If the client has been idle for too long, free the client's pending command pool. */
-int clientsCronFreePendingCommandPoolIfIdle(client *c) {
-    /* Free pending command pool if the client has been idle for more than 2 seconds. */
-    time_t idletime = server.unixtime - c->lastinteraction;
-    if (idletime > 2)
-        freePendingCommandPool(c);
-    return 0;
-}
-
 /* The client output buffer can be adjusted to better fit the memory requirements.
  *
  * the logic is:
@@ -2923,6 +2914,10 @@ void initServer(void) {
     server.acl_info.invalid_key_accesses  = 0;
     server.acl_info.user_auth_failures = 0;
     server.acl_info.invalid_channel_accesses = 0;
+
+    /* Initialize the shared pending command pool. */
+    server.pending_cmd_pool_size = 0;
+    server.pending_cmd_pool = zmalloc(sizeof(pendingCommand*) * PENDING_COMMAND_POOL_SIZE);
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed

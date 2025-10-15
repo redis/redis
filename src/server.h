@@ -1214,9 +1214,6 @@ typedef struct pendingCommandList {
     pendingCommand *tail;
     int len; /* Number of commands in the list */
     int ready_len; /* Number of commands that are ready to be processed */
-
-    pendingCommand *pool[PENDING_COMMAND_POOL_SIZE]; /* Pending command pool */
-    int pool_size; /* Current number of objects in pool */
 } pendingCommandList;
 
 /* This structure represents a Redis user. This is useful for ACLs, the
@@ -1868,6 +1865,9 @@ struct redisServer {
     int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
+    pendingCommand **pending_cmd_pool; /* Shared pool for reusing pendingCommand and argv,
+                                        * only when IO threads disabled */
+    int pending_cmd_pool_size; /* Current number of reusable pendingCommand objects in shared pool */
     int prefetch_batch_max_size;/* Maximum number of keys to prefetch in a single batch */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
@@ -2880,7 +2880,6 @@ void resetClientQbufState(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
 void freeClientPendingCommands(client *c, int num_pcmds_to_free);
-void freePendingCommandPool(client *c);
 void tryDeferFreeClientObject(client *c, robj *o);
 void freeClientDeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
