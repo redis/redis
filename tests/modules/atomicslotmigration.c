@@ -238,6 +238,8 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
     REDISMODULE_NOT_USED(ctx);
     int ret;
 
+    RedisModule_Assert(RedisModule_IsSubEventSupported(e, sub));
+
     if (e.id == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION) {
         RedisModuleClusterSlotMigrationInfo *info = data;
 
@@ -264,6 +266,9 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
 
 void clusterTrimEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data) {
     REDISMODULE_NOT_USED(ctx);
+
+    RedisModule_Assert(RedisModule_IsSubEventSupported(e, sub));
+
     if (e.id == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM) {
         /* Log the event. */
         if (numClusterTrimEvents >= MAX_EVENTS) return;

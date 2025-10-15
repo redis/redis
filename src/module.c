@@ -12120,6 +12120,10 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
     case REDISMODULE_EVENT_KEY:
         return subevent < _REDISMODULE_SUBEVENT_KEY_NEXT;
+    case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION:
+        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT;
+    case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM:
+        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT;
     default:
         break;
     }
