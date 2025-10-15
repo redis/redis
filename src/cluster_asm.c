@@ -516,7 +516,7 @@ sds asmDumpActiveImportTask(void) {
 }
 
 size_t asmGetPeakSyncBufferSize(void) {
-    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
+    if (!asmManager) return 0;
     /* Compute peak sync buffer usage. The current task's peak may not
      * reflect in asmManager->sync_buffer_peak immediately. */
     size_t peak = asmManager->sync_buffer_peak;
@@ -2110,9 +2110,9 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 }
 
 /* Modules can use RM_ClusterPropagateForSlotMigration() during the
- * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event to propagate commands that should be
- * delivered just before the slot snapshot delivery starts. This function
- * triggers the event, collects the commands and writes them to the rio. */
+ * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event to propagate commands
+ * that should be delivered just before the slot snapshot delivery starts. This
+ * function triggers the event, collects the commands and writes them to the rio. */
 static int propagateModuleCommands(asmTask *task, rio *rdb) {
     RedisModuleClusterSlotMigrationInfo info = {
             .version = REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION,
@@ -3345,8 +3345,8 @@ int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv) {
 }
 
 /* Modules can use RM_ClusterPropagateForSlotMigration() during the
- * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event to propagate commands that should
- * be delivered just before the slot snapshot delivery starts. */
+ * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event to propagate commands
+ * that should be delivered just before the slot snapshot delivery starts. */
 int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc) {
     /* This API is only called in the fork child. */
     if (server.cluster_enabled == 0 ||

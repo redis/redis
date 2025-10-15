@@ -12050,8 +12050,8 @@ static uint64_t moduleEventVersions[] = {
  *     cron loop to avoid stalls; this is reported via the TRIM_STARTED and
  *     TRIM_COMPLETED events. Each deletion emits REDISMODULE_NOTIFY_KEY_TRIMMED
  *     so modules can react to individual key deletions. Redis selects the
- *     method automatically: background by default; switches to main-thread
- *     incremental trimming when a module subscribes to REDISMODULE_NOTIFY_KEY_TRIMMED.
+ *     method automatically: background by default; switches to main thread
+ *     trimming when a module subscribes to REDISMODULE_NOTIFY_KEY_TRIMMED.
  *
  *     The following sub events are available:
  *
