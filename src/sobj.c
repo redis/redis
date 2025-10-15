@@ -15,6 +15,7 @@ void sobj_type_destructor(dict *d, void *key)
 {
     UNUSED(d);
     decrRefCount(key);
+    server.stat_shared_objects_cnt--;
 }
 
 dictType sobj_dict_type = {
@@ -48,14 +49,13 @@ sobj *sobj_new(const char *init, size_t initlen, dict *pool)
     serverAssert(new_obj->ptr);
     dictEntry *existing_de;
     if (dictAddRaw(pool, new_obj, &existing_de)) { /* No applicable shared-string found */
-        serverLog(LL_NOTICE, "Added new shared-string %p, %d, (%p) '%s'", (void*)new_obj, new_obj->refcount, new_obj->ptr, (char*)new_obj->ptr);
+        server.stat_shared_objects_cnt++;
         return new_obj;
     } else { /* Same value shared-string found in the pool */
         decrRefCount(new_obj);
 
         sobj *existing_obj = dictGetKey(existing_de);
         incrRefCount(existing_obj);
-        serverLog(LL_NOTICE, "Added existing shared-string %p, %d, (%p) '%s'", (void*)existing_obj, existing_obj->refcount, existing_obj->ptr, (char*)existing_obj->ptr);
         return existing_obj;
     }
 }
@@ -79,7 +79,6 @@ sobj *sobj_defrag(sobj *o, dict *pool)
     if (o == NULL)
         return NULL;
 
-    serverLog(LL_NOTICE, "Before defragging shared-string %p, %d, (%p) '%s'", (void*)o, o->refcount, o->ptr, (char*)o->ptr);
     sobj *other = sobj_find(o, pool);
     if (other == o ||  /* Active shared-string pointer is our pointer, defragging by creating a new one */
         other == NULL) /* Edge case where active shared-string deleted before defrag process finished */
@@ -99,9 +98,6 @@ sobj *sobj_defrag(sobj *o, dict *pool)
 
     decrRefCount(o);
     incrRefCount(other);
-
-    serverLog(LL_NOTICE, "After defragging shared-string (original) %p, %d, (%p) '%s'", (void*)o, o->refcount, o->ptr, (char*)o->ptr);
-    serverLog(LL_NOTICE, "After defragging shared-string (returned) %p, %d, (%p) '%s'", (void*)other, other->refcount, other->ptr, (char*)other->ptr);
     return other;
 #else
     UNUSED(o);
