@@ -870,31 +870,16 @@ typedef struct {
 } PendingEntryContext;
 
 void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
-    uint64_t keyBuf[3];
-    pelTimeKey timeKey;
     PendingEntryContext *ctx = privdata;
     streamNACK *nack = ri->data, *newnack;
     nack->consumer = ctx->c; /* update nack pointer to consumer */
     nack->cgroup_ref_node->value = ctx->cg; /* Update the value of cgroups_ref node to the consumer group. */
     newnack = activeDefragAlloc(nack);
     if (newnack) {
-        /* update consumer group pointer to the nack */
-        streamID id;
-        streamDecodeID(ri->key, &id);
-
+        /* Update consumer group pointer to the nack.
+         * pel_by_time doesn't need updating since delivery time is unchanged. */
         void *prev;
         raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
-        if (prev) {
-            streamNACK *prevNack = prev;
-            timeKey.delivery_time = prevNack->delivery_time;
-            timeKey.id = id;
-            encodePelTimeKey(&keyBuf, &timeKey);
-            raxRemove(ctx->cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
-        }
-        timeKey.delivery_time = newnack->delivery_time;
-        timeKey.id = id;
-        encodePelTimeKey(&keyBuf, &timeKey);
-        raxInsert(ctx->cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
         serverAssert(prev==nack);
     }
     return newnack;
