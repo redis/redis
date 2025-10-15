@@ -1211,6 +1211,9 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
  * signal the iteration terminated. */
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
     while(1) { /* Will stop when element > stop_key or end of radix tree. */
+        /* Tracks the boundary of the previous entry during reverse iteration.
+         * This ensures the iterator does not move beyond the current entry when stepping backwards. */
+        unsigned char *rev_entry_boundary = NULL;
         /* If the current listpack is set to NULL, this is the start of the
          * iteration or the previous listpack was completely iterated.
          * Go to the next node. */
@@ -1249,6 +1252,7 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
              * one. */
             int64_t lp_count = lpGetInteger(si->lp_ele);
             while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
+            rev_entry_boundary = si->lp_ele; /* Remember entry boundary. */
             /* Seek lp-count of prev entry. */
             si->lp_ele = lpPrev(si->lp,si->lp_ele);
         }
@@ -1297,6 +1301,11 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             } else {
                 *numfields = lpGetInteger(si->lp_ele);
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
+            }
+            if (si->rev) {
+                /* Verify that current position hasn't reached the next entry
+                 * boundary during reverse iteration. */
+                serverAssert(!rev_entry_boundary || si->lp_ele < rev_entry_boundary);
             }
             serverAssert(*numfields>=0);
 
