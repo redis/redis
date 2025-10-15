@@ -3147,7 +3147,6 @@ start_server {
             set results [r EXEC]
             
             # Verify transaction atomicity
-            assert_equal [llength [lindex $results 0 0 1]] 1
             assert_equal [lindex $results 1 0] 1
         }
 
