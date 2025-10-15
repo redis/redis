@@ -109,7 +109,7 @@ EbucketsType subexpiresBucketsType = {
     .itemsAddrAreOdd = 0,                 /* Addresses of dict are even */
 };
 
-/* dictExpireMetadata - ebuckets-type for hash fields with time-Expiration. ebuckets
+/* htExpireMetadata - ebuckets-type for hash fields with time-Expiration. ebuckets
  * instance Will be attached to each hash that has at least one field with expiry
  * time. */
 EbucketsType hashFieldExpireBucketsType = {
@@ -242,7 +242,7 @@ static void dictHfieldDestructor(dict *d, void *field) {
 
     /* If attached TTL to the field, then remove it from hash's private ebuckets. */
     if (hfieldGetExpireTime(field) != EB_EXPIRE_TIME_INVALID) {
-        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+        htExpireMetadata *dictExpireMeta = (htExpireMetadata *) dictMetadata(d);
         ebRemove(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, field);
     }
 
@@ -270,12 +270,12 @@ static size_t hashDictMetadataBytes(dict *d) {
 static size_t hashDictWithExpireMetadataBytes(dict *d) {
     UNUSED(d);
     /* expireMeta of the hash, ref to ebuckets and pointer to hash's key */
-    return sizeof(dictExpireMetadata);
+    return sizeof(htExpireMetadata);
 }
 
 static void hashDictWithExpireOnRelease(dict *d) {
     /* for sure allocated with metadata. Otherwise, this func won't be registered */
-    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+    htExpireMetadata *dictExpireMeta = (htExpireMetadata *) dictMetadata(d);
     ebDestroy(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, NULL);
 }
 
@@ -1070,7 +1070,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
                 return HSETEX_NO_CONDITION_MET;
 
             /* remove old expiry time from hash's private ebuckets */
-            dictExpireMetadata *dm = (dictExpireMetadata *) dictMetadata(ht);
+            htExpireMetadata *dm = (htExpireMetadata *) dictMetadata(ht);
             ebRemove(&dm->hfe, &hashFieldExpireBucketsType, hfOld);
 
             /* Track of minimum expiration time (only later update global HFE DS) */
@@ -1105,7 +1105,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
     if (exInfo->minExpireFields > expireAt)
         exInfo->minExpireFields = expireAt;
 
-    dictExpireMetadata *dm = (dictExpireMetadata *) dictMetadata(ht);
+    htExpireMetadata *dm = (htExpireMetadata *) dictMetadata(ht);
     ebAdd(&dm->hfe, &hashFieldExpireBucketsType, hfNew, expireAt);
     return HSETEX_OK;
 }
@@ -1153,7 +1153,7 @@ SetExRes hashTypeSetEx(robj *o, sds field, uint64_t expireAt, HashTypeSetEx *exI
 void initDictExpireMetadata(robj *o) {
     dict *ht = o->ptr;
 
-    dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(ht);
+    htExpireMetadata *m = (htExpireMetadata *) dictMetadata(ht);
     m->hfe = ebCreate();     /* Allocate HFE DS */
     m->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
 }
@@ -1179,7 +1179,7 @@ int hashTypeSetExInit(robj *key, kvobj *o, client *c, redisDb *db,
         if (!isDictWithMetaHFE(ht)) {
             /* Realloc (only header of dict) with metadata for hash-field expiration */
             dictTypeAddMeta(&ht, &mstrHashDictTypeWithHFE);
-            dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(ht);
+            htExpireMetadata *m = (htExpireMetadata *) dictMetadata(ht);
             o->ptr = ht;
 
             /* Find the key in the keyspace. Need to keep reference to the key for
@@ -1309,7 +1309,7 @@ unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
         uint64_t expiredItems = 0;
         dict *d = (dict*)o->ptr;
         if (subtractExpiredFields && isDictWithMetaHFE(d)) {
-            dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
+            htExpireMetadata *meta = (htExpireMetadata *) dictMetadata(d);
             /* If dict registered in global HFE DS */
             if (meta->expireMeta.trash == 0)
                 expiredItems = ebExpireDryRun(meta->hfe,
@@ -1634,7 +1634,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         int ret, slot = -1;
         hashTypeIterator *hi;
         dict *dict;
-        dictExpireMetadata *dictExpireMeta;
+        htExpireMetadata *dictExpireMeta;
         listpackEx *lpt = o->ptr;
 
         if (db && lpt->meta.trash != 1) {
@@ -1645,7 +1645,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
 
         dict = dictCreate(&mstrHashDictTypeWithHFE);
         dictExpand(dict,hashTypeLength(o, 0));
-        dictExpireMeta = (dictExpireMetadata *) dictMetadata(dict);
+        dictExpireMeta = (htExpireMetadata *) dictMetadata(dict);
 
         /* Fillup dict HFE metadata */
         dictExpireMeta->hfe = ebCreate();     /* Allocate HFE DS */
@@ -1731,7 +1731,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
         hobj = createObject(OBJ_HASH, dup);
         hobj->encoding = OBJ_ENCODING_LISTPACK_EX;
     } else if(o->encoding == OBJ_ENCODING_HT) {
-        dictExpireMetadata *dictExpireMetaSrc, *dictExpireMetaDst = NULL;
+        htExpireMetadata *dictExpireMetaSrc, *dictExpireMetaDst = NULL;
         dict *d;
 
         /* If dict doesn't have HFE metadata, then create a new dict without it */
@@ -1740,8 +1740,8 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
         } else {
             /* Create a new dict with HFE metadata */
             d = dictCreate(&mstrHashDictTypeWithHFE);
-            dictExpireMetaSrc = (dictExpireMetadata *) dictMetadata((dict *) o->ptr);
-            dictExpireMetaDst = (dictExpireMetadata *) dictMetadata(d);
+            dictExpireMetaSrc = (htExpireMetadata *) dictMetadata((dict *) o->ptr);
+            dictExpireMetaDst = (htExpireMetadata *) dictMetadata(d);
             dictExpireMetaDst->hfe = ebCreate();     /* Allocate HFE DS */
             dictExpireMetaDst->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
 
@@ -1849,7 +1849,7 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
         serverAssert(o->encoding == OBJ_ENCODING_HT);
 
         dict *d = o->ptr;
-        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+        htExpireMetadata *dictExpireMeta = (htExpireMetadata *) dictMetadata(d);
 
         OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db };
 
@@ -1949,7 +1949,7 @@ uint64_t hashTypeGetMinExpire(robj *o, int accurate) {
             if (!isDictWithMetaHFE(d))
                 return EB_EXPIRE_TIME_INVALID;
 
-            expireMeta = &((dictExpireMetadata *) dictMetadata(d))->expireMeta;
+            expireMeta = &((htExpireMetadata *) dictMetadata(d))->expireMeta;
         }
 
         /* Keep aside next hash-field expiry before updating HFE DS. Verify it is not trash */
@@ -1972,7 +1972,7 @@ uint64_t hashTypeGetMinExpire(robj *o, int accurate) {
         if (!isDictWithMetaHFE(d))
             return EB_EXPIRE_TIME_INVALID;
 
-        dictExpireMetadata *expireMeta = (dictExpireMetadata *) dictMetadata(d);
+        htExpireMetadata *expireMeta = (htExpireMetadata *) dictMetadata(d);
         return ebGetNextTimeToExpire(expireMeta->hfe, &hashFieldExpireBucketsType);
     }
 }
@@ -1987,7 +1987,7 @@ int hashTypeIsFieldsWithExpire(robj *o) {
         /* If dict doesn't holds HFE metadata */
         if (!isDictWithMetaHFE(d))
             return 0;
-        dictExpireMetadata *meta = (dictExpireMetadata *) dictMetadata(d);
+        htExpireMetadata *meta = (htExpireMetadata *) dictMetadata(d);
         return ebGetTotalItems(meta->hfe, &hashFieldExpireBucketsType) != 0;
     }
 }
@@ -1997,7 +1997,7 @@ void hashTypeFree(robj *o) {
         case OBJ_ENCODING_HT:
             /* Verify hash is not registered in global HFE ds */
             if (isDictWithMetaHFE((dict*)o->ptr)) {
-                dictExpireMetadata *m = (dictExpireMetadata *)dictMetadata((dict*)o->ptr);
+                htExpireMetadata *m = (htExpireMetadata *)dictMetadata((dict*)o->ptr);
                 serverAssert(m->expireMeta.trash == 1);
             }
 #ifdef REDIS_TEST
@@ -2022,7 +2022,7 @@ void hashTypeFree(robj *o) {
 }
 
 ebuckets *hashTypeGetDictMetaHFE(dict *d) {
-    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+    htExpireMetadata *dictExpireMeta = (htExpireMetadata *) dictMetadata(d);
     return &dictExpireMeta->hfe;
 }
 
@@ -3368,7 +3368,7 @@ static void hfieldPersist(robj *hashObj, hfield field) {
 
     /* if field is set with expire, then dict must has HFE metadata attached */
     dict *d = hashObj->ptr;
-    dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *)dictMetadata(d);
+    htExpireMetadata *dictExpireMeta = (htExpireMetadata *)dictMetadata(d);
 
     /* If field has valid expiry then dict must have valid metadata as well */
     serverAssert(dictExpireMeta->expireMeta.trash == 0);
@@ -3442,7 +3442,7 @@ ExpireMeta *hashGetExpireMeta(const eItem hash) {
         return &lpt->meta;
     } else if (hashObj->encoding == OBJ_ENCODING_HT) {
         dict *d = hashObj->ptr;
-        dictExpireMetadata *dictExpireMeta = (dictExpireMetadata *) dictMetadata(d);
+        htExpireMetadata *dictExpireMeta = (htExpireMetadata *) dictMetadata(d);
         return &dictExpireMeta->expireMeta;
     } else {
         serverPanic("Unknown encoding: %d", hashObj->encoding);

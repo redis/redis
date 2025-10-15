@@ -3466,7 +3466,7 @@ typedef struct listpackEx {
  * following metadata attached to dict header.
  * Note that alloc_size field must be first because hash objects without expre
  * already use sizeof(size_t) bytes of metadata for memory accounting. */
-typedef struct dictExpireMetadata {
+typedef struct htExpireMetadata {
     size_t alloc_size;       /* Total memory used for keys and values */
     ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
                                 To be used in order to register the hash in the
@@ -3474,7 +3474,7 @@ typedef struct dictExpireMetadata {
                                 TTL value might be inaccurate up-to few seconds due
                                 to optimization consideration. */
     ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
-} dictExpireMetadata;
+} htExpireMetadata;
 
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)

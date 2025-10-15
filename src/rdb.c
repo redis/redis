@@ -2436,7 +2436,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
                 /* Attach expiry to the hash field and register in hash private HFE DS */
                 if ((ret != DICT_ERR) && expireAt) {
-                    dictExpireMetadata *m = (dictExpireMetadata *) dictMetadata(d);
+                    htExpireMetadata *m = (htExpireMetadata *) dictMetadata(d);
                     ret = ebAdd(&m->hfe, &hashFieldExpireBucketsType, field, expireAt);
                 }
 
