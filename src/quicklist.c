@@ -578,7 +578,7 @@ REDIS_STATIC int _quicklistNodeAllowMerge(const quicklistNode *a,
     } while (0)
 
 static quicklistNode* __quicklistCreateNode(quicklist *quicklist, int container, void *value, size_t sz) {
-    UsableSizes entry_usable;
+    UsableSizes entry_usable = {0};
     quicklistNode *new_node = quicklistCreateNode(quicklist);
     new_node->container = container;
     if (container == QUICKLIST_NODE_CONTAINER_PLAIN) {
@@ -607,7 +607,7 @@ static void __quicklistInsertPlainNode(quicklist *quicklist, quicklistNode *old_
  * Returns 1 if new head created. */
 int quicklistPushHead(quicklist *quicklist, void *value, size_t sz) {
     quicklistNode *orig_head = quicklist->head;
-    UsableSizes usable;
+    UsableSizes usable = {0};
 
     if (unlikely(isLargeElement(sz, quicklist->fill))) {
         __quicklistInsertPlainNode(quicklist, quicklist->head, value, sz, 0);
@@ -642,7 +642,7 @@ int quicklistPushTail(quicklist *quicklist, void *value, size_t sz) {
         return 1;
     }
 
-    UsableSizes usable;
+    UsableSizes usable = {0};
     if (likely(
             _quicklistNodeAllowInsert(quicklist->tail, quicklist->fill, sz))) {
         quicklist->tail->entry = lpAppendUsable(quicklist->tail->entry, value, sz,
@@ -751,7 +751,7 @@ REDIS_STATIC void __quicklistDelNode(quicklist *quicklist,
 REDIS_STATIC int quicklistDelIndex(quicklist *quicklist, quicklistNode *node,
                                    unsigned char **p) {
     int gone = 0;
-    UsableSizes usable;
+    UsableSizes usable = {0};
 
     if (unlikely(QL_NODE_IS_PLAIN(node))) {
         __quicklistDelNode(quicklist, node);
@@ -811,7 +811,7 @@ void quicklistReplaceEntry(quicklistIter *iter, quicklistEntry *entry,
     quicklist* quicklist = iter->quicklist;
     quicklistNode *node = entry->node;
     unsigned char *newentry;
-    UsableSizes usable;
+    UsableSizes usable = {0};
 
     if (likely(!QL_NODE_IS_PLAIN(entry->node) && !isLargeElement(sz, quicklist->fill) &&
         (newentry = lpReplaceUsable(entry->node->entry, &entry->zi, data, sz, &usable)) != NULL))
@@ -905,7 +905,7 @@ int quicklistReplaceAtIndex(quicklist *quicklist, long index, void *data,
 REDIS_STATIC quicklistNode *_quicklistListpackMerge(quicklist *quicklist,
                                                     quicklistNode *a,
                                                     quicklistNode *b) {
-    UsableSizes usable;
+    UsableSizes usable = {0};
     D("Requested merge (a,b) (%u, %u)", a->count, b->count);
 
     quicklistDecompressNode(quicklist, a);
@@ -1034,7 +1034,7 @@ REDIS_STATIC quicklistNode *_quicklistSplitNode(quicklist *quicklist, quicklistN
     D("After %d (%d); ranges: [%d, %d], [%d, %d]", after, offset, orig_start,
       orig_extent, new_start, new_extent);
 
-    UsableSizes usable;
+    UsableSizes usable = {0};
     node->entry = lpDeleteRangeUsable(node->entry, orig_start, orig_extent, &usable);
     quicklistUpdateAllocSize(quicklist, usable.newsize, usable.oldsize);
     node->count = lpLength(node->entry);
@@ -1061,7 +1061,7 @@ REDIS_STATIC void _quicklistInsert(quicklistIter *iter, quicklistEntry *entry,
     int fill = quicklist->fill;
     quicklistNode *node = entry->node;
     quicklistNode *new_node = NULL;
-    UsableSizes usable;
+    UsableSizes usable = {0};
 
     if (!node) {
         /* we have no reference node, so let's create only node in the list */
@@ -1278,7 +1278,7 @@ int quicklistDelRange(quicklist *quicklist, const long start,
         if (delete_entire_node || QL_NODE_IS_PLAIN(node)) {
             __quicklistDelNode(quicklist, node);
         } else {
-            UsableSizes usable;
+            UsableSizes usable = {0};
             quicklistDecompressNodeForUse(quicklist, node);
             node->entry = lpDeleteRangeUsable(node->entry, offset, del, &usable);
             quicklistUpdateAllocSize(quicklist, usable.newsize, usable.oldsize);
@@ -3583,7 +3583,7 @@ int quicklistTest(int argc, char *argv[], int flags) {
 
             /* Keep filling the node, until it reaches 1GB */
             for (int i = 0; i < 32; i++) {
-                UsableSizes usable;
+                UsableSizes usable = {0};
                 node->entry = lpAppendUsable(node->entry, s, sz,
                                              &usable);
                 quicklistUpdateAllocSize(ql, usable.newsize, usable.oldsize);

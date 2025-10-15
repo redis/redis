@@ -559,7 +559,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
         if (new_node) {
             /* Shrink extra pre-allocated memory */
-            UsableSizes usable;
+            UsableSizes usable = {0};
             lp = lpShrinkToFitUsable(lp, &usable);
             s->alloc_size -= usable.oldsize;
             s->alloc_size += usable.newsize;
@@ -571,7 +571,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
     int flags = STREAM_ITEM_FLAG_NONE;
     if (lp == NULL) {
-        UsableSizes usable;
+        UsableSizes usable = {0};
         master_id = id;
         streamEncodeID(rax_key,&id);
         /* Create the listpack having the master entry ID and fields.
@@ -656,7 +656,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * in reverse order: we can just start from the end of the listpack, read
      * the entry, and jump back N times to seek the "flags" field to read
      * the stream full entry. */
-    UsableSizes usable, old_usable;
+    UsableSizes usable = {0}, old_usable = {0};
     lp = lpAppendIntegerUsable(lp,flags,&old_usable);
     lp = lpAppendInteger(lp,id.ms - master_id.ms);
     lp = lpAppendInteger(lp,id.seq - master_id.seq);
@@ -912,7 +912,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         lp = lpReplaceInteger(lp,&p,entries-deleted_from_lp);
         p = lpNext(lp,p); /* Skip deleted field. */
         int64_t marked_deleted = lpGetInteger(p);
-        UsableSizes usable;
+        UsableSizes usable = {0};
         lp = lpReplaceIntegerUsable(lp,&p,marked_deleted+deleted_from_lp,&usable);
         p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
         s->alloc_size += usable.newsize;
@@ -1427,7 +1427,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     stream *s = si->stream;
     unsigned char *lp = si->lp;
     int64_t aux;
-    UsableSizes usable, old_usable;
+    UsableSizes usable = {0}, old_usable = {0};
 
     /* We do not really delete the entry here. Instead we mark it as
      * deleted by flagging it, and also incrementing the count of the
