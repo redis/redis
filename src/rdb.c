@@ -2181,7 +2181,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         while (o->encoding == OBJ_ENCODING_LISTPACK && len > 0) {
             len--;
             /* Load raw strings */
-            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_HFLD,NULL)) == NULL) {
+            size_t usable;
+            if ((field = rdbGenericLoadStringObjectUsable(rdb,RDB_LOAD_HFLD,NULL,&usable)) == NULL) {
                 decrRefCount(o);
                 if (dupSearchDict) dictRelease(dupSearchDict);
                 return NULL;
@@ -2225,7 +2226,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     return NULL;
                 }
                 size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
-                *alloc_size += zmalloc_usable_size(mstrGetAllocPtr(&mstrFieldKind, field)) + sdsAllocSize(value);
+                *alloc_size += usable + sdsAllocSize(value);
                 break;
             }
 
@@ -2256,7 +2257,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         while (o->encoding == OBJ_ENCODING_HT && len > 0) {
             len--;
             /* Load encoded strings */
-            if ((field = rdbGenericLoadStringObject(rdb,RDB_LOAD_HFLD,NULL)) == NULL) {
+            size_t usable;
+            if ((field = rdbGenericLoadStringObjectUsable(rdb,RDB_LOAD_HFLD,NULL,&usable)) == NULL) {
                 decrRefCount(o);
                 return NULL;
             }
@@ -2279,7 +2281,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
             size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
-            *alloc_size += zmalloc_usable_size(mstrGetAllocPtr(&mstrFieldKind, field)) + sdsAllocSize(value);
+            *alloc_size += usable + sdsAllocSize(value);
         }
 
         /* All pairs should be read by now */
@@ -2359,10 +2361,11 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* if needed create field with TTL metadata  */
+            size_t usable;
             if (expireAt !=0)
-                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD_TTL, NULL);
+                field = rdbGenericLoadStringObjectUsable(rdb, RDB_LOAD_HFLD_TTL, NULL, &usable);
             else
-                field = rdbGenericLoadStringObject(rdb, RDB_LOAD_HFLD, NULL);
+                field = rdbGenericLoadStringObjectUsable(rdb, RDB_LOAD_HFLD, NULL, &usable);
 
             if (field == NULL) {
                 serverLog(LL_WARNING, "failed reading hash field");
@@ -2446,7 +2449,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     return NULL;
                 }
                 size_t *alloc_size = (size_t *)dictMetadata(d);
-                *alloc_size += zmalloc_usable_size(mstrGetAllocPtr(&mstrFieldKind, field)) + sdsAllocSize(value);
+                *alloc_size += usable + sdsAllocSize(value);
             }
         }
 
