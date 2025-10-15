@@ -211,8 +211,10 @@ void quicklistRelease(quicklist *quicklist) {
     while (len--) {
         next = current->next;
 
-        zfree_usable(current->entry, &usable);
-        quicklist->alloc_size -= usable;
+        if (current->entry) {
+            zfree_usable(current->entry, &usable);
+            quicklist->alloc_size -= usable;
+        }
         zfree_usable(current, &usable);
         quicklist->alloc_size -= usable;
 
