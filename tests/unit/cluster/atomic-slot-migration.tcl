@@ -1629,8 +1629,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 250 -slot 3
         populate_slot 250 -slot 4
 
-        set prev_trim_started_1 [CI 1 slot_migration_active_trim_started]
-        set prev_trim_started_4 [CI 4 slot_migration_active_trim_started]
+        set prev_trim_started_1 [CI 1 slot_migration_stats_active_trim_started]
+        set prev_trim_started_4 [CI 4 slot_migration_stats_active_trim_started]
 
         R 1 CLUSTER MIGRATION IMPORT 0 100
         after 2000
@@ -1639,8 +1639,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
 
         # Verify there is at least one trim job started
-        assert_morethan [CI 1 slot_migration_active_trim_started] $prev_trim_started_1
-        assert_morethan [CI 4 slot_migration_active_trim_started] $prev_trim_started_4
+        assert_morethan [CI 1 slot_migration_stats_active_trim_started] $prev_trim_started_1
+        assert_morethan [CI 4 slot_migration_stats_active_trim_started] $prev_trim_started_4
 
         assert_equal 1000 [R 0 dbsize]
         assert_equal 1000 [R 3 dbsize]
@@ -1849,7 +1849,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
                 fail "trim failed"
             }
 
-            set prev_cancelled [CI 3 slot_migration_active_trim_cancelled]
+            set prev_cancelled [CI 3 slot_migration_stats_active_trim_cancelled]
             R 0 config set client-output-buffer-limit "replica 1024 0 0"
 
             # Trigger a fullsync
@@ -1857,10 +1857,10 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
             wait_for_condition 1000 10 {
                 [CI 3 slot_migration_active_trim_running] == 0 &&
-                [CI 3 slot_migration_active_trim_cancelled] == $prev_cancelled + 1
+                [CI 3 slot_migration_stats_active_trim_cancelled] == $prev_cancelled + 1
             } else {
                 puts "[CI 3 slot_migration_active_trim_running]"
-                puts "[CI 3 slot_migration_active_trim_cancelled]"
+                puts "[CI 3 slot_migration_stats_active_trim_cancelled]"
                 fail "trim failed"
             }
 
@@ -1930,7 +1930,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 debug asm-trim-method active 0
         R 1 flushall
 
-        set prev_trim_done [CI 1 slot_migration_active_trim_completed]
+        set prev_trim_done [CI 1 slot_migration_stats_active_trim_completed]
 
         R 1 debug populate 1000 [slot_prefix 0] 100
         R 1 debug populate 1000 [slot_prefix 1] 100
@@ -1943,7 +1943,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 1 exec
 
         wait_for_condition 1000 10 {
-            [CI 1 slot_migration_active_trim_completed] == $prev_trim_done + 3
+            [CI 1 slot_migration_stats_active_trim_completed] == $prev_trim_done + 3
         } else {
             fail "active trim failed"
         }
@@ -1976,7 +1976,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 debug asm-trim-method default
         R 1 debug asm-trim-method default
 
-        set prev_active_trim [CI 0 slot_migration_active_trim_completed]
+        set prev_active_trim [CI 0 slot_migration_stats_active_trim_completed]
 
         # Setup a tracking client that is redirected to a pubsub client
         set rd_redirection [redis_deferring_client]
@@ -1994,7 +1994,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
 
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_active_trim_completed] == [expr $prev_active_trim + 1]
+            [CI 0 slot_migration_stats_active_trim_completed] == [expr $prev_active_trim + 1]
         } else {
             fail "active trim did not happen"
         }

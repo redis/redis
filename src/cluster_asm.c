@@ -299,18 +299,18 @@ sds asmCatInfoString(sds info) {
     return sdscatprintf(info ? info : sdsempty(),
                         "slot_migration_active_tasks:%d\r\n"
                         "slot_migration_active_trim_running:%lu\r\n"
-                        "slot_migration_active_trim_started:%llu\r\n"
-                        "slot_migration_active_trim_completed:%llu\r\n"
-                        "slot_migration_active_trim_cancelled:%llu\r\n"
                         "slot_migration_active_trim_current_job_keys:%llu\r\n"
-                        "slot_migration_active_trim_current_job_trimmed:%llu\r\n",
+                        "slot_migration_active_trim_current_job_trimmed:%llu\r\n"
+                        "slot_migration_stats_active_trim_started:%llu\r\n"
+                        "slot_migration_stats_active_trim_completed:%llu\r\n"
+                        "slot_migration_stats_active_trim_cancelled:%llu\r\n",
                         active_tasks,
                         listLength(asmManager->active_trim_jobs),
+                        asmManager->active_trim_current_job_keys,
+                        asmManager->active_trim_current_job_trimmed,
                         asmManager->active_trim_started,
                         asmManager->active_trim_completed,
-                        asmManager->active_trim_cancelled,
-                        asmManager->active_trim_current_job_keys,
-                        asmManager->active_trim_current_job_trimmed);
+                        asmManager->active_trim_cancelled);
 }
 
 void asmTaskReset(asmTask *task) {
