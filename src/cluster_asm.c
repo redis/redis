@@ -298,7 +298,6 @@ sds asmCatInfoString(sds info) {
 
     return sdscatprintf(info ? info : sdsempty(),
                         "slot_migration_active_tasks:%d\r\n"
-                        "slot_migration_sync_buffer_peak:%zu\r\n"
                         "slot_migration_active_trim_running:%lu\r\n"
                         "slot_migration_active_trim_started:%llu\r\n"
                         "slot_migration_active_trim_completed:%llu\r\n"
@@ -306,7 +305,6 @@ sds asmCatInfoString(sds info) {
                         "slot_migration_active_trim_current_job_keys:%llu\r\n"
                         "slot_migration_active_trim_current_job_trimmed:%llu\r\n",
                         active_tasks,
-                        asmGetPeakSyncBufferSize(),
                         listLength(asmManager->active_trim_jobs),
                         asmManager->active_trim_started,
                         asmManager->active_trim_completed,
@@ -518,6 +516,7 @@ sds asmDumpActiveImportTask(void) {
 }
 
 size_t asmGetPeakSyncBufferSize(void) {
+    if (!asmManager || listLength(asmManager->tasks) == 0) return 0;
     /* Compute peak sync buffer usage. The current task's peak may not
      * reflect in asmManager->sync_buffer_peak immediately. */
     size_t peak = asmManager->sync_buffer_peak;

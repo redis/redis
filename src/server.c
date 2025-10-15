@@ -6053,6 +6053,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_replica_full_sync_buffer:%zu\r\n", server.repl_full_sync_buffer.mem_used,
             "mem_slot_migration_output_buffer:%zu\r\n", mh->asm_migrate_output_buffer,
             "mem_slot_migration_input_buffer:%zu\r\n", mh->asm_import_input_buffer,
+            "mem_slot_migration_input_buffer_peak:%zu\r\n", asmGetPeakSyncBufferSize(),
             "mem_clients_slaves:%zu\r\n", mh->clients_slaves,
             "mem_clients_normal:%zu\r\n", mh->clients_normal,
             "mem_cluster_links:%zu\r\n", mh->cluster_links,

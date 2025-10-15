@@ -635,7 +635,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_log_messages 0 {"*Slots sync buffer limit has been reached*"} $loglines 1000 10
 
         # verify the peak value, should be greater than 1mb
-        assert {[CI 0 slot_migration_sync_buffer_peak] > 1000000}
+        assert {[S 0 mem_slot_migration_input_buffer_peak] > 1000000}
         assert {[S 0 mem_slot_migration_input_buffer] > 1000000}
 
         stop_write_load $load_handle
