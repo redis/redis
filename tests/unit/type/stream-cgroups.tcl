@@ -2696,7 +2696,7 @@ start_server {
             
             # Consumer2 blocks with CLAIM - message not yet claimable
             set rd [redis_deferring_client]
-            $rd XREADGROUP GROUP group1 consumer2 BLOCK 5000 CLAIM 100 STREAMS mystream >
+            $rd XREADGROUP GROUP group1 consumer2 BLOCK 5000 CLAIM 1000 STREAMS mystream >
             
             wait_for_blocked_client
             
