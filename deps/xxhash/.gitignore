@@ -1,0 +1,64 @@
+# objects
+*.o
+*.obj
+*.s
+
+# libraries
+libxxhash.*
+!libxxhash.pc.in
+
+# Executables
+*.exe
+xxh32sum
+xxh64sum
+xxh128sum
+xxh3sum
+xxhsum
+xxhsum32
+xxhsum_privateXXH
+xxhsum_inlinedXXH
+dispatch
+tests/generate_unicode_test
+tests/sanity_test
+tests/sanity_test_vectors_generator
+tests/test_alias
+fuzzer
+
+# Mac OS-X artefacts
+*.dSYM
+.DS_Store
+
+# Wasm / emcc / emscripten artefacts
+*.html
+*.wasm
+*.js
+
+# build artifacts
+cachedObjs/
+cmakebuild/
+
+
+# project managers artifacts
+.projectile
+
+# analyzer artifacts
+infer-out
+
+# test artifacts
+.test*
+tmp*
+tests/*.unicode
+tests/unicode_test*
+*.txt
+!CMakeLists.txt
+*.xxhsum
+
+# editor artifacts
+.clang_complete
+.clangd
+*.swp
+.vscode/
+.vs/
+
+# Doxygen
+doxygen/

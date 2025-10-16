@@ -1,0 +1,672 @@
+# Known critical issues:
+# - AVX512 related tests are incomplete.  Because default environment of
+#   GitHub Actions doesn't guarantee to support AVX512.
+#   As of May 2021, they're using Xeon E5-2673 (which doesn't support
+#   AVX512) and Xeon Platinum 8171M (which supports AVX512).
+#   See also https://github.com/actions/runner/issues/1069
+#
+#   In this CI script, it always run `make default` which compiles xxHash
+#   with AVX512 intrinsics.  But if test runner doesn't support AVX512,
+#   it doesn't run `make check` which tests runtime error/consistency.
+#   It means that this test stochastically detects a failure in AVX512
+#   code path.
+#
+# Known issues:
+# - This test script ignores exit code of cppcheck which can see under
+#   Job:Linux x64 misc tests > cppcheck in the GitHub Actions report.
+#   Because xxHash project doesn't 100% follow their recommendation.
+#   Also sometimes it reports false positives.
+#
+# - GitHub Actions doesn't support Visual Studio 2015 and 2013.
+#   https://github.com/actions/virtual-environments/issues/387
+#
+# - Setup procedure for msys2 environment is painfully slow.  It takes
+#   3..5 minutes.
+#
+# Notes:
+# - You can investigate various information at the right pane of GitHub
+#   Actions report page.
+#
+#   | Item                      | Section in the right pane             |
+#   | ------------------------- | ------------------------------------- |
+#   | OS, VM                    | Set up job                            |
+#   | git repo, commit hash     | Run actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8               |
+#   | gcc, tools                | Environment info                      |
+#
+# - To fail earlier, order of tests in the same job are roughly sorted by
+#   elapsed time.
+#
+# Todos:
+# - [ ] Linux: Add native ARM64 runner.
+# - [ ] Linux: Add native PPC64LE runner.
+# - [ ] Linux: Add native S390X runner.
+# - [ ] Windows: Add clang for msys2.
+# - [ ] Windows: Add native or emulated ARM64 runner (note: currently unreliable)
+
+
+# Name of the workflow is also displayed as a SVG badge
+name: xxHash CI tests
+
+on: [push, pull_request]
+
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  xxhash-c-compilers:
+    name: CC=${{ matrix.cc }}, ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # 'false' means Don't stop matrix workflows even if some matrix entry fails.
+      matrix:
+        include: [
+          # You can access the following values via ${{ matrix.??? }}
+          #
+          #   pkgs    : apt-get package names.  It can include multiple package names which are delimited by space.
+          #   cc      : C compiler executable.
+          #   cxx     : C++ compiler executable for `make ctocpptest`.
+          #   os      : GitHub Actions YAML workflow label.  See https://github.com/actions/virtual-environments#available-environments
+
+          # cc
+          { pkgs: '',                                  cc: cc,        cxx: c++,         os: ubuntu-latest, },
+
+          # gcc
+          { pkgs: '',                                  cc: gcc,       cxx: g++,         os: ubuntu-latest, },
+          { pkgs: 'gcc-14  g++-14  lib32gcc-14-dev',   cc: gcc-14,    cxx: g++-14,      os: ubuntu-24.04,  },
+          { pkgs: 'gcc-13  g++-13  lib32gcc-13-dev',   cc: gcc-13,    cxx: g++-13,      os: ubuntu-24.04,  },
+          { pkgs: 'gcc-12  g++-12  lib32gcc-12-dev',   cc: gcc-12,    cxx: g++-12,      os: ubuntu-22.04,  },
+          { pkgs: 'gcc-11  g++-11  lib32gcc-11-dev',   cc: gcc-11,    cxx: g++-11,      os: ubuntu-22.04,  },
+          { pkgs: 'gcc-10  g++-10  lib32gcc-10-dev',   cc: gcc-10,    cxx: g++-10,      os: ubuntu-22.04,  },
+          { pkgs: 'gcc-9   g++-9   lib32gcc-9-dev',    cc: gcc-9,     cxx: g++-9,       os: ubuntu-22.04,  },
+
+          # clang
+          { pkgs: '',                                  cc: clang,     cxx: clang++,     os: ubuntu-latest, },
+          { pkgs: 'clang-18',                          cc: clang-18,  cxx: clang++-18,  os: ubuntu-24.04,  },
+          { pkgs: 'clang-17',                          cc: clang-17,  cxx: clang++-17,  os: ubuntu-24.04,  },
+          { pkgs: 'clang-16',                          cc: clang-16,  cxx: clang++-16,  os: ubuntu-24.04,  },
+          { pkgs: 'clang-15',                          cc: clang-15,  cxx: clang++-15,  os: ubuntu-22.04,  },
+          { pkgs: 'clang-14',                          cc: clang-14,  cxx: clang++-14,  os: ubuntu-22.04,  },
+          { pkgs: 'clang-13',                          cc: clang-13,  cxx: clang++-13,  os: ubuntu-22.04,  },
+          { pkgs: 'clang-12',                          cc: clang-12,  cxx: clang++-12,  os: ubuntu-22.04,  },
+          { pkgs: 'clang-11',                          cc: clang-11,  cxx: clang++-11,  os: ubuntu-22.04,  },
+        ]
+
+    runs-on: ${{ matrix.os }}
+    env:                        # Set environment variables
+      # We globally set CC and CXX to improve compatibility with .travis.yml
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: apt-get install
+      run: |
+        sudo apt-get update
+        sudo apt-get install gcc-multilib
+        sudo apt-get install ${{ matrix.pkgs }}
+
+    - name: Environment info
+      run: |
+        echo && type $CC && which $CC && $CC --version
+        echo && type $CXX && which $CXX && $CXX --version
+        echo && type make && make -v
+        echo && cat /proc/cpuinfo || echo /proc/cpuinfo is not present
+
+    - name: C90 + no-long-long compliance
+      if: always()
+      run: |
+        CFLAGS="-std=c90 -pedantic -Wno-long-long -Werror" make clean xxhsum
+
+    - name: C90 + XXH_NO_LONG_LONG
+      if: always()
+      run: |
+        # strict c90, with no long long support; resulting in no XXH64_* symbol
+        make clean c90test
+
+    - name: dispatch
+      if: always()
+      run: |
+        # removing sign conversion warnings due to a bug in gcc-5's definition of some AVX512 intrinsics
+        CFLAGS="-Werror" MOREFLAGS="-Wno-sign-conversion" make clean dispatch
+
+    - name: DISPATCH=1
+      if: always()
+      run: |
+        CFLAGS="-Wall -Wextra -Werror" make DISPATCH=1 clean default
+
+    - name: XXH_SIZE_OPT == 2
+      if: always()
+      run: |
+        CFLAGS="-Os -DXXH_SIZE_OPT=2 -Wall -Wextra -Werror" make clean xxhsum
+
+    - name: XXH_NO_XXH3
+      if: always()
+      run: |
+        # check library can be compiled with XXH_NO_XXH3, resulting in no XXH3_* symbol
+        make clean noxxh3test
+
+    - name: XXH_NO_STREAM
+      if: always()
+      run: |
+        # check library can be compiled with XXH_NO_STREAM, resulting in no streaming symbols
+        make clean nostreamtest
+
+    - name: make avx512f
+      run: |
+        CFLAGS="-O1 -mavx512f -Werror" make clean default
+
+    - name: test-all
+      if: always()
+      run: |
+        make clean test-all
+
+    - name: test-alias
+      run: |
+        make clean
+        make -C tests test_alias
+
+
+  ubuntu-consistency:
+    name: Linux x64 check results consistency
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: Environment info
+      run: |
+        echo && gcc --version
+        echo && make -v
+        echo && cat /proc/cpuinfo || echo /proc/cpuinfo is not present
+
+    - name: Scalar code path
+      run: |
+        CPPFLAGS=-DXXH_VECTOR=XXH_SCALAR make clean check
+
+    - name: SSE2 code path
+      run: |
+        CPPFLAGS=-DXXH_VECTOR=XXH_SSE2 make clean check
+
+    - name: AVX2 code path
+      run: |
+        CPPFLAGS="-mavx2 -DXXH_VECTOR=XXH_AVX2" make clean check
+
+    # As for AVX512, see "Known critical issues" at the top of this file
+    - name: AVX512 code path
+      run: |
+        # Run "make check" if /proc/cpuinfo has flags for avx512.
+        grep -q "^flags.*\bavx512\b" /proc/cpuinfo && CPPFLAGS="-mavx512f -DXXH_VECTOR=XXH_AVX512" make clean check || (echo This test runner does not support AVX512. && $(exit 0))
+
+    - name: reroll code path (#240)
+      run: |
+        CPPFLAGS=-DXXH_REROLL=1 make clean check
+
+    - name: tests/bench
+      run: |
+        make -C tests/bench
+
+
+  ubuntu-wasm:
+    name: Ubuntu Node ${{ matrix.node-version }} WebAssembly/asm.js tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 17.x, 18.x]
+
+    env:
+      EM_VERSION: 3.1.33 # TODO: more emsdk versions
+      EM_CACHE_FOLDER: emsdk-cache-${{ matrix.node-version }}
+      CC: emcc
+
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: Setup cache
+      id: cache-system-libraries
+      uses: actions/cache@v4
+      with:
+        path: ${{env.EM_CACHE_FOLDER}}
+        key: em${{env.EM_VERSION}}-node${{ matrix.node-version }}-${{ runner.os }}
+
+    - name: Setup emsdk
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: ${{env.EM_VERSION}}
+        actions-cache-folder: ${{env.EM_CACHE_FOLDER}}
+
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ matrix.node-version }}
+
+    - name: Environment info
+      run: |
+        echo && node -p '`node version: ${process.versions.node}, v8 version: ${process.versions.v8}`'
+        echo && emcc --version
+        echo && make -v
+        echo && cat /proc/cpuinfo || echo /proc/cpuinfo is not present
+
+    - name: Scalar code path
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" RUN_ENV="node" NODE_JS=1 make clean check
+
+    - name: SIMD128 (via NEON SIMDe) code path (XXH_VECTOR=XXH_NEON)
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_NEON -msimd128" RUN_ENV="node" NODE_JS=1 make clean check
+
+    - name: Scalar asm.js (-sWASM=0)
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" RUN_ENV="node" NODE_JS=1 LDFLAGS="-sWASM=0" make clean check
+
+
+  ubuntu-misc:
+    name: Linux x64 misc tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: apt-get install
+      run: |
+        sudo apt-get update
+        sudo apt-get install valgrind cppcheck
+
+    - name: Environment info
+      run: |
+        echo && gcc --version
+        echo && clang --version
+        echo && valgrind --version
+        echo && cppcheck --version
+        echo && make -v
+        echo && cat /proc/cpuinfo || echo /proc/cpuinfo is not present
+
+    - name: cppcheck
+      run: |
+        # This test script ignores exit code of cppcheck.  See knowin issues
+        # at the top of this file.
+        make clean cppcheck || echo There are some cppcheck reports
+
+    - name: test-mem (valgrind)
+      run: |
+        make clean test-mem
+
+    - name: usan
+      run: |
+        make clean usan
+
+    - name: Lint Unicode in root-dir, cli/, tests/, tests/bench/, tests/collisions/.
+      run: |
+        make lint-unicode
+
+    - name: test-filename-escape
+      # See also issue #695 - https://github.com/Cyan4973/xxHash/issues/695
+      run: |
+        make clean test-filename-escape
+
+    - name: test-cli-comment-line
+      run: |
+        make clean test-cli-comment-line
+
+  ubuntu-cmake-unofficial:
+    name: Linux x64 cmake unofficial build test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: Environment info
+      run: |
+        echo && gcc --version
+        echo && cmake --version
+        echo && make -v
+        echo && cat /proc/cpuinfo || echo /proc/cpuinfo is not present
+
+    - name: Configure, build & stage (CMake)
+      run: |
+        BUILD_DIR="${{ github.workspace }}/cmakebuild"
+
+        # 1) configure
+        cmake -S build/cmake -B "$BUILD_DIR" \
+              -DCMAKE_C_FLAGS="-Werror" \
+              -DCMAKE_INSTALL_PREFIX=/usr  # real prefix inside DESTDIR
+
+        # 2) build (uses default Makefile generator on Linux runners)
+        cmake --build "$BUILD_DIR" --parallel
+
+        # 3) staged install
+        DESTDIR="$BUILD_DIR/stage" cmake --install "$BUILD_DIR" --prefix /usr
+
+    - name: Generate & validate libxxhash.pc (CMake)
+      run: |
+        SRC_DIR=build/cmake
+        BUILD_PKG_DIR="${{ github.workspace }}/cmakebuildpkg"
+
+        # 1) configure an out‑of‑tree build that writes the .pc file
+        cmake -S "$SRC_DIR" -B "$BUILD_PKG_DIR" \
+              -DCMAKE_INSTALL_PREFIX=/usr \
+              -DCMAKE_INSTALL_INCLUDEDIR=/usr/include \
+              -DCMAKE_INSTALL_LIBDIR=/usr/lib
+
+        # 2) sanity‑check the resulting pkg‑config file
+        PC_FILE="$BUILD_PKG_DIR/libxxhash.pc"
+        test -f "$PC_FILE"                            # file exists
+        grep -q '^libdir=/usr/lib$' "$PC_FILE"
+        grep -q '^includedir=/usr/include$' "$PC_FILE"
+
+    - name: cmake minimum version v3.10 test
+      run: |
+        CMAKE_VERSION="3.10.0"
+        CMAKE_MAJOR_MINOR="3.10"
+        BASE_DIR="$(pwd)"
+        DOWNLOAD_DIR="${BASE_DIR}/cmake_download"
+        CMAKE_BIN_DIR="${DOWNLOAD_DIR}/cmake-${CMAKE_VERSION}-Linux-x86_64"
+        CMAKE_BIN="${CMAKE_BIN_DIR}/bin/cmake"
+        BUILD_DIR="${BASE_DIR}/cmake_build"
+        INSTALL_TEST_DIR="${BASE_DIR}/cmake_install_test"
+
+        # Create necessary directories
+        mkdir -p "${DOWNLOAD_DIR}" "${BUILD_DIR}" "${INSTALL_TEST_DIR}"
+
+        # Download and extract CMake
+        echo "Downloading CMake ${CMAKE_VERSION}..."
+        wget "https://cmake.org/files/v${CMAKE_MAJOR_MINOR}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz" -P "${DOWNLOAD_DIR}"
+        tar xzf "${DOWNLOAD_DIR}/cmake-${CMAKE_VERSION}-Linux-x86_64.tar.gz" -C "${DOWNLOAD_DIR}"
+
+        # Verify CMake version
+        echo "Using CMake version:"
+        "${CMAKE_BIN}" --version
+
+        # Configure the build
+        echo "Configuring build..."
+        (cd "${BUILD_DIR}" && "${CMAKE_BIN}" "${BASE_DIR}/build/cmake")
+
+        # Build the project
+        echo "Building project..."
+        "${CMAKE_BIN}" --build "${BUILD_DIR}"
+
+        # Install to test directory
+        echo "Installing to test directory..."
+        DESTDIR="${INSTALL_TEST_DIR}" "${CMAKE_BIN}" --build "${BUILD_DIR}" --target install
+
+        echo "Test completed successfully with cmake ${CMAKE_VERSION}"
+
+        # cleaning
+        rm -rf "${DOWNLOAD_DIR}" "${BUILD_DIR}" "${INSTALL_TEST_DIR}"
+
+
+
+  # Linux, { ARM, ARM64, PPC64LE, PPC64, S390X }
+  # All tests are using QEMU and gcc cross compiler.
+
+  qemu-consistency:
+    name: QEMU ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # 'false' means Don't stop matrix workflows even if some matrix failed.
+      matrix:
+        include: [
+          { name: 'ARM',             xcc_pkg: gcc-arm-linux-gnueabi,        xcc: arm-linux-gnueabi-gcc,        xemu_pkg: qemu-system-arm,    xemu: qemu-arm-static,     os: ubuntu-latest, },
+          { name: 'AARCH64',         xcc_pkg: gcc-aarch64-linux-gnu,        xcc: aarch64-linux-gnu-gcc,        xemu_pkg: qemu-system-arm,    xemu: qemu-aarch64-static, os: ubuntu-latest, },
+          { name: 'PPC64LE',         xcc_pkg: gcc-powerpc64le-linux-gnu,    xcc: powerpc64le-linux-gnu-gcc,    xemu_pkg: qemu-system-ppc,    xemu: qemu-ppc64le-static, os: ubuntu-latest, },
+          { name: 'PPC64',           xcc_pkg: gcc-powerpc64-linux-gnu,      xcc: powerpc64-linux-gnu-gcc,      xemu_pkg: qemu-system-ppc,    xemu: qemu-ppc64-static,   os: ubuntu-latest, },
+          { name: 'S390X',           xcc_pkg: gcc-s390x-linux-gnu,          xcc: s390x-linux-gnu-gcc,          xemu_pkg: qemu-system-s390x,  xemu: qemu-s390x-static,   os: ubuntu-latest, },
+          { name: 'MIPS',            xcc_pkg: gcc-mips-linux-gnu,           xcc: mips-linux-gnu-gcc,           xemu_pkg: qemu-system-mips,   xemu: qemu-mips-static,    os: ubuntu-latest, },
+          { name: 'M68K',            xcc_pkg: gcc-m68k-linux-gnu,           xcc: m68k-linux-gnu-gcc,           xemu_pkg: qemu-system-m68k,   xemu: qemu-m68k-static,    os: ubuntu-latest, },
+          { name: 'RISC-V',          xcc_pkg: gcc-riscv64-linux-gnu,        xcc: riscv64-linux-gnu-gcc,        xemu_pkg: qemu-system-riscv64,xemu: qemu-riscv64-static, os: ubuntu-latest, },
+          { name: 'SPARC',           xcc_pkg: gcc-sparc64-linux-gnu,        xcc: sparc64-linux-gnu-gcc,        xemu_pkg: qemu-system-sparc,  xemu: qemu-sparc64-static, os: ubuntu-latest, },
+          { name: 'LoongArch',       xcc_pkg: gcc-14-loongarch64-linux-gnu, xcc: loongarch64-linux-gnu-gcc-14, xemu_pkg: qemu-system-loongarch64, xemu: qemu-loongarch64-static, os: ubuntu-24.04, },
+        ]
+    env:                        # Set environment variables
+      XCC: ${{ matrix.xcc }}
+      XEMU: ${{ matrix.xemu }}
+      MOREFLAGS: -Werror
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+    - name: apt update & install (1)
+      run: |
+        sudo apt-get update
+        sudo apt-get install gcc-multilib g++-multilib qemu-utils qemu-user-static
+
+    - name: Environment info (1)
+      run: |
+        echo && apt-cache search "^gcc-" | grep "linux" | sort
+
+    - name: apt update & install (2)
+      run: |
+        sudo apt-get install ${{ matrix.xcc_pkg }} ${{ matrix.xemu_pkg }}
+
+    - name: Environment info (2)
+      run: |
+        echo && which $XCC
+        echo && $XCC --version
+        echo && $XCC -v  # Show built-in specs
+        echo && which $XEMU
+        echo && $XEMU --version
+
+    - name: ARM (XXH_VECTOR=[ scalar, NEON ])
+      if: ${{ startsWith(matrix.name, 'ARM') }}
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_NEON" CFLAGS="-O3 -march=armv7-a -fPIC -mfloat-abi=softfp -mfpu=neon-vfpv4" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+        make -C tests clean
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make -C tests sanity_test_vectors.h test_sanity
+
+    - name: AARCH64 (XXH_VECTOR=[ scalar, NEON, SVE ])
+      if: ${{ startsWith(matrix.name, 'AARCH64') }}
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_NEON" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_SVE" LDFLAGS="-static" CC="$XCC -march=armv8.2-a+sve" RUN_ENV="$XEMU -cpu max,sve128=on,sve256=off,sve512=off,sve1024=off,sve2048=off" make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_SVE" LDFLAGS="-static" CC="$XCC -march=armv8.2-a+sve" RUN_ENV="$XEMU -cpu max,sve128=on,sve256=on,sve512=off,sve1024=off,sve2048=off" make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_SVE" LDFLAGS="-static" CC="$XCC -march=armv8.2-a+sve" RUN_ENV="$XEMU -cpu max,sve128=on,sve256=on,sve512=on,sve1024=off,sve2048=off" make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_SVE" LDFLAGS="-static" CC="$XCC -march=armv8.2-a+sve" RUN_ENV="$XEMU -cpu max,sve128=on,sve256=on,sve512=on,sve1024=on,sve2048=off" make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_SVE" LDFLAGS="-static" CC="$XCC -march=armv8.2-a+sve" RUN_ENV="$XEMU -cpu max,sve128=on,sve256=on,sve512=on,sve1024=on,sve2048=on" make clean check
+
+    - name: PPC64(LE) (XXH_VECTOR=[ scalar, VSX ])
+      if: ${{ startsWith(matrix.name, 'PPC64') }}
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+        CPPFLAGS="-DXXH_VECTOR=XXH_VSX" CFLAGS="-O3 -maltivec -mvsx -mpower8-vector -mcpu=power8" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+
+    - name: S390X (XXH_VECTOR=[ scalar, VSX ])
+      if: ${{ startsWith(matrix.name, 'S390X') }}
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+        CPPFLAGS=-DXXH_VECTOR=XXH_VSX CFLAGS="-O3 -march=arch11 -mzvector" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+
+    - name: MIPS-M68K-SPARC (XXH_VECTOR=[ scalar ])
+      if: ${{ startsWith(matrix.name, 'MIPS') || startsWith(matrix.name, 'M68K') || startsWith(matrix.name, 'SPARC') }}
+      run: |
+        make clean; LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make check
+
+    - name: RISCV (XXH_VECTOR=[scalar, rvv])
+      if: ${{startsWith(matrix.name, 'RISC-V')}}
+      run: |
+        make clean; LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make check
+        CPPFLAGS="-march=rv64gcv -O2 -DXXH_VECTOR=XXH_RVV" LDFLAGS="-static" CC=$XCC RUN_ENV="$XEMU -cpu rv64,v=true,vlen=128,rvv_ta_all_1s=on,rvv_ma_all_1s=on" make clean check
+        CPPFLAGS="-march=rv64gcv -O2 -DXXH_VECTOR=XXH_RVV" LDFLAGS="-static" CC=$XCC RUN_ENV="$XEMU -cpu rv64,v=true,vlen=256,rvv_ta_all_1s=on,rvv_ma_all_1s=on" make clean check
+        CPPFLAGS="-march=rv64gcv -O2 -DXXH_VECTOR=XXH_RVV" LDFLAGS="-static" CC=$XCC RUN_ENV="$XEMU -cpu rv64,v=true,vlen=512,rvv_ta_all_1s=on,rvv_ma_all_1s=on" make clean check
+
+    - name: LoongArch (XXH_VECTOR=[ scalar, LSX ])
+      if: ${{ startsWith(matrix.name, 'LoongArch') }}
+      run: |
+        CPPFLAGS="-DXXH_VECTOR=XXH_SCALAR" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+        CPPFLAGS=-DXXH_VECTOR=XXH_LSX CFLAGS="-O3 -march=la464 -mlsx" LDFLAGS="-static" CC=$XCC RUN_ENV=$XEMU make clean check
+
+  # macOS
+
+  macos-general:
+    name: ${{ matrix.system.os }}
+    runs-on: ${{ matrix.system.os }}
+    strategy:
+      fail-fast: false  # 'false' means Don't stop matrix workflows even if some matrix failed.
+      matrix:
+        system: [
+          { os: macos-13     },
+          { os: macos-14     },
+          { os: macos-15     },
+          { os: macos-latest },
+        ]
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: Environment info
+      run: |
+        echo && clang --version
+        echo && sysctl -a | grep machdep.cpu   # cpuinfo
+
+    - name: make
+      run: |
+        CFLAGS="-Werror" make clean default
+
+    - name: make test
+      run: |
+        # test scenario where "stdout" is not the console
+        make clean test MOREFLAGS='-Werror' | tee
+
+
+  # Windows, { VC++2022, VC++2019 } x { x64, Win32, ARM, ARM64 }
+  #
+  # - Default shell for Windows environment is PowerShell Core.
+  #   https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#using-a-specific-shell
+  #
+  # - "windows-2022" uses Visual Studio 2022.
+  #   https://github.com/actions/virtual-environments/blob/main/images/win/Windows2022-Readme.md#visual-studio-enterprise-2022
+  #
+  # - "windows-2019" uses Visual Studio 2019.
+  #   https://github.com/actions/virtual-environments/blob/main/images/win/Windows2019-Readme.md#visual-studio-enterprise-2019
+
+  windows-visualc-general:
+    name: ${{ matrix.system.vc }}, ${{ matrix.arch }}
+    runs-on: ${{ matrix.system.os }}   # Runs-on foreach value of strategy.matrix.system.os
+    env:
+      SRC_DIR: build/cmake
+    strategy:
+      fail-fast: false  # 'false' means: Don't stop matrix workflows even if some matrix failed.
+      matrix:
+        system: [
+          { os: windows-2022, vc: "VC++ 2022", clangcl: 'true', },
+        ]
+        arch: [ x64, Win32, ARM64 ]
+    # make every PowerShell step start with `$ErrorActionPreference = 'Stop'`
+    defaults:
+      run:
+        shell: pwsh -NoLogo -NoProfile -Command "$ErrorActionPreference='Stop'; $PSNativeCommandUseErrorActionPreference=$true; & {0}"
+
+    steps:
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+    - name: Build ${{ matrix.system.os }}, ${{ matrix.arch }}
+      run: |
+        $BUILD_DIR   = "$env:GITHUB_WORKSPACE\cmake_visual_${{ matrix.arch }}"
+        $INSTALL_DIR = "C:/install"
+
+        cmake -S $env:SRC_DIR -B $BUILD_DIR `
+              -A "${{ matrix.arch }}" `
+              -DCMAKE_C_FLAGS="/W4 /WX"
+
+        cmake --build $BUILD_DIR --config Release --parallel
+        cmake --install $BUILD_DIR --config Release --prefix $INSTALL_DIR
+
+    - name: Test produced binary
+      # Run benchmark for testing only if target arch is x64 or Win32.
+      if: ${{ matrix.arch == 'x64' || matrix.arch == 'Win32' }}
+      run: |
+        C:\install\bin\xxhsum.exe -bi1
+
+
+    - name: Build ${{ matrix.system.os }}, ${{ matrix.arch }}, with DISPATCH
+      # DISPATCH only if target arch is x64 or Win32.
+      if: ${{ ( matrix.arch == 'x64' || matrix.arch == 'Win32' ) }}
+      run: |
+        $BUILD_DIR = "$env:GITHUB_WORKSPACE\cmake_visual_dispatch_${{ matrix.arch }}"
+        $INSTALL_DIR = "C:/install_dispatch"
+
+        cmake -S $env:SRC_DIR -B $BUILD_DIR `
+              -A "${{ matrix.arch }}" `
+              -DDISPATCH=ON `
+              -DCMAKE_C_FLAGS="/W4 /WX"
+
+        cmake --build $BUILD_DIR --config Release --parallel
+        cmake --install $BUILD_DIR --config Release --prefix $INSTALL_DIR
+
+        # Runtime test bundled, this they have same $arch conditions
+        $exe = "$INSTALL_DIR\bin\xxhsum.exe"
+        & "$exe" -V   | Select-String autoVec   # PowerShell’s ‘grep’
+        & "$exe" -bi1
+
+
+    - name: Build ${{ matrix.system.os }}, clang-cl, ${{ matrix.arch }}
+      if: ${{ matrix.system.clangcl == 'true' }}
+      run: |
+        $BUILD_DIR = "$env:GITHUB_WORKSPACE\cmake_visual_cl_${{ matrix.arch }}"
+
+        cmake -S $env:SRC_DIR -B $BUILD_DIR `
+              -A "${{ matrix.arch }}" `
+              -DCMAKE_GENERATOR_TOOLSET=ClangCL `
+              -DCMAKE_C_FLAGS="/W4 /WX"
+
+        cmake --build $BUILD_DIR --config Release --parallel
+        cmake --install $BUILD_DIR --config Release --prefix "C:/install_cl"
+
+    - name: Test (clang-cl)
+      # Run benchmark for testing only if target arch is x64 or Win32.
+      if: ${{ matrix.system.clangcl == 'true' && ( matrix.arch == 'x64' || matrix.arch == 'Win32' ) }}
+      run: |
+        C:\install_cl\bin\xxhsum.exe -bi1
+
+
+  # Windows, { mingw64, mingw32 }
+  #
+  # - Shell for msys2 is sh (msys2).  defaults.run.shell is for this setting.
+  #
+  # https://github.com/msys2/MINGW-packages/blob/master/.github/workflows/main.yml
+  # https://github.com/actions/starter-workflows/issues/95
+
+  windows-msys2-general:
+    name: Windows ${{ matrix.msystem }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false  # 'false' means Don't stop matrix workflows even if some matrix failed.
+      matrix:
+        include: [
+          { msystem: mingw64, toolchain: mingw-w64-x86_64-toolchain },
+          { msystem: mingw32, toolchain: mingw-w64-i686-toolchain },
+        ]
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: msys2/setup-msys2@7efe20baefed56359985e327d329042cde2434ff # v2
+        with:
+          msystem: MSYS
+          install: mingw-w64-i686-make ${{ matrix.toolchain }}
+          update: true
+
+      - name: Update
+        run: |
+          pacman --noconfirm -Suuy
+          pacman --noconfirm -Suu
+
+      - name: mingw64
+        if: ${{ matrix.msystem == 'mingw64' }}
+        run: |
+          PATH=/mingw64/bin:$PATH /mingw32/bin/mingw32-make clean test gcc-og-test MOREFLAGS=-Werror
+          PATH=/mingw64/bin:$PATH /mingw32/bin/mingw32-make -C tests/bench
+          # Abort if result of "file ./xxhsum.exe" doesn't contain 'x86-64'.
+          # Expected output is "./xxhsum.exe: PE32+ executable (console) x86-64, for MS Windows"
+          file ./xxhsum.exe
+          file ./xxhsum.exe | grep -q 'x86-64' || $(exit 1)
+          ./xxhsum.exe --version
+
+      - name: mingw32
+        if: ${{ matrix.msystem == 'mingw32' }}
+        run: |
+          PATH=/mingw32/bin:$PATH /mingw32/bin/mingw32-make.exe clean test MOREFLAGS=-Werror
+          PATH=/mingw32/bin:$PATH /mingw32/bin/mingw32-make.exe -C tests/bench
+          # Abort if result of "file ./xxhsum.exe" doesn't contain '80386'.
+          # Expected output is "./xxhsum.exe: PE32 executable (console) Intel i386, for MS Windows"
+          file ./xxhsum.exe
+          file ./xxhsum.exe | grep -q '386' || $(exit 1)
+          ./xxhsum.exe --version

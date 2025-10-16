@@ -1,0 +1,147 @@
+# ==============================================================================
+#                            AppVeyor CI Configuration
+# ==============================================================================
+
+version: 1.0.{build}
+max_jobs: 2
+clone_depth: 2
+
+# ==============================================================================
+#                              Build Matrix
+# ==============================================================================
+
+environment:
+  matrix:
+    # Visual Studio 2017 build (not supported by GitHub Actions) - both Win32 and x64
+    - COMPILER: "visual"
+      ARCHS: "Win32,x64"
+      AVX2: "true"
+      APPVEYOR_BUILD_WORKER_IMAGE: "Visual Studio 2017"
+      TEST_XXHSUM: "true"
+
+    # Visual Studio 2019 build (no longer supported by GitHub Actions) - Win32 and x64
+    - COMPILER: "visual"
+      ARCHS: "Win32,x64"
+      AVX2: "true"
+      APPVEYOR_BUILD_WORKER_IMAGE: "Visual Studio 2019"
+      TEST_XXHSUM: "true"
+
+    # ARM build (no testing - cannot run on x86/x64 CI)
+    - COMPILER: "visual"
+      ARCHS: "ARM"
+      AVX2: "false"
+      TEST_XXHSUM: "false"
+
+# ==============================================================================
+#                              Build Scripts
+# ==============================================================================
+
+build_script:
+  - echo "========================================"
+  - echo "Building Visual Studio configurations"
+  - echo "========================================"
+
+  # Visual Studio build process
+  - ps: |
+      Set-Location "build/cmake"
+
+      # Split architectures and build each one
+      $architectures = $env:ARCHS -split ","
+
+      foreach ($arch in $architectures) {
+        $arch = $arch.Trim()
+        Write-Host "========================================"
+        Write-Host "Building for architecture: $arch"
+        Write-Host "========================================"
+
+        # Create architecture-specific build directory
+        $buildDir = "build_$arch"
+        New-Item -Path $buildDir -ItemType Directory -Force | Out-Null
+        Set-Location $buildDir
+
+        # Configure CMake for this architecture with fast Debug builds
+        cmake .. -A $arch -DXXHASH_C_FLAGS="/W4 /WX" -DCMAKE_C_FLAGS_DEBUG="/Od /Zi /MDd"
+
+        # Build Debug configuration (fast compilation, no optimizations)
+        Write-Host "Building Debug configuration for $arch..."
+        cmake --build . --config Debug
+
+        # Build Debug with SSE2 if Win32 (x64 has SSE2 by default, ARM doesn't support it)
+        if ($arch -eq "Win32") {
+          Write-Host "Building Debug configuration with SSE2 for $arch..."
+          cmake .. -A $arch -DXXHASH_C_FLAGS="/W4 /WX /arch:SSE2" -DCMAKE_C_FLAGS_DEBUG="/Od /Zi /MDd"
+          cmake --build . --config Debug
+        }
+
+        # Build Debug with AVX2 if enabled and supported
+        if ($env:AVX2 -eq "true" -and $arch -ne "ARM") {
+          Write-Host "Building Debug configuration with AVX2 for $arch..."
+          cmake .. -A $arch -DXXHASH_C_FLAGS="/W4 /WX /arch:AVX2" -DCMAKE_C_FLAGS_DEBUG="/Od /Zi /MDd"
+          cmake --build . --config Debug
+        }
+
+        # Build Release configuration
+        Write-Host "Building Release configuration for $arch..."
+        cmake --build . --config Release
+
+        # Go back to cmake directory for next architecture
+        Set-Location ..
+      }
+
+# ==============================================================================
+#                              Test Scripts
+# ==============================================================================
+
+test_script:
+  # Test xxhsum Release binaries (only for x86/x64 architectures that can run on CI)
+  - ps: |
+      if ($env:TEST_XXHSUM -eq "true") {
+        Set-Location "build/cmake"
+
+        # Split architectures and test each one
+        $architectures = $env:ARCHS -split ","
+
+        foreach ($arch in $architectures) {
+          $arch = $arch.Trim()
+
+          # Only test architectures that can run on CI (x86/x64)
+          if ($arch -eq "ARM") {
+            Write-Host "Skipping testing for $arch (cannot run on x86/x64 CI)"
+            continue
+          }
+
+          Write-Host "========================================"
+          Write-Host "Testing Visual Studio $arch"
+          Write-Host "========================================"
+
+          Set-Location "build_$arch"
+
+          # Test Release configuration only
+          Write-Host "Testing Release binary for $arch..."
+          Set-Location "Release"
+          cmd /c "xxhsum.exe -b99i0"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Release xxhsum.exe failed for $arch with exit code $LASTEXITCODE"
+            exit 1
+          }
+          Write-Host "Release binary test completed successfully for $arch"
+
+          # Go back to cmake directory for next architecture
+          Set-Location "../.."
+        }
+
+        Write-Host "------- All xxhsum testing completed successfully -------"
+      }
+
+# ==============================================================================
+#                              Artifacts
+# ==============================================================================
+# Currently no artifacts are collected
+# Future: Consider collecting built binaries for distribution
+
+# ==============================================================================
+#                              Build Notes
+# ==============================================================================
+# 1. ARM/ARM64 builds cannot be tested on x86/x64 CI infrastructure
+# 2. AppVeyor focuses on legacy Visual Studio versions (2013, 2015, 2017)
+# 3. Modern Visual Studio versions (2019, 2022) are tested on GitHub Actions
