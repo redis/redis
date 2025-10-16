@@ -215,12 +215,7 @@ robj *streamDup(robj *o) {
             streamID id;
             streamDecodeID(ri_cg_pel.key, &id);
 
-            uint64_t keyBuf[3];
-            pelTimeKey timeKey;
-            timeKey.delivery_time = new_nack->delivery_time;
-            timeKey.id = id;
-            encodePelTimeKey(keyBuf, &timeKey);
-            raxInsert(new_cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+            raxInsertPelByTime(new_cg->pel_by_time, new_nack->delivery_time, id);
         }
         raxStop(&ri_cg_pel);
 
@@ -1909,10 +1904,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 /* Remove the NACK from old consumer.*/
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 /* Remove the NACK from the PEL by time. */
-                timeKey.delivery_time = nack->delivery_time;
-                timeKey.id = pel_id;
-                encodePelTimeKey(&keyBuf, &timeKey);
-                raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+                raxRemovePelByTime(group->pel_by_time, nack->delivery_time, pel_id);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
                 nack->delivery_time = commandTimeSnapshot();
@@ -1921,10 +1913,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 
                 /* Add updated NACK in PEL by time. */
-                timeKey.delivery_time = nack->delivery_time;
-                timeKey.id = pel_id;
-                encodePelTimeKey(&keyBuf, &timeKey);
-                raxInsert(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+                raxInsertPelByTime(group->pel_by_time, nack->delivery_time, pel_id);
 
                 consumer->active_time = commandTimeSnapshot();
 
@@ -2046,10 +2035,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 nack = result;
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 /* Remove old entry from the PEL by time. */
-                timeKey.delivery_time = nack->delivery_time;
-                timeKey.id = id;
-                encodePelTimeKey(&keyBuf, &timeKey);
-                raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+                raxRemovePelByTime(group->pel_by_time, nack->delivery_time, id);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
                 nack->delivery_time = commandTimeSnapshot();
@@ -2063,10 +2049,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             }
 
             /* We have new NACK or updated existing one. */
-            timeKey.delivery_time = nack->delivery_time;
-            timeKey.id = id;
-            encodePelTimeKey(&keyBuf, &timeKey);
-            raxInsert(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+            raxInsertPelByTime(group->pel_by_time, nack->delivery_time, id);
 
             consumer->active_time = commandTimeSnapshot();
 
@@ -2133,19 +2116,12 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
             addReplyNullArray(c);
         } else {
             streamNACK *nack = ri.data;
-            uint64_t keyBuf[3];
-            pelTimeKey timeKey;
-            timeKey.delivery_time = nack->delivery_time;
-            timeKey.id = thisid;
-            encodePelTimeKey(&keyBuf, &timeKey);
-            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+            raxRemovePelByTime(group->pel_by_time, nack->delivery_time, thisid);
 
             nack->delivery_time = commandTimeSnapshot();
             nack->delivery_count++;
 
-            timeKey.delivery_time = nack->delivery_time;
-            encodePelTimeKey(&keyBuf, &timeKey);
-            raxInsert(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+            raxInsertPelByTime(group->pel_by_time, nack->delivery_time, thisid);
         }
         arraylen++;
     }
@@ -2915,12 +2891,7 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         
         /* Remove from group and consumer PELs */
         raxRemove(group->pel, buf, sizeof(buf), NULL);
-        uint64_t keyBuf[3];
-        pelTimeKey timeKey;
-        timeKey.delivery_time = nack->delivery_time;
-        timeKey.id = *id;
-        encodePelTimeKey(keyBuf, &timeKey);
-        raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+        raxRemovePelByTime(group->pel_by_time, nack->delivery_time, *id);
         raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
@@ -3118,12 +3089,7 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
         streamID id;
         streamDecodeID(ri.key, &id);
 
-        uint64_t keyBuf[3];
-        pelTimeKey timeKey;
-        timeKey.delivery_time = nack->delivery_time;
-        timeKey.id = id;
-        encodePelTimeKey(keyBuf, &timeKey);
-        raxRemove(cg->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+        raxRemovePelByTime(cg->pel_by_time, nack->delivery_time, id);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
 
         streamFreeNACK(nack);
@@ -3438,12 +3404,7 @@ void xackCommand(client *c) {
         void *result;
         if (raxFind(group->pel,buf,sizeof(buf),&result)) {
             streamNACK *nack = result;
-            uint64_t keyBuf[3];
-            pelTimeKey timeKey;
-            timeKey.delivery_time = nack->delivery_time;
-            timeKey.id = ids[j-3];
-            encodePelTimeKey(keyBuf, &timeKey);
-            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+            raxRemovePelByTime(group->pel_by_time, nack->delivery_time, ids[j-3]);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(kv->ptr, nack, buf);
@@ -3513,12 +3474,7 @@ void xackdelCommand(client *c) {
         void *result;
         if (raxFind(group->pel,buf,sizeof(buf),&result)) {
             streamNACK *nack = result;
-            uint64_t keyBuf[3];
-            pelTimeKey timeKey;
-            timeKey.delivery_time = nack->delivery_time;
-            timeKey.id = *id;
-            encodePelTimeKey(keyBuf, &timeKey);
-            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+            raxRemovePelByTime(group->pel_by_time, nack->delivery_time, *id);
             raxRemove(group->pel,buf,sizeof(buf),NULL);
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(s, nack, buf);
@@ -3952,10 +3908,7 @@ void xclaimCommand(client *c) {
                 propagate_last_id = 0; /* Will be propagated by XCLAIM itself. */
                 server.dirty++;
                 /* Release the NACK */
-                timeKey.delivery_time = nack->delivery_time;
-                timeKey.id = id;
-                encodePelTimeKey(keyBuf, &timeKey);
-                raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+                raxRemovePelByTime(group->pel_by_time, nack->delivery_time, id);
                 raxRemove(group->pel, buf,sizeof(buf),NULL);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                 streamDestroyNACK(o->ptr, nack, buf);
@@ -3972,10 +3925,7 @@ void xclaimCommand(client *c) {
             /* Create the NACK. */
             nack = streamCreateNACK(NULL);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
-            timeKey.delivery_time = nack->delivery_time;
-            timeKey.id = id;
-            encodePelTimeKey(keyBuf, &timeKey);
-            raxInsert(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+            raxInsertPelByTime(group->pel_by_time, nack->delivery_time, id);
             nack->cgroup_ref_node = streamLinkCGroupToEntry(o->ptr, group, buf);
         }
 
@@ -3999,16 +3949,11 @@ void xclaimCommand(client *c) {
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             }
 
-            timeKey.delivery_time = nack->delivery_time;
-            timeKey.id = id;
-            encodePelTimeKey(keyBuf, &timeKey);
-            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+            raxRemovePelByTime(group->pel_by_time, nack->delivery_time, id);
 
             nack->delivery_time = deliverytime;
 
-            timeKey.delivery_time = nack->delivery_time;
-            encodePelTimeKey(keyBuf, &timeKey);
-            raxInsert(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+            raxInsertPelByTime(group->pel_by_time, nack->delivery_time, id);
 
             /* Set the delivery attempts counter if given, otherwise
              * autoincrement unless JUSTID option provided */
@@ -4163,10 +4108,7 @@ void xautoclaimCommand(client *c) {
             decrRefCount(idstr);
             server.dirty++;
             /* Clear this entry from the PEL, it no longer exists */
-            timeKey.delivery_time = nack->delivery_time;
-            timeKey.id = id;
-            encodePelTimeKey(keyBuf, &timeKey);
-            raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+            raxRemovePelByTime(group->pel_by_time, nack->delivery_time, id);
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
             streamDestroyNACK(o->ptr, nack, ri.key);
@@ -4192,16 +4134,11 @@ void xautoclaimCommand(client *c) {
         }
 
         /* Update the consumer and idle time. */
-        timeKey.delivery_time = nack->delivery_time;
-        timeKey.id = id;
-        encodePelTimeKey(keyBuf, &timeKey);
-        raxRemove(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL);
+        raxRemovePelByTime(group->pel_by_time, nack->delivery_time, id);
 
         nack->delivery_time = now;
 
-        timeKey.delivery_time = nack->delivery_time;
-        encodePelTimeKey(keyBuf, &timeKey);
-        raxInsert(group->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+        raxInsertPelByTime(group->pel_by_time, nack->delivery_time, id);
 
         /* Increment the delivery attempts counter unless JUSTID option provided */
         if (!justid)
@@ -4904,6 +4841,28 @@ void decodePelTimeKey(void *buf, pelTimeKey *key) {
     key->delivery_time = ntohu64(e[0]);
     key->id.ms = ntohu64(e[1]);
     key->id.seq = ntohu64(e[2]);
+}
+
+/* Helper function to insert a NACK into the PEL by time index.
+ * This encapsulates the encoding and insertion into the pel_by_time rax tree. */
+void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID id) {
+    pelTimeKey timeKey;
+    unsigned char keyBuf[sizeof(pelTimeKey)];
+    timeKey.delivery_time = delivery_time;
+    timeKey.id = id;
+    encodePelTimeKey(&keyBuf, &timeKey);
+    raxInsert(pel_by_time, keyBuf, sizeof(keyBuf), NULL, NULL);
+}
+
+/* Helper function to remove a NACK from the PEL by time index.
+ * This encapsulates the encoding and removal from the pel_by_time rax tree. */
+void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID id) {
+    pelTimeKey timeKey;
+    unsigned char keyBuf[sizeof(pelTimeKey)];
+    timeKey.delivery_time = delivery_time;
+    timeKey.id = id;
+    encodePelTimeKey(&keyBuf, &timeKey);
+    raxRemove(pel_by_time, keyBuf, sizeof(keyBuf), NULL);
 }
 
 /* Register stream keys for monitoring of expired pending entries to enable

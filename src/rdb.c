@@ -2992,12 +2992,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 streamID id;
                 streamDecodeID(rawid, &id);
 
-                uint64_t keyBuf[3];
-                pelTimeKey timeKey;
-                timeKey.delivery_time = nack->delivery_time;
-                timeKey.id = id;
-                encodePelTimeKey(&keyBuf, &timeKey);
-                raxInsert(cgroup->pel_by_time, (unsigned char*)&keyBuf, sizeof(keyBuf), NULL, NULL);
+                raxInsertPelByTime(cgroup->pel_by_time, nack->delivery_time, id);
             }
 
             /* Now that we loaded our global PEL, we need to load the

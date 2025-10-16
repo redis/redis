@@ -164,5 +164,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
 void encodePelTimeKey(void* buf, pelTimeKey *timeKey);
 void decodePelTimeKey(void *buf, pelTimeKey *timeKey);
+void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID id);
+void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID id);
 
 #endif
