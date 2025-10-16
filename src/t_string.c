@@ -786,32 +786,37 @@ void msetexCommand(client *c) {
         } else if (keys_pos != -1 && j >= kvs_start && j < kvs_end) {
             /* We're in key-value section - skip these arguments */
             continue;
-        } else if (!strcasecmp(arg, "NX")) {
+        } else if (!strcasecmp(arg, "NX") && !(flags & OBJ_SET_XX)) {
             flags |= OBJ_SET_NX;
-        } else if (!strcasecmp(arg, "XX")) {
+        } else if (!strcasecmp(arg, "XX") && !(flags & OBJ_SET_NX)) {
             flags |= OBJ_SET_XX;
-        } else if (!strcasecmp(arg, "EX") && j + 1 < c->argc) {
+        } else if (!strcasecmp(arg, "EX") && j + 1 < c->argc &&
+                   !(flags & (OBJ_PX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL))) {
             expire_flag_pos = j;  /* Remember position of EX flag */
             expire = c->argv[++j];
             unit = UNIT_SECONDS;
             flags |= OBJ_EX;
-        } else if (!strcasecmp(arg, "PX") && j + 1 < c->argc) {
+        } else if (!strcasecmp(arg, "PX") && j + 1 < c->argc &&
+                   !(flags & (OBJ_EX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL))) {
             expire_flag_pos = j;  /* Remember position of PX flag */
             expire = c->argv[++j];
             unit = UNIT_MILLISECONDS;
             flags |= OBJ_PX;
-        } else if (!strcasecmp(arg, "EXAT") && j + 1 < c->argc) {
+        } else if (!strcasecmp(arg, "EXAT") && j + 1 < c->argc &&
+                   !(flags & (OBJ_EX | OBJ_PX | OBJ_PXAT | OBJ_KEEPTTL))) {
             expire = c->argv[++j];
             unit = UNIT_SECONDS;
             flags |= OBJ_EXAT;
-        } else if (!strcasecmp(arg, "PXAT") && j + 1 < c->argc) {
+        } else if (!strcasecmp(arg, "PXAT") && j + 1 < c->argc &&
+                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_KEEPTTL))) {
             expire = c->argv[++j];
             unit = UNIT_MILLISECONDS;
             flags |= OBJ_PXAT;
-        } else if (!strcasecmp(arg, "KEEPTTL")) {
+        } else if (!strcasecmp(arg, "KEEPTTL") &&
+                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_PXAT))) {
             flags |= OBJ_KEEPTTL;
         } else {
-            addReplyErrorFormat(c, "syntax error - unknown argument: %s", arg);
+            addReplyErrorObject(c, shared.syntaxerr);
             return;
         }
     }

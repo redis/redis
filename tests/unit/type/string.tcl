@@ -257,12 +257,19 @@ start_server {tags {"string"}} {
     } {0 yyy}
 
     test {MSETEX - all expiration flags} {
-        # EX (seconds), PX (milliseconds), EXAT (absolute seconds), PXAT (absolute milliseconds)
+        # Test each expiration type separately (EX, PX, EXAT, PXAT)
         set future_sec [expr [clock seconds] + 10]
         set future_ms [expr [clock milliseconds] + 10000]
-        r msetex keys 2 ex:key{t} val1 px:key{t} val2 ex 5
-        r msetex keys 2 pxat:key{t} val3 exat:key{t} val4 pxat $future_ms exat $future_sec
-        list [expr [r ttl ex:key{t}] > 0] [expr [r pttl px:key{t}] > 0] [expr [r ttl exat:key{t}] > 0] [expr [r pttl pxat:key{t}] > 0]
+
+        # Test EX and PX with separate commands (each applies to all keys in that command)
+        r msetex keys 2 ex:key1{t} val1 ex:key2{t} val2 ex 5
+        r msetex keys 2 px:key1{t} val1 px:key2{t} val2 px 5000
+
+        # Test EXAT and PXAT with separate commands
+        r msetex keys 2 exat:key1{t} val3 exat:key2{t} val4 exat $future_sec
+        r msetex keys 2 pxat:key1{t} val3 pxat:key2{t} val4 pxat $future_ms
+
+        list [expr [r ttl ex:key1{t}] > 0] [expr [r pttl px:key1{t}] > 0] [expr [r ttl exat:key1{t}] > 0] [expr [r pttl pxat:key1{t}] > 0]
     } {1 1 1 1}
 
     test {MSETEX - KEEPTTL preserves existing TTL} {
@@ -296,6 +303,21 @@ start_server {tags {"string"}} {
         assert_error {*syntax error*} {r msetex key1 val1 ex 10}
         assert_error {*wrong number of key-value pairs*} {r msetex keys 2 key1 val1 key2}
         assert_error {*syntax error*} {r msetex keys 1 key1 val1 invalid_flag}
+    }
+
+    test {MSETEX - mutually exclusive flags} {
+        # NX and XX are mutually exclusive
+        assert_error {*syntax error*} {r msetex nx xx keys 2 key1{t} val1 key2{t} val2 ex 10}
+        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 nx xx ex 10}
+
+        # Multiple expiration flags are mutually exclusive
+        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 ex 10 px 5000}
+        assert_error {*syntax error*} {r msetex ex 10 px 5000 keys 2 key1{t} val1 key2{t} val2}
+        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 exat 1735689600 pxat 1735689600000}
+
+        # KEEPTTL conflicts with expiration flags
+        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 keepttl ex 10}
+        assert_error {*syntax error*} {r msetex keepttl px 5000 keys 2 key1{t} val1 key2{t} val2}
     }
 
     test "STRLEN against non-existing key" {
