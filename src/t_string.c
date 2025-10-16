@@ -9,9 +9,11 @@
 
 #include "server.h"
 #include <math.h> /* isnan(), isinf() */
+#include <xxhash.h>
 
 /* Forward declarations */
 int getGenericCommand(client *c);
+long long stringDigest(robj *o);
 
 /*-----------------------------------------------------------------------------
  * String Commands
