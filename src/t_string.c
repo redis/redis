@@ -69,6 +69,7 @@ static int checkStringLength(client *c, long long size, long long append) {
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
+void msetGenericCommand(client *c, int flags, robj *expire, int unit, int kvs_start, int kvs_count, int expire_flag_pos);
 
 /* Generic SET command family (SET, SETEX, PSETEX, SETNX)
  *
@@ -233,6 +234,7 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
 #define COMMAND_GET 0
 #define COMMAND_SET 1
+
 /*
  * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
  * string arguments used in SET and GET command.
@@ -652,42 +654,176 @@ void mgetCommand(client *c) {
     }
 }
 
-void msetGenericCommand(client *c, int nx) {
+/* Generic MSET command family (MSET, MSETNX, MSETEX)
+ *
+ * Arguments:
+ *   c: Redis client
+ *   flags: Command flags (OBJ_SET_NX, OBJ_SET_XX, OBJ_KEEPTTL, expiration flags)
+ *   expire: Expiration value object (NULL if no expiration)
+ *   unit: Time unit for expiration (UNIT_SECONDS or UNIT_MILLISECONDS)
+ *   kvs_start: Starting position of key-value pairs in c->argv (-1 for legacy MSET/MSETNX)
+ *   kvs_count: Number of key-value pairs (0 for legacy MSET/MSETNX)
+ *   expire_flag_pos: Position of expiration flag in c->argv for replication rewriting (-1 if none)
+ */
+void msetGenericCommand(client *c, int flags, robj *expire, int unit, int kvs_start, int kvs_count, int expire_flag_pos) {
     int j;
+    long long milliseconds = 0;
 
-    if ((c->argc % 2) == 0) {
-        addReplyErrorArity(c);
+    if (kvs_start == -1) {
+        if ((c->argc % 2) == 0) {
+            addReplyErrorArity(c);
+            return;
+        }
+        kvs_start = 1;
+        kvs_count = (c->argc - 1) / 2;
+    }
+    /* Validate expiration early */
+    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
         return;
     }
-
-    /* Handle the NX flag. The MSETNX semantic is to return zero and don't
-     * set anything if at least one key already exists. */
-    if (nx) {
-        for (j = 1; j < c->argc; j += 2) {
-            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
+    if (flags & OBJ_SET_NX) {
+        for (j = 0; j < kvs_count; j++) {
+            int key_idx = kvs_start + (j * 2);
+            if (lookupKeyWrite(c->db, c->argv[key_idx]) != NULL) {
+                addReply(c, shared.czero);
+                return;
+            }
+        }
+    }
+    if (flags & OBJ_SET_XX) {
+        for (j = 0; j < kvs_count; j++) {
+            int key_idx = kvs_start + (j * 2);
+            if (lookupKeyWrite(c->db, c->argv[key_idx]) == NULL) {
                 addReply(c, shared.czero);
                 return;
             }
         }
     }
 
-    for (j = 1; j < c->argc; j += 2) {
-        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
-        /* if 'NX', no need set flags SETKEY_DOESNT_EXIST. Already verified earlier! */
-        setKey(c, c->db, c->argv[j], &(c->argv[j+1]) , 0 /*flags*/);
-        incrRefCount(c->argv[j+1]);  /* refcnt not incr by setKey() */
-        notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
+    for (j = 0; j < kvs_count; j++) {
+        int key_idx = kvs_start + (j * 2);
+        int val_idx = kvs_start + (j * 2) + 1;
+
+        c->argv[val_idx] = tryObjectEncoding(c->argv[val_idx]);
+
+        /* Handle KEEPTTL - preserve existing TTL */
+        int setkey_flags = 0;
+        if (flags & OBJ_KEEPTTL) {
+            setkey_flags |= SETKEY_KEEPTTL;
+        }
+
+        setKey(c, c->db, c->argv[key_idx], &(c->argv[val_idx]), setkey_flags);
+        incrRefCount(c->argv[val_idx]);
+
+        /* Set expiration for each key (but not for KEEPTTL) */
+        if (expire && !(flags & OBJ_KEEPTTL)) {
+            setExpire(c, c->db, c->argv[key_idx], milliseconds);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"expire", c->argv[key_idx], c->db->id);
+        }
+
+        notifyKeyspaceEvent(NOTIFY_STRING,"set", c->argv[key_idx], c->db->id);
     }
-    server.dirty += (c->argc-1)/2;
-    addReply(c, nx ? shared.cone : shared.ok);
+
+    if (expire && !(flags & OBJ_PXAT) && !(flags & OBJ_EXAT) && expire_flag_pos >= 0) {
+        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandArgument(c, expire_flag_pos, shared.pxat);
+        rewriteClientCommandArgument(c, expire_flag_pos + 1, milliseconds_obj);
+
+        decrRefCount(milliseconds_obj);
+    }
+    server.dirty += kvs_count;
+    addReply(c, (flags & (OBJ_SET_NX | OBJ_SET_XX)) ? shared.cone : shared.ok);
 }
 
 void msetCommand(client *c) {
-    msetGenericCommand(c,0);
+    msetGenericCommand(c, OBJ_NO_FLAGS, NULL, 0, -1, 0, -1);
 }
 
 void msetnxCommand(client *c) {
-    msetGenericCommand(c,1);
+    msetGenericCommand(c, OBJ_SET_NX, NULL, 0, -1, 0, -1);
+}
+
+void msetexCommand(client *c) {
+    int kvs_count = 0, kvs_start = -1, keys_pos = -1;
+    robj *expire = NULL;
+    int unit = UNIT_SECONDS;
+    int flags = OBJ_NO_FLAGS;
+    int expire_flag_pos = -1;
+    long long kvs_count_val;
+
+    /* Minimum arguments: MSETEX KEYS numkeys key value */
+    if (c->argc < 5) {
+        addReplyErrorArity(c);
+        return;
+    }
+
+    int kvs_end = -1;
+    for (int j = 1; j < c->argc; j++) {
+        char *arg = c->argv[j]->ptr;
+
+        if (!strcasecmp(arg, "KEYS")) {
+            if (keys_pos != -1) {
+                addReplyError(c, "syntax error - KEYS specified multiple times");
+                return;
+            }
+            if (j + 1 >= c->argc) {
+                addReplyError(c, "syntax error - KEYS requires numkeys argument");
+                return;
+            }
+            keys_pos = j;
+            if (getLongLongFromObject(c->argv[j + 1], &kvs_count_val) != C_OK || kvs_count_val <= 0) {
+                addReplyError(c, "invalid numkeys value");
+                return;
+            }
+            kvs_count = (int)kvs_count_val;
+            kvs_start = j + 2;
+            kvs_end = kvs_start + (kvs_count * 2);
+
+            /* Validate we have enough key-value pairs */
+            if (kvs_end > c->argc) {
+                addReplyError(c, "wrong number of key-value pairs");
+                return;
+            }
+            j++; 
+        } else if (keys_pos != -1 && j >= kvs_start && j < kvs_end) {
+            /* We're in key-value section - skip these arguments */
+            continue;
+        } else if (!strcasecmp(arg, "NX")) {
+            flags |= OBJ_SET_NX;
+        } else if (!strcasecmp(arg, "XX")) {
+            flags |= OBJ_SET_XX;
+        } else if (!strcasecmp(arg, "EX") && j + 1 < c->argc) {
+            expire_flag_pos = j;  /* Remember position of EX flag */
+            expire = c->argv[++j];
+            unit = UNIT_SECONDS;
+            flags |= OBJ_EX;
+        } else if (!strcasecmp(arg, "PX") && j + 1 < c->argc) {
+            expire_flag_pos = j;  /* Remember position of PX flag */
+            expire = c->argv[++j];
+            unit = UNIT_MILLISECONDS;
+            flags |= OBJ_PX;
+        } else if (!strcasecmp(arg, "EXAT") && j + 1 < c->argc) {
+            expire = c->argv[++j];
+            unit = UNIT_SECONDS;
+            flags |= OBJ_EXAT;
+        } else if (!strcasecmp(arg, "PXAT") && j + 1 < c->argc) {
+            expire = c->argv[++j];
+            unit = UNIT_MILLISECONDS;
+            flags |= OBJ_PXAT;
+        } else if (!strcasecmp(arg, "KEEPTTL")) {
+            flags |= OBJ_KEEPTTL;
+        } else {
+            addReplyErrorFormat(c, "syntax error - unknown argument: %s", arg);
+            return;
+        }
+    }
+    /* Validate KEYS was found */
+    if (keys_pos == -1) {
+        addReplyError(c, "syntax error - KEYS keyword is required");
+        return;
+    }
+    msetGenericCommand(c, flags, expire, unit, kvs_start, kvs_count, expire_flag_pos);
 }
 
 void incrDecrCommand(client *c, long long incr) {

@@ -256,6 +256,48 @@ start_server {tags {"string"}} {
         list [r msetnx x1{t} xxx x1{t} zzz] [r get x1{t}]
     } {0 yyy}
 
+    test {MSETEX - all expiration flags} {
+        # EX (seconds), PX (milliseconds), EXAT (absolute seconds), PXAT (absolute milliseconds)
+        set future_sec [expr [clock seconds] + 10]
+        set future_ms [expr [clock milliseconds] + 10000]
+        r msetex keys 2 ex:key val1 px:key val2 ex 5
+        r msetex keys 2 pxat:key val3 exat:key val4 pxat $future_ms exat $future_sec
+        list [expr [r ttl ex:key] > 0] [expr [r pttl px:key] > 0] [expr [r ttl exat:key] > 0] [expr [r pttl pxat:key] > 0]
+    } {1 1 1 1}
+
+    test {MSETEX - KEEPTTL preserves existing TTL} {
+        r setex keepttl:key 100 oldval
+        set old_ttl [r ttl keepttl:key]
+        r msetex keys 1 keepttl:key newval keepttl
+        list [r get keepttl:key] [expr [r ttl keepttl:key] >= [expr $old_ttl - 5]]
+    } {newval 1}
+
+    test {MSETEX - NX/XX conditions and return values} {
+        r del nx:new nx:new2 xx:existing xx:nonexist
+        r set xx:existing oldval
+        list \
+            [r msetex nx keys 2 nx:new val1 nx:new2 val2 ex 10] \
+            [r msetex nx keys 1 xx:existing newval ex 10] \
+            [r msetex xx keys 1 xx:nonexist newval ex 10] \
+            [r msetex xx keys 1 xx:existing newval ex 10] \
+            [r get nx:new] [r get xx:existing]
+    } {1 0 0 1 val1 newval}
+
+    test {MSETEX - flexible argument parsing} {
+        r del flex:1 flex:2
+        # Test flags before and after KEYS
+        r msetex ex 3 nx keys 2 flex:1 val1 flex:2 val2
+        r msetex keys 2 flex:3 val3 flex:4 val4 px 3000 xx
+        list [r get flex:1] [r get flex:2] [expr [r ttl flex:1] > 0] [r exists flex:3] [r exists flex:4]
+    } {val1 val2 1 0 0}
+
+    test {MSETEX - error cases} {
+        assert_error {*wrong number of arguments*} {r msetex}
+        assert_error {*syntax error*} {r msetex key1 val1 ex 10}
+        assert_error {*wrong number of key-value pairs*} {r msetex keys 2 key1 val1 key2}
+        assert_error {*syntax error*} {r msetex keys 1 key1 val1 invalid_flag}
+    }
+
     test "STRLEN against non-existing key" {
         assert_equal 0 [r strlen notakey]
     }
