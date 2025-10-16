@@ -2604,6 +2604,8 @@ static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
         c->multibulklen = ll;
         c->bulklen = -1;
 
+        /* Setup argv array on pending command structure.
+         * Reallocate argv array when the requested size is greater than current size. */
         if (c->multibulklen > pcmd->argv_len) {
             zfree(pcmd->argv);
             pcmd->argv_len = min(c->multibulklen, 1024);
@@ -4925,7 +4927,7 @@ static pendingCommand *acquirePendingCommand(void) {
         return pcmd;
     }
 
-    /* Global pool is empty or IO threads are active, allocate new */
+    /* Shared pool is empty or IO threads are active, allocate new */
     pcmd = zmalloc(sizeof(pendingCommand));
     initPendingCommand(pcmd);
     return pcmd;
@@ -4934,7 +4936,7 @@ static pendingCommand *acquirePendingCommand(void) {
 static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
     /* Try shared pool first when IO threads are not active. */
     if (!server.io_threads_active) {
-        /* If global pool is not full and argv isn't too large, add to pool for reuse. */
+        /* If shared pool is not full and argv isn't too large, add to pool for reuse */
         if (server.pending_cmd_pool_size < PENDING_COMMAND_POOL_SIZE && 
             cmd->argv_len < 64)
         {
@@ -4946,7 +4948,7 @@ static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
             serverAssert(c->all_argv_len_sum >= cmd->argv_len_sum); /* assert this doesn't try to go negative */
             c->all_argv_len_sum -= cmd->argv_len_sum;
 
-            /* Reset the pending command while preserving the argv array for reuse. */
+            /* Reset the pending command while preserving the argv array for shared pool reuse */
             robj **argv = cmd->argv;
             int argv_len = cmd->argv_len;
             memset(cmd, 0, sizeof(pendingCommand));
@@ -4959,7 +4961,7 @@ static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
         }
     }
 
-    /* Global pool is full or IO threads are active, free this pending command. */
+    /* Shared pool is full or IO threads are active, free this pending command */
     freePendingCommand(c, cmd);
 }
 
