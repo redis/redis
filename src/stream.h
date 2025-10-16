@@ -72,10 +72,9 @@ typedef struct streamCG {
                                associated value is a streamNACK structure.*/
     rax *pel_by_time;       /* A radix tree mapping delivery time to pending
                                 entries, so that we can query faster PEL entries
-                                by time. The key is the delivery time in milliseconds
-                                as a 64 bit big endian number. The value is pointer to
-                                the streamNACK structure associated with the pending
-                            entry. */
+                                by time. The key is a pelTimeKey structure containing
+                                both delivery_time and stream ID. All information is
+                                in the key; no value is stored. */
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
@@ -164,7 +163,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
 void encodePelTimeKey(void* buf, pelTimeKey *timeKey);
 void decodePelTimeKey(void *buf, pelTimeKey *timeKey);
-void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID id);
-void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID id);
+void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
+void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 
 #endif

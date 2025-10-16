@@ -43,12 +43,6 @@ start_server {
         r XGROUP CREATE mystream mygroup $ MKSTREAM
     } {OK}
 
-    test {XREADGROUP parameter validation setup} {
-        r DEL mystream
-        r XADD mystream * field value
-        r XGROUP CREATE mystream mygroup $
-    }
-
     test {XREADGROUP basic argument count validation} {
         # Too few arguments
         assert_error "*wrong number of arguments*" {r XREADGROUP}
@@ -59,6 +53,10 @@ start_server {
     }
 
     test {XREADGROUP GROUP keyword validation} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Missing GROUP keyword entirely - wrong syntax
         assert_error "*wrong number of arguments*" {r XREADGROUP mygroup consumer STREAMS mystream >}
         
@@ -67,11 +65,19 @@ start_server {
     }
 
     test {XREADGROUP empty group name handling} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Empty group name should give NOGROUP error
         assert_error "*NOGROUP*" {r XREADGROUP GROUP "" consumer STREAMS mystream >}
     }
 
     test {XREADGROUP STREAMS keyword validation} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Missing STREAMS keyword
         assert_error "*wrong number of arguments*" {r XREADGROUP GROUP mygroup consumer mystream >}
         
@@ -80,6 +86,10 @@ start_server {
     }
 
     test {XREADGROUP stream and ID pairing} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Missing stream ID
         assert_error "*wrong number of arguments*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream}
         
@@ -95,12 +105,20 @@ start_server {
     }
 
     test {XREADGROUP COUNT parameter validation} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Non-numeric count
         assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer COUNT abc STREAMS mystream >}
         assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer COUNT 1.5 STREAMS mystream >}
     }
 
     test {XREADGROUP BLOCK parameter validation} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Non-numeric block timeout
         assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer BLOCK abc STREAMS mystream >}
         assert_error "*not an integer*" {r XREADGROUP GROUP mygroup consumer BLOCK 1.5 STREAMS mystream >}
@@ -113,6 +131,10 @@ start_server {
     }
 
     test {XREADGROUP stream ID format validation} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Invalid ID formats should error
         assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream invalid-id}
         assert_error "*Invalid stream ID*" {r XREADGROUP GROUP mygroup consumer STREAMS mystream 123-}
@@ -123,10 +145,18 @@ start_server {
     }
 
     test {XREADGROUP nonexistent group} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         assert_error "*NOGROUP*" {r XREADGROUP GROUP nonexistent consumer STREAMS mystream >}
     }
 
     test {XREADGROUP nonexistent stream with existing group} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Group doesn't exist on the nonexistent stream
         assert_error "*NOGROUP*" {r XREADGROUP GROUP mygroup consumer STREAMS nonexistent >}
     }
@@ -138,6 +168,10 @@ start_server {
     }
 
     test {XREADGROUP boundary value validation} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Test COUNT boundaries - values that are too large
         assert_error "*value is not an integer or out of range*" {r XREADGROUP GROUP mygroup consumer COUNT 18446744073709551616 STREAMS mystream >}
         
@@ -146,6 +180,10 @@ start_server {
     }
 
     test {XREADGROUP malformed parameter syntax} {
+        r DEL mystream
+        r XADD mystream * field value
+        r XGROUP CREATE mystream mygroup $
+        
         # Unknown parameters
         assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer INVALID param STREAMS mystream >}
         assert_error "*syntax error*" {r XREADGROUP GROUP mygroup consumer TIMEOUT 1000 STREAMS mystream >}
@@ -2778,7 +2816,7 @@ start_server {
             $rd close
         }
 
-        test "XREADGROUP CLAIM verify claiming order" {
+        test "READGROUP CLAIM verify claiming order" {
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XADD mystream 2-0 f v2
@@ -2790,51 +2828,54 @@ start_server {
             # Create consumer group
             r XGROUP CREATE mystream group1 0
 
-            # Read all six messages with consumer1
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
+            # Read all messages with consumer1 to make them pending
+            r XREADGROUP GROUP group1 consumer1 COUNT 10 STREAMS mystream >
 
-            after 50
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream > 
+            # Now use XCLAIM to explicitly set different delivery times for each message
+            # We'll set the delivery time backwards in time by different amounts
+            # to create known idle time differences without actually waiting
+            set current_time [r TIME]
+            set current_ms [expr {[lindex $current_time 0] * 1000 + [lindex $current_time 1] / 1000}]
+            
+            # Set delivery times: 1-0 is oldest (5000ms ago), 6-0 is newest (100ms ago)
+            # Use larger values for robustness against timing variations
+            r XCLAIM mystream group1 consumer1 0 1-0 TIME [expr {$current_ms - 50000}] JUSTID
+            r XCLAIM mystream group1 consumer1 0 2-0 TIME [expr {$current_ms - 40000}] JUSTID
+            r XCLAIM mystream group1 consumer1 0 3-0 TIME [expr {$current_ms - 30000}] JUSTID
+            r XCLAIM mystream group1 consumer1 0 4-0 TIME [expr {$current_ms - 20000}] JUSTID
+            r XCLAIM mystream group1 consumer1 0 5-0 TIME [expr {$current_ms - 2000}] JUSTID
+            r XCLAIM mystream group1 consumer1 0 6-0 TIME [expr {$current_ms - 1000}] JUSTID
 
-            after 50
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
-
-            after 50
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
-
-            after 50
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
-
-            after 50
-            r XREADGROUP GROUP group1 consumer1 COUNT 1 STREAMS mystream >
-
-            # At this point the idle time of 1-0 will be 250ms and for 2-0 will be 200ms
-            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 180 STREAMS mystream >]
+            # Now claim with threshold of 250ms - should get 1-0, 2-0, 3-0, 4-0 in that order
+            # (idle times: 50000, 40000, 30000, 20000ms all >= 10000ms)
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 10000 COUNT 10 STREAMS mystream >]
             lassign [lindex $claim_result 0] stream_name messages
             assert_equal $stream_name "mystream"
-            assert_equal [llength $messages] 2
-
-            # Message 1-0: claimed by consumer2 (delivery count = 2)
+            assert_equal [llength $messages] 4
+            
+            # Verify order: oldest first
             assert_equal [lindex $messages 0 0] 1-0
-            assert_equal [lindex $messages 0 3] 1
-
-            # Message 2-0: claimed by consumer2 (delivery count = 2)
             assert_equal [lindex $messages 1 0] 2-0
-            assert_equal [lindex $messages 1 3] 1
+            assert_equal [lindex $messages 2 0] 3-0
+            assert_equal [lindex $messages 3 0] 4-0
 
-            # At this point the idle time of 3-0 will be 150ms and for 4-0 will be 100ms
-            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 80 STREAMS mystream >]
+            # Claim with threshold of 1500ms - should get remaining 5-0
+            # (idle time: 200ms >= 1500ms, but 6-0 with 1000ms < 1500ms)
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 1500 COUNT 10 STREAMS mystream >]
             lassign [lindex $claim_result 0] stream_name messages
             assert_equal $stream_name "mystream"
-            assert_equal [llength $messages] 2
+            assert_equal [llength $messages] 1
+            
+            assert_equal [lindex $messages 0 0] 5-0
 
-            # Message 3-0: claimed by consumer2 (delivery count = 2)
-            assert_equal [lindex $messages 0 0] 3-0
-            assert_equal [lindex $messages 0 3] 1
-
-            # Message 4-0: claimed by consumer2 (delivery count = 2)
-            assert_equal [lindex $messages 1 0] 4-0
-            assert_equal [lindex $messages 1 3] 1
+            # Claim with threshold of 500ms - should get last one (6-0)
+            # (idle time: 100ms >= 500ms)
+            set claim_result [r XREADGROUP GROUP group1 consumer2 CLAIM 500 COUNT 10 STREAMS mystream >]
+            lassign [lindex $claim_result 0] stream_name messages
+            assert_equal $stream_name "mystream"
+            assert_equal [llength $messages] 1
+            
+            assert_equal [lindex $messages 0 0] 6-0
         }
 
         test "XREADGROUP CLAIM after consumer deleted with pending messages" {
