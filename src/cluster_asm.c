@@ -457,6 +457,8 @@ asmTask *asmTaskDeserialize(sds data) {
     if (!task->slots) goto err;
     idx++;
 
+    /* Ignore any extra fields for future compatibility */
+
     sdsfreesplitres(parts, count);
     return task;
 

@@ -15,6 +15,7 @@
 #include "atomicvar.h"
 #include "script.h"
 #include "cluster.h"
+#include "cluster_asm.h"
 #include <math.h>
 
 /* ----------------------------------------------------------------------------
@@ -344,6 +345,11 @@ size_t freeMemoryGetNotCountedMemory(void) {
             overhead += (server.repl_buffer_mem - counted_mem);
         }
     }
+
+    /* The migrate client is like a replica, we also push DELs into it when
+     * evicting keys belonging to the migrating slot, so we don't count its
+     * output buffer to avoid eviction loop. */
+    overhead += asmGetMigrateOutputBufferSize();
 
     if (server.aof_state != AOF_OFF) {
         overhead += sdsAllocSize(server.aof_buf);

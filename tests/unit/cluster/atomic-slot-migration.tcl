@@ -846,34 +846,24 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
     }
 
     test "Flush-like command can cancel slot migration task" {
-        # we set a delay to cancel
-        R 1 config set rdb-key-save-delay 1000000
-
         # flushall, flushdb
         foreach flushcmd {flushall flushdb} {
             # start slot migration from 1 to 0
             set task_id [setup_slot_migration_with_delay 1 0 0 100]
 
             if {$::verbose} { puts "Testing flush command: $flushcmd"}
-            if {$flushcmd == "flushall"} {
-                R 0 flushall
-            } elseif {$flushcmd == "flushdb"} {
-                R 1 flushdb
-            }
+            R 0 $flushcmd
 
             # flush-like will cancel the task
             wait_for_condition 1000 50 {
-                [string match {*canceled*} [migration_status 0 $task_id state]] ||
-                [string match {*canceled*} [migration_status 1 $task_id state]]
+                [string match {*canceled*} [migration_status 0 $task_id state]]
             } else {
                 fail "ASM task did not cancel"
             }
         }
 
-        # Since flushdb is executed on the source, the task is only canceled on the source.
-        # The destination node will retry the import task, and eventually the slot 0-100
-        # migration to #0 will succeed.
         R 1 config set rdb-key-save-delay 0
+        R 0 cluster migration import 0 100
         wait_for_asm_done
     }
 

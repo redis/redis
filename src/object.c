@@ -1471,6 +1471,12 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->script_vm += functionsMemoryVM();
     mem_total+=mh->script_vm;
 
+    /* Cluster atomic slot migration buffers. */
+    mh->asm_import_input_buffer = asmGetImportInputBufferSize();
+    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
+    mem_total += mh->asm_import_input_buffer;
+    mem_total += mh->asm_migrate_output_buffer;
+
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         if (!kvstoreNumAllocatedDicts(db->keys)) continue;
@@ -1511,12 +1517,6 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         net_usage = zmalloc_used - mh->startup_allocated;
     mh->dataset_perc = (float)mh->dataset*100/net_usage;
     mh->bytes_per_key = mh->total_keys ? (mh->dataset / mh->total_keys) : 0;
-
-    /* Cluster atomic slot migration buffers. */
-    mh->asm_import_input_buffer = asmGetImportInputBufferSize();
-    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
-    mem_total += mh->asm_import_input_buffer;
-    mem_total += mh->asm_migrate_output_buffer;
 
     return mh;
 }
