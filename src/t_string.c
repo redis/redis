@@ -731,7 +731,7 @@ void msetGenericCommand(client *c, int flags, robj *expire, int unit, int kvs_st
         decrRefCount(milliseconds_obj);
     }
     server.dirty += kvs_count;
-    addReply(c, shared.cone);  /* Always return 1 for success */
+    addReply(c, (flags == OBJ_NO_FLAGS) ? shared.ok : shared.cone);
 }
 
 void msetCommand(client *c) {
