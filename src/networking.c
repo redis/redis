@@ -3233,13 +3233,13 @@ sds catClientInfoString(sds s, client *client) {
         if (client->flags & CLIENT_MONITOR)
             *p++ = 'O';
         else if (client->flags & CLIENT_ASM_MIGRATING)
-            *p++ = 'm';
+            *p++ = 'g';
         else
             *p++ = 'S';
     }
     if (client->flags & CLIENT_MASTER) {
         if (client->flags & CLIENT_ASM_IMPORTING)
-            *p++ = 'i';
+            *p++ = 'o';
         else
             *p++ = 'M';
     }

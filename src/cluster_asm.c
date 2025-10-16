@@ -298,21 +298,19 @@ sds asmCatInfoString(sds info) {
 
     return sdscatprintf(info ? info : sdsempty(),
                         "slot_migration_active_tasks:%d\r\n"
-                        "slot_migration_sync_buffer_peak:%zu\r\n"
                         "slot_migration_active_trim_running:%lu\r\n"
-                        "slot_migration_active_trim_started:%llu\r\n"
-                        "slot_migration_active_trim_completed:%llu\r\n"
-                        "slot_migration_active_trim_cancelled:%llu\r\n"
                         "slot_migration_active_trim_current_job_keys:%llu\r\n"
-                        "slot_migration_active_trim_current_job_trimmed:%llu\r\n",
+                        "slot_migration_active_trim_current_job_trimmed:%llu\r\n"
+                        "slot_migration_stats_active_trim_started:%llu\r\n"
+                        "slot_migration_stats_active_trim_completed:%llu\r\n"
+                        "slot_migration_stats_active_trim_cancelled:%llu\r\n",
                         active_tasks,
-                        asmGetPeakSyncBufferSize(),
                         listLength(asmManager->active_trim_jobs),
+                        asmManager->active_trim_current_job_keys,
+                        asmManager->active_trim_current_job_trimmed,
                         asmManager->active_trim_started,
                         asmManager->active_trim_completed,
-                        asmManager->active_trim_cancelled,
-                        asmManager->active_trim_current_job_keys,
-                        asmManager->active_trim_current_job_trimmed);
+                        asmManager->active_trim_cancelled);
 }
 
 void asmTaskReset(asmTask *task) {
@@ -518,6 +516,7 @@ sds asmDumpActiveImportTask(void) {
 }
 
 size_t asmGetPeakSyncBufferSize(void) {
+    if (!asmManager) return 0;
     /* Compute peak sync buffer usage. The current task's peak may not
      * reflect in asmManager->sync_buffer_peak immediately. */
     size_t peak = asmManager->sync_buffer_peak;
@@ -1008,8 +1007,8 @@ void clusterMigrationCommand(client *c) {
 
 /* Notify the state change to the module and the cluster implementation. */
 void asmNotifyStateChange(asmTask *task, int event) {
-    RedisModuleClusterAsmInfo info = {
-            .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
+    RedisModuleClusterSlotMigrationInfo info = {
+            .version = REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION,
             .task_id = task->id,
             .slots = (RedisModuleSlotRangeArray *) task->slots
     };
@@ -1017,15 +1016,15 @@ void asmNotifyStateChange(asmTask *task, int event) {
     memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
 
     int module_event = -1;
-    if (event == ASM_EVENT_IMPORT_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_STARTED;
-    else if (event == ASM_EVENT_IMPORT_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_COMPLETED;
-    else if (event == ASM_EVENT_IMPORT_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_IMPORT_FAILED;
-    else if (event == ASM_EVENT_MIGRATE_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_STARTED;
-    else if (event == ASM_EVENT_MIGRATE_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_COMPLETED;
-    else if (event == ASM_EVENT_MIGRATE_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_FAILED;
+    if (event == ASM_EVENT_IMPORT_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED;
+    else if (event == ASM_EVENT_IMPORT_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED;
+    else if (event == ASM_EVENT_IMPORT_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED;
+    else if (event == ASM_EVENT_MIGRATE_STARTED) module_event = REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED;
+    else if (event == ASM_EVENT_MIGRATE_COMPLETED) module_event = REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED;
+    else if (event == ASM_EVENT_MIGRATE_FAILED) module_event = REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED;
     serverAssert(module_event != -1);
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM, module_event, &info);
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION, module_event, &info);
     serverLog(LL_DEBUG, "Fire cluster asm module event, task %s: state=%s",
                         task->id, asmTaskStateToString(task->state));
 
@@ -2111,12 +2110,12 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 }
 
 /* Modules can use RM_ClusterPropagateForSlotMigration() during the
- * CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event to propagate commands that should be
- * delivered just before the slot snapshot delivery starts. This function
- * triggers the event, collects the commands and writes them to the rio. */
+ * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event to propagate commands
+ * that should be delivered just before the slot snapshot delivery starts. This
+ * function triggers the event, collects the commands and writes them to the rio. */
 static int propagateModuleCommands(asmTask *task, rio *rdb) {
-    RedisModuleClusterAsmInfo info = {
-            .version = REDISMODULE_CLUSTER_ASM_INFO_VERSION,
+    RedisModuleClusterSlotMigrationInfo info = {
+            .version = REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION,
             .task_id = task->id,
             .slots = (RedisModuleSlotRangeArray *) task->slots
     };
@@ -2124,8 +2123,8 @@ static int propagateModuleCommands(asmTask *task, rio *rdb) {
     memcpy(info.destination_node_id, task->dest, CLUSTER_NAMELEN);
 
     task->pre_snapshot_module_cmds = zcalloc(sizeof(*task->pre_snapshot_module_cmds));
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM,
-                          REDISMODULE_SUBEVENT_CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE,
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION,
+                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE,
                           &info
     );
 
@@ -2820,13 +2819,13 @@ static void propagateTrimSlots(slotRangeArray *slots) {
 
 /* Trim the slots asynchronously in the BIO thread. */
 void asmTriggerBackgroundTrim(slotRangeArray *slots) {
-    RedisModuleClusterAsmTrimInfoV1 fsi = {
-            REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION,
+    RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
+            REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_BACKGROUND,
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND,
                           &fsi);
 
     signalFlushedDb(0, 1, slots);
@@ -3161,13 +3160,13 @@ void asmActiveTrimStart(void) {
             asmManager->active_trim_current_job_keys += kvstoreDictSize(server.db[0].keys, slot);
     }        
 
-    RedisModuleClusterAsmTrimInfoV1 fsi = {
-            REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION,
+    RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
+            REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_STARTED,
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED,
                           &fsi);
 
     sds str = slotRangeArrayToString(slots);
@@ -3202,13 +3201,13 @@ void asmActiveTrimEnd(void) {
     /* Unblock the master if it is blocked */
     asmUnblockMasterAfterTrim();
 
-    RedisModuleClusterAsmTrimInfoV1 fsi = {
-            REDISMODULE_CLUSTER_ASM_TRIMINFO_VERSION,
+    RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
+            REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
             (RedisModuleSlotRangeArray *) slots
     };
 
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_ASM_TRIM,
-                          REDISMODULE_SUBEVENT_CLUSTER_ASM_TRIM_COMPLETED,
+    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM,
+                          REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED,
                           &fsi);
 
     sds str = slotRangeArrayToString(slots);
@@ -3346,8 +3345,8 @@ int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv) {
 }
 
 /* Modules can use RM_ClusterPropagateForSlotMigration() during the
- * CLUSTER_ASM_MIGRATE_MODULE_PROPAGATE event to propagate commands that should
- * be delivered just before the slot snapshot delivery starts. */
+ * CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event to propagate commands
+ * that should be delivered just before the slot snapshot delivery starts. */
 int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc) {
     /* This API is only called in the fork child. */
     if (server.cluster_enabled == 0 ||
