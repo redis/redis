@@ -2667,7 +2667,7 @@ start_server {
             set rd2 [redis_deferring_client]
             
             # Both clients issue blocking XREADGROUP commands
-            $rd1 XREADGROUP GROUP group1 consumer1 BLOCK 0 STREAMS mystream ">"
+            $rd1 XREADGROUP GROUP group1 consumer1 BLOCK 0 CLAIM 100 STREAMS mystream ">"
             $rd2 XREADGROUP GROUP group1 consumer2 BLOCK 0 CLAIM 100 STREAMS mystream ">"
             
             # Wait for both clients to be blocked
