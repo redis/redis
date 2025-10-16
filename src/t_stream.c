@@ -1841,6 +1841,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
          *    ordering, all subsequent entries will be even newer
          * 2. We've collected enough entries to satisfy the requested count limit */
         list *eligible_pels = listCreate();
+        listSetFreeMethod(eligible_pels, zfree);
         raxIterator ri;
         raxStart(&ri, group->pel_by_time);
         raxSeek(&ri, "^", NULL, 0);
@@ -1939,10 +1940,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 if (count && count == arraylen) break;
             }
             streamIteratorStop(&si);   
-        }
-        listRewind(eligible_pels, &li);
-        while ((ln = listNext(&li))) {
-            zfree(listNodeValue(ln));
         }
         listRelease(eligible_pels);
     }
