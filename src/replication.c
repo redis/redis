@@ -1196,6 +1196,11 @@ void syncCommand(client *c) {
     /* Create the replication backlog if needed. */
     createReplicationBacklogIfNeeded();
 
+    /* Keep the client in the main thread to avoid data races between the
+     * connWrite call in startBgsaveForReplication and the client's event
+     * handler in IO threads. */
+    if (c->tid != IOTHREAD_MAIN_THREAD_ID) keepClientInMainThread(c);
+
     /* CASE 1: BGSAVE is in progress, with disk target. */
     if (server.child_type == CHILD_TYPE_RDB &&
         server.rdb_child_type == RDB_CHILD_TYPE_DISK)

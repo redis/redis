@@ -2978,6 +2978,7 @@ void unbindClientFromIOThreadEventLoop(client *c);
 int processClientsOfAllIOThreads(void);
 int processClientsFromMainThread(IOThread *t);
 void assignClientToIOThread(client *c);
+void keepClientInMainThread(client *c);
 void fetchClientFromIOThread(client *c);
 int isClientMustHandledByMainThread(client *c);
 

@@ -82,8 +82,8 @@ void unbindClientFromIOThreadEventLoop(client *c) {
  * we should unbind connection of client from io thread event loop first,
  * and then bind the client connection into server's event loop. */
 void keepClientInMainThread(client *c) {
-    serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID &&
-                 c->running_tid == IOTHREAD_MAIN_THREAD_ID);
+    if (c->tid == IOTHREAD_MAIN_THREAD_ID) return;
+    serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
     /* IO thread no longer manage it. */
     server.io_threads_clients_num[c->tid]--;
     /* Unbind connection of client from io thread event loop. */
@@ -146,7 +146,8 @@ int isClientMustHandledByMainThread(client *c) {
     if (c->flags & (CLIENT_CLOSE_ASAP | CLIENT_MASTER | CLIENT_SLAVE |
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
-                    CLIENT_LUA_DEBUG_SYNC))
+                    CLIENT_LUA_DEBUG_SYNC | CLIENT_ASM_MIGRATING |
+                    CLIENT_ASM_IMPORTING))
     {
         return 1;
     }

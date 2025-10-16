@@ -1881,7 +1881,11 @@ void clusterSyncSlotsCommand(client *c) {
 
         asmNotifyStateChange(task, ASM_EVENT_MIGRATE_STARTED);
 
-        /* addReply*() is not suitable for replica clients in this state. */
+        /* Keep the client in the main thread to avoid data races between the
+         * connWrite call below and the client's event handler in IO threads. */
+        if (c->tid != IOTHREAD_MAIN_THREAD_ID) keepClientInMainThread(c);
+
+        /* addReply*() is not suitable for clients in SLAVE_STATE_WAIT_RDB_CHANNEL state. */
         if (connWrite(c->conn, "+RDBCHANNELSYNCSLOTS\r\n", 22) != 22)
             freeClientAsync(c);
     } else if (!strcasecmp(c->argv[2]->ptr, "rdbchannel") && c->argc == 4) {
@@ -1933,6 +1937,11 @@ void clusterSyncSlotsCommand(client *c) {
         task->rdb_channel_state = ASM_WAIT_BGSAVE_START;
         task->rdb_channel_client = c;
         c->task = task;
+
+        /* Keep the client in the main thread to avoid data races between the
+         * connWrite call in startBgsaveForReplication and the client's event
+         * handler in IO threads. */
+        if (c->tid != IOTHREAD_MAIN_THREAD_ID) keepClientInMainThread(c);
 
         if (!hasActiveChildProcess()) {
             startBgsaveForReplication(c->slave_capa, c->slave_req);
