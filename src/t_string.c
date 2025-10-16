@@ -234,7 +234,6 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
 #define COMMAND_GET 0
 #define COMMAND_SET 1
-
 /*
  * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
  * string arguments used in SET and GET command.
@@ -720,7 +719,6 @@ void msetGenericCommand(client *c, int flags, robj *expire, int unit, int kvs_st
             setExpire(c, c->db, c->argv[key_idx], milliseconds);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"expire", c->argv[key_idx], c->db->id);
         }
-
         notifyKeyspaceEvent(NOTIFY_STRING,"set", c->argv[key_idx], c->db->id);
     }
 
@@ -733,7 +731,7 @@ void msetGenericCommand(client *c, int flags, robj *expire, int unit, int kvs_st
         decrRefCount(milliseconds_obj);
     }
     server.dirty += kvs_count;
-    addReply(c, (flags & (OBJ_SET_NX | OBJ_SET_XX)) ? shared.cone : shared.ok);
+    addReply(c, shared.cone);  /* Always return 1 for success */
 }
 
 void msetCommand(client *c) {
@@ -757,7 +755,6 @@ void msetexCommand(client *c) {
         addReplyErrorArity(c);
         return;
     }
-
     int kvs_end = -1;
     for (int j = 1; j < c->argc; j++) {
         char *arg = c->argv[j]->ptr;
@@ -785,7 +782,7 @@ void msetexCommand(client *c) {
                 addReplyError(c, "wrong number of key-value pairs");
                 return;
             }
-            j++; 
+            j++;
         } else if (keys_pos != -1 && j >= kvs_start && j < kvs_end) {
             /* We're in key-value section - skip these arguments */
             continue;
