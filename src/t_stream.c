@@ -1811,8 +1811,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     streamIterator si;
     int64_t numfields;
     streamID id;
-    uint64_t keyBuf[3];
-    pelTimeKey timeKey;
     int propagate_last_id = 0;
     int noack = flags & STREAM_RWR_NOACK;
 
@@ -3778,8 +3776,6 @@ void xpendingCommand(client *c) {
  * successfully claimed, so that the caller is able to understand
  * what messages it is now in charge of. */
 void xclaimCommand(client *c) {
-    uint64_t keyBuf[3];
-    pelTimeKey timeKey;
     streamCG *group = NULL;
     kvobj *o = lookupKeyRead(c->db,c->argv[1]);
     long long minidle; /* Minimum idle time argument. */
@@ -4016,8 +4012,6 @@ void xautoclaimCommand(client *c) {
     long count = 100; /* Maximum entries to claim. */
     const unsigned attempts_factor = 10;
     streamID startid;
-    uint64_t keyBuf[3];
-    pelTimeKey timeKey;
     int startex;
     int justid = 0;
 
