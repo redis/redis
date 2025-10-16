@@ -2700,8 +2700,8 @@ start_server {
             
             wait_for_blocked_client
             
-            # Wait for message to become claimable (>100ms)
-            after 150
+            # Wait for message to become claimable (>1000ms)
+            after 1500
             
             # Should unblock and return the now-claimable message
             set result [$rd read]
