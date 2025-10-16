@@ -4917,24 +4917,31 @@ void evictClients(void) {
     }
 }
 
+/* Acquire a pending command from the shared pool or allocate a new one.
+ * Uses the shared pool when available (only when IO threads are inactive),
+ * otherwise allocates a new pending command structure. */
 static pendingCommand *acquirePendingCommand(void) {
+    /* Ensure pool is empty when IO threads are active to avoid race conditions */
+    serverAssert(server.io_threads_active == 0 || server.pending_cmd_pool_size == 0);
+
     pendingCommand *pcmd = NULL;
-
-    /* Use shared pool when IO threads are not active. */
-    if (!server.io_threads_active && server.pending_cmd_pool_size > 0) {
-        pendingCommand *pcmd = server.pending_cmd_pool[--server.pending_cmd_pool_size];
+    if (server.pending_cmd_pool_size > 0) {
+        /* Shared pool is available. */
+        pcmd = server.pending_cmd_pool[--server.pending_cmd_pool_size];
         server.pending_cmd_pool[server.pending_cmd_pool_size] = NULL;
-        return pcmd;
+    } else {
+        /* Shared pool is empty, allocate new pending command. */
+        pcmd = zmalloc(sizeof(pendingCommand));
+        initPendingCommand(pcmd);
     }
-
-    /* Shared pool is empty or IO threads are active, allocate new */
-    pcmd = zmalloc(sizeof(pendingCommand));
-    initPendingCommand(pcmd);
     return pcmd;
 }
 
+/* Reclaim a pending command by adding it to the shared pool for reuse or freeing it.
+ * The shared pool is only used when IO threads are inactive to avoid race conditions
+ * between multiple clients. Additionally, pool reuse provides minimal benefit in
+ * multi-threaded scenarios, so we only use it in single-threaded mode. */
 static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
-    /* Try shared pool first when IO threads are not active. */
     if (!server.io_threads_active) {
         /* If shared pool is not full and argv isn't too large, add to pool for reuse */
         if (server.pending_cmd_pool_size < PENDING_COMMAND_POOL_SIZE && 
@@ -5005,6 +5012,8 @@ void addPendingCommand(pendingCommandList *queue, pendingCommand *cmd) {
     if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) queue->ready_len++;
 }
 
+/* Remove and return the first pending command from the list.
+ * Returns NULL if the list is empty. */
 pendingCommand *popPendingCommandFromHead(pendingCommandList *list) {
     pendingCommand *cmd = list->head;
     if (!cmd) return NULL;  /* List is empty */
@@ -5023,6 +5032,8 @@ pendingCommand *popPendingCommandFromHead(pendingCommandList *list) {
     return cmd;
 }
 
+/* Remove and return the last pending command from the list.
+ * Returns NULL if the list is empty. */
 pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
     pendingCommand *cmd = list->tail;
     if (!cmd) return NULL;  /* List is empty */
