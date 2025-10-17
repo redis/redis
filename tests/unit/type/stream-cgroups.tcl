@@ -3059,18 +3059,19 @@ start_server {
             
             r XREADGROUP GROUP group1 consumer1 STREAMS mystream >
             
-            after 200
+            after 1000
             
             # Before reload: message should be claimable
-            set claim_before [r XREADGROUP GROUP group1 consumer2 CLAIM 100 STREAMS mystream >]
+            set claim_before [r XREADGROUP GROUP group1 consumer2 CLAIM 500 STREAMS mystream >]
             assert_equal [llength [lindex $claim_before 0 1]] 1
             
             r SAVE
             r DEBUG RELOAD
-            
+
             # After reload: idle time resets, message not immediately claimable
-            set claim_after [r XREADGROUP GROUP group1 consumer3 CLAIM 100 STREAMS mystream >]
+            set claim_after [r XREADGROUP GROUP group1 consumer3 CLAIM 500 STREAMS mystream >]
             assert_equal [llength $claim_after] 0
+
         } {} {external:skip needs:debug}
 
         test "XREADGROUP CLAIM multiple groups persist correctly" {
