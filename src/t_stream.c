@@ -214,7 +214,6 @@ robj *streamDup(robj *o) {
 
             streamID id;
             streamDecodeID(ri_cg_pel.key, &id);
-
             raxInsertPelByTime(new_cg->pel_by_time, new_nack->delivery_time, &id);
         }
         raxStop(&ri_cg_pel);
@@ -2008,7 +2007,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             addReplyBulkLongLong(c, 0);
         }
 
-
         /* If a group is passed, we need to create an entry in the
          * PEL (pending entries list) of this group *and* this consumer.
          *
@@ -2790,10 +2788,10 @@ void xreadCommand(client *c) {
             }
         }
         /* If min_idle_time is set we need to unblock client if PEL entry became claimable
-        * before new messages arrive. min_pel_delivery_time is the minimum delivery time of all
-        * entries in the PELs of different streams specified in the command. We add it to 
-        * min_idle_time to get the earliest time when an entry will be eligible for claiming.
-        * If there are no entries in the PELs we will unblock the client after min_idle_time. */
+         * before new messages arrive. min_pel_delivery_time is the minimum delivery time of all
+         * entries in the PELs of different streams specified in the command. We add it to 
+         * min_idle_time to get the earliest time when an entry will be eligible for claiming.
+         * If there are no entries in the PELs we will unblock the client after min_idle_time. */
         if (min_idle_time != -1) {
             uint64_t pel_expire_time = min_idle_time;
             if (min_pel_delivery_time != UINT64_MAX)

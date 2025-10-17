@@ -71,10 +71,10 @@ typedef struct streamCG {
                                ID as a 64 bit big endian number, while the
                                associated value is a streamNACK structure.*/
     rax *pel_by_time;       /* A radix tree mapping delivery time to pending
-                                entries, so that we can query faster PEL entries
-                                by time. The key is a pelTimeKey structure containing
-                                both delivery_time and stream ID. All information is
-                                in the key; no value is stored. */
+                               entries, so that we can query faster PEL entries
+                               by time. The key is a pelTimeKey structure containing
+                               both delivery_time and stream ID. All information is
+                               in the key; no value is stored. */
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
