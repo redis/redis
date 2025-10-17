@@ -3953,9 +3953,7 @@ void xclaimCommand(client *c) {
             }
 
             raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
-
             nack->delivery_time = deliverytime;
-
             raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &id);
 
             /* Set the delivery attempts counter if given, otherwise
@@ -4136,9 +4134,7 @@ void xautoclaimCommand(client *c) {
 
         /* Update the consumer and idle time. */
         raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
-
         nack->delivery_time = now;
-
         raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &id);
 
         /* Increment the delivery attempts counter unless JUSTID option provided */
@@ -4844,25 +4840,28 @@ void decodePelTimeKey(void *buf, pelTimeKey *key) {
     key->id.seq = ntohu64(e[2]);
 }
 
+/* Helper function to prepare an encoded PEL time key.
+ * This encapsulates the creation and encoding of a pelTimeKey structure. */
+static inline void preparePelTimeKey(unsigned char *keyBuf, uint64_t delivery_time, streamID *id) {
+    pelTimeKey timeKey;
+    timeKey.delivery_time = delivery_time;
+    timeKey.id = *id;
+    encodePelTimeKey(keyBuf, &timeKey);
+}
+
 /* Helper function to insert a NACK into the PEL by time index.
  * This encapsulates the encoding and insertion into the pel_by_time rax tree. */
 void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id) {
-    pelTimeKey timeKey;
     unsigned char keyBuf[sizeof(pelTimeKey)];
-    timeKey.delivery_time = delivery_time;
-    timeKey.id = *id;
-    encodePelTimeKey(&keyBuf, &timeKey);
+    preparePelTimeKey(keyBuf, delivery_time, id);
     raxInsert(pel_by_time, keyBuf, sizeof(keyBuf), NULL, NULL);
 }
 
 /* Helper function to remove a NACK from the PEL by time index.
  * This encapsulates the encoding and removal from the pel_by_time rax tree. */
 void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id) {
-    pelTimeKey timeKey;
     unsigned char keyBuf[sizeof(pelTimeKey)];
-    timeKey.delivery_time = delivery_time;
-    timeKey.id = *id;
-    encodePelTimeKey(&keyBuf, &timeKey);
+    preparePelTimeKey(keyBuf, delivery_time, id);
     raxRemove(pel_by_time, keyBuf, sizeof(keyBuf), NULL);
 }
 
