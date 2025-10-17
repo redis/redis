@@ -1807,7 +1807,7 @@ start_server {
     }
 
     start_server {tags {"repl external:skip"}} {
-    test "XREADGROUP CLAIM delivery count increments replicated correctly" {
+        test "XREADGROUP CLAIM delivery count increments replicated correctly" {
             start_server {tags {"stream"}} {
                 set master [srv 0 client]
                 set master_host [srv 0 host]
@@ -1862,6 +1862,7 @@ start_server {
             }
         }
     }
+    
     start_server {} {
         test "XREADGROUP CLAIM returns unacknowledged messages" {
             r DEL mystream
