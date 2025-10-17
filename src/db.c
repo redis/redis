@@ -228,8 +228,9 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
         /* Update the access time for the ageing algorithm.
          * Don't do it if we have a saving child, as this will trigger
          * a copy on write madness. */
-        if (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH &&
-            server.executing_client->cmd->proc != touchCommand)
+        if (((flags & LOOKUP_NOTOUCH) == 0) &&
+            (server.current_client && server.current_client->flags & CLIENT_NO_TOUCH) &&
+            (server.executing_client && server.executing_client->cmd->proc != touchCommand))
             flags |= LOOKUP_NOTOUCH;
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
@@ -325,7 +326,7 @@ kvobj *lookupKeyWriteOrReply(client *c, robj *key, robj *reply) {
  *
  * link - Optional link to bucket where the key should be added.
  *          On return, get updated, by need, to the inserted key.
- *
+ *          
  * expire - Set expiry of the key. -1 for no expiry.
  */
 kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link, long long expire) {
@@ -735,7 +736,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         /* Because of dbUnshareStringValue, the val in db may change. */
         kv = dictGetKV(*link);
-
+        
         /* if expirable, delete an entry from the expires dict is not decrRefCount of kvobj */
         if (kvobjGetExpire(kv) != -1)
             kvstoreDictDelete(db->expires, slot, key->ptr);
@@ -1136,7 +1137,7 @@ int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
     else
-        server.dirty += emptyData(c->db->id, flags | EMPTYDB_NOFUNCTIONS, NULL);
+        server.dirty += emptyData(c->db->id,flags | EMPTYDB_NOFUNCTIONS,NULL);
 
     /* Without the forceCommandPropagation, when DB(s) was already empty,
      * FLUSHALL\FLUSHDB will not be replicated nor put into the AOF. */
@@ -2535,7 +2536,7 @@ void propagateDeletion(redisDb *db, robj *key, int lazy) {
  */
 int keyIsExpired(redisDb *db, sds key, kvobj *kv) {
     /* Don't expire anything while loading. It will be done later. */
-    if (server.loading) return 0;
+    if (server.loading || server.allow_access_expired) return 0;
     mstime_t when = getExpire(db, key, kv);
     if (when < 0) return 0; /* No expire for this key */
     const mstime_t now = commandTimeSnapshot();
@@ -2597,8 +2598,7 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * return KEY_DELETED. */
     if (asmActiveTrimDelIfNeeded(db, key, kv)) return KEY_DELETED;
 
-    if ((server.allow_access_expired) ||
-        (flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
+    if ((flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
         return KEY_VALID;
 
