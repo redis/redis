@@ -1208,13 +1208,22 @@ typedef struct readyList {
 } readyList;
 
 /* List of pending commands. */
-#define PENDING_COMMAND_POOL_SIZE 16
 typedef struct pendingCommandList {
     pendingCommand *head;
     pendingCommand *tail;
     int len; /* Number of commands in the list */
     int ready_len; /* Number of commands that are ready to be processed */
 } pendingCommandList;
+
+/* Pending command pool management structure */
+#define PENDING_COMMAND_POOL_SIZE 16
+#define PENDING_COMMAND_POOL_MAX_SIZE 1024
+typedef struct pendingCommandPool {
+    pendingCommand **pool;          /* Pool array for reusing pendingCommand objects */
+    int size;                       /* Current number of objects in pool */
+    int capacity;                   /* Current capacity of the pool array */
+    int min_size;                   /* Minimum size since last check (indicates peak usage) */
+} pendingCommandPool;
 
 /* This structure represents a Redis user. This is useful for ACLs, the
  * user is associated to the connection after the connection is authenticated.
@@ -1865,9 +1874,8 @@ struct redisServer {
     int io_threads_clients_num[IO_THREADS_MAX_NUM]; /* Number of clients assigned to each IO thread. */
     int io_threads_do_reads;    /* Read and parse from IO threads? */
     int io_threads_active;      /* Is IO threads currently active? */
-    pendingCommand **pending_cmd_pool; /* Shared pool for reusing pendingCommand and argv,
-                                        * only when IO threads disabled */
-    int pending_cmd_pool_size; /* Current number of reusable pendingCommand objects in shared pool */
+    pendingCommandPool cmd_pool; /* Shared pool for reusing pendingCommand,
+                                  * only when IO threads disabled */
     int prefetch_batch_max_size;/* Maximum number of keys to prefetch in a single batch */
     long long events_processed_while_blocked; /* processEventsWhileBlocked() */
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
@@ -2849,6 +2857,7 @@ void freePendingCommand(client *c, pendingCommand *pcmd);
 void addPendingCommand(pendingCommandList *queue, pendingCommand *cmd);
 pendingCommand *popPendingCommandFromHead(pendingCommandList *queue);
 pendingCommand *popPendingCommandFromTail(pendingCommandList *queue);
+void shrinkPendingCommandPool(void);
 
 /* Utils */
 long long ustime(void);

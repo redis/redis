@@ -1112,6 +1112,24 @@ int clientsCronRunClient(client *c) {
     return 0;
 }
 
+/* Periodic maintenance for the pending command pool.
+ * This function should be called from serverCron to manage pool size based on utilization patterns. */
+void pendingCommandPoolCron(void) {
+    /* Only shrink pool when IO threads are not active */
+    if (server.io_threads_active) return;
+
+    /* Calculate utilization rate based on minimum pool size reached */
+    if (server.cmd_pool.capacity > PENDING_COMMAND_POOL_SIZE) {
+        /* If utilization is below threshold, shrink the pool */
+        double utilization_ratio = 1.0 - (double)server.cmd_pool.min_size / server.cmd_pool.capacity;
+        if (utilization_ratio < 0.5)
+            shrinkPendingCommandPool();
+    }
+
+    /* Reset tracking for next interval */
+    server.cmd_pool.min_size = server.cmd_pool.size; /* Reset to current size */
+}
+
 /* This function is called by serverCron() and is used in order to perform
  * operations on clients that are important to perform constantly. For instance
  * we use this function in order to disconnect clients after a timeout, including
@@ -1628,6 +1646,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Cleanup expired MIGRATE cached sockets. */
     run_with_period(1000) {
         migrateCloseTimedoutSockets();
+    }
+
+    /* Periodically shrink pending command reuse pool */
+    run_with_period(2000) {
+        pendingCommandPoolCron();
     }
 
     /* Resize tracking keys table if needed. This is also done at every
@@ -2916,8 +2939,10 @@ void initServer(void) {
     server.acl_info.invalid_channel_accesses = 0;
 
     /* Initialize the shared pending command pool. */
-    server.pending_cmd_pool_size = 0;
-    server.pending_cmd_pool = zmalloc(sizeof(pendingCommand*) * PENDING_COMMAND_POOL_SIZE);
+    server.cmd_pool.size = 0;
+    server.cmd_pool.capacity = PENDING_COMMAND_POOL_SIZE;
+    server.cmd_pool.pool = zmalloc(sizeof(pendingCommand*) * PENDING_COMMAND_POOL_SIZE);
+    server.cmd_pool.min_size = 0;
 
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
