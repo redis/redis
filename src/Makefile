@@ -118,7 +118,7 @@ ifeq ($(SANITIZER),undefined)
 	# Clang emits many "call to function through pointer to incorrect function type"
 	# warnings. Temporarily disable this check until a broader cleanup lands,
 	# after which we can re-enable it safely.
-	ifeq ($(CLANG),clang)
+	ifeq (clang, $(CLANG))
 		CFLAGS+=-fno-sanitize=function
 	endif
 else
