@@ -626,9 +626,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         set task_id [setup_slot_migration_with_delay 1 0 0 100 2 2000000]
         set loglines [count_log_lines 0]
 
-        # Start the slot 0 write load on the R 1
-        set slot0_key [slot_key 0 mykey]
-        set load_handle [start_write_load "127.0.0.1" [get_port 1] 1000 $slot0_key]
+        # Create some traffic on slot 0
+        populate_slot 100 -idx 1 -slot 0 -size 100000
 
         # After some time, slots sync buffer limit should be reached, but migration would not fail
         # since the buffer will be accumulated on source side from now.
@@ -638,7 +637,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         assert {[S 0 mem_slot_migration_input_buffer_peak] > 1000000}
         assert {[S 0 mem_slot_migration_input_buffer] > 1000000}
 
-        stop_write_load $load_handle
         wait_for_asm_done
 
         # Reset configurations
@@ -1022,7 +1020,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # set a delay to have time to cancel import task that is streaming buf to db
         R 1 config set key-load-delay 50000
         # start slot migration from 0 to 1
-        set task_id [setup_slot_migration_with_delay 0 1 0 100]
+        set task_id [setup_slot_migration_with_delay 0 1 0 100 5]
 
         # start the slot 0 write load on the node 0
         set slot0_key [slot_key 0 mykey]
