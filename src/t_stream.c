@@ -4931,8 +4931,10 @@ void handleClaimableStreamEntries(void) {
             uint64_t expire_time = dictGetUnsignedIntegerVal(de);
             kvobj *kv = dbFind(&server.db[j], key->ptr);
 
-            if (!kv || kv->type != OBJ_STREAM)
+            if (!kv || kv->type != OBJ_STREAM) {
+                dictDelete(server.db[j].stream_claim_pending_keys, key);
                 continue;
+            }
 
             if (expire_time < (uint64_t)server.mstime) {
                 signalKeyAsReady(&server.db[j], key, kv->type);
@@ -4942,4 +4944,3 @@ void handleClaimableStreamEntries(void) {
         dictResetIterator(&di);
     }
 }
-
