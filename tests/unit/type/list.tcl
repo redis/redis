@@ -2464,4 +2464,37 @@ foreach {pop} {BLPOP BLMPOP_RIGHT} {
         
         $rd close
     }
+
+    test "CLIENT NO-TOUCH with BRPOP and RPUSH regression test" {
+        # Test scenario:
+        # 1. Client 1: CLIENT NO-TOUCH on
+        # 2. Client 2: BRPOP mylist 0
+        # 3. Client 1: RPUSH mylist elem
+        
+        # cleanup first
+        r del mylist
+        
+        # Create two test clients
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        
+        # Client 1: Enable CLIENT NO-TOUCH
+        $rd1 client no-touch on
+        assert_equal {OK} [$rd1 read]
+        
+        # Client 2: Block waiting for elements in mylist
+        $rd2 brpop mylist 0
+        wait_for_blocked_client
+        
+        # Client 1: Push an element to mylist
+        $rd1 rpush mylist elem
+        assert_equal {1} [$rd1 read]
+
+        # Verify Client 2 received the element
+        assert_equal {mylist elem} [$rd2 read]
+
+        $rd1 close
+        $rd2 close
+    }
+    
 } ;# stop servers

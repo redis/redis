@@ -18,6 +18,13 @@
 #include <immintrin.h>
 #endif
 
+#ifdef HAVE_AVX512
+/* Define __MM_MALLOC_H to prevent importing the memory aligned
+ * allocation functions, which we don't use. */
+#define __MM_MALLOC_H
+#include <immintrin.h>
+#endif
+
 #ifdef HAVE_AARCH64_NEON
 #include <arm_neon.h>
 #endif
@@ -29,10 +36,27 @@
 #endif
 
 /* AArch64 NEON support is determined at compile time via HAVE_AARCH64_NEON */
+#ifdef HAVE_AVX512
+#define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
+#else
+#define BITOP_USE_AVX512 0
+#endif
+
 
 /* -----------------------------------------------------------------------------
  * Helpers and low level bit functions.
  * -------------------------------------------------------------------------- */
+
+ /* Shared lookup table for bit counting - maps each byte value to its popcount */
+static const uint8_t bitsinbyte[256] = {
+    #define B2(n) n, n+1, n+1, n+2
+    #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
+    #define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
+    B6(0), B6(1), B6(1), B6(2)
+    #undef B6
+    #undef B4
+    #undef B2
+};
 
 /* Count number of bits set in the binary array pointed by 's' and long
  * 'count' bytes. The implementation of this function is required to
@@ -48,8 +72,6 @@ long long redisPopcount(void *s, long count) {
     int use_popcnt = 0; /* Assume CPU does not support POPCNT if
                          * __builtin_cpu_supports() is not available. */
 #endif
-    static const unsigned char bitsinbyte[256] = {0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8};
-    
     /* Count initial bytes not aligned to 64-bit when using the POPCNT instruction,
      * otherwise align to 32-bit. */
     int align = use_popcnt ? 7 : 3;
@@ -144,16 +166,6 @@ remain:
 long long redisPopCountAarch64(void *s, long count) {
     long long bits = 0;
     const uint8_t *p = (const uint8_t*)s;
-
-    static const uint8_t bitsinbyte[256] = {
-        #define B2(n) n, n+1, n+1, n+2
-        #define B4(n) B2(n), B2(n+1), B2(n+1), B2(n+2)
-        #define B6(n) B4(n), B4(n+1), B4(n+1), B4(n+2)
-        B6(0), B6(1), B6(1), B6(2)
-        #undef B6
-        #undef B4
-        #undef B2
-    };
 
     /* Align */
     while (((uintptr_t)p & 15) && count) {
@@ -253,6 +265,120 @@ long long redisPopCountAarch64(void *s, long count) {
     return bits;
 }
 #endif
+
+#ifdef HAVE_AVX512
+/* AVX512 optimized version of redisPopcount using VPOPCNTDQ instruction.
+ * This function requires AVX512F and AVX512VPOPCNTDQ support. */
+ATTRIBUTE_TARGET_AVX512_POPCOUNT
+long long redisPopCountAvx512(void *s, long count) {
+    long long bits = 0;
+    unsigned char *p = s;
+
+    /* Align to 64-byte boundary for optimal AVX512 performance */
+    while ((unsigned long)p & 63 && count) {
+        bits += bitsinbyte[*p++];
+        count--;
+    }
+
+    /* Process 64 bytes at a time using AVX512 */
+    while (count >= 64) {
+        __m512i data = _mm512_loadu_si512((__m512i*)p);
+        __m512i popcnt = _mm512_popcnt_epi64(data);
+
+        /* Sum all 8 64-bit popcount results */
+        bits += _mm512_reduce_add_epi64(popcnt);
+
+        p += 64;
+        count -= 64;
+
+        /* Prefetch next cache line */
+        redis_prefetch_read(p + 2048);
+    }
+
+    /* Handle remaining bytes with scalar popcount */
+    while (count >= 8) {
+        bits += __builtin_popcountll(*(uint64_t*)p);
+        p += 8;
+        count -= 8;
+    }
+
+    /* Handle final bytes */
+    while (count--) {
+        bits += bitsinbyte[*p++];
+    }
+
+    return bits;
+}
+#endif
+
+#ifdef HAVE_AVX2
+/* AVX2 optimized version of redisPopcount.
+ * This function requires AVX2 and POPCNT support. */
+ATTRIBUTE_TARGET_AVX2_POPCOUNT
+long long redisPopCountAvx2(void *s, long count) {
+    long long bits = 0;
+    unsigned char *p = s;
+
+    /* Align to 8-byte boundary for 64-bit operations */
+    while ((unsigned long)p & 7 && count) {
+        bits += bitsinbyte[*p++];
+        count--;
+    }
+
+    /* Use separate counters to avoid dependencies, similar to regular redisPopcount */
+    uint64_t cnt[4];
+    memset(cnt, 0, sizeof(cnt));
+
+    /* Process 32 bytes at a time using POPCNT on 64-bit chunks */
+    while (count >= 32) {
+        cnt[0] += __builtin_popcountll(*(uint64_t*)(p));
+        cnt[1] += __builtin_popcountll(*(uint64_t*)(p + 8));
+        cnt[2] += __builtin_popcountll(*(uint64_t*)(p + 16));
+        cnt[3] += __builtin_popcountll(*(uint64_t*)(p + 24));
+
+        p += 32;
+        count -= 32;
+
+        /* Prefetch next cache line */
+        redis_prefetch_read(p + 2048);
+    }
+
+    bits += cnt[0] + cnt[1] + cnt[2] + cnt[3];
+
+    /* Handle remaining bytes with scalar popcount */
+    while (count >= 8) {
+        bits += __builtin_popcountll(*(uint64_t*)p);
+        p += 8;
+        count -= 8;
+    }
+
+    /* Handle final bytes */
+    while (count--) {
+        bits += bitsinbyte[*p++];
+    }
+
+    return bits;
+}
+#endif
+
+/* Automatically select the best available popcount implementation */
+static inline long long redisPopcountAuto(const unsigned char *p, long count) {
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        return redisPopCountAvx512((void*)p, count);
+    }
+#endif
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        return redisPopCountAvx2((void*)p, count);
+    }
+#endif
+#ifdef HAVE_AARCH64_NEON
+    return redisPopCountAarch64((void*)p, count);
+#else
+    return redisPopcount((void*)p, count);
+#endif
+}
 
 /* Return the position of the first bit set to one (if 'bit' is 1) or
  * zero (if 'bit' is 0) in the bitmap starting at 's' and long 'count' bytes.
@@ -792,7 +918,7 @@ void getbitCommand(client *c) {
  * 256-bit registers so if `minlen` is not a multiple of 32 some of the bytes
  * will be skipped. They will be taken care for in the unoptimized loop in the
  * main bitopCommand function. */
-ATTRIBUTE_TARGET_AVX2
+ATTRIBUTE_TARGET_AVX2_POPCOUNT
 unsigned long bitopCommandAVX(unsigned char **keys, unsigned char *res, 
                               unsigned long op, unsigned long numkeys,
                               unsigned long minlen)
@@ -1404,11 +1530,7 @@ void bitcountCommand(client *c) {
         long long count;
 
         /* Use the best available popcount implementation */
-#ifdef HAVE_AARCH64_NEON
-        count = redisPopCountAarch64(p+start,bytes);
-#else
-        count = redisPopcount(p+start,bytes);
-#endif
+        count = redisPopcountAuto(p+start, bytes);
 
         if (first_byte_neg_mask != 0 || last_byte_neg_mask != 0) {
             unsigned char firstlast[2] = {0, 0};
@@ -1419,11 +1541,7 @@ void bitcountCommand(client *c) {
             if (last_byte_neg_mask != 0) firstlast[1] = p[end] & last_byte_neg_mask;
 
             /* Use the same popcount implementation for consistency */
-#ifdef HAVE_AARCH64_NEON
-            count -= redisPopCountAarch64(firstlast,2);
-#else
-            count -= redisPopcount(firstlast,2);
-#endif
+            count -= redisPopcountAuto(firstlast, 2);
         }
         addReplyLongLong(c,count);
     }
@@ -1862,6 +1980,38 @@ int bitopsTest(int argc, char **argv, int flags) {
         printf("FAIL: Regular popcount mismatch\n");
         return 1;
     }
+
+#ifdef HAVE_AVX2
+    if (BITOP_USE_AVX2) {
+        long long result_avx2 = redisPopCountAvx2(test_data, sizeof(test_data));
+        printf("AVX2 popcount: %lld (expected: %d)\n", result_avx2, expected_bits);
+
+        if (result_avx2 != expected_bits) {
+            printf("FAIL: AVX2 popcount mismatch\n");
+            return 1;
+        }
+    } else {
+        printf("AVX2 not supported on this CPU\n");
+    }
+#else
+    printf("AVX2 not compiled in\n");
+#endif
+
+#ifdef HAVE_AVX512
+    if (BITOP_USE_AVX512) {
+        long long result_avx512 = redisPopCountAvx512(test_data, sizeof(test_data));
+        printf("AVX512 popcount: %lld (expected: %d)\n", result_avx512, expected_bits);
+
+        if (result_avx512 != expected_bits) {
+            printf("FAIL: AVX512 popcount mismatch\n");
+            return 1;
+        }
+    } else {
+        printf("AVX512 not supported on this CPU\n");
+    }
+#else
+    printf("AVX512 not compiled in\n");
+#endif
 
 #ifdef HAVE_AARCH64_NEON
     {
