@@ -1907,18 +1907,15 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 addReplyBulkLongLong(c, idle);
                 addReplyBulkLongLong(c, delivery_count);
 
-                /* Remove the NACK from old consumer.*/
+                /* Remove the NACK from old consumer and time-based PEL. */
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                /* Remove the NACK from the PEL by time. */
                 raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &pel_id);
-                /* Update the consumer and NACK metadata. */
+
+                /* Transfer NACK to new consumer with updated metadata. */
                 nack->consumer = consumer;
                 nack->delivery_time = commandTimeSnapshot();
                 nack->delivery_count++;
-                /* Add the entry in the new consumer local PEL. */
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
-                
-                /* Add updated NACK in PEL by time. */
                 raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &pel_id);
 
                 consumer->active_time = commandTimeSnapshot();
@@ -1932,7 +1929,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 }
 
                 arraylen++;
-                if (count && count == arraylen) break;
             }
             streamIteratorStop(&si);   
         }
