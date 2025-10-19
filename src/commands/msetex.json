@@ -3,7 +3,7 @@
         "summary": "Atomically sets multiple string keys with a shared expiration in a single operation. Supports flexible argument parsing where condition and expiration flags can appear in any order.",
         "complexity": "O(N) where N is the number of keys to set.",
         "group": "string",
-        "since": "8.0.0",
+        "since": "8.4.0",
         "arity": -5,
         "function": "msetexCommand",
         "command_flags": [
@@ -15,26 +15,28 @@
         ],
         "arguments": [
             {
-                "name": "keys-token",
-                "type": "pure-token",
-                "token": "KEYS"
-            },
-            {
-                "name": "numkeys",
-                "type": "integer"
-            },
-            {
-                "name": "data",
+                "name": "keys",
+                "token": "KEYS",
                 "type": "block",
-                "multiple": true,
                 "arguments": [
                     {
-                        "name": "key",
-                        "type": "key"
+                        "name": "numkeys",
+                        "type": "integer"
                     },
                     {
-                        "name": "value",
-                        "type": "string"
+                        "name": "data",
+                        "type": "block",
+                        "multiple": true,
+                        "arguments": [
+                            {
+                                "name": "key",
+                                "type": "key"
+                            },
+                            {
+                                "name": "value",
+                                "type": "string"
+                            }
+                        ]
                     }
                 ]
             },

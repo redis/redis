@@ -782,10 +782,7 @@ void msetexCommand(client *c) {
                 addReplyError(c, "wrong number of key-value pairs");
                 return;
             }
-            j++;
-        } else if (keys_pos != -1 && j >= kvs_start && j < kvs_end) {
-            /* We're in key-value section - skip these arguments */
-            continue;
+            j = kvs_end - 1;  /* Skip directly to end of key-value block */
         } else if (!strcasecmp(arg, "NX") && !(flags & OBJ_SET_XX)) {
             flags |= OBJ_SET_NX;
         } else if (!strcasecmp(arg, "XX") && !(flags & OBJ_SET_NX)) {
