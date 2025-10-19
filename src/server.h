@@ -347,7 +347,6 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_OPEN_ERR 3
 #define AOF_FAILED 4
 #define AOF_TRUNCATED 5
-#define AOF_BROKEN_RECOVERED 6
 
 /* RDB return values for rdbLoad. */
 #define RDB_OK 0
@@ -2019,7 +2018,7 @@ struct redisServer {
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
-    off_t aof_load_corrupt_tail_size; /* The max size of broken AOF tail than can be ignored. */
+    off_t aof_load_corrupt_tail_max_size; /* The max size of broken AOF tail than can be ignored. */
     int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */

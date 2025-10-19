@@ -711,17 +711,17 @@ tags {"aof external:skip"} {
     create_aof $aof_dirpath $aof_file {
         append_to_aof [formatCommand set foo hello]
     }
-    start_server_aof_ex [list dir $server_path aof-load-corrupt-tail-size 4096] [list wait_ready false] {
+    start_server_aof_ex [list dir $server_path aof-load-corrupt-tail-max-size 4096] [list wait_ready false] {
         test "Corrupted base AOF should be recovered" {
             wait_for_log_messages 0 {
-                {*AOF*loaded anyway because aof-load-corrupt-tail-size is enabled*}
+                {*AOF*loaded anyway because aof-load-corrupt-tail-max-size is enabled*}
             } 0 10 1000
         }
     }
 
     # Remove all incr AOF files to make the base file being the last file
     exec rm -f $aof_dirpath/appendonly.aof.*
-    start_server_aof [list dir $server_path aof-load-corrupt-tail-size 4096] {
+    start_server_aof [list dir $server_path aof-load-corrupt-tail-max-size 4096] {
         test "Corrupted base AOF (last file): should recover" {
             assert_equal 1 [is_alive [srv pid]]
         }
@@ -743,12 +743,12 @@ tags {"aof external:skip"} {
         append_to_aof "corruption"
     }
 
-    start_server_aof [list dir $server_path aof-load-corrupt-tail-size 4096] {
+    start_server_aof [list dir $server_path aof-load-corrupt-tail-max-size 4096] {
         test "Short read: Server should start if aof-load-broken is yes" {
             assert_equal 1 [is_alive [srv pid]]
         }
 
-        # The AOF file is expected to be correct because aof-load-corrupt-tail-size is set to 4096,
+        # The AOF file is expected to be correct because aof-load-corrupt-tail-max-size is set to 4096,
         # so the AOF will reload without the corruption
         test "Broken AOF loaded: we expect foo to be equal to 5" {
             set client [redis [srv host] [srv port] 0 $::tls]
@@ -761,7 +761,7 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server_aof [list dir $server_path aof-load-corrupt-tail-size 4096] {
+    start_server_aof [list dir $server_path aof-load-corrupt-tail-max-size 4096] {
         test "Short read + command: Server should start" {
             assert_equal 1 [is_alive [srv pid]]
         }
@@ -782,9 +782,9 @@ tags {"aof external:skip"} {
 
     # We set the maximum allowed corrupted size to 2 bytes, but the actual corrupted portion is larger,
     # so the AOF file will not be reloaded.
-    start_server_aof_ex [list dir $server_path aof-load-corrupt-tail-size 2] [list wait_ready false] {
+    start_server_aof_ex [list dir $server_path aof-load-corrupt-tail-max-size 2] [list wait_ready false] {
         test "Bad format: Server should have logged an error" {
-            wait_for_log_messages 0 {"*Bad file format reading the append only file*aof-load-corrupt-tail-size*"} 0 10 1000
+            wait_for_log_messages 0 {"*Bad file format reading the append only file*aof-load-corrupt-tail-max-size*"} 0 10 1000
         }
     }
 
@@ -813,10 +813,10 @@ tags {"aof external:skip"} {
     }
 
     # Check that Redis fails to load because corruption is in the middle file
-    start_server_aof_ex [list dir $server_path aof-load-corrupt-tail-size 4096] [list wait_ready false] {
+    start_server_aof_ex [list dir $server_path aof-load-corrupt-tail-max-size 4096] [list wait_ready false] {
         test "Intermediate AOF is broken: should recover successfully" {
             wait_for_log_messages 0 {
-                {*AOF*loaded anyway because aof-load-corrupt-tail-size is enabled*}
+                {*AOF*loaded anyway because aof-load-corrupt-tail-max-size is enabled*}
             } 0 10 1000
         }
     }
@@ -828,7 +828,7 @@ tags {"aof external:skip"} {
     file rename -force $tmp_file $last_aof_file
 
     # Should now start successfully since corruption is in last AOF file
-    start_server_aof [list dir $server_path aof-load-corrupt-tail-size 4096] {
+    start_server_aof [list dir $server_path aof-load-corrupt-tail-max-size 4096] {
         test "Corrupted last AOF file: Server should still start and recover" {
             assert_equal 1 [is_alive [srv pid]]
             set client [redis [srv host] [srv port] 0 $::tls]
@@ -850,8 +850,8 @@ tags {"aof external:skip"} {
         }
     }
 
-    start_server_aof [list dir $server_path aof-load-corrupt-tail-size 64] {
-        test "Corrupt tail: Server should start if aof-load-corrupt-tail-size is set" {
+    start_server_aof [list dir $server_path aof-load-corrupt-tail-max-size 64] {
+        test "Corrupt tail: Server should start if aof-load-corrupt-tail-max-size is set" {
             assert_equal 1 [is_alive [srv pid]]
         }
 
