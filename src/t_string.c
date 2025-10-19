@@ -69,7 +69,7 @@ static int checkStringLength(client *c, long long size, long long append) {
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
-void msetGenericCommand(client *c, int flags, robj *expire, int unit, int kvs_start, int kvs_count, int expire_flag_pos);
+void msetGenericCommand(client *c, int nx);
 
 /* Generic SET command family (SET, SETEX, PSETEX, SETNX)
  *
@@ -653,93 +653,53 @@ void mgetCommand(client *c) {
     }
 }
 
-/* Generic MSET command family (MSET, MSETNX, MSETEX)
+/* Generic MSET command family (MSET, MSETNX)
  *
  * Arguments:
  *   c: Redis client
- *   flags: Command flags (OBJ_SET_NX, OBJ_SET_XX, OBJ_KEEPTTL, expiration flags)
- *   expire: Expiration value object (NULL if no expiration)
- *   unit: Time unit for expiration (UNIT_SECONDS or UNIT_MILLISECONDS)
- *   kvs_start: Starting position of key-value pairs in c->argv (-1 for legacy MSET/MSETNX)
- *   kvs_count: Number of key-value pairs (0 for legacy MSET/MSETNX)
- *   expire_flag_pos: Position of expiration flag in c->argv for replication rewriting (-1 if none)
+ *   nx: 1 for MSETNX behavior, 0 for MSET behavior
  */
-void msetGenericCommand(client *c, int flags, robj *expire, int unit, int kvs_start, int kvs_count, int expire_flag_pos) {
-    int j;
-    long long milliseconds = 0;
-
-    if (kvs_start == -1) {
-        if ((c->argc % 2) == 0) {
-            addReplyErrorArity(c);
-            return;
-        }
-        kvs_start = 1;
-        kvs_count = (c->argc - 1) / 2;
-    }
-    /* Validate expiration early */
-    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+void msetGenericCommand(client *c, int nx) {
+    /* Validate argument count */
+    if ((c->argc % 2) == 0) {
+        addReplyErrorArity(c);
         return;
     }
-    if (flags & OBJ_SET_NX) {
-        for (j = 0; j < kvs_count; j++) {
-            int key_idx = kvs_start + (j * 2);
+
+    int kvs_count = (c->argc - 1) / 2;
+
+    /* Check if any key exists (for NX) */
+    if (nx) {
+        for (int j = 0; j < kvs_count; j++) {
+            int key_idx = 1 + (j * 2);
             if (lookupKeyWrite(c->db, c->argv[key_idx]) != NULL) {
                 addReply(c, shared.czero);
                 return;
             }
         }
     }
-    if (flags & OBJ_SET_XX) {
-        for (j = 0; j < kvs_count; j++) {
-            int key_idx = kvs_start + (j * 2);
-            if (lookupKeyWrite(c->db, c->argv[key_idx]) == NULL) {
-                addReply(c, shared.czero);
-                return;
-            }
-        }
-    }
 
-    for (j = 0; j < kvs_count; j++) {
-        int key_idx = kvs_start + (j * 2);
-        int val_idx = kvs_start + (j * 2) + 1;
+    /* Set all key-value pairs */
+    for (int j = 0; j < kvs_count; j++) {
+        int key_idx = 1 + (j * 2);
+        int val_idx = 1 + (j * 2) + 1;
 
         c->argv[val_idx] = tryObjectEncoding(c->argv[val_idx]);
-
-        /* Handle KEEPTTL - preserve existing TTL */
-        int setkey_flags = 0;
-        if (flags & OBJ_KEEPTTL) {
-            setkey_flags |= SETKEY_KEEPTTL;
-        }
-
-        setKey(c, c->db, c->argv[key_idx], &(c->argv[val_idx]), setkey_flags);
+        setKey(c, c->db, c->argv[key_idx], &(c->argv[val_idx]), 0);
         incrRefCount(c->argv[val_idx]);
-
-        /* Set expiration for each key (but not for KEEPTTL) */
-        if (expire && !(flags & OBJ_KEEPTTL)) {
-            setExpire(c, c->db, c->argv[key_idx], milliseconds);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"expire", c->argv[key_idx], c->db->id);
-        }
         notifyKeyspaceEvent(NOTIFY_STRING,"set", c->argv[key_idx], c->db->id);
     }
 
-    if (expire && !(flags & OBJ_PXAT) && !(flags & OBJ_EXAT) && expire_flag_pos >= 0) {
-        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
-        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandArgument(c, expire_flag_pos, shared.pxat);
-        rewriteClientCommandArgument(c, expire_flag_pos + 1, milliseconds_obj);
-
-        decrRefCount(milliseconds_obj);
-    }
     server.dirty += kvs_count;
-    addReply(c, (flags == OBJ_NO_FLAGS) ? shared.ok : shared.cone);
+    addReply(c, nx ? shared.cone : shared.ok);
 }
 
 void msetCommand(client *c) {
-    msetGenericCommand(c, OBJ_NO_FLAGS, NULL, 0, -1, 0, -1);
+    msetGenericCommand(c, 0);
 }
 
 void msetnxCommand(client *c) {
-    msetGenericCommand(c, OBJ_SET_NX, NULL, 0, -1, 0, -1);
+    msetGenericCommand(c, 1);
 }
 
 void msetexCommand(client *c) {
@@ -822,7 +782,68 @@ void msetexCommand(client *c) {
         addReplyError(c, "syntax error - KEYS keyword is required");
         return;
     }
-    msetGenericCommand(c, flags, expire, unit, kvs_start, kvs_count, expire_flag_pos);
+
+    /* Validate the expiration time value first */
+    long long milliseconds = 0;
+    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+        return;
+    }
+
+    /* Check if any key exists (for NX) or doesn't exist (for XX) */
+    if (flags & OBJ_SET_NX) {
+        for (int j = 0; j < kvs_count; j++) {
+            int key_idx = kvs_start + (j * 2);
+            if (lookupKeyWrite(c->db, c->argv[key_idx]) != NULL) {
+                addReply(c, shared.czero);
+                return;
+            }
+        }
+    }
+    if (flags & OBJ_SET_XX) {
+        for (int j = 0; j < kvs_count; j++) {
+            int key_idx = kvs_start + (j * 2);
+            if (lookupKeyWrite(c->db, c->argv[key_idx]) == NULL) {
+                addReply(c, shared.czero);
+                return;
+            }
+        }
+    }
+
+    /* Set all key-value pairs */
+    for (int j = 0; j < kvs_count; j++) {
+        int key_idx = kvs_start + (j * 2);
+        int val_idx = kvs_start + (j * 2) + 1;
+
+        c->argv[val_idx] = tryObjectEncoding(c->argv[val_idx]);
+
+        /* Handle KEEPTTL - preserve existing TTL */
+        int setkey_flags = 0;
+        if (flags & OBJ_KEEPTTL) {
+            setkey_flags |= SETKEY_KEEPTTL;
+        }
+
+        setKey(c, c->db, c->argv[key_idx], &(c->argv[val_idx]), setkey_flags);
+        incrRefCount(c->argv[val_idx]);
+
+        /* Set expiration for each key (but not for KEEPTTL) */
+        if (expire && !(flags & OBJ_KEEPTTL)) {
+            setExpire(c, c->db, c->argv[key_idx], milliseconds);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"expire", c->argv[key_idx], c->db->id);
+        }
+        notifyKeyspaceEvent(NOTIFY_STRING,"set", c->argv[key_idx], c->db->id);
+    }
+
+    /* Handle replication rewriting for relative expiration times */
+    if (expire && !(flags & OBJ_PXAT) && !(flags & OBJ_EXAT) && expire_flag_pos >= 0) {
+        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandArgument(c, expire_flag_pos, shared.pxat);
+        rewriteClientCommandArgument(c, expire_flag_pos + 1, milliseconds_obj);
+        decrRefCount(milliseconds_obj);
+    }
+
+    server.dirty += kvs_count;
+    addReply(c, shared.cone);  /* Always return 1 for success */
 }
 
 void incrDecrCommand(client *c, long long incr) {
