@@ -653,74 +653,56 @@ void mgetCommand(client *c) {
     }
 }
 
-/* Generic MSET command family (MSET, MSETNX)
- *
- * Arguments:
- *   c: Redis client
- *   nx: 1 for MSETNX behavior, 0 for MSET behavior
- */
 void msetGenericCommand(client *c, int nx) {
-    /* Validate argument count */
+    int j;
+
     if ((c->argc % 2) == 0) {
         addReplyErrorArity(c);
         return;
     }
 
-    int kvs_count = (c->argc - 1) / 2;
-
-    /* Check if any key exists (for NX) */
+    /* Handle the NX flag. The MSETNX semantic is to return zero and don't
+     * set anything if at least one key already exists. */
     if (nx) {
-        for (int j = 0; j < kvs_count; j++) {
-            int key_idx = 1 + (j * 2);
-            if (lookupKeyWrite(c->db, c->argv[key_idx]) != NULL) {
+        for (j = 1; j < c->argc; j += 2) {
+            if (lookupKeyWrite(c->db,c->argv[j]) != NULL) {
                 addReply(c, shared.czero);
                 return;
             }
         }
     }
 
-    /* Set all key-value pairs */
-    for (int j = 0; j < kvs_count; j++) {
-        int key_idx = 1 + (j * 2);
-        int val_idx = 1 + (j * 2) + 1;
-
-        c->argv[val_idx] = tryObjectEncoding(c->argv[val_idx]);
-        setKey(c, c->db, c->argv[key_idx], &(c->argv[val_idx]), 0);
-        incrRefCount(c->argv[val_idx]);
-        notifyKeyspaceEvent(NOTIFY_STRING,"set", c->argv[key_idx], c->db->id);
+    for (j = 1; j < c->argc; j += 2) {
+        c->argv[j+1] = tryObjectEncoding(c->argv[j+1]);
+        /* if 'NX', no need set flags SETKEY_DOESNT_EXIST. Already verified earlier! */
+        setKey(c, c->db, c->argv[j], &(c->argv[j+1]) , 0 /*flags*/);
+        incrRefCount(c->argv[j+1]);  /* refcnt not incr by setKey() */
+        notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[j],c->db->id);
     }
-
-    server.dirty += kvs_count;
+    server.dirty += (c->argc-1)/2;
     addReply(c, nx ? shared.cone : shared.ok);
 }
 
 void msetCommand(client *c) {
-    msetGenericCommand(c, 0);
+    msetGenericCommand(c,0);
 }
 
 void msetnxCommand(client *c) {
-    msetGenericCommand(c, 1);
+    msetGenericCommand(c,1);
 }
 
 void msetexCommand(client *c) {
-    int kvs_count = 0, kvs_start = -1, keys_pos = -1;
+    int kvs_count = 0, kvs_start = -1;
     robj *expire = NULL;
     int unit = UNIT_SECONDS;
     int flags = OBJ_NO_FLAGS;
     int expire_flag_pos = -1;
-    long long kvs_count_val;
-
-    /* Minimum arguments: MSETEX KEYS numkeys key value */
-    if (c->argc < 5) {
-        addReplyErrorArity(c);
-        return;
-    }
-    int kvs_end = -1;
     for (int j = 1; j < c->argc; j++) {
         char *arg = c->argv[j]->ptr;
 
         if (!strcasecmp(arg, "KEYS")) {
-            if (keys_pos != -1) {
+            int kvs_end;
+            if (kvs_count > 0) {
                 addReplyError(c, "syntax error - KEYS specified multiple times");
                 return;
             }
@@ -728,49 +710,53 @@ void msetexCommand(client *c) {
                 addReplyError(c, "syntax error - KEYS requires numkeys argument");
                 return;
             }
-            keys_pos = j;
-            if (getLongLongFromObject(c->argv[j + 1], &kvs_count_val) != C_OK || kvs_count_val <= 0) {
-                addReplyError(c, "invalid numkeys value");
+            long kvs_count_long;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 1, LONG_MAX, &kvs_count_long, "invalid numkeys value") != C_OK) {
                 return;
             }
-            kvs_count = (int)kvs_count_val;
+            kvs_count = (int)kvs_count_long;
             kvs_start = j + 2;
-            kvs_end = kvs_start + (kvs_count * 2);
+            kvs_end = kvs_start + (kvs_count * 2) - 1;
 
             /* Validate we have enough key-value pairs */
-            if (kvs_end > c->argc) {
+            if (kvs_end >= c->argc) {
                 addReplyError(c, "wrong number of key-value pairs");
                 return;
             }
-            j = kvs_end - 1;  /* Skip directly to end of key-value block */
+            j = kvs_end;  /* Skip directly to end of key-value block */
         } else if (!strcasecmp(arg, "NX") && !(flags & OBJ_SET_XX)) {
             flags |= OBJ_SET_NX;
         } else if (!strcasecmp(arg, "XX") && !(flags & OBJ_SET_NX)) {
             flags |= OBJ_SET_XX;
         } else if (!strcasecmp(arg, "EX") && j + 1 < c->argc &&
-                   !(flags & (OBJ_PX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL))) {
+                   !(flags & (OBJ_PX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL)))
+        {
             expire_flag_pos = j;  /* Remember position of EX flag */
             expire = c->argv[++j];
             unit = UNIT_SECONDS;
             flags |= OBJ_EX;
         } else if (!strcasecmp(arg, "PX") && j + 1 < c->argc &&
-                   !(flags & (OBJ_EX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL))) {
+                   !(flags & (OBJ_EX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL)))
+        {
             expire_flag_pos = j;  /* Remember position of PX flag */
             expire = c->argv[++j];
             unit = UNIT_MILLISECONDS;
             flags |= OBJ_PX;
         } else if (!strcasecmp(arg, "EXAT") && j + 1 < c->argc &&
-                   !(flags & (OBJ_EX | OBJ_PX | OBJ_PXAT | OBJ_KEEPTTL))) {
+                   !(flags & (OBJ_EX | OBJ_PX | OBJ_PXAT | OBJ_KEEPTTL)))
+        {
             expire = c->argv[++j];
             unit = UNIT_SECONDS;
             flags |= OBJ_EXAT;
         } else if (!strcasecmp(arg, "PXAT") && j + 1 < c->argc &&
-                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_KEEPTTL))) {
+                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_KEEPTTL)))
+        {
             expire = c->argv[++j];
             unit = UNIT_MILLISECONDS;
             flags |= OBJ_PXAT;
         } else if (!strcasecmp(arg, "KEEPTTL") &&
-                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_PXAT))) {
+                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_PXAT)))
+        {
             flags |= OBJ_KEEPTTL;
         } else {
             addReplyErrorObject(c, shared.syntaxerr);
@@ -778,7 +764,7 @@ void msetexCommand(client *c) {
         }
     }
     /* Validate KEYS was found */
-    if (keys_pos == -1) {
+    if (kvs_count == 0) {
         addReplyError(c, "syntax error - KEYS keyword is required");
         return;
     }
@@ -799,7 +785,7 @@ void msetexCommand(client *c) {
             }
         }
     }
-    if (flags & OBJ_SET_XX) {
+    else if (flags & OBJ_SET_XX) {
         for (int j = 0; j < kvs_count; j++) {
             int key_idx = kvs_start + (j * 2);
             if (lookupKeyWrite(c->db, c->argv[key_idx]) == NULL) {

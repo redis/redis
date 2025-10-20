@@ -269,7 +269,11 @@ start_server {tags {"string"}} {
         r msetex keys 2 exat:key1{t} val3 exat:key2{t} val4 exat $future_sec
         r msetex keys 2 pxat:key1{t} val3 pxat:key2{t} val4 pxat $future_ms
 
-        list [expr [r ttl ex:key1{t}] > 0] [expr [r pttl px:key1{t}] > 0] [expr [r ttl exat:key1{t}] > 0] [expr [r pttl pxat:key1{t}] > 0]
+        set ex_ttl_ok [expr [r ttl ex:key1{t}] > 0]
+        set px_ttl_ok [expr [r pttl px:key1{t}] > 0]
+        set exat_ttl_ok [expr [r ttl exat:key1{t}] > 0]
+        set pxat_ttl_ok [expr [r pttl pxat:key1{t}] > 0]
+        list $ex_ttl_ok $px_ttl_ok $exat_ttl_ok $pxat_ttl_ok
     } {1 1 1 1}
 
     test {MSETEX - KEEPTTL preserves existing TTL} {
