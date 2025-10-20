@@ -806,6 +806,55 @@ void lcsCommand(client *c) {
         goto cleanup;
     }
 
+    /* If the user only requests the LCS length, without any index
+     * information, we can use a space-optimized dynamic programming
+     * approach that uses O(min(M,N)) memory instead of O(M*N).
+     * This avoids allocating a large 2D matrix when it's not needed. */
+    if (getlen && !getidx) {
+        uint32_t alen = sdslen(a);
+        uint32_t blen = sdslen(b);
+        uint32_t *prev, *curr;
+
+        /* To minimize memory usage, we iterate over the longer string
+         * and allocate memory based on the shorter string's length. */
+        if (alen < blen) {
+            sds s = a; a = b; b = s;
+            uint32_t tlen = alen; alen = blen; blen = tlen;
+        }
+
+        /* zcalloc is used for 'prev' to get zero-initialized memory.
+         * zmalloc is used for 'curr' as it's overwritten in each iteration.
+         * We must check for OOM conditions. */
+        prev = zcalloc((blen + 1) * sizeof(uint32_t));
+        curr = zmalloc((blen + 1) * sizeof(uint32_t));
+        if (!prev || !curr) {
+            addReplyError(c, "Insufficient memory, failed allocating transient memory for LCS");
+            zfree(prev); /* zfree(NULL) is safe. */
+            zfree(curr);
+            goto cleanup;
+        }
+
+        for (i = 1; i <= alen; i++) {
+            curr[0] = 0; /* Base case for the inner loop. */
+            for (j = 1; j <= blen; j++) {
+                if (a[i-1] == b[j-1]) {
+                    curr[j] = prev[j-1] + 1;
+                } else {
+                    curr[j] = (prev[j] > curr[j-1]) ? prev[j] : curr[j-1];
+                }
+            }
+            /* Swap buffers for the next iteration. */
+            uint32_t *swap_tmp = prev;
+            prev = curr;
+            curr = swap_tmp;
+        }
+
+        addReplyLongLong(c, prev[blen]);
+        zfree(prev);
+        zfree(curr);
+        goto cleanup; /* We are done, skip the original implementation. */
+    }
+
     /* Compute the LCS using the vanilla dynamic programming technique of
      * building a table of LCS(x,y) substrings. */
     uint32_t alen = sdslen(a);
@@ -885,7 +934,6 @@ void lcsCommand(client *c) {
             /* If there is a match, store the character and reduce
              * the indexes to look for a new match. */
             result[idx-1] = a[i-1];
-
             /* Track the current range. */
             if (arange_start == alen) {
                 arange_start = i-1;
@@ -961,4 +1009,3 @@ cleanup:
     if (objb) decrRefCount(objb);
     return;
 }
-
