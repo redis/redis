@@ -395,7 +395,7 @@ int addCommandToBatch(client *c) {
             batch->key_count++;
         }
         pcmd = pcmd->next;
-    } 
+    }
 
     return C_OK;
 }
