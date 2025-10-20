@@ -533,9 +533,8 @@ void freeSetObject(robj *o) {
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
 #ifdef REDIS_TEST
-        dictEmpty((dict *) o->ptr, NULL);
-        size_t *alloc_size = (size_t *)dictMetadata((dict *) o->ptr);
-        serverAssert(*alloc_size == 0);
+        dictEmpty(o->ptr, NULL);
+        serverAssert(*getMetadataSize(o->ptr) == 0);
 #endif
         dictRelease((dict*) o->ptr);
         break;
@@ -1215,8 +1214,8 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
     } else if (o->type == OBJ_SET) {
         if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
-            size_t *alloc_size = (size_t *)dictMetadata(d);
-            asize += sizeof(dict) + dictMemUsage(d) + *alloc_size;
+            asize += sizeof(dict) + dictMemUsage(d) +
+                *getMetadataSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             asize += zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -1243,8 +1242,8 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
             asize += zmalloc_size(lpt) + zmalloc_size(lpt->lp);
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
-            size_t *alloc_size = (size_t *)dictMetadata(d);
-            asize += sizeof(dict) + dictMemUsage(d) + *alloc_size;
+            asize += sizeof(dict) + dictMemUsage(d) +
+                *getMetadataSize(d);
         } else {
             serverPanic("Unknown hash encoding");
         }

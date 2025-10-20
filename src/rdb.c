@@ -2076,8 +2076,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     sdsfree(sdsele);
                     return NULL;
                 }
-                size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
-                *alloc_size += sdsAllocSize(sdsele);
+                *getMetadataSize(o->ptr) += sdsAllocSize(sdsele);
             } else {
                 sdsfree(sdsele);
             }
@@ -2224,8 +2223,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
-                *alloc_size += usable + sdsAllocSize(value);
+                *getMetadataSize(o->ptr) += usable + sdsAllocSize(value);
                 break;
             }
 
@@ -2279,8 +2277,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 decrRefCount(o);
                 return NULL;
             }
-            size_t *alloc_size = (size_t *)dictMetadata((dict *)o->ptr);
-            *alloc_size += usable + sdsAllocSize(value);
+            *getMetadataSize(o->ptr) += usable + sdsAllocSize(value);
         }
 
         /* All pairs should be read by now */
@@ -2436,7 +2433,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
                 /* Attach expiry to the hash field and register in hash private HFE DS */
                 if ((ret != DICT_ERR) && expireAt) {
-                    htExpireMetadata *m = (htExpireMetadata *) dictMetadata(d);
+                    htExpireMetadata *m = getMetadataEx(d);
                     ret = ebAdd(&m->hfe, &hashFieldExpireBucketsType, field, expireAt);
                 }
 
@@ -2447,8 +2444,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                size_t *alloc_size = (size_t *)dictMetadata(d);
-                *alloc_size += usable + sdsAllocSize(value);
+                *getMetadataSize(d) += usable + sdsAllocSize(value);
             }
         }
 

@@ -132,8 +132,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
             /* Key doesn't already exist in the set. Add it but dup the key. */
             if (sdsval == str) sdsval = sdsdup(sdsval);
             dictSetKeyAtLink(ht, sdsval, &bucket, 1);
-            size_t *alloc_size = (size_t *)dictMetadata(ht);
-            *alloc_size += sdsAllocSize(sdsval);
+            *getMetadataSize(ht) += sdsAllocSize(sdsval);
             return 1;
         } else if (sdsval != str) {
             /* String is already a member. Free our temporary sds copy. */
@@ -164,8 +163,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                 setTypeConvertAndExpand(set, OBJ_ENCODING_HT, lpLength(lp) + 1, 1);
                 sds newval = sdsnewlen(str,len);
                 serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                size_t *alloc_size = (size_t *)dictMetadata((dict *)set->ptr);
-                *alloc_size += sdsAllocSize(newval);
+                *getMetadataSize(set->ptr) += sdsAllocSize(newval);
             }
             return 1;
         }
@@ -211,8 +209,7 @@ int setTypeAddAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sd
                  * encodable, so dictAdd should always work. */
                 sds newval = sdsnewlen(str,len);
                 serverAssert(dictAdd(set->ptr,newval,NULL) == DICT_OK);
-                size_t *alloc_size = (size_t *)dictMetadata((dict *)set->ptr);
-                *alloc_size += sdsAllocSize(newval);
+                *getMetadataSize(set->ptr) += sdsAllocSize(newval);
                 return 1;
             }
         }
@@ -511,7 +508,7 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         }
 
         /* To add the elements we extract integers and create redis objects */
-        size_t *alloc_size = (size_t *)dictMetadata(d);
+        size_t *alloc_size = getMetadataSize(d);
         si = setTypeInitIterator(setobj);
         while ((element = setTypeNextObject(si)) != NULL) {
             serverAssert(dictAdd(d,element,NULL) == DICT_OK);

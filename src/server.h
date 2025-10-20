@@ -3476,6 +3476,15 @@ typedef struct htExpireMetadata {
     ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
 } htExpireMetadata;
 
+/* hash metadata helpers */
+static inline htExpireMetadata *getMetadataEx(dict *d) {
+    return (htExpireMetadata *)dictMetadata(d);
+}
+
+static inline size_t *getMetadataSize(dict *d) {
+    return (size_t *)dictMetadata(d);
+}
+
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)
 #define HASH_SET_TAKE_VALUE (1<<1)
