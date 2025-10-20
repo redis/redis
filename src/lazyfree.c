@@ -93,6 +93,15 @@ void lazyFreeReplicationBacklogRefMem(void *args[]) {
     atomicIncr(lazyfreed_objects,len);
 }
 
+/* Release a list. */
+void lazyFreeList(void *args[]) {
+    list *l = (list *)args[0];
+    size_t len = listLength(l);
+    listRelease(l);
+    atomicDecr(lazyfree_objects, len);
+    atomicIncr(lazyfreed_objects, len);
+}
+
 /* Return the number of currently pending objects to free. */
 size_t lazyfreeGetPendingObjectsCount(void) {
     size_t aux;
@@ -270,5 +279,15 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index) {
     } else {
         listRelease(blocks);
         raxFree(index);
+    }
+}
+
+/* Free the output buffer of client in async way. */
+void freeClientOutputBufferAsync(client *c) {
+    if (listLength(c->reply) > LAZYFREE_THRESHOLD) {
+        atomicIncr(lazyfree_objects, listLength(c->reply));
+        bioCreateLazyFreeJob(lazyFreeList, 1, c->reply);
+    } else {
+        listRelease(c->reply);
     }
 }

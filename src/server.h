@@ -1834,6 +1834,7 @@ struct redisServer {
 
     /* Stuff for client mem eviction */
     clientMemUsageBucket* client_mem_usage_buckets;
+    int is_evicting_clients;    /* Is redis server evicting clients. */
 
     rax *clients_timeout_table; /* Radix tree for blocked clients timeouts. */
     int execution_nesting;      /* Execution nesting level.
@@ -2930,6 +2931,7 @@ void unprotectClient(client *c);
 client *lookupClientByID(uint64_t id);
 int authRequired(client *c);
 void putClientInPendingWriteQueue(client *c);
+void freeClientOutputBufferAsync(client *c);
 /* reply macros */
 #define ADD_REPLY_BULK_CBUFFER_STRING_CONSTANT(c, str) addReplyBulkCBuffer(c, str, strlen(str))
 
