@@ -432,6 +432,25 @@ int getLastDeletedKey(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+int asmGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(ctx);
+
+    if (argc != 2) return RedisModule_WrongArity(ctx);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
+    if (key == NULL) {
+        RedisModule_ReplyWithNull(ctx);
+        return REDISMODULE_OK;
+    }
+
+    RedisModule_Assert(RedisModule_KeyType(key) == REDISMODULE_KEYTYPE_STRING);
+    size_t len;
+    const char *value = RedisModule_StringDMA(key, &len, 0);
+    RedisModule_ReplyWithStringBuffer(ctx, value, len);
+    RedisModule_CloseKey(key);
+
+    return REDISMODULE_OK;
+}
+
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -473,6 +492,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.get_last_deleted_key", getLastDeletedKey, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "asm.get", asmGetCommand, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.parent", NULL, "", 0, 0, 0) == REDISMODULE_ERR)
