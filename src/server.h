@@ -1219,10 +1219,10 @@ typedef struct pendingCommandList {
 #define PENDING_COMMAND_POOL_SIZE 16
 #define PENDING_COMMAND_POOL_MAX_SIZE 1024
 typedef struct pendingCommandPool {
-    pendingCommand **pool;          /* Pool array for reusing pendingCommand objects */
-    int size;                       /* Current number of objects in pool */
-    int capacity;                   /* Current capacity of the pool array */
-    int min_size;                   /* Minimum size since last check (indicates peak usage) */
+    pendingCommand **pool;  /* Pool array for reusing pendingCommand objects */
+    int size;               /* Current number of objects in pool */
+    int capacity;           /* Current capacity of the pool array */
+    int min_size;           /* Minimum size since last check (indicates peak usage) */
 } pendingCommandPool;
 
 /* This structure represents a Redis user. This is useful for ACLs, the
