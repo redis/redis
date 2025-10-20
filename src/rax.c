@@ -15,12 +15,15 @@
 #include <math.h>
 #include "rax.h"
 #include "redisassert.h"
+#include "util.h"
 
 #ifndef RAX_MALLOC_INCLUDE
 #define RAX_MALLOC_INCLUDE "rax_malloc.h"
 #endif
 
 #include RAX_MALLOC_INCLUDE
+
+static_assert(sizeof(rax) == 16 + sizeof(void*), "unexpected rax size");
 
 /* -------------------------------- Debugging ------------------------------ */
 

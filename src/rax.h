@@ -13,11 +13,6 @@
 
 #include <stdint.h>
 
-/* Selective copy of ifndef from server.h instead of including it */
-#ifndef static_assert
-#define static_assert(expr, lit) extern char __static_assert_failure[(expr) ? 1:-1]
-#endif
-
 /* Representation of a radix tree as implemented in this file, that contains
  * the strings "foo", "foobar" and "footer" after the insertion of each
  * word. When the node represents a key inside the radix tree, we write it
@@ -130,8 +125,6 @@ typedef struct rax {
     uint64_t numnodes;
     void *metadata[];
 } rax;
-
-static_assert(sizeof(rax) == 16 + sizeof(void*), "unexpected rax size");
 
 /* Stack data structure used by raxLowWalk() in order to, optionally, return
  * a list of parent nodes to the caller. The nodes do not have a "parent"

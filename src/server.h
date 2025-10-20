@@ -3883,10 +3883,6 @@ void dictSdsDestructor(dict *d, void *val);
 void dictListDestructor(dict *d, void *val);
 void *dictSdsDup(dict *d, const void *key);
 
-/* Keys destructor for sets accounting allocated memory in dict's metadata. */
-void setSdsDestructor(dict *d, void *val);
-size_t setDictMetadataBytes(dict *d);
-
 /* Git SHA1 */
 char *redisGitSHA1(void);
 char *redisGitDirty(void);
