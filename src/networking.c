@@ -35,7 +35,6 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
 static pendingCommand *acquirePendingCommand(void);
 static void reclaimPendingCommand(client *c, pendingCommand *pcmd);
-static void expandPendingCommandPool(void);
 
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
@@ -4950,10 +4949,16 @@ static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
     /* Try to add to shared pool for reuse if argv isn't too large */
     if (!server.io_threads_active && cmd->argv_len < 64) {
         /* If pool is full but can be expanded, expand it first */
-        if (server.cmd_pool.size >= server.cmd_pool.capacity &&
-            server.cmd_pool.capacity < PENDING_COMMAND_POOL_MAX_SIZE)
+        if (unlikely(server.cmd_pool.size >= server.cmd_pool.capacity &&
+            server.cmd_pool.capacity < PENDING_COMMAND_POOL_MAX_SIZE))
         {
-            expandPendingCommandPool();
+            /* Expand the pending command pool capacity by doubling it, up to the maximum size */
+            int new_capacity = server.cmd_pool.capacity * 2;
+            if (new_capacity > PENDING_COMMAND_POOL_MAX_SIZE)
+                new_capacity = PENDING_COMMAND_POOL_MAX_SIZE;
+
+            server.cmd_pool.pool = zrealloc(server.cmd_pool.pool, sizeof(pendingCommand*) * new_capacity);
+            server.cmd_pool.capacity = new_capacity;
         }
 
         /* Add to pool if there's space available */
@@ -5081,16 +5086,6 @@ getKeysResult *getClientCachedKeyResult(client *c) {
             return &c->current_pending_cmd->keys_result;
     }
     return NULL;
-}
-
-/* Expand the pending command pool capacity by doubling it, up to the maximum size */
-void expandPendingCommandPool(void) {
-    int new_capacity = server.cmd_pool.capacity * 2;
-    if (new_capacity > PENDING_COMMAND_POOL_MAX_SIZE)
-        new_capacity = PENDING_COMMAND_POOL_MAX_SIZE;
-
-    server.cmd_pool.pool = zrealloc(server.cmd_pool.pool, sizeof(pendingCommand*) * new_capacity);
-    server.cmd_pool.capacity = new_capacity;
 }
 
 void shrinkPendingCommandPool(void) {
