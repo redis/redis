@@ -9286,6 +9286,13 @@ unsigned int RM_ClusterKeySlot(RedisModuleString *key) {
     return keyHashSlot(key->ptr, sdslen(key->ptr));
 }
 
+/* Like `RM_ClusterKeySlot`, but gets a char pointer and a length.
+ * Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
+ * This function works even if cluster mode is not enabled. */
+unsigned int RM_ClusterKeySlotC(const char *keystr, size_t keylen) {
+    return keyHashSlot(keystr, keylen);
+}
+
 /* Returns a short string that can be used as a key or as a hash tag in a key,
  * such that the key maps to the given cluster slot. Returns NULL if slot is not
  * a valid slot. */
@@ -14785,6 +14792,7 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
     REGISTER_API(ClusterKeySlot);
+    REGISTER_API(ClusterKeySlotC);
     REGISTER_API(ClusterCanonicalKeyNameInSlot);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
