@@ -139,7 +139,6 @@ static void asmSyncBufferReadFromConn(connection *conn);
 static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
-int asmTrimJobIsPending(void);
 void asmTriggerActiveTrim(slotRangeArray *slots);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
@@ -2794,13 +2793,6 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
     return ret;
 }
 
-/* Check if we can propagate TRIMSLOTS command to AOF and replicas. */
-static int canPropagateTrimSlots(void) {
-    return !isPausedActions(PAUSE_ACTION_CLIENT_WRITE) &&
-           !isPausedActions(PAUSE_ACTION_CLIENT_ALL) &&
-           !isPausedActions(PAUSE_ACTION_REPLICA);
-}
-
 /* Propagate TRIMSLOTS command to AOF and replicas. */
 static void propagateTrimSlots(slotRangeArray *slots) {
     int argc = slots->num_ranges * 2 + 3;
@@ -2826,6 +2818,22 @@ static void propagateTrimSlots(slotRangeArray *slots) {
     for (int i = 0; i < argc; i++)
         decrRefCount(argv[i]);
     zfree(argv);
+}
+
+/* If this node is a replica and there is an active trim or a pending trim
+ * job (due to write pause), we cannot process commands from the master for the
+ * slots that are waiting to be trimmed. Otherwise, the trim cycle could
+ * mistakenly delete newly added keys. In this case, the master will be blocked
+ * until the trim job finishes. This is supposed to be a rare event as it needs
+ * to migrate slots and import them back before the trim job is done. */
+void asmUnblockMasterAfterTrim(void) {
+    if (server.master &&
+        server.master->flags & CLIENT_BLOCKED &&
+        server.master->bstate.btype == BLOCKED_POSTPONE_TRIM)
+    {
+        unblockClient(server.master, 1);
+        serverLog(LL_NOTICE, "Unblocking master client after active trim is completed");
+    }
 }
 
 /* Trim the slots asynchronously in the BIO thread. */
@@ -2867,6 +2875,12 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
     sds str = slotRangeArrayToString(slots);
     serverLog(LL_NOTICE, "Background trim started for slots: %s to trim %zu keys.", str, total_keys);
     sdsfree(str);
+
+    /* Unblock master if blocked. This can only happen in a very unlikely case,
+     * trim job will be in pending list due to write pause and master will send
+     * commands for the slots that are waiting to be trimmed. Just keeping this
+     * call here for being defensive as it is harmless. */
+    asmUnblockMasterAfterTrim();
 }
 
 /* Trim the slots. */
@@ -2892,10 +2906,6 @@ void asmTrimSlots(slotRangeArray *slots) {
         asmTriggerBackgroundTrim(slots);
 }
 
-int asmTrimJobIsPending(void) {
-    return listLength(asmManager->pending_trim_jobs);
-}
-
 /* Schedule a trim job for the specified slot ranges. The job will be
  * deferred and handled later in asmBeforeSleep(). We delay the trim jobs to
  * asmBeforeSleep() to ensure it only runs when there is no write pause.
@@ -2908,12 +2918,27 @@ void asmTrimJobSchedule(slotRangeArray *slots) {
 /* Process any pending trim jobs. */
 void asmTrimJobProcessPending(void) {
     /* Check if there is any pending trim job and we can propagate it. */
-    if (!asmTrimJobIsPending() ||
-        !canPropagateTrimSlots() ||
+    if (listLength(asmManager->pending_trim_jobs) == 0 ||
         asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
     {
         return;
     }
+
+    /* Determine if we can start the trim job:
+     * - require client writes not paused (so key deletions are allowed)
+     * - require replicas not paused (so TRIMSLOTS can be propagated). */
+    static int logged = 0;
+    if (isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
+        isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
+        isPausedActions(PAUSE_ACTION_REPLICA))
+    {
+        if (logged == 0) {
+            logged = 1;
+            serverLog(LL_NOTICE, "Trim job will start after the write pause is lifted.");
+        }
+        return;
+    }
+    logged = 0;
 
     listIter li;
     listNode *ln;
@@ -3047,20 +3072,6 @@ int asmReplicaHandleMasterTask(sds task_info) {
     asmManager->master_task = task;
     if (notify_event) asmNotifyStateChange(task, event);
     return C_OK;
-}
-
-/* If this node is a replica and there is an active trim job, we cannot
- * process commands from the master for the slot being trimmed. Otherwise,
- * the trim cycle could mistakenly delete newly added keys. In this case,
- * the master will be blocked until the trim job finishes. */
-void asmUnblockMasterAfterTrim(void) {
-    if (server.master &&
-        server.master->flags & CLIENT_BLOCKED &&
-        server.master->bstate.btype == BLOCKED_POSTPONE_TRIM)
-    {
-        unblockClient(server.master, 1);
-        serverLog(LL_NOTICE, "Unblocking master client after active trim is completed");
-    }
 }
 
 /* Cancel all pending and active trim jobs. */
@@ -3247,6 +3258,31 @@ int asmIsTrimInProgress(void) {
             listLength(asmManager->pending_trim_jobs) != 0);
 }
 
+
+/* Check if the command is accessing keys in a slot being trimmed.
+ * Return the slot if found, otherwise return -1. */
+int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc) {
+    if (!asmIsTrimInProgress()) return -1;
+
+    /* Get the keys from the command */
+    getKeysResult result = GETKEYS_RESULT_INIT;
+    int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
+
+    int last_checked_slot = -1;
+    for (int j = 0; j < numkeys; j++) {
+        robj *key = argv[result.keys[j].pos];
+        int slot = keyHashSlot((char*) key->ptr, sdslen(key->ptr));
+        if (slot == last_checked_slot) continue;
+        if (isSlotInTrimJob(slot)) {
+            getKeysFreeResult(&result);
+            return slot;
+        }
+        last_checked_slot = slot;
+    }
+    getKeysFreeResult(&result);
+    return -1;
+}
+
 /* Delete the key and notify the modules. */
 void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
     if (asmManager->debug_active_trim_delay > 0)
@@ -3271,18 +3307,24 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
 /* Trim keys in the active trim job. */
 void asmActiveTrimCycle(void) {
     if (asmManager->debug_active_trim_delay < 0 ||
-        listLength(asmManager->active_trim_jobs) == 0 ||
-        isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
-        isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
+        listLength(asmManager->active_trim_jobs) == 0)
     {
         return;
     }
 
-    /* Start an active trim job if no active trim job is running. */
-    if (asmManager->active_trim_it == NULL) {
-        serverAssert(listLength(asmManager->active_trim_jobs) > 0);
-        asmActiveTrimStart();
+    /* Verify client pause is not in effect so we can delete keys. */
+    static int blocked = 0;
+    if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
+        isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
+    {
+        if (blocked == 0)  {
+            blocked = 1;
+            serverLog(LL_NOTICE, "Active trim cycle will continue after the write pause is lifted.");
+        }
+        return;
     }
+    if (blocked) serverLog(LL_NOTICE, "Active trim cycle is resumed after the write pause is lifted.");
+    blocked = 0;
 
     /* This works in a similar way to activeExpireCycle, in the sense that
      * we do incremental work across calls. */
@@ -3328,10 +3370,14 @@ void asmActiveTrimCycle(void) {
         jemalloc_purge();
 #endif
         asmActiveTrimEnd();
-    }
 
-    long long elapsed = ustime() - start;
-    latencyAddSampleIfNeeded("trim-cycle-slow", elapsed / 1000);
+        /* Immediately start the next trim job upon completion of the current
+         * one. Eliminates gaps in notifications so modules are informed about
+         * trimming unowned keys, which is important for modules that
+         * continuously filter unowned keys from their replies. */
+        if (listLength(asmManager->active_trim_jobs) != 0)
+            asmActiveTrimStart();
+    }
 }
 
 /* Trim a specific key if trimming is pending or in progress for its slot.

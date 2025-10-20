@@ -48,6 +48,7 @@ sds asmDumpActiveImportTask(void);
 int asmReplicaHandleMasterTask(sds task_info);
 void asmFinalizeMasterTask(void);
 int asmIsTrimInProgress(void);
+int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc);
 void asmActiveTrimCycle(void);
 int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv);
 int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc);

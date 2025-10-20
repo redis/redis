@@ -4333,17 +4333,20 @@ int processCommand(client *c) {
         return C_OK;
     }
 
-    /* If this node is a replica and there is an active trim job, we cannot
-     * process commands from the master for the slot being trimmed. Otherwise,
-     * the trim cycle could mistakenly delete newly added keys. In this case,
-     * the master will be blocked until the trim job finishes. */
-    if ((c->flags & CLIENT_MASTER) && is_write_command && asmIsTrimInProgress()) {
-        int slot = getSlotFromCommand(c->cmd, c->argv, c->argc);
-        if (slot != GETSLOT_NOKEYS && (slot == GETSLOT_CROSSSLOT || isSlotInTrimJob(slot))) {
+    /* If this node is a replica and there is a trim job due to slot migration,
+     * we cannot process commands from the master for the slot being trimmed.
+     * Otherwise, the trim cycle could mistakenly delete newly added keys.
+     * In this case, the master will be blocked until the trim job finishes.
+     * This is supposed to be a rare event as it needs to migrate slots and
+     * import them back before the trim job is done. */
+    if ((c->flags & CLIENT_MASTER) && is_write_command && server.cluster_enabled) {
+        /* Check if the command is accessing keys in a slot being trimmed. */
+        int slot_in_trim = asmGetTrimmingSlotForCommand(c->cmd, c->argv, c->argc);
+        if (slot_in_trim != -1) {
             serverLog(LL_WARNING, "Master is sending command for slot %d. "
-                                  "There is an active trim job in progress for this slot. "
+                                  "There is an trim job in progress for this slot. "
                                   "This replica cannot process this command right now. "
-                                  "Blocking master client until trim job is done. ", slot);
+                                  "Blocking master client until trim job is done. ", slot_in_trim);
             /* Block master client */
             blockPostponeClientWithType(c, BLOCKED_POSTPONE_TRIM);
             return C_OK;
