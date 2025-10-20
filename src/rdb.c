@@ -2076,7 +2076,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     sdsfree(sdsele);
                     return NULL;
                 }
-                *getMetadataSize(o->ptr) += sdsAllocSize(sdsele);
+                *htGetMetadataSize(o->ptr) += sdsAllocSize(sdsele);
             } else {
                 sdsfree(sdsele);
             }
@@ -2223,7 +2223,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                *getMetadataSize(o->ptr) += usable + sdsAllocSize(value);
+                *htGetMetadataSize(o->ptr) += usable + sdsAllocSize(value);
                 break;
             }
 
@@ -2277,7 +2277,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 decrRefCount(o);
                 return NULL;
             }
-            *getMetadataSize(o->ptr) += usable + sdsAllocSize(value);
+            *htGetMetadataSize(o->ptr) += usable + sdsAllocSize(value);
         }
 
         /* All pairs should be read by now */
@@ -2433,7 +2433,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
                 /* Attach expiry to the hash field and register in hash private HFE DS */
                 if ((ret != DICT_ERR) && expireAt) {
-                    htExpireMetadata *m = getMetadataEx(d);
+                    htMetadataEx *m = htGetMetadataEx(d);
                     ret = ebAdd(&m->hfe, &hashFieldExpireBucketsType, field, expireAt);
                 }
 
@@ -2444,7 +2444,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                *getMetadataSize(d) += usable + sdsAllocSize(value);
+                *htGetMetadataSize(d) += usable + sdsAllocSize(value);
             }
         }
 

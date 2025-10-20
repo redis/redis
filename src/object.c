@@ -534,7 +534,7 @@ void freeSetObject(robj *o) {
     case OBJ_ENCODING_HT:
 #ifdef REDIS_TEST
         dictEmpty(o->ptr, NULL);
-        serverAssert(*getMetadataSize(o->ptr) == 0);
+        serverAssert(*htGetMetadataSize(o->ptr) == 0);
 #endif
         dictRelease((dict*) o->ptr);
         break;
@@ -1215,7 +1215,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             asize += sizeof(dict) + dictMemUsage(d) +
-                *getMetadataSize(d);
+                *htGetMetadataSize(d);
         } else if (o->encoding == OBJ_ENCODING_INTSET) {
             asize += zmalloc_size(o->ptr);
         } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
@@ -1243,7 +1243,7 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
         } else if (o->encoding == OBJ_ENCODING_HT) {
             d = o->ptr;
             asize += sizeof(dict) + dictMemUsage(d) +
-                *getMetadataSize(d);
+                *htGetMetadataSize(d);
         } else {
             serverPanic("Unknown hash encoding");
         }

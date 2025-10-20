@@ -401,7 +401,7 @@ void dictSdsDestructor(dict *d, void *val)
 }
 
 void setSdsDestructor(dict *d, void *val) {
-    *getMetadataSize(d) -= sdsAllocSize(val);
+    *htGetMetadataSize(d) -= sdsAllocSize(val);
     sdsfree(val);
 }
 
