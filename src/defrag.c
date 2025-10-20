@@ -904,8 +904,7 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
         c->name = newsds;
     if (c->pel) {
         /* Update pel back-pointer to new stream */
-        size_t **alloc_size = (size_t **)c->pel->metadata;
-        *alloc_size = &s->alloc_size;
+        c->pel->alloc_size = &s->alloc_size;
         PendingEntryContext pel_ctx = {cg, c};
         defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, &pel_ctx);
     }
@@ -919,14 +918,12 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
         cg = newcg;
     if (cg->pel) {
         /* Update pel back-pointer to new stream */
-        size_t **alloc_size = (size_t **)cg->pel->metadata;
-        *alloc_size = &s->alloc_size;
+        cg->pel->alloc_size = &s->alloc_size;
         defragRadixTree(&cg->pel, 0, NULL, NULL);
     }
     if (cg->consumers) {
         /* Update consumers back-pointer to new stream */
-        size_t **alloc_size = (size_t **)cg->consumers->metadata;
-        *alloc_size = &s->alloc_size;
+        cg->consumers->alloc_size = &s->alloc_size;
         StreamConsumerContext consumer_ctx = {s, cg};
         defragRadixTree(&cg->consumers, 0, defragStreamConsumer, &consumer_ctx);
     }
@@ -942,8 +939,7 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
         ob->ptr = s = news;
 
     /* Update rax back-pointer to new stream */
-    size_t **rax_alloc_size = (size_t **)s->rax->metadata;
-    *rax_alloc_size = &s->alloc_size;
+    s->rax->alloc_size = &s->alloc_size;
     if (raxSize(s->rax) > server.active_defrag_max_scan_fields) {
         rax *newrax = activeDefragAlloc(s->rax);
         if (newrax)
@@ -954,15 +950,13 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
 
     if (s->cgroups) {
         /* Update cgroups back-pointer to new stream */
-        size_t **alloc_size = (size_t **)s->cgroups->metadata;
-        *alloc_size = &s->alloc_size;
+        s->cgroups->alloc_size = &s->alloc_size;
         defragRadixTree(&s->cgroups, 0, defragStreamConsumerGroup, s);
     }
 
     if (s->cgroups_ref) {
         /* Update cgroups_ref back-pointer to new stream */
-        size_t **alloc_size = (size_t **)s->cgroups_ref->metadata;
-        *alloc_size = &s->alloc_size;
+        s->cgroups_ref->alloc_size = &s->alloc_size;
     }
 }
 
