@@ -560,6 +560,8 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
 
 /* Returns 1 if expired */
 int hashTypeIsExpired(const robj *o, uint64_t expireAt) {
+    if (server.allow_access_expired) return 0;
+
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         if (expireAt == HASH_LP_NO_TTL)
             return 0;
@@ -738,7 +740,8 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         serverPanic("Unknown hash encoding");
     }
 
-    if ((*expiredAt >= (uint64_t) commandTimeSnapshot()) || 
+    if ((server.allow_access_expired) ||
+        (*expiredAt >= (uint64_t) commandTimeSnapshot()) ||
         (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
         return GETF_OK;
 
@@ -752,7 +755,6 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
     }
 
     if ((server.loading) ||
-        (server.allow_access_expired) ||
         (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL) ||
         (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return GETF_EXPIRED;
@@ -1264,6 +1266,9 @@ int hashTypeDelete(robj *o, void *field, int isSdsField) {
  */
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
     unsigned long length = ULONG_MAX;
+    /* If expired field access is allowed, don't subtract expired fields from the count. */
+    if (server.allow_access_expired)
+        subtractExpiredFields = 0;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         length = lpLength(o->ptr) / 2;
@@ -1320,6 +1325,10 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
 /* Move to the next entry in the hash. Return C_OK when the next entry
  * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
+    /* If expired field access is allowed, don't skip expired fields during iteration */
+    if (server.allow_access_expired)
+        skipExpiredFields = 0;
+
     hi->expire_time = EB_EXPIRE_TIME_INVALID;
     if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl;
@@ -3336,6 +3345,8 @@ static void hfieldPersist(robj *hashObj, hfield field) {
 }
 
 int hfieldIsExpired(hfield field) {
+    if (server.allow_access_expired) return 0;
+
     /* Condition remains valid even if hfieldGetExpireTime() returns EB_EXPIRE_TIME_INVALID,
      * as the constant is equivalent to (EB_EXPIRE_TIME_MAX + 1). */
     return ( (mstime_t)hfieldGetExpireTime(field) < commandTimeSnapshot());
