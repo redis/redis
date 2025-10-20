@@ -756,8 +756,8 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER))
             return GETF_OK;
 
-        /* If user client, then act as if expired, but don't delete! */
-        return GETF_EXPIRED;
+        /* For replica, if user client, then act as if expired, but don't delete! */
+        if (server.masterhost) return GETF_EXPIRED;
     }
 
     if ((server.loading) ||

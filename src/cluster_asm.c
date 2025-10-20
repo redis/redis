@@ -1984,10 +1984,17 @@ void clusterSyncSlotsCommand(client *c) {
                                 "updated dest offset to %lld, source offset: %lld",
                 asmTaskStateToString(dest_state), task->dest_offset, task->source_offset);
 
+            /* Record the time when the destination finishes applying the accumulated buffer */
+            if (task->dest_state == ASM_WAIT_STREAM_EOF && task->dest_accum_applied_time == 0)
+                task->dest_accum_applied_time = server.mstime;
+
             /* Pause write if needed */
             if (task->state == ASM_SEND_BULK_AND_STREAM || task->state == ASM_SEND_STREAM) {
                 /* Pause writes on the main channel if the lag is less than the threshold. */
                 if (task->dest_offset + server.asm_handoff_max_lag_bytes >= task->source_offset) {
+                    if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_HANDOFF_PREP)))
+                        return; /* Do not enter handoff prep state for testing buffer drain timeout. */
+
                     serverLog(LL_NOTICE, "The applied offset lag %lld is less than the threshold %lld, "
                                          "pausing writes for slot handoff",
                                          task->source_offset - task->dest_offset,
@@ -1996,10 +2003,6 @@ void clusterSyncSlotsCommand(client *c) {
                     clusterAsmOnEvent(task->id, ASM_EVENT_HANDOFF_PREP, task->slots);
                 }
             }
-
-            /* Record the time when the destination finishes applying the accumulated buffer */
-            if (task->dest_state == ASM_WAIT_STREAM_EOF && task->dest_accum_applied_time == 0)
-                task->dest_accum_applied_time = server.mstime;
         }
     } else if (!strcasecmp(c->argv[2]->ptr, "fail") && c->argc == 4) {
         /* CLUSTER SYNCSLOTS FAIL <err> */
