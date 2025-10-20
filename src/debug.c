@@ -503,6 +503,8 @@ void debugCommand(client *c) {
 "    Output SHA and content of all scripts or of a specific script with its SHA.",
 "MARK-INTERNAL-CLIENT [UNMARK]",
 "    Promote the current connection to an internal connection.",
+"SET key value",
+"    Set a key, even if it is in a slot not owned by this node.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1108,6 +1110,9 @@ NULL
             addReplySubcommandSyntaxError(c);
             return;
         }
+    } else if (!strcasecmp(c->argv[1]->ptr, "set") && c->argc == 4) {
+        setKey(c,c->db, c->argv[2], c->argv[3], SETKEY_ADD_OR_UPDATE);
+        addReply(c, shared.ok);
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
         return;
