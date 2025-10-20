@@ -519,7 +519,9 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
                   compressed node, that is, the position where to split the
                   node for insertion. */
     raxNode *h, **parentlink;
+    size_t dummy, *alloc_size = &dummy;
 
+    if (rax->alloc_size) alloc_size = rax->alloc_size;
     debugf("### Insert %.*s with value %p\n", (int)len, s, data);
     i = raxLowWalk(rax,s,len,&h,&parentlink,&j,NULL);
 
@@ -714,14 +716,14 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
                        sizeof(raxNode*);
             if (h->iskey && !h->isnull) nodesize += sizeof(void*);
             trimmed = rax_malloc_usable(nodesize, &usable);
-            if (rax->alloc_size) *rax->alloc_size += usable;
+            *alloc_size += usable;
         }
 
         if (postfixlen) {
             nodesize = sizeof(raxNode)+postfixlen+raxPadding(postfixlen)+
                        sizeof(raxNode*);
             postfix = rax_malloc_usable(nodesize, &usable);
-            if (rax->alloc_size) *rax->alloc_size += usable;
+            *alloc_size += usable;
         }
 
         /* OOM? Abort now that the tree is untouched. */
@@ -799,12 +801,12 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
                           sizeof(raxNode*);
         if (data != NULL) nodesize += sizeof(void*);
         raxNode *postfix = rax_malloc_usable(nodesize, &usable);
-        if (rax->alloc_size) *rax->alloc_size += usable;
+        *alloc_size += usable;
 
         nodesize = sizeof(raxNode)+j+raxPadding(j)+sizeof(raxNode*);
         if (h->iskey && !h->isnull) nodesize += sizeof(void*);
         raxNode *trimmed = rax_malloc_usable(nodesize, &usable);
-        if (rax->alloc_size) *rax->alloc_size += usable;
+        *alloc_size += usable;
 
         if (postfix == NULL || trimmed == NULL) {
             raxFreeNode(rax,postfix);
@@ -812,6 +814,7 @@ int raxGenericInsert(rax *rax, unsigned char *s, size_t len, void *data, void **
             errno = ENOMEM;
             return 0;
         }
+
 
         /* 1: Save next pointer. */
         raxNode **childfield = raxNodeLastChildPtr(h);
@@ -1275,11 +1278,10 @@ void raxRecursiveFreeWithCtx(rax *rax, raxNode *n,
 void raxFreeWithCallback(rax *rax, void (*free_callback)(void*)) {
     raxRecursiveFree(rax,rax->head,free_callback);
     assert(rax->numnodes == 0);
-    size_t dummy, *alloc_size = &dummy;
-    if (rax->alloc_size) alloc_size = rax->alloc_size;
+    size_t *alloc_size = rax->alloc_size;
     size_t usable;
     rax_free_usable(rax, &usable);
-    *alloc_size -= usable;
+    if (alloc_size) *alloc_size -= usable;
 }
 
 /* Free a whole radix tree, calling the specified callback in order to
@@ -1288,11 +1290,10 @@ void raxFreeWithCbAndContext(rax *rax,
                              void (*free_callback)(void *item, void *ctx), void *ctx) {
     raxRecursiveFreeWithCtx(rax,rax->head,free_callback,ctx);
     assert(rax->numnodes == 0);
-    size_t dummy, *alloc_size = &dummy;
-    if (rax->alloc_size) alloc_size = rax->alloc_size;
+    size_t *alloc_size = rax->alloc_size;
     size_t usable;
     rax_free_usable(rax, &usable);
-    *alloc_size -= usable;
+    if (alloc_size) *alloc_size -= usable;
 }
 
 /* Free a whole radix tree. */
