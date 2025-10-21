@@ -5089,11 +5089,12 @@ getKeysResult *getClientCachedKeyResult(client *c) {
 }
 
 void shrinkPendingCommandPool(void) {
-    /* Don't shrink if pool is too small or if it was used recently */
+    /* Don't shrink if pool is too small. */
     if (server.cmd_pool.capacity <= PENDING_COMMAND_POOL_SIZE) return;
 
-    /* Free commands until we have half the current size */
-    int target_size = server.cmd_pool.size / 2;
+    /* Free commands until we have half the current size, but not below minimum. */
+    int target_size = max(server.cmd_pool.size / 2, PENDING_COMMAND_POOL_SIZE);
+
     while (server.cmd_pool.size > target_size) {
         pendingCommand *cmd = server.cmd_pool.pool[--server.cmd_pool.size];
         if (cmd) {
