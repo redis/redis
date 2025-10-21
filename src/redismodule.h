@@ -981,91 +981,24 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeAuxSaveFunc aux_save2;
 } RedisModuleTypeMethods;
 
-/* Configuration for a key metadata class (Must be aligned with KeyMetaConfAllVersions) */
+/* Key metadata class configuration structure.
+ * Must be aligned with KeyMetaConfAllVersions in module.c.
+ * See RM_CreateKeyMetaClass() documentation in module.c for detailed information. */
 typedef struct RedisModuleKeyMetaClassConfig {
-    /* Module need to set it REDISMODULE_KEY_META_VERSION. Bump when fields are
-     * added; Redis keeps backward compatibility in RM_CreateKeyMetaClass(). */
     uint64_t version;
-
-#define REDISMODULE_META_ALLOW_IGNORE 0 /* ignore meta on RDB load, if module not avail */
+#define REDISMODULE_META_ALLOW_IGNORE 0
     uint64_t flags;
-
-    /* Reset meta to this value when it is being "removed" from a key. */  
     uint64_t reset_value;
-    
-    /* Copy callback (optional).
-     * - Return 1 to attach `meta` to the new key, or 0 to skip attaching metadata.
-     * - If NULL, metadata is ignored during copy.
-     * - The `meta` value may be modified in-place to produce a different value
-     *   for the new key. */
     RedisModuleKeyMetaCopyFunc copy;
-    
-    /* Rename callback (optional).
-     * - If NULL, then metadata is kept during rename.
-     * - The `meta` value may be modified in-place to produce a different value
-     *   for the new key. */
     RedisModuleKeyMetaRenameFunc rename;
-    
-    /* Move callback (optional)
-     *  - Return 1 to keep metadata, 0 to drop.
-     *  - If NULL, then metadata is kept during move.
-     *  - The `meta` value may be modified in-place to produce a different value
-     *    for the new key. */
     RedisModuleKeyMetaMoveFunc move;
-
-    /* Unlink callback (optional)
-     * - If not provided, then metadata is ignored during unlink.
-     * - Indication that key may soon be freed by bg thread.
-     * - Pointer to meta is provided for modification. If the metadata holds a pointer
-     *   or handle to resources and you free them here, you MUST set `*meta=reset_value`
-     *   to prevent the free callback from attempting to free the same resource again. */
     RedisModuleKeyMetaUnlinkFunc unlink;
-    
-    /* Free callback (optional).
-     * Invoked when a key with this metadata is deleted/overwritten/expired,
-     * or when Redis needs to release per-key metadata during lifecycle ops.
-     * (The module should free any external allocation referenced by `meta`
-     * if it uses the 8 bytes as a handle/pointer). */
     RedisModuleKeyMetaFreeFunc free;
-    
-    /****************************** TBD: ******************************/    
-    /* RDB load callback (optional).
-     * - Called during RDB loading when metadata for this class is encountered.
-     * - Behavior when NULL:
-     *   > If rdb_load is NULL AND REDISMODULE_META_ALLOW_IGNORE flag is set,
-     *     the metadata will be silently ignored during RDB load.
-     *   > If rdb_load is NULL AND the flag is NOT set, RDB loading will fail
-     *     if metadata for this class is encountered.
-     * - Behavior when class is not registered:
-     *   > If the class was saved with REDISMODULE_META_ALLOW_IGNORE flag but
-     *     is not registered at load time, the metadata will be silently ignored.
-     *   > Otherwise, RDB loading will fail.
-     * - Callback responsibilities:
-     *   > Read custom serialized data from `rdb` using RedisModule_Load*() APIs
-     *   > Deserialize and reconstruct the 8-byte metadata value
-     *   > Write the final 8-byte value into `*meta`
-     *   > Return 1 to attach `meta` to the key, or 0 to skip attachment
-     *   > database ID can be derived from `rdb` if needed. The associated key
-     *     will be loaded immediately after this callback returns.
-     * 
-     * Parameters:
-     * - rdb: RDB I/O context (use RedisModule_Load*() functions to read data)
-     * - meta: Pointer to 8-byte metadata slot (write your deserialized value here)
-     * - encver: Encoding version (the metadata class version at save time)
-     * 
-     * Return 1 to attach value `*meta` to the key. Or return 0 to ignore.
-     */   
     RedisModuleKeyMetaLoadFunc rdb_load;
-
-   /* RDB save callback (optional).
-     * - If set to NULL, redis will won't save metadata to RDB
-     * - Callback should write RDB assisting functions: RedisModule_Save*()
-     */
     RedisModuleKeyMetaSaveFunc rdb_save;
-    
     RedisModuleKeyMetaAOFRewriteFunc aof_rewrite;
-    RedisModuleKeyMetaDefragFunc defrag;    
-    RedisModuleKeyMetaMemUsageFunc mem_usage;    
+    RedisModuleKeyMetaDefragFunc defrag;
+    RedisModuleKeyMetaMemUsageFunc mem_usage;
     RedisModuleKeyMetaFreeEffortFunc free_effort;
 } RedisModuleKeyMetaClassConfig;
 

@@ -2355,7 +2355,7 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     RedisModuleIO io;
     moduleValue *mv = o->ptr;
     moduleType *mt = mv->type;
-    moduleInitIOContext(io,mt,r,key,dbid);
+    moduleInitIOContext(&io, &mt->mEntity, r, key, dbid);
     mt->aof_rewrite(&io,key,mv->value);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -2463,6 +2463,10 @@ int rewriteAppendOnlyFileRio(rio *aof) {
                 if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
             }
 
+            /* If modules metadata is available */
+            if ((getModuleMetaBits(o->metabits)) && (keyMetaOnAof(aof,&key,o,j) == 0))
+                goto werr;
+            
             /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
              * check the diff every 1024 keys */

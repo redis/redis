@@ -8,13 +8,13 @@ static uint64_t keyMetaClassEncodeId(const char *name, int metaver) {
     return moduleTypeEncodeId(name, metaver);
 }
 
-/* Return 0 if not found, positive slot if INUSE, negative slot if RELEASED. */ 
+/* Return 0 if not found, positive slot if INUSE, negative slot if RELEASED. */
 static int keyMetaClassLookupByName(const char *name) {
     if (!name) return 0;
     KeyMetaClass *c = server.keyMetaClass;
     for (int i = KEY_META_ID_MODULE_FIRST; i <= KEY_META_ID_MODULE_LAST; i++) {
         if (c[i].state == CLASS_STATE_FREE) continue;
-        if (memcmp(c->name, name, 9) != 0) continue;
+        if (memcmp(c[i].mEntity.name, name, 9) != 0) continue;
         if (c[i].state == CLASS_STATE_INUSE) return i;
         if (c[i].state == CLASS_STATE_RELEASED) return -i;
     }
@@ -211,6 +211,43 @@ void keyMetaOnFree(kvobj *kv) {
     } while (mbits != 0);
 }
 
+/* returns 0 on error, 1 on success. */
+int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
+    /* Skip builtin expire slot if present; no action needed for expire itself. */
+    uint64_t *pMeta = ((uint64_t *)kv) - 1;
+    if (kv->metabits & KEY_META_MASK_EXPIRE)
+        pMeta--;
+
+    /* Iterate module metadata and invoke per-class aof_rewrite if provided */
+    uint32_t mbits = kv->metabits >> KEY_META_ID_MODULE_FIRST;
+    if (likely(mbits == 0)) return 1;
+
+    int keyMetaId = KEY_META_ID_MODULE_FIRST;
+    do {
+        if (mbits & 1) {
+            serverAssert(server.keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
+
+            /* If module provided aof_rewrite callback, invoke it */
+            if (server.keyMetaClass[keyMetaId].conf.aof_rewrite) {
+                uint64_t meta = *pMeta;
+                RedisModuleIO io;
+                moduleInitIOContext(&io, &server.keyMetaClass[keyMetaId].mEntity, r, key, dbid);
+                server.keyMetaClass[keyMetaId].conf.aof_rewrite(&io, kv, meta);
+                if (io.ctx) {
+                    moduleFreeContext(io.ctx);
+                    zfree(io.ctx);
+                }
+                if (io.error) return 0;
+            }
+            pMeta--;
+        }
+        mbits >>= 1;
+        keyMetaId++;
+    } while (mbits != 0);
+
+    return 1;
+}
+
 /* Move entire metadata from old to new kvobj as is */
 void keyMetaTransition(kvobj *kvOld, kvobj *kvNew) {
     /* Precondition: */
@@ -249,8 +286,12 @@ void keyMetaTransition(kvobj *kvOld, kvobj *kvNew) {
     } while (mbitsOld);
 }
 
-/* Create a new class. Returns class ID on success, 0 on failure. */
-KeyMetaClassId keyMetaClassCreate(const char *metaname, int metaver, KeyMetaClassConf *conf) {
+/* Create a new metadata class. Returns class ID (1-7) on success, 0 on failure.
+ * 
+ * context - In case of a module, pass the module pointer. Otherwise NULL.
+ */
+KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *metaname, 
+                                  int metaver, KeyMetaClassConf *conf) {
     if (!conf) return 0;
 
     /* Validate and encode ID similar to moduleTypeEncodeId(). */
@@ -278,9 +319,12 @@ KeyMetaClassId keyMetaClassCreate(const char *metaname, int metaver, KeyMetaClas
     
     KeyMetaClass *dst = &server.keyMetaClass[slot];
     /* Fill entry. Name is exactly 9 chars + NUL. */
-    memcpy(dst->name, metaname, 9);
-    dst->name[9] = '\0';
-    dst->id = classId;
+
+    memcpy(dst->mEntity.name, metaname, 9);
+    dst->mEntity.name[9] = '\0';
+    dst->mEntity.id = classId;
+    dst->mEntity.module = context;
+    
     dst->state = CLASS_STATE_INUSE;
     dst->conf = *conf; /* Copy config as is. */
     return slot; /* Return handle (1..7). */

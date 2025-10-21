@@ -855,11 +855,17 @@ typedef size_t (*KeyMetaFreeEffortFunc)(struct RedisModuleKeyOptCtx *ctx, uint64
 typedef void (*KeyMetaUnlinkFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 typedef int (*KeyMetaMoveFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 
+/* Module Entity ID: module type or keymeta. */
+typedef struct ModuleEntityId {
+    struct RedisModule *module;
+    char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
+    uint64_t id; /* Higher 54 bits of type ID + 10 lower bits of encoding ver. */
+} ModuleEntityId;
+
 /* The module type, which is referenced in each value of a given type, defines
  * the methods and links to the module exporting the type. */
 typedef struct RedisModuleType {
-    uint64_t id; /* Higher 54 bits of type ID + 10 lower bits of encoding ver. */
-    struct RedisModule *module;
+    ModuleEntityId mEntity;  /* module data type name and ID. */
     moduleTypeLoadFunc rdb_load;
     moduleTypeSaveFunc rdb_save;
     moduleTypeRewriteFunc aof_rewrite;
@@ -878,8 +884,14 @@ typedef struct RedisModuleType {
     moduleTypeCopyFunc2 copy2;
     moduleTypeAuxSaveFunc aux_save2;
     int aux_save_triggers;
-    char name[10]; /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
 } moduleType;
+
+/* Key metadata class */
+typedef struct KeyMetaClass {
+    ModuleEntityId mEntity;  /* module key metadata name and ID. */
+    KeyMetaClassConf conf; /* copy of configuration callbacks and options */
+    KeyMetaClassState state;
+} KeyMetaClass;
 
 /* This is a structure used to export some meta-information such as dbid to the module. */
 typedef struct RedisModuleKeyOptCtx {
@@ -971,7 +983,7 @@ struct RedisModuleDefragCtx {
 struct RedisModuleIO {
     size_t bytes;       /* Bytes read / written so far. */
     rio *rio;           /* Rio stream. */
-    moduleType *type;   /* Module type doing the operation. */
+    ModuleEntityId *mEntity; /* Module type or keymeta doing the operation. */
     int error;          /* True if error condition happened. */
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
@@ -980,18 +992,20 @@ struct RedisModuleIO {
                            * See rdbSaveSingleModuleAux for more details */
 };
 
-/* Macro to initialize an IO context. Note that the 'ver' field is populated
+/* Initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
-#define moduleInitIOContext(iovar,mtype,rioptr,keyptr,db) do { \
-    iovar.rio = rioptr; \
-    iovar.type = mtype; \
-    iovar.bytes = 0; \
-    iovar.error = 0; \
-    iovar.key = keyptr; \
-    iovar.dbid = db; \
-    iovar.ctx = NULL; \
-    iovar.pre_flush_buffer = NULL; \
-} while(0)
+static inline void moduleInitIOContext(RedisModuleIO *io, ModuleEntityId *mEntity,
+                                       rio *rioptr, struct redisObject *keyptr, int db) 
+{
+    io->rio = rioptr;
+    io->mEntity = mEntity;
+    io->bytes = 0;
+    io->error = 0;
+    io->key = keyptr;
+    io->dbid = db;
+    io->ctx = NULL;
+    io->pre_flush_buffer = NULL;
+}
 
 /* This is a structure used to export DEBUG DIGEST capabilities to Redis
  * modules. We want to capture both the ordered and unordered elements of

@@ -3,25 +3,29 @@
  *
  * High-level idea
  * ----------------
- * keymeta is a lightweight, fixed-layout framework for attaching small pieces of
- * metadata to keys. Each key can carry up to 8 independent metadata "classes",
- * each class storing a single 8-byte value. Each class is referenced by a small
- * integer ID. For each key lifecycle operation, keymeta invokes the relevant
- * callback for every active class on the key—ensuring consistent handling across
- * copy/rename, logical removal (unlink), actual deallocation (free), persistence
- * (RDB/AOF), and defragmentation. The 8-byte slot can either hold inline data or 
- * a pointer/handle to a larger, externally managed structure.
+ * keymeta is a framework for attaching & maintaining metadata to keys. 
+ * 
+ * - Up to 8 different metadata classes can be registered globally. First one
+ *   is reserved for EXPIRE.
+ * - Each class has a unique ID and name, like modules datat-types names, yet 
+ *   it has its own namespace.
+ * - Each key metadata class provides a set of callbacks for key lifecycle operations, 
+ *   ensuring consistent handling across copy, rename, logical removal (unlink), 
+ *   actual deallocation (free), persistence (RDB/AOF), and defragmentation. 
+ * - Each key can carry up to 8 independent metadata values. Each value is related 
+ *   to a specific metadata class. 
+ * - The 8-byte slot can either hold inline data or a pointer/handle to a larger, 
+ *   externally managed structure.
  *
- * Relation to other entities
- * --------------------------
- * - kvobj: 8 class IDs (0..KEY_META_ID_MAX). Each key keeps a bitmask of active 
- *   classes and a compact array of 8-byte slots stored adjacent to the kvobj.
+ * Relation to other components
+ * ----------------------------
+ * - kvobj: 8 bits metabits field in kvobj is used to indicate active metadata.
+ *   bit number corresponds to class ID. 
  * - Expiration: class ID 0 is reserved for TTL/expire; 
  * - Registration: redisServer.keyMetaClass[] stores registered classes. Modules
  *   register via keyMetaClassCreate (see redismodule.h) and may provide callbacks
  *   for persistence, copy/rename behavior, and lifecycle hooks (unlink/free).
- * - key Lifecycle: for each key operation, keymeta invokes the relevant
- *   callback for every active class. 
+ * - modules: modules can register metadata classes and provide callbacks.  
  */
 
 #ifndef __KEYMETA_H
@@ -40,6 +44,7 @@ struct RedisModuleKeyOptCtx;
 struct RedisModuleDefragCtx;
 
 typedef int KeyMetaClassId; /* Index into redisServer.keyMetaClass[] */
+typedef struct RedisModule RedisModule;
 
 /* kvmeta - Metadata to be attached to kvobj */
 #define KEY_META_ID_EXPIRE        0 /* Must be first */
@@ -59,18 +64,20 @@ typedef struct KeyMetaClassConf {
 #define KEY_META_FLAG_ALLOW_IGNORE 0   /* Ignore silently on RDB load, if module not avail */
     uint64_t flags;
     uint64_t reset_value;
+    
+    int (*copy)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+    int (*rename)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+    int (*move)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+    void (*unlink)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+    void (*free)(const char *keyname, uint64_t meta);
 
+    /****************************** TBD: ******************************/
     int (*rdb_load)(struct RedisModuleIO *rdb, uint64_t *meta, int metaver);
     void (*rdb_save)(struct RedisModuleIO *rdb, void *value, uint64_t *meta);
     void (*aof_rewrite)(struct RedisModuleIO *aof, void *value, uint64_t meta);
-    void (*free)(const char *keyname, uint64_t meta);
-    int (*copy)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
-    int (*rename)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
     int (*defrag) (struct RedisModuleDefragCtx *ctx, struct redisObject *key, uint64_t meta);
     size_t (*mem_usage)(struct RedisModuleKeyOptCtx *ctx, size_t sample_size, uint64_t meta);
     size_t (*free_effort)(struct RedisModuleKeyOptCtx *ctx, uint64_t meta);
-    void (*unlink)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
-    int (*move)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 } KeyMetaClassConf;
 
 typedef enum KeyMetaClassState {
@@ -78,18 +85,6 @@ typedef enum KeyMetaClassState {
     CLASS_STATE_INUSE = 1,
     CLASS_STATE_RELEASED = 2,
 } KeyMetaClassState;
-
-/* Runtime stored class entry: holds the user-provided configuration together with
- * processed metadata such as name, id, and current state. */
-typedef struct KeyMetaClass {
-    KeyMetaClassConf conf; /* copy of configuration callbacks and options */
-
-    uint64_t id;         /* Higher 54 bits of type ID + 10 lower bits of encoding ver. */
-    
-    char name[10];       /* 9 bytes name + null term. Charset: A-Z a-z 0-9 _- */
-
-    KeyMetaClassState state;
-} KeyMetaClass;
 
 /* KeyMetaSpec - Used by dbAddInternal() to describe metadata of a new key */
 typedef struct KeyMetaSpec {
@@ -116,12 +111,13 @@ void keyMetaOnFree(kvobj *kv);
 void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey, KeyMetaSpec *kms);
 void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, KeyMetaSpec *kms);
 void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDbId, KeyMetaSpec *kms);
+int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid);
 
 void keyMetaResetModuleValues(kvobj *kv);
 void keyMetaTransition(kvobj *kvOld, kvobj *kvNew);
 
 /* return 0 if failed to create. Otherwise return handle (between 1 and 7) */
-KeyMetaClassId keyMetaClassCreate(const char *metaname, int metaver, KeyMetaClassConf *conf);
+KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *metaname, int metaver, KeyMetaClassConf *conf);
 /* Destroy (release) a previously created class. Return 1 on success, 0 on failure. */
 int keyMetaClassRelease(KeyMetaClassId class_id);
 

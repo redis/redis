@@ -1355,7 +1355,8 @@ int objectTypeCompare(robj *o, long long target) {
             return 1;
     }
     /* module type compare */
-    long long mt = (long long)REDISMODULE_TYPE_SIGN(((moduleValue *)o->ptr)->type->id);
+    moduleType *type = ((moduleValue *)o->ptr)->type;
+    long long mt = (long long)REDISMODULE_TYPE_SIGN(type->mEntity.id);
     if (target != -mt)
         return 0;
     else 
@@ -1463,7 +1464,7 @@ long long getObjectTypeByName(char *name) {
     }
 
     moduleType *mt = moduleTypeLookupModuleByNameIgnoreCase(name);
-    if (mt != NULL) return -(REDISMODULE_TYPE_SIGN(mt->id));
+    if (mt != NULL) return -(REDISMODULE_TYPE_SIGN(mt->mEntity.id));
 
     return LLONG_MAX;
 }
@@ -1477,7 +1478,7 @@ char *getObjectTypeName(robj *o) {
 
     if (o->type == OBJ_MODULE) {
         moduleValue *mv = o->ptr;
-        return mv->type->name;
+        return mv->type->mEntity.name;
     } else {
         return obj_type_name[o->type];
     }
