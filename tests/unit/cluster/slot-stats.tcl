@@ -997,8 +997,8 @@ start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         # Migrate slot-0 to node-1
         R 1 CLUSTER MIGRATION IMPORT 0 0
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_active_tasks] == 0 &&
-            [CI 1 slot_migration_active_tasks] == 0
+            [CI 0 cluster_slot_migration_active_tasks] == 0 &&
+            [CI 1 cluster_slot_migration_active_tasks] == 0
         } else {
             fail "ASM tasks did not complete"
         }
@@ -1021,8 +1021,8 @@ start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         # Migrate slot-0 back to node-0
         R 0 CLUSTER MIGRATION IMPORT 0 0
         wait_for_condition 1000 10 {
-            [CI 0 slot_migration_active_tasks] == 0 &&
-            [CI 1 slot_migration_active_tasks] == 0
+            [CI 0 cluster_slot_migration_active_tasks] == 0 &&
+            [CI 1 cluster_slot_migration_active_tasks] == 0
         } else {
             fail "ASM tasks did not complete"
         }

@@ -296,13 +296,13 @@ sds asmCatInfoString(sds info) {
     }
 
     return sdscatprintf(info ? info : sdsempty(),
-                        "slot_migration_active_tasks:%d\r\n"
-                        "slot_migration_active_trim_running:%lu\r\n"
-                        "slot_migration_active_trim_current_job_keys:%llu\r\n"
-                        "slot_migration_active_trim_current_job_trimmed:%llu\r\n"
-                        "slot_migration_stats_active_trim_started:%llu\r\n"
-                        "slot_migration_stats_active_trim_completed:%llu\r\n"
-                        "slot_migration_stats_active_trim_cancelled:%llu\r\n",
+                        "cluster_slot_migration_active_tasks:%d\r\n"
+                        "cluster_slot_migration_active_trim_running:%lu\r\n"
+                        "cluster_slot_migration_active_trim_current_job_keys:%llu\r\n"
+                        "cluster_slot_migration_active_trim_current_job_trimmed:%llu\r\n"
+                        "cluster_slot_migration_stats_active_trim_started:%llu\r\n"
+                        "cluster_slot_migration_stats_active_trim_completed:%llu\r\n"
+                        "cluster_slot_migration_stats_active_trim_cancelled:%llu\r\n",
                         active_tasks,
                         listLength(asmManager->active_trim_jobs),
                         asmManager->active_trim_current_job_keys,
@@ -2541,7 +2541,7 @@ void asmCron(void) {
              * synchronization. A timeout check is required to handle this case.
              *
              * The timeout is calculated as the maximum of two values:
-             * - A configurable timeout (slot-migration-sync-buffer-drain-timeout) to
+             * - A configurable timeout (cluster-slot-migration-sync-buffer-drain-timeout) to
              *   avoid false positives.
              * - A dynamic timeout based on the time that the destination took to apply the
              *   slot snapshot and the accumulated buffer during slot snapshot delivery.
