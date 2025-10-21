@@ -2383,8 +2383,8 @@ struct pendingCommand {
     getKeysResult keys_result;
     long long reploff;        /* c->reploff should be set to this value when the command is processed */
     int flags;
-    int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT if no slot is being used or if 
-                         the command has a cross slot error */
+    int slot;         /* The slot the command is executing against. Set to INVALID_CLUSTER_SLOT
+                       * if no slot is being used or if the command has a cross slot error */
     uint8_t read_error;
 
     struct pendingCommand *next;
