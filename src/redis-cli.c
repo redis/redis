@@ -8196,7 +8196,31 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
     config.cluster_manager_command.backup_dir = argv[1];
-    /* TODO: check if backup_dir is a valid directory. */
+
+    struct stat st = {0};
+    char *backup_dir = config.cluster_manager_command.backup_dir;
+
+    if (stat(backup_dir, &st) == -1) {
+        if (errno == ENOENT) {
+            clusterManagerLogInfo(">>> Creating backup directory %s\n", backup_dir);
+            if (mkdir(backup_dir, 0755) == -1) {
+                clusterManagerLogErr("Could not create backup directory %s: %s\n",
+                                     backup_dir, strerror(errno));
+                success = 0;
+                goto cleanup;
+            }
+        } else {
+            clusterManagerLogErr("Cannot stat backup directory %s: %s\n",
+                                 backup_dir, strerror(errno));
+            success = 0;
+            goto cleanup;
+        }
+    } else if (!S_ISDIR(st.st_mode)) {
+        clusterManagerLogErr("[ERR] The specified backup path '%s' exists but is not a directory.\n", backup_dir);
+        success = 0;
+        goto cleanup;
+    }
+
     sds json = sdsnew("[\n");
     int first_node = 0;
     listIter li;
