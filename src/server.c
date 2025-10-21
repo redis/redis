@@ -4106,6 +4106,11 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     if (num_keys < 0) {
         /* We skip the checks below since We expect the command to be rejected in this case */
         return;
+    } else if (num_keys > 0) {
+        /* If the command has keys but the slot is invalid, it means
+         * there is a cross-slot case. */
+        if (pcmd->slot == INVALID_CLUSTER_SLOT)
+            pcmd->read_error = CLIENT_READ_CROSS_SLOT;
     }
     pcmd->flags |= PENDING_CMD_KEYRESULT_VALID;
 }
@@ -4261,7 +4266,7 @@ int processCommand(client *c) {
     {
         int error_code;
         clusterNode *n = getNodeByQuery(c,c->cmd,c->argv,c->argc,
-                                        &c->slot,getClientCachedKeyResult(c),cmd_flags,&error_code);
+            &c->slot,getClientCachedKeyResult(c),c->read_error,cmd_flags,&error_code);
         if (n == NULL || !clusterNodeIsMyself(n)) {
             if (c->cmd->proc == execCommand) {
                 discardTransaction(c);

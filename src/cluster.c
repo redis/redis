@@ -1132,7 +1132,9 @@ int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
  *
  * CLUSTER_REDIR_DOWN_STATE and CLUSTER_REDIR_DOWN_RO_STATE if the cluster is
  * down but the user attempts to execute a command that addresses one or more keys. */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, getKeysResult *keys_result, uint64_t cmd_flags, int *error_code) {
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot,
+    getKeysResult *keys_result, uint8_t read_error, uint64_t cmd_flags, int *error_code)
+{
     clusterNode *myself = getMyClusterNode();
     clusterNode *n = NULL;
     robj *firstkey = NULL;
@@ -1176,6 +1178,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.argc = argc;
         mc.cmd = cmd;
         mc.slot = hashslot ? *hashslot : INVALID_CLUSTER_SLOT;
+        mc.read_error = read_error;
         if (keys_result) {
             mc.keys_result = *keys_result;
             mc.flags |= PENDING_CMD_KEYRESULT_VALID;
