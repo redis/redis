@@ -2979,7 +2979,8 @@ int processInputBuffer(client *c) {
 
     /* Keep processing while there is something in the input buffer */
     while ((c->querybuf && c->qb_pos < sdslen(c->querybuf)) ||
-           c->pending_cmds.ready_len > 0) {
+           c->pending_cmds.ready_len > 0)
+    {
         /* Immediately abort if the client is in the middle of something. */
         if (c->flags & CLIENT_BLOCKED || c->flags & CLIENT_UNBLOCKED) break;
 
