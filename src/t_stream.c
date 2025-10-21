@@ -4906,34 +4906,48 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 }
 
 /* Check and wake clients waiting for expired pending entries. This function
- * is invoked regularly from blockedBeforeSleep() to monitor all streams being
+ * is invoked regularly from blockedBeforeSleep() to monitor streams being
  * watched for expired pending entries and wake up blocked clients when
  * entries expire and become available for claiming.
  *
- * The function iterates through all databases and their stream_claim_pending_keys
- * dictionaries. For each watched stream, it compares the registered expire_time
- * against the current server time. When expire_time <= current_time, the pending
- * entry has expired and the stream is signaled as ready via signalKeyAsReady(),
- * which wakes all blocked clients waiting on that stream. The entry is then
- * removed from stream_claim_pending_keys. */
+ * The function processes up to CRON_DBS_PER_CALL databases per call in a
+ * round-robin fashion, cycling through all databases over multiple invocations.
+ * For each database, it iterates through the stream_claim_pending_keys dictionary.
+ * For each watched stream, it compares the registered expire_time against the
+ * current server time. When expire_time is less than the current server time,
+ * the pending entry has expired and the stream is signaled as ready via
+ * signalKeyAsReady(), which wakes all blocked clients waiting on that stream.
+ * The entry is then removed from stream_claim_pending_keys. */
 void handleClaimableStreamEntries(void) {
-    for (int j = 0; j < server.dbnum; j++) {
+    static unsigned int current_db = 0;
+    int dbs_per_call = CRON_DBS_PER_CALL;
+    int j;
+
+    if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
+
+    for (j = 0; j < dbs_per_call; j++) {
+        redisDb *db = &server.db[current_db % server.dbnum];
+        current_db++;
+
+        if (dictIsEmpty(db->stream_claim_pending_keys))
+            continue;
+
         dictEntry *de;
         dictIterator di;
-        dictInitSafeIterator(&di, server.db[j].stream_claim_pending_keys);
+        dictInitSafeIterator(&di, db->stream_claim_pending_keys);
         while ((de = dictNext(&di)) != NULL) {
             robj *key = dictGetKey(de);
             uint64_t expire_time = dictGetUnsignedIntegerVal(de);
-            kvobj *kv = dbFind(&server.db[j], key->ptr);
+            kvobj *kv = dbFind(db, key->ptr);
 
             if (!kv || kv->type != OBJ_STREAM) {
-                dictDelete(server.db[j].stream_claim_pending_keys, key);
+                dictDelete(db->stream_claim_pending_keys, key);
                 continue;
             }
 
             if (expire_time < (uint64_t)server.mstime) {
-                signalKeyAsReady(&server.db[j], key, kv->type);
-                dictDelete(server.db[j].stream_claim_pending_keys, key);
+                signalKeyAsReady(db, key, kv->type);
+                dictDelete(db->stream_claim_pending_keys, key);
             }
         }
         dictResetIterator(&di);
