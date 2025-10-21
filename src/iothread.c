@@ -354,11 +354,12 @@ int prefetchIOThreadCommands(IOThread *t) {
     listIter li;
     listNode *ln;
     listRewind(mainThreadProcessingClients[t->id], &li);
-    while((ln = listNext(&li)) && clients++ < to_prefetch) {
+    while((ln = listNext(&li)) && clients < to_prefetch) {
         client *c = listNodeValue(ln);
         /* A single command may contain multiple keys. If the batch is full,
          * we stop adding clients to it. */
         if (addCommandToBatch(c) == C_ERR) break;
+        clients++;
     }
 
     /* Prefetch the commands in the batch. */
