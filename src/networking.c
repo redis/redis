@@ -3096,8 +3096,11 @@ int processInputBuffer(client *c) {
 
         /* Prefetch the command only when more commands have been parsed and we
          * are in the main thread. If running in an IO thread, prefetch will be
-         * deferred until the client is processed by the main thread. */
-        if (parse_more && c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
+         * deferred until the client is processed by the main thread. Skip prefetch
+         * if there are too few commands to avoid meaningless prefetching. */
+        if (parse_more && c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+            c->pending_cmds.ready_len > 1)
+        {
             /* Prefetch the commands. */
             resetCommandsBatch();
             addCommandToBatch(c);
@@ -5065,11 +5068,9 @@ static void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
                 }
             }
 
-            if (c) {
-                serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
-                c->all_argv_len_sum -= pcmd->argv_len_sum;
-                pcmd->argv_len_sum = 0;
-            }
+            serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
+            c->all_argv_len_sum -= pcmd->argv_len_sum;
+            pcmd->argv_len_sum = 0;
 
             tryDeferFreeClientObject(c, DEFERRED_OBJECT_TYPE_PENDING_COMMAND, pcmd);
             return;
