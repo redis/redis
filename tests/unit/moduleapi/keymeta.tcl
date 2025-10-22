@@ -18,7 +18,7 @@
 #   - Must be removed before kvobj reallocation (hashTypeRemoveFromExpires)
 #      and restored after (hashTypeAddToExpires)
 # - MODULE METADATA (class IDs 1-7)
-#   - Defines metdata lifecycle via callbacks
+#   - Defines metadata lifecycle via callbacks
 # - EMBEDDED STRINGS vs. REGULAR OBJECTS
 #   - Short strings and numbers are embedded into kvobj
 #   - The rest are kept as distinct objects
