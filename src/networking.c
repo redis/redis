@@ -5146,6 +5146,8 @@ void shrinkPendingCommandPool(void) {
         }
     }
 
+    int old_capacity = server.cmd_pool.capacity;
     server.cmd_pool.capacity = target_size;
     server.cmd_pool.pool = zrealloc(server.cmd_pool.pool, sizeof(pendingCommand*) * target_size);
+    serverLog(LL_DEBUG, "Shrunk pending command pool: capacity %d->%d", old_capacity, server.cmd_pool.capacity);
 }
