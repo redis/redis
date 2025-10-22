@@ -3084,9 +3084,7 @@ int processInputBuffer(client *c) {
         /* Prefetch the command only when more commands have been parsed and we
          * are in the main thread. If running in an IO thread, prefetch will be
          * deferred until the client is processed by the main thread. */
-        if (parse_more && c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
-            !(c->flags & CLIENT_IN_MEMORY_PREFETCH))
-        {
+        if (parse_more && c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
             /* Prefetch the commands. */
             resetCommandsBatch();
             addCommandToBatch(c);

@@ -424,10 +424,13 @@ int processClientsFromIOThread(IOThread *t) {
 
     listNode *node = NULL;
     while (listLength(mainThreadProcessingClients[t->id])) {
-        /* Prefetch the commands if no clients in the batch. */
-        if (prefetch_clients <= 0) prefetch_clients = prefetchIOThreadCommands(t);
-        /* Reset the prefetching batch if we have processed all clients. */
-        if (--prefetch_clients <= 0) resetCommandsBatch();
+        if (prefetch_clients <= 0) {
+            /* Reset the prefetching batch if we have processed all clients. */
+            resetCommandsBatch();
+            /* Prefetch the commands if no clients in the batch. */
+            prefetch_clients = prefetchIOThreadCommands(t);
+        }
+        prefetch_clients--;
 
         /* Each time we pop up only the first client to process to guarantee
          * reentrancy safety. */
@@ -469,12 +472,10 @@ int processClientsFromIOThread(IOThread *t) {
         /* Process the pending command and input buffer. */
         if (!isClientReadErrorFatal(c) && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
             c->flags |= CLIENT_PENDING_COMMAND;
-            c->flags |= CLIENT_IN_MEMORY_PREFETCH;
             if (processPendingCommandAndInputBuffer(c) == C_ERR) {
                 /* If the client is no longer valid, it must be freed safely. */
                 continue;
             }
-            c->flags &= ~CLIENT_IN_MEMORY_PREFETCH;
         }
 
         /* We may have pending replies if io thread may not finish writing
