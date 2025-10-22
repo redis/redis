@@ -1493,7 +1493,7 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
-static void freeClientDeferredObject(client *c, int type, void *ptr) {
+static void freeDeferredObject(client *c, int type, void *ptr) {
     if (type == DEFERRED_OBJECT_TYPE_PENDING_COMMAND) {
         freePendingCommand(c, ptr);
     } else if (type == DEFERRED_OBJECT_TYPE_ROBJ) {
@@ -1508,7 +1508,7 @@ static void freeClientDeferredObject(client *c, int type, void *ptr) {
  * and also reducing the load of the main thread. */
 void tryDeferFreeClientObject(client *c, int type, void *ptr) {
     if (!c || c->tid == IOTHREAD_MAIN_THREAD_ID) {
-        freeClientDeferredObject(c, type, ptr);
+        freeDeferredObject(c, type, ptr);
         return;
     }
 
@@ -1518,7 +1518,7 @@ void tryDeferFreeClientObject(client *c, int type, void *ptr) {
         c->deferred_objects[c->deferred_objects_num].ptr = ptr;
         c->deferred_objects_num++;
     } else {
-        freeClientDeferredObject(c, type, ptr);
+        freeDeferredObject(c, type, ptr);
     }
 }
 
@@ -1527,7 +1527,7 @@ void tryDeferFreeClientObject(client *c, int type, void *ptr) {
 void freeClientDeferredObjects(client *c, int free_array) {
     for (int j = 0; j < c->deferred_objects_num; j++) {
         deferredObject *obj = &c->deferred_objects[j];
-        freeClientDeferredObject(c, obj->type, obj->ptr);
+        freeDeferredObject(c, obj->type, obj->ptr);
     }
     c->deferred_objects_num = 0;
 
