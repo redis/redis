@@ -838,7 +838,9 @@ tags {"aof external:skip"} {
     }
 
     # Test corrupt tail recovery with realistic corruption scenario
-    create_aof $aof_dirpath $aof_file {
+    # Create corruption in the LAST file instead of middle file
+    set last_aof_file "$aof_dirpath/appendonly.aof.2.incr.aof"
+    create_aof $aof_dirpath $last_aof_file {
         append_to_aof [formatCommand set foo 5]
         append_to_aof "!!!"
         append_to_aof [formatCommand set foo 3]

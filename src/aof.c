@@ -1735,6 +1735,7 @@ fmterr: /* Format error. */
             aof_filepath, (unsigned long long) valid_up_to, (unsigned long long) sb.st_size - valid_up_to);
         if (truncateAppendOnlyFile(aof_filepath, valid_up_to)) {
             serverLog(LL_WARNING, "AOF %s loaded anyway because aof-load-corrupt-tail-max-size is enabled", aof_filepath);
+            ret = AOF_BROKEN_RECOVERED;
             goto loaded_ok;
         }
     }
@@ -1815,13 +1816,13 @@ int loadAppendOnlyFiles(aofManifest *am) {
         last_file = ++aof_num == total_num;
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
-        if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+        if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
         /* If the truncated file is not the last file, we consider this to be a fatal error. */
-        if (ret == AOF_TRUNCATED && !last_file) {
+        if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
             ret = AOF_FAILED;
             serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
         }
@@ -1845,7 +1846,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             last_file = ++aof_num == total_num;
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
-            if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+            if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds",
                     aof_name, (float)(ustime()-start)/1000000);
             }
@@ -1855,7 +1856,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             if (ret == AOF_EMPTY) ret = AOF_OK;
 
             /* If the truncated file is not the last file, we consider this to be a fatal error. */
-            if (ret == AOF_TRUNCATED && !last_file) {
+            if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
                 ret = AOF_FAILED;
                 serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
             }

@@ -347,6 +347,7 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define AOF_OPEN_ERR 3
 #define AOF_FAILED 4
 #define AOF_TRUNCATED 5
+#define AOF_BROKEN_RECOVERED 6
 
 /* RDB return values for rdbLoad. */
 #define RDB_OK 0
