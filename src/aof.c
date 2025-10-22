@@ -1474,7 +1474,7 @@ struct client *createAOFClient(void) {
     return c;
 }
 
-int truncateAppendOnlyFile(char *filename, off_t valid_up_to) {
+static int truncateAppendOnlyFile(char *filename, off_t valid_up_to) {
     if (valid_up_to == -1) {
         serverLog(LL_WARNING,"Last valid command offset is invalid");
         return 0;
