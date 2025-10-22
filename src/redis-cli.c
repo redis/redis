@@ -8189,6 +8189,9 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     UNUSED(argc);
     int success = 1, port = 0;
     char *ip = NULL;
+    sds json = NULL;
+    sds jsonpath = NULL;
+
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
@@ -8221,7 +8224,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         goto cleanup;
     }
 
-    sds json = sdsnew("[\n");
+    json = sdsnew("[\n");
     int first_node = 0;
     listIter li;
     listNode *ln;
@@ -8241,7 +8244,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         getRDB(node);
     }
     json = sdscat(json, "\n]");
-    sds jsonpath = sdsnew(config.cluster_manager_command.backup_dir);
+    jsonpath = sdsnew(config.cluster_manager_command.backup_dir);
     if (jsonpath[sdslen(jsonpath) - 1] != '/')
         jsonpath = sdscat(jsonpath, "/");
     jsonpath = sdscat(jsonpath, "nodes.json");
