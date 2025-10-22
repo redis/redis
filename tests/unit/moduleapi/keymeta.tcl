@@ -92,7 +92,7 @@ proc flushallAndVerifyCleanup {} {
     assert_equal [r keymeta.active] 0
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules" "external:skip" "cluster:skip"}} {
     r module load $testmodule
 
     array set classesSpec {}
