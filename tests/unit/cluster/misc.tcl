@@ -22,5 +22,15 @@ start_cluster 2 2 {tags {external:skip cluster}} {
         R 0 flushall
         assert_equal {OK} [R 0 CLUSTER flushslots]
     }
-}
 
+    test "CROSSSLOT error for keys in different slots" {
+        # Test MSET with keys in different slots
+        assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} {R 0 MSET foo bar baz qux}
+        
+        # Test DEL with keys in different slots  
+        assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} {R 0 DEL foo bar}
+        
+        # Test MGET with keys in different slots
+        assert_error {*CROSSSLOT Keys in request don't hash to the same slot*} {R 0 MGET foo bar}
+    } 
+}
