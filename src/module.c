@@ -75,6 +75,7 @@ struct RedisModuleSharedAPI {
     RedisModule *module;
 };
 typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
+typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
 
 dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
 
@@ -4520,15 +4521,19 @@ int RM_ReleaseKeyMetaClass(RedisModuleKeyMetaClassId id) {
     return (keyMetaClassRelease(id)) ? REDISMODULE_OK : REDISMODULE_ERR;
 }
 
-/* Set metadata of class id on an opened key. If metadata is already attached, 
- * it will be overwritten. The caller is responsible for retrieving and freeing 
+/* Set metadata of class id on an opened key. If metadata is already attached,
+ * it will be overwritten. The caller is responsible for retrieving and freeing
  * any existing pointer-based metadata before setting a new value. */
 int RM_SetKeyMeta(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t metadata) {
     if ((!key) || !(key->mode & REDISMODULE_WRITE) || (key->kv == NULL))
         return REDISMODULE_ERR;
-    
-    if (keyMetaSetMetadata(key->db, key->kv, id, metadata) == 0) 
+
+    kvobj *new_kv = keyMetaSetMetadata(key->db, key->kv, id, metadata);
+    if (new_kv == NULL)
         return REDISMODULE_ERR;
+
+    /* Update the key->kv pointer in case it was reallocated */
+    key->kv = new_kv;
 
     return REDISMODULE_OK;
 }

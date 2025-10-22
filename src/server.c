@@ -7405,8 +7405,6 @@ int main(int argc, char **argv) {
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
     connTypeInitialize();
-
-    /* Initialize keys metadata subsystem prior to loading RDB. */
     keyMetaInit();
 
     /* Store the executable path and arguments in a safe place in order

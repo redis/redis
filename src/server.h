@@ -67,6 +67,20 @@ typedef long long ustime_t; /* microsecond time type. */
 #include "eventnotifier.h" /* Event notification */
 #include "memory_prefetch.h"
 
+/* Forward declarations needed by redismodule.h and keymeta.h */
+struct redisObject;
+struct RedisModule;
+
+/* This is a structure used to export some meta-information such as dbid to the module. */
+struct RedisModuleKeyOptCtx {
+    struct redisObject *from_key, *to_key; /* Optional name of key processed, NULL when unknown.
+                                              In most cases, only 'from_key' is valid, but in callbacks
+                                              such as `copy2`, both 'from_key' and 'to_key' are valid. */
+    int from_dbid, to_dbid;                /* The dbid of the key being processed, -1 when unknown.
+                                              In most cases, only 'from_dbid' is valid, but in callbacks such
+                                              as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
+}; 
+
 #define REDISMODULE_CORE 1
 
 #include "redismodule.h"    /* Redis modules API defines. */
@@ -815,7 +829,6 @@ struct RedisModuleIO;
 struct RedisModuleDigest;
 struct RedisModuleCtx;
 struct moduleLoadQueueEntry;
-struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
 struct clusterState;
 struct clusterSlotStat;
@@ -842,18 +855,6 @@ typedef size_t (*moduleTypeFreeEffortFunc2)(struct RedisModuleKeyOptCtx *ctx, co
 typedef void (*moduleTypeUnlinkFunc2)(struct RedisModuleKeyOptCtx *ctx, void *value);
 typedef void *(*moduleTypeCopyFunc2)(struct RedisModuleKeyOptCtx *ctx, const void *value);
 typedef int (*moduleTypeAuthCallback)(struct RedisModuleCtx *ctx, void *username, void *password, const char **err);
-
-typedef int (*KeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
-typedef void (*KeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
-typedef void (*KeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
-typedef void (*KeyMetaFreeFunc)(const char *keyname, uint64_t meta);
-typedef int (*KeyMetaCopyFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
-typedef int (*KeyMetaRenameFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
-typedef int (*KeyMetaDefragFunc)(RedisModuleDefragCtx *ctx, RedisModuleString *keyname, uint64_t meta);
-typedef size_t (*KeyMetaMemUsageFunc)(struct RedisModuleKeyOptCtx *ctx, size_t sample_size, uint64_t meta);
-typedef size_t (*KeyMetaFreeEffortFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t meta);
-typedef void (*KeyMetaUnlinkFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
-typedef int (*KeyMetaMoveFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 
 /* Module Entity ID: module type or keymeta. */
 typedef struct ModuleEntityId {
@@ -885,23 +886,6 @@ typedef struct RedisModuleType {
     moduleTypeAuxSaveFunc aux_save2;
     int aux_save_triggers;
 } moduleType;
-
-/* Key metadata class */
-typedef struct KeyMetaClass {
-    ModuleEntityId mEntity;  /* module key metadata name and ID. */
-    KeyMetaClassConf conf; /* copy of configuration callbacks and options */
-    KeyMetaClassState state;
-} KeyMetaClass;
-
-/* This is a structure used to export some meta-information such as dbid to the module. */
-typedef struct RedisModuleKeyOptCtx {
-    struct redisObject *from_key, *to_key; /* Optional name of key processed, NULL when unknown. 
-                                              In most cases, only 'from_key' is valid, but in callbacks 
-                                              such as `copy2`, both 'from_key' and 'to_key' are valid. */
-    int from_dbid, to_dbid;                /* The dbid of the key being processed, -1 when unknown.
-                                              In most cases, only 'from_dbid' is valid, but in callbacks such 
-                                              as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
-} RedisModuleKeyOptCtx, KeyMetaOptCtx;
 
 /* In Redis objects 'robj' structures of type OBJ_MODULE, the value pointer
  * is set to the following structure, referencing the moduleType structure
@@ -2291,7 +2275,6 @@ struct redisServer {
     /* Local environment */
     char *locale_collate;
     int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
-    KeyMetaClass keyMetaClass[KEY_META_ID_MAX];  /* Keys metadata classes info */
 };
 
 /* we use 6 so that all getKeyResult fits a cacheline */

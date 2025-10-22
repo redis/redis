@@ -42,9 +42,8 @@ struct redisObject;
 struct RedisModuleIO;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleDefragCtx;
-
+struct RedisModule;
 typedef int KeyMetaClassId; /* Index into redisServer.keyMetaClass[] */
-typedef struct RedisModule RedisModule;
 
 /* kvmeta - Metadata to be attached to kvobj */
 #define KEY_META_ID_EXPIRE        0 /* Must be first */
@@ -58,6 +57,18 @@ typedef struct RedisModule RedisModule;
 #define KEY_META_MASK_NONE        0
 #define KEY_META_MASK_MODULES     (((1U << KEY_META_MAX_NUM_MODULES) - 1) << KEY_META_ID_MODULE_FIRST)
 #define KEY_META_MASK_EXPIRE      (1U << KEY_META_ID_EXPIRE)
+
+typedef int (*KeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
+typedef void (*KeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
+typedef void (*KeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*KeyMetaFreeFunc)(const char *keyname, uint64_t meta);
+typedef int (*KeyMetaCopyFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*KeyMetaRenameFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*KeyMetaDefragFunc)(RedisModuleDefragCtx *ctx, RedisModuleString *keyname, uint64_t meta);
+typedef size_t (*KeyMetaMemUsageFunc)(struct RedisModuleKeyOptCtx *ctx, size_t sample_size, uint64_t meta);
+typedef size_t (*KeyMetaFreeEffortFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t meta);
+typedef void (*KeyMetaUnlinkFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*KeyMetaMoveFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
 
 /* For explanation, see struct RedisModuleKeyMetaClassConfig */
 typedef struct KeyMetaClassConf {
@@ -80,12 +91,6 @@ typedef struct KeyMetaClassConf {
     size_t (*free_effort)(struct RedisModuleKeyOptCtx *ctx, uint64_t meta);
 } KeyMetaClassConf;
 
-typedef enum KeyMetaClassState {
-    CLASS_STATE_FREE = 0,
-    CLASS_STATE_INUSE = 1,
-    CLASS_STATE_RELEASED = 2,
-} KeyMetaClassState;
-
 /* KeyMetaSpec - Used by dbAddInternal() to describe metadata of a new key */
 typedef struct KeyMetaSpec {
     uint16_t numMeta; /* Num active metadata entries. Aligned with metabits */
@@ -102,7 +107,7 @@ typedef struct KeyMetaSpec {
     uint64_t meta[KEY_META_ID_MAX];
 } KeyMetaSpec;
 
-/* Keys metadata initialization */
+/* init Keys metadata on server startup */
 void keyMetaInit(void);
 
 /* Key metadata event callbacks */
@@ -117,15 +122,12 @@ void keyMetaResetModuleValues(kvobj *kv);
 void keyMetaTransition(kvobj *kvOld, kvobj *kvNew);
 
 /* return 0 if failed to create. Otherwise return handle (between 1 and 7) */
-KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *metaname, int metaver, KeyMetaClassConf *conf);
+KeyMetaClassId keyMetaClassCreate(struct RedisModule *ctx, const char *metaname, int metaver, KeyMetaClassConf *conf);
 /* Destroy (release) a previously created class. Return 1 on success, 0 on failure. */
 int keyMetaClassRelease(KeyMetaClassId class_id);
 
-/* Return 0 if failed to set. Otherwise return 1 */
-int keyMetaSetMetadata(struct redisDb *db, kvobj *kv, KeyMetaClassId kmcId, uint64_t metadata);
-/* Return 0 if failed to get. Otherwise return 1 */
+kvobj *keyMetaSetMetadata(struct redisDb *db, kvobj *kv, KeyMetaClassId kmcId, uint64_t metadata);
 int keyMetaGetMetadata(KeyMetaClassId kmcId, kvobj *kv, uint64_t *metadata);
-/* Return 0 if failed to remove. Otherwise return 1 */
 int keyMetaRemoveMetadata(KeyMetaClassId kmcId, RedisModuleKey *key);
 
 /* KeyMetaSpec helpers */

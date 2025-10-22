@@ -9,7 +9,6 @@
 
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleKey RedisModuleKey;
-typedef struct RedisModuleKeyMetaClass RedisModuleKeyMetaClass;
 typedef int RedisModuleKeyMetaClassId;
 
 /* -------------- Defines NOT common between core and modules ------------- */
