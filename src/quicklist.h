@@ -83,12 +83,14 @@ typedef struct quicklistBookmark {
 
 #if UINTPTR_MAX == 0xffffffff
 /* 32-bit */
-#   define QL_FILL_BITS 14
-#   define QL_COMP_BITS 14
+#   define QL_LIMIT_TYPE_BITS 1
+#   define QL_LIMIT_BITS 16
+#   define QL_COMP_BITS 11
 #   define QL_BM_BITS 4
 #elif UINTPTR_MAX == 0xffffffffffffffff
 /* 64-bit */
-#   define QL_FILL_BITS 16
+#   define QL_LIMIT_TYPE_BITS 1
+#   define QL_LIMIT_BITS 16
 #   define QL_COMP_BITS 16
 #   define QL_BM_BITS 4 /* we can encode more, but we rather limit the user
                            since they cause performance degradation. */
@@ -96,12 +98,16 @@ typedef struct quicklistBookmark {
 #   error unknown arch bits count
 #endif
 
+#define QUICKLIST_NODE_LIMIT_SIZE 0
+#define QUICKLIST_NODE_LIMIT_COUNT 1
+
 /* quicklist is a 40 byte struct (on 64-bit systems) describing a quicklist.
  * 'count' is the number of total entries.
  * 'len' is the number of quicklist nodes.
+ * 'limit' is: size limit of the quicklist node if limit_type is 0, count limit if limit_type
+ *             is 1, calculated based on the user-requested (or default) fill factor.
  * 'compress' is: 0 if compression disabled, otherwise it's the number
  *                of quicklistNodes to leave uncompressed at ends of quicklist.
- * 'fill' is the user-requested (or default) fill factor.
  * 'bookmarks are an optional feature that is used by realloc this struct,
  *      so that they don't consume memory when not used. */
 typedef struct quicklist {
@@ -109,7 +115,8 @@ typedef struct quicklist {
     quicklistNode *tail;
     unsigned long count;        /* total count of all entries in all listpacks */
     unsigned long len;          /* number of quicklistNodes */
-    signed int fill : QL_FILL_BITS;       /* fill factor for individual nodes */
+    unsigned int limit_type: QL_LIMIT_TYPE_BITS; /* 0: limit for size, 1: limit for count */
+    unsigned int limit: QL_LIMIT_BITS; /* size limit of the quicklist node, or count limit, according to limit_type */
     unsigned int compress : QL_COMP_BITS; /* depth of end nodes not to compress;0=off */
     unsigned int bookmark_count: QL_BM_BITS;
     quicklistBookmark bookmarks[];
@@ -195,7 +202,7 @@ int quicklistCompare(quicklistEntry *entry, unsigned char *p2, const size_t p2_l
                      long long *cached_longval, int *cached_valid);
 size_t quicklistGetLzf(const quicklistNode *node, void **data);
 void quicklistNodeLimit(int fill, size_t *size, unsigned int *count);
-int quicklistNodeExceedsLimit(int fill, size_t new_sz, unsigned int new_count);
+int quicklistNodeExceedsFillLimit(int fill, size_t new_sz, unsigned int new_count);
 void quicklistRepr(unsigned char *ql, int full);
 
 /* bookmarks */

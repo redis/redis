@@ -648,8 +648,9 @@ NULL
             used = snprintf(nextra, remaining, " ql_avg_node:%.2f", avg);
             nextra += used;
             remaining -= used;
-            /* Add quicklist fill level / max listpack size */
-            used = snprintf(nextra, remaining, " ql_listpack_max:%d", ql->fill);
+            /* Add quicklist node count limit / size limit */
+            used = snprintf(nextra, remaining, " ql_node_%s_limit:%d",
+                ql->limit_type == QUICKLIST_NODE_LIMIT_COUNT ? "count" : "size",  ql->limit);
             nextra += used;
             remaining -= used;
             /* Add isCompressed? */
