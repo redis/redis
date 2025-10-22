@@ -921,6 +921,11 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
         cg->pel->alloc_size = &s->alloc_size;
         defragRadixTree(&cg->pel, 0, NULL, NULL);
     }
+    if (cg->pel_by_time) {
+        /* Update pel_by_time back-pointer to new stream */
+        cg->pel_by_time->alloc_size = &s->alloc_size;
+        defragRadixTree(&cg->pel_by_time, 0, NULL, NULL);
+    }
     if (cg->consumers) {
         /* Update consumers back-pointer to new stream */
         cg->consumers->alloc_size = &s->alloc_size;
