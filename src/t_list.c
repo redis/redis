@@ -90,7 +90,7 @@ static void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB 
      * then reset it and release the quicklist. */
     o->ptr = ql->head->entry;
     ql->head->entry = NULL;
-    ql->alloc_size -= zmalloc_usable_size(o->ptr);
+    ql->alloc_size -= ql->head->sz;
     quicklistRelease(ql);
     o->encoding = OBJ_ENCODING_LISTPACK;
 }

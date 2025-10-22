@@ -2831,9 +2831,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Load the listpack. */
-            size_t lp_size, usable = 0;
+            size_t lp_size;
             unsigned char *lp =
-                rdbGenericLoadStringObjectUsable(rdb,RDB_LOAD_PLAIN,&lp_size,&usable);
+                rdbGenericLoadStringObject(rdb,RDB_LOAD_PLAIN,&lp_size);
             if (lp == NULL) {
                 rdbReportReadError("Stream listpacks loading failed.");
                 sdsfree(nodekey);
@@ -2871,7 +2871,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 zfree(lp);
                 return NULL;
             }
-            s->alloc_size += usable;
+            s->alloc_size += lpBytes(lp);
         }
         /* Load total number of items inside the stream. */
         s->length = rdbLoadLen(rdb,NULL);
