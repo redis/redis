@@ -14,7 +14,7 @@ struct asmTask;
 struct slotRangeArray;
 struct slotRange;
 
-void clusterAsmInit(void);
+void asmInit(void);
 void asmBeforeSleep(void);
 void asmCron(void);
 void asmSlotSnapshotAndStreamStart(struct asmTask *task);

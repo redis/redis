@@ -1960,9 +1960,11 @@ slotRangeArray *clusterGetLocalSlotRanges(void) {
     }
 
     clusterNode *master = clusterNodeGetMaster(getMyClusterNode());
-    for (int i = 0; i < CLUSTER_SLOTS; i++) {
-        if (master && clusterNodeCoversSlot(master, i))
-            slots = slotRangeArrayAppend(slots, i);
+    if (master) {
+        for (int i = 0; i < CLUSTER_SLOTS; i++) {
+            if (clusterNodeCoversSlot(master, i))
+                slots = slotRangeArrayAppend(slots, i);
+        }
     }
     return slots ? slots : slotRangeArrayCreate(0);
 }
@@ -2052,10 +2054,6 @@ void readwriteCommand(client *c) {
     }
     c->flags &= ~CLIENT_READONLY;
     addReply(c,shared.ok);
-}
-
-void clusterCommonInit(void) {
-    clusterAsmInit();
 }
 
 /* Resets transient cluster stats that we expose via INFO or other means that we want

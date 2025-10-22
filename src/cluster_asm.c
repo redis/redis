@@ -145,7 +145,7 @@ int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
 void asmTrimSlotsIfNotOwned(slotRangeArray *slots);
 void asmNotifyStateChange(asmTask *task, int event);
 
-void clusterAsmInit(void) {
+void asmInit(void) {
     asmManager = zcalloc(sizeof(*asmManager));
     asmManager->tasks = listCreate();
     asmManager->archived_tasks = listCreate();
@@ -3386,13 +3386,17 @@ void asmActiveTrimCycle(void) {
 /* Trim a specific key if trimming is pending or in progress for its slot.
  * Return 1 if the key was trimmed */
 int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv) {
-    sds keyname = key ? key->ptr : kvobjGetKey(kv);
+    /* Check if trimming is in progress. */
     if (server.allow_access_trimmed ||
-        !asmIsTrimInProgress() ||
-        !isSlotInTrimJob(getKeySlot(keyname)))
+        !asmIsTrimInProgress())
     {
         return 0;
     }
+
+    /* Check if the slot is in a trim job. */
+    sds keyname = key ? key->ptr : kvobjGetKey(kv);
+    if (!isSlotInTrimJob(getKeySlot(keyname)))
+        return 0;
 
     if (key) {
         asmActiveTrimDeleteKey(db, key);

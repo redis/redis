@@ -1035,7 +1035,7 @@ void clusterInit(void) {
     resetClusterStats();
 
     getRandomHexChars(server.cluster->internal_secret, CLUSTER_INTERNALSECRETLEN);
-    clusterCommonInit();
+    asmInit();
 }
 
 void clusterInitLast(void) {
