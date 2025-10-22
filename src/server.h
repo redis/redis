@@ -1367,7 +1367,7 @@ typedef struct client {
     size_t all_argv_len_sum;    /* Sum of lengths of objects in all pendingCommand argv lists */
     pendingCommandList pending_cmds;  /* List of parsed pending commands */
     pendingCommand *current_pending_cmd;
-    robj **deferred_objects;    /* Array of deferred objects to free. */
+    pendingCommand **deferred_pending_cmds; /* Array of deferred pending commands to free. */
     int deferred_objects_num;   /* Number of deferred objects to free. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     struct redisCommand *lookedcmd; /* Command looked up in lookahead. */
@@ -2889,7 +2889,7 @@ void resetClientQbufState(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
 void freeClientPendingCommands(client *c, int num_pcmds_to_free);
-void tryDeferFreeClientObject(client *c, robj *o);
+void tryDeferFreeClientPendingCommand(client *c, pendingCommand *pcmd);
 void freeClientDeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
