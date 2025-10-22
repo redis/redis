@@ -1321,6 +1321,16 @@ typedef struct {
     size_t mem_usage_sum;
 } clientMemUsageBucket;
 
+#define DEFERRED_OBJECT_TYPE_PENDING_COMMAND 1
+#define DEFERRED_OBJECT_TYPE_ROBJ 2
+/* Structure to hold objects that need to be freed later by IO threads.
+ * This allows the main thread to defer memory cleanup operations to
+ * IO threads to avoid blocking the main event loop. */
+typedef struct deferredObject {
+    int type;    /* Pointer to the object to be freed */
+    void *ptr;   /* Type of object: DEFERRED_OBJECT_TYPE_* */ 
+} deferredObject;
+
 #define SHOULD_CLUSTER_COMPATIBILITY_SAMPLE() \
             (server.cluster_compatibility_sample_ratio == 100 || \
              (double)rand()/RAND_MAX * 100 < server.cluster_compatibility_sample_ratio)
@@ -1374,7 +1384,7 @@ typedef struct client {
     size_t all_argv_len_sum;    /* Sum of lengths of objects in all pendingCommand argv lists */
     pendingCommandList pending_cmds;  /* List of parsed pending commands */
     pendingCommand *current_pending_cmd;
-    pendingCommand **deferred_pending_cmds; /* Array of deferred pending commands to free. */
+    deferredObject *deferred_objects; /* Array of deferred objects to free. */
     int deferred_objects_num;   /* Number of deferred objects to free. */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     struct redisCommand *lookedcmd; /* Command looked up in lookahead. */
@@ -2915,7 +2925,7 @@ void resetClientQbufState(client *c);
 void freeClientOriginalArgv(client *c);
 void freeClientArgv(client *c);
 void freeClientPendingCommands(client *c, int num_pcmds_to_free);
-void tryDeferFreeClientPendingCommand(client *c, pendingCommand *pcmd);
+void tryDeferFreeClientObject(client *c, int type, void *ptr);
 void freeClientDeferredObjects(client *c, int free_array);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);

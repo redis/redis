@@ -175,7 +175,7 @@ client *createClient(connection *conn) {
     c->current_pending_cmd = NULL;
     c->original_argc = 0;
     c->original_argv = NULL;
-    c->deferred_pending_cmds = NULL;
+    c->deferred_objects = NULL;
     c->deferred_objects_num = 0;
     c->cmd = c->lastcmd = c->realcmd = c->lookedcmd = NULL;
     c->cur_script = NULL;
@@ -1493,20 +1493,31 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
+static void freeClientDeferredObject(client *c, int type, void *ptr) {
+    if (type == DEFERRED_OBJECT_TYPE_PENDING_COMMAND) {
+        freePendingCommand(c, ptr);
+    } else if (type == DEFERRED_OBJECT_TYPE_ROBJ) {
+        decrRefCount(ptr);
+    } else {
+        serverPanic("Unknown deferred object type");
+    }
+}
+
 /* Attempt to defer freeing the object to the IO thread. We usually call this since
  * we know the object is allocated in the IO thread, to avoid memory arena contention,
  * and also reducing the load of the main thread. */
-void tryDeferFreeClientPendingCommand(client *c, pendingCommand *pcmd) {
+void tryDeferFreeClientObject(client *c, int type, void *ptr) {
     if (!c || c->tid == IOTHREAD_MAIN_THREAD_ID) {
-        freePendingCommand(c, pcmd);
+        freeClientDeferredObject(c, type, ptr);
         return;
     }
 
     /* Put the object in the deferred objects array. */
-    if (c->deferred_pending_cmds && c->deferred_objects_num < CLIENT_MAX_DEFERRED_OBJECTS) {
-        c->deferred_pending_cmds[c->deferred_objects_num++] = pcmd;
+    if (c->deferred_objects && c->deferred_objects_num < CLIENT_MAX_DEFERRED_OBJECTS) {
+        c->deferred_objects[c->deferred_objects_num++].type = type;
+        c->deferred_objects[c->deferred_objects_num++].ptr = ptr;
     } else {
-        freePendingCommand(c, pcmd);
+        freeClientDeferredObject(c, type, ptr);
     }
 }
 
@@ -1514,13 +1525,14 @@ void tryDeferFreeClientPendingCommand(client *c, pendingCommand *pcmd) {
  * then free the array itself as well. */
 void freeClientDeferredObjects(client *c, int free_array) {
     for (int j = 0; j < c->deferred_objects_num; j++) {
-        freePendingCommand(c, c->deferred_pending_cmds[j]);
+        deferredObject *obj = &c->deferred_objects[j];
+        freeClientDeferredObject(c, obj->type, obj->ptr);
     }
     c->deferred_objects_num = 0;
 
     if (free_array) {
-        zfree(c->deferred_pending_cmds);
-        c->deferred_pending_cmds = NULL;
+        zfree(c->deferred_objects);
+        c->deferred_objects = NULL;
     }
 }
 
@@ -5005,10 +5017,10 @@ static int tryExpandPendingCommandPool(void) {
  * The shared pool is only used when IO threads are inactive to avoid race conditions
  * between multiple clients. Additionally, pool reuse provides minimal benefit in
  * multi-threaded scenarios, so we only use it in single-threaded mode. */
-static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
+static void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
     if (!server.io_threads_active) {
         /* Try to add to shared pool for reuse if argv isn't too large */
-        if (likely(cmd->argv_len < 64)) {
+        if (likely(pcmd->argv_len < 64)) {
             /* Check if pool needs expansion before attempting to add */
             if (!tryExpandPendingCommandPool()) {
                 /* Pool is at maximum capacity, can't expand further */
@@ -5016,26 +5028,26 @@ static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
             }
 
             /* Clean up command resources before adding to pool */
-            for (int j = 0; j < cmd->argc; j++)
-                decrRefCount(cmd->argv[j]);
+            for (int j = 0; j < pcmd->argc; j++)
+                decrRefCount(pcmd->argv[j]);
 
-            getKeysFreeResult(&cmd->keys_result);
+            getKeysFreeResult(&pcmd->keys_result);
 
             if (c) {
-                serverAssert(c->all_argv_len_sum >= cmd->argv_len_sum); /* assert this doesn't try to go negative */
-                c->all_argv_len_sum -= cmd->argv_len_sum;
-                cmd->argv_len_sum = 0;
+                serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
+                c->all_argv_len_sum -= pcmd->argv_len_sum;
+                pcmd->argv_len_sum = 0;
             }
 
             /* Reset the pending command while preserving the argv array for shared pool reuse */
-            robj **argv = cmd->argv;
-            int argv_len = cmd->argv_len;
-            memset(cmd, 0, sizeof(pendingCommand));
-            cmd->argv = argv;
-            cmd->argv_len = argv_len;
-            cmd->slot = INVALID_CLUSTER_SLOT;
+            robj **argv = pcmd->argv;
+            int argv_len = pcmd->argv_len;
+            memset(pcmd, 0, sizeof(pendingCommand));
+            pcmd->argv = argv;
+            pcmd->argv_len = argv_len;
+            pcmd->slot = INVALID_CLUSTER_SLOT;
 
-            server.cmd_pool.pool[server.cmd_pool.size++] = cmd;
+            server.cmd_pool.pool[server.cmd_pool.size++] = pcmd;
             return; /* Successfully added to shared pool for reuse */
         }
     } else {
@@ -5044,28 +5056,28 @@ static void reclaimPendingCommand(client *c, pendingCommand *cmd) {
             /* Partial cleanup for IO thread commands to avoid race issues.
              * To avoid robj that may already be referenced elsewhere, we should
              * decrease the reference count to release our reference to it. */
-            for (int j = 0; j < cmd->argc; j++) {
-                robj *o = cmd->argv[j];
+            for (int j = 0; j < pcmd->argc; j++) {
+                robj *o = pcmd->argv[j];
                 if (o && o->refcount > 1) {
                     decrRefCount(o);
-                    cmd->argv[j] = NULL;
+                    pcmd->argv[j] = NULL;
                 }
             }
 
             if (c) {
-                serverAssert(c->all_argv_len_sum >= cmd->argv_len_sum); /* assert this doesn't try to go negative */
-                c->all_argv_len_sum -= cmd->argv_len_sum;
-                cmd->argv_len_sum = 0;
+                serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
+                c->all_argv_len_sum -= pcmd->argv_len_sum;
+                pcmd->argv_len_sum = 0;
             }
 
-            tryDeferFreeClientPendingCommand(c, cmd);
+            tryDeferFreeClientObject(c, DEFERRED_OBJECT_TYPE_PENDING_COMMAND, pcmd);
             return;
         }
     }
 
 free_command:
     /* Shared pool is full or command argv is too large, free this pending command */
-    freePendingCommand(c, cmd);
+    freePendingCommand(c, pcmd);
 }
 
 void initPendingCommand(pendingCommand *pcmd) {
