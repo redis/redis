@@ -236,13 +236,14 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 #define COMMAND_SET 1
 #define COMMAND_MSETEX 2
 
-/* Extended string command arguments structure - like streamAckDelArgs */
+/* Extended string command arguments structure */
 typedef struct {
     int flags;
     int unit;
     robj *expire;
     int kv_count;    /* Only used by MSETEX */
     int kv_start;    /* Only used by MSETEX */
+    int expire_pos;  /* Position of EX/PX flag for replication rewriting */
 } extendedStringArgs;
 
 /*
@@ -266,6 +267,7 @@ int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int
     /* Initialize arguments to defaults */
     memset(args, 0, sizeof(*args));
     args->kv_start = -1;
+    args->expire_pos = -1;
     args->unit = UNIT_SECONDS;
 
     int j = (command_type == COMMAND_GET ? 2 : (command_type == COMMAND_MSETEX ? 1 : 3));
@@ -289,7 +291,6 @@ int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int
                    (command_type == COMMAND_SET))
         {
             args->flags |= OBJ_SET_GET;
-
         } else if (!strcasecmp(opt, "KEYS") && command_type == COMMAND_MSETEX && j+1 < c->argc) {
             /* Handle KEYS block skipping and populate KEYS parameters */
             long kv_count_long;
@@ -298,7 +299,7 @@ int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int
             {
                 return C_ERR;
             }
-            if (kv_count_long * 2 > (c->argc - j - 2)) {
+            if (j + 2 + kv_count_long * 2 > c->argc) {
                 addReplyError(c, "wrong number of key-value pairs");
                 return C_ERR;
             }
@@ -328,6 +329,7 @@ int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int
         {
             args->flags |= OBJ_EX;
             args->expire = next;
+            args->expire_pos = j;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
@@ -338,6 +340,7 @@ int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int
             args->flags |= OBJ_PX;
             args->unit = UNIT_MILLISECONDS;
             args->expire = next;
+            args->expire_pos = j;
             j++;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') &&
@@ -710,13 +713,10 @@ void msetnxCommand(client *c) {
 
 void msetexCommand(client *c) {
     extendedStringArgs args;
-
-    /* Parse arguments using shared function with struct */
     if (parseExtendedStringArgumentsOrReply(c, &args, COMMAND_MSETEX) != C_OK) {
         return;
     }
 
-    /* Check for mutually exclusive flags - MSETEX specific */
     if ((args.flags & OBJ_SET_NX) && (args.flags & OBJ_SET_XX)) {
         addReplyErrorObject(c, shared.syntaxerr);
         return;
@@ -772,20 +772,12 @@ void msetexCommand(client *c) {
     }
 
     /* Handle replication rewriting for relative expiration times */
-    if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT)) {
-        /* Find expiration flag position for replication rewriting */
-        for (int j = 1; j < c->argc - 1; j++) {
-            char *arg = c->argv[j]->ptr;
-            if ((!strcasecmp(arg, "EX") && (args.flags & OBJ_EX)) ||
-                (!strcasecmp(arg, "PX") && (args.flags & OBJ_PX))) {
-                /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
-                robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-                rewriteClientCommandArgument(c, j, shared.pxat);
-                rewriteClientCommandArgument(c, j + 1, milliseconds_obj);
-                decrRefCount(milliseconds_obj);
-                break;
-            }
-        }
+    if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT) && args.expire_pos != -1) {
+        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
+        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+        rewriteClientCommandArgument(c, args.expire_pos, shared.pxat);
+        rewriteClientCommandArgument(c, args.expire_pos + 1, milliseconds_obj);
+        decrRefCount(milliseconds_obj);
     }
 
     server.dirty += args.kv_count;

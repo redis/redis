@@ -39,7 +39,16 @@
             }
         ],
         "reply_schema": {
-            "const": "OK"
+            "oneOf": [
+                {
+                    "description": "No key was set (at least one key failed).",
+                    "const": 0
+                },
+                {
+                    "description": "All the keys were set.",
+                    "const": 1
+                }
+            ]
         },
         "arguments": [
             {
