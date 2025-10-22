@@ -1206,6 +1206,8 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             pubsubshard_included = 1;
         }
 
+        /* If we have a cached keys result from preprocessCommand(), use it.
+         * Otherwise, extract keys result. */
         int use_cache_keys_result = pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID;
         getKeysResult result = GETKEYS_RESULT_INIT;
         if (use_cache_keys_result)
