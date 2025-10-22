@@ -202,6 +202,7 @@ void unblockClient(client *c, int queue_for_reprocessing) {
         serverPanic("Unknown btype in unblockClient().");
     }
 
+
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
     if (!(c->flags & CLIENT_MODULE)) server.blocked_clients--; /* We count blocked client stats on regular clients and not on module clients */
