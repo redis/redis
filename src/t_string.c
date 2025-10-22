@@ -240,37 +240,37 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 typedef struct {
     int flags;
     int unit;
+    int expire_pos;  /* Position of EX/PX flag for replication rewriting */
     robj *expire;
     int kv_count;    /* Only used by MSETEX */
     int kv_start;    /* Only used by MSETEX */
-    int expire_pos;  /* Position of EX/PX flag for replication rewriting */
 } extendedStringArgs;
 
 /*
  * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
- * string arguments used in SET and GET command.
+ * string arguments used in SET, GET and MSETEX commands.
  *
  * Get specific commands - PERSIST/DEL
  * Set specific commands - XX/NX/GET/IFEQ/IFNE/IFDEQ/IFDNE
  * Common commands - EX/EXAT/PX/PXAT/KEEPTTL
  *
- * Function takes pointers to client, flags, unit, pointer to pointer of expire obj if needed
- * to be determined and command_type which can be COMMAND_GET or COMMAND_SET.
+ * Function takes pointers to client, start_pos for where to begin parsing, extendedStringArgs
+ * structure to populate, and command_type which can be COMMAND_GET, COMMAND_SET, or COMMAND_MSETEX.
  *
  * If there are any syntax violations C_ERR is returned else C_OK is returned.
  *
- * Input flags are updated upon parsing the arguments. Unit and expire are updated if there are any
+ * The args structure is updated upon parsing the arguments. Unit and expire are updated if there are any
  * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  * match_value is updated if any of IFEQ/IFNE/IFDEQ/IFDNE is set.
  */
-int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int command_type) {
+int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedStringArgs *args, int command_type) {
     /* Initialize arguments to defaults */
     memset(args, 0, sizeof(*args));
     args->kv_start = -1;
     args->expire_pos = -1;
     args->unit = UNIT_SECONDS;
 
-    int j = (command_type == COMMAND_GET ? 2 : (command_type == COMMAND_MSETEX ? 1 : 3));
+    int j = start_pos;
     for (; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
@@ -408,7 +408,7 @@ int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int
 void setCommand(client *c) {
     extendedStringArgs args;
 
-    if (parseExtendedStringArgumentsOrReply(c, &args, COMMAND_SET) != C_OK) {
+    if (parseExtendedStringArgumentsOrReply(c, 3, &args, COMMAND_SET) != C_OK) {
         return;
     }
 
@@ -472,7 +472,7 @@ void getCommand(client *c) {
 void getexCommand(client *c) {
     extendedStringArgs args;
 
-    if (parseExtendedStringArgumentsOrReply(c, &args, COMMAND_GET) != C_OK) {
+    if (parseExtendedStringArgumentsOrReply(c, 2, &args, COMMAND_GET) != C_OK) {
         return;
     }
 
@@ -713,7 +713,7 @@ void msetnxCommand(client *c) {
 
 void msetexCommand(client *c) {
     extendedStringArgs args;
-    if (parseExtendedStringArgumentsOrReply(c, &args, COMMAND_MSETEX) != C_OK) {
+    if (parseExtendedStringArgumentsOrReply(c, 1, &args, COMMAND_MSETEX) != C_OK) {
         return;
     }
 
