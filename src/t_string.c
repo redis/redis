@@ -766,9 +766,9 @@ void msetexCommand(client *c) {
         /* Set expiration for each key (but not for KEEPTTL) */
         if (args.expire && !(args.flags & OBJ_KEEPTTL)) {
             setExpire(c, c->db, c->argv[key_idx], milliseconds);
-            notifyKeyspaceEvent(NOTIFY_GENERIC,"expire", c->argv[key_idx], c->db->id);
+            notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[key_idx],c->db->id);
         }
-        notifyKeyspaceEvent(NOTIFY_STRING,"set", c->argv[key_idx], c->db->id);
+        notifyKeyspaceEvent(NOTIFY_STRING,"set",c->argv[key_idx],c->db->id);
     }
 
     /* Handle replication rewriting for relative expiration times */
