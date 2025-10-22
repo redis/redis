@@ -1280,6 +1280,40 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetex myhash EXAT [expr {[clock seconds] - 1}] FIELDS 2 f1 v1 f2 v2] 1
             assert_equal [r hexists myhash field1] 0
         }
+
+        test "Hash field expire - test allow-access-expired parameter enabled" {
+            r debug set-active-expire 0
+            r debug set-allow-access-expired 1
+            r del H1
+            r hset H1 f1 1
+            r hpexpire H1 1 FIELDS 1 f1
+            after 2
+            # With allow-access-expired 1, expired fields should be accessible
+            assert_equal {1} [r hexists H1 f1]
+            # Test hget with allow-access-expired enabled
+            assert_equal {1} [r hget H1 f1]
+            # Test hscan with allow-access-expired enabled
+            assert_equal {1 f1} [lsort [lindex [r hscan H1 0] 1]]
+            # Test hgetall with allow-access-expired enabled
+            assert_equal {f1 1} [r hgetall H1]
+            # Test hlen with allow-access-expired enabled
+            assert_equal {1} [r hlen H1]
+            # Test hmget with allow-access-expired enabled
+            assert_equal {1} [r hmget H1 f1]
+            # Test hkeys and hvals with allow-access-expired enabled
+            assert_equal {f1} [r hkeys H1]
+            assert_equal {1} [r hvals H1]
+            # Test hincrby with allow-access-expired enabled
+            assert_equal {2} [r hincrby H1 f1 1]
+            # Test hincrbyfloat with allow-access-expired enabled
+            assert_equal {3.5} [r hincrbyfloat H1 f1 1.5]
+            # Test hrandfield with allow-access-expired enabled
+            assert_equal {f1} [r hrandfield H1]
+            assert_equal {f1 3.5} [r hrandfield H1 1 withvalues]
+            # Reset to default
+            r debug set-allow-access-expired 0
+            r debug set-active-expire 1
+        }
     }
 
     test "Statistics - Hashes with HFEs ($type)" {
@@ -1384,6 +1418,32 @@ start_server {tags {"external:skip needs:debug"}} {
         after 50
         assert_equal [lsort [r hgetall myhash]] [lsort "f1 f3 f5 f6 f7 f8 f9 f10 v1 v3 v5 v6 v7 v8 v9 v10"]
         r config set hash-max-listpack-entries $prev
+        r debug set-active-expire 1
+    }
+
+    test "Test listpack converts to ht with allow-access-expired enabled" {
+        r debug set-active-expire 0
+        r debug set-allow-access-expired 1
+        set prev [config_get_set hash-max-listpack-entries 5]
+        r del myhash
+
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4
+        r hpexpire myhash 1 FIELDS 2 f1 f2
+        after 2
+
+        assert_equal {f1 f2 f3 f4 v1 v2 v3 v4} [lsort [r hgetall myhash]]
+        assert_equal {1} [r hexists myhash f1]
+
+        for {set i 5} {$i <= 10} {incr i} {
+            r hset myhash f$i v$i
+        }
+
+        assert_equal {hashtable} [r object encoding myhash]
+        assert_equal {v1} [r hget myhash f1]
+        assert_equal {10} [r hlen myhash]
+
+        r config set hash-max-listpack-entries $prev
+        r debug set-allow-access-expired 0
         r debug set-active-expire 1
     }
 

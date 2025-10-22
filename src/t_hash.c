@@ -10,6 +10,7 @@
 #include "server.h"
 #include "redisassert.h"
 #include "ebuckets.h"
+#include "cluster_asm.h"
 #include <math.h>
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
@@ -560,6 +561,8 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
 
 /* Returns 1 if expired */
 int hashTypeIsExpired(const robj *o, uint64_t expireAt) {
+    if (server.allow_access_expired) return 0;
+
     if (o->encoding == OBJ_ENCODING_LISTPACK_EX) {
         if (expireAt == HASH_LP_NO_TTL)
             return 0;
@@ -738,21 +741,26 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         serverPanic("Unknown hash encoding");
     }
 
-    if ((*expiredAt >= (uint64_t) commandTimeSnapshot()) || 
+    if ((server.allow_access_expired) ||
+        (*expiredAt >= (uint64_t) commandTimeSnapshot()) ||
         (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
         return GETF_OK;
 
-    if (server.masterhost) {
-        /* If CLIENT_MASTER, assume valid as long as it didn't get delete */
+    if (server.masterhost || server.cluster_enabled) {
+        /* If CLIENT_MASTER, assume valid as long as it didn't get delete.
+         *
+         * In cluster mode, we also assume valid if we are importing data
+         * from the source, to avoid deleting fields that are still in use.
+         * We create a fake master client for data import, which can be
+         * identified using the CLIENT_MASTER flag. */
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER))
             return GETF_OK;
 
-        /* If user client, then act as if expired, but don't delete! */
-        return GETF_EXPIRED;
+        /* For replica, if user client, then act as if expired, but don't delete! */
+        if (server.masterhost) return GETF_EXPIRED;
     }
 
     if ((server.loading) ||
-        (server.allow_access_expired) ||
         (hfeFlags & HFE_LAZY_AVOID_FIELD_DEL) ||
         (isPausedActionsWithUpdate(PAUSE_ACTION_EXPIRE)))
         return GETF_EXPIRED;
@@ -1264,6 +1272,9 @@ int hashTypeDelete(robj *o, void *field, int isSdsField) {
  */
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
     unsigned long length = ULONG_MAX;
+    /* If expired field access is allowed, don't subtract expired fields from the count. */
+    if (server.allow_access_expired)
+        subtractExpiredFields = 0;
 
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         length = lpLength(o->ptr) / 2;
@@ -1320,6 +1331,10 @@ void hashTypeReleaseIterator(hashTypeIterator *hi) {
 /* Move to the next entry in the hash. Return C_OK when the next entry
  * could be found and C_ERR when the iterator reaches the end. */
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
+    /* If expired field access is allowed, don't skip expired fields during iteration */
+    if (server.allow_access_expired)
+        skipExpiredFields = 0;
+
     hi->expire_time = EB_EXPIRE_TIME_INVALID;
     if (hi->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *zl;
@@ -1857,6 +1872,10 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
 }
 
 /* Delete all expired fields in hash if needed (Currently used only by HRANDFIELD)
+ *
+ * NOTICE: If we call this function in other places, we should consider the slot
+ * migration scenario, where we don't want to delete expired fields. See also
+ * expireIfNeeded().
  *
  * Return 1 if the entire hash was deleted, 0 otherwise.
  * This function might be pricy in case there are many expired fields.
@@ -3336,6 +3355,8 @@ static void hfieldPersist(robj *hashObj, hfield field) {
 }
 
 int hfieldIsExpired(hfield field) {
+    if (server.allow_access_expired) return 0;
+
     /* Condition remains valid even if hfieldGetExpireTime() returns EB_EXPIRE_TIME_INVALID,
      * as the constant is equivalent to (EB_EXPIRE_TIME_MAX + 1). */
     return ( (mstime_t)hfieldGetExpireTime(field) < commandTimeSnapshot());

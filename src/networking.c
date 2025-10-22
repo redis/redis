@@ -19,6 +19,8 @@
 #include "script.h"
 #include "fpconv_dtoa.h"
 #include "fmtargs.h"
+#include "cluster_asm.h"
+#include "memory_prefetch.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -32,6 +34,9 @@ static inline int _clientHasPendingRepliesSlave(client *c);
 static inline int _clientHasPendingRepliesNonSlave(client *c);
 static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten);
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten);
+static pendingCommand *acquirePendingCommand(void);
+static void reclaimPendingCommand(client *c, pendingCommand *pcmd);
+
 int ProcessingEventsWhileBlocked = 0; /* See processEventsWhileBlocked(). */
 __thread sds thread_reusable_qb = NULL;
 __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusable query
@@ -112,8 +117,10 @@ static void clientSetDefaultAuth(client *c) {
 int authRequired(client *c) {
     /* Check if the user is authenticated. This check is skipped in case
      * the default user is flagged as "nopass" and is active. */
-    int auth_required = (!(DefaultUser->flags & USER_FLAG_NOPASS) ||
-                          (DefaultUser->flags & USER_FLAG_DISABLED)) &&
+    uint32_t default_flags;
+    atomicGet(DefaultUser->flags, default_flags);
+    int auth_required = (!(default_flags & USER_FLAG_NOPASS) ||
+                          (default_flags & USER_FLAG_DISABLED)) &&
                         !c->authenticated;
     return auth_required;
 }
@@ -162,12 +169,15 @@ client *createClient(connection *conn) {
     c->argc = 0;
     c->argv = NULL;
     c->argv_len = 0;
-    c->argv_len_sum = 0;
+    c->all_argv_len_sum = 0;
+    c->pending_cmds.head = c->pending_cmds.tail = NULL;
+    c->pending_cmds.len = c->pending_cmds.ready_len = 0;
+    c->current_pending_cmd = NULL;
     c->original_argc = 0;
     c->original_argv = NULL;
     c->deferred_objects = NULL;
     c->deferred_objects_num = 0;
-    c->cmd = c->lastcmd = c->realcmd = c->iolookedcmd = NULL;
+    c->cmd = c->lastcmd = c->realcmd = c->lookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
     c->bulklen = -1;
@@ -183,6 +193,7 @@ client *createClient(connection *conn) {
     c->replstate = REPL_STATE_NONE;
     c->repl_start_cmd_stream_on_ack = 0;
     c->reploff = 0;
+    c->reploff_next = 0;
     c->read_reploff = 0;
     c->repl_applied = 0;
     c->repl_ack_off = 0;
@@ -231,6 +242,8 @@ client *createClient(connection *conn) {
     c->net_input_bytes = 0;
     c->net_output_bytes = 0;
     c->commands_processed = 0;
+    c->task = NULL;
+    c->node_id = NULL;
     return c;
 }
 
@@ -564,8 +577,13 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
             to = "AOF-loading-client";
             from = "server";
         } else if (ctype == CLIENT_TYPE_MASTER) {
-            to = "master";
-            from = "replica";
+            if (c->flags & CLIENT_ASM_IMPORTING) {
+                to = "source";
+                from = "destination";
+            } else {
+                to = "master";
+                from = "replica";
+            }
         } else {
             to = "replica";
             from = "master";
@@ -577,7 +595,7 @@ void afterErrorReply(client *c, const char *s, size_t len, int flags) {
                              "to its %s: '%.*s' after processing the command "
                              "'%s'", from, to, (int)len, s, cmdname ? cmdname : "<unknown>");
         if (ctype == CLIENT_TYPE_MASTER && server.repl_backlog &&
-            server.repl_backlog->histlen > 0)
+            !(c->flags & CLIENT_ASM_IMPORTING) && server.repl_backlog->histlen > 0)
         {
             showLatestBacklog();
         }
@@ -1475,28 +1493,41 @@ void acceptCommonHandler(connection *conn, int flags, char *ip) {
     }
 }
 
+static void freeDeferredObject(client *c, int type, void *ptr) {
+    if (type == DEFERRED_OBJECT_TYPE_PENDING_COMMAND) {
+        freePendingCommand(c, ptr);
+    } else if (type == DEFERRED_OBJECT_TYPE_ROBJ) {
+        decrRefCount(ptr);
+    } else {
+        serverPanic("Unknown deferred object type: %d", type);
+    }
+}
+
 /* Attempt to defer freeing the object to the IO thread. We usually call this since
  * we know the object is allocated in the IO thread, to avoid memory arena contention,
  * and also reducing the load of the main thread. */
-void tryDeferFreeClientObject(client *c, robj *o) {
-    if (!c || c->tid == IOTHREAD_MAIN_THREAD_ID || o->refcount > 1) {
-        decrRefCount(o);
+void tryDeferFreeClientObject(client *c, int type, void *ptr) {
+    if (!c || c->tid == IOTHREAD_MAIN_THREAD_ID) {
+        freeDeferredObject(c, type, ptr);
         return;
     }
 
     /* Put the object in the deferred objects array. */
     if (c->deferred_objects && c->deferred_objects_num < CLIENT_MAX_DEFERRED_OBJECTS) {
-        c->deferred_objects[c->deferred_objects_num++] = o;
+        c->deferred_objects[c->deferred_objects_num].type = type;
+        c->deferred_objects[c->deferred_objects_num].ptr = ptr;
+        c->deferred_objects_num++;
     } else {
-        decrRefCount(o);
+        freeDeferredObject(c, type, ptr);
     }
 }
 
-/* Free the objects in the deferred_objects array. If free_array is true
+/* Free the objects in the deferred_pending_cmds array. If free_array is true
  * then free the array itself as well. */
 void freeClientDeferredObjects(client *c, int free_array) {
     for (int j = 0; j < c->deferred_objects_num; j++) {
-        decrRefCount(c->deferred_objects[j]);
+        deferredObject *obj = &c->deferred_objects[j];
+        freeDeferredObject(c, obj->type, obj->ptr);
     }
     c->deferred_objects_num = 0;
 
@@ -1519,17 +1550,11 @@ void freeClientOriginalArgv(client *c) {
 
 static inline void freeClientArgvInternal(client *c, int free_argv) {
     int j;
-    if (c->tid == IOTHREAD_MAIN_THREAD_ID) {
-        for (j = 0; j < c->argc; j++)
-            decrRefCount(c->argv[j]);
-    } else {
-        for (j = 0; j < c->argc; j++)
-            tryDeferFreeClientObject(c, c->argv[j]);
-    }
+    for (j = 0; j < c->argc; j++)
+        decrRefCount(c->argv[j]);
     c->argc = 0;
     c->cmd = NULL;
-    c->iolookedcmd = NULL;
-    c->argv_len_sum = 0;
+    c->lookedcmd = NULL;
     if (free_argv) {
         c->argv_len = 0;
         zfree(c->argv);
@@ -1539,6 +1564,18 @@ static inline void freeClientArgvInternal(client *c, int free_argv) {
 
 void freeClientArgv(client *c) {
     freeClientArgvInternal(c, 1);
+}
+
+void freeClientPendingCommands(client *c, int num_pcmds_to_free) {
+    /* (-1) means free all pending commands */
+    if (num_pcmds_to_free == -1)
+        num_pcmds_to_free = c->pending_cmds.len;
+
+    while (num_pcmds_to_free--) {
+        pendingCommand *pcmd = popPendingCommandFromHead(&c->pending_cmds);
+        serverAssert(pcmd);
+        reclaimPendingCommand(c, pcmd);
+    }
 }
 
 /* Close all the slaves connections. This is useful in chained replication
@@ -1639,6 +1676,12 @@ void unlinkClient(client *c) {
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~CLIENT_UNBLOCKED;
     }
+
+    freeClientPendingCommands(c, -1);
+    c->argv_len = 0;
+    c->argv = NULL;
+    c->argc = 0;
+    c->cmd = NULL;
 
     /* Clear the tracking status. */
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
@@ -1755,6 +1798,8 @@ void freeClient(client *c) {
                               c);
     }
 
+    asmCallbackOnFreeClient(c);
+
     /* Notify module system that this client auth status changed. */
     moduleNotifyUserChanged(c);
 
@@ -1821,7 +1866,6 @@ void freeClient(client *c) {
     listRelease(c->reply);
     zfree(c->buf);
     freeReplicaReferencedReplBuffer(c);
-    freeClientArgv(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
     if (c->deferred_reply_errors)
@@ -1838,8 +1882,14 @@ void freeClient(client *c) {
 
     /* Unlink the client: this will close the socket, remove the I/O
      * handlers, and remove references of the client from different
-     * places where active clients may be referenced. */
+     * places where active clients may be referenced.
+     * This will also clean all remaining pending commands in the client,
+     * as they are no longer valid.
+     */
     unlinkClient(c);
+
+    freeClientMultiState(c);
+    serverAssert(c->pending_cmds.len == 0);
 
     /* Master/slave cleanup Case 1:
      * we lost the connection with a slave. */
@@ -1895,10 +1945,11 @@ void freeClient(client *c) {
     if (c->name) decrRefCount(c->name);
     if (c->lib_name) decrRefCount(c->lib_name);
     if (c->lib_ver) decrRefCount(c->lib_ver);
-    freeClientMultiState(c);
+    serverAssert(c->all_argv_len_sum == 0);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
     sdsfree(c->slave_addr);
+    sdsfree(c->node_id);
     zfree(c);
 }
 
@@ -2164,8 +2215,8 @@ int writeToClient(client *c, int handler_installed) {
         atomicIncr(server.stat_net_repl_output_bytes, totwritten);
     } else {
         /* If we reach this block and client is marked with CLIENT_SLAVE flag
-         * it's because it's a MONITOR client, which are marked as replicas,
-         * but exposed as normal clients */
+         * it's because it's a MONITOR/slot-migration client, which are marked
+         * as replicas, but exposed as normal clients */
         const int is_normal_client = !(c->flags & CLIENT_SLAVE);
         while (_clientHasPendingRepliesNonSlave(c)) {
             int ret = _writeToClientNonSlave(c, &nwritten);
@@ -2282,14 +2333,35 @@ int handleClientsWithPendingWrites(void) {
     return processed;
 }
 
-static inline void resetClientInternal(client *c, int free_argv) {
-    redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
-
-    freeClientArgvInternal(c, free_argv);
-    c->cur_script = NULL;
+/* Prepare the client for the parsing of the next command. */
+void resetClientQbufState(client *c) {
     c->reqtype = 0;
     c->multibulklen = 0;
     c->bulklen = -1;
+}
+
+static inline void resetClientInternal(client *c, int num_pcmds_to_free) {
+    redisCommandProc *prevcmd = c->cmd ? c->cmd->proc : NULL;
+
+    /* We may get here with no pending commands but with an argv that needs freeing.
+     * An example is in the case of modules (RM_Call) */
+    if (c->current_pending_cmd) {
+        freeClientPendingCommands(c, num_pcmds_to_free);
+        if (c->pending_cmds.len == 0)
+            serverAssert(c->all_argv_len_sum == 0);
+        c->current_pending_cmd = NULL;
+    } else if (c->argv) {
+        freeClientArgvInternal(c, 1 /* free_argv */);
+        /* If we're dealing with a client that doesn't create pendingCommand structs (e.g.: a Lua client),
+         * clear the all_argv_len_sum counter so we don't get to freeing the client with it non-zero. */
+        c->all_argv_len_sum = 0;
+    }
+
+    c->argc = 0;
+    c->cmd = NULL;
+    c->argv_len = 0;
+    c->argv = NULL;
+    c->cur_script = NULL;
     c->slot = -1;
     c->cluster_compatibility_check_slot = -2;
     c->flags &= ~CLIENT_EXECUTING_COMMAND;
@@ -2329,8 +2401,8 @@ static inline void resetClientInternal(client *c, int free_argv) {
 }
 
 /* resetClient prepare the client to process the next command */
-void resetClient(client *c) {
-    resetClientInternal(c, 1);
+void resetClient(client *c, int num_pcmds_to_free) {
+    resetClientInternal(c, num_pcmds_to_free);
 }
 
 /* This function is used when we want to re-enter the event loop but there
@@ -2373,7 +2445,7 @@ void unprotectClient(client *c) {
  * have a well formed command. The function also returns C_ERR when there is
  * a protocol error: in such a case the client structure is setup to reply
  * with the error and close the connection. */
-int processInlineBuffer(client *c) {
+int processInlineBuffer(client *c, pendingCommand *pcmd) {
     char *newline;
     int argc, j, linefeed_chars = 1;
     sds *argv, aux;
@@ -2385,7 +2457,7 @@ int processInlineBuffer(client *c) {
     /* Nothing to do without a \r\n */
     if (newline == NULL) {
         if (sdslen(c->querybuf)-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-            c->read_error = CLIENT_READ_TOO_BIG_INLINE_REQUEST;
+            pcmd->read_error = CLIENT_READ_TOO_BIG_INLINE_REQUEST;
         }
         return C_ERR;
     }
@@ -2400,7 +2472,7 @@ int processInlineBuffer(client *c) {
     argv = sdssplitargs(aux,&argc);
     sdsfree(aux);
     if (argv == NULL) {
-        c->read_error = CLIENT_READ_UNBALANCED_QUOTES;
+        pcmd->read_error = CLIENT_READ_UNBALANCED_QUOTES;
         return C_ERR;
     }
 
@@ -2419,7 +2491,7 @@ int processInlineBuffer(client *c) {
      * to keep the connection active. */
     if (querylen != 0 && c->flags & CLIENT_MASTER) {
         sdsfreesplitres(argv,argc);
-        c->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCAL;
+        pcmd->read_error = CLIENT_READ_MASTER_USING_INLINE_PROTOCAL;
         return C_ERR;
     }
 
@@ -2429,19 +2501,20 @@ int processInlineBuffer(client *c) {
     /* Setup argv array on client structure */
     if (argc) {
         /* Create new argv if space is insufficient. */
-        if (unlikely(argc > c->argv_len)) {
-            zfree(c->argv);
-            c->argv = zmalloc(sizeof(robj*)*argc);
-            c->argv_len = argc;
+        if (argc > pcmd->argv_len) {
+            zfree(pcmd->argv);
+            pcmd->argv = zmalloc(sizeof(robj*)*argc);
+            pcmd->argv_len = argc;
+            pcmd->argv_len_sum = 0;
         }
-        c->argv_len_sum = 0;
     }
 
     /* Create redis objects for all arguments. */
-    for (c->argc = 0, j = 0; j < argc; j++) {
-        c->argv[c->argc] = createObject(OBJ_STRING,argv[j]);
-        c->argc++;
-        c->argv_len_sum += sdslen(argv[j]);
+    for (pcmd->argc = 0, j = 0; j < argc; j++) {
+        pcmd->argv[pcmd->argc] = createObject(OBJ_STRING,argv[j]);
+        pcmd->argc++;
+        pcmd->argv_len_sum += sdslen(argv[j]);
+        c->all_argv_len_sum += sdslen(argv[j]);
     }
     zfree(argv);
 
@@ -2458,7 +2531,7 @@ int processInlineBuffer(client *c) {
      * Command) SET key value
      * Inline) SET key value\r\n
      */
-    c->net_input_bytes_curr_cmd = (c->argv_len_sum + (c->argc - 1) + 2);
+    pcmd->input_bytes = (pcmd->argv_len_sum + (pcmd->argc - 1) + 2);
 
     return C_OK;
 }
@@ -2507,21 +2580,21 @@ static void setProtocolError(const char *errstr, client *c) {
  * This function is called if processInputBuffer() detects that the next
  * command is in RESP format, so the first byte in the command is found
  * to be '*'. Otherwise for inline commands processInlineBuffer() is called. */
-int processMultibulkBuffer(client *c) {
+static int processMultibulkBuffer(client *c, pendingCommand *pcmd) {
     char *newline = NULL;
     int ok;
     long long ll;
     size_t querybuf_len = sdslen(c->querybuf); /* Cache sdslen */
 
     if (c->multibulklen == 0) {
-        /* The client should have been reset */
-        serverAssertWithInfo(c,NULL,c->argc == 0);
+        /* The pending command should have been reset */
+        serverAssertWithInfo(c,NULL,pcmd->argc == 0);
 
         /* Multi bulk length cannot be read without a \r\n */
         newline = strchr(c->querybuf+c->qb_pos,'\r');
         if (newline == NULL) {
             if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                c->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
+                pcmd->read_error = CLIENT_READ_TOO_BIG_MBULK_COUNT_STRING;
             }
             return C_ERR;
         }
@@ -2536,10 +2609,10 @@ int processMultibulkBuffer(client *c) {
         size_t multibulklen_slen = newline - (c->querybuf + 1 + c->qb_pos);
         ok = string2ll(c->querybuf+1+c->qb_pos,newline-(c->querybuf+1+c->qb_pos),&ll);
         if (!ok || ll > INT_MAX) {
-            c->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
+            pcmd->read_error = CLIENT_READ_INVALID_MULTIBUCK_LENGTH;
             return C_ERR;
         } else if (ll > 10 && authRequired(c)) {
-            c->read_error = CLIENT_READ_UNAUTH_MBUCK_COUNT;
+            pcmd->read_error = CLIENT_READ_UNAUTH_MBUCK_COUNT;
             return C_ERR;
         }
 
@@ -2548,19 +2621,16 @@ int processMultibulkBuffer(client *c) {
         if (ll <= 0) return C_OK;
 
         c->multibulklen = ll;
+        c->bulklen = -1;
 
-        /* Setup argv array on client structure.
-         * Create new argv in the following cases:
-         * 1) When the requested size is greater than the current size.
-         * 2) When the requested size is less than the current size, because
-         *    we always allocate argv gradually with a maximum size of 1024,
-         *    Therefore, if argv_len exceeds this limit, we always reallocate. */
-        if (unlikely(c->multibulklen > c->argv_len || c->argv_len > 1024)) {
-            zfree(c->argv);
-            c->argv_len = min(c->multibulklen, 1024);
-            c->argv = zmalloc(sizeof(robj*)*c->argv_len);
+        /* Setup argv array on pending command structure.
+         * Reallocate argv array when the requested size is greater than current size. */
+        if (c->multibulklen > pcmd->argv_len) {
+            zfree(pcmd->argv);
+            pcmd->argv_len = min(c->multibulklen, 1024);
+            pcmd->argv = zmalloc(sizeof(robj*)*(pcmd->argv_len));
+            pcmd->argv_len_sum = 0;
         }
-        c->argv_len_sum = 0;
 
         /* Per-slot network bytes-in calculation.
          *
@@ -2593,17 +2663,17 @@ int processMultibulkBuffer(client *c) {
          *
          * The 1st component is calculated within the below line.
          * */
-        c->net_input_bytes_curr_cmd += (multibulklen_slen + 3);
+        pcmd->input_bytes += (multibulklen_slen + 3);
     }
 
     serverAssertWithInfo(c,NULL,c->multibulklen > 0);
     while(c->multibulklen) {
         /* Read bulk length if unknown */
         if (c->bulklen == -1) {
-            newline = strchr(c->querybuf+c->qb_pos,'\r');
+            newline = memchr(c->querybuf+c->qb_pos,'\r',sdslen(c->querybuf) - c->qb_pos);
             if (newline == NULL) {
                 if (querybuf_len-c->qb_pos > PROTO_INLINE_MAX_SIZE) {
-                    c->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
+                    pcmd->read_error = CLIENT_READ_TOO_BIG_BUCK_COUNT_STRING;
                     return C_ERR;
                 }
                 break;
@@ -2614,7 +2684,7 @@ int processMultibulkBuffer(client *c) {
                 break;
 
             if (c->querybuf[c->qb_pos] != '$') {
-                c->read_error = CLIENT_READ_EXPECTED_DOLLAR;
+                pcmd->read_error = CLIENT_READ_EXPECTED_DOLLAR;
                 return C_ERR;
             }
 
@@ -2622,10 +2692,10 @@ int processMultibulkBuffer(client *c) {
             ok = string2ll(c->querybuf+c->qb_pos+1,newline-(c->querybuf+c->qb_pos+1),&ll);
             if (!ok || ll < 0 ||
                 (!(c->flags & CLIENT_MASTER) && ll > server.proto_max_bulk_len)) {
-                c->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
+                pcmd->read_error = CLIENT_READ_INVALID_BUCK_LENGTH;
                 return C_ERR;
             } else if (ll > 16384 && authRequired(c)) {
-                c->read_error = CLIENT_READ_UNAUTH_BUCK_LENGTH;
+                pcmd->read_error = CLIENT_READ_UNAUTH_BUCK_LENGTH;
                 return C_ERR;
             }
 
@@ -2659,7 +2729,9 @@ int processMultibulkBuffer(client *c) {
             }
             c->bulklen = ll;
             /* Per-slot network bytes-in calculation, 2nd component. */
-            c->net_input_bytes_curr_cmd += (bulklen_slen + 3);
+            pcmd->input_bytes += (bulklen_slen + 3);
+        } else {
+            serverAssert(pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE);
         }
 
         /* Read bulk argument */
@@ -2667,10 +2739,9 @@ int processMultibulkBuffer(client *c) {
             break;
         } else {
             /* Check if we have space in argv, grow if needed */
-            if (c->argc >= c->argv_len) {
-                serverAssert(c->argv_len); /* Ensure argv is not freed while the client is in the mid of parsing command. */
-                c->argv_len = min(c->argv_len < INT_MAX/2 ? c->argv_len*2 : INT_MAX, c->argc+c->multibulklen);
-                c->argv = zrealloc(c->argv, sizeof(robj*)*c->argv_len);
+            if (pcmd->argc >= pcmd->argv_len) {
+                pcmd->argv_len = min(pcmd->argv_len < INT_MAX/2 ? (pcmd->argv_len)*2 : INT_MAX, pcmd->argc+c->multibulklen);
+                pcmd->argv = zrealloc(pcmd->argv, sizeof(robj*)*(pcmd->argv_len));
             }
 
             /* Optimization: if a non-master client's buffer contains JUST our bulk element
@@ -2681,8 +2752,9 @@ int processMultibulkBuffer(client *c) {
                 c->bulklen >= PROTO_MBULK_BIG_ARG &&
                 querybuf_len == (size_t)(c->bulklen+2))
             {
-                c->argv[c->argc++] = createObject(OBJ_STRING,c->querybuf);
-                c->argv_len_sum += c->bulklen;
+                (pcmd->argv)[(pcmd->argc)++] = createObject(OBJ_STRING,c->querybuf);
+                pcmd->argv_len_sum += c->bulklen;
+                c->all_argv_len_sum += c->bulklen;
                 sdsIncrLen(c->querybuf,-2); /* remove CRLF */
                 /* Assume that if we saw a fat argument we'll see another one likely...
                  * But only if that fat argument is not too big compared to the memory limit. */
@@ -2694,9 +2766,10 @@ int processMultibulkBuffer(client *c) {
                 sdsclear(c->querybuf);
                 querybuf_len = sdslen(c->querybuf); /* Update cached length */
             } else {
-                c->argv[c->argc++] =
+                (pcmd->argv)[(pcmd->argc)++] =
                     createStringObject(c->querybuf+c->qb_pos,c->bulklen);
-                c->argv_len_sum += c->bulklen;
+                pcmd->argv_len_sum += c->bulklen;
+                c->all_argv_len_sum += c->bulklen;
                 c->qb_pos += c->bulklen+2;
             }
             c->bulklen = -1;
@@ -2707,12 +2780,30 @@ int processMultibulkBuffer(client *c) {
     /* We're done when c->multibulk == 0 */
     if (c->multibulklen == 0) {
         /* Per-slot network bytes-in calculation, 3rd and 4th components. */
-        c->net_input_bytes_curr_cmd += (c->argv_len_sum + (c->argc * 2));
+        pcmd->input_bytes += (pcmd->argv_len_sum + (pcmd->argc * 2));
+        pcmd->flags &= ~PENDING_CMD_FLAG_INCOMPLETE;
         return C_OK;
     }
 
     /* Still not ready to process the command */
-    return C_ERR;
+    pcmd->flags |= PENDING_CMD_FLAG_INCOMPLETE;
+    return C_OK;
+}
+
+/* Prepare the client for executing the next command:
+ *
+ * 1. Append the response, if necessary.
+ * 2. Reset the client.
+ * 3. Update the all_argv_len_sum counter and advance the pending_cmd cyclic buffer.
+ * 4. Update the cluster slot stats, if necessary.
+ */
+void prepareForNextCommand(client *c, int update_slot_stats) {
+    reqresAppendResponse(c);
+    if (update_slot_stats) {
+        /* We should do this before reset client. */
+        clusterSlotStatsAddNetworkBytesInForUserClient(c);
+    }
+    resetClientInternal(c, 1);
 }
 
 /* Perform necessary tasks after a command was executed:
@@ -2730,14 +2821,13 @@ void commandProcessed(client *c) {
      *    since we have not applied the command. */
     if (c->flags & CLIENT_BLOCKED) return;
 
-    reqresAppendResponse(c);
-    clusterSlotStatsAddNetworkBytesInForUserClient(c);
-    resetClientInternal(c, 0);
+    prepareForNextCommand(c, 1);
 
     long long prev_offset = c->reploff;
     if (c->flags & CLIENT_MASTER && !(c->flags & CLIENT_MULTI)) {
         /* Update the applied replication offset of our master. */
-        c->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+        serverAssert(c->reploff_next > 0);
+        c->reploff = c->reploff_next;
     }
 
     /* If the client is a master we need to compute the difference
@@ -2751,6 +2841,10 @@ void commandProcessed(client *c) {
         if (applied) {
             replicationFeedStreamFromMasterStream(c->querybuf+c->repl_applied,applied);
             c->repl_applied += applied;
+
+            /* Update the atomic slot migration task's applied bytes. */
+            if (c->flags & CLIENT_ASM_IMPORTING)
+                asmImportIncrAppliedBytes(c->task, applied);
         }
     }
 }
@@ -2810,7 +2904,7 @@ int processPendingCommandAndInputBuffer(client *c) {
      * Note: when a master client steps into this function,
      * it can always satisfy this condition, because its querybuf
      * contains data not applied. */
-    if (c->querybuf && sdslen(c->querybuf) > 0) {
+    if ((c->querybuf && sdslen(c->querybuf) > 0) || c->pending_cmds.ready_len > 0) {
         return processInputBuffer(c);
     }
     return C_OK;
@@ -2879,9 +2973,18 @@ void handleClientReadError(client *c) {
             break;
         }
         default:
-            serverPanic("Unknown client read error");
+            serverPanic("Unknown client read error: %d", c->read_error);
             break;
     }
+}
+
+
+/* Helper function to check if a read error is fatal (should stop processing) */
+int isClientReadErrorFatal(client *c) {
+    return c->read_error != 0 &&
+           c->read_error != CLIENT_READ_COMMAND_NOT_FOUND &&
+           c->read_error != CLIENT_READ_BAD_ARITY &&
+           c->read_error != CLIENT_READ_CROSS_SLOT;
 }
 
 /* This function is called every time, in the client structure 'c', there is
@@ -2890,10 +2993,19 @@ void handleClientReadError(client *c) {
  * pending query buffer, already representing a full command, to process.
  * return C_ERR in case the client was freed during the processing */
 int processInputBuffer(client *c) {
+    /* We limit the lookahead for unauthenticated connections to 1.
+     * This is both to reduce memory overhead, and to prevent errors: AUTH can
+     * affect the handling of succeeding commands. Parsing of "large"
+     * unauthenticated multibulk commands is rejected, which would cause those
+     * commands to incorrectly return an error to the client. */
+    const int lookahead = authRequired(c) ? 1 : server.lookahead;
+
     /* Keep processing while there is something in the input buffer */
-    while(c->qb_pos < sdslen(c->querybuf)) {
+    while ((c->querybuf && c->qb_pos < sdslen(c->querybuf)) ||
+           c->pending_cmds.ready_len > 0)
+    {
         /* Immediately abort if the client is in the middle of something. */
-        if (c->flags & CLIENT_BLOCKED) break;
+        if (c->flags & CLIENT_BLOCKED || c->flags & CLIENT_UNBLOCKED) break;
 
         /* Don't process more buffers from clients that have already pending
          * commands to execute in c->argv. */
@@ -2912,50 +3024,108 @@ int processInputBuffer(client *c) {
          * The same applies for clients we want to terminate ASAP. */
         if (c->flags & (CLIENT_CLOSE_AFTER_REPLY|CLIENT_CLOSE_ASAP)) break;
 
-        /* Determine request type when unknown. */
-        if (!c->reqtype) {
-            if (c->querybuf[c->qb_pos] == '*') {
-                c->reqtype = PROTO_REQ_MULTIBULK;
-            } else {
-                c->reqtype = PROTO_REQ_INLINE;
+        /* Determine if we need to parse more commands from the query buffer.
+         * Only parse when there are no ready commands waiting to be processed. */
+        const int parse_more = !c->pending_cmds.ready_len;
+
+        /* Parse up to lookahead commands only if we don't have enough ready commands */
+        while (parse_more && c->pending_cmds.ready_len < lookahead &&
+               c->querybuf && c->qb_pos < sdslen(c->querybuf))
+        {
+            /* Determine request type when unknown. */
+            if (!c->reqtype) {
+                if (c->querybuf[c->qb_pos] == '*') {
+                    c->reqtype = PROTO_REQ_MULTIBULK;
+                } else {
+                    c->reqtype = PROTO_REQ_INLINE;
+                }
             }
+
+            pendingCommand *pcmd = NULL;
+            if (c->reqtype == PROTO_REQ_INLINE) {
+                pcmd = acquirePendingCommand();
+                if (processInlineBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
+                    /* If it fails but there are no errors, it means that it might just be
+                     * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
+                    freePendingCommand(c, pcmd);
+                    break;
+                }
+            } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
+                int incomplete = (c->pending_cmds.len != c->pending_cmds.ready_len);
+                if (unlikely(incomplete)) {
+                    pcmd = popPendingCommandFromTail(&c->pending_cmds);
+                } else {
+                    pcmd = acquirePendingCommand();
+                }
+
+                if (processMultibulkBuffer(c, pcmd) == C_ERR && !pcmd->read_error) {
+                    /* If it fails but there are no errors, it means that it might just be
+                     * that the desired content cannot be parsed. At this point, we exit and wait for the next time. */
+                    freePendingCommand(c, pcmd);
+                    break;
+                }
+            } else {
+                serverPanic("Unknown request type");
+            }
+
+            addPendingCommand(&c->pending_cmds, pcmd);
+            if (unlikely(pcmd->read_error || (pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)))
+                break;
+
+            pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+            preprocessCommand(c, pcmd);
+            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
+            resetClientQbufState(c);
         }
 
-        if (c->reqtype == PROTO_REQ_INLINE) {
-            if (processInlineBuffer(c) != C_OK) {
-                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)
-                    enqueuePendingClientsToMainThread(c, 0);
-                break;
+        /* Try to consume the next ready command from the pending command list. */
+        if (!c->pending_cmds.ready_len)
+            break;
+        pendingCommand *curcmd = c->pending_cmds.head;
+
+        /* We populate the old client fields so we don't have to modify all existing logic to work with pendingCommands */
+        c->argc = curcmd->argc;
+        c->argv = curcmd->argv;
+        c->argv_len = curcmd->argv_len;
+        c->net_input_bytes_curr_cmd += curcmd->input_bytes;
+        c->reploff_next = curcmd->reploff;
+        c->slot = curcmd->slot;
+        c->lookedcmd = curcmd->cmd;
+        c->read_error = curcmd->read_error;
+        c->current_pending_cmd = curcmd;
+
+        /* Prefetch the command only when more commands have been parsed and we
+         * are in the main thread. If running in an IO thread, prefetch will be
+         * deferred until the client is processed by the main thread. Skip prefetch
+         * if there are too few commands to avoid meaningless prefetching. */
+        if (parse_more && c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+            c->pending_cmds.ready_len > 1)
+        {
+            /* Prefetch the commands. */
+            resetCommandsBatch();
+            addCommandToBatch(c);
+            prefetchCommands();
+        }
+
+        /* Check if the client has a fatal read error that requires stopping processing. */
+        if (isClientReadErrorFatal(c)) {
+            if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+                enqueuePendingClientsToMainThread(c, 0);
             }
-        } else if (c->reqtype == PROTO_REQ_MULTIBULK) {
-            if (processMultibulkBuffer(c) != C_OK) {
-                if (c->running_tid != IOTHREAD_MAIN_THREAD_ID && c->read_error)
-                    enqueuePendingClientsToMainThread(c, 0);
-                break;
-            }
-        } else {
-            serverPanic("Unknown request type");
+            break;
         }
 
         /* Multibulk processing could see a <= 0 length. */
-        if (c->argc == 0) {
-            freeClientArgvInternal(c, 0);
-            c->reqtype = 0;
-            c->multibulklen = 0;
-            c->bulklen = -1;
+        if (!c->argc) {
+            /* A naked newline can be sent from masters as a keep-alive, or from slaves to refresh
+             * the last ACK time. In that case there's no command to actually execute. */
+            prepareForNextCommand(c, 0);
         } else {
             /* If we are in the context of an I/O thread, we can't really
              * execute the command here. All we can do is to flag the client
              * as one that needs to process the command. */
             if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
                 c->io_flags |= CLIENT_IO_PENDING_COMMAND;
-                c->iolookedcmd = lookupCommand(c->argv, c->argc);
-                if (c->iolookedcmd && !commandCheckArity(c->iolookedcmd, c->argc, NULL)) {
-                    /* The command was found, but the arity is invalid, reset it and let main
-                     * thread handle. To avoid memory prefetching on an invalid command. */
-                    c->iolookedcmd = NULL;
-                }
-                c->slot = getSlotFromCommand(c->iolookedcmd, c->argv, c->argc);
                 enqueuePendingClientsToMainThread(c, 0);
                 break;
             }
@@ -2985,6 +3155,7 @@ int processInputBuffer(client *c) {
          * so the repl_applied is not equal to qb_pos. */
         if (c->repl_applied) {
             sdsrange(c->querybuf,c->repl_applied,-1);
+            serverAssert(c->qb_pos >= (size_t)c->repl_applied);
             c->qb_pos -= c->repl_applied;
             c->repl_applied = 0;
         }
@@ -3127,7 +3298,7 @@ void readQueryFromClient(connection *conn) {
          c = NULL;
 
 done:
-    if (c && c->read_error) {
+    if (c && isClientReadErrorFatal(c)) {
         if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
             handleClientReadError(c);
         }
@@ -3215,10 +3386,17 @@ sds catClientInfoString(sds s, client *client) {
     if (client->flags & CLIENT_SLAVE) {
         if (client->flags & CLIENT_MONITOR)
             *p++ = 'O';
+        else if (client->flags & CLIENT_ASM_MIGRATING)
+            *p++ = 'g';
         else
             *p++ = 'S';
     }
-    if (client->flags & CLIENT_MASTER) *p++ = 'M';
+    if (client->flags & CLIENT_MASTER) {
+        if (client->flags & CLIENT_ASM_IMPORTING)
+            *p++ = 'o';
+        else
+            *p++ = 'M';
+    }
     if (client->flags & CLIENT_PUBSUB) *p++ = 'P';
     if (client->flags & CLIENT_MULTI) *p++ = 'x';
     if (client->flags & CLIENT_BLOCKED) *p++ = 'b';
@@ -3272,7 +3450,7 @@ sds catClientInfoString(sds s, client *client) {
         " watch=%i", (int) listLength(client->watched_keys),
         " qbuf=%U", client->querybuf ? (unsigned long long) sdslen(client->querybuf) : 0,
         " qbuf-free=%U", client->querybuf ? (unsigned long long) sdsavail(client->querybuf) : 0,
-        " argv-mem=%U", (unsigned long long) client->argv_len_sum,
+        " argv-mem=%U", (unsigned long long) client->all_argv_len_sum,
         " multi-mem=%U", (unsigned long long) client->mstate.argv_len_sums,
         " rbs=%U", (unsigned long long) client->buf_usable_size,
         " rbp=%U", (unsigned long long) client->buf_peak,
@@ -4181,14 +4359,52 @@ void rewriteClientCommandVector(client *c, int argc, ...) {
 void replaceClientCommandVector(client *c, int argc, robj **argv) {
     int j;
     retainOriginalCommandVector(c);
+
+    /* We don't need to just fix the client argv, we also need to fix the pending command (same argv),
+     * But sometimes we reach here not from a real client, but from a Lua 'scriptRunCtx'. This flow bypasses the
+     * pending-command system entirely and uses c->argv directly. In this case there's no pending commands
+     * to update, so we skip that code. */
+    pendingCommand *pcmd = NULL;
+    int is_mstate = 0;
+    if (c->mstate.executing_cmd < 0) {
+        is_mstate = 0;
+        if (c->pending_cmds.ready_len > 0) {
+            pcmd = c->pending_cmds.head;
+            serverAssert(!(pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE));
+        }
+    } else {
+        is_mstate = 1;
+        serverAssert(c->mstate.executing_cmd < c->mstate.count);
+        pcmd = c->mstate.commands[c->mstate.executing_cmd];
+    }
+
+    if (pcmd) {
+        serverAssert(pcmd->argv == c->argv);
+        pcmd->argv = argv;
+        pcmd->argc = argc;
+        pcmd->argv_len = argc;
+    }
     freeClientArgv(c);
     c->argv = argv;
     c->argc = c->argv_len = argc;
-    c->argv_len_sum = 0;
-    for (j = 0; j < c->argc; j++)
-        if (c->argv[j])
-            c->argv_len_sum += getStringObjectLen(c->argv[j]);
+
+    if (!is_mstate) {  /* multi-state does not track all_argv_len_sum, see code in queueMultiCommand */
+        size_t new_argv_len_sum = 0;
+        for (j = 0; j < c->argc; j++)
+            if (c->argv[j])
+                new_argv_len_sum += getStringObjectLen(c->argv[j]);
+
+        if (!pcmd) {
+            c->all_argv_len_sum = new_argv_len_sum;
+        } else {
+            c->all_argv_len_sum -= pcmd->argv_len_sum;
+            pcmd->argv_len_sum = new_argv_len_sum;
+            c->all_argv_len_sum += pcmd->argv_len_sum;
+        }
+    }
     c->cmd = lookupCommandOrOriginal(c->argv,c->argc);
+    if (pcmd)
+        pcmd->cmd = c->cmd;
     serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
 
@@ -4209,6 +4425,13 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     robj *oldval;
     retainOriginalCommandVector(c);
 
+    /* We don't need to just fix the client argv, we also need to fix the pending command (same argv),
+     * But sometimes we reach here not from a real client, but from a Lua 'scriptRunCtx'. This flow bypasses the
+     * pending-command system entirely and uses c->argv directly. In this case there's no pending commands
+     * to update, so we skip that code. */
+    pendingCommand *pcmd = c->pending_cmds.head ? c->pending_cmds.head: NULL;
+    int update_pcmd = pcmd && pcmd->argv == c->argv;
+
     /* We need to handle both extending beyond argc (just update it and
      * initialize the new element) or beyond argv_len (realloc is needed).
      */
@@ -4221,12 +4444,12 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
         c->argv[i] = NULL;
     }
     oldval = c->argv[i];
-    if (oldval) c->argv_len_sum -= getStringObjectLen(oldval);
+    if (oldval) c->all_argv_len_sum -= getStringObjectLen(oldval);
 
     if (newval) {
         c->argv[i] = newval;
         incrRefCount(newval);
-        c->argv_len_sum += getStringObjectLen(newval);
+        c->all_argv_len_sum += getStringObjectLen(newval);
     } else {
         /* move the remaining arguments one step left */
         for (int j = i+1; j < c->argc; j++) {
@@ -4236,10 +4459,20 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval) {
     }
     if (oldval) decrRefCount(oldval);
 
+    if (update_pcmd) {
+        pcmd->argv = c->argv;
+        pcmd->argc = c->argc;
+        pcmd->argv_len = c->argv_len;
+        if (oldval) pcmd->argv_len_sum -= getStringObjectLen(oldval);
+        if (newval) pcmd->argv_len_sum += getStringObjectLen(newval);
+    }
+
     /* If this is the command name make sure to fix c->cmd. */
     if (i == 0) {
         c->cmd = lookupCommandOrOriginal(c->argv,c->argc);
         serverAssertWithInfo(c,NULL,c->cmd != NULL);
+        if (update_pcmd)
+            pcmd->cmd = c->cmd;
     }
 }
 
@@ -4267,6 +4500,14 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
     }
 }
 
+size_t getNormalClientPendingReplyBytes(client *c) {
+    serverAssert(!clientTypeIsSlave(c));
+    if (listLength(c->reply) == 0) return c->bufpos;
+
+    clientReplyBlock *block = listNodeValue(listLast(c->reply));
+    return (c->reply_bytes - block->size + block->used) + c->bufpos;
+}
+
 /* Returns the total client's memory usage.
  * Optionally, if output_buffer_mem_usage is not NULL, it fills it with
  * the client output buffer memory usage portion of the total. */
@@ -4281,7 +4522,7 @@ size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage) {
     /* For efficiency (less work keeping track of the argv memory), it doesn't include the used memory
      * i.e. unused sds space and internal fragmentation, just the string length. but this is enough to
      * spot problematic clients. */
-    mem += c->argv_len_sum + sizeof(robj*)*c->argc;
+    mem += c->all_argv_len_sum + sizeof(robj*)*c->argc;
     mem += multiStateMemOverhead(c);
 
     /* Add memory overhead of pubsub channels and patterns. Note: this is just the overhead of the robj pointers
@@ -4315,10 +4556,13 @@ int getClientType(client *c) {
 }
 
 static inline int clientTypeIsSlave(client *c) {
-    /* Even though MONITOR clients are marked as replicas, we
-     * want the expose them as normal clients. */
-    if (unlikely((c->flags & CLIENT_SLAVE) && !(c->flags & CLIENT_MONITOR)))
+    /* Even though MONITOR clients and ASM destination RDB/main channels are
+     * marked as replicas, we want to expose them as normal clients. */
+    if (unlikely((c->flags & CLIENT_SLAVE) &&
+        !(c->flags & (CLIENT_MONITOR | CLIENT_ASM_MIGRATING))))
+    {
         return 1;
+    }
     return 0;
 }
 
@@ -4529,7 +4773,10 @@ static void pauseClientsByClient(mstime_t endTime, int isPauseClientAll) {
         if (p->paused_actions & PAUSE_ACTION_CLIENT_ALL)
             actions = PAUSE_ACTIONS_CLIENT_ALL_SET;
     }
-    
+
+    /* Cancel all ASM tasks when starting client pause */
+    clusterAsmCancel(NULL, "client pause requested");
+
     pauseActions(PAUSE_BY_CLIENT_COMMAND, endTime, actions);
 }
 
@@ -4563,6 +4810,13 @@ void pauseActions(pause_purpose purpose, mstime_t end, uint32_t actions) {
     if (server.in_exec) {
         server.client_pause_in_transaction = 1;
     }
+
+    /* Assert that there is no import task in progress when we are pausing.
+     * otherwise we break the promise that no writes are performed, maybe
+     * causing data lost during a failover. */
+    if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
+        isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
+        serverAssert(!asmImportInProgress());
 }
 
 /* Unpause actions and queue them for reprocessing. */
@@ -4714,4 +4968,241 @@ void evictClients(void) {
             listRewind(server.client_mem_usage_buckets[curr_bucket].clients, &bucket_iter);
         }
     }
+}
+
+/* Acquire a pending command from the shared pool or allocate a new one.
+ * Uses the shared pool when available (only when IO threads are inactive),
+ * otherwise allocates a new pending command structure. */
+static pendingCommand *acquirePendingCommand(void) {
+    /* Ensure pool is empty when IO threads are active to avoid race conditions */
+    serverAssert(server.io_threads_active == 0 || server.cmd_pool.size == 0);
+
+    pendingCommand *pcmd = NULL;
+    if (server.cmd_pool.size > 0) {
+        /* Shared pool is available. */
+        pcmd = server.cmd_pool.pool[--server.cmd_pool.size];
+        server.cmd_pool.pool[server.cmd_pool.size] = NULL;
+
+        /* Track minimum pool size for utilization calculation */
+        if (server.cmd_pool.size < server.cmd_pool.min_size)
+            server.cmd_pool.min_size = server.cmd_pool.size;
+    } else {
+        /* Shared pool is empty, allocate new pending command. */
+        pcmd = zmalloc(sizeof(pendingCommand));
+        initPendingCommand(pcmd);
+    }
+    return pcmd;
+}
+
+/* Try to expand the pending command pool capacity.
+ * Returns 1 if expansion succeeded or wasn't needed, 0 if expansion failed. */
+static int tryExpandPendingCommandPool(void) {
+    /* Check if expansion is needed */
+    if (server.cmd_pool.size < server.cmd_pool.capacity) {
+        return 1; /* No expansion needed */
+    }
+    
+    /* Check if we can expand further */
+    if (server.cmd_pool.capacity >= PENDING_COMMAND_POOL_MAX_SIZE) {
+        return 0; /* Already at maximum capacity */
+    }
+    
+    /* Expand the pending command pool capacity by doubling it, up to the maximum size */
+    int new_capacity = server.cmd_pool.capacity * 2;
+    if (new_capacity > PENDING_COMMAND_POOL_MAX_SIZE)
+        new_capacity = PENDING_COMMAND_POOL_MAX_SIZE;
+
+    server.cmd_pool.pool = zrealloc(server.cmd_pool.pool, sizeof(pendingCommand*) * new_capacity);
+    server.cmd_pool.capacity = new_capacity;
+    return 1; /* Expansion succeeded */
+}
+
+/* Reclaim a pending command by adding it to the shared pool for reuse or freeing it.
+ * The shared pool is only used when IO threads are inactive to avoid race conditions
+ * between multiple clients. Additionally, pool reuse provides minimal benefit in
+ * multi-threaded scenarios, so we only use it in single-threaded mode. */
+static void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
+    if (!server.io_threads_active) {
+        /* Try to add to shared pool for reuse if argv isn't too large */
+        if (likely(pcmd->argv_len < 64)) {
+            /* Check if pool needs expansion before attempting to add */
+            if (!tryExpandPendingCommandPool()) {
+                /* Pool is at maximum capacity, can't expand further */
+                goto free_command;
+            }
+
+            /* Clean up command resources before adding to pool */
+            for (int j = 0; j < pcmd->argc; j++)
+                decrRefCount(pcmd->argv[j]);
+
+            getKeysFreeResult(&pcmd->keys_result);
+
+            if (c) {
+                serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
+                c->all_argv_len_sum -= pcmd->argv_len_sum;
+                pcmd->argv_len_sum = 0;
+            }
+
+            /* Reset the pending command while preserving the argv array for shared pool reuse */
+            robj **argv = pcmd->argv;
+            int argv_len = pcmd->argv_len;
+            memset(pcmd, 0, sizeof(pendingCommand));
+            pcmd->argv = argv;
+            pcmd->argv_len = argv_len;
+            pcmd->slot = INVALID_CLUSTER_SLOT;
+
+            server.cmd_pool.pool[server.cmd_pool.size++] = pcmd;
+            return; /* Successfully added to shared pool for reuse */
+        }
+    } else {
+        /* IO threads are active, handle thread-specific cleanup */
+        if (c && c->tid != IOTHREAD_MAIN_THREAD_ID) {
+            /* Partial cleanup for IO thread commands to avoid race issues.
+             * To avoid robj that may already be referenced elsewhere, we should
+             * decrease the reference count to release our reference to it. */
+            for (int j = 0; j < pcmd->argc; j++) {
+                robj *o = pcmd->argv[j];
+                if (o && o->refcount > 1) {
+                    decrRefCount(o);
+                    pcmd->argv[j] = NULL;
+                }
+            }
+
+            serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
+            c->all_argv_len_sum -= pcmd->argv_len_sum;
+            pcmd->argv_len_sum = 0;
+
+            tryDeferFreeClientObject(c, DEFERRED_OBJECT_TYPE_PENDING_COMMAND, pcmd);
+            return;
+        }
+    }
+
+free_command:
+    /* Shared pool is full or command argv is too large, free this pending command */
+    freePendingCommand(c, pcmd);
+}
+
+void initPendingCommand(pendingCommand *pcmd) {
+    memset(pcmd, 0, sizeof(pendingCommand));
+    pcmd->slot = INVALID_CLUSTER_SLOT;
+}
+
+void freePendingCommand(client *c, pendingCommand *pcmd) {
+    if (!pcmd)
+        return;
+
+    getKeysFreeResult(&pcmd->keys_result);
+
+    if (pcmd->argv) {
+        for (int j = 0; j < pcmd->argc; j++) {
+            robj *o = pcmd->argv[j];
+            if (!o) continue; /* TODO */
+            decrRefCount(o);
+        }
+
+        zfree(pcmd->argv);
+
+        /* c may be NULL when called from reclaimPendingCommand */
+        if (c) {
+            serverAssert(c->all_argv_len_sum >= pcmd->argv_len_sum); /* assert this doesn't try to go negative */
+            c->all_argv_len_sum -= pcmd->argv_len_sum;
+        }
+    }
+
+    zfree(pcmd);
+}
+
+/* Add a command to the tail of the pending command list. */
+void addPendingCommand(pendingCommandList *queue, pendingCommand *cmd) {
+    cmd->next = NULL;
+    cmd->prev = queue->tail;
+
+    if (queue->tail) {
+        queue->tail->next = cmd;
+    } else {
+        /* Queue was empty */
+        queue->head = cmd;
+    }
+
+    queue->tail = cmd;
+    queue->len++;
+    if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) queue->ready_len++;
+}
+
+/* Remove and return the first pending command from the list.
+ * Returns NULL if the list is empty. */
+pendingCommand *popPendingCommandFromHead(pendingCommandList *list) {
+    pendingCommand *cmd = list->head;
+    if (!cmd) return NULL;  /* List is empty */
+
+    list->head = cmd->next;
+    if (list->head) {
+        list->head->prev = NULL;
+    } else {
+        /* Queue was empty */
+        list->tail = NULL;
+    }
+
+    cmd->next = cmd->prev = NULL;
+    list->len--;
+    if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) list->ready_len--;
+    return cmd;
+}
+
+/* Remove and return the last pending command from the list.
+ * Returns NULL if the list is empty. */
+pendingCommand *popPendingCommandFromTail(pendingCommandList *list) {
+    pendingCommand *cmd = list->tail;
+    if (!cmd) return NULL;  /* List is empty */
+
+    list->tail = cmd->prev;
+    if (list->tail) {
+        list->tail->next = NULL;
+    } else {
+        /* Queue became empty */
+        list->head = NULL;
+    }
+
+    cmd->next = cmd->prev = NULL;
+    list->len--;
+    if (!(cmd->flags & PENDING_CMD_FLAG_INCOMPLETE)) list->ready_len--;
+    return cmd;
+}
+
+/* Get cached key result for current pending command */
+getKeysResult *getClientCachedKeyResult(client *c) {
+    pendingCommand *pcmd = c->current_pending_cmd;
+    if (pcmd) {
+        /* Preprocess the command if needed */
+        if (!(pcmd->flags & PENDING_CMD_FLAG_PREPROCESSED)) {
+            preprocessCommand(c, pcmd);
+            pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
+        }
+
+        /* Return cached result if available */
+        if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)
+            return &c->current_pending_cmd->keys_result;
+    }
+    return NULL;
+}
+
+void shrinkPendingCommandPool(void) {
+    /* Don't shrink if pool is too small. */
+    if (server.cmd_pool.capacity <= PENDING_COMMAND_POOL_SIZE) return;
+
+    /* Free commands until we have half the current size, but not below minimum. */
+    int target_size = max(server.cmd_pool.size / 2, PENDING_COMMAND_POOL_SIZE);
+
+    while (server.cmd_pool.size > target_size) {
+        pendingCommand *cmd = server.cmd_pool.pool[--server.cmd_pool.size];
+        if (cmd) {
+            freePendingCommand(NULL, cmd);
+            server.cmd_pool.pool[server.cmd_pool.size] = NULL;
+        }
+    }
+
+    int old_capacity = server.cmd_pool.capacity;
+    server.cmd_pool.capacity = target_size;
+    server.cmd_pool.pool = zrealloc(server.cmd_pool.pool, sizeof(pendingCommand*) * target_size);
+    serverLog(LL_DEBUG, "Shrunk pending command pool: capacity %d->%d", old_capacity, server.cmd_pool.capacity);
 }

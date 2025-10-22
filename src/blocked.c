@@ -76,7 +76,8 @@ void blockClient(client *c, int btype) {
     serverAssert(!(c->flags & CLIENT_MASTER &&
                    btype != BLOCKED_MODULE &&
                    btype != BLOCKED_LAZYFREE &&
-                   btype != BLOCKED_POSTPONE));
+                   btype != BLOCKED_POSTPONE &&
+                   btype != BLOCKED_POSTPONE_TRIM));
 
     c->flags |= CLIENT_BLOCKED;
     c->bstate.btype = btype;
@@ -121,6 +122,16 @@ void processUnblockedClients(void) {
         c = ln->value;
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~CLIENT_UNBLOCKED;
+
+        /* Reset the client for a new query, unless the client has pending command to process. */
+        if (!(c->flags & CLIENT_PENDING_COMMAND)) {
+            freeClientOriginalArgv(c);
+            /* Clients that are not blocked on keys are not reprocessed so we must
+             * call reqresAppendResponse here (for clients blocked on key,
+             * unblockClientOnKey is called, which eventually calls processCommand,
+             * which calls reqresAppendResponse) */
+            prepareForNextCommand(c, 0);
+        }
 
         if (c->flags & CLIENT_MODULE) {
             if (!(c->flags & CLIENT_BLOCKED)) {
@@ -180,7 +191,7 @@ void unblockClient(client *c, int queue_for_reprocessing) {
     } else if (c->bstate.btype == BLOCKED_MODULE) {
         if (moduleClientIsBlockedOnKeys(c)) unblockClientWaitingData(c);
         unblockClientFromModule(c);
-    } else if (c->bstate.btype == BLOCKED_POSTPONE) {
+    } else if (c->bstate.btype == BLOCKED_POSTPONE || c->bstate.btype == BLOCKED_POSTPONE_TRIM) {
         listDelNode(server.postponed_clients,c->postponed_list_node);
         c->postponed_list_node = NULL;
     } else if (c->bstate.btype == BLOCKED_SHUTDOWN) {
@@ -191,17 +202,6 @@ void unblockClient(client *c, int queue_for_reprocessing) {
         serverPanic("Unknown btype in unblockClient().");
     }
 
-    /* Reset the client for a new query, unless the client has pending command to process
-     * or in case a shutdown operation was canceled and we are still in the processCommand sequence  */
-    if (!(c->flags & CLIENT_PENDING_COMMAND) && c->bstate.btype != BLOCKED_SHUTDOWN) {
-        freeClientOriginalArgv(c);
-        /* Clients that are not blocked on keys are not reprocessed so we must
-         * call reqresAppendResponse here (for clients blocked on key,
-         * unblockClientOnKey is called, which eventually calls processCommand,
-         * which calls reqresAppendResponse) */
-        reqresAppendResponse(c);
-        resetClient(c);
-    }
 
     /* Clear the flags, and put the client in the unblocked list so that
      * we'll process new commands in its query buffer ASAP. */
@@ -266,6 +266,7 @@ void replyToClientsBlockedOnShutdown(void) {
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
         if (c->flags & CLIENT_BLOCKED && c->bstate.btype == BLOCKED_SHUTDOWN) {
+            c->duration = 0;
             addReplyError(c, "Errors trying to SHUTDOWN. Check logs.");
             unblockClient(c, 1);
         }
@@ -292,7 +293,7 @@ void disconnectAllBlockedClients(void) {
              * command processing will start from scratch, and the command will
              * be either executed or rejected. (unlike LIST blocked clients for
              * which the command is already in progress in a way. */
-            if (c->bstate.btype == BLOCKED_POSTPONE)
+            if (c->bstate.btype == BLOCKED_POSTPONE || c->bstate.btype == BLOCKED_POSTPONE_TRIM)
                 continue;
 
             if (c->bstate.btype == BLOCKED_LAZYFREE) {
@@ -638,13 +639,19 @@ void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numloca
 /* Postpone client from executing a command. For example the server might be busy
  * requesting to avoid processing clients commands which will be processed later
  * when the it is ready to accept them. */
-void blockPostponeClient(client *c) {
+void blockPostponeClientWithType(client *c, int btype) {
+    serverAssert(btype == BLOCKED_POSTPONE || btype == BLOCKED_POSTPONE_TRIM);
     c->bstate.timeout = 0;
-    blockClient(c,BLOCKED_POSTPONE);
+    blockClient(c, btype);
     listAddNodeTail(server.postponed_clients, c);
     c->postponed_list_node = listLast(server.postponed_clients);
     /* Mark this client to execute its command */
     c->flags |= CLIENT_PENDING_COMMAND;
+}
+
+/* Postpone client from executing a command. */
+void blockPostponeClient(client *c) {
+    blockPostponeClientWithType(c, BLOCKED_POSTPONE);
 }
 
 /* Block client due to shutdown command */
@@ -752,6 +759,9 @@ void unblockClientOnError(client *c, const char *err_str) {
 void blockedBeforeSleep(void) {
     /* Handle precise timeouts of blocked clients. */
     handleBlockedClientsTimeout();
+
+    /* Handle for expired pending entries. */
+    handleClaimableStreamEntries();
 
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT or WAITAOF. */

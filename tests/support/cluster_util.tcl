@@ -13,6 +13,21 @@
 #
 
 # Cluster helper functions
+# Normalize cluster slots configuration by sorting replicas by node ID
+proc normalize_cluster_slots {slots_config} {
+    set normalized {}
+    foreach slot_range $slots_config {
+        if {[llength $slot_range] <= 3} {
+            lappend normalized $slot_range
+        } else {
+            # Sort replicas (index 3+) by node ID, keep start/end/master unchanged
+            set replicas [lrange $slot_range 3 end]
+            set sorted_replicas [lsort -index 2 $replicas]
+            lappend normalized [concat [lrange $slot_range 0 2] $sorted_replicas]
+        }
+    }
+    return $normalized
+}
 
 # Check if cluster configuration is consistent.
 proc cluster_config_consistent {} {
@@ -20,8 +35,12 @@ proc cluster_config_consistent {} {
         if {$j == 0} {
             set base_cfg [R $j cluster slots]
             set base_secret [R $j debug internal_secret]
+            set normalized_base_cfg [normalize_cluster_slots $base_cfg]
         } else {
-            if {[R $j cluster slots] != $base_cfg || [R $j debug internal_secret] != $base_secret} {
+            set cfg [R $j cluster slots]
+            set secret [R $j debug internal_secret]
+            set normalized_cfg [normalize_cluster_slots $cfg]
+            if {$normalized_cfg != $normalized_base_cfg || $secret != $base_secret} {
                 return 0
             }
         }
@@ -119,6 +138,8 @@ proc cluster_setup {masters node_count slot_allocator code} {
 # Start a cluster with the given number of masters and replicas. Replicas
 # will be allocated to masters by round robin.
 proc start_cluster {masters replicas options code {slot_allocator continuous_slot_allocation}} {
+    set ::cluster_master_nodes $masters
+    set ::cluster_replica_nodes $replicas
     set node_count [expr $masters + $replicas]
 
     # Set the final code to be the tests + cluster setup

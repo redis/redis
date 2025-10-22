@@ -375,3 +375,38 @@ start_server {tags {"timeout external:skip"}} {
         assert_equal "PONG" [r ping]
     }
 }
+
+test {Pending command pool expansion and shrinking} {
+    start_server {overrides {loglevel debug} tags {external:skip}} {
+        set rd1 [redis_deferring_client]
+        set rd2 [redis_deferring_client]
+        
+        # Client1 sends 16 commands in pipeline, and was blocked at the first command
+        set buf ""
+        append buf "blpop mylist 0\r\n"
+        for {set i 1} {$i < 16} {incr i} {
+            append buf "set key$i value$i\r\n"
+        }
+        $rd1 write $buf
+        $rd1 flush
+        wait_for_blocked_clients_count 1
+        
+        # Client2 sends 1 command, this will trigger pending command pool expansion
+        # from 16 to 32 since A client has used up all 16 commands in the command pool.
+        $rd2 set bkey bvalue
+        assert_equal {OK} [$rd2 read]
+        
+        # Unblock client1, allowing it to return all pending commands back to the pool.
+        r lpush mylist unblock_value
+        assert_equal {mylist unblock_value} [$rd1 read]
+        for {set i 1} {$i < 16} {incr i} {
+            assert_equal {OK} [$rd1 read]
+        }
+        
+        # Wait for the pending command pool to shrink back to 16 due to low utilization.
+        wait_for_log_messages 0 {"*Shrunk pending command pool: capacity 32->16*"} 0 10 1000
+        
+        $rd1 close
+        $rd2 close
+    }
+}

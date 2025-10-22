@@ -11,6 +11,7 @@
 #include "bio.h"
 #include "rio.h"
 #include "functions.h"
+#include "cluster_asm.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -1640,12 +1641,24 @@ int loadSingleAppendOnlyFile(char *filename) {
         if (fakeClient->flags & CLIENT_MULTI &&
             fakeClient->cmd->proc != execCommand)
         {
+            /* queueMultiCommand requires a pendingCommand, so we create a "fake" one here
+             * for it to consume */
+            pendingCommand *pcmd = zmalloc(sizeof(pendingCommand));
+            initPendingCommand(pcmd);
+            addPendingCommand(&fakeClient->pending_cmds, pcmd);
+
+            pcmd->argc = argc;
+            pcmd->argv_len = argc;
+            pcmd->argv = argv;
+            pcmd->cmd = cmd;
+
             /* Note: we don't have to attempt calling evalGetCommandFlags,
              * since this is AOF, the checks in processCommand are not made
              * anyway.*/
             queueMultiCommand(fakeClient, cmd->flags);
         } else {
             cmd->proc(fakeClient);
+            fakeClient->all_argv_len_sum = 0; /* Otherwise no one cleans this up and we reach cleanup with it non-zero */
         }
 
         /* The fake client should not have a reply */
@@ -2384,11 +2397,52 @@ werr:
     return 0;
 }
 
+int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
+    /* Save the key and associated value */
+    if (o->type == OBJ_STRING) {
+        /* Emit a SET command */
+        static const char cmd[]="*3\r\n$3\r\nSET\r\n";
+        if (rioWrite(r,cmd,sizeof(cmd)-1) == 0) return C_ERR;
+        /* Key and value */
+        if (rioWriteBulkObject(r,key) == 0) return C_ERR;
+        if (rioWriteBulkObject(r,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_LIST) {
+        if (rewriteListObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_SET) {
+        if (rewriteSetObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_ZSET) {
+        if (rewriteSortedSetObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_HASH) {
+        if (rewriteHashObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_STREAM) {
+        if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_MODULE) {
+        if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
+    } else {
+        serverPanic("Unknown object type");
+    }
+
+    /* Save the expire time */
+    if (expiretime != -1) {
+        static const char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
+        if (rioWrite(r,cmd,sizeof(cmd)-1) == 0) return C_ERR;
+        if (rioWriteBulkObject(r,key) == 0) return C_ERR;
+        if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
+    }
+
+    /* If modules metadata is available */
+    if ((getModuleMetaBits(o->metabits)) && (keyMetaOnAof(r, key, o, dbid) == 0))
+        return C_ERR;
+
+    return C_OK;
+}
+
 int rewriteAppendOnlyFileRio(rio *aof) {
     dictEntry *de;
     int j;
     long key_count = 0;
     long long updated_time = 0;
+    unsigned long long skipped = 0;
     kvstoreIterator *kvs_it = NULL;
 
     /* Record timestamp at the beginning of rewriting AOF. */
@@ -2420,34 +2474,21 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             
             /* Get the expire time */
             expiretime = kvobjGetExpire(o);
+
+            /* Skip keys that are being trimmed */
+            if (server.cluster_enabled) {
+                int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+                if (isSlotInTrimJob(curr_slot)) {
+                    skipped++;
+                    continue;
+                }
+            }
             
             /* Set on stack string object for key */
             robj key;
             initStaticStringObject(key, kvobjGetKey(o));
 
-            /* Save the key and associated value */
-            if (o->type == OBJ_STRING) {
-                /* Emit a SET command */
-                char cmd[]="*3\r\n$3\r\nSET\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                /* Key and value */
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkObject(aof,o) == 0) goto werr;
-            } else if (o->type == OBJ_LIST) {
-                if (rewriteListObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_SET) {
-                if (rewriteSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_ZSET) {
-                if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_HASH) {
-                if (rewriteHashObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_STREAM) {
-                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
-            } else {
-                serverPanic("Unknown object type");
-            }
+            if (rewriteObject(aof, &key, o, j, expiretime) == C_ERR) goto werr;
 
             /* In fork child process, we can try to release memory back to the
              * OS and possibly avoid or decrease COW. We give the dismiss
@@ -2455,18 +2496,6 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
 
-            /* Save the expire time */
-            if (expiretime != -1) {
-                char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
-            }
-
-            /* If modules metadata is available */
-            if ((getModuleMetaBits(o->metabits)) && (keyMetaOnAof(aof,&key,o,j) == 0))
-                goto werr;
-            
             /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
              * check the diff every 1024 keys */
@@ -2484,6 +2513,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         }
         kvstoreIteratorRelease(kvs_it);
     }
+    serverLog(LL_NOTICE, "AOF rewrite done, %ld keys saved, %llu keys skipped.", key_count, skipped);
     return C_OK;
 
 werr:

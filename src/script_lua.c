@@ -974,7 +974,8 @@ cleanup:
     c->argc = c->argv_len = 0;
     c->user = NULL;
     c->argv = NULL;
-    resetClient(c);
+    c->all_argv_len_sum = 0;
+    resetClient(c, 1);
     inuse--;
 
     if (raise_error) {
@@ -1134,7 +1135,7 @@ static int luaRedisAclCheckCmdPermissionsCommand(lua_State *lua) {
         raise_error = 1;
     } else {
         int keyidxptr;
-        if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, &keyidxptr) != ACL_OK) {
+        if (ACLCheckAllUserCommandPerm(rctx->original_client->user, cmd, argv, argc, NULL, &keyidxptr) != ACL_OK) {
             lua_pushboolean(lua, 0);
         } else {
             lua_pushboolean(lua, 1);
