@@ -398,7 +398,7 @@ int addCommandToBatch(client *c) {
         /* Skip commands that have not been preprocessed, or have errors. */
         if ((pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE) || !pcmd->cmd || pcmd->read_error) break;
 
-        serverAssert(pcmd->flags & PENDING_CMD_KEYRESULT_VALID);
+        serverAssert(pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID);
         for (int i = 0; i < pcmd->keys_result.numkeys && batch->key_count < batch->max_prefetch_size; i++) {
             batch->keys[batch->key_count] = pcmd->argv[pcmd->keys_result.keys[i].pos];
             batch->keys_dicts[batch->key_count] =

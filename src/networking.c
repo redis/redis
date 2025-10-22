@@ -5125,7 +5125,7 @@ getKeysResult *getClientCachedKeyResult(client *c) {
         }
 
         /* Return cached result if available */
-        if (pcmd->flags & PENDING_CMD_KEYRESULT_VALID)
+        if (pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID)
             return &c->current_pending_cmd->keys_result;
     }
     return NULL;

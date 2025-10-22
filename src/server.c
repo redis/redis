@@ -4112,7 +4112,7 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
         if (pcmd->slot == INVALID_CLUSTER_SLOT)
             pcmd->read_error = CLIENT_READ_CROSS_SLOT;
     }
-    pcmd->flags |= PENDING_CMD_KEYRESULT_VALID;
+    pcmd->flags |= PENDING_CMD_KEYS_RESULT_VALID;
 }
 
 /* If this function gets called we already read a whole

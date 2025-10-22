@@ -1181,7 +1181,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
         mc.read_error = read_error;
         if (keys_result) {
             mc.keys_result = *keys_result;
-            mc.flags |= PENDING_CMD_KEYRESULT_VALID;
+            mc.flags |= PENDING_CMD_KEYS_RESULT_VALID;
         }
     }
 
@@ -1206,8 +1206,9 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             pubsubshard_included = 1;
         }
 
+        int use_cache_keys_result = pcmd->flags & PENDING_CMD_KEYS_RESULT_VALID;
         getKeysResult result = GETKEYS_RESULT_INIT;
-        if (likely(pcmd->flags & PENDING_CMD_KEYRESULT_VALID))
+        if (use_cache_keys_result)
             result = pcmd->keys_result;
         else
             getKeysFromCommand(mcmd,margv,margc,&result);
@@ -1239,7 +1240,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * not trapped earlier in processCommand(). Report the same
                  * error to the client. */
                 if (n == NULL) {
-                    if (!keys_result) getKeysFreeResult(&result);
+                    if (!use_cache_keys_result) getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_DOWN_UNBOUND;
                     return NULL;
@@ -1262,7 +1263,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                  * the same key/channel as the first we saw. */
                 if (slot != thisslot) {
                     /* Error: multiple keys from different slots. */
-                    if (!keys_result) getKeysFreeResult(&result);
+                    if (!use_cache_keys_result) getKeysFreeResult(&result);
                     if (error_code)
                         *error_code = CLUSTER_REDIR_CROSS_SLOT;
                     return NULL;
@@ -1287,7 +1288,7 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
                 else existing_keys++;
             }
         }
-        if (!keys_result) getKeysFreeResult(&result);
+        if (!use_cache_keys_result) getKeysFreeResult(&result);
     }
 
     /* No key at all in command? then we can serve the request
