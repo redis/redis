@@ -690,7 +690,7 @@ void msetnxCommand(client *c) {
     msetGenericCommand(c,1);
 }
 
-void incrDecrCommand(client *c, long long incr) {
+void incrDecrCommand(client *c, long long incr, const char *event) {
     long long value, oldvalue;
     robj *new;
     dictEntryLink link;
@@ -727,23 +727,23 @@ void incrDecrCommand(client *c, long long incr) {
     }
     addReplyLongLongFromStr(c,new);
     signalModifiedKey(c,c->db,c->argv[1]);
-    notifyKeyspaceEvent(NOTIFY_STRING,"incrby",c->argv[1],c->db->id);
+    notifyKeyspaceEvent(NOTIFY_STRING,event,c->argv[1],c->db->id);
     server.dirty++;
 }
 
 void incrCommand(client *c) {
-    incrDecrCommand(c,1);
+    incrDecrCommand(c,1,"incr");
 }
 
 void decrCommand(client *c) {
-    incrDecrCommand(c,-1);
+    incrDecrCommand(c,-1,"decr");
 }
 
 void incrbyCommand(client *c) {
     long long incr;
 
     if (getLongLongFromObjectOrReply(c, c->argv[2], &incr, NULL) != C_OK) return;
-    incrDecrCommand(c,incr);
+    incrDecrCommand(c,incr,"incrby");
 }
 
 void decrbyCommand(client *c) {
@@ -755,7 +755,7 @@ void decrbyCommand(client *c) {
         addReplyError(c, "decrement would overflow");
         return;
     }
-    incrDecrCommand(c,-incr);
+    incrDecrCommand(c,-incr,"decrby");
 }
 
 void incrbyfloatCommand(client *c) {
