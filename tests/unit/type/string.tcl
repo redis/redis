@@ -269,38 +269,44 @@ start_server {tags {"string"}} {
         r msetex keys 2 exat:key1{t} val3 exat:key2{t} val4 exat $future_sec
         r msetex keys 2 pxat:key1{t} val3 pxat:key2{t} val4 pxat $future_ms
 
-        set ex_ttl_ok [expr [r ttl ex:key1{t}] > 0]
-        set px_ttl_ok [expr [r pttl px:key1{t}] > 0]
-        set exat_ttl_ok [expr [r ttl exat:key1{t}] > 0]
-        set pxat_ttl_ok [expr [r pttl pxat:key1{t}] > 0]
-        list $ex_ttl_ok $px_ttl_ok $exat_ttl_ok $pxat_ttl_ok
-    } {1 1 1 1}
+        assert_morethan [r ttl ex:key1{t}] 0
+        assert_morethan [r pttl px:key1{t}] 0
+        assert_morethan [r ttl exat:key1{t}] 0
+        assert_morethan [r pttl pxat:key1{t}] 0
+    }
 
     test {MSETEX - KEEPTTL preserves existing TTL} {
         r setex keepttl:key{t} 100 oldval
         set old_ttl [r ttl keepttl:key{t}]
         r msetex keys 1 keepttl:key{t} newval keepttl
-        list [r get keepttl:key{t}] [expr [r ttl keepttl:key{t}] >= [expr $old_ttl - 5]]
-    } {newval 1}
+        assert_equal [r get keepttl:key{t}] "newval"
+        assert_morethan [r ttl keepttl:key{t}] [expr $old_ttl - 5]
+    }
 
     test {MSETEX - NX/XX conditions and return values} {
         r del nx:new{t} nx:new2{t} xx:existing{t} xx:nonexist{t}
         r set xx:existing{t} oldval
-        list \
-            [r msetex nx keys 2 nx:new{t} val1 nx:new2{t} val2 ex 10] \
-            [r msetex nx keys 1 xx:existing{t} newval ex 10] \
-            [r msetex xx keys 1 xx:nonexist{t} newval ex 10] \
-            [r msetex xx keys 1 xx:existing{t} newval ex 10] \
-            [r get nx:new{t}] [r get xx:existing{t}]
-    } {1 0 0 1 val1 newval}
+
+        assert_equal [r msetex nx keys 2 nx:new{t} val1 nx:new2{t} val2 ex 10] 1
+        assert_equal [r msetex nx keys 1 xx:existing{t} newval ex 10] 0
+        assert_equal [r msetex xx keys 1 xx:nonexist{t} newval ex 10] 0
+        assert_equal [r msetex xx keys 1 xx:existing{t} newval ex 10] 1
+        assert_equal [r get nx:new{t}] "val1"
+        assert_equal [r get xx:existing{t}] "newval"
+    }
 
     test {MSETEX - flexible argument parsing} {
         r del flex:1{t} flex:2{t}
         # Test flags before and after KEYS
         r msetex ex 3 nx keys 2 flex:1{t} val1 flex:2{t} val2
         r msetex keys 2 flex:3{t} val3 flex:4{t} val4 px 3000 xx
-        list [r get flex:1{t}] [r get flex:2{t}] [expr [r ttl flex:1{t}] > 0] [r exists flex:3{t}] [r exists flex:4{t}]
-    } {val1 val2 1 0 0}
+
+        assert_equal [r get flex:1{t}] "val1"
+        assert_equal [r get flex:2{t}] "val2"
+        assert_morethan [r ttl flex:1{t}] 0
+        assert_equal [r exists flex:3{t}] 0
+        assert_equal [r exists flex:4{t}] 0
+    }
 
     test {MSETEX - error cases} {
         assert_error {*wrong number of arguments*} {r msetex}

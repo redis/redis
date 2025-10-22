@@ -234,6 +234,17 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
 
 #define COMMAND_GET 0
 #define COMMAND_SET 1
+#define COMMAND_MSETEX 2
+
+/* Extended string command arguments structure - like streamAckDelArgs */
+typedef struct {
+    int flags;
+    int unit;
+    robj *expire;
+    int kv_count;    /* Only used by MSETEX */
+    int kv_start;    /* Only used by MSETEX */
+} extendedStringArgs;
+
 /*
  * The parseExtendedStringArgumentsOrReply() function performs the common validation for extended
  * string arguments used in SET and GET command.
@@ -251,94 +262,105 @@ static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int 
  * EX/EXAT/PX/PXAT arguments. Unit is updated to millisecond if PX/PXAT is set.
  * match_value is updated if any of IFEQ/IFNE/IFDEQ/IFDNE is set.
  */
-int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj **expire, robj **match_value, int command_type) {
+int parseExtendedStringArgumentsOrReply(client *c, extendedStringArgs *args, int command_type) {
+    /* Initialize arguments to defaults */
+    memset(args, 0, sizeof(*args));
+    args->kv_start = -1;
+    args->unit = UNIT_SECONDS;
 
-    int j = command_type == COMMAND_GET ? 2 : 3;
-
-    /* We can have either none or exactly one of these conditionals as they are
-     * mutually exclusive. We'll make sure to check if none of the other flags
-     * are already set if we are going to set one of them. This is done via the
-     * check:
-     *
-     * if (opt == OBJ_SET_XXX && !(*flags & (cond_mut_excl & ~OBJ_SET_XXX)))
-     *
-     * A bit ugly - but concise.
-     */
-    int cond_mut_excl = OBJ_SET_NX | OBJ_SET_XX | OBJ_SET_IFEQ | OBJ_SET_IFNE |
-                        OBJ_SET_IFDEQ | OBJ_SET_IFDNE;
-
+    int j = (command_type == COMMAND_GET ? 2 : (command_type == COMMAND_MSETEX ? 1 : 3));
     for (; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
 
         if ((opt[0] == 'n' || opt[0] == 'N') &&
             (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-            !(*flags & (cond_mut_excl & ~OBJ_SET_NX)) && (command_type == COMMAND_SET))
+            !(args->flags & OBJ_SET_XX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
         {
-            *flags |= OBJ_SET_NX;
+            args->flags |= OBJ_SET_NX;
         } else if ((opt[0] == 'x' || opt[0] == 'X') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(*flags & (cond_mut_excl & ~OBJ_SET_XX)) && (command_type == COMMAND_SET))
+                   !(args->flags & OBJ_SET_NX) && (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
         {
-            *flags |= OBJ_SET_XX;
+            args->flags |= OBJ_SET_XX;
         } else if ((opt[0] == 'g' || opt[0] == 'G') &&
                    (opt[1] == 'e' || opt[1] == 'E') &&
                    (opt[2] == 't' || opt[2] == 'T') && opt[3] == '\0' &&
                    (command_type == COMMAND_SET))
         {
-            *flags |= OBJ_SET_GET;
-        } else if (!strcasecmp(opt, "KEEPTTL") && !(*flags & OBJ_PERSIST) &&
-            !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-            !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) && (command_type == COMMAND_SET))
+            args->flags |= OBJ_SET_GET;
+
+        } else if (!strcasecmp(opt, "KEYS") && command_type == COMMAND_MSETEX && j+1 < c->argc) {
+            /* Handle KEYS block skipping and populate KEYS parameters */
+            long kv_count_long;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, INT_MAX,
+                &kv_count_long, "invalid numkeys value") != C_OK)
+            {
+                return C_ERR;
+            }
+            if (kv_count_long * 2 > (c->argc - j - 2)) {
+                addReplyError(c, "wrong number of key-value pairs");
+                return C_ERR;
+            }
+
+            /* Populate KEYS parameters for MSETEX */
+            args->kv_count = (int)kv_count_long;
+            args->kv_start = j + 2;
+
+            j = j + 1 + (kv_count_long * 2);  /* Skip "KEYS", numkeys, and all key-value pairs */
+        } else if (!strcasecmp(opt, "KEEPTTL") && !(args->flags & OBJ_PERSIST) &&
+            !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+            !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
+            (command_type == COMMAND_SET || command_type == COMMAND_MSETEX))
         {
-            *flags |= OBJ_KEEPTTL;
+            args->flags |= OBJ_KEEPTTL;
         } else if (!strcasecmp(opt,"PERSIST") && (command_type == COMMAND_GET) &&
-               !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-               !(*flags & OBJ_PX) && !(*flags & OBJ_PXAT) &&
-               !(*flags & OBJ_KEEPTTL))
+               !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+               !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
+               !(args->flags & OBJ_KEEPTTL))
         {
-            *flags |= OBJ_PERSIST;
+            args->flags |= OBJ_PERSIST;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
-                   !(*flags & OBJ_EXAT) && !(*flags & OBJ_PX) &&
-                   !(*flags & OBJ_PXAT) && next)
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EXAT) && !(args->flags & OBJ_PX) &&
+                   !(args->flags & OBJ_PXAT) && next)
         {
-            *flags |= OBJ_EX;
-            *expire = next;
+            args->flags |= OBJ_EX;
+            args->expire = next;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') && opt[2] == '\0' &&
-                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
-                   !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-                   !(*flags & OBJ_PXAT) && next)
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+                   !(args->flags & OBJ_PXAT) && next)
         {
-            *flags |= OBJ_PX;
-            *unit = UNIT_MILLISECONDS;
-            *expire = next;
+            args->flags |= OBJ_PX;
+            args->unit = UNIT_MILLISECONDS;
+            args->expire = next;
             j++;
         } else if ((opt[0] == 'e' || opt[0] == 'E') &&
                    (opt[1] == 'x' || opt[1] == 'X') &&
                    (opt[2] == 'a' || opt[2] == 'A') &&
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
-                   !(*flags & OBJ_EX) && !(*flags & OBJ_PX) &&
-                   !(*flags & OBJ_PXAT) && next)
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_PX) &&
+                   !(args->flags & OBJ_PXAT) && next)
         {
-            *flags |= OBJ_EXAT;
-            *expire = next;
+            args->flags |= OBJ_EXAT;
+            args->expire = next;
             j++;
         } else if ((opt[0] == 'p' || opt[0] == 'P') &&
                    (opt[1] == 'x' || opt[1] == 'X') &&
                    (opt[2] == 'a' || opt[2] == 'A') &&
                    (opt[3] == 't' || opt[3] == 'T') && opt[4] == '\0' &&
-                   !(*flags & OBJ_KEEPTTL) && !(*flags & OBJ_PERSIST) &&
-                   !(*flags & OBJ_EX) && !(*flags & OBJ_EXAT) &&
-                   !(*flags & OBJ_PX) && next)
+                   !(args->flags & OBJ_KEEPTTL) && !(args->flags & OBJ_PERSIST) &&
+                   !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
+                   !(args->flags & OBJ_PX) && next)
         {
-            *flags |= OBJ_PXAT;
-            *unit = UNIT_MILLISECONDS;
-            *expire = next;
+            args->flags |= OBJ_PXAT;
+            args->unit = UNIT_MILLISECONDS;
+            args->expire = next;
             j++;
         } else if (!strcasecmp(opt, "ifeq") && next &&
                    !(*flags & (cond_mut_excl & ~OBJ_SET_IFEQ)) &&
@@ -381,17 +403,14 @@ int parseExtendedStringArgumentsOrReply(client *c, int *flags, int *unit, robj *
  *     [IFEQ <match-value>|IFNE <match-value>|IFDEQ <match-digest>|
  *      IFDNE <match-digest>]*/
 void setCommand(client *c) {
-    robj *expire = NULL;
-    robj *match_value = NULL;
-    int unit = UNIT_SECONDS;
-    int flags = OBJ_NO_FLAGS;
+    extendedStringArgs args;
 
-    if (parseExtendedStringArgumentsOrReply(c,&flags,&unit,&expire,&match_value,COMMAND_SET) != C_OK) {
+    if (parseExtendedStringArgumentsOrReply(c, &args, COMMAND_SET) != C_OK) {
         return;
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c,flags,c->argv[1],&(c->argv[2]),expire,unit,match_value,NULL,NULL);
+    setGenericCommand(c, args.flags, c->argv[1], &(c->argv[2]), args.expire, args.unit, NULL, NULL);
 }
 
 void setnxCommand(client *c) {
@@ -448,11 +467,9 @@ void getCommand(client *c) {
  * Command would either return the bulk string, error or nil.
  */
 void getexCommand(client *c) {
-    robj *expire = NULL;
-    int unit = UNIT_SECONDS;
-    int flags = OBJ_NO_FLAGS;
+    extendedStringArgs args;
 
-    if (parseExtendedStringArgumentsOrReply(c,&flags,&unit,&expire,NULL,COMMAND_GET) != C_OK) {
+    if (parseExtendedStringArgumentsOrReply(c, &args, COMMAND_GET) != C_OK) {
         return;
     }
 
@@ -467,7 +484,7 @@ void getexCommand(client *c) {
 
     /* Validate the expiration time value first */
     long long milliseconds = 0;
-    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
@@ -476,7 +493,7 @@ void getexCommand(client *c) {
 
     /* This command is never propagated as is. It is either propagated as PEXPIRE[AT],DEL,UNLINK or PERSIST.
      * This why it doesn't need special handling in feedAppendOnlyFile to convert relative expire time to absolute one. */
-    if (((flags & OBJ_PXAT) || (flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
+    if (((args.flags & OBJ_PXAT) || (args.flags & OBJ_EXAT)) && checkAlreadyExpired(milliseconds)) {
         /* When PXAT/EXAT absolute timestamp is specified, there can be a chance that timestamp
          * has already elapsed so delete the key in that case. */
         int deleted = dbGenericDelete(c->db, c->argv[1], server.lazyfree_lazy_expire, DB_FLAG_KEY_EXPIRED);
@@ -486,7 +503,7 @@ void getexCommand(client *c) {
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
         server.dirty++;
-    } else if (expire) {
+    } else if (args.expire) {
         o = setExpire(c,c->db,c->argv[1],milliseconds);
         /* Propagate as PXEXPIREAT millisecond-timestamp if there is
          * EX/PX/EXAT/PXAT flag and the key has not expired. */
@@ -496,7 +513,7 @@ void getexCommand(client *c) {
         signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",c->argv[1],c->db->id);
         server.dirty++;
-    } else if (flags & OBJ_PERSIST) {
+    } else if (args.flags & OBJ_PERSIST) {
         if (removeExpire(c->db, c->argv[1])) {
             signalModifiedKey(c, c->db, c->argv[1]);
             rewriteClientCommandVector(c, 2, shared.persist, c->argv[1]);
@@ -692,119 +709,54 @@ void msetnxCommand(client *c) {
 }
 
 void msetexCommand(client *c) {
-    int kvs_count = 0, kvs_start = -1;
-    robj *expire = NULL;
-    int unit = UNIT_SECONDS;
-    int flags = OBJ_NO_FLAGS;
-    int expire_flag_pos = -1;
-    for (int j = 1; j < c->argc; j++) {
-        char *arg = c->argv[j]->ptr;
+    extendedStringArgs args;
 
-        if (!strcasecmp(arg, "KEYS")) {
-            int kvs_end;
-            if (kvs_count > 0) {
-                addReplyError(c, "syntax error - KEYS specified multiple times");
-                return;
-            }
-            if (j + 1 >= c->argc) {
-                addReplyError(c, "syntax error - KEYS requires numkeys argument");
-                return;
-            }
-            long kvs_count_long;
-            if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 1, LONG_MAX, &kvs_count_long, "invalid numkeys value") != C_OK) {
-                return;
-            }
-            kvs_count = (int)kvs_count_long;
-            kvs_start = j + 2;
-            kvs_end = kvs_start + (kvs_count * 2) - 1;
-
-            /* Validate we have enough key-value pairs */
-            if (kvs_end >= c->argc) {
-                addReplyError(c, "wrong number of key-value pairs");
-                return;
-            }
-            j = kvs_end;  /* Skip directly to end of key-value block */
-        } else if (!strcasecmp(arg, "NX") && !(flags & OBJ_SET_XX)) {
-            flags |= OBJ_SET_NX;
-        } else if (!strcasecmp(arg, "XX") && !(flags & OBJ_SET_NX)) {
-            flags |= OBJ_SET_XX;
-        } else if (!strcasecmp(arg, "EX") && j + 1 < c->argc &&
-                   !(flags & (OBJ_PX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL)))
-        {
-            expire_flag_pos = j;  /* Remember position of EX flag */
-            expire = c->argv[++j];
-            unit = UNIT_SECONDS;
-            flags |= OBJ_EX;
-        } else if (!strcasecmp(arg, "PX") && j + 1 < c->argc &&
-                   !(flags & (OBJ_EX | OBJ_EXAT | OBJ_PXAT | OBJ_KEEPTTL)))
-        {
-            expire_flag_pos = j;  /* Remember position of PX flag */
-            expire = c->argv[++j];
-            unit = UNIT_MILLISECONDS;
-            flags |= OBJ_PX;
-        } else if (!strcasecmp(arg, "EXAT") && j + 1 < c->argc &&
-                   !(flags & (OBJ_EX | OBJ_PX | OBJ_PXAT | OBJ_KEEPTTL)))
-        {
-            expire = c->argv[++j];
-            unit = UNIT_SECONDS;
-            flags |= OBJ_EXAT;
-        } else if (!strcasecmp(arg, "PXAT") && j + 1 < c->argc &&
-                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_KEEPTTL)))
-        {
-            expire = c->argv[++j];
-            unit = UNIT_MILLISECONDS;
-            flags |= OBJ_PXAT;
-        } else if (!strcasecmp(arg, "KEEPTTL") &&
-                   !(flags & (OBJ_EX | OBJ_PX | OBJ_EXAT | OBJ_PXAT)))
-        {
-            flags |= OBJ_KEEPTTL;
-        } else {
-            addReplyErrorObject(c, shared.syntaxerr);
-            return;
-        }
+    /* Parse arguments using shared function with struct */
+    if (parseExtendedStringArgumentsOrReply(c, &args, COMMAND_MSETEX) != C_OK) {
+        return;
     }
-    /* Validate KEYS was found */
-    if (kvs_count == 0) {
+
+    /* Check for mutually exclusive flags - MSETEX specific */
+    if ((args.flags & OBJ_SET_NX) && (args.flags & OBJ_SET_XX)) {
+        addReplyErrorObject(c, shared.syntaxerr);
+        return;
+    }
+
+    /* Validate KEYS block was found */
+    if (args.kv_count == 0) {
         addReplyError(c, "syntax error - KEYS keyword is required");
         return;
     }
 
     /* Validate the expiration time value first */
     long long milliseconds = 0;
-    if (expire && getExpireMillisecondsOrReply(c, expire, flags, unit, &milliseconds) != C_OK) {
+    if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
         return;
     }
 
-    /* Check if any key exists (for NX) or doesn't exist (for XX) */
-    if (flags & OBJ_SET_NX) {
-        for (int j = 0; j < kvs_count; j++) {
-            int key_idx = kvs_start + (j * 2);
-            if (lookupKeyWrite(c->db, c->argv[key_idx]) != NULL) {
-                addReply(c, shared.czero);
-                return;
-            }
-        }
-    }
-    else if (flags & OBJ_SET_XX) {
-        for (int j = 0; j < kvs_count; j++) {
-            int key_idx = kvs_start + (j * 2);
-            if (lookupKeyWrite(c->db, c->argv[key_idx]) == NULL) {
-                addReply(c, shared.czero);
-                return;
-            }
+    /* Check NX/XX conditions for each key - pattern from setGenericCommand */
+    for (int j = 0; j < args.kv_count; j++) {
+        int key_idx = args.kv_start + (j * 2);
+        robj *found = lookupKeyWrite(c->db, c->argv[key_idx]);
+
+        if ((args.flags & OBJ_SET_NX && found) ||
+            (args.flags & OBJ_SET_XX && !found))
+        {
+            addReply(c, shared.czero);
+            return;
         }
     }
 
     /* Set all key-value pairs */
-    for (int j = 0; j < kvs_count; j++) {
-        int key_idx = kvs_start + (j * 2);
-        int val_idx = kvs_start + (j * 2) + 1;
+    for (int j = 0; j < args.kv_count; j++) {
+        int key_idx = args.kv_start + (j * 2);
+        int val_idx = args.kv_start + (j * 2) + 1;
 
         c->argv[val_idx] = tryObjectEncoding(c->argv[val_idx]);
 
         /* Handle KEEPTTL - preserve existing TTL */
         int setkey_flags = 0;
-        if (flags & OBJ_KEEPTTL) {
+        if (args.flags & OBJ_KEEPTTL) {
             setkey_flags |= SETKEY_KEEPTTL;
         }
 
@@ -812,7 +764,7 @@ void msetexCommand(client *c) {
         incrRefCount(c->argv[val_idx]);
 
         /* Set expiration for each key (but not for KEEPTTL) */
-        if (expire && !(flags & OBJ_KEEPTTL)) {
+        if (args.expire && !(args.flags & OBJ_KEEPTTL)) {
             setExpire(c, c->db, c->argv[key_idx], milliseconds);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"expire", c->argv[key_idx], c->db->id);
         }
@@ -820,16 +772,24 @@ void msetexCommand(client *c) {
     }
 
     /* Handle replication rewriting for relative expiration times */
-    if (expire && !(flags & OBJ_PXAT) && !(flags & OBJ_EXAT) && expire_flag_pos >= 0) {
-        /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
-        robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-        rewriteClientCommandArgument(c, expire_flag_pos, shared.pxat);
-        rewriteClientCommandArgument(c, expire_flag_pos + 1, milliseconds_obj);
-        decrRefCount(milliseconds_obj);
+    if (args.expire && !(args.flags & OBJ_PXAT) && !(args.flags & OBJ_EXAT)) {
+        /* Find expiration flag position for replication rewriting */
+        for (int j = 1; j < c->argc - 1; j++) {
+            char *arg = c->argv[j]->ptr;
+            if ((!strcasecmp(arg, "EX") && (args.flags & OBJ_EX)) ||
+                (!strcasecmp(arg, "PX") && (args.flags & OBJ_PX))) {
+                /* Convert EX/PX (relative) to PXAT (absolute) for consistent replication */
+                robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
+                rewriteClientCommandArgument(c, j, shared.pxat);
+                rewriteClientCommandArgument(c, j + 1, milliseconds_obj);
+                decrRefCount(milliseconds_obj);
+                break;
+            }
+        }
     }
 
-    server.dirty += kvs_count;
-    addReply(c, shared.cone);  /* Always return 1 for success */
+    server.dirty += args.kv_count;
+    addReply(c, shared.cone);
 }
 
 void incrDecrCommand(client *c, long long incr) {
