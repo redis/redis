@@ -1499,7 +1499,7 @@ static void freeClientDeferredObject(client *c, int type, void *ptr) {
     } else if (type == DEFERRED_OBJECT_TYPE_ROBJ) {
         decrRefCount(ptr);
     } else {
-        serverPanic("Unknown deferred object type");
+        serverPanic("Unknown deferred object type: %d", type);
     }
 }
 
@@ -1514,8 +1514,9 @@ void tryDeferFreeClientObject(client *c, int type, void *ptr) {
 
     /* Put the object in the deferred objects array. */
     if (c->deferred_objects && c->deferred_objects_num < CLIENT_MAX_DEFERRED_OBJECTS) {
-        c->deferred_objects[c->deferred_objects_num++].type = type;
-        c->deferred_objects[c->deferred_objects_num++].ptr = ptr;
+        c->deferred_objects[c->deferred_objects_num].type = type;
+        c->deferred_objects[c->deferred_objects_num].ptr = ptr;
+        c->deferred_objects_num++;
     } else {
         freeClientDeferredObject(c, type, ptr);
     }
