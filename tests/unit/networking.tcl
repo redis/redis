@@ -377,11 +377,11 @@ start_server {tags {"timeout external:skip"}} {
 }
 
 test {Pending command pool expansion and shrinking} {
-    start_server {overrides {loglevel debug}} {
+    start_server {overrides {loglevel debug} tags {external:skip}} {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
         
-        # Client1 sends 16 commands in pipeline, ans was blocked at the first command
+        # Client1 sends 16 commands in pipeline, and was blocked at the first command
         set buf ""
         append buf "blpop mylist 0\r\n"
         for {set i 1} {$i < 16} {incr i} {
