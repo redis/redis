@@ -563,10 +563,10 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
 
     if (server.io_threads_num > 1 && old->encoding == OBJ_ENCODING_RAW) {
         /* In multi-threaded mode, the OBJ_ENCODING_RAW string object usually is
-        * allocated in the IO thread, so we defer the free to the IO thread.
-        * Besides, we never free a string object in BIO threads, so, even with
-        * lazyfree-lazy-server-del enabled, a fallback to main thread freeing
-        * due to defer free failure doesn't go against the config intention. */
+         * allocated in the IO thread, so we defer the free to the IO thread.
+         * Besides, we never free a string object in BIO threads, so, even with
+         * lazyfree-lazy-server-del enabled, a fallback to main thread freeing
+         * due to defer free failure doesn't go against the config intention. */
         tryDeferFreeClientObject(server.current_client, DEFERRED_OBJECT_TYPE_ROBJ, old);
     } else if (server.lazyfree_lazy_server_del) {
         freeObjAsync(key, old, db->id);
