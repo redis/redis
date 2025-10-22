@@ -242,6 +242,7 @@ typedef struct {
     int unit;
     int expire_pos;  /* Position of EX/PX flag for replication rewriting */
     robj *expire;
+    robj *match_value; /* For IFEQ/IFNE/IFDEQ/IFDNE conditions */
     int kv_count;    /* Only used by MSETEX */
     int kv_start;    /* Only used by MSETEX */
 } extendedStringArgs;
@@ -271,6 +272,17 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
     args->unit = UNIT_SECONDS;
 
     int j = start_pos;
+   /* We can have either none or exactly one of these conditionals as they are
+     * mutually exclusive. We'll make sure to check if none of the other flags
+     * are already set if we are going to set one of them. This is done via the
+     * check:
+     *
+     * if (opt == OBJ_SET_XXX && !(*flags & (cond_mut_excl & ~OBJ_SET_XXX)))
+     *
+     * A bit ugly - but concise.
+     */
+    int cond_mut_excl = OBJ_SET_NX | OBJ_SET_XX | OBJ_SET_IFEQ | OBJ_SET_IFNE |
+                        OBJ_SET_IFDEQ | OBJ_SET_IFDNE;
     for (; j < c->argc; j++) {
         char *opt = c->argv[j]->ptr;
         robj *next = (j == c->argc-1) ? NULL : c->argv[j+1];
@@ -366,32 +378,32 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
             args->expire = next;
             j++;
         } else if (!strcasecmp(opt, "ifeq") && next &&
-                   !(*flags & (cond_mut_excl & ~OBJ_SET_IFEQ)) &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFEQ)) &&
                    (command_type == COMMAND_SET))
         {
-            *flags |= OBJ_SET_IFEQ;
-            *match_value = next;
+            args->flags |= OBJ_SET_IFEQ;
+            args->match_value = next;
             j++;
         } else if (!strcasecmp(opt, "ifne") && next &&
-                   !(*flags & (cond_mut_excl & ~OBJ_SET_IFNE)) &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFNE)) &&
                    (command_type == COMMAND_SET))
         {
-            *flags |= OBJ_SET_IFNE;
-            *match_value = next;
+            args->flags |= OBJ_SET_IFNE;
+            args->match_value = next;
             j++;
         } else if (!strcasecmp(opt, "ifdeq") && next &&
-                   !(*flags & (cond_mut_excl & ~OBJ_SET_IFDEQ)) &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDEQ)) &&
                    (command_type == COMMAND_SET))
         {
-            *flags |= OBJ_SET_IFDEQ;
-            *match_value = next;
+            args->flags |= OBJ_SET_IFDEQ;
+            args->match_value = next;
             j++;
         } else if (!strcasecmp(opt, "ifdne") && next &&
-                   !(*flags & (cond_mut_excl & ~OBJ_SET_IFDNE)) &&
+                   !(args->flags & (cond_mut_excl & ~OBJ_SET_IFDNE)) &&
                    (command_type == COMMAND_SET))
         {
-            *flags |= OBJ_SET_IFDNE;
-            *match_value = next;
+            args->flags |= OBJ_SET_IFDNE;
+            args->match_value = next;
             j++;
         } else {
             addReplyErrorObject(c,shared.syntaxerr);
@@ -413,7 +425,7 @@ void setCommand(client *c) {
     }
 
     c->argv[2] = tryObjectEncoding(c->argv[2]);
-    setGenericCommand(c, args.flags, c->argv[1], &(c->argv[2]), args.expire, args.unit, NULL, NULL);
+    setGenericCommand(c, args.flags, c->argv[1], &(c->argv[2]), args.expire, args.unit, args.match_value, NULL, NULL);
 }
 
 void setnxCommand(client *c) {
