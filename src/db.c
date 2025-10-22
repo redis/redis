@@ -18,6 +18,7 @@
 #include "latency.h"
 #include "script.h"
 #include "functions.h"
+#include "cluster_asm.h"
 #include "redisassert.h"
 
 #include <signal.h>
@@ -395,8 +396,8 @@ int getKeySlot(sds key) {
     return slot;
 }
 
-/* Return the slot of the key in the command. IO threads use this function
- * to calculate slot to reduce main-thread load */
+/* Return the slot of the key in the command.
+ * GETSLOT_NOKEYS if no keys, GETSLOT_CROSSSLOT if cross slot, otherwise the slot number. */
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     int slot = -1;
     if (!cmd || !server.cluster_enabled) return slot;
@@ -404,10 +405,18 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     /* Get the keys from the command */
     getKeysResult result = GETKEYS_RESULT_INIT;
     int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
-    if (numkeys > 0) {
-        /* Get the slot of the first key */
-        robj *first = argv[result.keys[0].pos];
-        slot = keyHashSlot(first->ptr, (int)sdslen(first->ptr));
+    keyReference *keyindex = result.keys;
+
+    /* Get slot of each key and check if they are all the same */
+    for (int j = 0; j < numkeys; j++) {
+        robj *thiskey = argv[keyindex[j].pos];
+        int thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
+        if (slot == GETSLOT_NOKEYS) {
+            slot = thisslot;
+        } else if (slot != thisslot) {
+            slot = GETSLOT_CROSSSLOT; /* Mark as cross slot */
+            break;
+        }
     }
     getKeysFreeResult(&result);
     return slot;
@@ -639,6 +648,18 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         signalModifiedKey(c,db,key);
 }
 
+/* During atomic slot migration, keys that are being imported are in an
+ * intermediate state. we cannot access them and therefore skip them.
+ *
+ * This callback function now is used by:
+ * - dbRandomKey
+ * - keysCommand
+ * - scanCommand
+ */
+static int accessKeysShouldSkipDictIndex(int didx) {
+    return !clusterCanAccessKeysInSlot(didx);
+}
+
 /* Return a random key, in form of a Redis object.
  * If there are no keys, NULL is returned.
  *
@@ -650,7 +671,8 @@ robj *dbRandomKey(redisDb *db) {
 
     while(1) {
         robj *keyobj;
-        int randomSlot = kvstoreGetFairRandomDictIndex(db->keys);
+        int randomSlot = kvstoreGetFairRandomDictIndex(db->keys, accessKeysShouldSkipDictIndex, 16, 1);
+        if (randomSlot == -1) return NULL;
         de = kvstoreDictGetFairRandomKey(db->keys, randomSlot);
         if (de == NULL) return NULL;
 
@@ -864,6 +886,9 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
         return -1;
     }
 
+    if (dbnum == -1 || dbnum == 0)
+        asmCancelTrimJobs();
+
     /* Fire the flushdb modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
                           REDISMODULE_SUBEVENT_FLUSHDB_START,
@@ -872,7 +897,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     /* Make sure the WATCHed keys are affected by the FLUSH* commands.
      * Note that we need to call the function while the keys are still
      * there. */
-    signalFlushedDb(dbnum, async);
+    signalFlushedDb(dbnum, async, NULL);
 
     /* Empty redis database structure. */
     removed = emptyDbStructure(server.db, dbnum, async, callback);
@@ -962,7 +987,7 @@ void signalModifiedKey(client *c, redisDb *db, robj *key) {
     trackingInvalidateKey(c,key,1);
 }
 
-void signalFlushedDb(int dbid, int async) {
+void signalFlushedDb(int dbid, int async, slotRangeArray *slots) {
     int startdb, enddb;
     if (dbid == -1) {
         startdb = 0;
@@ -972,8 +997,8 @@ void signalFlushedDb(int dbid, int async) {
     }
 
     for (int j = startdb; j <= enddb; j++) {
-        scanDatabaseForDeletedKeys(&server.db[j], NULL);
-        touchAllWatchedKeysInDb(&server.db[j], NULL);
+        scanDatabaseForDeletedKeys(&server.db[j], NULL, slots);
+        touchAllWatchedKeysInDb(&server.db[j], NULL, slots);
     }
 
     trackingInvalidateKeysOnFlush(async);
@@ -1039,13 +1064,13 @@ void flushAllDataAndResetRDB(int flags) {
  *
  * Utilized by commands SFLUSH, FLUSHALL and FLUSHDB.
  */
-void flushallSyncBgDone(uint64_t client_id, void *sflush) {
-    SlotsFlush *slotsFlush = sflush;
+void flushallSyncBgDone(uint64_t client_id, void *userdata) {
+    slotRangeArray *slots = userdata;
     client *c = lookupClientByID(client_id);
 
     /* Verify that client still exists and being blocked. */
     if (!(c && c->flags & CLIENT_BLOCKED)) {
-        zfree(sflush);
+        slotRangeArrayFree(slots);
         return;
     }
 
@@ -1056,9 +1081,9 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     /* Don't update blocked_us since command was processed in bg by lazy_free thread */
     updateStatsOnUnblock(c, 0 /*blocked_us*/, elapsedUs(c->bstate.lazyfreeStartTime), 0);
 
-    /* Only SFLUSH command pass pointer to `SlotsFlush` */
-    if (slotsFlush)
-        replySlotsFlushAndFree(c, slotsFlush);
+    /* Only SFLUSH command pass user data pointer. */
+    if (slots)
+        replySlotsFlushAndFree(c, slots);
     else
         addReply(c, shared.ok);
 
@@ -1080,16 +1105,16 @@ void flushallSyncBgDone(uint64_t client_id, void *sflush) {
     server.current_client = old_client;
 }
 
-/* Common flush command implementation for FLUSHALL and FLUSHDB.
+/* Common flush command implementation for FLUSHALL, FLUSHDB and SFLUSH.
  *
  * Return 1 indicates that flush SYNC is actually running in bg as blocking ASYNC
  * Return 0 otherwise
  *
- * sflush - provided only by SFLUSH command, otherwise NULL. Will be used on 
- *          completion to reply with the slots flush result. Ownership is passed
- *          to the completion job in case of `blocking_async`.
+ * slots - provided only by SFLUSH command, otherwise NULL. Will be used on
+ *         completion to reply with the slots flush result. Ownership is passed
+ *         to the completion job in case of `blocking_async`.
  */
-int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
+int flushCommandCommon(client *c, int type, int flags, slotRangeArray *slots) {
     int blocking_async = 0; /* Flush SYNC option to run as blocking ASYNC */
 
     /* in case of SYNC, check if we can optimize and run it in bg as blocking ASYNC */
@@ -1098,6 +1123,9 @@ int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
         flags |= EMPTYDB_ASYNC;
         blocking_async = 1;
     }
+
+    /* Cancel all ASM tasks that overlap with the given slot ranges. */
+    clusterAsmCancelBySlotRangeArray(slots, c->argv[0]->ptr);
 
     if (type == FLUSH_TYPE_ALL)
         flushAllDataAndResetRDB(flags | EMPTYDB_NOFUNCTIONS);
@@ -1121,7 +1149,7 @@ int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush) {
          * avoid command from being reset during unblock. */
         c->flags |= CLIENT_PENDING_COMMAND;
         blockClient(c,BLOCKED_LAZYFREE);
-        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, sflush);
+        bioCreateCompRq(BIO_WORKER_LAZY_FREE, flushallSyncBgDone, c->id, slots);
     }
 
 #if defined(USE_JEMALLOC)
@@ -1191,6 +1219,94 @@ void delCommand(client *c) {
     delGenericCommand(c,server.lazyfree_lazy_user_del);
 }
 
+/* DELEX key [IFEQ match-value|IFNE match-value|IFDEQ match-digest|IFDNE match-digest]
+ *
+ * Conditionally removes the specified key. A key is ignored if it does not
+ * exist.
+ * If no condition is specified the behavior is the same as DEL command.
+ * If condition is specified the key must be of STRING type.
+ *
+ * IFEQ/IFNE conditions check the match-value against the value of the key
+ * IFDEQ/IFDNE conditions check the match-digest against the digest of the key's value.*/
+void delexCommand(client *c) {
+    kvobj *o;
+    int deleted = 0, should_delete = 0;
+
+    robj *key = c->argv[1];
+    o = lookupKeyRead(c->db, key);
+    if (o == NULL) {
+        addReplyLongLong(c, 0);
+        return;
+    }
+
+    /* If there are no conditions specified we just delete the key */
+    if (c->argc == 2) {
+        delGenericCommand(c, server.lazyfree_lazy_server_del);
+        return;
+    }
+
+    /* If any conditions are specified the only supported key type for now is
+     * string */
+    if (o->type != OBJ_STRING) {
+        addReplyError(c, "Key should be of string type if conditions are specified");
+        return;
+    }
+
+    /* If we have more than two arguments the next two are condition and
+     * match-value */
+    if (c->argc != 4) {
+        addReplyErrorArity(c);
+        return;
+    }
+
+    char *condition = c->argv[2]->ptr;
+    if (!strcasecmp("ifeq", condition)) {
+        robj *valueobj = getDecodedObject(o);
+        sds match_value = c->argv[3]->ptr;
+        if (sdscmp(valueobj->ptr, match_value) == 0)
+            should_delete = 1;
+
+        decrRefCount(valueobj);
+    } else if (!strcasecmp("ifne", condition)) {
+        robj *valueobj = getDecodedObject(o);
+        sds match_value = c->argv[3]->ptr;
+        if (sdscmp(valueobj->ptr, match_value) != 0)
+           should_delete = 1;
+
+        decrRefCount(valueobj);
+    } else if (!strcasecmp("ifdeq", condition)) {
+        sds current_digest = stringDigest(o);
+        if (sdscmp(current_digest, c->argv[3]->ptr) == 0)
+            should_delete = 1;
+
+        sdsfree(current_digest);
+    } else if (!strcasecmp("ifdne", condition)) {
+        sds current_digest = stringDigest(o);
+        if (sdscmp(current_digest, c->argv[3]->ptr) != 0)
+            should_delete = 1;
+
+        sdsfree(current_digest);
+    } else {
+        addReplyError(c, "Invalid condition. Use IFEQ, IFNE, IFDEQ, or IFDNE");
+        return;
+    }
+
+    if (should_delete) {
+        deleted = server.lazyfree_lazy_server_del ?
+                  dbAsyncDelete(c->db, key) :
+                  dbSyncDelete(c->db, key);
+    }
+
+    if (deleted) {
+        rewriteClientCommandVector(c, 2, shared.del, key);
+        signalModifiedKey(c, c->db, key);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
+        server.dirty++;
+    }
+
+    addReplyLongLong(c, deleted);
+}
+
 void unlinkCommand(client *c) {
     delGenericCommand(c,1);
 }
@@ -1254,7 +1370,7 @@ void keysCommand(client *c) {
     kvstoreDictIterator *kvs_di = NULL;
     kvstoreIterator *kvs_it = NULL;
     if (pslot != -1) {
-        if (!kvstoreDictSize(c->db->keys, pslot)) {
+        if (!kvstoreDictSize(c->db->keys, pslot) || accessKeysShouldSkipDictIndex(pslot)) {
             /* Requested slot is empty */
             setDeferredArrayLen(c,replylen,0);
             return;
@@ -1265,6 +1381,10 @@ void keysCommand(client *c) {
     }
 
     while ((de = kvs_di ? kvstoreDictIteratorNext(kvs_di) : kvstoreIteratorNext(kvs_it)) != NULL) {
+        if (kvs_it && accessKeysShouldSkipDictIndex(kvstoreIteratorGetCurrentDictIndex(kvs_it))) {
+            continue;
+        }
+
         kvobj *kv = dictGetKV(de);
         sds key = kvobjGetKey(kv);
 
@@ -1434,6 +1554,11 @@ char *getObjectTypeName(robj *o) {
     }
 }
 
+static int scanShouldSkipDict(dict *d, int didx) {
+    UNUSED(d);
+    return accessKeysShouldSkipDictIndex(didx);
+}
+
 /* This command implements SCAN, HSCAN and SSCAN commands.
  * If object 'o' is passed, then it must be a Hash, Set or Zset object, otherwise
  * if 'o' is NULL the command will operate on the dictionary associated with
@@ -1589,7 +1714,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             /* In cluster mode there is a separate dictionary for each slot.
              * If cursor is empty, we should try exploring next non-empty slot. */
             if (o == NULL) {
-                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, scanCallback, NULL, &data);
+                cursor = kvstoreScan(c->db->keys, cursor, onlydidx, scanCallback, scanShouldSkipDict, &data);
             } else {
                 cursor = dictScan(ht, cursor, scanCallback, &data);
             }
@@ -1761,7 +1886,7 @@ void scanCommand(client *c) {
 }
 
 void dbsizeCommand(client *c) {
-    addReplyLongLong(c,kvstoreSize(c->db->keys));
+    addReplyLongLong(c,dbSize(c->db));
 }
 
 void lastsaveCommand(client *c) {
@@ -2127,16 +2252,20 @@ void scanDatabaseForReadyKeys(redisDb *db) {
     dictResetIterator(&di);
 }
 
-/* Since we are unblocking XREADGROUP clients in the event the
- * key was deleted/overwritten we must do the same in case the
- * database was flushed/swapped. */
-void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with) {
+/* Since we are unblocking XREADGROUP clients in the event the key was
+ * deleted/overwritten we must do the same in case the database was
+ * flushed/swapped. If 'slots' is not NULL, only keys in the specified slot
+ * range are considered. */
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, slotRangeArray *slots) {
     dictEntry *de;
     dictIterator di;
 
     dictInitSafeIterator(&di, emptied->blocking_keys);
     while((de = dictNext(&di)) != NULL) {
         robj *key = dictGetKey(de);
+        /* Check if key belongs to the slot range. */
+        if (slots && !slotRangeArrayContains(slots, keyHashSlot(key->ptr, sdslen(key->ptr))))
+            continue;
         int existed = 0, exists = 0;
         int original_type = -1, curr_type = -1;
 
@@ -2177,12 +2306,12 @@ int dbSwapDatabases(int id1, int id2) {
 
     /* Swapdb should make transaction fail if there is any
      * client watching keys */
-    touchAllWatchedKeysInDb(db1, db2);
-    touchAllWatchedKeysInDb(db2, db1);
+    touchAllWatchedKeysInDb(db1, db2, NULL);
+    touchAllWatchedKeysInDb(db2, db1, NULL);
 
     /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-    scanDatabaseForDeletedKeys(db1, db2);
-    scanDatabaseForDeletedKeys(db2, db1);
+    scanDatabaseForDeletedKeys(db1, db2, NULL);
+    scanDatabaseForDeletedKeys(db2, db1, NULL);
 
     /* Swap hash tables. Note that we don't swap blocking_keys,
      * ready_keys and watched_keys, since we want clients to
@@ -2223,10 +2352,10 @@ void swapMainDbWithTempDb(redisDb *tempDb) {
 
         /* Swapping databases should make transaction fail if there is any
          * client watching keys. */
-        touchAllWatchedKeysInDb(activedb, newdb);
+        touchAllWatchedKeysInDb(activedb, newdb, NULL);
 
         /* Try to unblock any XREADGROUP clients if the key no longer exists. */
-        scanDatabaseForDeletedKeys(activedb, newdb);
+        scanDatabaseForDeletedKeys(activedb, newdb, NULL);
 
         /* Swap hash tables. Note that we don't swap blocking_keys,
          * ready_keys and watched_keys, since clients 
@@ -2544,6 +2673,12 @@ int confAllowsExpireDel(void) {
  */
 keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
+
+    /* NOTE: Keys in slots scheduled for trimming can still exist for a while.
+     * If a module touches one of these keys, we remove it right away and
+     * return KEY_DELETED. */
+    if (asmActiveTrimDelIfNeeded(db, key, kv)) return KEY_DELETED;
+
     if ((flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
         return KEY_VALID;
@@ -2555,15 +2690,20 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
      * exception is when write operations are performed on writable
      * replicas.
      *
+     * In cluster mode, we also return ASAP if we are importing data
+     * from the source, to avoid deleting keys that are still in use.
+     * We create a fake master client for data import, which can be
+     * identified using the CLIENT_MASTER flag.
+     *
      * Still we try to return the right information to the caller,
      * that is, KEY_VALID if we think the key should still be valid,
      * KEY_EXPIRED if we think the key is expired but don't want to delete it at this time.
      *
      * When replicating commands from the master, keys are never considered
      * expired. */
-    if (server.masterhost != NULL) {
+    if (server.masterhost != NULL || server.cluster_enabled) {
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) return KEY_VALID;
-        if (!(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
+        if (server.masterhost != NULL && !(flags & EXPIRE_FORCE_DELETE_EXPIRED)) return KEY_EXPIRED;
     }
 
     /* Check if user configuration disables lazy-expire deletions in current state.
@@ -2668,11 +2808,34 @@ kvobj *dbFindExpires(redisDb *db, sds key) {
 }
 
 unsigned long long dbSize(redisDb *db) {
-    return kvstoreSize(db->keys);
+    unsigned long long total = kvstoreSize(db->keys);
+
+    if (server.cluster_enabled) {
+        /* If we are the master and there is no import or trim in progress,
+         * then we can return the total count. If not, we need to subtract
+         * the number of keys in slots that are not accessible, as below. */
+        if (clusterNodeIsMaster(getMyClusterNode()) &&
+            !asmImportInProgress() &&
+            !asmIsTrimInProgress())
+        {
+            return total;
+        }
+
+        /* Besides, we don't know the slot migration states on replicas, so we
+         * need to check each slot to see if it's accessible. */
+        for (int i = 0; i < CLUSTER_SLOTS; i++) {
+            dict *d = kvstoreGetDict(db->keys, i);
+            if (d && !clusterCanAccessKeysInSlot(i)) {
+                total -= kvstoreDictSize(db->keys, i);
+            }
+        }
+    }
+
+    return total;
 }
 
 unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata) {
-    return kvstoreScan(db->keys, cursor, -1, scan_cb, NULL, privdata);
+    return kvstoreScan(db->keys, cursor, -1, scan_cb, scanShouldSkipDict, privdata);
 }
 
 /* -----------------------------------------------------------------------------

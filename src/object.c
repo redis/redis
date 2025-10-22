@@ -14,6 +14,7 @@
 #include "server.h"
 #include "functions.h"
 #include "intset.h"  /* Compact integer set structure */
+#include "cluster_asm.h"
 #include <math.h>
 #include <ctype.h>
 
@@ -1469,6 +1470,12 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
     mh->script_vm = evalScriptsMemoryVM();
     mh->script_vm += functionsMemoryVM();
     mem_total+=mh->script_vm;
+
+    /* Cluster atomic slot migration buffers. */
+    mh->asm_import_input_buffer = asmGetImportInputBufferSize();
+    mh->asm_migrate_output_buffer = asmGetMigrateOutputBufferSize();
+    mem_total += mh->asm_import_input_buffer;
+    mem_total += mh->asm_migrate_output_buffer;
 
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;

@@ -23,6 +23,7 @@
 #include "cluster.h"
 #include "threads_mngr.h"
 #include "script.h"
+#include "cluster_asm.h"
 
 #include <arpa/inet.h>
 #include <signal.h>
@@ -503,6 +504,12 @@ void debugCommand(client *c) {
 "    Output SHA and content of all scripts or of a specific script with its SHA.",
 "MARK-INTERNAL-CLIENT [UNMARK]",
 "    Promote the current connection to an internal connection.",
+"ASM-FAILPOINT <channel> <state>",
+"    Set a fail point for the specified channel and state for cluster atomic slot migration.",
+"ASM-TRIM-METHOD <default|none|active|bg> <active-trim-delay> ",
+"    Disable trimming or force active/background trimming for cluster atomic slot migration.",
+"    Active trim delay is used only when method is 'active'. If it is negative,",
+"    active trim is disabled.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1107,6 +1114,19 @@ NULL
         } else {
             addReplySubcommandSyntaxError(c);
             return;
+        }
+    } else if(!strcasecmp(c->argv[1]->ptr,"asm-failpoint") && c->argc == 4) {
+        if (asmDebugSetFailPoint(c->argv[2]->ptr, c->argv[3]->ptr) != C_OK) {
+            addReplyError(c, "Failed to set ASM fail point");
+        } else {
+            addReply(c, shared.ok);
+        }
+    } else if(!strcasecmp(c->argv[1]->ptr,"asm-trim-method") && c->argc >= 3) {
+        int delay = c->argc == 4 ? atoi(c->argv[3]->ptr) : 0;
+        if (asmDebugSetTrimMethod(c->argv[2]->ptr, delay) != C_OK) {
+            addReplyError(c, "Failed to set ASM trim method");
+        } else {
+            addReply(c, shared.ok);
         }
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);

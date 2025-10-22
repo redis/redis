@@ -385,7 +385,7 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
 
     dict *d = kvstoreGetDict(kvs, didx);
 
-    int skip = !d || (skip_cb && skip_cb(d));
+    int skip = !d || (skip_cb && skip_cb(d, didx));
     if (!skip) {
         _cursor = dictScan(d, cursor, scan_cb, privdata);
         /* In dictScan, scan_cb may delete entries (e.g., in active expire case). */
@@ -427,12 +427,56 @@ int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandS
     return 1;
 }
 
-/* Returns fair random dict index, probability of each dict being returned is proportional to the number of elements that dictionary holds.
- * This function guarantees that it returns a dict-index of a non-empty dict, unless the entire kvstore is empty.
- * Time complexity of this function is O(log(kvs->num_dicts)). */
-int kvstoreGetFairRandomDictIndex(kvstore *kvs) {
-    unsigned long target = kvstoreSize(kvs) ? (randomULong() % kvstoreSize(kvs)) + 1 : 0;
-    return kvstoreFindDictIndexByKeyIndex(kvs, target);
+/* Returns fair random dict index, probability of each dict being returned is
+ * proportional to the number of elements that dictionary holds.
+ * This function guarantees that it returns a dict-index of a non-empty dict,
+ * unless the entire kvstore is empty or all dicts are skipped.
+ *
+ * Parameters:
+ * - kvs: the kvstore instance
+ * - skip_cb: callback to determine if a dict should be skipped (NULL means no skipping)
+ * - fair_attempts: number of fair selection attempts before falling back
+ * - slow_fallback: if 1, uses systematic search when fair attempts fail
+ *
+ * Returns:
+ * - Valid dict index (>= 0) on success
+ * - -1 if no valid dict found (either slow_fallback is 0 or all dicts are skipped)
+ *
+ * Time complexity: O(fair_attempts * log(kvs->num_dicts)) for fair attempts,
+ * plus O(kvs->num_dicts) for systematic fallback if enabled.
+ */
+int kvstoreGetFairRandomDictIndex(kvstore *kvs, kvstoreRandomShouldSkipDictIndex *skip_cb,
+                                  int fair_attempts, int slow_fallback)
+{
+    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
+        return 0;
+
+    unsigned long long total_size = kvstoreSize(kvs);
+
+    /* Try fair attempts first. If skip_cb is not applicable, execute only once. */
+    for (int attempt = 0; attempt < fair_attempts; attempt++) {
+        unsigned long target = (randomULong() % total_size) + 1;
+        int didx = kvstoreFindDictIndexByKeyIndex(kvs, target);
+        if (!skip_cb || !skip_cb(didx)) {
+            return didx;
+        }
+    }
+
+    /* If fair attempts failed and slow fallback is allowed */
+    if (slow_fallback) {
+        /* systematic check from random start */
+        int start = randomULong() % kvs->num_dicts;
+        for (int i = 0; i < kvs->num_dicts; i++) {
+            int didx = (start + i) % kvs->num_dicts;
+            dict *d = kvstoreGetDict(kvs, didx);
+            if (d && (!skip_cb || !skip_cb(didx))) {
+                return didx;
+            }
+        }
+    }
+
+    /* Failed to find valid dict that has elements */
+    return -1;
 }
 
 void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full) {
@@ -533,6 +577,37 @@ int kvstoreNumAllocatedDicts(kvstore *kvs) {
 
 int kvstoreNumDicts(kvstore *kvs) {
     return kvs->num_dicts;
+}
+
+/* Move dict from one kvstore to another. */
+void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
+    serverAssert(kvs->num_dicts > didx);
+    serverAssert(kvs->num_dicts == dst->num_dicts);
+    serverAssert(dst->dicts[didx] == NULL);
+
+    dict *d = kvs->dicts[didx];
+    if (d == NULL) return;
+
+    /* Adjust source kvstore */
+    kvs->allocated_dicts -= 1;
+    cumulativeKeyCountAdd(kvs, didx, -((long long)dictSize(d)));
+    kvstoreDictBucketChanged(d, -((long long) dictBuckets(d)));
+    /* If rehashing, stop it. */
+    if (dictIsRehashing(d))
+        kvstoreDictRehashingCompleted(d);
+    /* Clear dict from source kvstore and create a new one if needed */
+    kvs->dicts[didx] = NULL;
+    if (!(kvs->flags & (KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS)))
+        createDictIfNeeded(kvs, didx);
+
+    /* Move dict to destination kvstore */
+    dst->dicts[didx] = d;
+    dst->dicts[didx]->type = &dst->dtype;
+    dst->allocated_dicts += 1;
+    cumulativeKeyCountAdd(dst, didx, dictSize(d));
+    kvstoreDictBucketChanged(d, dictBuckets(d));
+    if (dictIsRehashing(dst->dicts[didx]))
+        kvstoreDictRehashingStarted(dst->dicts[didx]);
 }
 
 /* Returns kvstore iterator that can be used to iterate through sub-dictionaries.
@@ -733,7 +808,7 @@ unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, uns
 
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size)
 {
-    dict *d = kvstoreGetDict(kvs, didx);
+    dict *d = createDictIfNeeded(kvs, didx);
     if (!d)
         return DICT_ERR;
     return dictExpand(d, size);

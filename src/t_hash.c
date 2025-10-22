@@ -10,6 +10,7 @@
 #include "server.h"
 #include "redisassert.h"
 #include "ebuckets.h"
+#include "cluster_asm.h"
 #include <math.h>
 
 /* Threshold for HEXPIRE and HPERSIST to be considered whether it is worth to
@@ -745,13 +746,18 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
         return GETF_OK;
 
-    if (server.masterhost) {
-        /* If CLIENT_MASTER, assume valid as long as it didn't get delete */
+    if (server.masterhost || server.cluster_enabled) {
+        /* If CLIENT_MASTER, assume valid as long as it didn't get delete.
+         *
+         * In cluster mode, we also assume valid if we are importing data
+         * from the source, to avoid deleting fields that are still in use.
+         * We create a fake master client for data import, which can be
+         * identified using the CLIENT_MASTER flag. */
         if (server.current_client && (server.current_client->flags & CLIENT_MASTER))
             return GETF_OK;
 
-        /* If user client, then act as if expired, but don't delete! */
-        return GETF_EXPIRED;
+        /* For replica, if user client, then act as if expired, but don't delete! */
+        if (server.masterhost) return GETF_EXPIRED;
     }
 
     if ((server.loading) ||
@@ -1866,6 +1872,10 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
 }
 
 /* Delete all expired fields in hash if needed (Currently used only by HRANDFIELD)
+ *
+ * NOTICE: If we call this function in other places, we should consider the slot
+ * migration scenario, where we don't want to delete expired fields. See also
+ * expireIfNeeded().
  *
  * Return 1 if the entire hash was deleted, 0 otherwise.
  * This function might be pricy in case there are many expired fields.

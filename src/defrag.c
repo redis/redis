@@ -876,7 +876,8 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
     nack->cgroup_ref_node->value = ctx->cg; /* Update the value of cgroups_ref node to the consumer group. */
     newnack = activeDefragAlloc(nack);
     if (newnack) {
-        /* update consumer group pointer to the nack */
+        /* Update consumer group pointer to the nack.
+         * pel_by_time doesn't need updating since delivery time is unchanged. */
         void *prev;
         raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
         serverAssert(prev==nack);

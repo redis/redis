@@ -64,6 +64,12 @@
                 "optional": true
             },
             {
+                "token": "CLAIM",
+                "name": "min-idle-time",
+                "type": "integer",
+                "optional": true
+            },
+            {
                 "name": "noack",
                 "token": "NOACK",
                 "type": "pure-token",
@@ -101,26 +107,66 @@
                         "description": "The entries reported for that key",
                         "type": "array",
                         "items": {
-                            "type": "array",
-                            "minItems": 2,
-                            "maxItems": 2,
-                            "items": [
+                            "oneOf": [
                                 {
-                                    "description": "Stream id",
-                                    "type": "string",
-                                    "pattern": "[0-9]+-[0-9]+"
-                                },
-                                {
-                                    "oneOf": [
+                                    "description": "Entry without CLAIM option",
+                                    "type": "array",
+                                    "minItems": 2,
+                                    "maxItems": 2,
+                                    "items": [
                                         {
-                                            "description": "Array of field-value pairs",
-                                            "type": "array",
-                                            "items": {
-                                                "type": "string"
-                                            }
+                                            "description": "Stream id",
+                                            "type": "string",
+                                            "pattern": "[0-9]+-[0-9]+"
                                         },
                                         {
-                                            "type": "null"
+                                            "oneOf": [
+                                                {
+                                                    "description": "Array of field-value pairs",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        }
+                                    ]
+                                },
+                                {
+                                    "description": "Entry with CLAIM option - includes elapsed milliseconds and delivery count",
+                                    "type": "array",
+                                    "minItems": 4,
+                                    "maxItems": 4,
+                                    "items": [
+                                        {
+                                            "description": "Stream id",
+                                            "type": "string",
+                                            "pattern": "[0-9]+-[0-9]+"
+                                        },
+                                        {
+                                            "oneOf": [
+                                                {
+                                                    "description": "Array of field-value pairs",
+                                                    "type": "array",
+                                                    "items": {
+                                                        "type": "string"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "description": "Milliseconds elapsed since last delivery",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "description": "Delivery count (0 for new messages, 1+ for claimed messages)",
+                                            "type": "string"
                                         }
                                     ]
                                 }

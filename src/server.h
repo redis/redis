@@ -434,6 +434,8 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
 #define CLIENT_REEXECUTING_COMMAND (1ULL<<50) /* The client is re-executing the command. */
 #define CLIENT_REPL_RDB_CHANNEL (1ULL<<51)      /* Client which is used for rdb delivery as part of rdb channel replication */
 #define CLIENT_INTERNAL (1ULL<<52) /* Internal client connection */
+#define CLIENT_ASM_MIGRATING (1ULL<<53) /* Client is migrating RDB/stream data during atomic slot migration. */
+#define CLIENT_ASM_IMPORTING (1ULL<<54) /* Client is importing RDB/stream data during atomic slot migration. */
 #define CLIENT_IN_MEMORY_PREFETCH (1ULL<<53) /* The client is in the prefetching batch to avoid nested prefetch. */
 
 /* Any flag that does not let optimize FLUSH SYNC to run it in bg as blocking client ASYNC */
@@ -480,6 +482,7 @@ typedef enum blocking_type {
     BLOCKED_STREAM,  /* XREAD. */
     BLOCKED_ZSET,    /* BZPOP et al. */
     BLOCKED_POSTPONE, /* Blocked by processCommand, re-try processing later. */
+    BLOCKED_POSTPONE_TRIM, /* Master client is blocked due to an active trim job. */
     BLOCKED_SHUTDOWN, /* SHUTDOWN. */
     BLOCKED_LAZYFREE, /* LAZYFREE */
     BLOCKED_NUM,      /* Number of blocked states. */
@@ -576,9 +579,10 @@ typedef enum {
 #define SLAVE_REQ_NONE                  0
 #define SLAVE_REQ_RDB_EXCLUDE_DATA      (1 << 0) /* Exclude data from RDB */
 #define SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS (1 << 1) /* Exclude functions from RDB */
-#define SLAVE_REQ_RDB_CHANNEL           (1 << 2) /* Use rdb channel replication, transfer RDB background */
+#define SLAVE_REQ_SLOTS_SNAPSHOT        (1 << 2) /* Only slots snapshot is required */
+#define SLAVE_REQ_RDB_CHANNEL           (1 << 3) /* Use rdb channel replication, transfer RDB background */
 /* Mask of all bits in the slave requirements bitfield that represent non-standard (filtered) RDB requirements */
-#define SLAVE_REQ_RDB_MASK (SLAVE_REQ_RDB_EXCLUDE_DATA | SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS)
+#define SLAVE_REQ_RDB_MASK (SLAVE_REQ_RDB_EXCLUDE_DATA | SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS | SLAVE_REQ_SLOTS_SNAPSHOT)
 
 /* Synchronous read timeout - slave side */
 #define CONFIG_REPL_SYNCIO_TIMEOUT 5
@@ -726,6 +730,7 @@ typedef enum {
     PAUSE_BY_CLIENT_COMMAND = 0,
     PAUSE_DURING_SHUTDOWN,
     PAUSE_DURING_FAILOVER,
+    PAUSE_DURING_SLOT_HANDOFF,
     NUM_PAUSE_PURPOSES /* This value is the number of purposes above. */
 } pause_purpose;
 
@@ -765,6 +770,7 @@ typedef enum {
 #define NOTIFY_NEW (1<<14)        /* n, new key notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_OVERWRITTEN (1<<15)   /* o, key overwrite notification (Note: excluded from NOTIFY_ALL) */
 #define NOTIFY_TYPE_CHANGED (1<<16) /* c, key type changed notification (Note: excluded from NOTIFY_ALL) */
+#define NOTIFY_KEY_TRIMMED (1<<17)     /* module only key space notification, indicates a key trimmed during slot migration */
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE) /* A flag */
 
 /* Using the following macro you can run code inside serverCron() with the
@@ -847,6 +853,7 @@ struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
 struct clusterState;
 struct clusterSlotStat;
+struct slotRangeArray;
 
 /* Each module type implementation should export a set of methods in order
  * to serialize and deserialize the value in the RDB file, rewrite the AOF
@@ -1125,6 +1132,7 @@ typedef struct redisDb {
     dict *blocking_keys_unblock_on_nokey;   /* Keys with clients waiting for
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
                                              * This is a subset of blocking_keys*/
+    dict *stream_claim_pending_keys; /* Keys with clients waiting to claim pending entries */
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
@@ -1491,6 +1499,8 @@ typedef struct client {
     unsigned long long net_input_bytes;    /* Total network input bytes read from this client. */
     unsigned long long net_output_bytes;   /* Total network output bytes sent to this client. */
     unsigned long long commands_processed; /* Total count of commands this client executed. */
+    struct asmTask *task;       /* Atomic slot migration task */
+    char *node_id;              /* Node ID to connect to for atomic slot migration */
 } client;
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
@@ -1507,6 +1517,15 @@ typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
     list *pending_clients_to_main_thread;       /* Clients that are waiting to be executed by the main thread. */
     list *clients;                              /* IO thread managed clients. */
 } IOThread;
+
+/* Context for streaming replDataBuf to database */
+typedef struct replDataBufToDbCtx {
+    void *privdata;                     /* Private data of context */
+    client *client;                     /* Client to process commands */
+    size_t applied_offset;              /* Offset applied to the database */
+    int  (*should_continue)(void *ctx); /* Check if we should continue */
+    void (*yield_callback)(void *ctx);  /* Yield to the event loop */
+} replDataBufToDbCtx;
 
 /* ACL information */
 typedef struct aclInfo {
@@ -1652,6 +1671,8 @@ struct redisMemOverhead {
     size_t overhead_db_hashtable_lut;
     size_t overhead_db_hashtable_rehashing;
     unsigned long db_dict_rehashing_count;
+    size_t asm_import_input_buffer;
+    size_t asm_migrate_output_buffer;
     struct {
         size_t dbid;
         size_t overhead_ht_main;
@@ -1983,6 +2004,7 @@ struct redisServer {
     int active_expire_enabled;      /* Can be disabled for testing purposes. */
     int active_expire_effort;       /* From 1 (default) to 10, active effort. */
     int allow_access_expired;       /* If > 0, allow access to logically expired keys */
+    int allow_access_trimmed;       /* If > 0, allow access to logically trimmed keys */
     int active_defrag_enabled;
     int sanitize_dump_payload;      /* Enables deep sanitization for ziplist and listpack in RDB and RESTORE. */
     int skip_checksum_validation;   /* Disable checksum validation for RDB and RESTORE payload. */
@@ -2262,6 +2284,10 @@ struct redisServer {
     mstime_t cluster_node_timeout; /* Cluster node timeout. */
     mstime_t cluster_ping_interval;    /* A debug configuration for setting how often cluster nodes send ping messages. */
     char *cluster_configfile; /* Cluster auto-generated config file name. */
+    long long asm_handoff_max_lag_bytes; /* Maximum lag in bytes before pausing writes for ASM handoff. */
+    long long asm_write_pause_timeout; /* Timeout in milliseconds to pause writes during ASM handoff. */
+    long long asm_sync_buffer_drain_timeout; /* Timeout in milliseconds for sync buffer to drain during ASM. */
+    int asm_max_archived_tasks; /* Maximum number of archived ASM tasks to keep in memory. */
     struct clusterState *cluster;  /* State of the cluster */
     struct clusterSlotStat *cluster_slot_stats; /* Struct used for storing slot statistics, for all slots owned by the current shard. */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
@@ -2850,6 +2876,7 @@ void moduleDefragStart(void);
 void moduleDefragEnd(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
+int moduleHasSubscribersForKeyspaceEvent(int type);
 
 /* pcmd */
 void initPendingCommand(pendingCommand *pcmd);
@@ -2961,6 +2988,7 @@ void rewriteClientCommandArgument(client *c, int i, robj *newval);
 void replaceClientCommandVector(client *c, int argc, robj **argv);
 void redactClientCommandArgument(client *c, int argc);
 size_t getClientOutputBufferMemoryUsage(client *c);
+size_t getNormalClientPendingReplyBytes(client *c);
 size_t getClientMemoryUsage(client *c, size_t *output_buffer_mem_usage);
 int freeClientsInAsyncFreeQueue(void);
 int closeClientOnOutputBufferLimitReached(client *c, int async);
@@ -3015,6 +3043,7 @@ void unbindClientFromIOThreadEventLoop(client *c);
 int processClientsOfAllIOThreads(void);
 int processClientsFromMainThread(IOThread *t);
 void assignClientToIOThread(client *c);
+void keepClientInMainThread(client *c);
 void fetchClientFromIOThread(client *c);
 int isClientMustHandledByMainThread(client *c);
 
@@ -3091,7 +3120,7 @@ void queueMultiCommand(client *c, uint64_t cmd_flags);
 size_t multiStateMemOverhead(client *c);
 void touchWatchedKey(redisDb *db, robj *key);
 int isWatchedKeyExpired(client *c);
-void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with);
+void touchAllWatchedKeysInDb(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
 void discardTransaction(client *c);
 void flagTransaction(client *c);
 void execCommandAbort(client *c, sds error);
@@ -3208,6 +3237,10 @@ void abortFailover(const char *err);
 const char *getFailoverStateString(void);
 int replicationCheckHasMainChannel(client *slave);
 unsigned long replicationLogicalReplicaCount(void);
+void replDataBufInit(replDataBuf *buf);
+void replDataBufClear(replDataBuf *buf);
+void replDataBufReadFromConn(connection *conn, replDataBuf *buf, void (*error_handler)(connection *conn));
+int replDataBufStreamToDb(replDataBuf *buf, replDataBufToDbCtx *ctx);
 
 /* Generic persistence functions */
 void startLoadingFile(size_t size, char* filename, int rdbflags);
@@ -3252,6 +3285,7 @@ int aofDelHistoryFiles(void);
 int aofRewriteLimited(void);
 void updateCurIncrAofEndOffset(void);
 void updateReplOffsetAndResetEndOffset(void);
+int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime);
 
 /* Child info */
 void openChildInfoPipe(void);
@@ -3426,6 +3460,7 @@ int incrCommandStatsOnError(struct redisCommand *cmd, int flags);
 void call(client *c, int flags);
 void alsoPropagate(int dbid, robj **argv, int argc, int target);
 void postExecutionUnitOperations(void);
+int redisOpArrayAppend(redisOpArray *oa, int dbid, robj **argv, int argc, int target);
 void redisOpArrayFree(redisOpArray *oa);
 void forceCommandPropagation(client *c, int flags);
 void preventCommandPropagation(client *c);
@@ -3764,15 +3799,8 @@ kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *kv, dictEntryLi
 #define FLUSH_TYPE_ALL   0
 #define FLUSH_TYPE_DB    1
 #define FLUSH_TYPE_SLOTS 2
-typedef struct SlotRange {
-    unsigned short first, last;
-} SlotRange;
-typedef struct SlotsFlush {
-    int numRanges;
-    SlotRange ranges[];
-} SlotsFlush;
-void replySlotsFlushAndFree(client *c, SlotsFlush *sflush);
-int flushCommandCommon(client *c, int type, int flags, SlotsFlush *sflush);
+void replySlotsFlushAndFree(client *c, struct slotRangeArray *slots);
+int flushCommandCommon(client *c, int type, int flags, struct slotRangeArray *ranges);
 #define EMPTYDB_NO_FLAGS 0      /* No flags. */
 #define EMPTYDB_ASYNC (1<<0)    /* Reclaim memory in another thread. */
 #define EMPTYDB_NOFUNCTIONS (1<<1) /* Indicate not to flush the functions. */
@@ -3786,11 +3814,12 @@ void discardTempDb(redisDb *tempDb);
 
 int selectDb(client *c, int id);
 void signalModifiedKey(client *c, redisDb *db, robj *key);
-void signalFlushedDb(int dbid, int async);
+void signalFlushedDb(int dbid, int async, struct slotRangeArray *slots);
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
 int dbAsyncDelete(redisDb *db, robj *key);
 void emptyDbAsync(redisDb *db);
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires);
 size_t lazyfreeGetPendingObjectsCount(void);
 size_t lazyfreeGetFreedObjectsCount(void);
 void lazyfreeResetStats(void);
@@ -3805,6 +3834,9 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result);
 keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+
+#define GETSLOT_NOKEYS     (-1)
+#define GETSLOT_CROSSSLOT  (-2)
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc);
 int doesCommandHaveKeys(struct redisCommand *cmd);
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -3895,11 +3927,12 @@ void signalKeyAsReady(redisDb *db, robj *key, int type);
 void blockForKeys(client *c, int btype, robj **keys, int numkeys, mstime_t timeout, int unblock_on_nokey);
 void blockClientShutdown(client *c);
 void blockPostponeClient(client *c);
+void blockPostponeClientWithType(client *c, int btype);
 void blockForReplication(client *c, mstime_t timeout, long long offset, long numreplicas);
 void blockForAofFsync(client *c, mstime_t timeout, long long offset, int numlocal, long numreplicas);
 void signalDeletedKeyAsReady(redisDb *db, robj *key, int type);
 void updateStatsOnUnblock(client *c, long blocked_us, long reply_us, int had_errors);
-void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with);
+void scanDatabaseForDeletedKeys(redisDb *emptied, redisDb *replaced_with, struct slotRangeArray *slots);
 void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloking_keys_on_nokey, unsigned long *watched_keys);
 void blockedBeforeSleep(void);
 
@@ -3908,6 +3941,9 @@ void addClientToTimeoutTable(client *c);
 void removeClientFromTimeoutTable(client *c);
 void handleBlockedClientsTimeout(void);
 int clientsCronHandleTimeout(client *c, mstime_t now_ms);
+
+/* t_stream.c -- Handling of stream data structures */
+void handleClaimableStreamEntries(void);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
@@ -3948,6 +3984,9 @@ uint64_t redisBuildId(void);
 const char *redisBuildIdRaw(void);
 char *redisBuildIdString(void);
 
+/* XXH3 hash of a string as hex string */
+sds stringDigest(robj *o);
+
 /* Commands prototypes */
 void authCommand(client *c);
 void pingCommand(client *c);
@@ -3968,6 +4007,7 @@ void getCommand(client *c);
 void getexCommand(client *c);
 void getdelCommand(client *c);
 void delCommand(client *c);
+void delexCommand(client *c);
 void unlinkCommand(client *c);
 void existsCommand(client *c);
 void setbitCommand(client *c);
@@ -4031,6 +4071,7 @@ void sscanCommand(client *c);
 void syncCommand(client *c);
 void flushdbCommand(client *c);
 void flushallCommand(client *c);
+void trimslotsCommand(client *c);
 void sortCommand(client *c);
 void sortroCommand(client *c);
 void lremCommand(client *c);
@@ -4223,6 +4264,7 @@ void lcsCommand(client *c);
 void quitCommand(client *c);
 void resetCommand(client *c);
 void failoverCommand(client *c);
+void digestCommand(client *c);
 
 #if defined(__GNUC__)
 void *calloc(size_t count, size_t size) __attribute__ ((deprecated));

@@ -210,8 +210,13 @@ void emptyDbAsync(redisDb *db) {
     db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
     db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-    atomicIncr(lazyfree_objects, kvstoreSize(oldkeys));
-    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, oldkeys, oldexpires, oldsubexpires);
+    emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires);
+}
+
+/* Empty a Redis DB data asynchronously. */
+void emptyDbDataAsync(kvstore *keys, kvstore *expires, ebuckets hexpires) {
+    atomicIncr(lazyfree_objects, kvstoreSize(keys));
+    bioCreateLazyFreeJob(lazyfreeFreeDatabase, 3, keys, expires, hexpires);
 }
 
 /* Free the key tracking table.

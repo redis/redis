@@ -245,6 +245,10 @@ proc s {args} {
     status [srv $level "client"] [lindex $args 0]
 }
 
+proc S {index field} {
+    getInfoProperty [R $index info] $field
+}
+
 # Get the specified field from the givens instances cluster info output.
 proc CI {index field} {
     getInfoProperty [R $index cluster info] $field

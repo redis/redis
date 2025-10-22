@@ -11,6 +11,7 @@
  */
 
 #include "server.h"
+#include "cluster.h"
 #include "redisassert.h"
 
 /*-----------------------------------------------------------------------------
@@ -125,16 +126,21 @@ void expireScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink
     data->sampled++;
 }
 
-static inline int isExpiryDictValidForSamplingCb(dict *d) {
+static inline int expirySamplingShouldSkipDict(dict *d, int didx) {
     long long numkeys = dictSize(d);
     unsigned long buckets = dictBuckets(d);
     /* When there are less than 1% filled buckets, sampling the key
      * space is expensive, so stop here waiting for better times...
      * The dictionary will be resized asap. */
     if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1)) {
-        return C_ERR;
+        return 1;
     }
-    return C_OK;
+
+    /* During atomic slot migration, keys that are being imported are in an
+     * intermediate state. we cannot expire them and therefore skip them. */
+    if (!clusterCanAccessKeysInSlot(didx)) return 1;
+
+    return 0;
 }
 
 /* SubexpireCtx passed to activeSubexpiresCb() */
@@ -242,6 +248,16 @@ static inline void activeSubexpiresCycle(int type) {
     }
     if (currentSlot == -1)
         currentSlot = estoreGetFirstNonEmptyBucket(db->subexpires);
+
+    /* During atomic slot migration, keys that are being imported are in an
+     * intermediate state. We cannot expire them and therefore skip them. */
+    if (!clusterCanAccessKeysInSlot(currentSlot)) {
+        /* Move to next non-empty subexpires slot */
+        currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
+        if (currentSlot == -1)
+            currentDb = (currentDb + 1) % server.dbnum; /* Move to next db */
+        return;
+    }
 
     /* Maximum number of fields to actively expire on a single call */
     uint32_t maxToExpire = HFE_DB_BASE_ACTIVE_EXPIRE_FIELDS_PER_SEC / server.hz;
@@ -412,7 +428,7 @@ void activeExpireCycle(int type) {
             int origin_ttl_samples = data.ttl_samples;
 
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
+                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, expireScanCallback, expirySamplingShouldSkipDict, &data);
                 if (db->expires_cursor == 0) {
                     db_done = 1;
                     break;
@@ -640,6 +656,7 @@ int checkAlreadyExpired(long long when) {
      *
      * Instead we add the already expired key to the database with expire time
      * (possibly in the past) and wait for an explicit DEL from the master. */
+    if (server.current_client && server.current_client->flags & CLIENT_MASTER) return 0;
     return (when <= commandTimeSnapshot() && !server.loading && !server.masterhost);
 }
 

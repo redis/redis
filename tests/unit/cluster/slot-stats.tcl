@@ -986,3 +986,49 @@ start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 CONFIG RESETSTAT
     R 1 CONFIG RESETSTAT
 }
+
+start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+    test "CLUSTER SLOT-STATS reset upon atomic slot migration" {
+        # key on slot-0
+        set key0 "{06S}mykey0"
+        set key0_slot [R 0 CLUSTER KEYSLOT $key0]
+        R 0 SET $key0 VALUE
+
+        # Migrate slot-0 to node-1
+        R 1 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_condition 1000 10 {
+            [CI 0 cluster_slot_migration_active_tasks] == 0 &&
+            [CI 1 cluster_slot_migration_active_tasks] == 0
+        } else {
+            fail "ASM tasks did not complete"
+        }
+
+        set expected_slot_stats [
+            dict create \
+                $key0_slot [ \
+                    dict create key-count 1 \
+                    dict create cpu-usec 0 \
+                    dict create network-bytes-in 0 \
+                    dict create network-bytes-out 0 \
+                ]
+        ]
+        set metrics_to_assert [list key-count cpu-usec network-bytes-in network-bytes-out]
+
+        # Verify metrics are reset except key-count
+        set slot_stats [R 1 CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+        assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+
+        # Migrate slot-0 back to node-0
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_condition 1000 10 {
+            [CI 0 cluster_slot_migration_active_tasks] == 0 &&
+            [CI 1 cluster_slot_migration_active_tasks] == 0
+        } else {
+            fail "ASM tasks did not complete"
+        }
+
+        # Verify metrics are reset except key-count
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 0]
+        assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+    }
+}

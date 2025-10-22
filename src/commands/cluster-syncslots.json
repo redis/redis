@@ -1,0 +1,117 @@
+{
+    "SYNCSLOTS": {
+        "summary": "Internal command for atomic slot migration protocol between cluster nodes.",
+        "complexity": "O(1)",
+        "group": "cluster",
+        "since": "8.4.0",
+        "arity": -3,
+        "container": "CLUSTER",
+        "function": "clusterCommand",
+        "command_flags": [
+            "NO_ASYNC_LOADING",
+            "ADMIN",
+            "STALE"
+        ],
+        "command_tips": [
+            "NONDETERMINISTIC_OUTPUT"
+        ],
+        "arguments": [
+            {
+                "name": "subcommand",
+                "type": "oneof",
+                "arguments": [
+                    {
+                        "name": "sync",
+                        "token": "SYNC",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "task-id",
+                                "type": "string"
+                            },
+                            {
+                                "name": "slot-range",
+                                "type": "block",
+                                "multiple": true,
+                                "arguments": [
+                                    {
+                                        "name": "start-slot",
+                                        "type": "integer"
+                                    },
+                                    {
+                                        "name": "end-slot",
+                                        "type": "integer"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "token": "RDBCHANNEL",
+                        "name": "task-id",
+                        "type": "string"
+                    },
+                    {
+                        "name": "snapshot-eof",
+                        "token": "SNAPSHOT-EOF",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "stream-eof",
+                        "token": "STREAM-EOF",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "ack",
+                        "token": "ACK",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "state",
+                                "type": "string"
+                            },
+                            {
+                                "name": "offset",
+                                "type": "integer"
+                            }
+                        ]
+                    },
+                    {
+                        "token": "FAIL",
+                        "name": "error",
+                        "type": "string"
+                    },
+                    {
+                        "name": "conf",
+                        "token": "CONF",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "name": "option",
+                                "type": "string",
+                                "multiple": true
+                            },
+                            {
+                                "name": "value",
+                                "type": "string",
+                                "multiple": true
+                            }
+                        ]
+                    }
+                ]
+            }
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Reply to CLUSTER SYNCSLOTS SYNC, returns special RDB channel sync response.",
+                    "const": "RDBCHANNELSYNCSLOTS"
+                },
+                {
+                    "description": "Reply to CLUSTER SYNCSLOTS CONF and other subcommands.",
+                    "const": "OK"
+                }
+            ]
+        }
+    }
+}

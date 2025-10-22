@@ -38,6 +38,7 @@
 
 #include "server.h"
 #include "cluster.h"
+#include "cluster_asm.h"
 #include "slowlog.h"
 #include "rdb.h"
 #include "monotonic.h"
@@ -93,6 +94,7 @@ struct AutoMemEntry {
 #define REDISMODULE_AM_DICT 4
 #define REDISMODULE_AM_INFO 5
 #define REDISMODULE_AM_CONFIG 6
+#define REDISMODULE_AM_SLOTRANGEARRAY 7
 
 /* The pool allocator block. Redis Modules can allocate memory via this special
  * allocator that will automatically release it all once the callback returns.
@@ -497,6 +499,7 @@ static void moduleInitKeyTypeSpecific(RedisModuleKey *key);
 void RM_FreeDict(RedisModuleCtx *ctx, RedisModuleDict *d);
 void RM_FreeServerInfo(RedisModuleCtx *ctx, RedisModuleServerInfoData *data);
 void RM_ConfigIteratorRelease(RedisModuleCtx *ctx, RedisModuleConfigIterator *iter);
+void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots);
 
 /* Helpers for RM_SetCommandInfo. */
 static int moduleValidateCommandInfo(const RedisModuleCommandInfo *info);
@@ -2622,6 +2625,7 @@ void autoMemoryCollect(RedisModuleCtx *ctx) {
         case REDISMODULE_AM_DICT: RM_FreeDict(NULL,ptr); break;
         case REDISMODULE_AM_INFO: RM_FreeServerInfo(NULL,ptr); break;
         case REDISMODULE_AM_CONFIG: RM_ConfigIteratorRelease(NULL, ptr); break;
+        case REDISMODULE_AM_SLOTRANGEARRAY: RM_ClusterFreeSlotRanges(NULL, ptr); break;
         }
     }
     ctx->flags |= REDISMODULE_CTX_AUTO_MEMORY;
@@ -8818,9 +8822,11 @@ void moduleReleaseGIL(void) {
  *  - REDISMODULE_NOTIFY_NEW: New key notification
  *  - REDISMODULE_NOTIFY_OVERWRITTEN: Overwritten events
  *  - REDISMODULE_NOTIFY_TYPE_CHANGED: Type-changed events
+ *  - REDISMODULE_NOTIFY_KEY_TRIMMED: Key trimmed events after a slot migration operation
  *  - REDISMODULE_NOTIFY_ALL: All events (Excluding REDISMODULE_NOTIFY_KEYMISS,
- *                            REDISMODULE_NOTIFY_NEW, REDISMODULE_NOTIFY_OVERWRITTEN
- *                            and REDISMODULE_NOTIFY_TYPE_CHANGED)
+ *                            REDISMODULE_NOTIFY_NEW, REDISMODULE_NOTIFY_OVERWRITTEN,
+ *                            REDISMODULE_NOTIFY_TYPE_CHANGED
+ *                            and REDISMODULE_NOTIFY_KEY_TRIMMED)
  *  - REDISMODULE_NOTIFY_LOADED: A special notification available only for modules,
  *                               indicates that the key was loaded from persistence.
  *                               Notice, when this event fires, the given key
@@ -8900,6 +8906,18 @@ int RM_UnsubscribeFromKeyspaceEvents(RedisModuleCtx *ctx, int types, RedisModule
         }
     }
     return removed > 0 ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Check any subscriber for event */
+int moduleHasSubscribersForKeyspaceEvent(int type) {
+    listIter li;
+    listNode *ln;
+    listRewind(moduleKeyspaceSubscribers,&li);
+    while((ln = listNext(&li))) {
+        RedisModuleKeyspaceSubscriber *sub = ln->value;
+        if (sub->event_mask & type) return 1;
+    }
+    return 0;
 }
 
 void firePostExecutionUnitJobs(void) {
@@ -9022,8 +9040,10 @@ void moduleNotifyKeyspaceEvent(int type, const char *event, robj *key, int dbid)
             int prev_active = sub->active;
             sub->active = 1;
             server.allow_access_expired++;
+            server.allow_access_trimmed++;
             sub->notify_callback(&ctx, type, event, key);
             server.allow_access_expired--;
+            server.allow_access_trimmed--;
             sub->active = prev_active;
             moduleFreeContext(&ctx);
         }
@@ -9292,6 +9312,101 @@ unsigned int RM_ClusterKeySlot(RedisModuleString *key) {
  * a valid slot. */
 const char *RM_ClusterCanonicalKeyNameInSlot(unsigned int slot) {
     return (slot < CLUSTER_SLOTS) ? crc16_slot_table[slot] : NULL;
+}
+
+/* Returns 1 if keys in the specified slot can be accessed by this node, 0 otherwise.
+ *
+ * This function returns 1 in the following cases:
+ * - The slot is owned by this node or by its master if this node is a replica
+ * - The slot is being imported under the old slot migration approach (CLUSTER SETSLOT <slot> IMPORTING ..)
+ * - Not in cluster mode (all slots are accessible)
+ *
+ * Returns 0 for:
+ * - Invalid slot numbers (< 0 or >= 16384)
+ * - Slots owned by other nodes
+ */
+int RM_ClusterCanAccessKeysInSlot(int slot) {
+    if (slot < 0 || slot >= CLUSTER_SLOTS) return 0;
+    return clusterCanAccessKeysInSlot(slot);
+}
+
+/* Propagate commands along with slot migration.
+ *
+ * This function allows modules to add commands that will be sent to the
+ * destination node before the actual slot migration begins. It should only be
+ * called during the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
+ *
+ * This function can be called multiple times within the same event to
+ * replicate multiple commands. All commands will be sent before the
+ * actual slot data migration begins.
+ *
+ * Note: This function is only available in the fork child process just before
+ *       slot snapshot delivery begins.
+ *
+ * On success REDISMODULE_OK is returned, otherwise
+ * REDISMODULE_ERR is returned and errno is set to the following values:
+ *
+ * * EINVAL: function arguments or format specifiers are invalid.
+ * * EBADF: not called in the correct context, e.g. not called in the REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE event.
+ * * ENOENT: command does not exist.
+ * * ENOTSUP: command is cross-slot.
+ * * ERANGE: command contains keys that are not within the migrating slot range.
+ */
+int RM_ClusterPropagateForSlotMigration(RedisModuleCtx *ctx, const char *cmdname, const char *fmt, ...) {
+    int argc = 0, flags = 0;
+    robj **argv = NULL;
+    struct redisCommand *cmd;
+    va_list ap;
+
+    if (ctx == NULL || cmdname == NULL || fmt == NULL) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    errno = 0;
+    cmd = lookupCommandByCString((char*)cmdname);
+    if (!cmd) {
+        errno = ENOENT;
+        return REDISMODULE_ERR;
+    }
+
+    va_start(ap, fmt);
+    argv = moduleCreateArgvFromUserFormat(cmdname, fmt, &argc, &flags, ap);
+    va_end(ap);
+    if (argv == NULL) {
+        errno = EINVAL;
+        return REDISMODULE_ERR;
+    }
+
+    int ret = asmModulePropagateBeforeSlotSnapshot(cmd, argv, argc);
+    int saved_errno = errno;
+
+    /* Release the argv. */
+    for (int i = 0; i < argc; i++) decrRefCount(argv[i]);
+    zfree(argv);
+    errno = saved_errno;
+    return ret == C_OK ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Returns the locally owned slot ranges for the node.
+ *
+ * An optional `ctx` can be provided to enable auto-memory management.
+ * If cluster mode is disabled, the array will include all slots (0–16383).
+ * If the node is a replica, the slot ranges of its master are returned.
+ *
+ * The returned array must be freed with RM_ClusterFreeSlotRanges().
+ */
+RedisModuleSlotRangeArray *RM_ClusterGetLocalSlotRanges(RedisModuleCtx *ctx) {
+    slotRangeArray *slots = clusterGetLocalSlotRanges();
+    if (ctx) autoMemoryAdd(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
+    return (RedisModuleSlotRangeArray *)slots;
+}
+
+/* Frees a slot range array returned by RM_ClusterGetLocalSlotRanges().
+ * Pass the `ctx` pointer only if the array was created with a context. */
+void RM_ClusterFreeSlotRanges(RedisModuleCtx *ctx, RedisModuleSlotRangeArray *slots) {
+    if (ctx) autoMemoryFreed(ctx, REDISMODULE_AM_SLOTRANGEARRAY, slots);
+    slotRangeArrayFree((slotRangeArray *)slots);
 }
 
 /* --------------------------------------------------------------------------
@@ -11616,6 +11731,8 @@ static uint64_t moduleEventVersions[] = {
     -1, /* REDISMODULE_EVENT_EVENTLOOP */
     -1, /* REDISMODULE_EVENT_CONFIG */
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
+    REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION */
+    REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -11906,6 +12023,63 @@ static uint64_t moduleEventVersions[] = {
  *
  *         RedisModuleKey *key;    // Key name
  *
+ * * RedisModuleEvent_ClusterSlotMigration
+ *
+ *     Called when an atomic slot migration (ASM) event happens.
+ *     IMPORT events are triggered on the destination side of a slot migration
+ *     operation. These notifications let modules prepare for the upcoming
+ *     ownership change, observe successful completion once the cluster config
+ *     reflects the new owner, or detect a failure in which case slot ownership
+ *     remains with the source.
+ *
+ *     Similarly, MIGRATE events triggered on the source side of a slot
+ *     migration operation to let modules prepare for the ownership change and
+ *     observe the completion of the slot migration. MIGRATE_MODULE_PROPAGATE
+ *     event is triggered in the fork just before snapshot delivery; modules may
+ *     use it to enqueue commands that will be delivered first. See
+ *     RedisModule_ClusterPropagateForSlotMigration() for details.
+ *
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_STARTED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_FAILED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_IMPORT_COMPLETED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_STARTED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_FAILED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_MODULE_PROPAGATE`
+ *
+ *     The data pointer can be casted to a RedisModuleClusterSlotMigrationInfo
+ *     structure with the following fields:
+ *
+ *         char source_node_id[REDISMODULE_NODE_ID_LEN + 1];
+ *         char destination_node_id[REDISMODULE_NODE_ID_LEN + 1];
+ *         const char *task_id;               // Task ID
+ *         RedisModuleSlotRangeArray *slots;  // Slot ranges
+ *
+ * * RedisModuleEvent_ClusterSlotMigrationTrim
+ *
+ *     Called when trimming keys after a slot migration. Fires on the source
+ *     after a successful migration to clean up migrated keys, or on the
+ *     destination after a failed import to discard partial imports. Two methods
+ *     are supported. In the first method, keys are deleted in a background
+ *     thread; this is reported via the TRIM_BACKGROUND event. In the second
+ *     method, Redis performs incremental deletions on the main thread via the
+ *     cron loop to avoid stalls; this is reported via the TRIM_STARTED and
+ *     TRIM_COMPLETED events. Each deletion emits REDISMODULE_NOTIFY_KEY_TRIMMED
+ *     so modules can react to individual key deletions. Redis selects the
+ *     method automatically: background by default; switches to main thread
+ *     trimming when a module subscribes to REDISMODULE_NOTIFY_KEY_TRIMMED.
+ *
+ *     The following sub events are available:
+ *
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_STARTED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_COMPLETED`
+ *     * `REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_BACKGROUND`
+ *
+ *     The data pointer can be casted to a RedisModuleClusterSlotMigrationTrimInfo
+ *     structure with the following fields:
+ *
+ *         RedisModuleSlotRangeArray *slots;  // Slot ranges
+ *
  * The function returns REDISMODULE_OK if the module was successfully subscribed
  * for the specified event. If the API is called from a wrong context or unsupported event
  * is given then REDISMODULE_ERR is returned. */
@@ -11987,6 +12161,10 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
     case REDISMODULE_EVENT_KEY:
         return subevent < _REDISMODULE_SUBEVENT_KEY_NEXT;
+    case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION:
+        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT;
+    case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM:
+        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT;
     default:
         break;
     }
@@ -12074,6 +12252,10 @@ void moduleFireServerEvent(uint64_t eid, int subid, void *data) {
                 selectDb(ctx.client, info->dbnum);
                 moduleInitKey(&key, &ctx, info->key, info->kv, info->mode);
                 moduledata = &ki;
+            } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION) {
+                moduledata = data;
+            } else if (eid == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM) {
+                moduledata = data;
             }
 
             el->module->in_hook++;
@@ -12131,6 +12313,7 @@ void processModuleLoadingProgressEvent(int is_aof) {
 *  will be called to tell the module which key is about to be released. */
 void moduleNotifyKeyUnlink(robj *key, kvobj *kv, int dbid, int flags) {
     server.allow_access_expired++;
+    server.allow_access_trimmed++;
     int subevent = REDISMODULE_SUBEVENT_KEY_DELETED;
     if (flags & DB_FLAG_KEY_EXPIRED) {
         subevent = REDISMODULE_SUBEVENT_KEY_EXPIRED;
@@ -12154,6 +12337,7 @@ void moduleNotifyKeyUnlink(robj *key, kvobj *kv, int dbid, int flags) {
         }
     }
     server.allow_access_expired--;
+    server.allow_access_trimmed--;
 }
 
 /* Return the free_effort of the module, it will automatically choose to call 
@@ -14802,6 +14986,10 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetClusterFlags);
     REGISTER_API(ClusterKeySlot);
     REGISTER_API(ClusterCanonicalKeyNameInSlot);
+    REGISTER_API(ClusterCanAccessKeysInSlot);
+    REGISTER_API(ClusterPropagateForSlotMigration);
+    REGISTER_API(ClusterGetLocalSlotRanges);
+    REGISTER_API(ClusterFreeSlotRanges);
     REGISTER_API(CreateDict);
     REGISTER_API(FreeDict);
     REGISTER_API(DictSize);

@@ -28,6 +28,7 @@
 #include "fmtargs.h"
 #include "mstr.h"
 #include "ebuckets.h"
+#include "cluster_asm.h"
 #include "fwtree.h"
 #include "estore.h"
 
@@ -1211,6 +1212,10 @@ void databasesCron(void) {
     /* Defrag keys gradually. */
     activeDefragCycle();
 
+    /* Handle active-trim */
+    if (server.cluster_enabled)
+        asmActiveTrimCycle();
+
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
@@ -2229,6 +2234,7 @@ void initServerConfig(void) {
     memset(server.listeners, 0x00, sizeof(server.listeners));
     server.active_expire_enabled = 1;
     server.allow_access_expired = 0;
+    server.allow_access_trimmed = 0;
     server.skip_checksum_validation = 0;
     server.loading = 0;
     server.async_loading = 0;
@@ -2862,6 +2868,7 @@ void initServer(void) {
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].stream_claim_pending_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
@@ -3465,7 +3472,7 @@ static int shouldPropagate(int target) {
             return 1;
     }
     if (target & PROPAGATE_REPL) {
-        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0))
+        if (server.masterhost == NULL && (server.repl_backlog || listLength(server.slaves) != 0 || asmMigrateInProgress()))
             return 1;
     }
 
@@ -3498,8 +3505,10 @@ static void propagateNow(int dbid, robj **argv, int argc, int target) {
 
     if (server.aof_state != AOF_OFF && target & PROPAGATE_AOF)
         feedAppendOnlyFile(dbid,argv,argc);
-    if (target & PROPAGATE_REPL)
+    if (target & PROPAGATE_REPL) {
         replicationFeedSlaves(server.slaves,dbid,argv,argc);
+        asmFeedMigrationClient(argv, argc);
+    }
 }
 
 /* Used inside commands to schedule the propagation of additional commands
@@ -4385,6 +4394,26 @@ int processCommand(client *c) {
         return C_OK;
     }
 
+    /* If this node is a replica and there is a trim job due to slot migration,
+     * we cannot process commands from the master for the slot being trimmed.
+     * Otherwise, the trim cycle could mistakenly delete newly added keys.
+     * In this case, the master will be blocked until the trim job finishes.
+     * This is supposed to be a rare event as it needs to migrate slots and
+     * import them back before the trim job is done. */
+    if ((c->flags & CLIENT_MASTER) && is_write_command && server.cluster_enabled) {
+        /* Check if the command is accessing keys in a slot being trimmed. */
+        int slot_in_trim = asmGetTrimmingSlotForCommand(c->cmd, c->argv, c->argc);
+        if (slot_in_trim != -1) {
+            serverLog(LL_WARNING, "Master is sending command for slot %d. "
+                                  "There is an trim job in progress for this slot. "
+                                  "This replica cannot process this command right now. "
+                                  "Blocking master client until trim job is done. ", slot_in_trim);
+            /* Block master client */
+            blockPostponeClientWithType(c, BLOCKED_POSTPONE_TRIM);
+            return C_OK;
+        }
+    }
+
     /* Only allow a subset of commands in the context of Pub/Sub if the
      * connection is in RESP2 mode. With RESP3 there are no limits. */
     if ((c->flags & CLIENT_PUBSUB && c->resp == 2) &&
@@ -4645,6 +4674,9 @@ int prepareForShutdown(int flags) {
     if (server.supervised_mode == SUPERVISED_SYSTEMD)
         redisCommunicateSystemd("STOPPING=1\n");
 
+    /* Cancel all ASM tasks before shutting down. */
+    clusterAsmCancel(NULL, "server shutdown");
+
     /* If we have any replicas, let them catch up the replication offset before
      * we shut down, to avoid data loss. */
     if (!(flags & SHUTDOWN_NOW) &&
@@ -4678,6 +4710,8 @@ int isReadyToShutdown(void) {
     listRewind(server.slaves, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *replica = listNodeValue(ln);
+        /* Don't count migration destination replicas. */
+        if (replica->flags & CLIENT_ASM_MIGRATING) continue;
         if (replica->repl_ack_off != server.master_repl_offset) return 0;
     }
     return 1;
@@ -4724,6 +4758,8 @@ int finishShutdown(void) {
     listRewind(server.slaves, &replicas_iter);
     while ((replicas_list_node = listNext(&replicas_iter)) != NULL) {
         client *replica = listNodeValue(replicas_list_node);
+        /* Don't count migration destination replicas. */
+        if (replica->flags & CLIENT_ASM_MIGRATING) continue;
         num_replicas++;
         if (replica->repl_ack_off != server.master_repl_offset) {
             num_lagging_replicas++;
@@ -6081,6 +6117,9 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "mem_replica_full_sync_buffer:%zu\r\n", server.repl_full_sync_buffer.mem_used,
             "mem_clients_slaves:%zu\r\n", mh->clients_slaves,
             "mem_clients_normal:%zu\r\n", mh->clients_normal,
+            "mem_cluster_slot_migration_output_buffer:%zu\r\n", mh->asm_migrate_output_buffer,
+            "mem_cluster_slot_migration_input_buffer:%zu\r\n", mh->asm_import_input_buffer,
+            "mem_cluster_slot_migration_input_buffer_peak:%zu\r\n", asmGetPeakSyncBufferSize(),
             "mem_cluster_links:%zu\r\n", mh->cluster_links,
             "mem_aof_buffer:%zu\r\n", mh->aof_buffer,
             "mem_allocator:%s\r\n", ZMALLOC_LIB,
@@ -6399,6 +6438,10 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                  * replica has an associated main-channel replica in
                  * server.slaves list, we'll list main channel replica only. */
                 if (replicationCheckHasMainChannel(slave))
+                    continue;
+
+                /* Don't list migration destination replicas. */
+                if (slave->flags & CLIENT_ASM_MIGRATING)
                     continue;
 
                 if (!slaveip) {
