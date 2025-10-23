@@ -2379,6 +2379,7 @@ struct redisServer {
     /* Local environment */
     char *locale_collate;
     int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
+    int dbg_assert_alloc_per_slot; /* Assert per-slot alloc_size after each command */
 };
 
 /* we use 6 so that all getKeyResult fits a cacheline */
@@ -3773,6 +3774,7 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
 void updateAllocSizes(redisDb *db, int didx, size_t oldsize, size_t newsize);
 void dbgAssertKeysizesHist(redisDb *db);
+void dbgAssertAllocSizePerSlot(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);

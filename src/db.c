@@ -175,6 +175,33 @@ void dbgAssertKeysizesHist(redisDb *db) {
     }
 }
 
+/* Assert per-slot alloc_size (For debugging only)
+ *
+ * Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1 and tested after each command.
+ */
+void dbgAssertAllocSizePerSlot(redisDb *db) {
+    size_t slot_sizes[CLUSTER_SLOTS] = {0};
+    dictEntry *de;
+    kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
+    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        int slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+        kvobj *kv = dictGetKV(de);
+        if (kv->type < OBJ_TYPE_BASIC_MAX)
+            slot_sizes[slot] += kvobjAllocSize(kv);
+    }
+    kvstoreIteratorRelease(kvs_it);
+
+    int num_slots = kvstoreNumDicts(db->keys);
+    for (int slot = 0; slot < num_slots; slot++) {
+        kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, slot);
+        size_t want = slot_sizes[slot];
+        size_t have = dictMeta ? dictMeta->alloc_size : 0;
+        if (have == want) continue;
+        serverPanic("dbgAssertAllocSizePerSlot: slot=%d expected=%zu actual=%zu",
+                    slot, want, have);
+    }
+}
+
 /* Lookup a kvobj for read or write operations, or return NULL if the it is not
  * found in the specified DB. This function implements the functionality of
  * lookupKeyRead(), lookupKeyWrite() and their ...WithFlags() variants.

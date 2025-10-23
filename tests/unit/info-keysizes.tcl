@@ -484,6 +484,14 @@ proc test_all_keysizes { {replMode 0} } {
             createComplexDataset r 100 {useexpire usehexpire}
         }
     }
+    start_server {tags {"external:skip" "needs:debug"}} {
+        test "SLOT-ALLOCSIZE - Test DEBUG ALLOCSIZE-SLOTS-ASSERT command" {
+            r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+            r FLUSHALL
+            createComplexDataset r 100
+            createComplexDataset r 100 {useexpire usehexpire}
+        }
+    }
     
     foreach type {listpackex hashtable} {
         # Test different implementations of hash tables and listpacks
