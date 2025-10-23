@@ -11163,37 +11163,13 @@ struct COMMAND_ARG MSETEX_condition_Subargs[] = {
 {MAKE_ARG("xx",ARG_TYPE_PURE_TOKEN,-1,"XX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* MSETEX expiration ex_seconds argument table */
-struct COMMAND_ARG MSETEX_expiration_ex_seconds_Subargs[] = {
-{MAKE_ARG("ex",ARG_TYPE_PURE_TOKEN,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* MSETEX expiration px_milliseconds argument table */
-struct COMMAND_ARG MSETEX_expiration_px_milliseconds_Subargs[] = {
-{MAKE_ARG("px",ARG_TYPE_PURE_TOKEN,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* MSETEX expiration exat_seconds_timestamp argument table */
-struct COMMAND_ARG MSETEX_expiration_exat_seconds_timestamp_Subargs[] = {
-{MAKE_ARG("exat",ARG_TYPE_PURE_TOKEN,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* MSETEX expiration pxat_milliseconds_timestamp argument table */
-struct COMMAND_ARG MSETEX_expiration_pxat_milliseconds_timestamp_Subargs[] = {
-{MAKE_ARG("pxat",ARG_TYPE_PURE_TOKEN,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
 /* MSETEX expiration argument table */
 struct COMMAND_ARG MSETEX_expiration_Subargs[] = {
-{MAKE_ARG("ex-seconds",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=MSETEX_expiration_ex_seconds_Subargs},
-{MAKE_ARG("px-milliseconds",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=MSETEX_expiration_px_milliseconds_Subargs},
-{MAKE_ARG("exat-seconds-timestamp",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=MSETEX_expiration_exat_seconds_timestamp_Subargs},
-{MAKE_ARG("pxat-milliseconds-timestamp",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=MSETEX_expiration_pxat_milliseconds_timestamp_Subargs},
-{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
 };
 
 /* MSETEX argument table */
