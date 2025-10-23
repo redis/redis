@@ -1132,6 +1132,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     }
 
     test {DELEX propagate as DEL command to replica} {
+        r flushall
         set repl [attach_to_replication_stream]
         r set foo bar
         r delex foo IFEQ bar
@@ -1144,6 +1145,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     } {} {needs:repl}
 
     test {DELEX does not propagate when condition not met} {
+        r flushall
         set repl [attach_to_replication_stream]
         r set foo bar
         r delex foo IFEQ baz
