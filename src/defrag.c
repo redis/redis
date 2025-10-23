@@ -982,6 +982,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     UNUSED(link);
     dictEntryLink exlink = NULL;
     kvobj *kvnew = NULL, *ob = dictGetKV(de);
+    size_t oldsize = kvobjAllocSize(ob);
     redisDb *db = &server.db[ctx->dbid];
     int slot = ctx->kvstate.slot;
     unsigned char *newzl;
@@ -1008,7 +1009,6 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         ob = kvnew;
     }
 
-    size_t oldsize = kvobjAllocSize(ob);
     if (ob->type == OBJ_STRING) {
         /* Already handled in activeDefragStringOb. */
     } else if (ob->type == OBJ_LIST) {
@@ -1191,6 +1191,8 @@ static int defragIsRunning(void) {
 /* A kvstoreHelperPreContinueFn */
 static doneStatus defragLaterStep(void *ctx, monotime endtime) {
     defragKeysCtx *defrag_keys_ctx = ctx;
+    redisDb *db = &server.db[defrag_keys_ctx->dbid];
+    int slot = defrag_keys_ctx->kvstate.slot;
 
     unsigned int iterations = 0;
     unsigned long long prev_defragged = server.stat_active_defrag_hits;
@@ -1201,9 +1203,11 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
         sds key = head->value;
         dictEntry *de = kvstoreDictFind(defrag_keys_ctx->kvstate.kvs, defrag_keys_ctx->kvstate.slot, key);
         kvobj *kv = de ? dictGetKV(de) : NULL;
+        size_t oldsize = kv ? kvobjAllocSize(kv) : 0;
 
         long long key_defragged = server.stat_active_defrag_hits;
         int timeout = (defragLaterItem(kv, &defrag_keys_ctx->defrag_later_cursor, endtime, defrag_keys_ctx->dbid) == 1);
+        if (kv) updateAllocSizes(db, slot, oldsize, kvobjAllocSize(kv));
         if (key_defragged != server.stat_active_defrag_hits) {
             server.stat_active_defrag_key_hits++;
         } else {

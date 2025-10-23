@@ -2364,23 +2364,20 @@ void xaddCommand(client *c) {
                             "the target stream top item");
         else
             addReplyError(c,"Elements are too large to be stored");
+        if (old_alloc != s->alloc_size)
+            updateAllocSizes(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         return;
     }
     sds replyid = createStreamIDString(&id);
     addReplyBulkCBuffer(c, replyid, sdslen(replyid));
 
-    if (old_alloc != s->alloc_size)
-        updateAllocSizes(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
 
     /* Trim if needed. */
     if (parsed_args.trim_strategy != TRIM_STRATEGY_NONE) {
-        old_alloc = s->alloc_size;
-        if (streamTrim(s, &parsed_args)) {
-            updateAllocSizes(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
+        if (streamTrim(s, &parsed_args))
             notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
-        }
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must
              * re-write the relevant trim argument to make sure there will be
@@ -2391,6 +2388,9 @@ void xaddCommand(client *c) {
             streamRewriteTrimArgument(c,s,parsed_args.trim_strategy,parsed_args.trim_strategy_arg_idx);
         }
     }
+
+    if (old_alloc != s->alloc_size)
+        updateAllocSizes(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
 
     signalModifiedKey(c,c->db,c->argv[1]);
 
@@ -4483,12 +4483,12 @@ void xtrimCommand(client *c) {
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
-    size_t old_alloc = s->alloc_size;
 
     /* Perform the trimming. */
+    size_t old_alloc = s->alloc_size;
     int64_t deleted = streamTrim(s, &parsed_args);
+    updateAllocSizes(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
     if (deleted) {
-        updateAllocSizes(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must

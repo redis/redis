@@ -186,8 +186,7 @@ void dbgAssertAllocSizePerSlot(redisDb *db) {
     while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
         int slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
         kvobj *kv = dictGetKV(de);
-        if (kv->type < OBJ_TYPE_BASIC_MAX)
-            slot_sizes[slot] += kvobjAllocSize(kv);
+        slot_sizes[slot] += kvobjAllocSize(kv);
     }
     kvstoreIteratorRelease(kvs_it);
 

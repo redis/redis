@@ -1446,8 +1446,9 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
         initStaticStringObject(key,kvobjGetKey(kv));
         expire = kvobjGetExpire(kv);
         size_t oldsize = kvobjAllocSize(kv);
-        if ((res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid)) < 0) goto werr;
+        res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid);
         updateAllocSizes(db, curr_slot, oldsize, kvobjAllocSize(kv));
+        if (res < 0) goto werr;
         written += res;
 
         /* In fork child process, we can try to release memory back to the
