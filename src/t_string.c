@@ -69,7 +69,6 @@ static int checkStringLength(client *c, long long size, long long append) {
 
 /* Forward declaration */
 static int getExpireMillisecondsOrReply(client *c, robj *expire, int flags, int unit, long long *milliseconds);
-void msetGenericCommand(client *c, int nx);
 
 /* Generic SET command family (SET, SETEX, PSETEX, SETNX)
  *
@@ -746,16 +745,18 @@ void msetexCommand(client *c) {
         return;
     }
 
-    /* Check NX/XX conditions for each key - pattern from setGenericCommand */
-    for (int j = 0; j < args.kv_count; j++) {
-        int key_idx = args.kv_start + (j * 2);
-        robj *found = lookupKeyWrite(c->db, c->argv[key_idx]);
+    if (args.flags & (OBJ_SET_NX | OBJ_SET_XX)) {
+        /* Check NX/XX conditions for each key - pattern from setGenericCommand */
+        for (int j = 0; j < args.kv_count; j++) {
+            int key_idx = args.kv_start + (j * 2);
+            robj *found = lookupKeyWrite(c->db, c->argv[key_idx]);
 
-        if ((args.flags & OBJ_SET_NX && found) ||
-            (args.flags & OBJ_SET_XX && !found))
-        {
-            addReply(c, shared.czero);
-            return;
+            if ((args.flags & OBJ_SET_NX && found) ||
+                (args.flags & OBJ_SET_XX && !found))
+            {
+                addReply(c, shared.czero);
+                return;
+            }
         }
     }
 

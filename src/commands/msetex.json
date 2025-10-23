@@ -101,69 +101,34 @@
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "ex-seconds",
-                        "type": "block",
-                        "arguments": [
-                            {
-                                "name": "ex",
-                                "type": "pure-token",
-                                "token": "EX"
-                            },
-                            {
-                                "name": "seconds",
-                                "type": "integer"
-                            }
-                        ]
+                        "name": "seconds",
+                        "type": "integer",
+                        "token": "EX",
+                        "since": "8.4.0"
                     },
                     {
-                        "name": "px-milliseconds",
-                        "type": "block",
-                        "arguments": [
-                            {
-                                "name": "px",
-                                "type": "pure-token",
-                                "token": "PX"
-                            },
-                            {
-                                "name": "milliseconds",
-                                "type": "integer"
-                            }
-                        ]
+                        "name": "milliseconds",
+                        "type": "integer",
+                        "token": "PX",
+                        "since": "8.4.0"
                     },
                     {
-                        "name": "exat-seconds-timestamp",
-                        "type": "block",
-                        "arguments": [
-                            {
-                                "name": "exat",
-                                "type": "pure-token",
-                                "token": "EXAT"
-                            },
-                            {
-                                "name": "unix-time-seconds",
-                                "type": "unix-time"
-                            }
-                        ]
+                        "name": "unix-time-seconds",
+                        "type": "unix-time",
+                        "token": "EXAT",
+                        "since": "8.4.0"
                     },
                     {
-                        "name": "pxat-milliseconds-timestamp",
-                        "type": "block",
-                        "arguments": [
-                            {
-                                "name": "pxat",
-                                "type": "pure-token",
-                                "token": "PXAT"
-                            },
-                            {
-                                "name": "unix-time-milliseconds",
-                                "type": "unix-time"
-                            }
-                        ]
+                        "name": "unix-time-milliseconds",
+                        "type": "unix-time",
+                        "token": "PXAT",
+                        "since": "8.4.0"
                     },
                     {
                         "name": "keepttl",
                         "type": "pure-token",
-                        "token": "KEEPTTL"
+                        "token": "KEEPTTL",
+                        "since": "8.4.0"
                     }
                 ]
             }
