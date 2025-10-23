@@ -582,9 +582,12 @@ void setrangeCommand(client *c) {
     }
 
     if (value_len > 0) {
-        size_t oldsize = stringObjectAllocSize(kv);
+        size_t oldsize = 0;
+        if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+            oldsize = stringObjectAllocSize(kv);
         kv->ptr = sdsgrowzero(kv->ptr,offset+value_len);
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+        if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
         memcpy((char*)kv->ptr+offset,value,value_len);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
@@ -797,6 +800,7 @@ void appendCommand(client *c) {
     size_t totlen;
     robj *append;
     kvobj *o;
+    size_t oldsize = 0;
 
     dictEntryLink link;
     o = lookupKeyWriteWithLink(c->db,c->argv[1],&link);
@@ -819,9 +823,11 @@ void appendCommand(client *c) {
 
         /* Append the value */
         o = dbUnshareStringValueByLink(c->db,c->argv[1],o,link);
-        size_t oldsize = stringObjectAllocSize(o);
+        if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+            oldsize = stringObjectAllocSize(o);
         o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(o));
+        if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(o));
         totlen = sdslen(o->ptr);
         int64_t oldlen = totlen - append_len;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, totlen);
