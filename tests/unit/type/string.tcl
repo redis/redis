@@ -315,6 +315,13 @@ start_server {tags {"string"}} {
         assert_error {*syntax error*} {r msetex keys 1 key1 val1 invalid_flag}
     }
 
+    test {MSETEX - overflow protection in numkeys} {
+        # Test that large numkeys values don't cause integer overflow
+        # This tests the fix for potential overflow in kv_count_long * 2
+        assert_error {*invalid numkeys value*} {r msetex keys 2147483648 key1 val1 ex 10}
+        assert_error {*wrong number of key-value pairs*} {r msetex keys 2147483647 key1 val1 ex 10}
+    }
+
     test {MSETEX - mutually exclusive flags} {
         # NX and XX are mutually exclusive
         assert_error {*syntax error*} {r msetex nx xx keys 2 key1{t} val1 key2{t} val2 ex 10}
