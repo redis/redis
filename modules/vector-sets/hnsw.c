@@ -294,7 +294,7 @@ float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) 
  * Dot product: our vectors are already normalized.
  * Version for not quantized vectors of floats. */
 float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
-    if (VSET_USE_AVX512 && dim >= 16) {
+    if (dim >= 16 && VSET_USE_AVX512) {
         return vectors_distance_float_avx512(x, y, dim);
     }
 
