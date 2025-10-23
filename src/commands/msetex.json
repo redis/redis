@@ -103,32 +103,27 @@
                     {
                         "name": "seconds",
                         "type": "integer",
-                        "token": "EX",
-                        "since": "8.4.0"
+                        "token": "EX"
                     },
                     {
                         "name": "milliseconds",
                         "type": "integer",
-                        "token": "PX",
-                        "since": "8.4.0"
+                        "token": "PX"
                     },
                     {
                         "name": "unix-time-seconds",
                         "type": "unix-time",
-                        "token": "EXAT",
-                        "since": "8.4.0"
+                        "token": "EXAT"
                     },
                     {
                         "name": "unix-time-milliseconds",
                         "type": "unix-time",
-                        "token": "PXAT",
-                        "since": "8.4.0"
+                        "token": "PXAT"
                     },
                     {
                         "name": "keepttl",
                         "type": "pure-token",
-                        "token": "KEEPTTL",
-                        "since": "8.4.0"
+                        "token": "KEEPTTL"
                     }
                 ]
             }

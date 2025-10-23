@@ -310,7 +310,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
             {
                 return C_ERR;
             }
-            if (j + 2 + kv_count_long * 2 > c->argc) {
+            if (j + 2 + (long long)kv_count_long * 2 > c->argc) {
                 addReplyError(c, "wrong number of key-value pairs");
                 return C_ERR;
             }
@@ -319,7 +319,7 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
             args->kv_count = (int)kv_count_long;
             args->kv_start = j + 2;
 
-            j = j + 1 + (kv_count_long * 2);  /* Skip "KEYS", numkeys, and all key-value pairs */
+            j = j + 1 + ((long long)kv_count_long * 2);  /* Skip "KEYS", numkeys, and all key-value pairs */
         } else if (!strcasecmp(opt, "KEEPTTL") && !(args->flags & OBJ_PERSIST) &&
             !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
             !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
