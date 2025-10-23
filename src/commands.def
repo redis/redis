@@ -11165,11 +11165,11 @@ struct COMMAND_ARG MSETEX_condition_Subargs[] = {
 
 /* MSETEX expiration argument table */
 struct COMMAND_ARG MSETEX_expiration_Subargs[] = {
-{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,"8.4.0",CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("seconds",ARG_TYPE_INTEGER,-1,"EX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("milliseconds",ARG_TYPE_INTEGER,-1,"PX",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-seconds",ARG_TYPE_UNIX_TIME,-1,"EXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("unix-time-milliseconds",ARG_TYPE_UNIX_TIME,-1,"PXAT",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("keepttl",ARG_TYPE_PURE_TOKEN,-1,"KEEPTTL",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* MSETEX argument table */
