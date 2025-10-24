@@ -1018,7 +1018,7 @@ size_t stringObjectLen(robj *o) {
 }
 
 size_t stringObjectAllocSize(const robj *o) {
-    debugServerAssertWithInfo(NULL,o,o->type == OBJ_STRING);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_STRING);
     if(o->encoding == OBJ_ENCODING_INT) {
         /* Value already counted (reuse the "ptr" in header to store int) */
         return 0;

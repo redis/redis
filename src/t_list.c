@@ -213,7 +213,7 @@ unsigned long listTypeLength(const robj *subject) {
 }
 
 size_t listTypeAllocSize(const robj *o) {
-    debugServerAssertWithInfo(NULL,o,o->type == OBJ_LIST);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_LIST);
     size_t size = 0;
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         size = quicklistAllocSize(o->ptr);

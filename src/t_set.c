@@ -480,7 +480,7 @@ unsigned long setTypeSize(const robj *subject) {
 }
 
 size_t setTypeAllocSize(const robj *o) {
-    debugServerAssertWithInfo(NULL,o,o->type == OBJ_SET);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_SET);
     size_t size = 0;
     if (o->encoding == OBJ_ENCODING_HT) {
         dict *d = o->ptr;

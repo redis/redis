@@ -1233,7 +1233,7 @@ unsigned long zsetLength(const robj *zobj) {
 }
 
 size_t zsetAllocSize(const robj *o) {
-    debugServerAssertWithInfo(NULL,o,o->type == OBJ_ZSET);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_ZSET);
     size_t size = 0;
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         size = lpBytes(o->ptr);

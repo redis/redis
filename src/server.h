@@ -91,8 +91,6 @@ typedef struct redisObject robj;
  */
 typedef struct redisObject kvobj;
 
-size_t kvobjAllocSize(kvobj *o);
-
 #include "redismodule.h"    /* Redis modules API defines. */
 
 /* Following includes allow test functions to be called from Redis main() */
@@ -3201,6 +3199,7 @@ kvobj *kvobjSet(sds key, robj *val, int hasExpire);
 kvobj *kvobjSetExpire(kvobj *kv, long long expire);
 sds kvobjGetKey(const kvobj *kv);
 long long kvobjGetExpire(const kvobj *val);
+size_t kvobjAllocSize(kvobj *o);
 
 /* Synchronous I/O with timeout */
 ssize_t syncWrite(int fd, char *ptr, ssize_t size, long long timeout);

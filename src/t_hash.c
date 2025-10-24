@@ -1341,7 +1341,7 @@ unsigned long hashTypeLength(const robj *o, int subtractExpiredFields) {
 }
 
 size_t hashTypeAllocSize(const robj *o) {
-    debugServerAssertWithInfo(NULL,o,o->type == OBJ_HASH);
+    serverAssertWithInfo(NULL,o,o->type == OBJ_HASH);
     size_t size = 0;
     if (o->encoding == OBJ_ENCODING_LISTPACK) {
         size = lpBytes(o->ptr);
