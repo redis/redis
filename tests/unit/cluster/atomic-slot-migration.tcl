@@ -123,6 +123,8 @@ proc wait_for_asm_done {} {
         }
         fail "ASM tasks did not complete on all instances"
     }
+    # wait all nodes to reach the same cluster config after ASM
+    wait_for_cluster_propagation
 }
 
 proc failover_and_wait_for_done {node_id {failover_arg ""}} {
