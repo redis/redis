@@ -685,13 +685,13 @@ NULL
             addReplyErrorObject(c,shared.nokeyerr);
             return;
         }
-
+        
         val = kv;
         key = kvobjGetKey(kv);
         if (kv->type != OBJ_STRING || !sdsEncodedObject(val)) {
             addReplyError(c,"Not an sds encoded string.");
         } else {
-            /* The key's allocation size reflects the entire robj allocation.
+            /* The key's allocation size reflects the entire robj allocation.  
              * For embedded values, report an allocation size of 0. */
             size_t obj_alloc = zmalloc_usable_size(val);
             size_t val_alloc = val->encoding == OBJ_ENCODING_RAW ? sdsAllocSize(val->ptr) : 0;
@@ -755,7 +755,7 @@ NULL
             return;
         }
         long valsize = 0;
-        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK )
+        if ( c->argc == 5 && getPositiveLongFromObjectOrReply(c, c->argv[4], &valsize, NULL) != C_OK ) 
             return;
 
         for (j = 0; j < keys; j++) {
@@ -2728,7 +2728,7 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
                 break;
             }
 
-            /* The bit position in a signal mask aligns with the signal number. Since signal numbers start from 1
+            /* The bit position in a signal mask aligns with the signal number. Since signal numbers start from 1 
             we need to adjust the signal number by subtracting 1 to align it correctly with the zero-based indexing used */
             if (sig_mask & (1L << (sig_num - 1))) { /* if the signal is blocked/ignored return 0 */
                 ret = 0;
@@ -2748,7 +2748,7 @@ static int is_thread_ready_to_signal(const char *proc_pid_task_path, const char 
     return ret;
 }
 
-/** We are using syscall(SYS_getdents64) to read directories, which unlike opendir(), is considered
+/** We are using syscall(SYS_getdents64) to read directories, which unlike opendir(), is considered 
  * async-signal-safe. This function wrapper getdents64() in glibc is supported as of glibc 2.30.
  * To support earlier versions of glibc, we use syscall(SYS_getdents64), which requires defining
  * linux_dirent64 ourselves. This structure is very old and stable: It will not change unless the kernel
@@ -2807,7 +2807,7 @@ static size_t get_ready_to_signal_threads_tids(int sig_num, pid_t tids[TIDS_MAX_
 
             /* save the thread id */
             tids[tids_count++] = tid;
-
+            
             /* Stop if we reached the maximum threads number. */
             if(tids_count == TIDS_MAX_SIZE) {
                 serverLogRawFromHandler(LL_WARNING, "get_ready_to_signal_threads_tids(): Reached the limit of the tids buffer.");
