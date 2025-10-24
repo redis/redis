@@ -1629,7 +1629,7 @@ void pfaddCommand(client *c) {
         kv = dbUnshareStringValue(c->db,c->argv[1],kv);
     }
     oldlen = stringObjectLen(kv);
-    if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+    if (clusterSlotStatsEnabled())
         oldsize = stringObjectAllocSize(kv);
 
     /* Perform the low level ADD operation for every element. */
@@ -1642,7 +1642,7 @@ void pfaddCommand(client *c) {
             break;
         case -1:
             addReplyError(c,invalid_hll_err);
-            if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+            if (clusterSlotStatsEnabled())
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
             return;
         }
@@ -1650,7 +1650,7 @@ void pfaddCommand(client *c) {
 
     hdr = kv->ptr;
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(kv));
-    if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+    if (clusterSlotStatsEnabled())
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
@@ -1804,7 +1804,7 @@ void pfmergeCommand(client *c) {
     }
 
     uint64_t oldLen = stringObjectLen(kv);
-    if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+    if (clusterSlotStatsEnabled())
         oldsize = stringObjectAllocSize(kv);
 
     /* Convert the destination object to dense representation if at least
@@ -1833,7 +1833,7 @@ void pfmergeCommand(client *c) {
                      last hllSparseSet() call. */
     HLL_INVALIDATE_CACHE(hdr);
 
-    if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+    if (clusterSlotStatsEnabled())
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
     signalModifiedKey(c,c->db,c->argv[1]);
     /* We generate a PFADD event for PFMERGE for semantical simplicity
@@ -1997,7 +1997,7 @@ void pfdebugCommand(client *c) {
     if (isHLLObjectOrReply(c,o) != C_OK) return;
     o = dbUnshareStringValue(c->db,c->argv[2],o);
     hdr = o->ptr;
-    if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+    if (clusterSlotStatsEnabled())
         oldsize = stringObjectAllocSize(o);
 
     /* PFDEBUG GETREG <key> */
@@ -2011,7 +2011,7 @@ void pfdebugCommand(client *c) {
                 return;
             }
             updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
-            if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+            if (clusterSlotStatsEnabled())
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
             server.dirty++; /* Force propagation on encoding change. */
         }
@@ -2080,7 +2080,7 @@ void pfdebugCommand(client *c) {
                 return;
             }
             updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
-            if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+            if (clusterSlotStatsEnabled())
                 updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
             conv = 1;
             server.dirty++; /* Force propagation on encoding change. */

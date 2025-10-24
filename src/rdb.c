@@ -1446,10 +1446,10 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
 
         initStaticStringObject(key,kvobjGetKey(kv));
         expire = kvobjGetExpire(kv);
-        if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+        if (clusterSlotStatsEnabled())
             oldsize = kvobjAllocSize(kv);
         res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid);
-        if (server.cluster_enabled && server.cluster_slot_stats_enabled)
+        if (clusterSlotStatsEnabled())
             updateSlotAllocSize(db, curr_slot, oldsize, kvobjAllocSize(kv));
         if (res < 0) goto werr;
         written += res;

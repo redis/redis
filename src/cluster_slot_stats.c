@@ -133,7 +133,7 @@ static void addReplySortedSlotStats(client *c, slotStatForSort slot_stats[], lon
 }
 
 static int canAddNetworkBytesOut(client *c) {
-    return server.cluster_slot_stats_enabled && server.cluster_enabled && c->slot != -1;
+    return clusterSlotStatsEnabled() && c->slot != -1;
 }
 
 /* Accumulates egress bytes upon sending RESP responses back to user clients. */
@@ -245,8 +245,8 @@ static int canAddNetworkBytesIn(client *c) {
      * Third, blocked client is not aggregated, to avoid duplicate aggregation upon unblocking.
      * Fourth, the server is not under a MULTI/EXEC transaction, to avoid duplicate aggregation of
      * EXEC's 14 bytes RESP upon nested call()'s afterCommand(). */
-    return server.cluster_enabled && server.cluster_slot_stats_enabled &&
-        c->slot != -1 && !(c->flags & CLIENT_BLOCKED) && !server.in_exec;
+    return clusterSlotStatsEnabled() && c->slot != -1 &&
+        !(c->flags & CLIENT_BLOCKED) && !server.in_exec;
 }
 
 /* Adds network ingress bytes of the current command in execution,
