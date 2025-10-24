@@ -399,7 +399,7 @@ int getKeySlot(sds key) {
 /* Return the slot of the key in the command.
  * GETSLOT_NOKEYS if no keys, GETSLOT_CROSSSLOT if cross slot, otherwise the slot number. */
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
-    int slot = -1;
+    int slot = GETSLOT_NOKEYS;
     if (!cmd || !server.cluster_enabled) return slot;
 
     /* Get the keys from the command */

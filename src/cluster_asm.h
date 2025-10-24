@@ -1,4 +1,5 @@
-/*
+/* cluster_asm.h -- Atomic slot migration implementation for cluster
+ *
  * Copyright (c) 2025-Present, Redis Ltd.
  * All rights reserved.
  *
