@@ -1334,7 +1334,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
     test "Source node main channel timeout when sending incremental stream" {
         R 0 flushall
-        R 0 config set repl-timeout 3   ;# 3s for main channel timeout
+        R 0 config set repl-timeout 2   ;# 2s for main channel timeout
 
         set r1_pid [S 1 process_id]
         # in order to have time to pause the destination node
@@ -1347,7 +1347,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         populate_slot 200 -idx 0 -slot 0 -size 16384
 
         # Start the slot 0 write load on the R 0
-        set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 [slot_key 0 mykey]]
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 [slot_key 0 mykey] 500]
 
         # wait for streaming buffer state, then pause the destination node
         wait_for_condition 1000 20 {
