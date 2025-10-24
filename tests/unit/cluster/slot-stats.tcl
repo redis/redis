@@ -518,12 +518,13 @@ start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-en
 # Test cases for CLUSTER SLOT-STATS network-bytes-out correctness.
 # -----------------------------------------------------------------------------
 
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 0 {tags {external:skip cluster}} {
     # Define shared variables.
     set key "FOO"
     set key_slot [R 0 cluster keyslot $key]
     set expected_slots_to_key_count [dict create $key_slot 1]
     set metrics_to_assert [list network-bytes-out]
+    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     test "CLUSTER SLOT-STATS network-bytes-out, for non-slot specific commands." {
         R 0 INFO
@@ -575,12 +576,13 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 }
 
-start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set key "FOO"
     set key_slot [R 0 CLUSTER KEYSLOT $key]
     set metrics_to_assert [list network-bytes-out]
+    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     # Setup replication.
     assert {[s -1 role] eq {slave}}
@@ -605,7 +607,7 @@ start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     }
 }
 
-start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+start_cluster 1 1 {tags {external:skip cluster}} {
 
     # Define shared variables.
     set channel "channel"
@@ -613,6 +615,7 @@ start_cluster 1 1 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     set channel_secondary "channel2"
     set key_slot_secondary [R 0 cluster keyslot $channel_secondary]
     set metrics_to_assert [list network-bytes-out]
+    R 0 CONFIG SET cluster-slot-stats-enabled yes
 
     test "CLUSTER SLOT-STATS network-bytes-out, sharded pub/sub, single channel." {
         set slot [R 0 cluster keyslot $channel]
@@ -858,18 +861,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         }
     }
 
-    test "CLUSTER SLOT-STATS ORDERBY arg sanity check (slot stats enabled)." {
-        # Non-existent argument.
-        assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY key-count non-existent-arg}
-        # Negative LIMIT.
-        assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY key-count DESC LIMIT -1}
-        # Non-existent ORDERBY metric.
-        assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY non-existent-metric}
-    }
-}
-
-start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled no}} {
-    test "CLUSTER SLOT-STATS ORDERBY arg sanity check (slot stats disabled)." {
+    test "CLUSTER SLOT-STATS ORDERBY arg sanity check." {
         # Non-existent argument.
         assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY key-count non-existent-arg}
         # Negative LIMIT.
@@ -877,6 +869,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         # Non-existent ORDERBY metric.
         assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY non-existent-metric}
         # When cluster-slot-stats-enabled config is disabled, you cannot sort using advanced metrics.
+        R 0 CONFIG SET cluster-slot-stats-enabled no
         set orderby "cpu-usec"
         assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY $orderby}
         set orderby "network-bytes-in"
@@ -884,6 +877,7 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         set orderby "network-bytes-out"
         assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY $orderby}
     }
+
 }
 
 # -----------------------------------------------------------------------------
