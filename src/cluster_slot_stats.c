@@ -94,15 +94,15 @@ static void addReplySlotStat(client *c, int slot) {
                              * and 1st index represents (map) usage statistics. */
     addReplyLongLong(c, slot);
     addReplyMapLen(c, (server.cluster_slot_stats_enabled) ? SLOT_STAT_COUNT
-                                                          : 2); /* Nested map representing slot usage statistics. */
+                                                          : 1); /* Nested map representing slot usage statistics. */
     addReplyBulkCString(c, "key-count");
     addReplyLongLong(c, countKeysInSlot(slot));
-    addReplyBulkCString(c, "memory-bytes");
-    addReplyLongLong(c, kvstoreDictAllocSize(server.db->keys, slot));
 
     /* Any additional metrics aside from key-count come with a performance trade-off,
      * and are aggregated and returned based on its server config. */
     if (server.cluster_slot_stats_enabled) {
+        addReplyBulkCString(c, "memory-bytes");
+        addReplyLongLong(c, kvstoreDictAllocSize(server.db->keys, slot));
         addReplyBulkCString(c, "cpu-usec");
         addReplyLongLong(c, server.cluster_slot_stats[slot].cpu_usec);
         addReplyBulkCString(c, "network-bytes-in");
