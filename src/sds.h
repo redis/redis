@@ -167,15 +167,15 @@ static inline void sdsinclen(sds s, size_t inc) {
 static inline size_t sdsAllocSize(sds s) {
     switch(sdsType(s)) {
         case SDS_TYPE_5:
-            return SDS_TYPE_5_LEN(s) + sizeof(struct sdshdr5);
+            return sizeof(struct sdshdr5) + SDS_TYPE_5_LEN(s) + 1;
         case SDS_TYPE_8:
-            return SDS_HDR(8,s)->alloc + sizeof(struct sdshdr8);
+            return sizeof(struct sdshdr8) + SDS_HDR(8,s)->alloc + 1;
         case SDS_TYPE_16:
-            return SDS_HDR(16,s)->alloc + sizeof(struct sdshdr16);
+            return sizeof(struct sdshdr16) + SDS_HDR(16,s)->alloc + 1;
         case SDS_TYPE_32:
-            return SDS_HDR(32,s)->alloc + sizeof(struct sdshdr32);
+            return sizeof(struct sdshdr32) + SDS_HDR(32,s)->alloc + 1;
         case SDS_TYPE_64:
-            return SDS_HDR(64,s)->alloc + sizeof(struct sdshdr64);
+            return sizeof(struct sdshdr64) + SDS_HDR(64,s)->alloc + 1;
     }
     return 0;
 }
