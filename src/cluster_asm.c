@@ -131,7 +131,7 @@ ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 /* cluster.c */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
 static void asmTaskCancel(asmTask *task, const char *reason);
@@ -1811,6 +1811,16 @@ void clusterSyncSlotsCommand(client *c) {
             return;
         }
 
+        /* Verify the destination node is known and is a master. */
+        if (c->node_id) {
+            clusterNode *dest = clusterLookupNode(c->node_id, CLUSTER_NAMELEN);
+            if (dest == NULL || !clusterNodeIsMaster(dest)) {
+                addReplyErrorFormat(c, "Destination node %.40s is not a master", c->node_id);
+                slotRangeArrayFree(slots);
+                return;
+            }
+        }
+
         sds task_id = c->argv[3]->ptr;
         /* Notify the cluster implementation to prepare for the migrate task. */
         if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK) {
@@ -2104,7 +2114,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Create the DUMP encoded representation. */
         rio payload;
-        createDumpPayload(&payload, o, &key, dbid);
+        createDumpPayload(&payload, o, &key, dbid, 1);
         sds buf = payload.io.buffer.ptr;
         if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
             sdsfree(payload.io.buffer.ptr);

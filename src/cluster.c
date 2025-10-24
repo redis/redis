@@ -85,9 +85,9 @@ ConnectionType *connTypeOfCluster(void) {
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
  * io stream pointed by 'rio'. This function can't fail. */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum) {
     unsigned char buf[2];
-    uint64_t crc;
+    uint64_t crc = 0;
 
     /* Serialize the object in an RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
@@ -107,10 +107,14 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
     buf[1] = (RDB_VERSION >> 8) & 0xff;
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,buf,2);
 
-    /* CRC64 */
-    crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
-                sdslen(payload->io.buffer.ptr));
-    memrev64ifbe(&crc);
+    /* If crc checksum is disabled, crc is set to 0 and no checksum validation
+     * will be performed on RESTORE. */
+    if (!skip_checksum) {
+        /* CRC64 */
+        crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
+                    sdslen(payload->io.buffer.ptr));
+        memrev64ifbe(&crc);
+    }
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,&crc,8);
 }
 
@@ -138,10 +142,15 @@ int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr) {
     if (server.skip_checksum_validation)
         return C_OK;
 
+    uint64_t crc_payload;
+    memcpy(&crc_payload, footer+2, 8);
+    if (crc_payload == 0) /* No checksum. */
+        return C_OK;
+
     /* Verify CRC64 */
     crc = crc64(0,p,len-8);
     memrev64ifbe(&crc);
-    return (memcmp(&crc,footer+2,8) == 0) ? C_OK : C_ERR;
+    return crc == crc_payload ? C_OK : C_ERR;
 }
 
 /* DUMP keyname
@@ -158,7 +167,7 @@ void dumpCommand(client *c) {
     }
 
     /* Create the DUMP encoded representation. */
-    createDumpPayload(&payload,o,c->argv[1],c->db->id);
+    createDumpPayload(&payload,o,c->argv[1],c->db->id,0);
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);
@@ -570,7 +579,7 @@ void migrateCommand(client *c) {
 
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
-        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid);
+        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid,0);
         serverAssertWithInfo(c,NULL,
                              rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                                 sdslen(payload.io.buffer.ptr)));
