@@ -1244,7 +1244,7 @@ size_t kvobjAllocSize(kvobj *o) {
         stream *s = o->ptr;
         asize += s->alloc_size;
     } else if (o->type == OBJ_MODULE) {
-        // TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval
+        /* TODO: Provide moduleGetAllocSize() module API for O(1) allocation size retrieval */
     }
     return asize;
 }
