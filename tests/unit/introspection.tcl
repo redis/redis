@@ -564,7 +564,6 @@ start_server {tags {"introspection"}} {
             always-show-logo
             syslog-enabled
             cluster-enabled
-            cluster-slot-stats-enabled
             disable-thp
             aclfile
             unixsocket
