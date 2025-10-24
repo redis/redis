@@ -1220,7 +1220,15 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
 
 size_t kvobjAllocSize(kvobj *o) {
     /* All kv-objects has at least kvobj header and embedded key */
-    size_t asize = zmalloc_size((void *)o);
+    serverAssert(o->iskvobj);
+    size_t asize = sizeof(kvobj);
+    if (o->expirable) asize += sizeof(long long);
+    /* Add embedded key size */
+    asize += 1; /* embedded key header size */
+    asize += sdsAllocSize(kvobjGetKey(o));
+    /* Add embedded string size */
+    if (o->encoding == OBJ_ENCODING_EMBSTR)
+        asize += sdsAllocSize(o->ptr);
 
     if (o->type == OBJ_STRING) {
         asize += stringObjectAllocSize(o);
