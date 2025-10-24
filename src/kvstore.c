@@ -218,7 +218,7 @@ static size_t kvstoreDictMetadataExtendSize(dict *d) {
 }
 
 void kvstoreTrackDeallocation(dict *d, void *kv) {
-    if (!clusterSlotStatsEnabled()) return;
+    if (!server.memory_tracking_per_slot) return;
     kvstore *kvs = d->type->userdata;
     if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
         kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(d);

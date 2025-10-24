@@ -126,7 +126,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 }
 
 void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize) {
-    debugServerAssert(clusterSlotStatsEnabled());
+    debugServerAssert(server.memory_tracking_per_slot);
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
     if (!dictMeta) return;
 #ifdef REDIS_TEST
@@ -181,7 +181,7 @@ void dbgAssertKeysizesHist(redisDb *db) {
  * Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1 and tested after each command.
  */
 void dbgAssertAllocSizePerSlot(redisDb *db) {
-    if (!clusterSlotStatsEnabled()) return;
+    if (!server.memory_tracking_per_slot) return;
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
     dictEntry *de;
     kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
@@ -383,7 +383,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
-    if (clusterSlotStatsEnabled())
+    if (server.memory_tracking_per_slot)
         updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
     *valref = kv;
     return kv;
@@ -493,7 +493,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
         kv = setExpireByLink(NULL, db, key, expire, bucket);
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
-    if (clusterSlotStatsEnabled())
+    if (server.memory_tracking_per_slot)
         updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
     return *valref = kv;
 }
@@ -550,7 +550,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetKV(*link);
     }
-    if (clusterSlotStatsEnabled())
+    if (server.memory_tracking_per_slot)
         oldsize = kvobjAllocSize(old);
 
     if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
@@ -606,7 +606,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         }
     }
 
-    if (clusterSlotStatsEnabled())
+    if (server.memory_tracking_per_slot)
         updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvNew));
 
     if (server.io_threads_num > 1 && old->encoding == OBJ_ENCODING_RAW) {
@@ -790,7 +790,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             kvstoreDictDelete(db->expires, slot, key->ptr);
 
         if (async) {
-            if (clusterSlotStatsEnabled())
+            if (server.memory_tracking_per_slot)
                 updateSlotAllocSize(db, slot, kvobjAllocSize(kv), 0);
             freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
@@ -2527,7 +2527,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* Val already had an expire field, so it was not reallocated. */
         serverAssert(kv == kvnew);
     } else { /* No old expire */
-        if (clusterSlotStatsEnabled())
+        if (server.memory_tracking_per_slot)
             oldsize = kvobjAllocSize(kv);
         uint64_t subexpiry = EB_EXPIRE_TIME_INVALID;
         /* If hash with HFEs, take care to remove from global HFE DS before attempting
@@ -2539,7 +2539,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* if kvobj was reallocated, update dict */
         if (kv != kvnew) {
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
-            if (clusterSlotStatsEnabled())
+            if (server.memory_tracking_per_slot)
                 updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvnew));
             kv = kvnew;
         }

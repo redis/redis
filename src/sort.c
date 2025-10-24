@@ -340,10 +340,10 @@ void sortCommandGeneric(client *c, int readonly) {
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == OBJ_ZSET) {
         size_t oldsize = 0;
-        if (clusterSlotStatsEnabled())
+        if (server.memory_tracking_per_slot)
             oldsize = zsetAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
-        if (clusterSlotStatsEnabled())
+        if (server.memory_tracking_per_slot)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(sortval));
     }
 

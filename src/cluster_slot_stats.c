@@ -93,16 +93,19 @@ static void addReplySlotStat(client *c, int slot) {
     addReplyArrayLen(c, 2); /* Array of size 2, where 0th index represents (int) slot,
                              * and 1st index represents (map) usage statistics. */
     addReplyLongLong(c, slot);
-    addReplyMapLen(c, (server.cluster_slot_stats_enabled) ? SLOT_STAT_COUNT
-                                                          : 1); /* Nested map representing slot usage statistics. */
+    addReplyMapLen(c, server.cluster_slot_stats_enabled
+        ? (server.memory_tracking_per_slot ? SLOT_STAT_COUNT : SLOT_STAT_COUNT-1)
+        : 1); /* Nested map representing slot usage statistics. */
     addReplyBulkCString(c, "key-count");
     addReplyLongLong(c, countKeysInSlot(slot));
 
     /* Any additional metrics aside from key-count come with a performance trade-off,
      * and are aggregated and returned based on its server config. */
     if (server.cluster_slot_stats_enabled) {
-        addReplyBulkCString(c, "memory-bytes");
-        addReplyLongLong(c, kvstoreDictAllocSize(server.db->keys, slot));
+        if (server.memory_tracking_per_slot) {
+            addReplyBulkCString(c, "memory-bytes");
+            addReplyLongLong(c, kvstoreDictAllocSize(server.db->keys, slot));
+        }
         addReplyBulkCString(c, "cpu-usec");
         addReplyLongLong(c, server.cluster_slot_stats[slot].cpu_usec);
         addReplyBulkCString(c, "network-bytes-in");
@@ -297,7 +300,7 @@ void clusterSlotStatsCommand(client *c) {
             order_by = KEY_COUNT;
         } else if (!strcasecmp(c->argv[3]->ptr, "cpu-usec") && server.cluster_slot_stats_enabled) {
             order_by = CPU_USEC;
-        } else if (!strcasecmp(c->argv[3]->ptr, "memory-bytes") && server.cluster_slot_stats_enabled) {
+        } else if (!strcasecmp(c->argv[3]->ptr, "memory-bytes") && server.cluster_slot_stats_enabled && server.memory_tracking_per_slot) {
             order_by = MEMORY_BYTES;
         } else if (!strcasecmp(c->argv[3]->ptr, "network-bytes-in") && server.cluster_slot_stats_enabled) {
             order_by = NETWORK_BYTES_IN;
