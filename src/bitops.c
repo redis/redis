@@ -800,7 +800,7 @@ static kvobj *lookupStringForBitCommand(client *c, uint64_t maxbit,
             oldAllocSize = stringObjectAllocSize(o);
         o->ptr = sdsgrowzero(o->ptr,byte+1);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldAllocSize, stringObjectAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldAllocSize, stringObjectAllocSize(o));
         *strGrowSize = sdslen(o->ptr) - *strOldSize;
     }
     return o;

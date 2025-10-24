@@ -3771,7 +3771,7 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
 
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
-void updateAllocSizes(redisDb *db, int didx, size_t oldsize, size_t newsize);
+void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize);
 void dbgAssertKeysizesHist(redisDb *db);
 void dbgAssertAllocSizePerSlot(redisDb *db);
 int removeExpire(redisDb *db, robj *key);

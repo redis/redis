@@ -1883,7 +1883,7 @@ void zaddGenericCommand(client *c, int flags) {
             oldsize = zsetAllocSize(zobj);
         zsetTypeMaybeConvert(zobj, elements);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
     }
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
@@ -1899,7 +1899,7 @@ void zaddGenericCommand(client *c, int flags) {
         if (retval == 0) {
             addReplyError(c,nanerr);
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+                updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
             goto cleanup;
         }
         if (retflags & ZADD_OUT_ADDED) added++;
@@ -1909,7 +1909,7 @@ void zaddGenericCommand(client *c, int flags) {
     }
     server.dirty += (added+updated);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
     updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, llen, llen+added);
 
 reply_to_client:
@@ -1954,7 +1954,7 @@ void zremCommand(client *c) {
         if (zsetDel(zobj, c->argv[j]->ptr)) deleted++;
         if (zsetLength(zobj) == 0) {
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+                updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
             /* Del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
             dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
@@ -1963,7 +1963,7 @@ void zremCommand(client *c) {
     }
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled && !keyremoved)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
     if (deleted) {
         int64_t newlen = oldlen - deleted;
         notifyKeyspaceEvent(NOTIFY_ZSET,"zrem",key,c->db->id);
@@ -2057,7 +2057,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         }
         if (zzlLength(zobj->ptr) == 0) {
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+                updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
             dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         }
@@ -2079,7 +2079,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
         dictResumeAutoResize(zs->dict);
         if (dictSize(zs->dict) == 0) {
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+                updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
             dbDeleteSkipKeysizesUpdate(c->db, key);
             keyremoved = 1;
         } else {
@@ -2091,7 +2091,7 @@ void zremrangeGenericCommand(client *c, zrange_type rangetype) {
 
     /* Step 4: Notifications and reply. */
     if (server.cluster_enabled && server.cluster_slot_stats_enabled && !keyremoved)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
     if (deleted) {
         int64_t  oldlen, newlen;
         signalModifiedKey(c,c->db,key);
@@ -2953,7 +2953,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
         for (i = 0; i < setnum; i++) {
             robj *obj = src[i].subject;
             if (obj == NULL) continue;
-            updateAllocSizes(c->db, getKeySlot(kvobjGetKey(obj)),
+            updateSlotAllocSize(c->db, getKeySlot(kvobjGetKey(obj)),
                             src[i].oldsize, zuiAllocSize(&src[i]));
         }
     }
@@ -3885,7 +3885,7 @@ void zrangeGenericCommand(zrange_result_handler *handler, int argc_start, int st
         break;
     }
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
 
     /* Instead of returning here, we'll just fall-through the clean-up. */
 
@@ -3923,7 +3923,7 @@ void zscoreCommand(client *c) {
         addReplyDouble(c,score);
     }
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
 }
 
 void zmscoreCommand(client *c) {
@@ -3945,7 +3945,7 @@ void zmscoreCommand(client *c) {
         }
     }
     if (server.cluster_enabled && server.cluster_slot_stats_enabled && zobj != NULL)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
 }
 
 void zrankGenericCommand(client *c, int reverse) {
@@ -3979,7 +3979,7 @@ void zrankGenericCommand(client *c, int reverse) {
     serverAssertWithInfo(c, ele, sdsEncodedObject(ele));
     rank = zsetRank(zobj, ele->ptr, reverse, opt_withscore ? &score : NULL);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
     if (rank >= 0) {
         if (opt_withscore) {
             addReplyArrayLen(c, 2);
@@ -4017,7 +4017,7 @@ void zscanCommand(client *c) {
         oldsize = zsetAllocSize(o);
     scanGenericCommand(c,o,cursor);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(o));
 }
 
 /* This command implements the generic zpop operation, used by:
@@ -4162,7 +4162,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
     } while(--rangelen);
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
+        updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, zsetAllocSize(zobj));
     
     int64_t oldlen = llen, newlen = llen - result_count;
 
@@ -4528,7 +4528,7 @@ void zrandmemberWithCountCommand(client *c, long l, int withscores) {
     zuiClearIterator(&src);
 out:
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(zsetobj));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(zsetobj));
 }
 
 /* ZRANDMEMBER key [<count> [WITHSCORES]] */
@@ -4566,7 +4566,7 @@ void zrandmemberCommand(client *c) {
     zsetTypeRandomElement(zset, zsetLength(zset), &ele,NULL);
     zsetReplyFromListpackEntry(c,&ele);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(zset));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(zset));
 }
 
 /* ZMPOP/BZMPOP

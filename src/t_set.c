@@ -627,7 +627,7 @@ void saddCommand(client *c) {
             oldsize = setTypeAllocSize(set);
         setTypeMaybeConvert(set, c->argc - 2);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     }
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
@@ -636,7 +636,7 @@ void saddCommand(client *c) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
     }
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     if (added) {
         unsigned long size = setTypeSize(set);
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size - added, size);
@@ -664,7 +664,7 @@ void sremCommand(client *c) {
             deleted++;
             if (setTypeSize(set) == 0) {
                 if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                    updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
                 dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
@@ -672,7 +672,7 @@ void sremCommand(client *c) {
         }
     }
     if (server.cluster_enabled && server.cluster_slot_stats_enabled && !keyremoved)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     if (deleted) {
         int64_t newSize = oldSize - deleted;
 
@@ -718,7 +718,7 @@ void smoveCommand(client *c) {
         oldSrcAllocSize = setTypeAllocSize(srcset);
     int deleted = setTypeRemove(srcset,ele->ptr);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldSrcAllocSize, setTypeAllocSize(srcset));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldSrcAllocSize, setTypeAllocSize(srcset));
     /* If the element cannot be removed from the src set, return 0. */
     if (!deleted) {
         addReply(c,shared.czero);
@@ -757,7 +757,7 @@ void smoveCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[2]->ptr), oldDstAllocSize, setTypeAllocSize(dstset));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), oldDstAllocSize, setTypeAllocSize(dstset));
     addReply(c,shared.cone);
 }
 
@@ -775,7 +775,7 @@ void sismemberCommand(client *c) {
     else
         addReply(c,shared.czero);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
 }
 
 void smismemberCommand(client *c) {
@@ -796,7 +796,7 @@ void smismemberCommand(client *c) {
             addReply(c,shared.czero);
     }
     if (server.cluster_enabled && server.cluster_slot_stats_enabled && set)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
 }
 
 void scardCommand(client *c) {
@@ -928,7 +928,7 @@ void spopWithCountCommand(client *c) {
         set->ptr = lp;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
             oldsize = setTypeAllocSize(set);
@@ -947,7 +947,7 @@ void spopWithCountCommand(client *c) {
         }
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
      * the size of the set itself. After some time extracting random elements
@@ -1020,7 +1020,7 @@ void spopWithCountCommand(client *c) {
          * the size of the old set has already changed by the time we reach this point. */
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-count);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
     }
 
@@ -1070,7 +1070,7 @@ void spopCommand(client *c) {
     ele = setTypePopRandom(kv);
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(kv));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(kv));
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
@@ -1333,7 +1333,7 @@ void srandmemberCommand(client *c) {
         oldsize = setTypeAllocSize(set);
     setTypeRandomElement(set, &str, &len, &llele);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
     if (str == NULL) {
         addReplyBulkLongLong(c,llele);
     } else {
@@ -1510,7 +1510,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
     if (server.cluster_enabled && server.cluster_slot_stats_enabled) {
         for (j = 0; j < setnum; j++) {
             if (!sets[j].set) continue;
-            updateAllocSizes(c->db, getKeySlot(setkeys[j]->ptr),
+            updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr),
                             sets[j].oldsize, setTypeAllocSize(sets[j].set));
         }
     }
@@ -1583,7 +1583,7 @@ void smembersCommand(client *c) {
     }
     setTypeReleaseIterator(si);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(setobj));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(setobj));
     serverAssert(length == 0); /* fail on corrupt data */
 }
 
@@ -1785,7 +1785,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     if (server.cluster_enabled && server.cluster_slot_stats_enabled) {
         for (j = 0; j < setnum; j++) {
             if (!sets[j].set) continue;
-            updateAllocSizes(c->db, getKeySlot(setkeys[j]->ptr),
+            updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr),
                             sets[j].oldsize, setTypeAllocSize(sets[j].set));
         }
     }
@@ -1858,5 +1858,5 @@ void sscanCommand(client *c) {
         oldsize = setTypeAllocSize(set);
     scanGenericCommand(c,set,cursor);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
 }

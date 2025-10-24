@@ -125,7 +125,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     }
 }
 
-void updateAllocSizes(redisDb *db, int didx, size_t oldsize, size_t newsize) {
+void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize) {
     debugServerAssert(server.cluster_enabled && server.cluster_slot_stats_enabled);
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
     if (!dictMeta) return;
@@ -384,7 +384,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(db, slot, 0, kvobjAllocSize(kv));
+        updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
     *valref = kv;
     return kv;
 }
@@ -494,7 +494,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(db, slot, 0, kvobjAllocSize(kv));
+        updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
     return *valref = kv;
 }
 
@@ -607,7 +607,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     }
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(db, slot, oldsize, kvobjAllocSize(kvNew));
+        updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvNew));
 
     if (server.io_threads_num > 1 && old->encoding == OBJ_ENCODING_RAW) {
         /* In multi-threaded mode, the OBJ_ENCODING_RAW string object usually is
@@ -791,7 +791,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         if (async) {
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(db, slot, kvobjAllocSize(kv), 0);
+                updateSlotAllocSize(db, slot, kvobjAllocSize(kv), 0);
             freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
@@ -2540,7 +2540,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         if (kv != kvnew) {
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(db, slot, oldsize, kvobjAllocSize(kvnew));
+                updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvnew));
             kv = kvnew;
         }
         /* Now add to expires */

@@ -587,7 +587,7 @@ void setrangeCommand(client *c) {
             oldsize = stringObjectAllocSize(kv);
         kv->ptr = sdsgrowzero(kv->ptr,offset+value_len);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
         memcpy((char*)kv->ptr+offset,value,value_len);
         signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_STRING,
@@ -827,7 +827,7 @@ void appendCommand(client *c) {
             oldsize = stringObjectAllocSize(o);
         o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(o));
         totlen = sdslen(o->ptr);
         int64_t oldlen = totlen - append_len;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, totlen);

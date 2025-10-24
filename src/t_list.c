@@ -520,7 +520,7 @@ void pushGenericCommand(client *c, int where, int xx) {
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen - (c->argc - 2), llen);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(lobj));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(lobj));
 }
 
 /* LPUSH <key> <element> [<element> ...] */
@@ -587,7 +587,7 @@ void linsertCommand(client *c) {
     }
     listTypeReleaseIterator(iter);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
 
     if (inserted) {
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -670,7 +670,7 @@ void lsetCommand(client *c) {
     /* Always update db allocation sizes since listTypeTryConversionAppend()
      * might have changed object encoding. */
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
 }
 
 /* A helper function like addListRangeReply, more details see below.
@@ -794,13 +794,13 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, s
         if (deleted) *deleted = 1;
 
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, listTypeAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, listTypeAllocSize(o));
         dbDelete(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
     } else {
         listTypeTryConversion(o, LIST_CONV_SHRINKING, NULL, NULL);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(key->ptr), oldsize, listTypeAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, listTypeAllocSize(o));
         if (deleted) *deleted = 0;
     }
     if (signal) signalModifiedKey(c, c->db, key);
@@ -970,7 +970,7 @@ void ltrimCommand(client *c) {
     }
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
     if ((llenNew = listTypeLength(o)) == 0) {
         dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
@@ -1142,7 +1142,7 @@ void lremCommand(client *c) {
     if (removed) {
         long ll = listTypeLength(subject);
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll + removed, ll);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
         
@@ -1171,7 +1171,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
     listTypeTryConversionAppend(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(dstkey->ptr), oldsize, listTypeAllocSize(dstobj));
+        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), oldsize, listTypeAllocSize(dstobj));
     signalModifiedKey(c,c->db,dstkey);
 
     notifyKeyspaceEvent(NOTIFY_LIST,
@@ -1228,7 +1228,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         robj *value = listTypePop(kvsrc, wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
         if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-            updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(kvsrc));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(kvsrc));
         lmoveHandlePush(c, c->argv[2], kvdst, value, whereto);
         /* Update dst obj cardinality in KEYSIZES */
         updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_LIST, oldlen, newlen);

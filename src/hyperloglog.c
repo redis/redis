@@ -1643,7 +1643,7 @@ void pfaddCommand(client *c) {
         case -1:
             addReplyError(c,invalid_hll_err);
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
             return;
         }
     }
@@ -1651,7 +1651,7 @@ void pfaddCommand(client *c) {
     hdr = kv->ptr;
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(kv));
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -1834,7 +1834,7 @@ void pfmergeCommand(client *c) {
     HLL_INVALIDATE_CACHE(hdr);
 
     if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-        updateAllocSizes(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
     signalModifiedKey(c,c->db,c->argv[1]);
     /* We generate a PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
@@ -2012,7 +2012,7 @@ void pfdebugCommand(client *c) {
             }
             updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
             server.dirty++; /* Force propagation on encoding change. */
         }
 
@@ -2081,7 +2081,7 @@ void pfdebugCommand(client *c) {
             }
             updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
             if (server.cluster_enabled && server.cluster_slot_stats_enabled)
-                updateAllocSizes(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
             conv = 1;
             server.dirty++; /* Force propagation on encoding change. */
         }
