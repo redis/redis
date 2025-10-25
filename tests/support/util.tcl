@@ -686,7 +686,7 @@ proc process_is_alive pid {
 }
 
 proc get_system_name {} {
-    return [string tolower [exec uname -s]]
+    return [string tolower [string trim [exec uname -s]]]
 }
 
 proc get_proc_state {pid} {
