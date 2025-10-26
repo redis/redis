@@ -132,7 +132,7 @@ struct dict {
 
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
     signed pauseAutoResize: 15;  /* If >0 automatic resizing is disallowed (<0 indicates coding error) */
-    unsigned useStoredKeyApi : 1; /* See comment of storedHashFunction above */
+    unsigned useStoredKeyApi: 1; /* See comment of storedHashFunction above */
     void *metadata[];
 };
 
