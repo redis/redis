@@ -242,8 +242,6 @@ typedef struct {
     int expire_pos;  /* Position of EX/PX flag for replication rewriting */
     robj *expire;
     robj *match_value; /* For IFEQ/IFNE/IFDEQ/IFDNE conditions */
-    int kv_count;    /* Only used by MSETEX */
-    int kv_start;    /* Only used by MSETEX */
 } extendedStringArgs;
 
 /*
@@ -266,7 +264,6 @@ typedef struct {
 int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedStringArgs *args, int command_type) {
     /* Initialize arguments to defaults */
     memset(args, 0, sizeof(*args));
-    args->kv_start = -1;
     args->expire_pos = -1;
     args->unit = UNIT_SECONDS;
 
@@ -302,24 +299,6 @@ int parseExtendedStringArgumentsOrReply(client *c, int start_pos, extendedString
                    (command_type == COMMAND_SET))
         {
             args->flags |= OBJ_SET_GET;
-        } else if (!strcasecmp(opt, "KEYS") && command_type == COMMAND_MSETEX && j+1 < c->argc) {
-            /* Handle KEYS block skipping and populate KEYS parameters */
-            long kv_count_long;
-            if (getRangeLongFromObjectOrReply(c, c->argv[j+1], 1, INT_MAX,
-                &kv_count_long, "invalid numkeys value") != C_OK)
-            {
-                return C_ERR;
-            }
-            if (j + 2 + (long long)kv_count_long * 2 > c->argc) {
-                addReplyError(c, "wrong number of key-value pairs");
-                return C_ERR;
-            }
-
-            /* Populate KEYS parameters for MSETEX */
-            args->kv_count = (int)kv_count_long;
-            args->kv_start = j + 2;
-
-            j = j + 1 + (kv_count_long * 2);  /* Skip "KEYS", numkeys, and all key-value pairs */
         } else if (!strcasecmp(opt, "KEEPTTL") && !(args->flags & OBJ_PERSIST) &&
             !(args->flags & OBJ_EX) && !(args->flags & OBJ_EXAT) &&
             !(args->flags & OBJ_PX) && !(args->flags & OBJ_PXAT) &&
@@ -728,19 +707,28 @@ void msetnxCommand(client *c) {
 }
 
 void msetexCommand(client *c) {
+    /* Parse numkeys parameter */
+    long count;
+    if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, INT_MAX,
+        &count, "invalid numkeys value") != C_OK)
+    {
+        return;
+    }
+
+    long long kv_count = count;
+    /* Validate we have enough arguments: command + numkeys + (key-value pairs) * 2 */
+    if (kv_count * 2 + 2 > c->argc) {
+        addReplyError(c, "wrong number of key-value pairs");
+        return;
+    }
+
     extendedStringArgs args;
-    if (parseExtendedStringArgumentsOrReply(c, 1, &args, COMMAND_MSETEX) != C_OK) {
+    if (parseExtendedStringArgumentsOrReply(c, kv_count * 2 + 2, &args, COMMAND_MSETEX) != C_OK) {
         return;
     }
 
     if ((args.flags & OBJ_SET_NX) && (args.flags & OBJ_SET_XX)) {
         addReplyErrorObject(c, shared.syntaxerr);
-        return;
-    }
-
-    /* Validate KEYS block was found */
-    if (args.kv_count == 0) {
-        addReplyError(c, "syntax error - KEYS keyword is required");
         return;
     }
 
@@ -752,8 +740,8 @@ void msetexCommand(client *c) {
 
     if (args.flags & (OBJ_SET_NX | OBJ_SET_XX)) {
         /* Check NX/XX conditions for each key - pattern from setGenericCommand */
-        for (int j = 0; j < args.kv_count; j++) {
-            int key_idx = args.kv_start + (j * 2);
+        for (int j = 0; j < kv_count; j++) {
+            int key_idx = (j * 2) + 2;
             robj *found = lookupKeyWrite(c->db, c->argv[key_idx]);
 
             if ((args.flags & OBJ_SET_NX && found) ||
@@ -766,9 +754,9 @@ void msetexCommand(client *c) {
     }
 
     /* Set all key-value pairs */
-    for (int j = 0; j < args.kv_count; j++) {
-        int key_idx = args.kv_start + (j * 2);
-        int val_idx = args.kv_start + (j * 2) + 1;
+    for (int j = 0; j < kv_count; j++) {
+        int key_idx = (j * 2) + 2;
+        int val_idx = (j * 2) + 3;
 
         c->argv[val_idx] = tryObjectEncoding(c->argv[val_idx]);
 
@@ -798,7 +786,7 @@ void msetexCommand(client *c) {
         decrRefCount(milliseconds_obj);
     }
 
-    server.dirty += args.kv_count;
+    server.dirty += kv_count;
     addReply(c, shared.cone);
 }
 

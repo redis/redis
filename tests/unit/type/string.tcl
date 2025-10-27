@@ -262,12 +262,12 @@ start_server {tags {"string"}} {
         set future_ms [expr [clock milliseconds] + 10000]
 
         # Test EX and PX with separate commands (each applies to all keys in that command)
-        r msetex keys 2 ex:key1{t} val1 ex:key2{t} val2 ex 5
-        r msetex keys 2 px:key1{t} val1 px:key2{t} val2 px 5000
+        r msetex 2 ex:key1{t} val1 ex:key2{t} val2 ex 5
+        r msetex 2 px:key1{t} val1 px:key2{t} val2 px 5000
 
         # Test EXAT and PXAT with separate commands
-        r msetex keys 2 exat:key1{t} val3 exat:key2{t} val4 exat $future_sec
-        r msetex keys 2 pxat:key1{t} val3 pxat:key2{t} val4 pxat $future_ms
+        r msetex 2 exat:key1{t} val3 exat:key2{t} val4 exat $future_sec
+        r msetex 2 pxat:key1{t} val3 pxat:key2{t} val4 pxat $future_ms
 
         assert_morethan [r ttl ex:key1{t}] 0
         assert_morethan [r pttl px:key1{t}] 0
@@ -278,7 +278,7 @@ start_server {tags {"string"}} {
     test {MSETEX - KEEPTTL preserves existing TTL} {
         r setex keepttl:key{t} 100 oldval
         set old_ttl [r ttl keepttl:key{t}]
-        r msetex keys 1 keepttl:key{t} newval keepttl
+        r msetex 1 keepttl:key{t} newval keepttl
         assert_equal [r get keepttl:key{t}] "newval"
         assert_morethan [r ttl keepttl:key{t}] [expr $old_ttl - 5]
     }
@@ -287,10 +287,10 @@ start_server {tags {"string"}} {
         r del nx:new{t} nx:new2{t} xx:existing{t} xx:nonexist{t}
         r set xx:existing{t} oldval
 
-        assert_equal [r msetex nx keys 2 nx:new{t} val1 nx:new2{t} val2 ex 10] 1
-        assert_equal [r msetex nx keys 1 xx:existing{t} newval ex 10] 0
-        assert_equal [r msetex xx keys 1 xx:nonexist{t} newval ex 10] 0
-        assert_equal [r msetex xx keys 1 xx:existing{t} newval ex 10] 1
+        assert_equal [r msetex 2 nx:new{t} val1 nx:new2{t} val2 nx ex 10] 1
+        assert_equal [r msetex 1 xx:existing{t} newval nx ex 10] 0
+        assert_equal [r msetex 1 xx:nonexist{t} newval xx ex 10] 0
+        assert_equal [r msetex 1 xx:existing{t} newval xx ex 10] 1
         assert_equal [r get nx:new{t}] "val1"
         assert_equal [r get xx:existing{t}] "newval"
     }
@@ -298,8 +298,8 @@ start_server {tags {"string"}} {
     test {MSETEX - flexible argument parsing} {
         r del flex:1{t} flex:2{t}
         # Test flags before and after KEYS
-        r msetex ex 3 nx keys 2 flex:1{t} val1 flex:2{t} val2
-        r msetex keys 2 flex:3{t} val3 flex:4{t} val4 px 3000 xx
+        r msetex 2 flex:1{t} val1 flex:2{t} val2 ex 3 nx 
+        r msetex 2 flex:3{t} val3 flex:4{t} val4 px 3000 xx
 
         assert_equal [r get flex:1{t}] "val1"
         assert_equal [r get flex:2{t}] "val2"
@@ -310,31 +310,29 @@ start_server {tags {"string"}} {
 
     test {MSETEX - error cases} {
         assert_error {*wrong number of arguments*} {r msetex}
-        assert_error {*syntax error*} {r msetex key1 val1 ex 10}
-        assert_error {*wrong number of key-value pairs*} {r msetex keys 2 key1 val1 key2}
-        assert_error {*syntax error*} {r msetex keys 1 key1 val1 invalid_flag}
+        assert_error {*invalid numkeys value*} {r msetex key1 val1 ex 10}
+        assert_error {*wrong number of key-value pairs*} {r msetex 2 key1 val1 key2}
+        assert_error {*syntax error*} {r msetex 1 key1 val1 invalid_flag}
     }
 
     test {MSETEX - overflow protection in numkeys} {
         # Test that large numkeys values don't cause integer overflow
         # This tests the fix for potential overflow in kv_count_long * 2
-        assert_error {*invalid numkeys value*} {r msetex keys 2147483648 key1 val1 ex 10}
-        assert_error {*wrong number of key-value pairs*} {r msetex keys 2147483647 key1 val1 ex 10}
+        assert_error {*invalid numkeys value*} {r msetex 2147483648 key1 val1 ex 10}
+        assert_error {*wrong number of key-value pairs*} {r msetex 2147483647 key1 val1 ex 10}
     }
 
     test {MSETEX - mutually exclusive flags} {
         # NX and XX are mutually exclusive
-        assert_error {*syntax error*} {r msetex nx xx keys 2 key1{t} val1 key2{t} val2 ex 10}
-        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 nx xx ex 10}
+        assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 nx xx ex 10}
 
         # Multiple expiration flags are mutually exclusive
-        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 ex 10 px 5000}
-        assert_error {*syntax error*} {r msetex ex 10 px 5000 keys 2 key1{t} val1 key2{t} val2}
-        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 exat 1735689600 pxat 1735689600000}
+        assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 ex 10 px 5000}
+        assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 exat 1735689600 pxat 1735689600000}
 
         # KEEPTTL conflicts with expiration flags
-        assert_error {*syntax error*} {r msetex keys 2 key1{t} val1 key2{t} val2 keepttl ex 10}
-        assert_error {*syntax error*} {r msetex keepttl px 5000 keys 2 key1{t} val1 key2{t} val2}
+        assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 keepttl ex 10}
+        assert_error {*syntax error*} {r msetex 2 key1{t} val1 key2{t} val2 keepttl px 5000}
     }
 
     test "STRLEN against non-existing key" {

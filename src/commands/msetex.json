@@ -4,7 +4,7 @@
         "complexity": "O(N) where N is the number of keys to set.",
         "group": "string",
         "since": "8.4.0",
-        "arity": -5,
+        "arity": -4,
         "function": "msetexCommand",
         "command_flags": [
             "WRITE",
@@ -24,9 +24,8 @@
                     "UPDATE"
                 ],
                 "begin_search": {
-                    "keyword": {
-                        "keyword": "KEYS",
-                        "startfrom": 1
+                    "index": {
+                        "pos": 1
                     }
                 },
                 "find_keys": {
@@ -52,29 +51,22 @@
         },
         "arguments": [
             {
-                "name": "keys",
-                "token": "KEYS",
+                "name": "numkeys",
+                "type": "integer"
+            },
+            {
+                "name": "data",
                 "type": "block",
+                "multiple": true,
                 "arguments": [
                     {
-                        "name": "numkeys",
-                        "type": "integer"
+                        "name": "key",
+                        "type": "key",
+                        "key_spec_index": 0
                     },
                     {
-                        "name": "data",
-                        "type": "block",
-                        "multiple": true,
-                        "arguments": [
-                            {
-                                "name": "key",
-                                "type": "key",
-                                "key_spec_index": 0
-                            },
-                            {
-                                "name": "value",
-                                "type": "string"
-                            }
-                        ]
+                        "name": "value",
+                        "type": "string"
                     }
                 ]
             },
