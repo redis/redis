@@ -715,9 +715,10 @@ void msetexCommand(client *c) {
         return;
     }
 
-    long long kv_count = count;
-    /* Validate we have enough arguments: command + numkeys + (key-value pairs) * 2 */
-    if (kv_count * 2 + 2 > c->argc) {
+    long kv_count = count;
+    /* Validate we have enough arguments: command + numkeys + (key-value pairs) * 2
+     * Be careful to avoid overflow when calculating kv_count * 2 */
+    if ((long long)kv_count * 2 + 2 > c->argc) {
         addReplyError(c, "wrong number of key-value pairs");
         return;
     }
