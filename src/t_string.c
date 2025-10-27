@@ -751,7 +751,7 @@ void msetexCommand(client *c) {
     /* Set all key-value pairs */
     for (int j = 0; j < kv_count; j++) {
         int key_idx = (j * 2) + 2;
-        int val_idx = (j * 2) + 3;
+        int val_idx = key_idx + 1;
 
         c->argv[val_idx] = tryObjectEncoding(c->argv[val_idx]);
 
