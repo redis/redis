@@ -727,11 +727,6 @@ void msetexCommand(client *c) {
         return;
     }
 
-    if ((args.flags & OBJ_SET_NX) && (args.flags & OBJ_SET_XX)) {
-        addReplyErrorObject(c, shared.syntaxerr);
-        return;
-    }
-
     /* Validate the expiration time value first */
     long long milliseconds = 0;
     if (args.expire && getExpireMillisecondsOrReply(c, args.expire, args.flags, args.unit, &milliseconds) != C_OK) {
