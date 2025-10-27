@@ -708,14 +708,13 @@ void msetnxCommand(client *c) {
 
 void msetexCommand(client *c) {
     /* Parse numkeys parameter */
-    long count;
+    long kv_count;
     if (getRangeLongFromObjectOrReply(c, c->argv[1], 1, INT_MAX,
-        &count, "invalid numkeys value") != C_OK)
+        &kv_count, "invalid numkeys value") != C_OK)
     {
         return;
     }
 
-    long kv_count = count;
     /* Validate we have enough arguments: command + numkeys + (key-value pairs) * 2
      * Be careful to avoid overflow when calculating kv_count * 2 */
     if ((long long)kv_count * 2 + 2 > c->argc) {
