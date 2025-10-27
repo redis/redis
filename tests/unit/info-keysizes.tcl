@@ -484,14 +484,6 @@ proc test_all_keysizes { {replMode 0} } {
             createComplexDataset r 100 {useexpire usehexpire}
         }
     }
-    start_server {tags {"external:skip" "needs:debug"}} {
-        test "SLOT-ALLOCSIZE - Test DEBUG ALLOCSIZE-SLOTS-ASSERT command" {
-            r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
-            r FLUSHALL
-            createComplexDataset r 100
-            createComplexDataset r 100 {useexpire usehexpire}
-        }
-    }
     
     foreach type {listpackex hashtable} {
         # Test different implementations of hash tables and listpacks
@@ -759,5 +751,14 @@ start_server {} {
         # Test KEYSIZES on leader and replica
         $primary select 0
         test_all_keysizes 1
+    }
+}
+
+start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled yes}} {
+    test "SLOT-ALLOCSIZE - Test DEBUG ALLOCSIZE-SLOTS-ASSERT command" {
+        r DEBUG ALLOCSIZE-SLOTS-ASSERT 1
+        r FLUSHALL
+        createComplexDataset r 100 {usetag}
+        createComplexDataset r 100 {usetag useexpire usehexpire}
     }
 }
