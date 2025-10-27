@@ -1920,9 +1920,10 @@ int rioWriteBulkObject(rio *r, robj *obj) {
 int rewriteListObject(rio *r, robj *key, robj *o) {
     long long count = 0, items = listTypeLength(o);
 
-    listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+    listTypeIterator li;
     listTypeEntry entry;
-    while (listTypeNext(li,&entry)) {
+    listTypeInitIterator(&li, o, 0, LIST_TAIL);
+    while (listTypeNext(&li, &entry)) {
         if (count == 0) {
             int cmd_items = (items > AOF_REWRITE_ITEMS_PER_CMD) ?
                 AOF_REWRITE_ITEMS_PER_CMD : items;
@@ -1930,7 +1931,7 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
                 !rioWriteBulkString(r,"RPUSH",5) ||
                 !rioWriteBulkObject(r,key)) 
             {
-                listTypeReleaseIterator(li);
+                listTypeResetIterator(&li);
                 return 0;
             }
         }
@@ -1941,19 +1942,19 @@ int rewriteListObject(rio *r, robj *key, robj *o) {
         vstr = listTypeGetValue(&entry,&vlen,&lval);
         if (vstr) {
             if (!rioWriteBulkString(r,(char*)vstr,vlen)) {
-                listTypeReleaseIterator(li);
+                listTypeResetIterator(&li);
                 return 0;
             }
         } else {
             if (!rioWriteBulkLongLong(r,lval)) {
-                listTypeReleaseIterator(li);
+                listTypeResetIterator(&li);
                 return 0;
             }
         }
         if (++count == AOF_REWRITE_ITEMS_PER_CMD) count = 0;
         items--;
     }
-    listTypeReleaseIterator(li);
+    listTypeResetIterator(&li);
     return 1;
 }
 

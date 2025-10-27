@@ -226,9 +226,8 @@ size_t listTypeAllocSize(const robj *o) {
 }
 
 /* Initialize an iterator at the specified index. */
-listTypeIterator *listTypeInitIterator(robj *subject, long index,
-                                       unsigned char direction) {
-    listTypeIterator *li = zmalloc(sizeof(listTypeIterator));
+void listTypeInitIterator(listTypeIterator *li, robj *subject,
+                          long index, unsigned char direction) {
     li->subject = subject;
     li->encoding = subject->encoding;
     li->direction = direction;
@@ -244,7 +243,6 @@ listTypeIterator *listTypeInitIterator(robj *subject, long index,
     } else {
         serverPanic("Unknown list encoding");
     }
-    return li;
 }
 
 /* Sets the direction of an iterator. */
@@ -266,10 +264,9 @@ void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, un
 }
 
 /* Clean up the iterator. */
-void listTypeReleaseIterator(listTypeIterator *li) {
+void listTypeResetIterator(listTypeIterator *li) {
     if (li->encoding == OBJ_ENCODING_QUICKLIST)
         quicklistReleaseIterator(li->iter);
-    zfree(li);
 }
 
 /* Stores pointer to current the entry in the provided entry structure
@@ -547,7 +544,7 @@ void rpushxCommand(client *c) {
 void linsertCommand(client *c) {
     int where;
     kvobj *subject;
-    listTypeIterator *iter;
+    listTypeIterator iter;
     listTypeEntry entry;
     int inserted = 0;
     size_t oldsize = 0;
@@ -574,18 +571,18 @@ void linsertCommand(client *c) {
     listTypeTryConversionAppend(subject,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
-    iter = listTypeInitIterator(subject,0,LIST_TAIL);
+    listTypeInitIterator(&iter, subject, 0, LIST_TAIL);
     const size_t object_len = sdslen(c->argv[3]->ptr);
     long long cached_longval = 0;
     int cached_valid = 0;
-    while (listTypeNext(iter,&entry)) {
+    while (listTypeNext(&iter, &entry)) {
         if (listTypeEqual(&entry,c->argv[3],object_len,&cached_longval,&cached_valid)) {
             listTypeInsert(&entry,c->argv[4],where);
             inserted = 1;
             break;
         }
     }
-    listTypeReleaseIterator(iter);
+    listTypeResetIterator(&iter);
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
 
@@ -621,13 +618,14 @@ void lindexCommand(client *c) {
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
-    listTypeIterator *iter = listTypeInitIterator(o,index,LIST_TAIL);
+    listTypeIterator iter;
     listTypeEntry entry;
     unsigned char *vstr;
     size_t vlen;
     long long lval;
 
-    if (listTypeNext(iter,&entry)) {
+    listTypeInitIterator(&iter, o, index, LIST_TAIL);
+    if (listTypeNext(&iter, &entry)) {
         vstr = listTypeGetValue(&entry,&vlen,&lval);
         if (vstr) {
             addReplyBulkCBuffer(c, vstr, vlen);
@@ -638,7 +636,7 @@ void lindexCommand(client *c) {
         addReplyNull(c);
     }
 
-    listTypeReleaseIterator(iter);
+    listTypeResetIterator(&iter);
 }
 
 /* LSET <key> <index> <element> */
@@ -1062,15 +1060,15 @@ void lposCommand(client *c) {
     if (count != -1) arraylenptr = addReplyDeferredLen(c);
 
     /* Seek the element. */
-    listTypeIterator *li;
-    li = listTypeInitIterator(o,direction == LIST_HEAD ? -1 : 0,direction);
+    listTypeIterator li;
     listTypeEntry entry;
+    listTypeInitIterator(&li, o, direction == LIST_HEAD ? -1 : 0, direction);
     long llen = listTypeLength(o);
     long index = 0, matches = 0, matchindex = -1, arraylen = 0;
     const size_t ele_len = sdslen(ele->ptr);
     long long cached_longval = 0;
     int cached_valid = 0;
-    while (listTypeNext(li,&entry) && (maxlen == 0 || index < maxlen)) {
+    while (listTypeNext(&li, &entry) && (maxlen == 0 || index < maxlen)) {
         if (listTypeEqual(&entry,ele,ele_len,&cached_longval,&cached_valid)) {
             matches++;
             matchindex = (direction == LIST_TAIL) ? index : llen - index - 1;
@@ -1087,7 +1085,7 @@ void lposCommand(client *c) {
         index++;
         matchindex = -1; /* Remember if we exit the loop without a match. */
     }
-    listTypeReleaseIterator(li);
+    listTypeResetIterator(&li);
 
     /* Reply to the client. Note that arraylenptr is not NULL only if
      * the COUNT option was selected. */
@@ -1114,12 +1112,12 @@ void lremCommand(client *c) {
     kvobj *subject = lookupKeyWriteOrReply(c, c->argv[1], shared.czero);
     if (subject == NULL || checkType(c,subject,OBJ_LIST)) return;
 
-    listTypeIterator *li;
+    listTypeIterator li;
     if (toremove < 0) {
         toremove = -toremove;
-        li = listTypeInitIterator(subject,-1,LIST_HEAD);
+        listTypeInitIterator(&li, subject, -1, LIST_HEAD);
     } else {
-        li = listTypeInitIterator(subject,0,LIST_TAIL);
+        listTypeInitIterator(&li, subject, 0, LIST_TAIL);
     }
 
     listTypeEntry entry;
@@ -1129,15 +1127,15 @@ void lremCommand(client *c) {
     size_t oldsize = 0;
     if (server.memory_tracking_per_slot)
         oldsize = listTypeAllocSize(subject);
-    while (listTypeNext(li,&entry)) {
+    while (listTypeNext(&li, &entry)) {
         if (listTypeEqual(&entry,obj,object_len,&cached_longval,&cached_valid)) {
-            listTypeDelete(li, &entry);
+            listTypeDelete(&li, &entry);
             server.dirty++;
             removed++;
             if (toremove && removed == toremove) break;
         }
     }
-    listTypeReleaseIterator(li);
+    listTypeResetIterator(&li);
 
     if (removed) {
         long ll = listTypeLength(subject);
