@@ -93,9 +93,12 @@ LUA_API int lua_getstack (lua_State *L, int level, lua_Debug *ar) {
     status = 1;
     ar->i_ci = cast_int(ci - L->base_ci);
   }
-  else if (level < 0) {  /* level is of a lost tail call? */
-    status = 1;
-    ar->i_ci = 0;
+  else if (level < 0) {
+    if (ci == L->ci) status = 0;  /* level was negative? */
+    else {  /* level is of a lost tail call */
+      status = 1;
+      ar->i_ci = NULL;
+    }
   }
   else status = 0;  /* no such level */
   lua_unlock(L);
@@ -110,6 +113,7 @@ static Proto *getluaproto (CallInfo *ci) {
 
 static const char *findlocal (lua_State *L, CallInfo *ci, int n) {
   const char *name;
+  if (ci == NULL) return NULL;  /* tail call? */
   Proto *fp = getluaproto(ci);
   if (fp && (name = luaF_getlocalname(fp, n, currentpc(L, ci))) != NULL)
     return name;  /* is a local variable in a Lua function */
