@@ -127,9 +127,11 @@ struct dict {
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
-    /* Keep small vars at end for optimal (minimal) struct padding */
+    /* Note: pauserehash is a full unsigned so iterator increments
+     * don't perform RMW on the same storage unit as other bitfields. */
     unsigned pauserehash; /* If >0 rehashing is paused */
 
+    /* Keep small vars at end for optimal (minimal) struct padding */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
     signed pauseAutoResize: 15;  /* If >0 automatic resizing is disallowed (<0 indicates coding error) */
     unsigned useStoredKeyApi: 1; /* See comment of storedHashFunction above */
