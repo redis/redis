@@ -970,6 +970,12 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 0 a}
             assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS -1 a}
             assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 9223372036854775808 a}
+            assert_error "*FIELDS keyword is required*" {r HGETEX h1 XFIELDX 1 a}
+            assert_error "*FIELDS keyword is required*" {r HGETEX h1 PXAT 1 1}
+            assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 2 a}
+            assert_error "*invalid number of fields*" {r HGETEX h1 FIELDS 0 a}
+            assert_error "*invalid number of fields*" {r HGETEX h1 FIELDS -1 a}
+            assert_error "*invalid number of fields*" {r HGETEX h1 FIELDS 9223372036854775808 a}
         }
 
         test "HGETEX - input validation (expire time) ($type)" {
@@ -2407,7 +2413,7 @@ start_server {tags {"hash"}} {
             r hset myhash f1 v1 f2 v2 f3 v3
 
             # Test field count mismatches
-            assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 2 f1}
+            assert_error {*wrong number of arguments*} {r HGETEX myhash FIELDS 2 f1}
             assert_error {*unknown argument*} {r HGETEX myhash FIELDS 1 f1 f2 f3}
 
             # Test valid field counts
@@ -2422,7 +2428,7 @@ start_server {tags {"hash"}} {
             assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash FIELDS 0 f1 60}
             assert_error {*Parameter*numFields*should be greater than 0*} {r HEXPIRE myhash FIELDS -1 f1 60}
             assert_error {*invalid number of fields*} {r HSETEX myhash FIELDS 0 f1 v1 EX 60}
-            assert_error {*Number of fields must be a positive integer*} {r HGETEX myhash FIELDS 0 f1 EX 60}
+            assert_error {*invalid number of fields*} {r HGETEX myhash FIELDS 0 f1 EX 60}
 
             # Test missing FIELDS keyword
             assert_error {*FIELDS keyword is required*} {r HEXPIRE myhash 60 2 f1 f2}
@@ -2612,7 +2618,7 @@ start_server {tags {"hash"}} {
             assert_error {*FIELDS keyword is required*} {r HPEXPIRE myhash 5000 3 f1 f2 f3}
 
             # Test that field count validation works correctly
-            assert_error {*must match the number of arguments*} {r HGETEX myhash FIELDS 2 f1}
+            assert_error {*wrong number of arguments*} {r HGETEX myhash FIELDS 2 f1}
             assert_error {*wrong number of arguments*} {r HSETEX myhash FIELDS 2 f1 v1}
         }
 
