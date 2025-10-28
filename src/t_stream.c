@@ -1213,6 +1213,13 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
         si->end_key[1] = UINT64_MAX;
     }
 
+    /* Decode the big-endian keys into native 64-bit integers
+     * for faster comparisons during iteration. */
+    si->start_ms  = intrev64(si->start_key[0]);
+    si->start_seq = intrev64(si->start_key[1]);
+    si->end_ms    = intrev64(si->end_key[0]);
+    si->end_seq   = intrev64(si->end_key[1]);
+
     /* Seek the correct node in the radix tree. */
     raxStart(&si->ri,s->rax);
     if (!rev) {
@@ -1324,8 +1331,6 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             si->lp_ele = lpNext(si->lp,si->lp_ele);
             id->seq += lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele);
-            unsigned char buf[sizeof(streamID)];
-            streamEncodeID(buf,id);
 
             /* The number of entries is here or not depending on the
              * flags. */
@@ -1345,10 +1350,12 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             /* If current >= start, and the entry is not marked as
              * deleted or tombstones are included, emit it. */
             if (!si->rev) {
-                if (memcmp(buf,si->start_key,sizeof(streamID)) >= 0 &&
+                if ((id->ms > si->start_ms ||
+                    (id->ms == si->start_ms && id->seq >= si->start_seq)) &&
                     (!si->skip_tombstones || !(flags & STREAM_ITEM_FLAG_DELETED)))
                 {
-                    if (memcmp(buf,si->end_key,sizeof(streamID)) > 0)
+                    if (id->ms > si->end_ms ||
+                        (id->ms == si->end_ms && id->seq > si->end_seq))
                         return 0; /* We are already out of range. */
                     si->entry_flags = flags;
                     if (flags & STREAM_ITEM_FLAG_SAMEFIELDS)
@@ -1356,10 +1363,12 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                     return 1; /* Valid item returned. */
                 }
             } else {
-                if (memcmp(buf,si->end_key,sizeof(streamID)) <= 0 &&
+                if ((id->ms < si->end_ms ||
+                    (id->ms == si->end_ms && id->seq <= si->end_seq)) &&
                     (!si->skip_tombstones || !(flags & STREAM_ITEM_FLAG_DELETED)))
                 {
-                    if (memcmp(buf,si->start_key,sizeof(streamID)) < 0)
+                    if (id->ms < si->start_ms ||
+                        (id->ms == si->start_ms && id->seq < si->start_seq))
                         return 0; /* We are already out of range. */
                     si->entry_flags = flags;
                     if (flags & STREAM_ITEM_FLAG_SAMEFIELDS)
