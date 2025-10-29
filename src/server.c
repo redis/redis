@@ -825,7 +825,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"subscribe",subscribeCommand,-2,
-     "pub-sub no-script ok-loading ok-stale",
+     "pub-sub use-memory no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"unsubscribe",unsubscribeCommand,-1,
@@ -833,7 +833,7 @@ struct redisCommand redisCommandTable[] = {
      0,NULL,0,0,0,0,0,0},
 
     {"psubscribe",psubscribeCommand,-2,
-     "pub-sub no-script ok-loading ok-stale",
+     "pub-sub use-memory no-script ok-loading ok-stale",
      0,NULL,0,0,0,0,0,0},
 
     {"punsubscribe",punsubscribeCommand,-1,
