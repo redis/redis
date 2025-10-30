@@ -455,8 +455,6 @@ static float vectors_distance_bin_avx2(const uint64_t *x, const uint64_t *y, uin
 
     /* Process 4 uint64_t (256 bits) at a time */
     if (len >= 4) {
-        __m256i sum = _mm256_setzero_si256();
-        
         for (; j + 3 < len; j += 4) {
             __m256i vx = _mm256_loadu_si256((__m256i*)&x[j]);
             __m256i vy = _mm256_loadu_si256((__m256i*)&y[j]);
