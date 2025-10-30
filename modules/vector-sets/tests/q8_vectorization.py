@@ -37,12 +37,6 @@ class Q8Vectorization(TestCase):
                 score = float(result[i+1])
                 results_dict[key] = score
             
-            # Print actual similarity scores for debugging
-            print(f"\n  Dim {dim} results:")
-            print(f"    Self-similarity (vec1 vs vec1):     {results_dict[f'{self.test_key}:dim{dim}:item:1']:.6f}")
-            print(f"    Similar vectors (vec1 vs 0.99*vec1): {results_dict[f'{self.test_key}:dim{dim}:item:2']:.6f}")
-            print(f"    Opposite vectors (vec1 vs -vec1):    {results_dict[f'{self.test_key}:dim{dim}:item:3']:.6f}")
-            
             # Verify results are consistent across dimensions
             # Self-similarity should be very high
             assert results_dict[f'{self.test_key}:dim{dim}:item:1'] > 0.99, \
