@@ -2764,6 +2764,7 @@ void resetServerStats(void) {
     server.stat_aof_rewrites = 0;
     server.stat_rdb_saves = 0;
     server.stat_aofrw_consecutive_failures = 0;
+    server.stat_rdb_consecutive_failures = 0;
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
     atomicSet(server.stat_net_repl_input_bytes, 0);
@@ -6182,6 +6183,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "rdb_current_bgsave_time_sec:%jd\r\n", (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                                                               -1 : time(NULL)-server.rdb_save_time_start),
             "rdb_saves:%lld\r\n", server.stat_rdb_saves,
+            "rdb_saves_consecutive_failures:%lld\r\n", server.stat_rdb_consecutive_failures,
             "rdb_last_cow_size:%zu\r\n", server.stat_rdb_cow_bytes,
             "rdb_last_load_keys_expired:%lld\r\n", server.rdb_last_load_keys_expired,
             "rdb_last_load_keys_loaded:%lld\r\n", server.rdb_last_load_keys_loaded,
