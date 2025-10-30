@@ -2193,12 +2193,12 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
     *first_field_pos = -1;
     *field_count = -1;
     *expire_time_pos = -1;
-    int skip_fields = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
+    int args_per_field = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
             long val;
-            int min_args_needed = (command_type == HASH_CMD_HSETEX) ? 3 : 2;
-            if (i >= c->argc - min_args_needed) {
+            /* Ensure we have at least the numfields argument */
+            if (i + 1 >= c->argc) {
                 addReplyErrorArity(c);
                 return C_ERR;
             }
@@ -2211,7 +2211,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             *field_count = (int) val;
 
             /* Validate field count based on command type */
-            int required_args = *first_field_pos + (*field_count * skip_fields);
+            int required_args = *first_field_pos + (*field_count * args_per_field);
             if (required_args > c->argc) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
@@ -2219,7 +2219,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             /* Skip over numfields and all field-value pairs */
             /* Set i to the last position of the FIELDS block, loop will increment past it */
-            i = *first_field_pos + (*field_count * skip_fields) - 1;
+            i = *first_field_pos + (*field_count * args_per_field) - 1;
             continue;
         } else if (!strcasecmp(c->argv[i]->ptr, "EX")) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL | HFE_PERSIST))
@@ -2279,19 +2279,11 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
                 return C_ERR;
 
             *expire_time_pos = i;
-        } else if (!strcasecmp(c->argv[i]->ptr, "PERSIST")) {
-            if (command_type == HASH_CMD_HSETEX) {
-                addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-                return C_ERR;
-            }
+        } else if (!strcasecmp(c->argv[i]->ptr, "PERSIST") && command_type != HASH_CMD_HSETEX) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_PERSIST))
                 goto err_expiration;
             *flags |= HFE_PERSIST;
-        } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
-            if (command_type == HASH_CMD_HGETEX) {
-                addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-                return C_ERR;
-            }
+        } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL") && command_type != HASH_CMD_HGETEX) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
                 goto err_expiration;
             *flags |= HFE_KEEPTTL;
@@ -2836,9 +2828,6 @@ void hgetdelCommand(client *c) {
         updateKeysizesHist(c->db, getKeySlot(keyObj->ptr), OBJ_HASH,
                            oldlen, newlen);
 }
-
-
-
 
 /* Get and delete the value of one or more fields of a given hash key.
  *
@@ -3655,8 +3644,6 @@ typedef struct {
     /* HEXPIRE family - condition flags */
     int expireCondition;    /* HFE_NX, HFE_XX, HFE_GT, HFE_LT */
 } HashCommandArgs;
-
-
 
 /* Parser for HEXPIRE family commands with flexible keyword ordering.
  * Returns C_OK on success, C_ERR on error (with reply sent). */
