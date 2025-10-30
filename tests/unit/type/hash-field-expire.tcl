@@ -1252,6 +1252,7 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error {*unknown argument*} {r hsetex myhash fields 1 a b c}
             assert_error {*unknown argument*} {r hsetex myhash nx fields 1 a b}
             assert_error {*unknown argument*} {r hsetex myhash 1 fields 1 a b}
+            assert_error {*wrong number of arguments*} {r hsetex myhash fields 1 a}
 
             # Only one of FNX or FXX
             assert_error {*Only one of FXX or FNX arguments *} {r hsetex myhash fxx fxx EX 100 fields 1 a b}

@@ -766,9 +766,9 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         serverPanic("Unknown hash encoding");
     }
 
-    if ((*expiredAt >= (uint64_t) commandTimeSnapshot()) ||
-        (hfeFlags & HFE_LAZY_ACCESS_EXPIRED) ||
-        server.allow_access_expired)
+    if ((server.allow_access_expired) ||
+        (*expiredAt >= (uint64_t) commandTimeSnapshot()) ||
+        (hfeFlags & HFE_LAZY_ACCESS_EXPIRED))
         return GETF_OK;
 
     if (server.masterhost || server.cluster_enabled) {
@@ -2197,7 +2197,8 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
             long val;
-            if (i >= c->argc - 2) {
+            int min_args_needed = (command_type == HASH_CMD_HSETEX) ? 3 : 2;
+            if (i >= c->argc - min_args_needed) {
                 addReplyErrorArity(c);
                 return C_ERR;
             }
@@ -2685,27 +2686,7 @@ void hmgetCommand(client *c) {
     }
 }
 
-/* Helper function to build canonical HDEL command for HGETDEL propagation */
-static void buildCanonicalHdelCommand(client *c, int key_pos, int first_field_pos, int field_count) {
-    /* Build canonical HDEL command: HDEL key field1 field2 ... */
-    int canonical_argc = 2 + field_count; /* cmd + key + fields */
-    robj **canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
-    int idx = 0;
 
-    canonical_argv[idx++] = shared.hdel;
-    incrRefCount(shared.hdel);
-    canonical_argv[idx++] = c->argv[key_pos]; /* key */
-    incrRefCount(c->argv[key_pos]);
-
-    /* Add all fields */
-    for (int i = 0; i < field_count; i++) {
-        canonical_argv[idx++] = c->argv[first_field_pos + i];
-        incrRefCount(c->argv[first_field_pos + i]);
-    }
-
-    /* Replace the entire command */
-    replaceClientCommandVector(c, canonical_argc, canonical_argv);
-}
 
 /* Get and delete the value of one or more fields of a given hash key.
  * HGETDEL <key> FIELDS <numfields> field1 field2 ...
@@ -2822,7 +2803,20 @@ void hgetdelCommand(client *c) {
         server.dirty += deleted;
 
         /* Propagate as HDEL command using canonical format */
-        buildCanonicalHdelCommand(c, keyPos, firstFieldPos, num_fields);
+        /* Build canonical HDEL command: HDEL key field1 field2 ... */
+        int canonical_argc = 2 + num_fields;
+        robj **canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
+        int idx = 0;
+
+        canonical_argv[idx++] = shared.hdel;
+        incrRefCount(shared.hdel);
+        canonical_argv[idx++] = c->argv[keyPos]; /* key */
+        incrRefCount(c->argv[keyPos]);
+        for (int i = 0; i < num_fields; i++) {
+            canonical_argv[idx++] = c->argv[firstFieldPos + i];
+            incrRefCount(c->argv[firstFieldPos + i]);
+        }
+        replaceClientCommandVector(c, canonical_argc, canonical_argv);
     }
 
     /* Key may have become empty because of deleting fields or lazy expire. */
@@ -2845,56 +2839,7 @@ void hgetdelCommand(client *c) {
 
 
 
-/* Helper function to build canonical commands for HGETEX propagation */
-static void buildCanonicalHgetexCommand(client *c, int is_persist, long long expire_time,
-                                       int first_field_pos, int field_count) {
-    if (is_persist) {
-        /* Build canonical HPERSIST command: HPERSIST key FIELDS numfields field1 field2 ... */
-        int canonical_argc = 4 + field_count; /* cmd + key + FIELDS + numfields + fields */
-        robj **canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
-        int idx = 0;
 
-        canonical_argv[idx++] = shared.hpersist;
-        incrRefCount(shared.hpersist);
-        canonical_argv[idx++] = c->argv[1]; /* key */
-        incrRefCount(c->argv[1]);
-        canonical_argv[idx++] = shared.fields;
-        incrRefCount(shared.fields);
-        canonical_argv[idx++] = createStringObjectFromLongLong(field_count);
-
-        /* Add all fields */
-        for (int i = 0; i < field_count; i++) {
-            canonical_argv[idx++] = c->argv[first_field_pos + i];
-            incrRefCount(c->argv[first_field_pos + i]);
-        }
-
-        /* Replace the entire command */
-        replaceClientCommandVector(c, canonical_argc, canonical_argv);
-    } else {
-        /* Build canonical HPEXPIREAT command: HPEXPIREAT key timestamp FIELDS numfields field1 field2 ... */
-        int canonical_argc = 5 + field_count; /* cmd + key + timestamp + FIELDS + numfields + fields */
-        robj **canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
-        int idx = 0;
-
-        canonical_argv[idx++] = shared.hpexpireat;
-        incrRefCount(shared.hpexpireat);
-        canonical_argv[idx++] = c->argv[1]; /* key */
-        incrRefCount(c->argv[1]);
-        canonical_argv[idx++] = createStringObjectFromLongLong(expire_time);
-        canonical_argv[idx++] = shared.fields;
-        incrRefCount(shared.fields);
-        canonical_argv[idx++] = createStringObjectFromLongLong(field_count);
-
-        /* Add all fields */
-        for (int i = 0; i < field_count; i++) {
-            canonical_argv[idx++] = c->argv[first_field_pos + i];
-            incrRefCount(c->argv[first_field_pos + i]);
-        }
-
-        /* Replace the entire command */
-        replaceClientCommandVector(c, canonical_argc, canonical_argv);
-    }
-}
 /* Get and delete the value of one or more fields of a given hash key.
  *
  * HGETEX <key>
@@ -2982,13 +2927,41 @@ void hgetexCommand(client *c) {
     if (expired)
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
     if (updated) {
+        /* Build canonical command for propagation */
+        int canonical_argc;
+        robj **canonical_argv;
+        int idx = 0;
+
         if (parse_flags & HFE_PERSIST) {
             notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
-            buildCanonicalHgetexCommand(c, 1, 0, first_field_pos, field_count);
+            /* Build canonical HPERSIST command: HPERSIST key FIELDS numfields field1 field2 ... */
+            canonical_argc = 4 + field_count;
+            canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
+            canonical_argv[idx++] = shared.hpersist;
+            incrRefCount(shared.hpersist);
+            canonical_argv[idx++] = c->argv[1]; /* key */
+            incrRefCount(c->argv[1]);
         } else {
             notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", c->argv[1], c->db->id);
-            buildCanonicalHgetexCommand(c, 0, expire_time, first_field_pos, field_count);
+            /* Build canonical HPEXPIREAT command: HPEXPIREAT key timestamp FIELDS numfields field1 field2 ... */
+            canonical_argc = 5 + field_count;
+            canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
+            canonical_argv[idx++] = shared.hpexpireat;
+            incrRefCount(shared.hpexpireat);
+            canonical_argv[idx++] = c->argv[1]; /* key */
+            incrRefCount(c->argv[1]);
+            canonical_argv[idx++] = createStringObjectFromLongLong(expire_time); /* timestamp */
         }
+
+        canonical_argv[idx++] = shared.fields;
+        incrRefCount(shared.fields);
+        canonical_argv[idx++] = createStringObjectFromLongLong(field_count);
+        for (int i = 0; i < field_count; i++) {
+            canonical_argv[idx++] = c->argv[first_field_pos + i];
+            incrRefCount(c->argv[first_field_pos + i]);
+        }
+
+        replaceClientCommandVector(c, canonical_argc, canonical_argv);
     } else if (deleted) {
         /* If we are here, fields are deleted because new timestamp was in the
          * past. HDELs are already propagated as part of hashTypeSetEx(). */
