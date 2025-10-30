@@ -65,10 +65,14 @@
 
 #if defined (HAVE_AVX512)
 #define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,fma")))
+#define ATTRIBUTE_TARGET_AVX512_VPOPCNT __attribute__((target("avx512f,fma,avx512vpopcntdq")))
 #define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#define VSET_USE_AVX512_VPOPCNT (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
 #define ATTRIBUTE_TARGET_AVX512
+#define ATTRIBUTE_TARGET_AVX512_VPOPCNT
 #define VSET_USE_AVX512 0
+#define VSET_USE_AVX512_VPOPCNT 0
 #endif
 
 /* Include SIMD headers when supported */
@@ -399,8 +403,103 @@ static inline int popcount64(uint64_t x) {
     return x;
 }
 
-/* Binary vectors distance. */
+#if defined(HAVE_AVX512)
+/* AVX-512 vectorized binary distance calculation using VPOPCNTDQ.
+ * Processes 8 uint64_t (512 bits) per iteration.
+ * 
+ * Uses _mm512_popcnt_epi64 hardware popcount instruction which requires
+ * AVX512VPOPCNTDQ extension
+ */
+ATTRIBUTE_TARGET_AVX512_VPOPCNT
+static float vectors_distance_bin_avx512_vpopcnt(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+    uint32_t len = (dim+63)/64;
+    uint32_t opposite = 0;
+    uint32_t j = 0;
+
+    /* Process 8 uint64_t (512 bits) at a time with hardware popcount */
+    if (len >= 8) {
+        __m512i sum = _mm512_setzero_si512();
+        
+        for (; j + 7 < len; j += 8) {
+            __m512i vx = _mm512_loadu_si512((__m512i*)&x[j]);
+            __m512i vy = _mm512_loadu_si512((__m512i*)&y[j]);
+            __m512i vxor = _mm512_xor_si512(vx, vy);
+            
+            /* Hardware popcount for 64-bit integers (AVX512VPOPCNTDQ) */
+            __m512i popcnt = _mm512_popcnt_epi64(vxor);
+            sum = _mm512_add_epi64(sum, popcnt);
+        }
+        
+        /* Horizontal sum: reduce 8x 64-bit integers to scalar */
+        opposite = _mm512_reduce_add_epi64(sum);
+    }
+
+    /* Handle remaining elements with scalar code */
+    for (; j < len; j++) {
+        uint64_t xor = x[j] ^ y[j];
+        opposite += popcount64(xor);
+    }
+
+    return (float)opposite * 2.0f / dim;
+}
+#endif
+
+#if defined(HAVE_AVX2)
+/* AVX2 vectorized binary distance calculation.
+ * Processes 4 uint64_t (256 bits) per iteration. */
+ATTRIBUTE_TARGET_AVX2
+static float vectors_distance_bin_avx2(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+    uint32_t len = (dim+63)/64;
+    uint32_t opposite = 0;
+    uint32_t j = 0;
+
+    /* Process 4 uint64_t (256 bits) at a time */
+    if (len >= 4) {
+        __m256i sum = _mm256_setzero_si256();
+        
+        for (; j + 3 < len; j += 4) {
+            __m256i vx = _mm256_loadu_si256((__m256i*)&x[j]);
+            __m256i vy = _mm256_loadu_si256((__m256i*)&y[j]);
+            __m256i vxor = _mm256_xor_si256(vx, vy);
+            
+            /* AVX2 doesn't have hardware popcount, so we use the scalar approach
+             * but still benefit from vectorized XOR operations */
+            uint64_t xor_vals[4];
+            _mm256_storeu_si256((__m256i*)xor_vals, vxor);
+            
+            for (int k = 0; k < 4; k++) {
+                opposite += popcount64(xor_vals[k]);
+            }
+        }
+    }
+
+    /* Handle remaining elements with scalar code */
+    for (; j < len; j++) {
+        uint64_t xor = x[j] ^ y[j];
+        opposite += popcount64(xor);
+    }
+
+    return (float)opposite * 2.0f / dim;
+}
+#endif
+
+/* Binary vectors distance with SIMD dispatch. */
 float vectors_distance_bin(const uint64_t *x, const uint64_t *y, uint32_t dim) {
+#if defined(HAVE_AVX512)
+    /* AVX-512 with VPOPCNTDQ */
+    if (dim >= 512 && VSET_USE_AVX512_VPOPCNT) {
+        return vectors_distance_bin_avx512_vpopcnt(x, y, dim);
+    }
+#endif
+
+#if defined(HAVE_AVX2)
+    /* AVX2 path: processes 4 uint64_t (256 bits) per iteration */
+    if (dim >= 256 && VSET_USE_AVX2) {
+        return vectors_distance_bin_avx2(x, y, dim);
+    }
+#endif
+
+    /* Fallback to scalar implementation */
     uint32_t len = (dim+63)/64;
     uint32_t opposite = 0;
     for (uint32_t j = 0; j < len; j++) {
