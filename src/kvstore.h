@@ -46,8 +46,21 @@ typedef struct {
 } kvstoreDictMetadata;
 
 typedef struct _kvstore kvstore;
-typedef struct _kvstoreIterator kvstoreIterator;
-typedef struct _kvstoreDictIterator kvstoreDictIterator;
+
+/* Structure for kvstore iterator that allows iterating across multiple dicts. */
+typedef struct _kvstoreIterator {
+    kvstore *kvs;
+    long long didx;
+    long long next_didx;
+    dictIterator di;
+} kvstoreIterator;
+
+/* Structure for kvstore dict iterator that allows iterating the corresponding dict. */
+typedef struct _kvstoreDictIterator {
+    kvstore *kvs;
+    long long didx;
+    dictIterator di;
+} kvstoreDictIterator;
 
 typedef int (kvstoreScanShouldSkipDict)(dict *d, int didx);
 typedef int (kvstoreExpandShouldSkipDictIndex)(int didx);
@@ -80,8 +93,8 @@ int kvstoreNumDicts(kvstore *kvs);
 void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx);
 
 /* kvstore iterator specific functions */
-kvstoreIterator *kvstoreIteratorInit(kvstore *kvs);
-void kvstoreIteratorRelease(kvstoreIterator *kvs_it);
+void kvstoreIteratorInit(kvstoreIterator *kvs_it, kvstore *kvs);
+void kvstoreIteratorReset(kvstoreIterator *kvs_it);
 dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it);
 int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it);
 dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
@@ -96,9 +109,9 @@ unsigned long kvstoreDictRehashingCount(kvstore *kvs);
 /* Specific dict access by dict-index */
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);
 size_t kvstoreDictAllocSize(kvstore *kvs, int didx);
-kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx);
-kvstoreDictIterator *kvstoreGetDictSafeIterator(kvstore *kvs, int didx);
-void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_id);
+void kvstoreInitDictIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx);
+void kvstoreInitDictSafeIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx);
+void kvstoreResetDictIterator(kvstoreDictIterator *kvs_di);
 dictEntry *kvstoreDictIteratorNext(kvstoreDictIterator *kvs_di);
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx);
 dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx);

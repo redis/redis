@@ -144,15 +144,16 @@ void dbgAssertKeysizesHist(redisDb *db) {
     /* Scan DB and build expected histogram by scanning all keys */
     int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
     dictEntry *de;
-    kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
-    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+    kvstoreIterator kvs_it;
+    kvstoreIteratorInit(&kvs_it, db->keys);
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
         if (kv->type < OBJ_TYPE_BASIC_MAX) {
             int64_t len = getObjectLength(kv);
             scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
-    kvstoreIteratorRelease(kvs_it);
+    kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
         volatile int64_t *keysizesHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
@@ -184,13 +185,14 @@ void dbgAssertAllocSizePerSlot(redisDb *db) {
     if (!server.memory_tracking_per_slot) return;
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
     dictEntry *de;
-    kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
-    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-        int slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+    kvstoreIterator kvs_it;
+    kvstoreIteratorInit(&kvs_it, db->keys);
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+        int slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
         kvobj *kv = dictGetKV(de);
         slot_sizes[slot] += kvobjAllocSize(kv);
     }
-    kvstoreIteratorRelease(kvs_it);
+    kvstoreIteratorReset(&kvs_it);
 
     int num_slots = kvstoreNumDicts(db->keys);
     for (int slot = 0; slot < num_slots; slot++) {
@@ -1424,21 +1426,24 @@ void keysCommand(client *c) {
     if (server.cluster_enabled && !allkeys) {
         pslot = patternHashSlot(pattern, plen);
     }
-    kvstoreDictIterator *kvs_di = NULL;
-    kvstoreIterator *kvs_it = NULL;
-    if (pslot != -1) {
+    int has_slot = pslot != -1;
+    union {
+        kvstoreDictIterator kvs_di;
+        kvstoreIterator kvs_it;
+    } it;
+    if (has_slot) {
         if (!kvstoreDictSize(c->db->keys, pslot) || accessKeysShouldSkipDictIndex(pslot)) {
             /* Requested slot is empty */
             setDeferredArrayLen(c,replylen,0);
             return;
         }
-        kvs_di = kvstoreGetDictSafeIterator(c->db->keys, pslot);
+        kvstoreInitDictSafeIterator(&it.kvs_di, c->db->keys, pslot);
     } else {
-        kvs_it = kvstoreIteratorInit(c->db->keys);
+        kvstoreIteratorInit(&it.kvs_it, c->db->keys);
     }
 
-    while ((de = kvs_di ? kvstoreDictIteratorNext(kvs_di) : kvstoreIteratorNext(kvs_it)) != NULL) {
-        if (kvs_it && accessKeysShouldSkipDictIndex(kvstoreIteratorGetCurrentDictIndex(kvs_it))) {
+    while ((de = has_slot ? kvstoreDictIteratorNext(&it.kvs_di) : kvstoreIteratorNext(&it.kvs_it)) != NULL) {
+        if (!has_slot && accessKeysShouldSkipDictIndex(kvstoreIteratorGetCurrentDictIndex(&it.kvs_it))) {
             continue;
         }
 
@@ -1454,10 +1459,10 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    if (kvs_di)
-        kvstoreReleaseDictIterator(kvs_di);
-    if (kvs_it)
-        kvstoreIteratorRelease(kvs_it);
+    if (has_slot)
+        kvstoreResetDictIterator(&it.kvs_di);
+    else
+        kvstoreIteratorReset(&it.kvs_it);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 

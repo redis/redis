@@ -1054,16 +1054,16 @@ void clusterCommand(client *c) {
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        kvstoreDictIterator *kvs_di = NULL;
+        kvstoreDictIterator kvs_di;
         dictEntry *de = NULL;
-        kvs_di = kvstoreGetDictIterator(server.db->keys, slot);
+        kvstoreInitDictIterator(&kvs_di, server.db->keys, slot);
         for (unsigned int i = 0; i < numkeys; i++) {
-            de = kvstoreDictIteratorNext(kvs_di);
+            de = kvstoreDictIteratorNext(&kvs_di);
             serverAssert(de != NULL);
             sds sdskey = kvobjGetKey(dictGetKV(de));
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
@@ -1670,10 +1670,10 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
     if (!kvstoreDictSize(server.db->keys, (int) hashslot))
         return 0;
 
-    kvstoreDictIterator *kvs_di = NULL;
+    kvstoreDictIterator kvs_di;
     dictEntry *de = NULL;
-    kvs_di = kvstoreGetDictSafeIterator(server.db->keys, (int) hashslot);
-    while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+    kvstoreInitDictSafeIterator(&kvs_di, server.db->keys, (int) hashslot);
+    while((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
         enterExecutionUnit(1, 0);
         sds sdskey = kvobjGetKey(dictGetKV(de));
         robj *key = createStringObject(sdskey, sdslen(sdskey));
@@ -1700,7 +1700,7 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
         j++;
         server.dirty++;
     }
-    kvstoreReleaseDictIterator(kvs_di);
+    kvstoreResetDictIterator(&kvs_di);
     return j;
 }
 

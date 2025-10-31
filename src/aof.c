@@ -2430,7 +2430,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
     long key_count = 0;
     long long updated_time = 0;
     unsigned long long skipped = 0;
-    kvstoreIterator *kvs_it = NULL;
+    kvstoreIterator kvs_it;
 
     /* Record timestamp at the beginning of rewriting AOF. */
     if (server.aof_timestamp_enabled) {
@@ -2450,9 +2450,9 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         if (rioWrite(aof,selectcmd,sizeof(selectcmd)-1) == 0) goto werr;
         if (rioWriteBulkLongLong(aof,j) == 0) goto werr;
 
-        kvs_it = kvstoreIteratorInit(db->keys);
+        kvstoreIteratorInit(&kvs_it, db->keys);
         /* Iterate this DB writing every entry */
-        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             long long expiretime;
             size_t aof_bytes_before_key = aof->processed_bytes;
 
@@ -2464,7 +2464,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
 
             /* Skip keys that are being trimmed */
             if (server.cluster_enabled) {
-                int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+                int curr_slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
                 if (isSlotInTrimJob(curr_slot)) {
                     skipped++;
                     continue;
@@ -2475,7 +2475,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             robj key;
             initStaticStringObject(key, kvobjGetKey(o));
 
-            if (rewriteObject(aof, &key, o, j, expiretime) == C_ERR) goto werr;
+            if (rewriteObject(aof, &key, o, j, expiretime) == C_ERR) goto werr2;
 
             /* In fork child process, we can try to release memory back to the
              * OS and possibly avoid or decrease COW. We give the dismiss
@@ -2498,13 +2498,14 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             if (server.rdb_key_save_delay)
                 debugDelay(server.rdb_key_save_delay);
         }
-        kvstoreIteratorRelease(kvs_it);
+        kvstoreIteratorReset(&kvs_it);
     }
     serverLog(LL_NOTICE, "AOF rewrite done, %ld keys saved, %llu keys skipped.", key_count, skipped);
     return C_OK;
 
+werr2:
+    kvstoreIteratorReset(&kvs_it);
 werr:
-    if (kvs_it) kvstoreIteratorRelease(kvs_it);
     return C_ERR;
 }
 
