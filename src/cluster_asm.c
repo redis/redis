@@ -11,7 +11,6 @@
 #include "server.h"
 #include "cluster.h"
 #include "functions.h"
-#include "cluster.h"
 #include "cluster_asm.h"
 #include "cluster_slot_stats.h"
 
