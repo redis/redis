@@ -2211,7 +2211,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             *field_count = (int) val;
 
             /* Validate field count based on command type */
-            int required_args = *first_field_pos + (*field_count * args_per_field);
+            long long required_args = *first_field_pos + ((long long)*field_count * args_per_field);
             if (required_args > c->argc) {
                 addReplyError(c, "wrong number of arguments");
                 return C_ERR;
@@ -2230,7 +2230,6 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_EX;
             i++;
-
             if (parseExpireTime(c, c->argv[i], UNIT_SECONDS,
                                 commandTimeSnapshot(), expire_time) != C_OK)
                 return C_ERR;
@@ -2245,7 +2244,6 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_PX;
             i++;
-
             if (parseExpireTime(c, c->argv[i], UNIT_MILLISECONDS,
                                 commandTimeSnapshot(), expire_time) != C_OK)
                 return C_ERR;
@@ -2260,7 +2258,6 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_EXAT;
             i++;
-
             if (parseExpireTime(c, c->argv[i], UNIT_SECONDS, 0, expire_time) != C_OK)
                 return C_ERR;
 
@@ -2274,8 +2271,8 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
 
             *flags |= HFE_PXAT;
             i++;
-
-            if (parseExpireTime(c, c->argv[i], UNIT_MILLISECONDS, 0, expire_time) != C_OK)
+            if (parseExpireTime(c, c->argv[i], UNIT_MILLISECONDS, 0,
+                                expire_time) != C_OK)
                 return C_ERR;
 
             *expire_time_pos = i;
