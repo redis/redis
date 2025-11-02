@@ -2678,8 +2678,6 @@ void hmgetCommand(client *c) {
     }
 }
 
-
-
 /* Get and delete the value of one or more fields of a given hash key.
  * HGETDEL <key> FIELDS <numfields> field1 field2 ...
  * Reply: list of the value associated with each field or nil if the field
@@ -2690,63 +2688,26 @@ void hgetdelCommand(client *c) {
     int64_t oldlen = -1; /* not exists as long as it is not set */
     long num_fields = 0;
     size_t oldsize = 0;
-    int fieldsPos, keyPos = 1, firstFieldPos;
 
-    /* Find FIELDS keyword position - search from position 1 for flexibility */
-    fieldsPos = -1;
-    for (int i = 1; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr, "FIELDS")) {
-            fieldsPos = i;
-            break;
-        }
-    }
+    kvobj *o = lookupKeyWrite(c->db, c->argv[1]);
+    if (checkType(c, o, OBJ_HASH))
+        return;
 
-    if (fieldsPos == -1) {
-        addReplyError(c, "argument FIELDS is missing");
+    if (strcasecmp(c->argv[2]->ptr, "FIELDS") != 0) {
+        addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
         return;
     }
 
-    /* Determine key position - if FIELDS comes before position 2, key is after FIELDS block */
-    if (fieldsPos == 1) {
-        /* FIELDS is at position 1, so key comes after FIELDS block */
-        if (fieldsPos + 1 >= c->argc) {
-            addReplyError(c, "Number of fields missing after FIELDS keyword");
-            return;
-        }
-        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
-                                          &num_fields, "Number of fields must be a positive integer") != C_OK)
-            return;
+    /* Read number of fields */
+    if (getRangeLongFromObjectOrReply(c, c->argv[3], 1, LONG_MAX, &num_fields,
+                                      "Number of fields must be a positive integer") != C_OK)
+        return;
 
-        firstFieldPos = fieldsPos + 2;
-        keyPos = firstFieldPos + num_fields;
-
-        if (keyPos >= c->argc) {
-            addReplyError(c, "Key argument is missing");
-            return;
-        }
-    } else {
-        /* Key is at position 1, FIELDS comes after */
-        keyPos = 1;
-        firstFieldPos = fieldsPos + 2;
-
-        if (fieldsPos + 1 >= c->argc) {
-            addReplyError(c, "Number of fields missing after FIELDS keyword");
-            return;
-        }
-        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
-                                          &num_fields, "Number of fields must be a positive integer") != C_OK)
-            return;
-    }
-
-    /* Validate field count */
-    if (num_fields != (c->argc - firstFieldPos - (fieldsPos == 1 ? 1 : 0))) {
+    /* Verify `numFields` is consistent with number of arguments */
+    if (num_fields != c->argc - 4) {
         addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
-
-    kvobj *o = lookupKeyWrite(c->db, c->argv[keyPos]);
-    if (checkType(c, o, OBJ_HASH))
-        return;
 
     /* Hash field expiration is optimized to avoid frequent update global HFE DS
      * for each field deletion. Eventually active-expiration will run and update
@@ -2762,18 +2723,18 @@ void hgetdelCommand(client *c) {
     }
 
     addReplyArrayLen(c, num_fields);
-    for (int i = 0; i < num_fields; i++) {
+    for (int i = 4; i < c->argc; i++) {
         const int flags = HFE_LAZY_NO_NOTIFICATION |
                           HFE_LAZY_NO_SIGNAL |
                           HFE_LAZY_AVOID_HASH_DEL |
                           HFE_LAZY_NO_UPDATE_KEYSIZES |
                           HFE_LAZY_NO_UPDATE_ALLOCSIZES;
-        res = addHashFieldToReply(c, o, c->argv[firstFieldPos + i]->ptr, flags);
+        res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
         expired += (res == GETF_EXPIRED);
         /* Try to delete only if it's found and not expired lazily. */
         if (res == GETF_OK) {
             deleted++;
-            serverAssert(hashTypeDelete(o, c->argv[firstFieldPos + i]->ptr, 1) == 1);
+            serverAssert(hashTypeDelete(o, c->argv[i]->ptr, 1) == 1);
         }
     }
 
@@ -2783,32 +2744,20 @@ void hgetdelCommand(client *c) {
 
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
-    signalModifiedKey(c, c->db, c->argv[keyPos]);
+    signalModifiedKey(c, c->db, c->argv[1]);
 
     if (expired)
-        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[keyPos], c->db->id);
-    /* Save key reference before command rewriting */
-    robj *keyObj = c->argv[keyPos];
-
+        notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
     if (deleted) {
-        notifyKeyspaceEvent(NOTIFY_HASH, "hdel", keyObj, c->db->id);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hdel", c->argv[1], c->db->id);
         server.dirty += deleted;
 
-        /* Propagate as HDEL command using canonical format */
-        /* Build canonical HDEL command: HDEL key field1 field2 ... */
-        int canonical_argc = 2 + num_fields;
-        robj **canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
-        int idx = 0;
-
-        canonical_argv[idx++] = shared.hdel;
-        incrRefCount(shared.hdel);
-        canonical_argv[idx++] = c->argv[keyPos]; /* key */
-        incrRefCount(c->argv[keyPos]);
-        for (int i = 0; i < num_fields; i++) {
-            canonical_argv[idx++] = c->argv[firstFieldPos + i];
-            incrRefCount(c->argv[firstFieldPos + i]);
-        }
-        replaceClientCommandVector(c, canonical_argc, canonical_argv);
+        /* Propagate as HDEL command.
+         * Orig: HGETDEL <key> FIELDS <numfields> field1 field2 ...
+         * Repl: HDEL <key> field1 field2 ... */
+        rewriteClientCommandArgument(c, 0, shared.hdel);
+        rewriteClientCommandArgument(c, 2, NULL);  /* Delete FIELDS arg */
+        rewriteClientCommandArgument(c, 2, NULL);  /* Delete <numfields> arg */
     }
 
     /* Key may have become empty because of deleting fields or lazy expire. */
@@ -2816,8 +2765,8 @@ void hgetdelCommand(client *c) {
     if (newlen == 0) {
         newlen = -1;
         /* Del key but don't update KEYSIZES. else it will decr wrong bin in histogram */
-        dbDeleteSkipKeysizesUpdate(c->db, keyObj);
-        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", keyObj, c->db->id);
+        dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
+        notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
     } else {
         if (hfe && (hashTypeIsFieldsWithExpire(o) == 0)) { /*is it last HFE*/
             estoreRemove(c->db->subexpires, getKeySlot(kvobjGetKey(o)), o);
@@ -2825,7 +2774,7 @@ void hgetdelCommand(client *c) {
     }
 
     if (oldlen != newlen)
-        updateKeysizesHist(c->db, getKeySlot(keyObj->ptr), OBJ_HASH,
+        updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH,
                            oldlen, newlen);
 }
 
@@ -3740,65 +3689,28 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
 static void httlGenericCommand(client *c, const char *cmd, long long basetime, int unit) {
     UNUSED(cmd);
     kvobj *hashObj;
-    long numFields = 0;
-    int fieldsPos, keyPos = 1, firstFieldPos;
-
-    /* Find FIELDS keyword position - search from position 1 for flexibility */
-    fieldsPos = -1;
-    for (int i = 1; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr, "FIELDS")) {
-            fieldsPos = i;
-            break;
-        }
-    }
-
-    if (fieldsPos == -1) {
-        addReplyError(c, "FIELDS keyword is required");
-        return;
-    }
-
-    /* Determine key position - if FIELDS comes before position 2, key is after FIELDS block */
-    if (fieldsPos == 1) {
-        /* FIELDS is at position 1, so key comes after FIELDS block */
-        if (fieldsPos + 1 >= c->argc) {
-            addReplyError(c, "Number of fields missing after FIELDS keyword");
-            return;
-        }
-        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
-                                          &numFields, "Number of fields must be a positive integer") != C_OK)
-            return;
-
-        firstFieldPos = fieldsPos + 2;
-        keyPos = firstFieldPos + numFields;
-
-        if (keyPos >= c->argc) {
-            addReplyError(c, "Key argument is missing");
-            return;
-        }
-    } else {
-        /* Key is at position 1, FIELDS comes after */
-        keyPos = 1;
-        firstFieldPos = fieldsPos + 2;
-
-        if (fieldsPos + 1 >= c->argc) {
-            addReplyError(c, "Number of fields missing after FIELDS keyword");
-            return;
-        }
-        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
-                                          &numFields, "Number of fields must be a positive integer") != C_OK)
-            return;
-    }
-
-    /* Validate field count */
-    if (numFields != (c->argc - firstFieldPos - (fieldsPos == 1 ? 1 : 0))) {
-        addReplyError(c, "wrong number of arguments");
-        return;
-    }
+    long numFields = 0, numFieldsAt = 3;
 
     /* Read the hash object */
-    hashObj = lookupKeyRead(c->db, c->argv[keyPos]);
+    hashObj = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c, hashObj, OBJ_HASH))
         return;
+
+    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
+        addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
+        return;
+    }
+
+    /* Read number of fields */
+    if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
+                                      &numFields, "Number of fields must be a positive integer") != C_OK)
+        return;
+
+    /* Verify `numFields` is consistent with number of arguments */
+    if (numFields != (c->argc - numFieldsAt - 1)) {
+        addReplyError(c, "The `numfields` parameter must match the number of arguments");
+        return;
+    }
 
     /* Non-existing keys and empty hashes are the same thing. It also means
      * fields in the command don't exist in the hash key. */
@@ -3815,7 +3727,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[firstFieldPos+i]->ptr;
+            sds field = c->argv[numFieldsAt+1+i]->ptr;
             void *fptr = lpFirst(lp);
             if (fptr != NULL)
                 fptr = lpFind(lp, fptr, (unsigned char *) field, sdslen(field), 1);
@@ -3832,7 +3744,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
             long long expire;
-            sds field = c->argv[firstFieldPos+i]->ptr;
+            sds field = c->argv[numFieldsAt+1+i]->ptr;
             void *fptr = lpFirst(lpt->lp);
             if (fptr != NULL)
                 fptr = lpFind(lpt->lp, fptr, (unsigned char *) field, sdslen(field), 2);
@@ -3869,7 +3781,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[firstFieldPos+i]->ptr;
+            sds field = c->argv[numFieldsAt+1+i]->ptr;
             dictEntry *de = dictFind(d, field);
             if (de == NULL) {
                 addReplyLongLong(c, HFE_GET_NO_FIELD);
@@ -4091,66 +4003,29 @@ void hpexpiretimeCommand(client *c) {
 
 /* HPERSIST key FIELDS numfields <field [field ...]> */
 void hpersistCommand(client *c) {
-    long numFields = 0;
-    int fieldsPos, keyPos = 1, firstFieldPos;
+    long numFields = 0, numFieldsAt = 3;
     int changed = 0; /* Used to determine whether to send a notification. */
 
-    /* Find FIELDS keyword position - search from position 1 for flexibility */
-    fieldsPos = -1;
-    for (int i = 1; i < c->argc; i++) {
-        if (!strcasecmp(c->argv[i]->ptr, "FIELDS")) {
-            fieldsPos = i;
-            break;
-        }
-    }
-
-    if (fieldsPos == -1) {
-        addReplyError(c, "argument FIELDS is missing");
-        return;
-    }
-
-    /* Determine key position - if FIELDS comes before position 2, key is after FIELDS block */
-    if (fieldsPos == 1) {
-        /* FIELDS is at position 1, so key comes after FIELDS block */
-        if (fieldsPos + 1 >= c->argc) {
-            addReplyError(c, "Number of fields missing after FIELDS keyword");
-            return;
-        }
-        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
-                                          &numFields, "Number of fields must be a positive integer") != C_OK)
-            return;
-
-        firstFieldPos = fieldsPos + 2;
-        keyPos = firstFieldPos + numFields;
-
-        if (keyPos >= c->argc) {
-            addReplyError(c, "Key argument is missing");
-            return;
-        }
-    } else {
-        /* Key is at position 1, FIELDS comes after */
-        keyPos = 1;
-        firstFieldPos = fieldsPos + 2;
-
-        if (fieldsPos + 1 >= c->argc) {
-            addReplyError(c, "Number of fields missing after FIELDS keyword");
-            return;
-        }
-        if (getRangeLongFromObjectOrReply(c, c->argv[fieldsPos + 1], 1, LONG_MAX,
-                                          &numFields, "Number of fields must be a positive integer") != C_OK)
-            return;
-    }
-
-    /* Validate field count */
-    if (numFields != (c->argc - firstFieldPos - (fieldsPos == 1 ? 1 : 0))) {
-        addReplyError(c, "wrong number of arguments");
-        return;
-    }
-
     /* Read the hash object */
-    kvobj *hashObj = lookupKeyWrite(c->db, c->argv[keyPos]);
+    kvobj *hashObj = lookupKeyWrite(c->db, c->argv[1]);
     if (checkType(c, hashObj, OBJ_HASH))
         return;
+
+    if (strcasecmp(c->argv[numFieldsAt-1]->ptr, "FIELDS")) {
+        addReplyError(c, "Mandatory argument FIELDS is missing or not at the right position");
+        return;
+    }
+
+    /* Read number of fields */
+    if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
+                                      &numFields, "Number of fields must be a positive integer") != C_OK)
+        return;
+
+    /* Verify `numFields` is consistent with number of arguments */
+    if (numFields != (c->argc - numFieldsAt - 1)) {
+        addReplyError(c, "The `numfields` parameter must match the number of arguments");
+        return;
+    }
 
     /* Non-existing keys and empty hashes are the same thing. It also means
      * fields in the command don't exist in the hash key. */
@@ -4165,7 +4040,7 @@ void hpersistCommand(client *c) {
     if (hashObj->encoding == OBJ_ENCODING_LISTPACK) {
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[firstFieldPos + i]->ptr;
+            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
             unsigned char *fptr, *zl = hashObj->ptr;
 
             fptr = lpFirst(zl);
@@ -4186,7 +4061,7 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[firstFieldPos + i]->ptr;
+            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
 
             fptr = lpFirst(lpt->lp);
             if (fptr != NULL)
@@ -4226,7 +4101,7 @@ void hpersistCommand(client *c) {
 
         addReplyArrayLen(c, numFields);
         for (int i = 0 ; i < numFields ; i++) {
-            sds field = c->argv[firstFieldPos + i]->ptr;
+            sds field = c->argv[numFieldsAt + 1 + i]->ptr;
             dictEntry *de = dictFind(d, field);
             if (de == NULL) {
                 addReplyLongLong(c, HFE_PERSIST_NO_FIELD);
@@ -4259,8 +4134,8 @@ void hpersistCommand(client *c) {
     /* Generates a hpersist event if the expiry time associated with any field
      * has been successfully deleted. */
     if (changed) {
-        notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[keyPos], c->db->id);
-        signalModifiedKey(c, c->db, c->argv[keyPos]);
+        notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
+        signalModifiedKey(c, c->db, c->argv[1]);
         server.dirty++;
     }
 }

@@ -265,8 +265,8 @@ start_server {tags {"external:skip needs:debug"}} {
             foreach cmd {HTTL HPTTL} {
                 assert_equal [r $cmd myhash FIELDS 2 field2 non_exists_field] "$T_NO_EXPIRY $T_NO_FIELD"
                 # <count> not match with actual number of fields
-                assert_error {*wrong number of arguments*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
-                assert_error {*wrong number of arguments*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
+                assert_error {*numfields* parameter must match the number of arguments*} {r $cmd myhash FIELDS 1 non_exists_field1 non_exists_field2}
+                assert_error {*numfields* parameter must match the number of arguments*} {r $cmd myhash FIELDS 3 non_exists_field1 non_exists_field2}
             }
         }
 
@@ -820,8 +820,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hpersist myhash FIELDS 2 f1 not-exists-field] "$P_OK $P_NO_FIELD"
             assert_equal [r hpersist myhash FIELDS 1 f2] "$P_NO_EXPIRY"
             # <count> not match with actual number of fields
-            assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 2 f1 f2 f3}
-            assert_error {*wrong number of arguments*} {r hpersist myhash FIELDS 4 f1 f2 f3}
+            assert_error {*numfields* parameter must match the number of arguments*} {r hpersist myhash FIELDS 2 f1 f2 f3}
+            assert_error {*numfields* parameter must match the number of arguments*} {r hpersist myhash FIELDS 4 f1 f2 f3}
         }
 
         test "HPERSIST - verify fields with TTL are persisted ($type)" {
@@ -1118,125 +1118,6 @@ start_server {tags {"external:skip needs:debug"}} {
             r debug set-active-expire 1
         }
 
-        test "TTL Commands - Flexible argument parsing ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-            r hpexpire myhash 5000 FIELDS 3 f1 f2 f3
-
-            # Test HTTL flexible parsing - both should return valid TTL values
-            set ttl1 [r HTTL myhash FIELDS 2 f1 f2]
-            set ttl2 [r HTTL FIELDS 2 f1 f2 myhash]
-            assert_range [lindex $ttl1 0] 1 5
-            assert_range [lindex $ttl1 1] 1 5
-            assert_range [lindex $ttl2 0] 1 5
-            assert_range [lindex $ttl2 1] 1 5
-
-            # Test HPTTL flexible parsing - both should return valid TTL values
-            set pttl1 [r HPTTL myhash FIELDS 2 f1 f2]
-            set pttl2 [r HPTTL FIELDS 2 f1 f2 myhash]
-            assert_range [lindex $pttl1 0] 1000 5000
-            assert_range [lindex $pttl1 1] 1000 5000
-            assert_range [lindex $pttl2 0] 1000 5000
-            assert_range [lindex $pttl2 1] 1000 5000
-
-            # Test HEXPIRETIME flexible parsing - both should return same timestamp
-            assert_equal [r HEXPIRETIME myhash FIELDS 2 f1 f2] [r HEXPIRETIME FIELDS 2 f1 f2 myhash]
-
-            # Test HPEXPIRETIME flexible parsing - both should return same timestamp
-            assert_equal [r HPEXPIRETIME myhash FIELDS 2 f1 f2] [r HPEXPIRETIME FIELDS 2 f1 f2 myhash]
-        }
-
-        test "TTL Commands - Flexible parsing with non-existent key ($type)" {
-            r del nonexistent
-
-            # Test all TTL commands with flexible syntax on non-existent key
-            assert_equal [r HTTL FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
-            assert_equal [r HPTTL FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
-            assert_equal [r HEXPIRETIME FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
-            assert_equal [r HPEXPIRETIME FIELDS 2 f1 f2 nonexistent] [list $T_NO_FIELD $T_NO_FIELD]
-        }
-
-        test "HPERSIST - Flexible argument parsing ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3
-            r hpexpire myhash 5000 FIELDS 3 f1 f2 f3
-
-            # Verify fields have expiry before persisting
-            set ttl_before [r HTTL myhash FIELDS 2 f1 f2]
-            assert_range [lindex $ttl_before 0] 1 5
-            assert_range [lindex $ttl_before 1] 1 5
-
-            # Test HPERSIST original syntax
-            set result1 [r HPERSIST myhash FIELDS 2 f1 f2]
-            assert_equal $result1 [list $P_OK $P_OK]
-
-            # Reset expiry for flexible test
-            r hpexpire myhash 5000 FIELDS 2 f1 f2
-
-            # Test HPERSIST flexible syntax
-            set result2 [r HPERSIST FIELDS 2 f1 f2 myhash]
-            assert_equal $result2 [list $P_OK $P_OK]
-
-            # Verify fields are actually persisted
-            assert_equal [r HTTL myhash FIELDS 2 f1 f2] [list $T_NO_EXPIRY $T_NO_EXPIRY]
-        }
-
-        test "HPERSIST - Flexible parsing with non-existent key ($type)" {
-            r del nonexistent
-
-            # Test HPERSIST with flexible syntax on non-existent key
-            assert_equal [r HPERSIST FIELDS 2 f1 f2 nonexistent] [list $P_NO_FIELD $P_NO_FIELD]
-            assert_equal [r HPERSIST nonexistent FIELDS 2 f1 f2] [list $P_NO_FIELD $P_NO_FIELD]
-        }
-
-        test "HPERSIST - Flexible parsing with non-existent fields ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2
-            r hpexpire myhash 5000 FIELDS 1 f1
-
-            # Test flexible syntax with mix of existing and non-existing fields
-            assert_equal [r HPERSIST FIELDS 3 f1 f2 f3 myhash] [list $P_OK $P_NO_EXPIRY $P_NO_FIELD]
-            assert_equal [r HPERSIST myhash FIELDS 3 f1 f2 f3] [list $P_NO_EXPIRY $P_NO_EXPIRY $P_NO_FIELD]
-        }
-
-        test "HGETDEL - Flexible argument parsing ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2 f3 v3 f4 v4
-
-            # Test HGETDEL original syntax
-            set result1 [r HGETDEL myhash FIELDS 2 f1 f2]
-            assert_equal $result1 [list "v1" "v2"]
-
-            # Test HGETDEL flexible syntax
-            set result2 [r HGETDEL FIELDS 2 f3 f4 myhash]
-            assert_equal $result2 [list "v3" "v4"]
-
-            # Verify fields were actually deleted
-            assert_equal [r HGET myhash f1] {}
-            assert_equal [r HGET myhash f2] {}
-            assert_equal [r HGET myhash f3] {}
-            assert_equal [r HGET myhash f4] {}
-        }
-
-        test "HGETDEL - Flexible parsing with non-existent key ($type)" {
-            r del nonexistent
-
-            # Test HGETDEL with flexible syntax on non-existent key
-            assert_equal [r HGETDEL FIELDS 2 f1 f2 nonexistent] [list {} {}]
-            assert_equal [r HGETDEL nonexistent FIELDS 2 f1 f2] [list {} {}]
-        }
-
-        test "HGETDEL - Flexible parsing with mixed fields ($type)" {
-            r del myhash
-            r hset myhash f1 v1 f2 v2
-
-            # Test flexible syntax with mix of existing and non-existing fields
-            assert_equal [r HGETDEL FIELDS 3 f1 f2 f3 myhash] [list "v1" "v2" {}]
-
-            # Verify existing fields were deleted
-            assert_equal [r HGET myhash f1] {}
-            assert_equal [r HGET myhash f2] {}
-        }
 
         test "HSETEX - input validation ($type)" {
             assert_error {*wrong number of arguments*} {r hsetex myhash}
