@@ -1159,8 +1159,10 @@ cleanup:
     return;
 }
 
-/* Validate that a string is a valid DIGEST_HEX_LENGTH-character hex digest.
- * Returns C_OK if valid, C_ERR otherwise. */
+/* Validate that a digest string has the correct length (DIGEST_HEX_LENGTH characters).
+ * Note: This only validates length, not whether characters are valid hex digits.
+ * Invalid hex characters will simply fail to match during comparison.
+ * Returns C_OK if length is correct, C_ERR otherwise. */
 int validateHexDigest(const sds digest) {
     size_t len = sdslen(digest);
     if (len != DIGEST_HEX_LENGTH)
