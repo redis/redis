@@ -1725,8 +1725,10 @@ int clusterBumpConfigEpochWithoutConsensus(void) {
     {
         server.cluster->currentEpoch++;
         myself->configEpoch = server.cluster->currentEpoch;
+        /* Save the new config epoch and broadcast it to the other nodes. */
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                             CLUSTER_TODO_FSYNC_CONFIG);
+                             CLUSTER_TODO_FSYNC_CONFIG|
+                             CLUSTER_TODO_BROADCAST_PONG);
         serverLog(LL_NOTICE,
             "New configEpoch set to %llu",
             (unsigned long long) myself->configEpoch);
@@ -1791,7 +1793,10 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
     /* Get the next ID available at the best of this node knowledge. */
     server.cluster->currentEpoch++;
     myself->configEpoch = server.cluster->currentEpoch;
-    clusterSaveConfigOrDie(1);
+    /* Save the new config epoch and broadcast it to the other nodes. */
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                         CLUSTER_TODO_FSYNC_CONFIG|
+                         CLUSTER_TODO_BROADCAST_PONG);
     serverLog(LL_VERBOSE,
         "WARNING: configEpoch collision with node %.40s (%s)."
         " configEpoch set to %llu",
@@ -2468,9 +2473,11 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
             "Configuration change detected. Reconfiguring myself "
             "as a replica of %.40s (%s)", sender->name, sender->human_nodename);
         clusterSetMaster(sender);
+        /* Save the new config and broadcast it to the other nodes. */
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
-                             CLUSTER_TODO_FSYNC_CONFIG);
+                             CLUSTER_TODO_FSYNC_CONFIG|
+                             CLUSTER_TODO_BROADCAST_PONG);
     } else if (myself->slaveof && myself->slaveof->slaveof &&
                /* In some rare case when CLUSTER FAILOVER TAKEOVER is used, it
                 * can happen that myself is a replica of a replica of myself. If
@@ -2485,9 +2492,11 @@ void clusterUpdateSlotsConfigWith(clusterNode *sender, uint64_t senderConfigEpoc
                   "I'm a sub-replica! Reconfiguring myself as a replica of grandmaster %.40s (%s)",
                   myself->slaveof->slaveof->name, myself->slaveof->slaveof->human_nodename);
         clusterSetMaster(myself->slaveof->slaveof);
+        /* Save the new config and broadcast to the other nodes. */
         clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
                              CLUSTER_TODO_UPDATE_STATE|
-                             CLUSTER_TODO_FSYNC_CONFIG);
+                             CLUSTER_TODO_FSYNC_CONFIG|
+                             CLUSTER_TODO_BROADCAST_PONG);
     } else if (dirty_slots_count && !asm_task) {
         /* If we are here, we received an update message which removed
          * ownership for certain slots we still have keys about, but still
@@ -4262,13 +4271,14 @@ void clusterFailoverReplaceYourMaster(void) {
         }
     }
 
-    /* 3) Update state and save config. */
+    /* 3) Update state. */
     clusterUpdateState();
-    clusterSaveConfigOrDie(1);
 
-    /* 4) Pong all the other nodes so that they can update the state
-     *    accordingly and detect that we switched to master role. */
-    clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+    /* 4) Save config and pong all the other nodes so that they can update the
+     *    state accordingly and detect that we switched to master role. */
+    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                         CLUSTER_TODO_FSYNC_CONFIG|
+                         CLUSTER_TODO_BROADCAST_PONG);
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
@@ -4444,6 +4454,10 @@ void clusterHandleSlaveFailover(void) {
         /* Update my configEpoch to the epoch of the election. */
         if (myself->configEpoch < server.cluster->failover_auth_epoch) {
             myself->configEpoch = server.cluster->failover_auth_epoch;
+            /* Save the new config epoch and broadcast it to the other nodes. */
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                 CLUSTER_TODO_FSYNC_CONFIG|
+                                 CLUSTER_TODO_BROADCAST_PONG);
             serverLog(LL_NOTICE,
                 "configEpoch set to %llu after successful failover",
                 (unsigned long long) myself->configEpoch);
@@ -4565,6 +4579,10 @@ void clusterHandleSlaveMigration(int max_slaves) {
         serverLog(LL_NOTICE,"Migrating to orphaned master %.40s",
             target->name);
         clusterSetMaster(target);
+        /* Save the new config and broadcast it to the other nodes. */
+        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_FSYNC_CONFIG|
+                             CLUSTER_TODO_BROADCAST_PONG);
     }
 }
 
@@ -4958,6 +4976,10 @@ void clusterBeforeSleep(void) {
         int fsync = flags & CLUSTER_TODO_FSYNC_CONFIG;
         clusterSaveConfigOrDie(fsync);
     }
+
+    /* Broadcast a PONG to all the nodes. */
+    if (flags & CLUSTER_TODO_BROADCAST_PONG)
+        clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
 
     asmBeforeSleep();
 }
@@ -6215,9 +6237,11 @@ int clusterCommandSpecial(client *c) {
                           "Configuration change detected. Reconfiguring myself "
                           "as a replica of %.40s (%s)", n->name, n->human_nodename);
                 clusterSetMaster(n);
+                /* Save the new config and broadcast it to the other nodes. */
                 clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG |
                                      CLUSTER_TODO_UPDATE_STATE |
-                                     CLUSTER_TODO_FSYNC_CONFIG);
+                                     CLUSTER_TODO_FSYNC_CONFIG |
+                                     CLUSTER_TODO_BROADCAST_PONG);
             }
 
             /* If this node was importing this slot, assigning the slot to
@@ -6240,7 +6264,7 @@ int clusterCommandSpecial(client *c) {
                 server.cluster->importing_slots_from[slot] = NULL;
                 /* After importing this slot, let the other nodes know as
                  * soon as possible. */
-                clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+                clusterDoBeforeSleep(CLUSTER_TODO_BROADCAST_PONG);
             }
         } else {
             addReplyError(c,
@@ -6321,7 +6345,10 @@ int clusterCommandSpecial(client *c) {
 
         /* Set the master. */
         clusterSetMaster(n);
-        clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|CLUSTER_TODO_SAVE_CONFIG);
+        /* Save the new config and broadcast it to the other nodes. */
+        clusterDoBeforeSleep(CLUSTER_TODO_UPDATE_STATE|
+                             CLUSTER_TODO_SAVE_CONFIG|
+                             CLUSTER_TODO_BROADCAST_PONG);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"count-failure-reports") &&
                c->argc == 3)
@@ -6591,10 +6618,11 @@ int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
                     clusterAddSlot(myself, j);
                 }
             }
-            /* New config and Bump new config */
+            /* Bump config epoch and broadcast the new config to the other nodes. */
             clusterBumpConfigEpochWithoutConsensus();
-            clusterSaveConfigOrDie(1);
-            clusterBroadcastPong(CLUSTER_BROADCAST_ALL);
+            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                 CLUSTER_TODO_FSYNC_CONFIG|
+                                 CLUSTER_TODO_BROADCAST_PONG);
             clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
