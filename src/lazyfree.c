@@ -207,8 +207,8 @@ void emptyDbAsync(redisDb *db) {
     }
     kvstore *oldkeys = db->keys, *oldexpires = db->expires;
     estore *oldsubexpires = db->subexpires;
-    db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
-    db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+    db->keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
+    db->expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires);
 }

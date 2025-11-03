@@ -349,10 +349,20 @@ int dictSdsCompareKV(dictCmpCache *cache, const void *sdsLookup, const void *kv)
     return memcmp(sdsLookup, key2, l1) == 0;
 }
 
+static void trackDeallocationKV(dict *d, kvobj *kv) {
+    if (!server.memory_tracking_per_slot) return;
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)dictMetadata(d);
+    size_t alloc_size = kvobjAllocSize(kv);
+#ifdef REDIS_TEST
+    serverAssert(alloc_size <= meta->alloc_size);
+#endif
+    meta->alloc_size -= alloc_size;
+}
+
 static void dictDestructorKV(dict *d, void *kv) {
     UNUSED(d);
     if (kv == NULL) return;
-    kvstoreTrackDeallocation(d, kv);
+    trackDeallocationKV(d, kv);
     decrRefCount(kv);
 }
 
@@ -514,6 +524,52 @@ uint64_t dictEncObjHash(const void *key) {
     } else {
         serverPanic("Unknown string encoding");
     }
+}
+
+static size_t kvstoreMetadataBytes(kvstore *kvs) {
+    UNUSED(kvs);
+    return sizeof(kvstoreMetadata);
+}
+
+static size_t kvstoreDictMetadataBytes(dict *d) {
+    UNUSED(d);
+    return sizeof(kvstoreDictMetadata);
+}
+
+static int kvstoreCanFreeDictIfNeeded(kvstore *kvs, int didx) {
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(kvs, didx);
+#ifdef REDIS_TEST
+    serverAssert(meta->alloc_size == 0);
+#endif
+    /* Free if not in cluster */
+    if (!server.cluster_enabled) return 1;
+
+    if (server.cluster_slot_stats_enabled &&
+        (meta->cpu_usec || meta->network_bytes_in || meta->network_bytes_out) &&
+        clusterIsMySlot(didx))
+    {
+        /* Don't free if we have stats for this slot */
+        return 0;
+    }
+
+    /* Otherwise, we can free */
+    return 1;
+}
+
+static void kvstoreOnEmpty(kvstore *kvs, int is_release) {
+    kvstoreMetadata *meta = (kvstoreMetadata *)kvstoreGetMetadata(kvs);
+    if (!is_release)
+        memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
+}
+
+static void kvstoreOnDictEmpty(kvstore *kvs, int didx, int is_release) {
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(kvs, didx);
+#ifdef REDIS_TEST
+    if (is_release) dictEmpty(kvstoreGetDict(kvs, didx), NULL);
+    serverAssert(meta->alloc_size == 0);
+#endif
+    if (!is_release)
+        memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
 }
 
 /* Return 1 if currently we allow dict to expand. Dict may allocate huge
@@ -738,6 +794,22 @@ dictType clientDictType = {
     dictClientKeyCompare,       /* key compare */
     .no_value = 1,              /* no values in this dict */
     .keys_are_odd = 0           /* a client pointer is not an odd pointer */            
+};
+
+kvstoreType kvstoreBaseType = {
+    NULL, /* kvstore metadata size */
+    NULL, /* dict metadata size */
+    NULL, /* can free dict */
+    NULL, /* on kvstore empty */
+    NULL, /* on dict empty */
+};
+
+kvstoreType kvstoreExType = {
+    kvstoreMetadataBytes,       /* kvstore metadata size */
+    kvstoreDictMetadataBytes,   /* dict metadata size */
+    kvstoreCanFreeDictIfNeeded, /* can free dict */
+    kvstoreOnEmpty,             /* on kvstore empty */
+    kvstoreOnDictEmpty,         /* on dict empty */
 };
 
 /* This function is called once a background process of some kind terminates,
@@ -2887,8 +2959,8 @@ void initServer(void) {
         flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
-        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
+        server.db[j].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
         server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
@@ -2903,9 +2975,9 @@ void initServer(void) {
     /* Note that server.pubsub_channels was chosen to be a kvstore (with only one dict, which
      * seems odd) just to make the code cleaner by making it be the same type as server.pubsubshard_channels
      * (which has to be kvstore), see pubsubtype.serverPubSubChannels */
-    server.pubsub_channels = kvstoreCreate(&objToDictDictType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    server.pubsub_channels = kvstoreCreate(&kvstoreBaseType, &objToDictDictType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     server.pubsub_patterns = dictCreate(&objToDictDictType);
-    server.pubsubshard_channels = kvstoreCreate(&objToDictDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+    server.pubsubshard_channels = kvstoreCreate(&kvstoreBaseType, &objToDictDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
     server.pubsub_clients = 0;
     server.watching_clients = 0;
     server.cronloops = 0;
@@ -6632,7 +6704,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 continue;
             
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                int64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
+                kvstoreMetadata *kvstoreMeta = (kvstoreMetadata *)kvstoreGetMetadata(server.db[dbnum].keys);
+                int64_t *kvstoreHist = kvstoreMeta->keysizes_hist[type];
                 char buf[10000];
                 int cnt = 0, buflen = 0;
 

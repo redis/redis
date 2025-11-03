@@ -1140,6 +1140,25 @@ typedef struct redisDb {
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
 } redisDb;
 
+/* maximum number of bins of keysizes histogram */
+#define MAX_KEYSIZES_BINS 60
+#define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
+
+/* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
+typedef struct {
+    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+} kvstoreMetadata;
+
+/* Like kvstoreMetadata, this one per dict */
+typedef struct {
+    kvstoreDictMetaBase base;   /* must be first in struct ! */
+    size_t alloc_size;          /* Total memory used (in bytes) by this slot */
+    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
+    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
+    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
+    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+} kvstoreDictMetadata;
+
 /* forward declaration for functions ctx */
 typedef struct functionsLibCtx functionsLibCtx;
 
@@ -2823,6 +2842,8 @@ extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
 extern dictType keylistDictType;
+extern kvstoreType kvstoreBaseType;
+extern kvstoreType kvstoreExType;
 extern dict *modules;
 
 extern EbucketsType subexpiresBucketsType;  /* global expires */

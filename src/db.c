@@ -155,7 +155,8 @@ void dbgAssertKeysizesHist(redisDb *db) {
     }
     kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        volatile int64_t *keysizesHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
+        kvstoreMetadata *kvstoreMeta = (kvstoreMetadata *)kvstoreGetMetadata(db->keys);
+        volatile int64_t *keysizesHist = kvstoreMeta->keysizes_hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])
                 continue;
@@ -977,9 +978,10 @@ redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
         tempDb[i].id = i;
-        tempDb[i].keys = kvstoreCreate(&dbDictType, slot_count_bits,
-                                       flags | KVSTORE_ALLOC_META_KEYS_HIST);
-        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        tempDb[i].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits,
+                                       flags);
+        tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
+                                          slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     }
 

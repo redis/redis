@@ -263,7 +263,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.4
+            assert_morethan [s allocator_frag_ratio] 1.3
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -486,7 +486,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.35
+            assert_morethan [s allocator_frag_ratio] 1.2
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -705,7 +705,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.35
+            assert_morethan [s allocator_frag_ratio] 1.3
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {

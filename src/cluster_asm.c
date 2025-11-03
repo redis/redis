@@ -2884,10 +2884,10 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
 
     /* Create temp kvstores and estore, move relevant slot dicts/ebuckets into them,
      * and delete them in BIO thread asynchronously. */
-    kvstore *keys = kvstoreCreate(&dbDictType,
+    kvstore *keys = kvstoreCreate(&kvstoreBaseType, &dbDictType,
                                   CLUSTER_SLOT_MASK_BITS,
                                   KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-    kvstore *expires = kvstoreCreate(&dbExpiresDictType,
+    kvstore *expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                      CLUSTER_SLOT_MASK_BITS,
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);

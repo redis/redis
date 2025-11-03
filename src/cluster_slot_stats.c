@@ -50,7 +50,7 @@ static uint64_t getSlotStat(int slot, slotStatType stat_type) {
     switch (stat_type) {
     case KEY_COUNT: return countKeysInSlot(slot);
     case CPU_USEC: return server.cluster_slot_stats[slot].cpu_usec;
-    case MEMORY_BYTES: return kvstoreDictAllocSize(server.db->keys, slot);
+    case MEMORY_BYTES: return dbSlotAllocSize(server.db, slot);
     case NETWORK_BYTES_IN: return server.cluster_slot_stats[slot].network_bytes_in;
     case NETWORK_BYTES_OUT: return server.cluster_slot_stats[slot].network_bytes_out;
     default: serverPanic("Invalid slot stat type %d was found.", stat_type);
@@ -104,7 +104,7 @@ static void addReplySlotStat(client *c, int slot) {
      * and are aggregated and returned based on its server config. */
     if (server.memory_tracking_per_slot) {
         addReplyBulkCString(c, "memory-bytes");
-        addReplyLongLong(c, kvstoreDictAllocSize(server.db->keys, slot));
+        addReplyLongLong(c, dbSlotAllocSize(server.db, slot));
     }
     if (server.cluster_slot_stats_enabled) {
         addReplyBulkCString(c, "cpu-usec");
