@@ -4023,6 +4023,7 @@ char *redisBuildIdString(void);
 
 /* XXH3 hash of a string as hex string */
 sds stringDigest(robj *o);
+int validateHexDigest(const sds digest);
 
 /* Commands prototypes */
 void authCommand(client *c);

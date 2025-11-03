@@ -11,6 +11,9 @@
 #include "xxhash.h"
 #include <math.h> /* isnan(), isinf() */
 
+/* XXH3 64-bit hash produces 16 hex characters when formatted */
+#define DIGEST_HEX_LENGTH 16
+
 /* Forward declarations */
 int getGenericCommand(client *c);
 
@@ -127,10 +130,15 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
                 return;
             }
         } else if (flags & OBJ_SET_IFDEQ || flags & OBJ_SET_IFDNE) {
+            if (validateHexDigest(match_value->ptr) != C_OK) {
+                addReplyError(c, "must be exactly 16 hexadecimal characters");
+                return;
+            }
+
             sds current_digest = stringDigest(current);
             int condition = flags & OBJ_SET_IFDEQ ?
-                            sdscmp(current_digest, match_value->ptr) == 0 :
-                            sdscmp(current_digest, match_value->ptr) != 0;
+                            strcasecmp(current_digest, match_value->ptr) == 0 :
+                            strcasecmp(current_digest, match_value->ptr) != 0;
             sdsfree(current_digest);
             if (!condition) {
                 if (!(flags & OBJ_SET_GET)) {
@@ -1151,6 +1159,15 @@ cleanup:
     return;
 }
 
+/* Validate that a string is a valid DIGEST_HEX_LENGTH-character hex digest.
+ * Returns C_OK if valid, C_ERR otherwise. */
+int validateHexDigest(const sds digest) {
+    size_t len = sdslen(digest);
+    if (len != DIGEST_HEX_LENGTH)
+        return C_ERR;
+    return C_OK;
+}
+
 /* Return the xxh3 hash of a string object as a hex string stored in an sds.
  * The user is responsible for freeing the sds. */
 sds stringDigest(robj *o) {
@@ -1168,7 +1185,7 @@ sds stringDigest(robj *o) {
     }
 
     sds hexhash = sdsempty();
-    hexhash = sdscatprintf(hexhash, "%" PRIx64, hash);
+    hexhash = sdscatprintf(hexhash, "%0" STRINGIFY(DIGEST_HEX_LENGTH) PRIx64, hash);
     return hexhash;
 }
 
