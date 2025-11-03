@@ -1332,10 +1332,8 @@ void delexCommand(client *c) {
 
         decrRefCount(valueobj);
     } else if (!strcasecmp("ifdeq", condition)) {
-        if (validateHexDigest(c->argv[3]->ptr) != C_OK) {
-            addReplyError(c, "must be exactly 16 hexadecimal characters");
+        if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
             return;
-        }
 
         sds current_digest = stringDigest(o);
         if (strcasecmp(current_digest, c->argv[3]->ptr) == 0)
@@ -1343,10 +1341,8 @@ void delexCommand(client *c) {
 
         sdsfree(current_digest);
     } else if (!strcasecmp("ifdne", condition)) {
-        if (validateHexDigest(c->argv[3]->ptr) != C_OK) {
-            addReplyError(c, "must be exactly 16 hexadecimal characters");
+        if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
             return;
-        }
 
         sds current_digest = stringDigest(o);
         if (strcasecmp(current_digest, c->argv[3]->ptr) != 0)

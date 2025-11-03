@@ -130,10 +130,8 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
                 return;
             }
         } else if (flags & OBJ_SET_IFDEQ || flags & OBJ_SET_IFDNE) {
-            if (validateHexDigest(match_value->ptr) != C_OK) {
-                addReplyError(c, "must be exactly 16 hexadecimal characters");
+            if (validateHexDigest(c, match_value->ptr) != C_OK)
                 return;
-            }
 
             sds current_digest = stringDigest(current);
             int condition = flags & OBJ_SET_IFDEQ ?
@@ -1163,10 +1161,12 @@ cleanup:
  * Note: This only validates length, not whether characters are valid hex digits.
  * Invalid hex characters will simply fail to match during comparison.
  * Returns C_OK if length is correct, C_ERR otherwise. */
-int validateHexDigest(const sds digest) {
+int validateHexDigest(client *c, const sds digest) {
     size_t len = sdslen(digest);
-    if (len != DIGEST_HEX_LENGTH)
+    if (len != DIGEST_HEX_LENGTH) {
+        addReplyErrorFormat(c, "must be exactly %d hexadecimal characters", DIGEST_HEX_LENGTH);
         return C_ERR;
+    }
     return C_OK;
 }
 
