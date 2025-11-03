@@ -293,6 +293,41 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r HPEXPIRETIME myhash FIELDS 1 field1] [expr $lo*1000] [expr $hi*1000]
         }
 
+        test "HPEXPIRETIME persists after RDB reload ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2
+            r hpexpire myhash 100 NX FIELDS 1 field1
+            set before [r HPEXPIRETIME myhash FIELDS 1 field1]
+            r debug reload
+            set after [r HPEXPIRETIME myhash FIELDS 1 field1]
+            assert_equal $before $after
+            # field2 should not have expiration
+            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
+            assert_equal [get_stat_subexpiry r] 1
+            # Wait for field1 to expire robustly
+            wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" } 
+            assert_equal [r hget myhash field1] ""
+            # field2 remains without expiration
+            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
+        }
+
+        test "Verify hash that had HFEs won't be counted in INFO keyspace also after reload ($type)" {
+            r flushall
+                        
+            # Prepare a hash with one field that will expire before the RDB is written
+            r hset myhash field1 value1 field2 value2
+            r hpexpire myhash 1 NX FIELDS 1 field1
+            wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "`field1` should be expired" }
+            
+            # Save and reload from RDB; expired field should not be persisted
+            # Disable active expire so the key isn't deleted before verifying get_stat_subexpiry()
+            r debug set-active-expire 0
+            r debug reload               
+            # Verify that no sub-expiry items exist after reload (i.e. not registered in estore)
+            assert_equal [get_stat_subexpiry r] 0
+            r debug set-active-expire 1
+        }
+
         test "HTTL/HPTTL - Verify TTL progress until expiration ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
