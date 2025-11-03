@@ -7176,9 +7176,63 @@ void loadDataFromDisk(void) {
         int ret = loadAppendOnlyFiles(server.aof_manifest);
         if (ret == AOF_FAILED || ret == AOF_OPEN_ERR)
             exit(1);
-        if (ret != AOF_NOT_EXIST)
+
+        if (ret == AOF_NOT_EXIST || ret == AOF_EMPTY) {
+            /* Optionally fall back to loading RDB when no usable AOF exists */
+            if (server.aof_load_rdb_on_startup) {
+                rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
+                int rsi_is_valid = 0;
+                errno = 0;
+                int rdb_flags = RDBFLAGS_NONE;
+                if (iAmMaster()) {
+                    /* Master may delete expired keys when loading, we should
+                     * propagate expire to replication backlog. */
+                    createReplicationBacklog();
+                    rdb_flags |= RDBFLAGS_FEED_REPL;
+                }
+                int rdb_load_ret = rdbLoad(server.rdb_filename, &rsi, rdb_flags);
+                if (rdb_load_ret == RDB_OK) {
+                    serverLog(LL_NOTICE,
+                        "AOF not found/empty, DB loaded from RDB due to aof-load-rdb-on-startup: %.3f seconds",
+                        (float)(ustime()-start)/1000000);
+
+                    if (rsi.repl_id_is_set && rsi.repl_offset != -1 && rsi.repl_stream_db != -1) {
+                        rsi_is_valid = 1;
+                        if (!iAmMaster()) {
+                            memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
+                            server.master_repl_offset = rsi.repl_offset;
+                            replicationCacheMasterUsingMyself();
+                            selectDb(server.cached_master,rsi.repl_stream_db);
+                        } else {
+                            memcpy(server.replid2,rsi.repl_id,sizeof(server.replid));
+                            server.second_replid_offset = rsi.repl_offset+1;
+                            server.master_repl_offset += rsi.repl_offset;
+                            serverAssert(server.repl_backlog);
+                            server.repl_backlog->offset = server.master_repl_offset -
+                                      server.repl_backlog->histlen + 1;
+                            rebaseReplicationBuffer(rsi.repl_offset);
+                            server.repl_no_slaves_since = time(NULL);
+                        }
+                    }
+                } else if (rdb_load_ret == RDB_NOT_EXIST) {
+                    serverLog(LL_NOTICE,
+                        "AOF not found/empty and no RDB found, starting with empty dataset");
+                } else {
+                    serverLog(LL_WARNING, "Fatal error loading the DB, check server logs. Exiting.");
+                    exit(1);
+                }
+
+                /* Drop backlog if partial resync is not possible */
+                if (!rsi_is_valid && server.repl_backlog)
+                    freeReplicationBacklog();
+            } else {
+                serverLog(LL_NOTICE,
+                    "AOF not found/empty and aof-load-rdb-on-startup is disabled, starting with empty dataset");
+            }
+        } else {
             serverLog(LL_NOTICE, "DB loaded from append only file: %.3f seconds", (float)(ustime()-start)/1000000);
-        updateReplOffsetAndResetEndOffset();
+            updateReplOffsetAndResetEndOffset();
+        }
     } else {
         rdbSaveInfo rsi = RDB_SAVE_INFO_INIT;
         int rsi_is_valid = 0;
