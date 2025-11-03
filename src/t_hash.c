@@ -2284,42 +2284,23 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
                 goto err_expiration;
             *flags |= HFE_KEEPTTL;
+        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "FXX")) {
+            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+            return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "FXX")) {
-            if (command_type == HASH_CMD_HGETEX) {
-                addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-                return C_ERR;
-            }
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FXX;
+        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "FNX")) {
+            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+            return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "FNX")) {
-            if (command_type == HASH_CMD_HGETEX) {
-                addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-                return C_ERR;
-            }
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FNX;
         } else {
-            if (*first_field_pos != -1) {
-                /* FIELDS was already seen - this is definitely an unknown argument */
-                addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-            } else {
-                /* FIELDS not seen yet - check if it exists ahead */
-                int fields_exists_ahead = 0;
-                for (int j = i + 1; j < c->argc; j++) {
-                    if (!strcasecmp(c->argv[j]->ptr, "fields")) {
-                        fields_exists_ahead = 1;
-                        break;
-                    }
-                }
-
-                if (fields_exists_ahead) {
-                    addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-                } else {
-                    addReplyError(c, "FIELDS keyword is required");
-                }
-            }
+            /* Unknown argument - give immediate, clear error */
+            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
     }
 }
@@ -2826,7 +2807,7 @@ void hgetexCommand(client *c) {
                           HFE_LAZY_NO_UPDATE_ALLOCSIZES);
         expired += (res == GETF_EXPIRED);
 
-            /* Set expiration only if the field exists and not expired lazily. */
+        /* Set expiration only if the field exists and not expired lazily. */
 
         if (res == GETF_OK && parse_flags) {
             if (parse_flags & HFE_PERSIST)
@@ -3583,11 +3564,9 @@ typedef struct {
     int firstFieldPos;      /* Position of first field */
     int fieldCount;         /* Number of fields */
 
-    /* HEXPIRE family - expiration time */
+    /* HEXPIRE family arguments */
     int expireTimePos;      /* Position of expire time argument */
     long long expireTime;   /* Parsed expire time */
-
-    /* HEXPIRE family - condition flags */
     int expireCondition;    /* HFE_NX, HFE_XX, HFE_GT, HFE_LT */
 } HashCommandArgs;
 
@@ -3599,7 +3578,6 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
     args->fieldsPos = -1;
     args->expireTimePos = -1;
 
-    /* Scan through arguments to find keywords */
     for (int i = 2; i < c->argc; i++) {
         char *arg = c->argv[i]->ptr;
 
@@ -3618,7 +3596,6 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
             args->fieldsPos = i;
             args->numFieldsPos = i + 1;
 
-            /* Parse numfields */
             long numFields;
             if (getRangeLongFromObjectOrReply(c, c->argv[args->numFieldsPos], 1, LONG_MAX,
                                               &numFields, "Parameter `numFields` should be greater than 0") != C_OK)
@@ -3652,28 +3629,18 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
             continue;
         }
 
-        /* Try to parse as expire time */
         if (args->expireTimePos == -1) {
             if (parseExpireTime(c, c->argv[i], unit, basetime, &args->expireTime) == C_OK) {
                 args->expireTimePos = i;
                 continue;
             }
-            /* parseExpireTime already replied with a proper error */
             return C_ERR;
         }
 
-        /* If FIELDS not yet seen, any unexpected argument triggers required FIELDS error */
-        if (args->fieldsPos == -1) {
-            addReplyError(c, "FIELDS keyword is required");
-            return C_ERR;
-        }
-
-        /* If we reach here, argument is unrecognized after FIELDS */
-        addReplyErrorFormat(c, "Unrecognized argument: %s", arg);
+        addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
         return C_ERR;
     }
 
-    /* Expire time required */
     if (args->expireTimePos == -1) {
         addReplyError(c, "Expire time argument is required");
         return C_ERR;
@@ -3688,7 +3655,6 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
     kvobj *hashObj;
     long numFields = 0, numFieldsAt = 3;
 
-    /* Read the hash object */
     hashObj = lookupKeyRead(c->db, c->argv[1]);
     if (checkType(c, hashObj, OBJ_HASH))
         return;
@@ -3698,19 +3664,15 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
         return;
     }
 
-    /* Read number of fields */
     if (getRangeLongFromObjectOrReply(c, c->argv[numFieldsAt], 1, LONG_MAX,
                                       &numFields, "Number of fields must be a positive integer") != C_OK)
         return;
 
-    /* Verify `numFields` is consistent with number of arguments */
     if (numFields != (c->argc - numFieldsAt - 1)) {
         addReplyError(c, "The `numfields` parameter must match the number of arguments");
         return;
     }
 
-    /* Non-existing keys and empty hashes are the same thing. It also means
-     * fields in the command don't exist in the hash key. */
     if (!hashObj) {
         addReplyArrayLen(c, numFields);
         for (int i = 0; i < numFields; i++) {
@@ -3849,7 +3811,6 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     robj *keyArg = c->argv[1];
     size_t oldsize = 0;
 
-    /* Read the hash object */
     kvobj *hashObj = lookupKeyWrite(c->db, keyArg);
     if (checkType(c, hashObj, OBJ_HASH))
         return;
@@ -3935,10 +3896,8 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     /* Handle propagation using command rewriting */
     /* Rewrite to canonical HPEXPIREAT command */
     if (c->cmd->proc != hpexpireatCommand) {
-        /* Rewrite command name to HPEXPIREAT */
         rewriteClientCommandArgument(c, 0, shared.hpexpireat);
 
-        /* Rewrite time to absolute timestamp */
         robj *expireTimeObj = createStringObjectFromLongLong(args.expireTime);
         rewriteClientCommandArgument(c, args.expireTimePos, expireTimeObj);
         decrRefCount(expireTimeObj);
@@ -3946,11 +3905,9 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
 
     /* For partial failures, remove failed fields from the original command */
     if (fieldsNotSet) {
-        /* Remove failed fields by rewriting the command in-place (reverse order to maintain indices) */
         for (int i = removeCount - 1; i >= 0; i--) {
             rewriteClientCommandArgument(c, fieldsToRemove[i], NULL);
         }
-        /* Update field count */
         robj *newFieldCount = createStringObjectFromLongLong(updated);
         rewriteClientCommandArgument(c, args.fieldsPos + 1, newFieldCount);
         decrRefCount(newFieldCount);
