@@ -1494,6 +1494,13 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
         assert_equal "world" [r get mykey]
     }
 
+    test {DIGEST always returns exactly 16 hex characters with leading zeros} {
+        # Test with a value that produces a digest with leading zeros
+        r set foo "v8lf0c11xh8ymlqztfd3eeq16kfn4sspw7fqmnuuq3k3t75em5wdizgcdw7uc26nnf961u2jkfzkjytls2kwlj7626sd"
+        # Verify it matches the expected value with leading zeros
+        assert_equal "00006c38adf31777" [r digest foo]
+    }
+
     test {IFDEQ/IFDNE reject digest with incorrect format} {
         r set mykey "test"
         set digest [r digest mykey]
