@@ -1332,14 +1332,20 @@ void delexCommand(client *c) {
 
         decrRefCount(valueobj);
     } else if (!strcasecmp("ifdeq", condition)) {
+        if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
+            return;
+
         sds current_digest = stringDigest(o);
-        if (sdscmp(current_digest, c->argv[3]->ptr) == 0)
+        if (strcasecmp(current_digest, c->argv[3]->ptr) == 0)
             should_delete = 1;
 
         sdsfree(current_digest);
     } else if (!strcasecmp("ifdne", condition)) {
+        if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
+            return;
+
         sds current_digest = stringDigest(o);
-        if (sdscmp(current_digest, c->argv[3]->ptr) != 0)
+        if (strcasecmp(current_digest, c->argv[3]->ptr) != 0)
             should_delete = 1;
 
         sdsfree(current_digest);

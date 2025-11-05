@@ -722,7 +722,7 @@ struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_status_Subargs[] = {
 struct COMMAND_ARG CLUSTER_MIGRATION_subcommand_Subargs[] = {
 {MAKE_ARG("import",ARG_TYPE_BLOCK,-1,"IMPORT",NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_import_Subargs},
 {MAKE_ARG("cancel",ARG_TYPE_ONEOF,-1,"CANCEL",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_cancel_Subargs},
-{MAKE_ARG("status",ARG_TYPE_BLOCK,-1,"STATUS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_status_Subargs},
+{MAKE_ARG("status",ARG_TYPE_ONEOF,-1,"STATUS",NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=CLUSTER_MIGRATION_subcommand_status_Subargs},
 };
 
 /* CLUSTER MIGRATION argument table */

@@ -14163,6 +14163,8 @@ int RM_ConfigSetEnum(RedisModuleCtx *ctx, const char *name, RedisModuleString *v
 /* Set the value of a numeric config.
  * If the value passed is meant to be a percentage, it should be passed as a
  * negative value.
+ * For unsigned configs pass the value and cast to (long long) - internal type
+ * checks will handle it.
  *
  * See RedisModule_ConfigSet for return value. */
 int RM_ConfigSetNumeric(RedisModuleCtx *ctx, const char *name, long long value, RedisModuleString **err) {

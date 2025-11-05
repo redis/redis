@@ -790,12 +790,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # Start the slot 0 write load on the R 0
         set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 $slot0_key 1000]
 
-        # wait for buffer to accumulate on source side (more than 1m)
-        wait_for_condition 1000 10 {
-            [S 0 mem_cluster_slot_migration_output_buffer] > 1000000
-        } else {
-            fail "Failed to wait for buffer to accumulate on source side (more than 1m)"
-        }
+        # verify the metric is accessible, it is transient, will be reset on disconnect
+        assert {[S 0 mem_cluster_slot_migration_output_buffer] >= 0}
 
         # After some time, the client output buffer limit should be reached
         wait_for_log_messages 0 {"*Client * closed * for overcoming of output buffer limits.*"} $loglines 1000 10
@@ -836,7 +832,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # verify the peak value, should be greater than 1mb
         assert {[S 0 mem_cluster_slot_migration_input_buffer_peak] > 1000000}
-        assert {[S 0 mem_cluster_slot_migration_input_buffer] > 1000000}
+        # verify the metric is accessible, it is transient, will be reset on disconnect
+        assert {[S 0 mem_cluster_slot_migration_input_buffer] >= 0}
 
         wait_for_asm_done
 

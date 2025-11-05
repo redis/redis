@@ -11,6 +11,9 @@
 #include "xxhash.h"
 #include <math.h> /* isnan(), isinf() */
 
+/* XXH3 64-bit hash produces 16 hex characters when formatted */
+#define DIGEST_HEX_LENGTH 16
+
 /* Forward declarations */
 int getGenericCommand(client *c);
 
@@ -127,10 +130,13 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
                 return;
             }
         } else if (flags & OBJ_SET_IFDEQ || flags & OBJ_SET_IFDNE) {
+            if (validateHexDigest(c, match_value->ptr) != C_OK)
+                return;
+
             sds current_digest = stringDigest(current);
             int condition = flags & OBJ_SET_IFDEQ ?
-                            sdscmp(current_digest, match_value->ptr) == 0 :
-                            sdscmp(current_digest, match_value->ptr) != 0;
+                            strcasecmp(current_digest, match_value->ptr) == 0 :
+                            strcasecmp(current_digest, match_value->ptr) != 0;
             sdsfree(current_digest);
             if (!condition) {
                 if (!(flags & OBJ_SET_GET)) {
@@ -1151,6 +1157,19 @@ cleanup:
     return;
 }
 
+/* Validate that a digest string has the correct length (DIGEST_HEX_LENGTH characters).
+ * Note: This only validates length, not whether characters are valid hex digits.
+ * Invalid hex characters will simply fail to match during comparison.
+ * Returns C_OK if length is correct, C_ERR otherwise. */
+int validateHexDigest(client *c, const sds digest) {
+    size_t len = sdslen(digest);
+    if (len != DIGEST_HEX_LENGTH) {
+        addReplyErrorFormat(c, "must be exactly %d hexadecimal characters", DIGEST_HEX_LENGTH);
+        return C_ERR;
+    }
+    return C_OK;
+}
+
 /* Return the xxh3 hash of a string object as a hex string stored in an sds.
  * The user is responsible for freeing the sds. */
 sds stringDigest(robj *o) {
@@ -1168,7 +1187,7 @@ sds stringDigest(robj *o) {
     }
 
     sds hexhash = sdsempty();
-    hexhash = sdscatprintf(hexhash, "%" PRIx64, hash);
+    hexhash = sdscatprintf(hexhash, "%0" STRINGIFY(DIGEST_HEX_LENGTH) PRIx64, hash);
     return hexhash;
 }
 

@@ -11,7 +11,6 @@
 #include "server.h"
 #include "cluster.h"
 #include "functions.h"
-#include "cluster_legacy.h"
 #include "cluster_asm.h"
 #include "cluster_slot_stats.h"
 
@@ -833,7 +832,7 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
     task->state = ASM_NONE;
     task->operation = ASM_IMPORT;
     task->source_node = source;
-    memcpy(task->source, source->name, CLUSTER_NAMELEN);
+    memcpy(task->source, clusterNodeGetName(source), CLUSTER_NAMELEN);
     memcpy(task->dest, getMyClusterId(), CLUSTER_NAMELEN);
 
     listAddNodeTail(asmManager->tasks, task);
@@ -1735,9 +1734,9 @@ static void asmStartImportTask(asmTask *task) {
     /* Change the source node if needed. */
     if (source != task->source_node) {
         task->source_node = source;
-        memcpy(task->source, source->name, CLUSTER_NAMELEN);
+        memcpy(task->source, clusterNodeGetName(source), CLUSTER_NAMELEN);
         serverLog(LL_NOTICE, "Import task %s source node changed: slots=%s, "
-                             "new_source=%.40s", task->id, slots_str, source->name);
+                             "new_source=%.40s", task->id, slots_str, clusterNodeGetName(source));
     }
 
     serverLog(LL_NOTICE, "Import task %s starting: src=%.40s, dest=%.40s, slots=%s",

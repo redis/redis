@@ -252,6 +252,8 @@ void scriptingInit(int setup) {
     /* Recursively lock all tables that can be reached from the global table */
     luaSetTableProtectionRecursively(lua);
     lua_pop(lua, 1);
+    /* Set metatables of basic types (string, number, nil etc.) readonly. */
+    luaSetTableProtectionForBasicTypes(lua);
 
     lctx.lua = lua;
 }
