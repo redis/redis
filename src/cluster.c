@@ -749,7 +749,12 @@ int verifyClusterNodeId(const char *name, int length) {
 }
 
 int isValidAuxChar(int c) {
-    return isalnum(c) || (strchr("!#$%&()*+:;<>?@[]^{|}~", c) == NULL);
+    /* Reject control characters (0x00-0x1F and 0x7F). */
+    if (iscntrl(c)) {
+        return 0;
+    }
+    /* Reject forbidden characters including nodes.conf delimiters and special parsing characters */
+    return isalnum(c) || (strchr("!#$%&()*+:;<>?@[]^{|}~,= \"'\\", c) == NULL);
 }
 
 int isValidAuxString(char *s, unsigned int length) {
