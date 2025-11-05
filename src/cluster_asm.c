@@ -126,6 +126,7 @@ struct asmManager *asmManager = NULL;
 /* replication.c */
 char *sendCommand(connection *conn, ...);
 char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens);
+char *sendInternalAuth(connection *conn);
 char *receiveSynchronousResponse(connection *conn);
 ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
@@ -1227,19 +1228,6 @@ void asmCallbackOnFreeClient(client *c) {
     }
 }
 
-/* Sends an AUTH command to the source node using the internal secret.
- * Returns an error string if the command fails, or NULL on success. */
-char *asmSendInternalAuth(connection *conn) {
-    size_t len = 0;
-    const char *internal_secret = clusterGetSecret(&len);
-    serverAssert(internal_secret != NULL);
-
-    sds secret = sdsnewlen(internal_secret, len);
-    char *err = sendCommand(conn, "AUTH", "internal connection", secret, NULL);
-    sdsfree(secret);
-    return err;
-}
-
 /* Handles the RDB channel sync with the source node.
  * This function is called when the RDB channel is established
  * and ready to sync with the source node. */
@@ -1271,7 +1259,7 @@ void asmRdbChannelSyncWithSource(connection *conn) {
         connSetWriteHandler(conn, NULL);
 
         /* Send AUTH command to source node using internal auth */
-        err = asmSendInternalAuth(conn);
+        err = sendInternalAuth(conn);
         if (err) goto write_error;
         task->rdb_channel_state = ASM_AUTH_REPLY;
         return;
@@ -1421,7 +1409,7 @@ void asmSyncWithSource(connection *conn) {
         connSetReadHandler(conn, asmSyncWithSource);
         connSetWriteHandler(conn, NULL);
         /* Send AUTH command to source node using internal auth */
-        err = asmSendInternalAuth(conn);
+        err = sendInternalAuth(conn);
         if (err) goto write_error;
         task->state = ASM_AUTH_REPLY;
         return;
