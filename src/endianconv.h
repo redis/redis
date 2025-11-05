@@ -20,12 +20,11 @@
  * Optimized endian conversion helpers
  * -------------------------------------------------------------------------- */
 
-/* For GCC, Clang, MSVC — use builtins that compile to a single instruction */
+/* For GCC, Clang — use builtins that compile to a single instruction */
 #if defined(__GNUC__) || defined(__clang__)
-#  define REDIS_HAVE_BSWAP_INTRINSICS 1
-#  define REDIS_BSWAP16(v) __builtin_bswap16(v)
-#  define REDIS_BSWAP32(v) __builtin_bswap32(v)
-#  define REDIS_BSWAP64(v) __builtin_bswap64(v)
+#define REDIS_BSWAP64(v) __builtin_bswap64(v)
+#else
+#define REDIS_BSWAP64(v) intrev64(v)
 #endif
 
 void memrev16(void *p);
@@ -58,16 +57,9 @@ uint64_t intrev64(uint64_t v);
 #if (BYTE_ORDER == BIG_ENDIAN)
 #define htonu64(v) (v)
 #define ntohu64(v) (v)
-#else /* LITTLE_ENDIAN */
-#  ifdef REDIS_HAVE_BSWAP_INTRINSICS
-     /* Use compiler-provided single-instruction byte swap */
-#    define htonu64(v) REDIS_BSWAP64(v)
-#    define ntohu64(v) REDIS_BSWAP64(v)
-#  else
-     /* Fall back to the portable reversal routine */
-#    define htonu64(v) intrev64(v)
-#    define ntohu64(v) intrev64(v)
-#  endif
+#else
+#define htonu64(v) REDIS_BSWAP64(v)
+#define ntohu64(v) REDIS_BSWAP64(v)
 #endif
 
 #ifdef REDIS_TEST
