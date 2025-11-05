@@ -24,6 +24,7 @@
 #include <string.h>
 #include <locale.h>
 #include <ctype.h>
+#include <arpa/inet.h>
 
 /*-----------------------------------------------------------------------------
  * Config file name-value maps.
@@ -2424,6 +2425,23 @@ static int isValidAnnouncedHostname(char *val, const char **err) {
     return 1;
 }
 
+/* Validation function for cluster-announce-ip.
+ * Ensures the IP address is valid and rejects control characters. */
+static int isValidClusterAnnounceIp(char *val, const char **err) {
+    unsigned char buf[sizeof(struct in6_addr)];
+    /* Empty string is allowed - it will be converted to NULL by EMPTY_STRING_IS_NULL flag */
+    if (val[0] == '\0') {
+        return 1;
+    }
+
+    if (inet_pton(AF_INET, val, buf) != 1 &&
+        inet_pton(AF_INET6, val, buf) != 1) {
+        *err = "Cluster announce IP must be a valid IPv4 or IPv6 address";
+        return 0;
+    }
+    return 1;
+}
+
 /* Validate specified string is a valid proc-title-template */
 static int isValidProcTitleTemplate(char *val, const char **err) {
     if (!validateProcTitleTemplate(val)) {
@@ -3130,7 +3148,7 @@ standardConfig static_configs[] = {
     createStringConfig("pidfile", NULL, IMMUTABLE_CONFIG, EMPTY_STRING_IS_NULL, server.pidfile, NULL, NULL, NULL),
     createStringConfig("replica-announce-ip", "slave-announce-ip", MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.slave_announce_ip, NULL, NULL, NULL),
     createStringConfig("masteruser", NULL, MODIFIABLE_CONFIG | SENSITIVE_CONFIG, EMPTY_STRING_IS_NULL, server.masteruser, NULL, NULL, NULL),
-    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, NULL, updateClusterIp),
+    createStringConfig("cluster-announce-ip", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_ip, NULL, isValidClusterAnnounceIp, updateClusterIp),
     createStringConfig("cluster-config-file", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.cluster_configfile, "nodes.conf", NULL, NULL),
     createStringConfig("cluster-announce-hostname", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_hostname, NULL, isValidAnnouncedHostname, updateClusterHostname),
     createStringConfig("cluster-announce-human-nodename", NULL, MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.cluster_announce_human_nodename, NULL, isValidAnnouncedNodename, updateClusterHumanNodename),
