@@ -44,7 +44,7 @@ typedef struct streamIterator {
     int skip_tombstones;    /* True if not emitting tombstone entries. */
     uint64_t start_key[2];  /* Start key as 128 bit big endian. */
     uint64_t end_key[2];    /* End key as 128 bit big endian. */
-    /* New: decoded native-endian fields for fast numeric comparison */
+    /* Decoded native-endian fields for fast numeric comparison */
     uint64_t start_ms;
     uint64_t start_seq;
     uint64_t end_ms;
