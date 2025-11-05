@@ -1215,10 +1215,10 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
 
     /* Decode the big-endian keys into native 64-bit integers
      * for faster comparisons during iteration. */
-    si->start_ms  = intrev64(si->start_key[0]);
-    si->start_seq = intrev64(si->start_key[1]);
-    si->end_ms    = intrev64(si->end_key[0]);
-    si->end_seq   = intrev64(si->end_key[1]);
+    si->start_ms  = htonu64(si->start_key[0]);
+    si->start_seq = htonu64(si->start_key[1]);
+    si->end_ms    = htonu64(si->end_key[0]);
+    si->end_seq   = htonu64(si->end_key[1]);
 
     /* Seek the correct node in the radix tree. */
     raxStart(&si->ri,s->rax);
