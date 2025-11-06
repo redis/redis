@@ -408,6 +408,7 @@ int calculateKeySlot(sds key) {
 
 /* Return slot-specific dictionary for key based on key's hash slot when cluster mode is enabled, else 0.*/
 int getKeySlot(sds key) {
+    if (!server.cluster_enabled) return 0;
     /* This is performance optimization that uses pre-set slot id from the current command,
      * in order to avoid calculation of the key hash.
      *
@@ -416,10 +417,12 @@ int getKeySlot(sds key) {
      * the key slot would fallback to calculateKeySlot.
      */
     if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
-        debugServerAssertWithInfo(server.current_client, NULL, calculateKeySlot(key)==server.current_client->slot);
+        debugServerAssertWithInfo(server.current_client, NULL,
+                                  (int)keyHashSlot(key, (int)sdslen(key)) == server.current_client->slot);
         return server.current_client->slot;
     }
-    return calculateKeySlot(key);
+    int slot = keyHashSlot(key, (int)sdslen(key));
+    return slot;
 }
 
 /* Return the slot of the key in the command.
