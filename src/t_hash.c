@@ -2218,7 +2218,7 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             }
 
             /* Skip over numfields and all field-value pairs
-               Set i to the last position of the FIELDS block, loop will increment past it */
+             * Set i to the last position of the FIELDS block, loop will increment past it */
             i = *first_field_pos + (*field_count * args_per_field) - 1;
             continue;
         } else if (!strcasecmp(c->argv[i]->ptr, "EX")) {
@@ -2302,8 +2302,8 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             /* Unknown argument - give immediate, clear error */
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
+        }
     }
-}
 
     return C_OK;
 
@@ -2702,12 +2702,12 @@ void hgetdelCommand(client *c) {
 
     addReplyArrayLen(c, num_fields);
     for (int i = 4; i < c->argc; i++) {
-        const int flags = HFE_LAZY_NO_NOTIFICATION |
+        res = addHashFieldToReply(c, o, c->argv[i]->ptr,
+                          HFE_LAZY_NO_NOTIFICATION |
                           HFE_LAZY_NO_SIGNAL |
                           HFE_LAZY_AVOID_HASH_DEL |
                           HFE_LAZY_NO_UPDATE_KEYSIZES |
-                          HFE_LAZY_NO_UPDATE_ALLOCSIZES;
-        res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
+                          HFE_LAZY_NO_UPDATE_ALLOCSIZES);
         expired += (res == GETF_EXPIRED);
         /* Try to delete only if it's found and not expired lazily. */
         if (res == GETF_OK) {
@@ -2767,7 +2767,7 @@ void hgetdelCommand(client *c) {
  */
 void hgetexCommand(client *c) {
     int expired = 0, deleted = 0, updated = 0;
-    int parse_flags = 0, expire_time_pos = -1, first_field_pos = -1, field_count = -1;
+    int parse_flags = 0, expire_time_pos = -1, first_field_pos = -1, num_fields = -1;
     long long expire_time = 0;
     int64_t oldlen = 0, newlen = -1;
     HashTypeSetEx setex;
@@ -2778,14 +2778,14 @@ void hgetexCommand(client *c) {
         return;
 
     /* Parse arguments using flexible parser */
-    if (parseHashFieldExpireArgs(c, &parse_flags, &expire_time, &expire_time_pos, &first_field_pos, &field_count, HASH_CMD_HGETEX) != C_OK)
+    if (parseHashFieldExpireArgs(c, &parse_flags, &expire_time, &expire_time_pos, &first_field_pos, &num_fields, HASH_CMD_HGETEX) != C_OK)
         return;
 
     /* Non-existing keys and empty hashes are the same thing. Reply null if the
      * key does not exist.*/
     if (!o) {
-        addReplyArrayLen(c, field_count);
-        for (int i = 0; i < field_count; i++)
+        addReplyArrayLen(c, num_fields);
+        for (int i = 0; i < num_fields; i++)
             addReplyNull(c);
         return;
     }
@@ -2796,8 +2796,8 @@ void hgetexCommand(client *c) {
     if (parse_flags)
         hashTypeSetExInit(c->argv[1], o, c, c->db, 0, &setex);
 
-    addReplyArrayLen(c, field_count);
-    for (int i = first_field_pos; i < first_field_pos + field_count; i++) {
+    addReplyArrayLen(c, num_fields);
+    for (int i = first_field_pos; i < first_field_pos + num_fields; i++) {
         sds field = c->argv[i]->ptr;
         int res = addHashFieldToReply(c, o, field,
                           HFE_LAZY_NO_NOTIFICATION |
@@ -2851,7 +2851,7 @@ void hgetexCommand(client *c) {
         if (parse_flags & HFE_PERSIST) {
             notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
             /* Build canonical HPERSIST command: HPERSIST key FIELDS numfields field1 field2 ... */
-            canonical_argc = 4 + field_count;
+            canonical_argc = 4 + num_fields;
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
             canonical_argv[idx++] = shared.hpersist;
             incrRefCount(shared.hpersist);
@@ -2860,7 +2860,7 @@ void hgetexCommand(client *c) {
         } else {
             notifyKeyspaceEvent(NOTIFY_HASH, "hexpire", c->argv[1], c->db->id);
             /* Build canonical HPEXPIREAT command: HPEXPIREAT key timestamp FIELDS numfields field1 field2 ... */
-            canonical_argc = 5 + field_count;
+            canonical_argc = 5 + num_fields;
             canonical_argv = zmalloc(sizeof(robj*) * canonical_argc);
             canonical_argv[idx++] = shared.hpexpireat;
             incrRefCount(shared.hpexpireat);
@@ -2871,8 +2871,8 @@ void hgetexCommand(client *c) {
 
         canonical_argv[idx++] = shared.fields;
         incrRefCount(shared.fields);
-        canonical_argv[idx++] = createStringObjectFromLongLong(field_count);
-        for (int i = 0; i < field_count; i++) {
+        canonical_argv[idx++] = createStringObjectFromLongLong(num_fields);
+        for (int i = 0; i < num_fields; i++) {
             canonical_argv[idx++] = c->argv[first_field_pos + i];
             incrRefCount(c->argv[first_field_pos + i]);
         }
@@ -3574,6 +3574,8 @@ typedef struct {
     int expireCondition;    /* HFE_NX, HFE_XX, HFE_GT, HFE_LT */
 } HashCommandArgs;
 
+
+
 /* Parser for HEXPIRE family commands with flexible keyword ordering.
  * Returns C_OK on success, C_ERR on error (with reply sent). */
 static int parseHashCommandArgs(client *c, HashCommandArgs *args,
@@ -3581,9 +3583,14 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
 {
     memset(args, 0, sizeof(*args));
     args->fieldsPos = -1;
-    args->expireTimePos = -1;
+    args->expireTimePos = 2;
 
-    for (int i = 2; i < c->argc; i++) {
+    if (parseExpireTime(c, c->argv[2], unit, basetime, &args->expireTime) != C_OK) {
+        return C_ERR;
+    }
+
+    /* Parse remaining arguments starting from position 3 */
+    for (int i = 3; i < c->argc; i++) {
         char *arg = c->argv[i]->ptr;
 
         /* FIELDS keyword - supported by ALL hash field commands */
@@ -3600,9 +3607,8 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
 
             args->fieldsPos = i;
             args->numFieldsPos = i + 1;
-
             long numFields;
-            if (getRangeLongFromObjectOrReply(c, c->argv[args->numFieldsPos], 1, LONG_MAX,
+            if (getRangeLongFromObjectOrReply(c, c->argv[args->numFieldsPos], 1, INT_MAX,
                                               &numFields, "Parameter `numFields` should be greater than 0") != C_OK)
                 return C_ERR;
 
@@ -3634,20 +3640,7 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
             continue;
         }
 
-        if (args->expireTimePos == -1) {
-            if (parseExpireTime(c, c->argv[i], unit, basetime, &args->expireTime) == C_OK) {
-                args->expireTimePos = i;
-                continue;
-            }
-            return C_ERR;
-        }
-
         addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-        return C_ERR;
-    }
-
-    if (args->expireTimePos == -1) {
-        addReplyError(c, "Expire time argument is required");
         return C_ERR;
     }
 
@@ -3815,14 +3808,14 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
  *   not met, then command will be rejected. Otherwise, EXPIRE command will be
  *   propagated for given key.
  */
-static void hexpireGenericCommand(client *c, long long basetime, int unit)
-{
+static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     HashCommandArgs args;
     int fieldsNotSet = 0, updated = 0, deleted = 0;
     int64_t oldlen, newlen;
     robj *keyArg = c->argv[1];
     size_t oldsize = 0;
 
+    /* Read the hash object */
     kvobj *hashObj = lookupKeyWrite(c->db, keyArg);
     if (checkType(c, hashObj, OBJ_HASH))
         return;
@@ -3906,7 +3899,7 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit)
     }
 
     /* Handle propagation using command rewriting
-       Rewrite to canonical HPEXPIREAT command */
+     * Rewrite to canonical HPEXPIREAT command */
     if (c->cmd->proc != hpexpireatCommand) {
         rewriteClientCommandArgument(c, 0, shared.hpexpireat);
 
@@ -3996,7 +3989,7 @@ void hpersistCommand(client *c) {
     }
 
     /* Non-existing keys and empty hashes are the same thing. It also means
-       fields in the command don't exist in the hash key. */
+     * fields in the command don't exist in the hash key. */
     if (!hashObj) {
         addReplyArrayLen(c, numFields);
         for (int i = 0; i < numFields; i++) {
