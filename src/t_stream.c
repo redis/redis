@@ -2005,6 +2005,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
      * the history of messages delivered to it and not yet confirmed
      * as delivered. */
     if (group && (flags & STREAM_RWR_HISTORY)) {
+        if (spi && consumer) {
+            decrRefCount(delivery_time);
+            decrRefCount(consumername);
+            decrRefCount(group_last_id);
+        }
         return streamReplyWithRangeFromConsumerPEL(c,s,start,end,count,
                                                    group, consumer);
     }
@@ -2012,6 +2017,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     /* Stop here if client only wants claimed entries or count is satisfied. */
     if ((group && (flags & STREAM_RWR_CLAIMED)) || (count && count == arraylen)) {
         if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
+        if (spi && consumer) {
+            decrRefCount(delivery_time);
+            decrRefCount(consumername);
+            decrRefCount(group_last_id);
+        }
         return arraylen;
     }
 
