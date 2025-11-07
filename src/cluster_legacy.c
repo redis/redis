@@ -6506,6 +6506,9 @@ const char **clusterCommandExtendedHelp(void) {
         "LINKS",
         "    Return information about all network links between this node and its peers.",
         "    Output format is an array where each array element is a map containing attributes of a link",
+        "MIGRATION IMPORT <start-slot end-slot [start-slot end-slot ...]> |",
+        "          STATUS [ID <task-id> | ALL] | CANCEL [ID <task-id> | ALL]",
+        "    Start, monitor and cancel slot migration.",
         NULL
     };
 
