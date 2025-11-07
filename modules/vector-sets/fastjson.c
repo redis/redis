@@ -31,12 +31,18 @@
  *
  * The only API expr.c uses directly is:
  *
- * exprtoken *jsonExtractField(const char *json, size_t json_len,
- * const char *field, size_t field_len);
+ * int jsonExtractField(const char *json, size_t json_len,
+ *                      const char *field, size_t field_len,
+ *                      exprtoken **out);
  * ------------------------------------------------------------------ */
 
 #include <ctype.h>
 #include <string.h>
+
+// Return codes for jsonExtractField
+#define JSON_FIELD_STATUS_OK          0
+#define JSON_FIELD_STATUS_MISSING     1
+#define JSON_FIELD_STATUS_UNSUPPORTED 2
 
 // Forward declarations.
 static int jsonSkipValue(const char **p, const char *end);
@@ -428,14 +434,22 @@ static const char *jsonSeekField(const char *json, const char *end,
 
 /* This is the only real API that this file conceptually exports (it is
  * inlined, actually). */
-exprtoken *jsonExtractField(const char *json, size_t json_len,
-                            const char *field, size_t field_len)
+int jsonExtractField(const char *json, size_t json_len,
+                     const char *field, size_t field_len,
+                     exprtoken **out)
 {
     const char *end = json + json_len;
     const char *valptr = jsonSeekField(json,end,field,field_len);
-    if (!valptr) return NULL;
-
-    /* Key found, valptr points to the start of the value.
-     * Convert it into an expression token object. */
-    return jsonParseValueToken(&valptr,end);
+    if (!valptr) {
+        *out = NULL;
+        return JSON_FIELD_STATUS_MISSING;
+    }
+    const char *tmp = valptr;
+    exprtoken *t = jsonParseValueToken(&tmp,end);
+    if (!t) {
+        *out = NULL;
+        return JSON_FIELD_STATUS_UNSUPPORTED;
+    }
+    *out = t;
+    return JSON_FIELD_STATUS_OK;
 }
