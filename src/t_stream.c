@@ -1720,7 +1720,7 @@ long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
 /* Copy-free version of streamPropagateXCLAIM that expects pre-created robj* arguments.
  * This is useful when propagating multiple XCLAIMs in a loop to avoid repeated
  * object creation/destruction overhead. */
-static __always_inline void streamPropagateXCLAIMCopyFree(int dbid, robj *key, robj *group_last_id, robj *groupname, robj *id, robj *consumername, robj *delivery_time, robj *delivery_count) {
+static inline void streamPropagateXCLAIMCopyFree(int dbid, robj *key, robj *group_last_id, robj *groupname, robj *id, robj *consumername, robj *delivery_time, robj *delivery_count) {
     /* We need to generate an XCLAIM that will work in a idempotent fashion:
      *
      * XCLAIM <key> <group> <consumer> 0 <id> TIME <milliseconds-unix-time>
