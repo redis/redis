@@ -2060,7 +2060,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * the ID, the second is an array of field-value pairs. */
             addReplyArrayLen(c,2);
         }
-        addReplyStreamID(c,&id);
+        robj *idarg = createObjectFromStreamID(&id);
+        addReplyBulk(c,idarg);
         addReplyArrayLen(c,numfields*2);
 
         /* Emit the field-value pairs. */
@@ -2131,15 +2132,13 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
             /* Propagate as XCLAIM. */
             if (spi) {
-                robj *idarg = createObjectFromStreamID(&id);
                 robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
                 streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
-                decrRefCount(idarg);
                 decrRefCount(delivery_count);
                 if (propCount) (*propCount)++;
             }
         }
-
+        decrRefCount(idarg);
         arraylen++;
         if (count && count == arraylen) break;
     }
