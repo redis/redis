@@ -2115,7 +2115,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
-                nack->delivery_time = commandTimeSnapshot();
+                nack->delivery_time = cmd_time_snapshot;
                 nack->delivery_count = 1;
                 /* Add the entry in the new consumer local PEL. */
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
@@ -2128,7 +2128,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             /* We have new NACK or updated existing one. */
             raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &id);
 
-            consumer->active_time = commandTimeSnapshot();
+            consumer->active_time = cmd_time_snapshot;
 
             /* Propagate as XCLAIM. */
             if (spi) {
