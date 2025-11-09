@@ -186,6 +186,7 @@ typedef struct clusterManagerCommand {
     int pipeline;
     float threshold;
     char *backup_dir;
+    int backup_dir_fd;
     char *from_user;
     char *from_pass;
     int from_askpass;
@@ -4115,11 +4116,8 @@ static clusterManagerNode *clusterManagerNewNode(char *ip, int port, int bus_por
 
 static sds clusterManagerGetNodeRDBFilename(clusterManagerNode *node) {
     assert(config.cluster_manager_command.backup_dir);
-    sds filename = sdsnew(config.cluster_manager_command.backup_dir);
-    if (filename[sdslen(filename) - 1] != '/')
-        filename = sdscat(filename, "/");
-    filename = sdscatprintf(filename, "redis-node-%s-%d-%s.rdb", node->ip,
-                            node->port, node->name);
+    sds filename = sdscatprintf(sdsempty(), "redis-node-%s-%d-%s.rdb",
+                                node->ip, node->port, node->name);
     return filename;
 }
 
@@ -8195,8 +8193,20 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     int no_issues = clusterManagerCheckCluster(0);
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
+    /* Open directory fd to prevent TOCTOU race conditions.
+     * Write permission will be verified when we actually create files. */
+    int backup_fd = open(argv[1], O_RDONLY | O_DIRECTORY);
+    if (backup_fd == -1) {
+        if (errno == ENOTDIR) {
+            clusterManagerLogErr("Backup path '%s' is not a directory\n", argv[1]);
+        } else {
+            clusterManagerLogErr("Cannot open backup directory '%s': %s\n",
+                                 argv[1], strerror(errno));
+        }
+        goto invalid_args;
+    }
     config.cluster_manager_command.backup_dir = argv[1];
-    /* TODO: check if backup_dir is a valid directory. */
+    config.cluster_manager_command.backup_dir_fd = backup_fd;
     sds json = sdsnew("[\n");
     int first_node = 0;
     listIter li;
@@ -8217,23 +8227,31 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         getRDB(node);
     }
     json = sdscat(json, "\n]");
-    sds jsonpath = sdsnew(config.cluster_manager_command.backup_dir);
-    if (jsonpath[sdslen(jsonpath) - 1] != '/')
-        jsonpath = sdscat(jsonpath, "/");
-    jsonpath = sdscat(jsonpath, "nodes.json");
     fflush(stdout);
-    clusterManagerLogInfo("Saving cluster configuration to: %s\n", jsonpath);
-    FILE *out = fopen(jsonpath, "w+");
+    clusterManagerLogInfo("Saving cluster configuration to: %s/nodes.json\n",
+                          config.cluster_manager_command.backup_dir);
+    int json_fd = openat(config.cluster_manager_command.backup_dir_fd,
+                         "nodes.json", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (json_fd == -1) {
+        clusterManagerLogErr("Could not create nodes.json: %s\n", strerror(errno));
+        success = 0;
+        goto cleanup;
+    }
+    FILE *out = fdopen(json_fd, "w");
     if (!out) {
-        clusterManagerLogErr("Could not save nodes to: %s\n", jsonpath);
+        clusterManagerLogErr("Could not fdopen nodes.json: %s\n", strerror(errno));
+        close(json_fd);
         success = 0;
         goto cleanup;
     }
     fputs(json, out);
-    fclose(out);
+    fclose(out);  /* This also closes json_fd. */
 cleanup:
     sdsfree(json);
-    sdsfree(jsonpath);
+    if (config.cluster_manager_command.backup_dir_fd >= 0) {
+        close(config.cluster_manager_command.backup_dir_fd);
+        config.cluster_manager_command.backup_dir_fd = -1;
+    }
     if (success) {
         if (!no_issues) {
             clusterManagerLogWarn("*** Cluster seems to have some problems, "
@@ -8758,7 +8776,14 @@ static void getRDB(clusterManagerNode *node) {
     if (write_to_stdout) {
         fd = STDOUT_FILENO;
     } else {
-        fd = open(filename, O_CREAT|O_WRONLY, 0644);
+        if (node != NULL) {
+            /* Cluster backup mode: use openat() with backup_dir_fd. */
+            fd = openat(config.cluster_manager_command.backup_dir_fd,
+                       filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
+        } else {
+            /* Regular RDB mode: use open() with full path. */
+            fd = open(filename, O_CREAT|O_WRONLY|O_TRUNC, 0644);
+        }
         if (fd == -1) {
             fprintf(stderr, "Error opening '%s': %s\n", filename,
                 strerror(errno));
@@ -8810,7 +8835,7 @@ static void getRDB(clusterManagerNode *node) {
         fprintf(stderr,"Fail to fsync '%s': %s\n", filename, strerror(errno));
         exit(1);
     }
-    close(fd);
+    if (!write_to_stdout) close(fd);
     if (node) {
         sdsfree(filename);
         return;
@@ -10674,6 +10699,7 @@ int main(int argc, char **argv) {
     config.cluster_manager_command.threshold =
         CLUSTER_MANAGER_REBALANCE_THRESHOLD;
     config.cluster_manager_command.backup_dir = NULL;
+    config.cluster_manager_command.backup_dir_fd = -1;
     pref.hints = 1;
 
     spectrum_palette = spectrum_palette_color;
