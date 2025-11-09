@@ -278,15 +278,21 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
             }
         }
 
-        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
-            server.stat_keyspace_hits++;
-        /* TODO: Use separate hits stats for WRITE */
+        if (!(flags & LOOKUP_NOSTATS)) {
+            if (flags & LOOKUP_WRITE)
+                server.stat_keyspace_write_hits++;
+            else
+                server.stat_keyspace_hits++;
+        }
     } else {
         if (!(flags & (LOOKUP_NONOTIFY | LOOKUP_WRITE)))
             notifyKeyspaceEvent(NOTIFY_KEY_MISS, "keymiss", key, db->id);
-        if (!(flags & (LOOKUP_NOSTATS | LOOKUP_WRITE)))
-            server.stat_keyspace_misses++;
-        /* TODO: Use separate misses stats and notify event for WRITE */
+        if (!(flags & LOOKUP_NOSTATS)) {
+            if (flags & LOOKUP_WRITE)
+                server.stat_keyspace_write_misses++;
+            else
+                server.stat_keyspace_misses++;
+        }
     }
 
     return val;
