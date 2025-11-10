@@ -162,11 +162,11 @@
                                         },
                                         {
                                             "description": "Milliseconds elapsed since last delivery",
-                                            "type": "string"
+                                            "type": "integer"
                                         },
                                         {
                                             "description": "Delivery count (0 for new messages, 1+ for claimed messages)",
-                                            "type": "string"
+                                            "type": "integer"
                                         }
                                     ]
                                 }
