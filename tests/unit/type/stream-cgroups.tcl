@@ -1924,11 +1924,11 @@ start_server {
             # Field 4: Idle time - should be integer type (:)
             set idle_time_type [r read]
             assert_match {:*} $idle_time_type "Expected idle time to be integer type (:), got: $idle_time_type"
+            
+            # Restore connection state
+            r readraw 0
+            r deferred 0
         }
-
-        # Restore connection state
-        r readraw 0
-        r deferred 0
 
         test "XREADGROUP CLAIM returns unacknowledged messages" {
             r DEL mystream
