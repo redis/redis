@@ -296,7 +296,7 @@ start_server {tags {"external:skip needs:debug"}} {
         test "HPEXPIRETIME persists after RDB reload ($type)" {
             r del myhash
             r hset myhash field1 value1 field2 value2
-            r hpexpire myhash 100 NX FIELDS 1 field1
+            r hpexpire myhash 150 NX FIELDS 1 field1
             set before [r HPEXPIRETIME myhash FIELDS 1 field1]
             r debug reload
             set after [r HPEXPIRETIME myhash FIELDS 1 field1]
