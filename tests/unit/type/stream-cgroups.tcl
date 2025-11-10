@@ -1880,6 +1880,9 @@ start_server {
     
     start_server {} {
         test "XREADGROUP CLAIM field types are correct" {
+            # This test checks raw RESP2 protocol format
+            r hello 2
+            
             r DEL mystream
             r XADD mystream 1-0 f v1
             r XGROUP CREATE mystream group1 0
@@ -1921,8 +1924,12 @@ start_server {
             assert_match {:*} $idle_time_type "Expected idle time to be integer type (:), got: $idle_time_type"
         }
 
+        # Restore connection state
         r readraw 0
         r deferred 0
+        if {$::force_resp3} {
+            r hello 3
+        }
 
         test "XREADGROUP CLAIM returns unacknowledged messages" {
             r DEL mystream
