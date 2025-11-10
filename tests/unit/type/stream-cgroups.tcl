@@ -1880,8 +1880,10 @@ start_server {
     
     start_server {} {
         test "XREADGROUP CLAIM field types are correct" {
-            # This test checks raw RESP2 protocol format
-            r hello 2
+            # This test checks raw RESP2 protocol format, skip in RESP3 mode
+            if {$::force_resp3} {
+                return
+            }
             
             r DEL mystream
             r XADD mystream 1-0 f v1
@@ -1927,9 +1929,6 @@ start_server {
         # Restore connection state
         r readraw 0
         r deferred 0
-        if {$::force_resp3} {
-            r hello 3
-        }
 
         test "XREADGROUP CLAIM returns unacknowledged messages" {
             r DEL mystream
