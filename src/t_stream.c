@@ -1969,8 +1969,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 }
 
                 uint64_t idle = cmd_time_snapshot - pelKey->delivery_time;
-                addReplyBulkLongLong(c, idle);
-                addReplyBulkLongLong(c, delivery_count);
+                addReplyLongLong(c, idle);
+                addReplyLongLong(c, delivery_count);
 
                 /* Remove the NACK from old consumer and time-based PEL. */
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
@@ -2075,8 +2075,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
         if (min_idle_time != -1) {
             /* For new entries idle time and delivery count is 0. */
-            addReplyBulkLongLong(c, 0);
-            addReplyBulkLongLong(c, 0);
+            addReplyLongLong(c, 0);
+            addReplyLongLong(c, 0);
         }
 
         /* If a group is passed, we need to create an entry in the
