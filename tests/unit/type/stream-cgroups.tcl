@@ -1894,47 +1894,35 @@ start_server {
             r readraw 1
             r deferred 1
             
-            # Use try-finally to ensure state is always restored
-            set test_error ""
-            if {[catch {
-                r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >
+            r XREADGROUP GROUP group1 consumer2 CLAIM 50 STREAMS mystream >
 
-                # Check the response format line by line
-                # Response structure: *1 (outer array) -> *2 (stream name + messages array)
-                assert_equal [r read] {*1}       ;# Outer array (1 stream)
-                assert_equal [r read] {*2}       ;# Stream data (2 elements: stream name + messages)
-                assert_equal [r read] {$8}       ;# Stream name length
-                assert_equal [r read] {mystream} ;# Stream name
-                assert_equal [r read] {*1}       ;# Messages array (1 message)
-                assert_equal [r read] {*4}       ;# Message with 4 fields
-                assert_equal [r read] {$3}       ;# Field 1: Message ID length
-                assert_equal [r read] {1-0}      ;# Field 1: Message ID value
-                assert_equal [r read] {*2}       ;# Field 2: Field-value pairs array
-                assert_equal [r read] {$1}       ;# Field-value pair: key length
-                assert_equal [r read] {f}        ;# Field-value pair: key
-                assert_equal [r read] {$2}       ;# Field-value pair: value length
-                assert_equal [r read] {v1}       ;# Field-value pair: value
-                
-                # Field 3: Delivery count - should be integer type (:)
-                set delivery_count_type [r read]
-                assert_match {:*} $delivery_count_type "Expected delivery count to be integer type (:), got: $delivery_count_type"
-                
-                # Field 4: Idle time - should be integer type (:)
-                set idle_time_type [r read]
-                assert_match {:*} $idle_time_type "Expected idle time to be integer type (:), got: $idle_time_type"
-            } err]} {
-                set test_error $err
-            }
-
-            # Always restore state, even if test failed
-            r readraw 0
-            r deferred 0
+            # Check the response format line by line
+            # Response structure: *1 (outer array) -> *2 (stream name + messages array)
+            assert_equal [r read] {*1}       ;# Outer array (1 stream)
+            assert_equal [r read] {*2}       ;# Stream data (2 elements: stream name + messages)
+            assert_equal [r read] {$8}       ;# Stream name length
+            assert_equal [r read] {mystream} ;# Stream name
+            assert_equal [r read] {*1}       ;# Messages array (1 message)
+            assert_equal [r read] {*4}       ;# Message with 4 fields
+            assert_equal [r read] {$3}       ;# Field 1: Message ID length
+            assert_equal [r read] {1-0}      ;# Field 1: Message ID value
+            assert_equal [r read] {*2}       ;# Field 2: Field-value pairs array
+            assert_equal [r read] {$1}       ;# Field-value pair: key length
+            assert_equal [r read] {f}        ;# Field-value pair: key
+            assert_equal [r read] {$2}       ;# Field-value pair: value length
+            assert_equal [r read] {v1}       ;# Field-value pair: value
             
-            # Re-throw the error if there was one
-            if {$test_error ne ""} {
-                error $test_error
-            }
+            # Field 3: Delivery count - should be integer type (:)
+            set delivery_count_type [r read]
+            assert_match {:*} $delivery_count_type "Expected delivery count to be integer type (:), got: $delivery_count_type"
+            
+            # Field 4: Idle time - should be integer type (:)
+            set idle_time_type [r read]
+            assert_match {:*} $idle_time_type "Expected idle time to be integer type (:), got: $idle_time_type"
         }
+
+        r readraw 0
+        r deferred 0
 
         test "XREADGROUP CLAIM returns unacknowledged messages" {
             r DEL mystream
