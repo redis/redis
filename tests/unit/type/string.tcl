@@ -1088,8 +1088,8 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
 
     test {DELEX wrong number of arguments} {
         r del key1
-        assert_equal 0 [r delex key1 IFEQ]
-
+        assert_error "*wrong number of arguments*" {r delex key1 IFEQ}
+   
         r set key1 x
         assert_error "*wrong number of arguments*" {r delex key1 IFEQ}
         assert_error "*wrong number of arguments*" {r delex key1 IFEQ value1 extra}
