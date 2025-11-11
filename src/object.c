@@ -602,10 +602,10 @@ void decrRefCount(robj *o) {
     if (--(o->refcount) == 0) {
         void *alloc = o;
         
-        /* kvobj has metadata before the object */ 
-        if (o->iskvobj) {
+         if (o->iskvobj) {
             /* eval real allocation pointer */
             alloc = kvobjGetAllocPtr(o);
+            /* if kvobj has metadata attached. */
             if (getModuleMetaBits(o->metabits))
                 keyMetaOnFree((kvobj *)o);
         }

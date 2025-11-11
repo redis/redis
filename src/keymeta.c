@@ -345,10 +345,10 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *metaname,
 
 /* Destroy (release) a class by its ID. Returns 1 on success, 0 on failure. */
 int keyMetaClassRelease(KeyMetaClassId id) {
-    if (!(id >= KEY_META_ID_MODULE_FIRST && id <= KEY_META_ID_MODULE_LAST)) 
+    if (!(id >= KEY_META_ID_MODULE_FIRST && id <= KEY_META_ID_MODULE_LAST))
         return 0;
-    
-    if (keyMetaClass[id].state != CLASS_STATE_INUSE) 
+
+    if (keyMetaClass[id].state != CLASS_STATE_INUSE)
         return 0;
 
     keyMetaClass[id].state = CLASS_STATE_RELEASED;

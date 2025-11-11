@@ -4347,7 +4347,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *
  *         RedisModuleKeyMetaClassConfig config = {
  *             .version = REDISMODULE_KEY_META_VERSION,
- *             .flags = REDISMODULE_META_ALLOW_IGNORE,
+ *             .flags = 0,
  *             .reset_value = 0,
  *             .copy = myMeta_CopyCallback,
  *             .rename = myMeta_RenameCallback,
@@ -4372,7 +4372,8 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *   will fail if metadata is encountered but cannot be loaded.
  *
  * * **reset_value**: The value to which metadata should be reset when it is being
- *   "removed" from a key. Typically 0, but can be any 8-byte value.
+ *   "removed" from a key. Typically 0, but can be any 8-byte value. This is 
+ *   especially relevant when metadata is a pointer/handler to external resources.
  *
  * * **copy**: A callback function pointer for COPY command (optional).
  *   - Return 1 to attach `meta` to the new key, or 0 to skip attaching metadata.
