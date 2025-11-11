@@ -3895,6 +3895,7 @@ int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);

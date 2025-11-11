@@ -1278,23 +1278,9 @@ void delexCommand(client *c) {
     kvobj *o;
     int deleted = 0, should_delete = 0;
 
-    robj *key = c->argv[1];
-    o = lookupKeyRead(c->db, key);
-    if (o == NULL) {
-        addReplyLongLong(c, 0);
-        return;
-    }
-
     /* If there are no conditions specified we just delete the key */
     if (c->argc == 2) {
         delGenericCommand(c, server.lazyfree_lazy_server_del);
-        return;
-    }
-
-    /* If any conditions are specified the only supported key type for now is
-     * string */
-    if (o->type != OBJ_STRING) {
-        addReplyError(c, "Key should be of string type if conditions are specified");
         return;
     }
 
@@ -1302,6 +1288,20 @@ void delexCommand(client *c) {
      * match-value */
     if (c->argc != 4) {
         addReplyErrorArity(c);
+        return;
+    }
+
+    robj *key = c->argv[1];
+    o = lookupKeyRead(c->db, key);
+    if (o == NULL) {
+        addReplyLongLong(c, 0);
+        return;
+    }
+
+    /* If any conditions are specified the only supported key type for now is
+     * string */
+    if (o->type != OBJ_STRING) {
+        addReplyError(c, "Key should be of string type if conditions are specified");
         return;
     }
 
@@ -3607,7 +3607,7 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 }
 
 /* Helper function to extract keys from the SET command, which may have
- * a read flag if the GET argument is passed in. */
+ * an RW flag if the GET, IF* arguments are present, OW otherwise. */
 int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;
     UNUSED(cmd);
@@ -3615,6 +3615,8 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
     keys = getKeysPrepareResult(result, 1);
     keys[0].pos = 1; /* We always know the position */
     result->numkeys = 1;
+    int actual = CMD_KEY_OW;
+    int logical = CMD_KEY_UPDATE;
 
     for (int i = 3; i < argc; i++) {
         char *arg = argv[i]->ptr;
@@ -3622,12 +3624,43 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
             (arg[1] == 'e' || arg[1] == 'E') &&
             (arg[2] == 't' || arg[2] == 'T') && arg[3] == '\0')
         {
-            keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
-            return 1;
+            actual = CMD_KEY_RW;
+            logical |= CMD_KEY_ACCESS;
+        } else if (!strcasecmp(arg, "ifeq") || !strcasecmp(arg, "ifne") ||
+                   !strcasecmp(arg, "ifdeq") || !strcasecmp(arg, "ifdne"))
+        {
+            actual = CMD_KEY_RW;
         }
     }
 
-    keys[0].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
+    keys[0].flags = actual | logical;
+
+    return 1;
+}
+
+/* Helper function to extract keys from the DELEX command, which may have
+ * an RW flag if the IF* arguments are present, RM otherwise. */
+int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    keyReference *keys;
+    UNUSED(cmd);
+
+    keys = getKeysPrepareResult(result, 1);
+    keys[0].pos = 1; /* We always know the position */
+    result->numkeys = 1;
+    int actual = CMD_KEY_RM;
+    int logical = CMD_KEY_DELETE;
+
+    for (int i = 2; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        if (!strcasecmp(arg, "ifeq") || !strcasecmp(arg, "ifne") ||
+            !strcasecmp(arg, "ifdeq") || !strcasecmp(arg, "ifdne"))
+        {
+            actual = CMD_KEY_RW;
+        }
+    }
+
+    keys[0].flags = actual | logical;
+
     return 1;
 }
 
