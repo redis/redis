@@ -1342,11 +1342,8 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # start migration from #0 to #1
         set task_id [setup_slot_migration_with_delay 0 1 0 100]
 
-        # Create some traffic on slot 0, so the destination node will enter streaming buffer state
+        # Create 200 keys of 16k size traffic on slot 0, streaming buffer need 10s (200*50ms)
         populate_slot 200 -idx 0 -slot 0 -size 16384
-
-        # Start the slot 0 write load on the R 0
-        set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 [slot_key 0 mykey] 500]
 
         # wait for streaming buffer state, then pause the destination node
         wait_for_condition 1000 20 {
@@ -1355,6 +1352,9 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             fail "ASM task did not stream buffer, state: [migration_status 1 $task_id state]"
         }
         pause_process $r1_pid
+
+        # Start the slot 0 write load on the R 0
+        set load_handle [start_write_load "127.0.0.1" [get_port 0] 100 [slot_key 0 mykey] 500]
 
         # the source node will fail after several seconds (including the time
         # to fill the socket buffer of source node), the main channel can not
