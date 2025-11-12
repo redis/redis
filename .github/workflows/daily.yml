@@ -900,7 +900,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX
           gmake
           if echo "${{github.event.inputs.skiptests}}" | grep -vq redis ; then ./runtest --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi
           if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then ./runtest-moduleapi --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi
@@ -932,7 +932,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX
           gmake
           if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi
 
@@ -963,7 +963,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX
           gmake
           if echo "${{github.event.inputs.skiptests}}" | grep -vq cluster ; then ./runtest-cluster ${{github.event.inputs.cluster_test_args}} ; fi
 
