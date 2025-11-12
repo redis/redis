@@ -9379,6 +9379,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  *
  * * CLUSTER_MODULE_FLAG_NO_FAILOVER
  * * CLUSTER_MODULE_FLAG_NO_REDIRECTION
+ * * CLUSTER_MODULE_FLAG_NO_TRIM
  *
  * With the following effects:
  *
