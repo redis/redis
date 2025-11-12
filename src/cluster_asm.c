@@ -2939,15 +2939,22 @@ void asmTrimJobProcessPending(void) {
 
     /* Determine if we can start the trim job:
      * - require client writes not paused (so key deletions are allowed)
-     * - require replicas not paused (so TRIMSLOTS can be propagated). */
+     * - require replicas not paused (so TRIMSLOTS can be propagated).
+     * - require trim is not disabled via RM_SetClusterFlags().
+     */
     static int logged = 0;
+    int disabled_by_module = server.cluster_module_flags & REDISMODULE_CLUSTER_FLAG_NO_TRIM;
+
     if (isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
-        isPausedActions(PAUSE_ACTION_REPLICA))
+        isPausedActions(PAUSE_ACTION_REPLICA) ||
+        disabled_by_module)
     {
         if (logged == 0) {
             logged = 1;
-            serverLog(LL_NOTICE, "Trim job will start after the write pause is lifted.");
+            const char *reason = disabled_by_module ? "trim is disabled by module" :
+                                                      "pause action is in effect";
+            serverLog(LL_NOTICE, "Trim job is deferred since %s.", reason);
         }
         return;
     }
@@ -3325,18 +3332,23 @@ void asmActiveTrimCycle(void) {
         return;
     }
 
-    /* Verify client pause is not in effect so we can delete keys. */
+    /* Verify client pause is not in effect and trim is not disabled by module,
+     * so we can delete keys. */
     static int blocked = 0;
+    int disabled_by_module = server.cluster_module_flags & REDISMODULE_CLUSTER_FLAG_NO_TRIM;
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
-        isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
+        isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
+        disabled_by_module)
     {
         if (blocked == 0)  {
             blocked = 1;
-            serverLog(LL_NOTICE, "Active trim cycle will continue after the write pause is lifted.");
+            const char *reason = disabled_by_module ? "trim is disabled by module" :
+                                                       "pause action is in effect";
+            serverLog(LL_NOTICE, "Active trim cycle is blocked since %s.", reason);
         }
         return;
     }
-    if (blocked) serverLog(LL_NOTICE, "Active trim cycle is resumed after the write pause is lifted.");
+    if (blocked) serverLog(LL_NOTICE, "Active trim cycle is unblocked.");
     blocked = 0;
 
     /* This works in a similar way to activeExpireCycle, in the sense that
@@ -3393,28 +3405,10 @@ void asmActiveTrimCycle(void) {
     }
 }
 
-/* Trim a specific key if trimming is pending or in progress for its slot.
- * Return 1 if the key was trimmed */
-int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv) {
-    /* Check if trimming is in progress. */
-    if (server.allow_access_trimmed ||
-        !asmIsTrimInProgress())
-    {
+/* Check if the key in a trim job. */
+int asmIsKeyInTrimJob(sds keyname) {
+    if (!asmIsTrimInProgress() || !isSlotInTrimJob(getKeySlot(keyname)))
         return 0;
-    }
-
-    /* Check if the slot is in a trim job. */
-    sds keyname = key ? key->ptr : kvobjGetKey(kv);
-    if (!isSlotInTrimJob(getKeySlot(keyname)))
-        return 0;
-
-    if (key) {
-        asmActiveTrimDeleteKey(db, key);
-    } else {
-        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
-        asmActiveTrimDeleteKey(db, tmpkey);
-        decrRefCount(tmpkey);
-    }
     return 1;
 }
 

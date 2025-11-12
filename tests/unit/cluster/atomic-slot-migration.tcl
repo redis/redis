@@ -2789,10 +2789,8 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             fail "migrate failed"
         }
 
-        # Try to read the key from the slot being trimmed. It will lazily trim the key.
-        set num_trimmed [CI 0 cluster_slot_migration_active_trim_current_job_trimmed]
+        # We cannot open the key since it is in a slot being trimmed
         assert_equal {} [R 0 asm.get $key]
-        assert_equal [expr $num_trimmed + 1] [CI 0 cluster_slot_migration_active_trim_current_job_trimmed]
 
         # cleanup
         R 0 debug asm-trim-method default

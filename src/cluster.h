@@ -53,6 +53,7 @@ typedef struct clusterSlotStat {
 #define CLUSTER_MODULE_FLAG_NONE 0
 #define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
 #define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
+#define CLUSTER_MODULE_FLAG_NO_TRIM (1<<3)
 
 /* ---------------------- API exported outside cluster.c -------------------- */
 
