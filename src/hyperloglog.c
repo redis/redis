@@ -30,6 +30,7 @@
 #include <arm_neon.h>
 #endif
 
+#undef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 /* The Redis HyperLogLog implementation is based on the following ideas:
