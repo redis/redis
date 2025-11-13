@@ -927,6 +927,11 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
     return ret;
 }
 
+void *kvstoreEnsureDictMetadata(kvstore *kvs, int didx) {
+    dict *d = createDictIfNeeded(kvs, didx);
+    return dictMetadata(d);
+}
+
 void *kvstoreGetDictMetadata(kvstore *kvs, int didx) {
     dict *d = kvstoreGetDict(kvs, didx);
     if (!d) return NULL;

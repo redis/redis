@@ -2135,7 +2135,6 @@ void resetClusterStats(void) {
 /* This function is called at server startup in order to initialize cluster data
  * structures that are shared between the different cluster implementations. */
 void clusterCommonInit(void) {
-    server.cluster_slot_stats = zmalloc(CLUSTER_SLOTS*sizeof(clusterSlotStat));
     resetClusterStats();
     asmInit();
 }

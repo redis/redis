@@ -852,7 +852,6 @@ struct moduleLoadQueueEntry;
 struct RedisModuleKeyOptCtx;
 struct RedisModuleCommand;
 struct clusterState;
-struct clusterSlotStat;
 struct slotRangeArray;
 
 /* Each module type implementation should export a set of methods in order
@@ -2320,7 +2319,6 @@ struct redisServer {
     long long asm_sync_buffer_drain_timeout; /* Timeout in milliseconds for sync buffer to drain during ASM. */
     int asm_max_archived_tasks; /* Maximum number of archived ASM tasks to keep in memory. */
     struct clusterState *cluster;  /* State of the cluster */
-    struct clusterSlotStat *cluster_slot_stats; /* Struct used for storing slot statistics, for all slots owned by the current shard. */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_allow_replica_migration; /* Automatic replica migrations to orphaned masters and from empty masters */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */

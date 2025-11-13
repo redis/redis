@@ -47,12 +47,13 @@ static int markSlotsAssignedToMyShard(unsigned char *assigned_slots, int start_s
 }
 
 static uint64_t getSlotStat(int slot, slotStatType stat_type) {
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(server.db->keys, slot);
     switch (stat_type) {
     case KEY_COUNT: return countKeysInSlot(slot);
-    case CPU_USEC: return server.cluster_slot_stats[slot].cpu_usec;
-    case MEMORY_BYTES: return dbSlotAllocSize(server.db, slot);
-    case NETWORK_BYTES_IN: return server.cluster_slot_stats[slot].network_bytes_in;
-    case NETWORK_BYTES_OUT: return server.cluster_slot_stats[slot].network_bytes_out;
+    case CPU_USEC: return meta ? meta->cpu_usec : 0;
+    case MEMORY_BYTES: return meta ? meta->alloc_size : 0;
+    case NETWORK_BYTES_IN: return meta ? meta->network_bytes_in : 0;
+    case NETWORK_BYTES_OUT: return meta ? meta->network_bytes_out : 0;
     default: serverPanic("Invalid slot stat type %d was found.", stat_type);
     }
 }
@@ -102,17 +103,18 @@ static void addReplySlotStat(client *c, int slot) {
 
     /* Any additional metrics aside from key-count come with a performance trade-off,
      * and are aggregated and returned based on its server config. */
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(server.db->keys, slot);
     if (server.memory_tracking_per_slot) {
         addReplyBulkCString(c, "memory-bytes");
-        addReplyLongLong(c, dbSlotAllocSize(server.db, slot));
+        addReplyLongLong(c, meta ? meta->alloc_size : 0);
     }
     if (server.cluster_slot_stats_enabled) {
         addReplyBulkCString(c, "cpu-usec");
-        addReplyLongLong(c, server.cluster_slot_stats[slot].cpu_usec);
+        addReplyLongLong(c, meta ? meta->cpu_usec : 0);
         addReplyBulkCString(c, "network-bytes-in");
-        addReplyLongLong(c, server.cluster_slot_stats[slot].network_bytes_in);
+        addReplyLongLong(c, meta ? meta->network_bytes_in : 0);
         addReplyBulkCString(c, "network-bytes-out");
-        addReplyLongLong(c, server.cluster_slot_stats[slot].network_bytes_out);
+        addReplyLongLong(c, meta ? meta->network_bytes_out : 0);
     }
 }
 
@@ -145,7 +147,8 @@ void clusterSlotStatsAddNetworkBytesOutForUserClient(client *c) {
     if (!canAddNetworkBytesOut(c)) return;
 
     serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
-    server.cluster_slot_stats[c->slot].network_bytes_out += c->net_output_bytes_curr_cmd;
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
+    meta->network_bytes_out += c->net_output_bytes_curr_cmd;
 }
 
 /* Accumulates egress bytes upon sending replication stream. This only applies for primary nodes. */
@@ -157,10 +160,11 @@ static void clusterSlotStatsUpdateNetworkBytesOutForReplication(long long len) {
     len *= (long long)listLength(server.slaves);
     serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
     serverAssert(clusterNodeIsMaster(getMyClusterNode()));
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
     /* We sometimes want to adjust the counter downwards (for example when we want to undo accounting for
      * SELECT commands that don't belong to any slot) so let's make sure we don't underflow the counter. */
-    serverAssert(len >= 0 || server.cluster_slot_stats[c->slot].network_bytes_out >= (uint64_t)-len);
-    server.cluster_slot_stats[c->slot].network_bytes_out += len;
+    serverAssert(len >= 0 || meta->network_bytes_out >= (uint64_t)-len);
+    meta->network_bytes_out += len;
 }
 
 /* Increment network bytes out for replication stream. This method will increment `len` value times the active replica
@@ -188,7 +192,8 @@ void clusterSlotStatsAddNetworkBytesOutForShardedPubSubInternalPropagation(clien
     c->slot = slot;
     if (canAddNetworkBytesOut(c)) {
         serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
-        server.cluster_slot_stats[c->slot].network_bytes_out += c->net_output_bytes_curr_cmd;
+        kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
+        meta->network_bytes_out += c->net_output_bytes_curr_cmd;
     }
     /* For sharded pubsub, the client's network bytes metrics must be reset here,
      * as resetClient() is not called until subscription ends. */
@@ -206,12 +211,16 @@ static void addReplyOrderBy(client *c, slotStatType order_by, long limit, int de
 
 /* Resets applicable slot statistics. */
 void clusterSlotStatReset(int slot) {
-    /* key-count is exempt, as it is queried separately through `countKeysInSlot()`. */
-    memset(&server.cluster_slot_stats[slot], 0, sizeof(clusterSlotStat));
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(server.db->keys, slot);
+    if (!meta) return;
+    meta->cpu_usec = 0;
+    meta->network_bytes_in = 0;
+    meta->network_bytes_out = 0;
 }
 
 void clusterSlotStatResetAll(void) {
-    memset(server.cluster_slot_stats, 0, CLUSTER_SLOTS * sizeof(clusterSlotStat));
+    for (int slot = 0; slot < CLUSTER_SLOTS; slot++)
+        clusterSlotStatReset(slot);
 }
 
 /* For cpu-usec accumulation, nested commands within EXEC, EVAL, FCALL are skipped.
@@ -232,7 +241,8 @@ void clusterSlotStatsAddCpuDuration(client *c, ustime_t duration) {
     if (!canAddCpuDuration(c)) return;
 
     serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
-    server.cluster_slot_stats[c->slot].cpu_usec += duration;
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
+    meta->cpu_usec += duration;
 }
 
 /* For cross-slot scripting, its caller client's slot must be invalidated,
@@ -267,7 +277,8 @@ void clusterSlotStatsAddNetworkBytesInForUserClient(client *c) {
         c->net_input_bytes_curr_cmd += 15;
     }
 
-    server.cluster_slot_stats[c->slot].network_bytes_in += c->net_input_bytes_curr_cmd;
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(c->db->keys, c->slot);
+    meta->network_bytes_in += c->net_input_bytes_curr_cmd;
 }
 
 void clusterSlotStatsCommand(client *c) {
