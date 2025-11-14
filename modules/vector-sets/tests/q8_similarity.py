@@ -58,11 +58,14 @@ class Q8Similarity(TestCase):
             results_vec4[key] = score
 
         # Verify extreme value handling
+        # VSIM returns similarity = 1.0 - distance/2.0, so:
+        # - Distance 0 (identical) → similarity 1.0
+        # - Distance 2 (opposite) → similarity 0.0
         assert results_vec4[f'{self.test_key}:extreme:vec4'] > 0.999, \
             f"vec4 self-similarity should be very high, got {results_vec4[f'{self.test_key}:extreme:vec4']}"
-        assert results_vec4[f'{self.test_key}:extreme:vec5'] < -0.99, \
-            f"vec4 vs vec5 (opposite extremes) should be very negative, got {results_vec4[f'{self.test_key}:extreme:vec5']}"
+        assert results_vec4[f'{self.test_key}:extreme:vec5'] < 0.01, \
+            f"vec4 vs vec5 (opposite extremes) should be near 0, got {results_vec4[f'{self.test_key}:extreme:vec5']}"
         
-        # Alternating pattern should result in near-zero similarity (cancellation)
-        assert abs(results_vec4[f'{self.test_key}:extreme:vec6']) < 0.1, \
-            f"vec4 vs vec6 (alternating) should be near zero, got {results_vec4[f'{self.test_key}:extreme:vec6']}"
+        # Alternating pattern should result in mid-range similarity (perpendicular)
+        assert 0.4 < results_vec4[f'{self.test_key}:extreme:vec6'] < 0.6, \
+            f"vec4 vs vec6 (alternating) should be near 0.5, got {results_vec4[f'{self.test_key}:extreme:vec6']}"
