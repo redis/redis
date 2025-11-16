@@ -27,6 +27,11 @@
 
 set testmodule [file normalize tests/modules/test_keymeta.so]
 
+# Helper procedure to convert class ID to 9-byte-id name
+proc cname {cid} {
+    return "XXXXXCID$cid"
+}
+
 # Helper procedure to check if a class should keep metadata for a given operation
 proc shouldKeep {cid operation classesSpec} {
     upvar $classesSpec specs
@@ -42,29 +47,29 @@ proc shouldKeep {cid operation classesSpec} {
 # Helper procedure to setup a key with metadata
 proc setupKeyMeta {keyname numClasses expiryBefore expiryAfter} {
     # Set expiry if requested
-    if {$expiryBefore} { 
+    if {$expiryBefore} {
         r expire $keyname 10000
-        assert_range [r ttl $keyname] 9990 10000 
+        assert_range [r ttl $keyname] 9990 10000
     }
 
     # Set metadata for all classes
     for {set i 1} {$i <= $numClasses} {incr i} {
         # Set twice to verify overwrite behavior
-        r keymeta.set $keyname $i "blabla$i"
-        assert_equal [r keymeta.get $keyname $i] "blabla$i"
-        r keymeta.set $keyname $i "meta$i"
+        r keymeta.set [cname $i] $keyname "blabla$i"
+        assert_equal [r keymeta.get [cname $i] $keyname] "blabla$i"
+        r keymeta.set [cname $i] $keyname "meta$i"
     }
 
     # Verify metadata was set correctly
     for {set i 1} {$i <= $numClasses} {incr i} {
-        assert_equal [r keymeta.get $keyname $i] "meta$i"
+        assert_equal [r keymeta.get [cname $i] $keyname] "meta$i"
     }
-    
-    if {$expiryAfter} { 
+
+    if {$expiryAfter} {
         r expire $keyname 10000
-        assert_range [r ttl $keyname] 9990 10000 
+        assert_range [r ttl $keyname] 9990 10000
     }
-    
+
     if {$expiryBefore} {
         assert_range [r ttl $keyname] 9990 10000
     }
@@ -82,7 +87,7 @@ proc verifyKeyMeta {keyname operation numClasses hasExpiry classesSpec} {
     # Verify metadata based on class spec
     for {set i 1} {$i <= $numClasses} {incr i} {
         set expected [expr {[shouldKeep $i $operation specs] ? "meta$i" : ""}]
-        assert_equal [r keymeta.get $keyname $i] $expected
+        assert_equal [r keymeta.get [cname $i] $keyname] $expected
     }
 }
 
@@ -236,18 +241,18 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
         for {set cid 1} {$cid < 7} {incr cid} {
             set numAlloc 0
             flushallAndVerifyCleanup
-            set dupOnCopy [shouldKeep $cid "copy" classesSpec]             
+            set dupOnCopy [shouldKeep $cid "copy" classesSpec]
             r set k1 "v1"
-            r keymeta.set k1 $cid "meta1"
+            r keymeta.set [cname $cid] k1 "meta1"
             assert_equal [r keymeta.active] [incr numAlloc]
-            r keymeta.set k1 $cid "meta1b"
+            r keymeta.set [cname $cid] k1 "meta1b"
             assert_equal [r keymeta.active] $numAlloc
-            r copy k1 k1copy            
+            r copy k1 k1copy
             assert_equal [r keymeta.active] [incr numAlloc $dupOnCopy]
-            r del k1           
-            assert_equal [r keymeta.active] [incr numAlloc -1]              
+            r del k1
+            assert_equal [r keymeta.active] [incr numAlloc -1]
             r del k1copy
-            assert_equal [r keymeta.active] 0    
+            assert_equal [r keymeta.active] 0
         }
     }
     
@@ -258,32 +263,32 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
             set keepOnRename [shouldKeep $cid "rename" classesSpec]
             set discOnRename [expr {!$keepOnRename}]
             r set k1 "v1"
-            r keymeta.set k1 $cid "meta1"
-            assert_equal [r keymeta.active] [incr numAlloc]            
+            r keymeta.set [cname $cid] k1 "meta1"
+            assert_equal [r keymeta.active] [incr numAlloc]
             r rename k1 k1_renamed
             assert_equal [r keymeta.active] [incr numAlloc -$discOnRename]
             r del k1_renamed
             assert_equal [r keymeta.active] 0
         }
-    }    
+    }
 
     test "KEYMETA - Verify active metadata count on move" {
         for {set cid 1} {$cid <= 7} {incr cid} {
             set numAlloc 0
             r select 0
             flushallAndVerifyCleanup
-            
+
             set keepOnMove [shouldKeep $cid "move" classesSpec]
             set discOnMove [expr {!$keepOnMove}]
-            
+
             # Create keys with metadata in DB 0
             r set k1 "v1"
-            r keymeta.set k1 $cid "meta1"
-            assert_equal [r keymeta.active] [incr numAlloc]            
+            r keymeta.set [cname $cid] k1 "meta1"
+            assert_equal [r keymeta.active] [incr numAlloc]
             # Move: metadata discarded if !keepOnMove
             r move k1 9
             set active [r keymeta.active]
-            assert_equal [r keymeta.active] [incr numAlloc -$discOnMove]            
+            assert_equal [r keymeta.active] [incr numAlloc -$discOnMove]
             # Cleanup
             r select 9
             r del k1
@@ -296,15 +301,14 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
         r config set lazyfree-lazy-user-del yes
         # Class 2 has UNLINKFREE flag, so it should call unlink callback when lazyfree is enabled
         # Class 1 does not have UNLINKFREE flag, so it should only call free callback
-        foreach {cid} { 1 2 } {       
-            
+        foreach {cid} { 1 2 } {
             r config resetstat
-            # Create a large unsorted set collection to ensure it exceeds LAZYFREE_THRESHOLD 
+            # Create a large unsorted set collection to ensure it exceeds LAZYFREE_THRESHOLD
             for {set i 0} {$i < 1024} {incr i} { r sadd myset $i }
-            r keymeta.set myset $cid "meta"
-            assert_equal [r keymeta.active] 1            
+            r keymeta.set [cname $cid] myset "meta"
+            assert_equal [r keymeta.active] 1
             r del myset
-            
+
             # Wait for lazyfree to complete and verify lazyfreed_objects incremented
             wait_for_condition 50 100 {
                 [s lazyfree_pending_objects] == 0
@@ -322,7 +326,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
         # Class 1 does not have UNLINKFREE flag, so it should only call free callback
         foreach {cid} { 1 2 } {
             r set mykey "mykey$cid"
-            r keymeta.set mykey $cid "meta"
+            r keymeta.set [cname $cid] mykey "meta"
             assert_equal [r keymeta.active] 1
             r pexpire mykey 1
             wait_for_condition 50 100 {
@@ -333,4 +337,76 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
             assert_equal [r keymeta.active] 0
         }
     }
+
+    # ============================================================================
+    # AOF Rewrite Tests
+    # ============================================================================
+    # Note: Full AOF round-trip tests (write → restart → load) are not included
+    # because the test module registers classes dynamically via commands, which
+    # creates a chicken-and-egg problem:
+    # - Classes must be registered BEFORE AOF loading (in RedisModule_OnLoad)
+    # - But the KEYMETA.REGISTER commands are in the AOF itself
+    # - When server restarts and loads AOF, classes aren't registered yet
+    # - KEYMETA.SET commands fail with "metadata class not found"
+    #
+    # For production modules, classes MUST be registered in RedisModule_OnLoad()
+    # to ensure they're available when AOF/RDB files are loaded on server startup.
+    # See src/module.c documentation for RM_CreateKeyMetaClass() for details.
+    #
+    # The test below verifies that AOF callbacks correctly emit KEYMETA.SET commands
+    # to the AOF file during rewrite, which is the module's responsibility.
+    test "KEYMETA - AOF rewrite emits correct KEYMETA.SET commands to file" {
+        # This test verifies that the AOF callback implementation correctly writes
+        # KEYMETA.SET commands to the AOF file during rewrite. We don't test the
+        # full round-trip (restart + load) due to the dynamic registration limitation
+        # explained above.
+
+        r config set appendonly yes
+        r config set auto-aof-rewrite-percentage 0
+        r config set aof-use-rdb-preamble no
+        # Wait for the initial AOF rewrite that Redis triggers when enabling AOF
+        waitForBgrewriteaof r
+
+        # Create keys with metadata from multiple classes
+        r set key1 "value1"
+        r keymeta.set [cname 1] key1 "metadata_c1"
+
+        r set key2 "value2"
+        r keymeta.set [cname 2] key2 "metadata_c2"
+        r keymeta.set [cname 3] key2 "metadata_c3"
+
+        r hset hashkey field1 val1
+        r keymeta.set [cname 4] hashkey "hash_meta"
+
+        # Trigger AOF rewrite
+        r bgrewriteaof
+        waitForBgrewriteaof r
+
+        # Get the AOF directory and read the AOF file
+        set aof_dir [lindex [r config get dir] 1]
+        set aof_base_filename [lindex [r config get appendfilename] 1]
+
+        # Find the base AOF file (after rewrite)
+        set aof_files [glob -nocomplain -directory $aof_dir appendonlydir/${aof_base_filename}.*.base.aof]
+        assert {[llength $aof_files] > 0}
+
+        # Read the most recent base AOF file
+        set aof_file [lindex [lsort $aof_files] end]
+        set fp [open $aof_file r]
+        set aof_content [read $fp]
+        close $fp
+
+        # Verify the AOF contains KEYMETA.SET commands with correct format
+        assert_match "*KEYMETA.SET*[cname 1]*key1*metadata_c1*" $aof_content
+        assert_match "*KEYMETA.SET*[cname 2]*key2*metadata_c2*" $aof_content
+        assert_match "*KEYMETA.SET*[cname 3]*key2*metadata_c3*" $aof_content
+        assert_match "*KEYMETA.SET*[cname 4]*hashkey*hash_meta*" $aof_content
+
+        # Verify the RESP format is correct by checking for the command structure
+        # The AOF should contain: *4 (array of 4 elements)
+        assert_match "*\$11*KEYMETA.SET*" $aof_content
+        # Count how many KEYMETA.SET commands are in the AOF
+        set keymeta_count [regexp -all {KEYMETA\.SET} $aof_content]
+        assert_equal $keymeta_count 4
+    } {} {external:skip}
 }

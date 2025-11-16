@@ -4362,6 +4362,10 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *             .free_effort = myMeta_FreeEffortCallback
  *         }
  *
+ *   Redis does NOT take ownership of the config structure itself. The `confPtr` 
+ *   parameter only needs to remain valid during the RM_CreateKeyMetaClass() call 
+ *   and can be freed immediately after.
+ *
  * * **version**: Module must set it to REDISMODULE_KEY_META_VERSION. This field is
  *   bumped when new fields are added; Redis keeps backward compatibility in
  *   RM_CreateKeyMetaClass().
@@ -4435,6 +4439,9 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *
  * * **aof_rewrite**: A callback function pointer for AOF rewrite (optional).
  *   Called during AOF rewrite to emit commands that reconstruct the metadata.
+ *   IMPORTANT: For AOF/RDB persistence to work correctly, metadata classes must be
+ *   registered in RedisModule_OnLoad() so they are available when loading persisted
+ *   data on server startup.
  *
  * * **defrag**: A callback function pointer for active defragmentation (optional).
  *   If the metadata contains pointers, this callback should defragment them.

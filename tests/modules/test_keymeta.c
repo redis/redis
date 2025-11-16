@@ -14,18 +14,18 @@
  *
  *    Example: > keymeta.register KMTEST001 1 KEEPONCOPY:KEEPONRENAME
  *
- * 2) KEYMETA.SET <key> <metadata-class-id> <string-value>
+ * 2) KEYMETA.SET <9-byte-id> <key> <string-value>
  *    Set the string value as metadata to given key.
  *    Note:
  *    - If already set earlier, then it is expected that it will released before setting a
  *      new string. That is why this command should start with trying to get first
  *      metadata for given key.
  *
- * 3) KEYMETA.GET <key> <metadata-class-id>
+ * 3) KEYMETA.GET <9-byte-id> <key>
  *    Get the metadata attached to the key for the given class.
  *    Returns a string attached to the given key. Or nil if nothing is attached.
  *
- * 4) KEYMETA.UNREGISTER <keymeta-class-id>
+ * 4) KEYMETA.UNREGISTER <9-byte-id>
  *    This will mark the key metadata class as released. It can later be reused again
  *    by the same class (consider comment above).
  *    Return REDISMODULE_OK/REDISMODULE_ERR.
@@ -41,8 +41,67 @@
 /* Virtualize class IDs for testing. Values: 0 unused, 1..7 used, -1 released */
 RedisModuleKeyMetaClassId class_ids[8] = { 0 };
 
+/* Mapping from 9-byte-id to class-id */
+typedef struct {
+    char name[10];  /* 9 chars + null terminator */
+    RedisModuleKeyMetaClassId class_id;
+} ClassMapping;
+
+#define MAX_CLASS_MAPPINGS 8
+static ClassMapping class_mappings[MAX_CLASS_MAPPINGS];
+static int num_class_mappings = 0;
+
+/* Reverse lookup: given a class_id, find the 9-byte-id name */
+static const char* lookupClassName(RedisModuleKeyMetaClassId class_id) {
+    for (int i = 0; i < num_class_mappings; i++) {
+        if (class_mappings[i].class_id == class_id) {
+            return class_mappings[i].name;
+        }
+    }
+    return NULL;
+}
+
 /* Track active metadata instances (not yet freed) */
 static long long active_metadata_count = 0;
+
+/* Helper functions for class mapping */
+
+/* Add a mapping from 9-byte-id to class-id */
+static int addClassMapping(const char *name, RedisModuleKeyMetaClassId class_id) {
+    if (num_class_mappings >= MAX_CLASS_MAPPINGS) {
+        return 0; /* No space */
+    }
+    strncpy(class_mappings[num_class_mappings].name, name, 9);
+    class_mappings[num_class_mappings].name[9] = '\0';
+    class_mappings[num_class_mappings].class_id = class_id;
+    num_class_mappings++;
+    return 1;
+}
+
+/* Lookup class-id by 9-byte-id. Returns -1 if not found. */
+static RedisModuleKeyMetaClassId lookupClassId(const char *name) {
+    for (int i = 0; i < num_class_mappings; i++) {
+        if (strncmp(class_mappings[i].name, name, 9) == 0) {
+            return class_mappings[i].class_id;
+        }
+    }
+    return -1;
+}
+
+/* Remove a mapping by 9-byte-id */
+static int removeClassMapping(const char *name) {
+    for (int i = 0; i < num_class_mappings; i++) {
+        if (strncmp(class_mappings[i].name, name, 9) == 0) {
+            /* Shift remaining entries down */
+            for (int j = i; j < num_class_mappings - 1; j++) {
+                class_mappings[j] = class_mappings[j + 1];
+            }
+            num_class_mappings--;
+            return 1;
+        }
+    }
+    return 0;
+}
 
 /* Callback functions for metadata lifecycle */
 
@@ -93,6 +152,77 @@ static int KeyMetaMoveDiscardCallback(RedisModuleKeyOptCtx *ctx, uint64_t *meta)
     return 0; /* discard metadata */
 }
 
+/* AOF Rewrite Callback - Common implementation for all classes
+ * This callback is invoked during AOF rewrite to emit commands that will
+ * recreate the metadata when the AOF is loaded.
+ *
+ * Parameters:
+ *   - aof: RedisModuleIO context for writing to AOF
+ *   - value: The kvobj (key-value object) - not used in this implementation
+ *   - meta: The 8-byte metadata value (pointer to our string)
+ *   - class_id: The class ID for this metadata
+ */
+static void KeyMetaAOFRewriteCallback_Class(RedisModuleIO *aof, void *value, uint64_t meta, RedisModuleKeyMetaClassId class_id) {
+    REDISMODULE_NOT_USED(value);
+
+    /* If metadata is NULL (reset_value), don't emit anything */
+    if (meta == 0) return;
+
+    /* Extract the string from the metadata pointer */
+    char *metadata_string = (char *)meta;
+
+    /* Lookup the 9-byte-id name for this class */
+    const char *class_name = lookupClassName(class_id);
+    if (!class_name) {
+        /* This shouldn't happen, but handle gracefully */
+        return;
+    }
+
+    /* Get the key name from the AOF IO context */
+    const RedisModuleString *key = RedisModule_GetKeyNameFromIO(aof);
+    if (!key) {
+        /* Key name not available - shouldn't happen during AOF rewrite */
+        return;
+    }
+
+    /* Emit the KEYMETA.SET command to recreate this metadata
+     * Format: KEYMETA.SET <9-byte-id> <key> <string-value> */
+    RedisModule_EmitAOF(aof, "KEYMETA.SET", "csc",
+                        class_name,           /* c: 9-byte-id (C string) */
+                        key,                  /* s: key name (RedisModuleString) */
+                        metadata_string);     /* c: metadata value (C string) */
+}
+
+/* Individual AOF rewrite callbacks for each class (1-7)
+ * Each callback wraps the common implementation with its specific class ID */
+static void KeyMetaAOFRewriteCb1(RedisModuleIO *aof, void *value, uint64_t meta) {
+    KeyMetaAOFRewriteCallback_Class(aof, value, meta, 1);
+}
+
+static void KeyMetaAOFRewriteCb2(RedisModuleIO *aof, void *value, uint64_t meta) {
+    KeyMetaAOFRewriteCallback_Class(aof, value, meta, 2);
+}
+
+static void KeyMetaAOFRewriteCb3(RedisModuleIO *aof, void *value, uint64_t meta) {
+    KeyMetaAOFRewriteCallback_Class(aof, value, meta, 3);
+}
+
+static void KeyMetaAOFRewriteCb4(RedisModuleIO *aof, void *value, uint64_t meta) {
+    KeyMetaAOFRewriteCallback_Class(aof, value, meta, 4);
+}
+
+static void KeyMetaAOFRewriteCb5(RedisModuleIO *aof, void *value, uint64_t meta) {
+    KeyMetaAOFRewriteCallback_Class(aof, value, meta, 5);
+}
+
+static void KeyMetaAOFRewriteCb6(RedisModuleIO *aof, void *value, uint64_t meta) {
+    KeyMetaAOFRewriteCallback_Class(aof, value, meta, 6);
+}
+
+static void KeyMetaAOFRewriteCb7(RedisModuleIO *aof, void *value, uint64_t meta) {
+    KeyMetaAOFRewriteCallback_Class(aof, value, meta, 7);
+}
+
 /* KEYMETA.REGISTER <9-byte-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE] */
 static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3 || argc > 4) {
@@ -127,7 +257,16 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     config.reset_value = (uint64_t)NULL;  /* NULL pointer means no resource to free */
     config.rdb_load = NULL;
     config.rdb_save = NULL;
-    config.aof_rewrite = NULL;
+    switch (num_class_mappings + 1) { /* distinct cb per class */
+        case 1: config.aof_rewrite = KeyMetaAOFRewriteCb1; break;
+        case 2: config.aof_rewrite = KeyMetaAOFRewriteCb2; break;
+        case 3: config.aof_rewrite = KeyMetaAOFRewriteCb3; break;
+        case 4: config.aof_rewrite = KeyMetaAOFRewriteCb4; break;
+        case 5: config.aof_rewrite = KeyMetaAOFRewriteCb5; break;
+        case 6: config.aof_rewrite = KeyMetaAOFRewriteCb6; break;
+        case 7: config.aof_rewrite = KeyMetaAOFRewriteCb7; break;
+        default: config.aof_rewrite = NULL; break;
+    }
     config.free = KeyMetaFreeCallback;
     config.copy = keep_on_copy ? KeyMetaCopyCallback : NULL;
     config.rename = keep_on_rename ? NULL : KeyMetaRenameDiscardCallback;
@@ -136,35 +275,41 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     config.unlink = unlink_free ? KeyMetaUnlinkCallback : NULL;
     config.mem_usage = NULL;
     config.free_effort = NULL;
-    
+
     /* Create the metadata class */
     RedisModuleKeyMetaClassId class_id = RedisModule_CreateKeyMetaClass(ctx, metaname, (int)metaver, &config);
 
     if (class_id < 0) {
         RedisModule_ReplyWithNull(ctx);
     } else {
+        /* Store the mapping from 9-byte-id to class-id */
+        if (!addClassMapping(metaname, class_id)) {
+            RedisModule_ReplyWithError(ctx, "ERR failed to store class mapping");
+            return REDISMODULE_OK;
+        }
         RedisModule_ReplyWithLongLong(ctx, class_id);
     }
 
     return REDISMODULE_OK;
 }
 
-/* KEYMETA.SET <key> <metadata-class-id> <string-value> */
+/* KEYMETA.SET <9-byte-id> <key> <string-value> */
 static int KeyMetaSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 4) {
         return RedisModule_WrongArity(ctx);
     }
 
     /* Parse arguments */
-    RedisModuleString *keyname = argv[1];
-    long long class_id_ll;
-    if (RedisModule_StringToLongLong(argv[2], &class_id_ll) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR invalid class id");
+    const char *metaname = RedisModule_StringPtrLen(argv[1], NULL);
+    RedisModuleString *keyname = argv[2];
+    const char *value = RedisModule_StringPtrLen(argv[3], NULL);
+
+    /* Lookup the metadata class by name */
+    RedisModuleKeyMetaClassId class_id = lookupClassId(metaname);
+    if (class_id < 0) {
+        RedisModule_ReplyWithError(ctx, "ERR metadata class not found");
         return REDISMODULE_OK;
     }
-    RedisModuleKeyMetaClassId class_id = (RedisModuleKeyMetaClassId)class_id_ll;
-
-    const char *value = RedisModule_StringPtrLen(argv[3], NULL);
 
     /* Open the key for writing */
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ | REDISMODULE_WRITE);
@@ -206,20 +351,22 @@ static int KeyMetaSet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
     return REDISMODULE_OK;
 }
 
-/* KEYMETA.GET <key> <metadata-class-id> */
+/* KEYMETA.GET <9-byte-id> <key> */
 static int KeyMetaGet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 3) {
         return RedisModule_WrongArity(ctx);
     }
 
     /* Parse arguments */
-    RedisModuleString *keyname = argv[1];
-    long long class_id_ll;
-    if (RedisModule_StringToLongLong(argv[2], &class_id_ll) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR invalid class id");
+    const char *metaname = RedisModule_StringPtrLen(argv[1], NULL);
+    RedisModuleString *keyname = argv[2];
+
+    /* Lookup the metadata class by name */
+    RedisModuleKeyMetaClassId class_id = lookupClassId(metaname);
+    if (class_id < 0) {
+        RedisModule_ReplyWithError(ctx, "ERR metadata class not found");
         return REDISMODULE_OK;
     }
-    RedisModuleKeyMetaClassId class_id = (RedisModuleKeyMetaClassId)class_id_ll;
 
     /* Open the key for reading */
     RedisModuleKey *key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
@@ -245,24 +392,28 @@ static int KeyMetaGet_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv
     return REDISMODULE_OK;
 }
 
-/* KEYMETA.UNREGISTER <keymeta-class-id> */
+/* KEYMETA.UNREGISTER <9-byte-id> */
 static int KeyMetaUnregister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) {
         return RedisModule_WrongArity(ctx);
     }
 
     /* Parse arguments */
-    long long class_id_ll;
-    if (RedisModule_StringToLongLong(argv[1], &class_id_ll) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR invalid class id");
+    const char *metaname = RedisModule_StringPtrLen(argv[1], NULL);
+
+    /* Lookup the metadata class by name */
+    RedisModuleKeyMetaClassId class_id = lookupClassId(metaname);
+    if (class_id < 0) {
+        RedisModule_ReplyWithError(ctx, "ERR metadata class not found");
         return REDISMODULE_OK;
     }
-    RedisModuleKeyMetaClassId class_id = (RedisModuleKeyMetaClassId)class_id_ll;
 
     /* Release the metadata class */
     int result = RedisModule_ReleaseKeyMetaClass(class_id);
 
     if (result == REDISMODULE_OK) {
+        /* Remove the mapping */
+        removeClassMapping(metaname);
         RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {
         RedisModule_ReplyWithError(ctx, "ERR failed to unregister class");
