@@ -2921,6 +2921,8 @@ void syncWithMaster(connection *conn) {
     char tmpfile[256], *err = NULL;
     int dfd = -1, maxtries = 5;
     int psync_result;
+    int need_auth = 0;
+    static int sent_internal_auth = 0;
 
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
@@ -2973,6 +2975,7 @@ void syncWithMaster(connection *conn) {
             sdsfree(err);
             goto error;
         } else {
+            if (err[0] == '-') need_auth = 1;
             serverLog(LL_NOTICE,
                 "Master replied to PING, replication can continue...");
         }
@@ -2982,6 +2985,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_SEND_HANDSHAKE) {
+        sent_internal_auth = 0;
         /* AUTH with the master if required. */
         if (server.masterauth) {
             char *args[3] = {"AUTH",NULL,NULL};
@@ -2997,10 +3001,12 @@ void syncWithMaster(connection *conn) {
             argc++;
             err = sendCommandArgv(conn, argc, args, lens);
             if (err) goto write_error;
-        } else if (server.cluster_enabled) {
+        } else if (server.cluster_enabled && need_auth) {
             /* Authenticate with the internal secret if cluster is enabled and
-             * no master username/password is configured. */
+             * no master username/password is configured and master requires
+             * authentication. */
             err = sendInternalAuth(conn);
+            sent_internal_auth = 1;
             if (err) goto write_error;
         }
 
@@ -3042,7 +3048,7 @@ void syncWithMaster(connection *conn) {
 
     if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY &&
         !server.masterauth &&
-        !server.cluster_enabled)
+        !sent_internal_auth)
     {
         server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
     }
