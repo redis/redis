@@ -8205,13 +8205,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
 
     if (stat(backup_dir, &st) == -1) {
         if (errno == ENOENT) {
-            clusterManagerLogInfo(">>> Creating backup directory %s\n", backup_dir);
-            if (mkdir(backup_dir, 0755) == -1) {
-                clusterManagerLogErr("Could not create backup directory %s: %s\n",
-                                     backup_dir, strerror(errno));
-                success = 0;
-                goto cleanup;
-            }
+            clusterManagerLogErr("[ERR] The specified backup directory '%s' does not exist.\n", backup_dir);
         } else {
             clusterManagerLogErr("Cannot stat backup directory %s: %s\n",
                                  backup_dir, strerror(errno));
