@@ -7111,7 +7111,8 @@ void dismissClientMemory(client *c) {
             clientReplyBlock *bulk = listNodeValue(ln);
             /* Default bulk size is 16k, actually it has extra data, maybe it
              * occupies 20k according to jemalloc bin size if using jemalloc. */
-            if (bulk) dismissMemory(bulk, bulk->size);
+            if (bulk && bulk->type == CLIENT_REPLY_BLOCK_PLAIN)
+                dismissMemory(bulk, ((clientReplyBlockPlain*)bulk)->size);
         }
     }
 }

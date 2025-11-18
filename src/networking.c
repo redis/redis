@@ -82,14 +82,32 @@ size_t getStringObjectLen(robj *o) {
 
 /* Client.reply list dup and free methods. */
 void *dupClientReplyValue(void *o) {
-    clientReplyBlock *old = o;
-    clientReplyBlock *buf = zmalloc(sizeof(clientReplyBlock) + old->size);
-    memcpy(buf, o, sizeof(clientReplyBlock) + old->size);
-    return buf;
+    int type = ((clientReplyBlock*)o)->type;
+
+    if (type == CLIENT_REPLY_BLOCK_PLAIN) {
+        clientReplyBlockPlain *old = o;
+        clientReplyBlockPlain *buf = zmalloc(sizeof(clientReplyBlockPlain) + old->size);
+        buf->type = type;
+        memcpy(buf, o, sizeof(clientReplyBlockPlain) + old->size);
+        return buf;
+    } else if (type == CLIENT_REPLY_BLOCK_ROBJ) {
+        clientReplyBlockRobj *old = o;
+        clientReplyBlockRobj *new = zmalloc(sizeof(clientReplyBlockRobj));
+        new->type = type;
+        new->obj = old->obj;
+        incrRefCount(old->obj);
+        return new;
+    } else {
+        serverPanic("Unknown client reply block type");
+    }
 }
 
 void freeClientReplyValue(void *o) {
-    zfree(o);
+    if (!o) return;
+    clientReplyBlock *block = o;
+    if (block->type == CLIENT_REPLY_BLOCK_ROBJ)
+        decrRefCount(((clientReplyBlockRobj*)block)->obj);
+    zfree(block);
 }
 
 /* This function links the client to the global linked list of clients.
@@ -207,6 +225,8 @@ client *createClient(connection *conn) {
     c->main_ch_client_id = 0;
     c->reply = listCreate();
     c->deferred_reply_errors = NULL;
+    c->deferred_reply_blocks = listCreate();
+    listSetFreeMethod(c->deferred_reply_blocks,freeClientReplyValue);
     c->reply_bytes = 0;
     c->obuf_soft_limit_reached_time = 0;
     listSetFreeMethod(c->reply,freeClientReplyValue);
@@ -355,11 +375,40 @@ int prepareClientToWrite(client *c) {
  * Low level functions to add more data to output buffers.
  * -------------------------------------------------------------------------- */
 
+ /* Add a robj reference to the reply linked list. */
+static void _addReplyObjectToList(client *c, robj *obj) {
+    if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
+
+    /* Create a new block that references the robj */
+    clientReplyBlockRobj *block = zmalloc(sizeof(clientReplyBlockRobj));
+    block->type = CLIENT_REPLY_BLOCK_ROBJ;
+    block->obj = obj;
+    incrRefCount(obj);
+
+    /* Fill prefix with bulk string length: "$<len>\r\n" and crlf: "\r\n" */
+    const size_t len = sdslen(obj->ptr);
+    block->prefix[0] = '$';
+    size_t num_len = ll2string(block->prefix + 1, sizeof(block->prefix) - 3, len);
+    block->prefix[num_len + 1] = '\r';
+    block->prefix[num_len + 2] = '\n';
+    block->prefix_cnt = num_len + 3;
+    block->crlf[0] = '\r';
+    block->crlf[1] = '\n';
+
+    listAddNodeTail(c->reply, block);
+    c->reply_bytes += len + block->prefix_cnt + 2; /* data + prefix + crlf */
+
+    closeClientOnOutputBufferLimitReached(c, 1);
+}
+
 /* Adds the reply to the reply linked list.
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len) {
     listNode *ln = listLast(reply_list);
-    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
+    clientReplyBlock *block = ln? listNodeValue(ln): NULL;
+    /* Check if the tail node is a plain block that we can append to */
+    clientReplyBlockPlain *tail = (block && block->type == CLIENT_REPLY_BLOCK_PLAIN) ?
+        (clientReplyBlockPlain*)block: NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used, it sets a dummy node to NULL just
@@ -381,9 +430,10 @@ void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len
          * least PROTO_REPLY_CHUNK_BYTES */
         size_t usable_size;
         size_t size = len < PROTO_REPLY_CHUNK_BYTES? PROTO_REPLY_CHUNK_BYTES: len;
-        tail = zmalloc_usable(size + sizeof(clientReplyBlock), &usable_size);
+        tail = zmalloc_usable(size + sizeof(clientReplyBlockPlain), &usable_size);
         /* take over the allocation's internal fragmentation */
-        tail->size = usable_size - sizeof(clientReplyBlock);
+        tail->type = CLIENT_REPLY_BLOCK_PLAIN;
+        tail->size = usable_size - sizeof(clientReplyBlockPlain);
         tail->used = len;
         memcpy(tail->buf, s, len);
         listAddNodeTail(reply_list, tail);
@@ -735,7 +785,9 @@ void addReplyStatusFormat(client *c, const char *fmt, ...) {
  * at the end of the last reply node which we won't use anymore. */
 void trimReplyUnusedTailSpace(client *c) {
     listNode *ln = listLast(c->reply);
-    clientReplyBlock *tail = ln? listNodeValue(ln): NULL;
+    clientReplyBlock *block = ln? listNodeValue(ln): NULL;
+    clientReplyBlockPlain *tail = (block && block->type == CLIENT_REPLY_BLOCK_PLAIN) ?
+        (clientReplyBlockPlain*)block: NULL;
 
     /* Note that 'tail' may be NULL even if we have a tail node, because when
      * addReplyDeferredLen() is used */
@@ -750,10 +802,10 @@ void trimReplyUnusedTailSpace(client *c) {
     {
         size_t usable_size;
         size_t old_size = tail->size;
-        tail = zrealloc_usable(tail, tail->used + sizeof(clientReplyBlock), &usable_size, NULL);
+        tail = zrealloc_usable(tail, tail->used + sizeof(clientReplyBlockPlain), &usable_size, NULL);
         /* take over the allocation's internal fragmentation (at least for
          * memory usage tracking) */
-        tail->size = usable_size - sizeof(clientReplyBlock);
+        tail->size = usable_size - sizeof(clientReplyBlockPlain);
         c->reply_bytes = c->reply_bytes + tail->size - old_size;
         listNodeValue(ln) = tail;
     }
@@ -789,7 +841,8 @@ void *addReplyDeferredLen(client *c) {
 
 void setDeferredReply(client *c, void *node, const char *s, size_t length) {
     listNode *ln = (listNode*)node;
-    clientReplyBlock *next, *prev;
+    clientReplyBlock *block;
+    clientReplyBlockPlain *next = NULL, *prev = NULL;
 
     /* Abort when *node is NULL: when the client should not accept writes
      * we return NULL in addReplyDeferredLen() */
@@ -807,9 +860,12 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
      * - The next node is non-NULL,
      * - It has enough room already allocated
      * - And not too large (avoid large memmove) */
-    if (ln->prev != NULL && (prev = listNodeValue(ln->prev)) &&
-        prev->size - prev->used > 0)
+    if (ln->prev != NULL && (block = listNodeValue(ln->prev)) &&
+        block->type == CLIENT_REPLY_BLOCK_PLAIN)
     {
+        prev = (clientReplyBlockPlain*)block;
+    }
+    if (prev && prev->size > prev->used) {
         size_t len_to_copy = prev->size - prev->used;
         if (len_to_copy > length)
             len_to_copy = length;
@@ -824,8 +880,12 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
         s += len_to_copy;
     }
 
-    if (ln->next != NULL && (next = listNodeValue(ln->next)) &&
-        next->size - next->used >= length &&
+    if (ln->next != NULL && (block = listNodeValue(ln->next)) &&
+        block->type == CLIENT_REPLY_BLOCK_PLAIN)
+    {
+        next = (clientReplyBlockPlain*)block;
+    }
+    if (next && next->size - next->used >= length &&
         next->used < PROTO_REPLY_CHUNK_BYTES * 4)
     {
         memmove(next->buf + length, next->buf, next->used);
@@ -836,9 +896,10 @@ void setDeferredReply(client *c, void *node, const char *s, size_t length) {
     } else {
         /* Create a new node */
         size_t usable_size;
-        clientReplyBlock *buf = zmalloc_usable(length + sizeof(clientReplyBlock), &usable_size);
+        clientReplyBlockPlain *buf = zmalloc_usable(length + sizeof(clientReplyBlockPlain), &usable_size);
+        buf->type = CLIENT_REPLY_BLOCK_PLAIN;
         /* Take over the allocation's internal fragmentation */
-        buf->size = usable_size - sizeof(clientReplyBlock);
+        buf->size = usable_size - sizeof(clientReplyBlockPlain);
         buf->used = length;
         memcpy(buf->buf, s, length);
         c->net_output_bytes_curr_cmd += length;
@@ -1113,11 +1174,36 @@ void addReplyBulkLen(client *c, robj *obj) {
     _addReplyLongLongBulk(c, len);
 }
 
+/* Decides if copy avoidance is preferred according to client type, number of I/O threads, object size
+ * Maybe called with NULL obj for evaluation with no regard to object size
+ * Copy avoidance can be allowed only for regular Valkey clients
+ * that use _writeToClient handler to write replies to client connection */
+static int isCopyAvoidPreferred(client *c, robj *obj) {
+    if (!c->conn || !obj) return 0;
+
+    int type = getClientType(c);
+    if (type != CLIENT_TYPE_NORMAL && type != CLIENT_TYPE_PUBSUB) return 0;
+    if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount == OBJ_STATIC_REFCOUNT) return 0;
+
+    /* Copy avoidance is preferred starting certain string size */
+    return server.min_string_size_copy_avoid && sdslen(obj->ptr) >= (size_t)server.min_string_size_copy_avoid;
+}
+
+/* Try to avoid whole bulk string copy to a reply buffer
+ * If copy avoidance allowed then only pointer to object and string will be copied to the buffer */
+static int tryAvoidBulkStrCopyToReply(client *c, robj *obj) {
+    if (!isCopyAvoidPreferred(c, obj)) return C_ERR;
+    _addReplyObjectToList(c, obj);
+    return C_OK;
+}
+
 /* Add a Redis Object as a bulk reply */
 void addReplyBulk(client *c, robj *obj) {
     if (_prepareClientToWrite(c) != C_OK) return;
 
     if (sdsEncodedObject(obj)) {
+        if (tryAvoidBulkStrCopyToReply(c, obj) == C_OK) return; 
+
         const size_t len = sdslen(obj->ptr);
         _addReplyLongLongBulk(c, len);
         _addReplyToBufferOrList(c,obj->ptr,len);
@@ -1537,6 +1623,18 @@ void freeClientDeferredObjects(client *c, int free_array) {
     }
 }
 
+/* Process deferred reply blocks by transferring them to the main thread's
+ * deferred objects mechanism for proper cleanup. This is called when a client
+ * is being processed in the main thread and has accumulated reply blocks
+ * that need to be freed. */
+void processDeferredReplyBlocks(client *c) {
+    if (!c->deferred_reply_blocks || listLength(c->deferred_reply_blocks) == 0)
+        return;
+
+    /* Clear the deferred reply blocks list */
+    listEmpty(c->deferred_reply_blocks);
+}
+
 void freeClientOriginalArgv(client *c) {
     /* We didn't rewrite this client */
     if (!c->original_argv) return;
@@ -1864,6 +1962,7 @@ void freeClient(client *c) {
 
     /* Free data structures. */
     listRelease(c->reply);
+    listRelease(c->deferred_reply_blocks);
     zfree(c->buf);
     freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
@@ -2079,15 +2178,52 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     listRewind(c->reply, &iter);
     while ((next = listNext(&iter)) && iovcnt < iovmax && iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
         o = listNodeValue(next);
-        if (o->used == 0) { /* empty node, just release it and skip. */
-            c->reply_bytes -= o->size;
+
+        if (unlikely(o->type == CLIENT_REPLY_BLOCK_ROBJ)) {
+            clientReplyBlockRobj *obj_block = (clientReplyBlockRobj*)o;
+            size_t data_len = sdslen(obj_block->obj->ptr);
+
+            /* Add prefix */
+            if (offset < obj_block->prefix_cnt) {
+                iov[iovcnt].iov_base = obj_block->prefix + offset;
+                iov[iovcnt].iov_len = obj_block->prefix_cnt - offset;
+                iov_bytes_len += iov[iovcnt++].iov_len;
+                offset = 0;
+            } else {
+                offset -= obj_block->prefix_cnt;
+            }
+
+            /* Add data */
+            if (offset < data_len) {
+                iov[iovcnt].iov_base = (char*)obj_block->obj->ptr + offset;
+                iov[iovcnt].iov_len = data_len - offset;
+                iov_bytes_len += iov[iovcnt++].iov_len;
+                offset = 0;
+            } else if (offset >= data_len) {
+                offset -= data_len;
+            }
+
+            /* Add CRLF */
+            if (offset < 2) {
+                iov[iovcnt].iov_base = obj_block->crlf + offset;
+                iov[iovcnt].iov_len = 2 - offset;
+                iov_bytes_len += iov[iovcnt++].iov_len;
+            }
+
+            offset = 0;
+            continue;
+        }
+
+        clientReplyBlockPlain *plain_block = (clientReplyBlockPlain*)o;
+        if (plain_block->used == 0) { /* empty node, just release it and skip. */
+            c->reply_bytes -= plain_block->size;
             listDelNode(c->reply, next);
             offset = 0;
             continue;
         }
 
-        iov[iovcnt].iov_base = o->buf + offset;
-        iov[iovcnt].iov_len = o->used - offset;
+        iov[iovcnt].iov_base = plain_block->buf + offset;
+        iov[iovcnt].iov_len = plain_block->used - offset;
         iov_bytes_len += iov[iovcnt++].iov_len;
         offset = 0;
     }
@@ -2113,12 +2249,33 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     while (remaining > 0) {
         next = listNext(&iter);
         o = listNodeValue(next);
-        if (remaining < (ssize_t)(o->used - c->sentlen)) {
+
+        if (unlikely(o->type == CLIENT_REPLY_BLOCK_ROBJ)) {
+            clientReplyBlockRobj *robj_block = (clientReplyBlockRobj*)o;
+            size_t len = sdslen(robj_block->obj->ptr) + robj_block->prefix_cnt + 2;
+            if (remaining < (ssize_t)(len - c->sentlen)) {
+                c->sentlen += remaining;
+                break;
+            }
+            remaining -= (ssize_t)(len - c->sentlen);
+            c->reply_bytes -= len;
+            if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+                listUnlinkNode(c->reply, next);
+                listLinkNodeTail(c->deferred_reply_blocks, next);
+            } else {
+                listDelNode(c->reply, next);
+            }
+            c->sentlen = 0;
+            continue;
+        }
+
+        clientReplyBlockPlain *plain_block = (clientReplyBlockPlain*)o;
+        if (remaining < (ssize_t)(plain_block->used - c->sentlen)) {
             c->sentlen += remaining;
             break;
         }
-        remaining -= (ssize_t)(o->used - c->sentlen);
-        c->reply_bytes -= o->size;
+        remaining -= (ssize_t)(plain_block->used - c->sentlen);
+        c->reply_bytes -= plain_block->size;
         listDelNode(c->reply, next);
         c->sentlen = 0;
     }
@@ -4494,8 +4651,9 @@ size_t getClientOutputBufferMemoryUsage(client *c) {
             repl_node_num = last->id - cur->id + 1;
         }
         return repl_buf_size + (repl_node_size*repl_node_num);
-    } else { 
-        size_t list_item_size = sizeof(listNode) + sizeof(clientReplyBlock);
+    } else {
+        /* Large replies are rare, so we always use clientReplyBlockPlain for estimation */
+        size_t list_item_size = sizeof(listNode) + sizeof(clientReplyBlockPlain);
         return c->reply_bytes + (list_item_size*listLength(c->reply));
     }
 }
@@ -4505,7 +4663,13 @@ size_t getNormalClientPendingReplyBytes(client *c) {
     if (listLength(c->reply) == 0) return c->bufpos;
 
     clientReplyBlock *block = listNodeValue(listLast(c->reply));
-    return (c->reply_bytes - block->size + block->used) + c->bufpos;
+    size_t size = 0, used = 0;
+    if (block->type == CLIENT_REPLY_BLOCK_PLAIN) {
+        clientReplyBlockPlain *plain = (clientReplyBlockPlain *)block;
+        size = plain->size;
+        used = plain->used;
+    }
+    return (c->reply_bytes - size + used) + c->bufpos;
 }
 
 /* Returns the total client's memory usage.

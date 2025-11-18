@@ -1087,11 +1087,33 @@ char *getObjectTypeName(robj*);
 
 struct evictionPoolEntry; /* Defined in evict.c */
 
+/* Type of clientReplyBlock */
+#define CLIENT_REPLY_BLOCK_PLAIN  1  /* Plain, data stored in buf[] */
+#define CLIENT_REPLY_BLOCK_ROBJ   2  /* Shared robj, data referenced via robj pointer */
+
+/* Bulk string prefix max size (long + $ + \r\n) */
+#define BULK_STR_LEN_PREFIX_MAX_SIZE (LONG_STR_SIZE + 3)
+
+/* Plain buffer block */
+typedef struct clientReplyBlockPlain {
+    int type;  /* Always CLIENT_REPLY_BLOCK_PLAIN */
+    size_t size, used;
+    char buf[];
+} clientReplyBlockPlain;
+
+/* Robj reference block */
+typedef struct clientReplyBlockRobj {
+    int type;  /* Always CLIENT_REPLY_BLOCK_ROBJ */
+    robj *obj;           /* robj pointer */
+    unsigned int prefix_cnt;
+    char prefix[BULK_STR_LEN_PREFIX_MAX_SIZE];
+    char crlf[2]; /* \r\n */
+} clientReplyBlockRobj;
+
 /* This structure is used in order to represent the output buffer of a client,
  * which is actually a linked list of blocks like that, that is: client->reply. */
 typedef struct clientReplyBlock {
-    size_t size, used;
-    char buf[];
+    int type;  /* CLIENT_REPLY_BLOCK_PLAIN or CLIENT_REPLY_BLOCK_ROBJ */
 } clientReplyBlock;
 
 /* Replication buffer blocks is the list of replBufBlock.
@@ -1401,6 +1423,7 @@ typedef struct client {
     list *reply;            /* List of reply objects to send to the client. */
     unsigned long long reply_bytes; /* Tot bytes of objects in reply list. */
     list *deferred_reply_errors;    /* Used for module thread safe contexts. */
+    list *deferred_reply_blocks;    /* List of reply blocks to be freed in main thread. */
     size_t sentlen;         /* Amount of bytes already sent in the current
                                buffer or object being sent. */
     time_t ctime;           /* Client creation time. */
@@ -1913,6 +1936,9 @@ struct redisServer {
     int enable_protected_configs;    /* Enable the modification of protected configs, see PROTECTED_ACTION_ALLOWED_* */
     int enable_debug_cmd;            /* Enable DEBUG commands, see PROTECTED_ACTION_ALLOWED_* */
     int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_ALLOWED_* */
+
+    /* Reply construction copy avoidance */
+    int min_string_size_copy_avoid;          /* Minimum bulk string size for copy avoidance in reply construction when IO threads disabled */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */
@@ -2932,6 +2958,7 @@ void freeClientArgv(client *c);
 void freeClientPendingCommands(client *c, int num_pcmds_to_free);
 void tryDeferFreeClientObject(client *c, int type, void *ptr);
 void freeClientDeferredObjects(client *c, int free_array);
+void processDeferredReplyBlocks(client *c);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);

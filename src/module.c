@@ -858,7 +858,8 @@ static CallReply *moduleParseReply(client *c, RedisModuleCtx *ctx) {
     sds proto = sdsnewlen(c->buf,c->bufpos);
     c->bufpos = 0;
     while(listLength(c->reply)) {
-        clientReplyBlock *o = listNodeValue(listFirst(c->reply));
+        clientReplyBlockPlain *o = listNodeValue(listFirst(c->reply));
+        serverAssert(o->type == CLIENT_REPLY_BLOCK_PLAIN);
 
         proto = sdscatlen(proto,o->buf,o->used);
         listDelNode(c->reply,listFirst(c->reply));

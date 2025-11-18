@@ -148,7 +148,14 @@ void reqresSaveClientReplyOffset(client *c) {
     c->reqres.offset.bufpos = c->bufpos;
     if (listLength(c->reply) && listNodeValue(listLast(c->reply))) {
         c->reqres.offset.last_node.index = listLength(c->reply) - 1;
-        c->reqres.offset.last_node.used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
+        clientReplyBlock *block = listNodeValue(listLast(c->reply));
+        if (block->type == CLIENT_REPLY_BLOCK_PLAIN) {
+            c->reqres.offset.last_node.used = ((clientReplyBlockPlain *)block)->used;
+        } else {
+            /* For ROBJ blocks, we track the total size (prefix + data + crlf) */
+            clientReplyBlockRobj *robj_block = (clientReplyBlockRobj *)block;
+            c->reqres.offset.last_node.used = robj_block->prefix_cnt + sdslen(robj_block->obj->ptr) + 2;
+        }
     } else {
         c->reqres.offset.last_node.index = 0;
         c->reqres.offset.last_node.used = 0;
@@ -219,7 +226,14 @@ size_t reqresAppendResponse(client *c) {
     size_t curr_used = 0;
     if (listLength(c->reply)) {
         curr_index = listLength(c->reply) - 1;
-        curr_used = ((clientReplyBlock *)listNodeValue(listLast(c->reply)))->used;
+        clientReplyBlock *block = listNodeValue(listLast(c->reply));
+        if (block->type == CLIENT_REPLY_BLOCK_PLAIN) {
+            curr_used = ((clientReplyBlockPlain *)block)->used;
+        } else {
+            /* For ROBJ blocks, we track the total size (prefix + data + crlf) */
+            clientReplyBlockRobj *robj_block = (clientReplyBlockRobj *)block;
+            curr_used = robj_block->prefix_cnt + sdslen(robj_block->obj->ptr) + 2;
+        }
     }
 
     /* Now, append reply bytes from the reply list */
@@ -232,7 +246,7 @@ size_t reqresAppendResponse(client *c) {
         clientReplyBlock *o;
         listRewind(c->reply, &iter);
         while ((curr = listNext(&iter)) != NULL) {
-            size_t written;
+            size_t written = 0;
 
             /* Skip nodes we had already processed */
             if (i < c->reqres.offset.last_node.index) {
@@ -240,19 +254,46 @@ size_t reqresAppendResponse(client *c) {
                 continue;
             }
             o = listNodeValue(curr);
-            if (o->used == 0) {
-                i++;
-                continue;
-            }
-            if (i == c->reqres.offset.last_node.index) {
-                /* Write the potentially incomplete node, which had data from
-                 * before the current command started */
-                written = reqresAppendBuffer(c,
-                                             o->buf + c->reqres.offset.last_node.used,
-                                             o->used - c->reqres.offset.last_node.used);
+
+            if (o->type == CLIENT_REPLY_BLOCK_PLAIN) {
+                clientReplyBlockPlain *plain = (clientReplyBlockPlain *)o;
+                if (plain->used == 0) {
+                    i++;
+                    continue;
+                }
+                if (i == c->reqres.offset.last_node.index) {
+                    /* Write the potentially incomplete node, which had data from
+                     * before the current command started */
+                    written = reqresAppendBuffer(c,
+                                                 plain->buf + c->reqres.offset.last_node.used,
+                                                 plain->used - c->reqres.offset.last_node.used);
+                } else {
+                    /* New node */
+                    written = reqresAppendBuffer(c, plain->buf, plain->used);
+                }
             } else {
-                /* New node */
-                written = reqresAppendBuffer(c, o->buf, o->used);
+                /* Handle ROBJ blocks */
+                clientReplyBlockRobj *robj_block = (clientReplyBlockRobj *)o;
+
+                /* ROBJ blocks store a single complete bulk string (prefix + data + crlf).
+                 * Unlike PLAIN blocks which can be partially logged, ROBJ blocks are
+                 * either fully logged or not logged at all. */
+                if (i == c->reqres.offset.last_node.index &&
+                    c->reqres.offset.last_node.used != 0)
+                {
+                    i++;
+                    continue;
+                }
+
+                /* Write prefix */
+                written += reqresAppendBuffer(c, robj_block->prefix, robj_block->prefix_cnt);
+
+                /* Write data */
+                size_t data_len = sdslen(robj_block->obj->ptr);
+                written += reqresAppendBuffer(c, (char *)robj_block->obj->ptr, data_len);
+
+                /* Write CRLF */
+                written += reqresAppendBuffer(c, robj_block->crlf, 2);
             }
             ret += written;
             i++;

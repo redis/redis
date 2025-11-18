@@ -447,6 +447,9 @@ int processClientsFromIOThread(IOThread *t) {
         /* Let main thread to run it, set running thread id first. */
         c->running_tid = IOTHREAD_MAIN_THREAD_ID;
 
+        /* Process any deferred reply blocks that were accumulated in IO thread */
+        processDeferredReplyBlocks(c);
+
         /* If a read error occurs, handle it in the main thread first, since we
          * want to print logs about client information before freeing. */
         if (isClientReadErrorFatal(c)) handleClientReadError(c);

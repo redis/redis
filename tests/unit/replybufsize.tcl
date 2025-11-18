@@ -13,6 +13,7 @@ start_server {tags {"replybufsize"}} {
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
         r debug replybuffer peak-reset-time 100
+        r config set min-string-size-avoid-copy-reply 0
         
         # Create a simple idle test client
         variable tc [redis_client]
