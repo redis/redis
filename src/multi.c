@@ -189,7 +189,12 @@ void execCommand(client *c) {
         /* ACL permissions are also checked at the time of execution in case
          * they were changed after the commands were queued. */
         int acl_errpos;
-        int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
+        int acl_retval = ACL_OK;
+        /* Skip ACL check for the AOF client while server loading. */
+        int skip_acl_check = server.loading && c->id == CLIENT_ID_AOF;
+        if (!skip_acl_check) {
+            acl_retval = ACLCheckAllPerm(c,&acl_errpos);
+        }
         if (acl_retval != ACL_OK) {
             char *reason;
             switch (acl_retval) {
