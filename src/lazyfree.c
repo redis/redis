@@ -203,33 +203,30 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * create independent copies of the string objects to avoid concurrent access. */
 static void protectClientReplyObjects(void) {
     int allpaused = 0;
-    if (server.io_threads_num > 1 &&
-        pthread_equal(server.main_thread_id, pthread_self()))
-    {
+    if (server.io_threads_num > 1) {
+        serverAssert(pthread_equal(server.main_thread_id, pthread_self()));
         allpaused = 1;
         pauseAllIOThreads();
     }
 
     listNode *ln;
     listIter li;
-    client *client;
-
     listRewind(server.clients, &li);
     while ((ln = listNext(&li)) != NULL) {
-        client = listNodeValue(ln);
+        client *c = listNodeValue(ln);
 
         /* Process deferred reply blocks */
-        processDeferredReplyBlocks(client);
+        processDeferredReplyBlocks(c);
 
-        /* Skip clients without reply list */
-        if (!client->reply || listLength(client->reply) == 0) continue;
+        /* Skip cs without reply list */
+        if (!c->reply || listLength(c->reply) == 0) continue;
 
         /* Iterate through client's reply list */
-        listIter reply_iter;
-        listNode *reply_node;
-        listRewind(client->reply, &reply_iter);
-        while ((reply_node = listNext(&reply_iter)) != NULL) {
-            clientReplyBlock *block = listNodeValue(reply_node);
+        listIter reply_li;
+        listNode *reply_ln;
+        listRewind(c->reply, &reply_li);
+        while ((reply_ln = listNext(&reply_li))) {
+            clientReplyBlock *block = listNodeValue(reply_ln);
 
             /* If this is an ROBJ block, duplicate the string object to avoid race condition */
             if (block && block->type == CLIENT_REPLY_BLOCK_ROBJ) {
