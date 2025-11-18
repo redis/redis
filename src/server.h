@@ -1091,9 +1091,6 @@ struct evictionPoolEntry; /* Defined in evict.c */
 #define CLIENT_REPLY_BLOCK_PLAIN  1  /* Plain, data stored in buf[] */
 #define CLIENT_REPLY_BLOCK_ROBJ   2  /* Shared robj, data referenced via robj pointer */
 
-/* Bulk string prefix max size (long + $ + \r\n) */
-#define BULK_STR_LEN_PREFIX_MAX_SIZE (LONG_STR_SIZE + 3)
-
 /* Plain buffer block */
 typedef struct clientReplyBlockPlain {
     int type;  /* Always CLIENT_REPLY_BLOCK_PLAIN */
@@ -1106,7 +1103,7 @@ typedef struct clientReplyBlockRobj {
     int type;  /* Always CLIENT_REPLY_BLOCK_ROBJ */
     robj *obj;
     unsigned int prefix_cnt;
-    char prefix[BULK_STR_LEN_PREFIX_MAX_SIZE];
+    char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n */
     char crlf[2]; /* \r\n */
 } clientReplyBlockRobj;
 
