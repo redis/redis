@@ -1104,7 +1104,7 @@ typedef struct clientReplyBlockPlain {
 /* Robj reference block */
 typedef struct clientReplyBlockRobj {
     int type;  /* Always CLIENT_REPLY_BLOCK_ROBJ */
-    robj *obj;           /* robj pointer */
+    robj *obj;
     unsigned int prefix_cnt;
     char prefix[BULK_STR_LEN_PREFIX_MAX_SIZE];
     char crlf[2]; /* \r\n */
