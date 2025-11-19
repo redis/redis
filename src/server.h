@@ -1935,7 +1935,8 @@ struct redisServer {
     int enable_module_cmd;           /* Enable MODULE commands, see PROTECTED_ACTION_ALLOWED_* */
 
     /* Reply construction copy avoidance */
-    int min_string_size_copy_avoid;          /* Minimum bulk string size for copy avoidance in reply construction when IO threads disabled */
+    int min_io_threads_copy_avoid;  /* Minimum number of IO threads for copy avoidance in reply construction */
+    int min_string_size_copy_avoid; /* Minimum bulk string size for copy avoidance in reply construction when IO threads disabled */
 
     /* RDB / AOF loading information */
     volatile sig_atomic_t loading; /* We are loading data from disk if true */

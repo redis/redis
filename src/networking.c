@@ -1185,6 +1185,9 @@ static int isCopyAvoidPreferred(client *c, robj *obj) {
     if (type != CLIENT_TYPE_NORMAL && type != CLIENT_TYPE_PUBSUB) return 0;
     if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount == OBJ_STATIC_REFCOUNT) return 0;
 
+    /* Copy avoidance is preferred for any string size starting certain number of I/O threads  */
+    if (server.min_io_threads_copy_avoid && server.io_threads_num < server.min_io_threads_copy_avoid) return 0;
+
     /* Copy avoidance is preferred starting certain string size */
     return server.min_string_size_copy_avoid && sdslen(obj->ptr) >= (size_t)server.min_string_size_copy_avoid;
 }
