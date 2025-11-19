@@ -1180,10 +1180,10 @@ void addReplyBulkLen(client *c, robj *obj) {
  * that use _writeToClient handler to write replies to client connection */
 static int isCopyAvoidPreferred(client *c, robj *obj) {
     if (!c->conn || !obj) return 0;
+    if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount == OBJ_STATIC_REFCOUNT) return 0;
 
     int type = getClientType(c);
     if (type != CLIENT_TYPE_NORMAL && type != CLIENT_TYPE_PUBSUB) return 0;
-    if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount == OBJ_STATIC_REFCOUNT) return 0;
 
     /* Copy avoidance is preferred for any string size starting certain number of I/O threads  */
     if (server.min_io_threads_copy_avoid && server.io_threads_num < server.min_io_threads_copy_avoid) return 0;
@@ -1203,10 +1203,9 @@ static int tryAvoidBulkStrCopyToReply(client *c, robj *obj) {
 /* Add a Redis Object as a bulk reply */
 void addReplyBulk(client *c, robj *obj) {
     if (_prepareClientToWrite(c) != C_OK) return;
+    if (unlikely(tryAvoidBulkStrCopyToReply(c, obj) == C_OK)) return; 
 
     if (sdsEncodedObject(obj)) {
-        if (tryAvoidBulkStrCopyToReply(c, obj) == C_OK) return; 
-
         const size_t len = sdslen(obj->ptr);
         _addReplyLongLongBulk(c, len);
         _addReplyToBufferOrList(c,obj->ptr,len);
