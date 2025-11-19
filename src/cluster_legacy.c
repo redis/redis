@@ -4454,10 +4454,6 @@ void clusterHandleSlaveFailover(void) {
         /* Update my configEpoch to the epoch of the election. */
         if (myself->configEpoch < server.cluster->failover_auth_epoch) {
             myself->configEpoch = server.cluster->failover_auth_epoch;
-            /* Save the new config epoch and broadcast it to the other nodes. */
-            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                 CLUSTER_TODO_FSYNC_CONFIG|
-                                 CLUSTER_TODO_BROADCAST_PONG);
             serverLog(LL_NOTICE,
                 "configEpoch set to %llu after successful failover",
                 (unsigned long long) myself->configEpoch);
