@@ -258,7 +258,7 @@ void emptyDbAsync(redisDb *db) {
     db->keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
     db->expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
     db->subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
-    protectClientReplyObjects(); /* Protect client reply objects before async free. */
+    // protectClientReplyObjects(); /* Protect client reply objects before async free. */
     emptyDbDataAsync(oldkeys, oldexpires, oldsubexpires);
 }
 
