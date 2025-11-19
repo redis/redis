@@ -20,20 +20,20 @@ static int avlMax(int a, int b) {
 }
 
 /* Get height of a node. Returns 0 for null nodes. */
-static uint8_t avlGetHeight(AVLTree *tree, uint32_t nodeIdx) {
+static uint8_t avlGetHeight(avlTree *tree, uint32_t nodeIdx) {
     if (nodeIdx == AVL_NULL) return 0;
     return tree->heights[nodeIdx];
 }
 
 /* Get balance factor of a node. */
-static int avlGetBalance(AVLTree *tree, uint32_t nodeIdx) {
+static int avlGetBalance(avlTree *tree, uint32_t nodeIdx) {
     if (nodeIdx == AVL_NULL) return 0;
     return (int)avlGetHeight(tree, tree->nodes[nodeIdx].left) - 
            (int)avlGetHeight(tree, tree->nodes[nodeIdx].right);
 }
 
 /* Update height of a node based on its children heights. */
-static void avlUpdateHeight(AVLTree *tree, uint32_t nodeIdx) {
+static void avlUpdateHeight(avlTree *tree, uint32_t nodeIdx) {
     if (nodeIdx == AVL_NULL) return;
     uint8_t leftHeight = avlGetHeight(tree, tree->nodes[nodeIdx].left);
     uint8_t rightHeight = avlGetHeight(tree, tree->nodes[nodeIdx].right);
@@ -43,7 +43,7 @@ static void avlUpdateHeight(AVLTree *tree, uint32_t nodeIdx) {
 /* ------------------------- AVL rotations --------------------------------- */
 
 /* Perform left rotation on node x. Returns the new root of the subtree. */
-static uint32_t avlRotateLeft(AVLTree *tree, uint32_t x) {
+static uint32_t avlRotateLeft(avlTree *tree, uint32_t x) {
     uint32_t y = tree->nodes[x].right;
     uint32_t T2 = tree->nodes[y].left;
     uint32_t xParent = tree->parents[x];
@@ -65,7 +65,7 @@ static uint32_t avlRotateLeft(AVLTree *tree, uint32_t x) {
 }
 
 /* Perform right rotation on node y. Returns the new root of the subtree. */
-static uint32_t avlRotateRight(AVLTree *tree, uint32_t y) {
+static uint32_t avlRotateRight(avlTree *tree, uint32_t y) {
     uint32_t x = tree->nodes[y].left;
     uint32_t T2 = tree->nodes[x].right;
     uint32_t yParent = tree->parents[y];
@@ -88,7 +88,7 @@ static uint32_t avlRotateRight(AVLTree *tree, uint32_t y) {
 
 /* Balance a node and return new root of subtree. Handles all four cases:
  * Left-Left, Left-Right, Right-Right, Right-Left. */
-static uint32_t avlBalance(AVLTree *tree, uint32_t nodeIdx) {
+static uint32_t avlBalance(avlTree *tree, uint32_t nodeIdx) {
     if (nodeIdx == AVL_NULL) return AVL_NULL;
     
     avlUpdateHeight(tree, nodeIdx);
@@ -123,7 +123,7 @@ static uint32_t avlBalance(AVLTree *tree, uint32_t nodeIdx) {
 
 /* Allocate a node from free list or new space. Returns the index of the
  * allocated node. */
-static uint32_t avlAllocateNode(AVLTree * tree) {
+static uint32_t avlAllocateNode(avlTree * tree) {
     uint32_t nodeIdx;
     
     /* Try to use a node from the free list first. */
@@ -147,7 +147,7 @@ static uint32_t avlAllocateNode(AVLTree * tree) {
 }
 
 /* Free a node by adding it to the free list. */
-static void avlFreeNode(AVLTree * tree, uint32_t nodeIdx) {
+static void avlFreeNode(avlTree * tree, uint32_t nodeIdx) {
     tree->nodes[nodeIdx].left = tree->firstFree;
     tree->firstFree = nodeIdx;
     tree->size--;
@@ -157,7 +157,7 @@ static void avlFreeNode(AVLTree * tree, uint32_t nodeIdx) {
 
 /* Insert a value into subtree rooted at nodeIdx. Returns the new root
  * of the subtree. Duplicates are not allowed. */
-static uint32_t avlInsertNode(AVLTree * tree, uint32_t nodeIdx, void * value) {
+static uint32_t avlInsertNode(avlTree * tree, uint32_t nodeIdx, void * value) {
     /* Base case: found insertion point. */
     if (nodeIdx == AVL_NULL) {
         uint32_t newIdx = avlAllocateNode(tree);
@@ -186,18 +186,18 @@ static uint32_t avlInsertNode(AVLTree * tree, uint32_t nodeIdx, void * value) {
 }
 
 /* Find minimum value node in subtree rooted at nodeIdx. */
-static uint32_t avlFindMin(AVLTree * tree, uint32_t nodeIdx) {
+static uint32_t avlFindMin(avlTree * tree, uint32_t nodeIdx) {
     while (tree->nodes[nodeIdx].left != AVL_NULL) {
         nodeIdx = tree->nodes[nodeIdx].left;
     }
     return nodeIdx;
 }
 
-/* Remove a value from subtree rooted at nodeIdx. Sets *found to true if
+/* Remove a value from subtree rooted at nodeIdx. Sets *found to 1 if
  * the value was found and removed. Returns the new root of the subtree. */
-static uint32_t avlRemoveNode(AVLTree * tree, uint32_t nodeIdx, void * value, bool * found) {
+static uint32_t avlRemoveNode(avlTree * tree, uint32_t nodeIdx, void * value, int * found) {
     if (nodeIdx == AVL_NULL) {
-        *found = false;
+        *found = 0;
         return AVL_NULL;
     }
     
@@ -213,7 +213,7 @@ static uint32_t avlRemoveNode(AVLTree * tree, uint32_t nodeIdx, void * value, bo
         if (newRight != AVL_NULL) tree->parents[newRight] = nodeIdx;
     } else {
         /* Found the node to delete. */
-        *found = true;
+        *found = 1;
         
         /* Node with only one child or no child. */
         if (tree->nodes[nodeIdx].left == AVL_NULL || 
@@ -223,21 +223,36 @@ static uint32_t avlRemoveNode(AVLTree * tree, uint32_t nodeIdx, void * value, bo
             
             if (temp != AVL_NULL) tree->parents[temp] = tree->parents[nodeIdx];
             
+            /* Call the free callback if set. */
+            if (tree->free_callback != NULL) {
+                tree->free_callback(tree->nodes[nodeIdx].value);
+            }
+            
             avlFreeNode(tree, nodeIdx);
             return temp;
         } else {
             /* Node with two children: get in-order successor. */
             uint32_t successor = avlFindMin(tree, tree->nodes[nodeIdx].right);
             
+            /* Call the free callback if set, on the original value. */
+            if (tree->free_callback != NULL) {
+                tree->free_callback(tree->nodes[nodeIdx].value);
+            }
+            
             /* Copy successor's value to this node. */
             tree->nodes[nodeIdx].value = tree->nodes[successor].value;
             
-            /* Delete the successor. */
-            bool dummyFound;
+            /* Delete the successor (don't call callback again). */
+            void (*saved_callback)(void*) = tree->free_callback;
+            tree->free_callback = NULL;
+            
+            int dummyFound;
             uint32_t newRight = avlRemoveNode(tree, tree->nodes[nodeIdx].right, 
                                               tree->nodes[successor].value, &dummyFound);
             tree->nodes[nodeIdx].right = newRight;
             if (newRight != AVL_NULL) tree->parents[newRight] = nodeIdx;
+            
+            tree->free_callback = saved_callback;
         }
     }
     
@@ -248,17 +263,17 @@ static uint32_t avlRemoveNode(AVLTree * tree, uint32_t nodeIdx, void * value, bo
 }
 
 /* Check if a node index is in the free list. */
-static bool avlIsInFreeList(AVLTree * tree, uint32_t nodeIdx) {
+static int avlIsInFreeList(avlTree * tree, uint32_t nodeIdx) {
     uint32_t current = tree->firstFree;
     while (current != AVL_NULL) {
-        if (current == nodeIdx) return true;
+        if (current == nodeIdx) return 1;
         current = tree->nodes[current].left;
     }
-    return false;
+    return 0;
 }
 
 /* Remove a node from the free list. */
-static void avlRemoveFromFreeList(AVLTree * tree, uint32_t nodeIdx) {
+static void avlRemoveFromFreeList(avlTree * tree, uint32_t nodeIdx) {
     if (tree->firstFree == nodeIdx) {
         tree->firstFree = tree->nodes[nodeIdx].left;
         return;
@@ -276,9 +291,9 @@ static void avlRemoveFromFreeList(AVLTree * tree, uint32_t nodeIdx) {
 
 /* Find the highest index of any active node (not in free list). Uses a
  * stack-based traversal to find all used indices. */
-static uint32_t avlFindMaxActiveIndex(AVLTree * tree) {
+static uint32_t avlFindMaxActiveIndex(avlTree * tree) {
     uint32_t maxIdx = 0;
-    bool found = false;
+    int found = 0;
     
     if (tree->root == AVL_NULL) return AVL_NULL;
     
@@ -291,7 +306,7 @@ static uint32_t avlFindMaxActiveIndex(AVLTree * tree) {
         uint32_t nodeIdx = stack[--stackTop];
         if (!found || nodeIdx > maxIdx) {
             maxIdx = nodeIdx;
-            found = true;
+            found = 1;
         }
         
         if (tree->nodes[nodeIdx].left != AVL_NULL) {
@@ -308,9 +323,9 @@ static uint32_t avlFindMaxActiveIndex(AVLTree * tree) {
 /* -------------------- Dynamic array resizing ---------------------------- */
 
 /* Resize the node arrays to newCapacity. When shrinking, moves nodes beyond
- * newCapacity to lower indices and rebuilds the free list. Returns true on
- * success, false on memory allocation failure. */
-static bool avlResize(AVLTree * tree, uint32_t newCapacity) {
+ * newCapacity to lower indices and rebuilds the free list. Returns 1 on
+ * success, 0 on memory allocation failure. */
+static int avlResize(avlTree * tree, uint32_t newCapacity) {
     if (newCapacity < INITIAL_CAPACITY) {
         newCapacity = INITIAL_CAPACITY;
     }
@@ -323,7 +338,7 @@ static bool avlResize(AVLTree * tree, uint32_t newCapacity) {
         if (maxActiveIdx != AVL_NULL && maxActiveIdx >= newCapacity) {
             /* Create a mapping to track moved nodes: oldIndex -> newIndex. */
             uint32_t *indexMap = (uint32_t *)malloc(tree->capacity * sizeof(uint32_t));
-            if (!indexMap) return false;
+            if (!indexMap) return 0;
             
             /* Initialize mapping (identity mapping). */
             for (uint32_t i = 0; i < tree->capacity; i++) {
@@ -393,7 +408,7 @@ static bool avlResize(AVLTree * tree, uint32_t newCapacity) {
                 } else {
                     /* No free slot found, can't shrink. */
                     free(indexMap);
-                    return false;
+                    return 0;
                 }
             }
             
@@ -416,20 +431,20 @@ static bool avlResize(AVLTree * tree, uint32_t newCapacity) {
     }
     
     /* Allocate new arrays. */
-    AVLNode *newNodes = (AVLNode *)realloc(tree->nodes, newCapacity * sizeof(AVLNode));
-    if (!newNodes) return false;
+    avlNode *newNodes = (avlNode *)realloc(tree->nodes, newCapacity * sizeof(avlNode));
+    if (!newNodes) return 0;
     
     uint8_t *newHeights = (uint8_t *)realloc(tree->heights, newCapacity * sizeof(uint8_t));
     if (!newHeights) {
         tree->nodes = newNodes;
-        return false;
+        return 0;
     }
     
     uint32_t *newParents = (uint32_t *)realloc(tree->parents, newCapacity * sizeof(uint32_t));
     if (!newParents) {
         tree->nodes = newNodes;
         tree->heights = newHeights;
-        return false;
+        return 0;
     }
     
     tree->nodes = newNodes;
@@ -437,27 +452,27 @@ static bool avlResize(AVLTree * tree, uint32_t newCapacity) {
     tree->parents = newParents;
     tree->capacity = newCapacity;
     
-    return true;
+    return 1;
 }
 
 /* Grow the tree capacity by doubling it. */
-static bool avlGrow(AVLTree * tree) {
+static int avlGrow(avlTree * tree) {
     return avlResize(tree, tree->capacity * 2);
 }
 
 /* Shrink the tree capacity by halving it if size allows. */
-static bool avlShrink(AVLTree * tree) {
+static int avlShrink(avlTree * tree) {
     uint32_t newCapacity = tree->capacity / 2;
     if (newCapacity < INITIAL_CAPACITY) {
         newCapacity = INITIAL_CAPACITY;
     }
     if (newCapacity >= tree->capacity) {
-        return true; /* No need to shrink. */
+        return 1; /* No need to shrink. */
     }
     
     /* Make sure we have enough space for all active nodes. */
     if (tree->size > newCapacity) {
-        return true; /* Can't shrink, not enough space. */
+        return 1; /* Can't shrink, not enough space. */
     }
     
     return avlResize(tree, newCapacity);
@@ -466,10 +481,10 @@ static bool avlShrink(AVLTree * tree) {
 /* ------------------------- AVL tree API ---------------------------------- */
 
 /* Create a new AVL tree with the given comparison function. */
-AVLTree * avlCreate(avlCompareFunc compare) {
+avlTree * avlNew(avlCompareFunc compare) {
     if (!compare) return NULL;
     
-    AVLTree * tree = (AVLTree *)malloc(sizeof(AVLTree));
+    avlTree * tree = (avlTree *)malloc(sizeof(avlTree));
     if (!tree) return NULL;
     
     tree->capacity = INITIAL_CAPACITY;
@@ -477,8 +492,9 @@ AVLTree * avlCreate(avlCompareFunc compare) {
     tree->root = AVL_NULL;
     tree->firstFree = AVL_NULL;
     tree->compare = compare;
+    tree->free_callback = NULL;
     
-    tree->nodes = (AVLNode *)malloc(INITIAL_CAPACITY * sizeof(AVLNode));
+    tree->nodes = (avlNode *)malloc(INITIAL_CAPACITY * sizeof(avlNode));
     tree->heights = (uint8_t *)malloc(INITIAL_CAPACITY * sizeof(uint8_t));
     tree->parents = (uint32_t *)malloc(INITIAL_CAPACITY * sizeof(uint32_t));
     
@@ -494,7 +510,7 @@ AVLTree * avlCreate(avlCompareFunc compare) {
 }
 
 /* Free an AVL tree and all its associated memory. */
-void avlDestroy(AVLTree * tree) {
+void avlFree(avlTree * tree) {
     if (!tree) return;
     
     free(tree->nodes);
@@ -503,32 +519,67 @@ void avlDestroy(AVLTree * tree) {
     free(tree);
 }
 
+/* Helper function to traverse tree and call callback on all values. */
+static void avlFreeValuesHelper(avlTree * tree, uint32_t nodeIdx, void (*free_callback)(void*)) {
+    if (nodeIdx == AVL_NULL) return;
+    
+    /* Recursively free left and right subtrees. */
+    avlFreeValuesHelper(tree, tree->nodes[nodeIdx].left, free_callback);
+    avlFreeValuesHelper(tree, tree->nodes[nodeIdx].right, free_callback);
+    
+    /* Free the value at this node. */
+    if (tree->nodes[nodeIdx].value != NULL) {
+        free_callback(tree->nodes[nodeIdx].value);
+    }
+}
+
+/* Free the AVL tree and call the provided callback for each value.
+ * This is useful when you want to free both the tree and its contents. */
+void avlFreeWithCallback(avlTree * tree, void (*free_callback)(void*)) {
+    if (!tree) return;
+    
+    if (free_callback != NULL && tree->root != AVL_NULL) {
+        avlFreeValuesHelper(tree, tree->root, free_callback);
+    }
+    
+    free(tree->nodes);
+    free(tree->heights);
+    free(tree->parents);
+    free(tree);
+}
+
+/* Set a callback function to be called when a value is removed from the tree. */
+void avlSetFreeCallback(avlTree * tree, void (*callback)(void*)) {
+    if (!tree) return;
+    tree->free_callback = callback;
+}
+
 /* Insert a value into the tree. The tree is automatically grown if needed.
- * Returns true if a new node was inserted, false if the value already exists
+ * Returns 1 if a new node was inserted, 0 if the value already exists
  * or on memory allocation failure. Duplicate values are not allowed. */
-bool avlInsert(AVLTree * tree, void * value) {
-    if (!tree) return false;
+int avlInsert(avlTree * tree, void * value) {
+    if (!tree) return 0;
     
     /* Check if we need to grow. */
     if (tree->size >= tree->capacity) {
-        if (!avlGrow(tree)) return false;
+        if (!avlGrow(tree)) return 0;
     }
     
     uint32_t oldSize = tree->size;
     tree->root = avlInsertNode(tree, tree->root, value);
     tree->parents[tree->root] = AVL_NULL;
     
-    /* Return true only if a new node was actually inserted. */
+    /* Return 1 only if a new node was actually inserted. */
     return tree->size > oldSize;
 }
 
 /* Remove a value from the tree. The tree is automatically shrunk if the
- * capacity is more than 4 times the size. Returns true if the value was
- * found and removed, false otherwise. */
-bool avlRemove(AVLTree * tree, void * value) {
-    if (!tree || tree->root == AVL_NULL) return false;
+ * capacity is more than 4 times the size. Returns 1 if the value was
+ * found and removed, 0 otherwise. */
+int avlRemove(avlTree * tree, void * value) {
+    if (!tree || tree->root == AVL_NULL) return 0;
     
-    bool found = false;
+    int found = 0;
     tree->root = avlRemoveNode(tree, tree->root, value, &found);
     if (tree->root != AVL_NULL) {
         tree->parents[tree->root] = AVL_NULL;
@@ -544,7 +595,7 @@ bool avlRemove(AVLTree * tree, void * value) {
 }
 
 /* Search for a value in the tree. Returns the value if found, NULL otherwise. */
-void * avlFind(AVLTree * tree, void * value) {
+void * avlFind(avlTree * tree, void * value) {
     if (!tree) return NULL;
     
     uint32_t current = tree->root;
@@ -563,12 +614,12 @@ void * avlFind(AVLTree * tree, void * value) {
 }
 
 /* Return the number of elements in the tree. */
-int avlGetSize(AVLTree * tree) {
+int avlGetSize(avlTree * tree) {
     return tree ? tree->size : 0;
 }
 
-/* Return true if the tree is empty, false otherwise. */
-bool avlIsEmpty(AVLTree * tree) {
+/* Return 1 if the tree is empty, 0 otherwise. */
+int avlIsEmpty(avlTree * tree) {
     return !tree || tree->size == 0;
 }
 
@@ -579,6 +630,15 @@ bool avlIsEmpty(AVLTree * tree) {
 
 #define UNUSED(x) (void)(x)
 
+/* Error macro for simple messages without format arguments. */
+#define ERR_SIMPLE(x)                                                          \
+    do {                                                                       \
+        printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
+        printf("ERROR! " x "\n");                                              \
+        err++;                                                                 \
+    } while (0)
+
+/* Error macro for formatted messages with variadic arguments. */
 #define ERR(x, ...)                                                            \
     do {                                                                       \
         printf("%s:%s:%d:\t", __FILE__, __func__, __LINE__);                   \
@@ -601,7 +661,7 @@ static int compareStr(const void * a, const void * b) {
 }
 
 /* Helper to verify AVL tree properties (balance and heights). */
-static int verifyAVLProperties(AVLTree * tree, uint32_t nodeIdx, int *heightOut) {
+static int verifyAVLProperties(avlTree * tree, uint32_t nodeIdx, int *heightOut) {
     if (nodeIdx == AVL_NULL) {
         *heightOut = 0;
         return 0;
@@ -630,6 +690,21 @@ static int verifyAVLProperties(AVLTree * tree, uint32_t nodeIdx, int *heightOut)
     return errors;
 }
 
+/* Test helpers: global counter for callback tests. */
+static int testFreeCount = 0;
+
+/* Callback that counts invocations and frees memory. */
+static void testCountingFreeCallback(void *ptr) {
+    testFreeCount++;
+    free(ptr);
+}
+
+/* Callback that only counts invocations. */
+static void testCountingCallback(void *ptr) {
+    UNUSED(ptr);
+    testFreeCount++;
+}
+
 int avlTest(int argc, char **argv, int flags) {
     UNUSED(argc);
     UNUSED(argv);
@@ -638,18 +713,18 @@ int avlTest(int argc, char **argv, int flags) {
     int err = 0;
     
     TEST("Create and destroy empty tree") {
-        AVLTree * tree = avlCreate(compareInt);
+        avlTree * tree = avlNew(compareInt);
         if (!tree) {
-            ERR("Failed to create tree", 0);
+            ERR_SIMPLE("Failed to create tree");
         } else {
-            if (!avlIsEmpty(tree)) ERR("New tree should be empty", 0);
+            if (!avlIsEmpty(tree)) ERR_SIMPLE("New tree should be empty");
             if (avlGetSize(tree) != 0) ERR("New tree should have size 0, got %d", avlGetSize(tree));
-            avlDestroy(tree);
+            avlFree(tree);
         }
     }
     
     TEST("Insert and find integers") {
-        AVLTree * tree = avlCreate(compareInt);
+        avlTree * tree = avlNew(compareInt);
         int values[] = {10, 20, 30, 40, 50, 25, 35, 5, 15, 27};
         int n = sizeof(values) / sizeof(values[0]);
         
@@ -678,11 +753,11 @@ int avlTest(int argc, char **argv, int flags) {
         int height;
         err += verifyAVLProperties(tree, tree->root, &height);
         
-        avlDestroy(tree);
+        avlFree(tree);
     }
     
     TEST("Remove integers") {
-        AVLTree * tree = avlCreate(compareInt);
+        avlTree * tree = avlNew(compareInt);
         int values[] = {50, 30, 70, 20, 40, 60, 80};
         int n = sizeof(values) / sizeof(values[0]);
         
@@ -707,11 +782,11 @@ int avlTest(int argc, char **argv, int flags) {
         int height;
         err += verifyAVLProperties(tree, tree->root, &height);
         
-        avlDestroy(tree);
+        avlFree(tree);
     }
     
     TEST("Duplicate insertion") {
-        AVLTree * tree = avlCreate(compareInt);
+        avlTree * tree = avlNew(compareInt);
         int value = 42;
         
         if (!avlInsert(tree, &value)) {
@@ -719,18 +794,18 @@ int avlTest(int argc, char **argv, int flags) {
         }
         
         if (avlInsert(tree, &value)) {
-            ERR("Duplicate insertion should fail but returned success", 0);
+            ERR_SIMPLE("Duplicate insertion should fail but returned success");
         }
         
         if (avlGetSize(tree) != 1) {
             ERR("Size should be 1 after duplicate insertion, got %d", avlGetSize(tree));
         }
         
-        avlDestroy(tree);
+        avlFree(tree);
     }
     
     TEST("String tree operations") {
-        AVLTree * tree = avlCreate(compareStr);
+        avlTree * tree = avlNew(compareStr);
         char* words[] = {"apple", "banana", "cherry", "date", "fig"};
         int n = sizeof(words) / sizeof(words[0]);
         
@@ -751,17 +826,17 @@ int avlTest(int argc, char **argv, int flags) {
         
         avlRemove(tree, "banana");
         if (avlFind(tree, "banana") != NULL) {
-            ERR("'banana' still found after removal", 0);
+            ERR_SIMPLE("'banana' still found after removal");
         }
         
         int height;
         err += verifyAVLProperties(tree, tree->root, &height);
         
-        avlDestroy(tree);
+        avlFree(tree);
     }
     
     TEST("Large tree with sequential insertions") {
-        AVLTree * tree = avlCreate(compareInt);
+        avlTree * tree = avlNew(compareInt);
         int values[100];
         
         for (int i = 0; i < 100; i++) {
@@ -783,11 +858,11 @@ int avlTest(int argc, char **argv, int flags) {
             }
         }
         
-        avlDestroy(tree);
+        avlFree(tree);
     }
     
     TEST("Remove all elements") {
-        AVLTree * tree = avlCreate(compareInt);
+        avlTree * tree = avlNew(compareInt);
         int values[] = {5, 3, 7, 2, 4, 6, 8};
         int n = sizeof(values) / sizeof(values[0]);
         
@@ -802,14 +877,274 @@ int avlTest(int argc, char **argv, int flags) {
         }
         
         if (!avlIsEmpty(tree)) {
-            ERR("Tree should be empty after removing all elements", 0);
+            ERR_SIMPLE("Tree should be empty after removing all elements");
         }
         
         if (avlGetSize(tree) != 0) {
             ERR("Size should be 0 after removing all, got %d", avlGetSize(tree));
         }
         
-        avlDestroy(tree);
+        avlFree(tree);
+    }
+    
+    TEST("Free with callback") {
+        avlTree * tree = avlNew(compareInt);
+        int values[] = {10, 20, 30, 40, 50};
+        int n = sizeof(values) / sizeof(values[0]);
+        
+        /* Allocate dynamic copies of values. */
+        int **dynamicValues = (int **)malloc(n * sizeof(int *));
+        for (int i = 0; i < n; i++) {
+            dynamicValues[i] = (int *)malloc(sizeof(int));
+            *dynamicValues[i] = values[i];
+            avlInsert(tree, dynamicValues[i]);
+        }
+        
+        /* Track how many times the callback is called. */
+        testFreeCount = 0;
+        
+        /* Free tree with callback. */
+        avlFreeWithCallback(tree, testCountingFreeCallback);
+        
+        if (testFreeCount != n) {
+            ERR("Expected callback to be called %d times, but was called %d times", n, testFreeCount);
+        }
+        
+        free(dynamicValues);
+    }
+    
+    TEST("Set free callback and remove") {
+        avlTree * tree = avlNew(compareInt);
+        int values[] = {10, 20, 30, 40, 50};
+        int n = sizeof(values) / sizeof(values[0]);
+        
+        /* Allocate dynamic copies of values. */
+        int **dynamicValues = (int **)malloc(n * sizeof(int *));
+        for (int i = 0; i < n; i++) {
+            dynamicValues[i] = (int *)malloc(sizeof(int));
+            *dynamicValues[i] = values[i];
+            avlInsert(tree, dynamicValues[i]);
+        }
+        
+        /* Track how many times the callback is called. */
+        testFreeCount = 0;
+        
+        /* Set the callback. */
+        avlSetFreeCallback(tree, testCountingFreeCallback);
+        
+        /* Remove some values. */
+        int toRemove[] = {20, 40};
+        int removeCount = 2;
+        
+        for (int i = 0; i < removeCount; i++) {
+            if (!avlRemove(tree, &toRemove[i])) {
+                ERR("Failed to remove %d", toRemove[i]);
+            }
+        }
+        
+        if (testFreeCount != removeCount) {
+            ERR("Expected callback to be called %d times during removal, but was called %d times", 
+                removeCount, testFreeCount);
+        }
+        
+        if (avlGetSize(tree) != n - removeCount) {
+            ERR("Expected size %d after removals, got %d", n - removeCount, avlGetSize(tree));
+        }
+        
+        /* Free remaining values manually since we still have the callback set. */
+        testFreeCount = 0;
+        for (int i = 0; i < n; i++) {
+            int *found = (int *)avlFind(tree, &values[i]);
+            if (found) {
+                avlRemove(tree, &values[i]);
+            }
+        }
+        
+        if (testFreeCount != (n - removeCount)) {
+            ERR("Expected callback to be called %d times for remaining values, but was called %d times", 
+                n - removeCount, testFreeCount);
+        }
+        
+        avlFree(tree);
+        free(dynamicValues);
+    }
+    
+    TEST("Callback with NULL parameter") {
+        avlTree * tree = avlNew(compareInt);
+        int value = 42;
+        avlInsert(tree, &value);
+        
+        /* Set callback then disable it. */
+        testFreeCount = 0;
+        
+        avlSetFreeCallback(tree, testCountingCallback);
+        avlSetFreeCallback(tree, NULL);  /* Disable callback. */
+        
+        avlRemove(tree, &value);
+        
+        if (testFreeCount != 0) {
+            ERR("Callback should not be called when set to NULL, but was called %d times", testFreeCount);
+        }
+        
+        avlFree(tree);
+    }
+    
+    TEST("Dynamic resizing - growth") {
+        avlTree * tree = avlNew(compareInt);
+        
+        /* Initial capacity should be INITIAL_CAPACITY (8). */
+        uint32_t initialCapacity = tree->capacity;
+        if (initialCapacity != INITIAL_CAPACITY) {
+            ERR("Initial capacity should be %d, got %u", INITIAL_CAPACITY, initialCapacity);
+        }
+        
+        /* Insert enough elements to trigger growth. */
+        int values[100];
+        for (int i = 0; i < 100; i++) {
+            values[i] = i;
+            if (!avlInsert(tree, &values[i])) {
+                ERR("Failed to insert value %d", values[i]);
+            }
+        }
+        
+        /* Capacity should have grown beyond initial. */
+        if (tree->capacity <= initialCapacity) {
+            ERR("Capacity should have grown beyond %u, but is %u", initialCapacity, tree->capacity);
+        }
+        
+        /* Verify all values are still findable after growth. */
+        for (int i = 0; i < 100; i++) {
+            int *found = (int *)avlFind(tree, &values[i]);
+            if (!found || *found != values[i]) {
+                ERR("Failed to find value %d after growth", values[i]);
+            }
+        }
+        
+        /* Verify tree properties are maintained. */
+        int height;
+        err += verifyAVLProperties(tree, tree->root, &height);
+        
+        if (avlGetSize(tree) != 100) {
+            ERR("Expected size 100, got %d", avlGetSize(tree));
+        }
+        
+        avlFree(tree);
+    }
+    
+    TEST("Dynamic resizing - shrinking") {
+        avlTree * tree = avlNew(compareInt);
+        
+        /* Insert many elements to grow the tree. */
+        int values[100];
+        for (int i = 0; i < 100; i++) {
+            values[i] = i;
+            avlInsert(tree, &values[i]);
+        }
+        
+        uint32_t grownCapacity = tree->capacity;
+        
+        /* Remove most elements to trigger shrinking. */
+        for (int i = 0; i < 95; i++) {
+            if (!avlRemove(tree, &values[i])) {
+                ERR("Failed to remove value %d", values[i]);
+            }
+        }
+        
+        /* Capacity should have shrunk. */
+        if (tree->capacity >= grownCapacity) {
+            ERR("Capacity should have shrunk from %u, but is %u", grownCapacity, tree->capacity);
+        }
+        
+        /* Verify remaining values are still findable after shrinking. */
+        for (int i = 95; i < 100; i++) {
+            int *found = (int *)avlFind(tree, &values[i]);
+            if (!found || *found != values[i]) {
+                ERR("Failed to find value %d after shrinking", values[i]);
+            }
+        }
+        
+        /* Verify tree properties are maintained. */
+        int height;
+        err += verifyAVLProperties(tree, tree->root, &height);
+        
+        if (avlGetSize(tree) != 5) {
+            ERR("Expected size 5, got %d", avlGetSize(tree));
+        }
+        
+        avlFree(tree);
+    }
+    
+    TEST("Resize with deletions and reinsertions") {
+        avlTree * tree = avlNew(compareInt);
+        
+        /* Insert, remove, and reinsert to test resize with fragmentation. */
+        int values[50];
+        for (int i = 0; i < 50; i++) {
+            values[i] = i;
+            avlInsert(tree, &values[i]);
+        }
+        
+        /* Remove every other element. */
+        for (int i = 0; i < 50; i += 2) {
+            avlRemove(tree, &values[i]);
+        }
+        
+        if (avlGetSize(tree) != 25) {
+            ERR("Expected size 25 after removals, got %d", avlGetSize(tree));
+        }
+        
+        /* Reinsert the removed elements. */
+        for (int i = 0; i < 50; i += 2) {
+            if (!avlInsert(tree, &values[i])) {
+                ERR("Failed to reinsert value %d", values[i]);
+            }
+        }
+        
+        if (avlGetSize(tree) != 50) {
+            ERR("Expected size 50 after reinsertions, got %d", avlGetSize(tree));
+        }
+        
+        /* Verify all values are findable. */
+        for (int i = 0; i < 50; i++) {
+            int *found = (int *)avlFind(tree, &values[i]);
+            if (!found || *found != values[i]) {
+                ERR("Failed to find value %d after reinsertions", values[i]);
+            }
+        }
+        
+        /* Verify tree properties. */
+        int height;
+        err += verifyAVLProperties(tree, tree->root, &height);
+        
+        avlFree(tree);
+    }
+    
+    TEST("Minimum capacity maintained") {
+        avlTree * tree = avlNew(compareInt);
+        
+        /* Insert a few elements. */
+        int values[3] = {10, 20, 30};
+        for (int i = 0; i < 3; i++) {
+            avlInsert(tree, &values[i]);
+        }
+        
+        /* Remove all but one. */
+        avlRemove(tree, &values[0]);
+        avlRemove(tree, &values[1]);
+        
+        /* Capacity should not go below INITIAL_CAPACITY. */
+        if (tree->capacity < INITIAL_CAPACITY) {
+            ERR("Capacity %u should not be less than INITIAL_CAPACITY %d", 
+                tree->capacity, INITIAL_CAPACITY);
+        }
+        
+        /* Verify remaining element is still findable. */
+        int *found = (int *)avlFind(tree, &values[2]);
+        if (!found || *found != values[2]) {
+            ERR("Failed to find remaining value %d", values[2]);
+        }
+        
+        avlFree(tree);
     }
     
     if (!err)

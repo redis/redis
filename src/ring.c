@@ -214,6 +214,7 @@ void ringSetFreeCallback(ring *r, void (*callback)(void*)) {
 #include <assert.h>
 
 #define UNUSED(x) (void)(x)
+#define TEST(name) printf("test — %s\n", name);
 
 /* Test callback functions */
 static int test_callback_count = 0;
@@ -236,10 +237,7 @@ int ringTest(int argc, char *argv[], int flags) {
 
     int errors = 0;
 
-    printf("Testing ring buffer... ");
-
-    /* Test 1: Basic creation and destruction */
-    {
+    TEST("Basic creation and destruction") {
         ring *r = ringNew();
         assert(r != NULL);
         assert(ringSize(r) == 0);
@@ -248,8 +246,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 2: Push and pop single item */
-    {
+    TEST("Push and pop single item") {
         ring *r = ringNew();
         int value = 42;
         int *ptr = &value;
@@ -266,8 +263,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 3: Push multiple items */
-    {
+    TEST("Push multiple items") {
         ring *r = ringNew();
         int values[5] = {1, 2, 3, 4, 5};
         
@@ -286,8 +282,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 4: ringFront (peek without removing) */
-    {
+    TEST("ringFront (peek without removing)") {
         ring *r = ringNew();
         int value = 99;
         
@@ -310,8 +305,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 5: Automatic growth */
-    {
+    TEST("Automatic growth") {
         ring *r = ringNew();
         size_t initial_capacity = ringCapacity(r);
         int values[100];
@@ -334,8 +328,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 6: Automatic shrinking */
-    {
+    TEST("Automatic shrinking") {
         ring *r = ringNew();
         int values[100];
         
@@ -359,8 +352,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 7: Wrap-around behavior */
-    {
+    TEST("Wrap-around behavior") {
         ring *r = ringNewWithCapacity(4);
         int values[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
         
@@ -386,8 +378,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 8: ringClear */
-    {
+    TEST("ringClear") {
         ring *r = ringNew();
         int values[5] = {1, 2, 3, 4, 5};
         
@@ -407,8 +398,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 9: ringFreeWithCallback */
-    {
+    TEST("ringFreeWithCallback") {
         ring *r = ringNew();
         
         /* Allocate some items */
@@ -423,8 +413,7 @@ int ringTest(int argc, char *argv[], int flags) {
         /* If we got here without crashing, the test passed */
     }
 
-    /* Test 10: Edge cases - NULL handling */
-    {
+    TEST("Edge cases - NULL handling") {
         assert(ringSize(NULL) == 0);
         assert(ringCapacity(NULL) == 0);
         assert(ringIsEmpty(NULL) == 1);
@@ -435,8 +424,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringSetFreeCallback(NULL, zfree);  /* Should not crash */
     }
 
-    /* Test 11: Callback function on pop */
-    {
+    TEST("Callback function on pop") {
         ring *r = ringNew();
         test_callback_count = 0;
         
@@ -470,8 +458,7 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    /* Test 12: Callback with actual memory allocation */
-    {
+    TEST("Callback with actual memory allocation") {
         ring *r = ringNew();
         test_freed_count = 0;
         
@@ -493,7 +480,31 @@ int ringTest(int argc, char *argv[], int flags) {
         ringFree(r);
     }
 
-    printf("PASSED! All %d tests successful.\n", 12);
+    TEST("Minimum capacity maintained") {
+        ring *r = ringNew();
+        
+        /* Push a few items */
+        int values[3] = {10, 20, 30};
+        for (int i = 0; i < 3; i++) {
+            ringPush(r, &values[i]);
+        }
+        
+        /* Pop all but one */
+        ringPop(r);
+        ringPop(r);
+        
+        /* Capacity should not go below RING_MIN_CAPACITY */
+        assert(ringCapacity(r) >= RING_MIN_CAPACITY);
+        
+        /* Verify remaining element is still accessible */
+        int *front = ringFront(r);
+        assert(front != NULL);
+        assert(*front == values[2]);
+        
+        ringFree(r);
+    }
+
+    printf("PASSED! All %d tests successful.\n", 13);
     return errors;
 }
 
