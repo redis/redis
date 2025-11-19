@@ -9914,6 +9914,12 @@ struct COMMAND_ARG XADD_condition_Subargs[] = {
 {MAKE_ARG("acked",ARG_TYPE_PURE_TOKEN,-1,"ACKED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
+/* XADD idmp argument table */
+struct COMMAND_ARG XADD_idmp_Subargs[] = {
+{MAKE_ARG("idmp-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("uid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
 /* XADD trim strategy argument table */
 struct COMMAND_ARG XADD_trim_strategy_Subargs[] = {
 {MAKE_ARG("maxlen",ARG_TYPE_PURE_TOKEN,-1,"MAXLEN",NULL,NULL,CMD_ARG_NONE,0,NULL)},
@@ -9951,6 +9957,7 @@ struct COMMAND_ARG XADD_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("nomkstream",ARG_TYPE_PURE_TOKEN,-1,"NOMKSTREAM",NULL,"6.2.0",CMD_ARG_OPTIONAL,0,NULL)},
 {MAKE_ARG("condition",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,3,NULL),.subargs=XADD_condition_Subargs},
+{MAKE_ARG("idmp",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XADD_idmp_Subargs},
 {MAKE_ARG("trim",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,4,NULL),.subargs=XADD_trim_Subargs},
 {MAKE_ARG("id-selector",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_id_selector_Subargs},
 {MAKE_ARG("data",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_MULTIPLE,2,NULL),.subargs=XADD_data_Subargs},
@@ -11734,7 +11741,7 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 /* stream */
 {MAKE_CMD("xack","Returns the number of messages that were successfully acknowledged by the consumer group member of a stream.","O(1) for each message ID processed.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XACK_History,0,XACK_Tips,0,xackCommand,-4,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XACK_Keyspecs,1,NULL,3),.args=XACK_Args},
 {MAKE_CMD("xackdel","Acknowledges and deletes one or multiple messages for a stream consumer group.","O(1) for each message ID processed.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XACKDEL_History,0,XACKDEL_Tips,0,xackdelCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XACKDEL_Keyspecs,1,NULL,4),.args=XACKDEL_Args},
-{MAKE_CMD("xadd","Appends a new message to a stream. Creates the key if it doesn't exist.","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XADD_History,3,XADD_Tips,1,xaddCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XADD_Keyspecs,1,NULL,6),.args=XADD_Args},
+{MAKE_CMD("xadd","Appends a new message to a stream. Creates the key if it doesn't exist.","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XADD_History,3,XADD_Tips,1,xaddCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XADD_Keyspecs,1,NULL,7),.args=XADD_Args},
 {MAKE_CMD("xautoclaim","Changes, or acquires, ownership of messages in a consumer group, as if the messages were delivered to as consumer group member.","O(1) if COUNT is small.","6.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XAUTOCLAIM_History,1,XAUTOCLAIM_Tips,1,xautoclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XAUTOCLAIM_Keyspecs,1,NULL,7),.args=XAUTOCLAIM_Args},
 {MAKE_CMD("xclaim","Changes, or acquires, ownership of a message in a consumer group, as if the message was delivered a consumer group member.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XCLAIM_History,0,XCLAIM_Tips,1,xclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XCLAIM_Keyspecs,1,NULL,11),.args=XCLAIM_Args},
 {MAKE_CMD("xdel","Returns the number of messages after removing them from a stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDEL_History,0,XDEL_Tips,0,xdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDEL_Keyspecs,1,NULL,2),.args=XDEL_Args},

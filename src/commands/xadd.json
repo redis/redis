@@ -88,6 +88,22 @@
                 ]
             },
             {
+                "name": "idmp",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "token": "IDMP",
+                        "name": "idmp-token",
+                        "type": "pure-token"
+                    },
+                    {
+                        "name": "uid",
+                        "type": "string"
+                    }
+                ]
+            },
+            {
                 "name": "trim",
                 "type": "block",
                 "optional": true,

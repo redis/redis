@@ -45,6 +45,60 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
 
 /* -----------------------------------------------------------------------
+ * IDMP (Idempotent Message Producer) structures
+ * ----------------------------------------------------------------------- */
+
+/* Structure to hold UID and stream ID for IDMP deduplication */
+typedef struct idmpEntry {
+    char *uid;          /* User-provided unique identifier */
+    size_t uid_len;     /* Length of the UID */
+    streamID id;        /* Associated stream ID */
+} idmpEntry;
+
+/* Comparison function for idmpEntry structures in AVL tree.
+ * Compares entries by UID only (lexicographically).
+ * Returns: negative if a < b, 0 if a == b, positive if a > b */
+static int idmpEntryCompare(const void *a, const void *b) {
+    const idmpEntry *ea = (const idmpEntry *)a;
+    const idmpEntry *eb = (const idmpEntry *)b;
+    
+    /* Fast path: different lengths - use branchless comparison */
+    if (ea->uid_len != eb->uid_len) {
+        return (ea->uid_len > eb->uid_len) - (ea->uid_len < eb->uid_len);
+    }
+    
+    /* Same length: compare content */
+    return memcmp(ea->uid, eb->uid, ea->uid_len);
+}
+
+/* Create a new idmpEntry with the given UID and stream ID.
+ * The UID is copied into newly allocated memory.
+ * Returns NULL on allocation failure. */
+static idmpEntry *idmpEntryCreate(const char *uid, size_t uid_len, streamID *id) {
+    idmpEntry *entry = zmalloc(sizeof(idmpEntry));
+    if (entry == NULL) return NULL;
+    
+    entry->uid = zmalloc(uid_len);
+    if (entry->uid == NULL) {
+        zfree(entry);
+        return NULL;
+    }
+    
+    memcpy(entry->uid, uid, uid_len);
+    entry->uid_len = uid_len;
+    entry->id = *id;
+    
+    return entry;
+}
+
+/* Free an idmpEntry and its allocated UID. */
+static void idmpEntryFree(idmpEntry *entry) {
+    if (entry == NULL) return;
+    zfree(entry->uid);
+    zfree(entry);
+}
+
+/* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
  * ----------------------------------------------------------------------- */
 
@@ -67,6 +121,8 @@ stream *streamNew(void) {
     s->min_cgroup_last_id.ms = UINT64_MAX;
     s->min_cgroup_last_id.seq = UINT64_MAX;
     s->min_cgroup_last_id_valid = 0;
+    s->idmp_time_ring = ringNew();
+    s->idmp_uid_tree = avlNew(idmpEntryCompare);
     return s;
 }
 
@@ -86,6 +142,8 @@ void freeStream(stream *s) {
 #ifdef REDIS_TEST
     serverAssert(s->alloc_size == zmalloc_usable_size(s));
 #endif
+    ringFree(s->idmp_time_ring);
+    avlFree(s->idmp_uid_tree);
     zfree(s);
 }
 
@@ -696,15 +754,16 @@ typedef struct {
     int id_given; /* Was an ID different than "*" specified? for XADD only. */
     int seq_given; /* Was an ID different than "ms-*" specified? for XADD only. */
     int no_mkstream; /* if set to 1 do not create new stream */
+    robj *idmp_uid; /* IDMP uid parameter, for XADD only. */
 
     /* XADD + XTRIM common options */
     int trim_strategy; /* TRIM_STRATEGY_* */
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
     int delete_strategy; /* DELETE_STRATEGY_* */
     int approx_trim; /* If 1 only delete whole radix tree nodes, so
-                      * the trim argument is not applied verbatim. */
+                     * the trim argument is not applied verbatim. */
     long long limit; /* Maximum amount of entries to trim. If 0, no limitation
-                      * on the amount of trimming work is enforced. */
+                     * on the amount of trimming work is enforced. */
     /* TRIM_STRATEGY_MAXLEN options */
     long long maxlen; /* After trimming, leave stream at this length . */
     /* TRIM_STRATEGY_MINID options */
@@ -1062,6 +1121,14 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             args->delete_strategy = DELETE_STRATEGY_ACKED;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
+        } else if (xadd && !strcasecmp(opt,"idmp") && moreargs) {
+            /* IDMP uid parameter */
+            if (args->idmp_uid != NULL) {
+                addReplyError(c,"syntax error, IDMP specified multiple times");
+                return -1;
+            }
+            args->idmp_uid = c->argv[i+1];
+            i++;
         } else if (xadd) {
             /* If we are here is a syntax error or a valid ID. */
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
@@ -2362,7 +2429,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
     decrRefCount(arg);
 }
 
-/* XADD key [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] [NOMKSTREAM] <ID or *> [field value] [field value] ... */
+/* XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [IDMP uid] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] <ID or *> [field value] [field value] ... */
 void xaddCommand(client *c) {
     /* Parse options. */
     streamAddTrimArgs parsed_args;
@@ -2394,6 +2461,24 @@ void xaddCommand(client *c) {
     s = kv->ptr;
     size_t old_alloc = s->alloc_size;
 
+    /* IDMP: Check if UID already exists in the stream */
+    if (parsed_args.idmp_uid != NULL) {
+        /* Create a temporary entry for lookup */
+        idmpEntry lookup_entry;
+        lookup_entry.uid = parsed_args.idmp_uid->ptr;
+        lookup_entry.uid_len = sdslen(parsed_args.idmp_uid->ptr);
+        
+        /* Check if UID exists in the AVL tree */
+        idmpEntry *existing = avlFind(s->idmp_uid_tree, &lookup_entry);
+        if (existing != NULL) {
+            /* UID already exists, return the existing stream ID */
+            sds replyid = createStreamIDString(&existing->id);
+            addReplyBulkCBuffer(c, replyid, sdslen(replyid));
+            sdsfree(replyid);
+            return;
+        }
+    }
+
     /* Return ASAP if the stream has reached the last possible ID */
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
         addReplyError(c,"The stream has exhausted the last possible ID, "
@@ -2419,6 +2504,23 @@ void xaddCommand(client *c) {
     }
     sds replyid = createStreamIDString(&id);
     addReplyBulkCBuffer(c, replyid, sdslen(replyid));
+
+    /* IDMP: Add entry to both time ring and UID tree */
+    if (parsed_args.idmp_uid != NULL) {
+        idmpEntry *entry = idmpEntryCreate(parsed_args.idmp_uid->ptr, 
+                                           sdslen(parsed_args.idmp_uid->ptr), 
+                                           &id);
+        if (entry != NULL) {
+            /* Insert into AVL tree */
+            if (!avlInsert(s->idmp_uid_tree, entry)) {
+                /* Insert failed (shouldn't happen as we checked earlier), clean up */
+                idmpEntryFree(entry);
+            } else {
+                /* Insert into time ring */
+                ringPush(s->idmp_time_ring, entry);
+            }
+        }
+    }
 
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
     server.dirty++;
