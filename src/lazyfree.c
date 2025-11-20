@@ -211,33 +211,32 @@ static void protectClientReplyObjects(void) {
 
     listNode *ln;
     listIter li;
-    listRewind(server.clients, &li);
+    listRewind(server.clients_with_pending_ref_reply, &li);
     while ((ln = listNext(&li)) != NULL) {
         client *c = listNodeValue(ln);
 
-        /* Process deferred reply blocks */
-        processDeferredReplyBlocks(c);
+        if (c->reply && listLength(c->reply)) {
+            /* Iterate through client's reply list */
+            listIter reply_li;
+            listNode *reply_ln;
+            listRewind(c->reply, &reply_li);
+            while ((reply_ln = listNext(&reply_li))) {
+                clientReplyBlock *block = listNodeValue(reply_ln);
 
-        /* Skip cs without reply list */
-        if (!c->reply || listLength(c->reply) == 0) continue;
+                /* If this is an ROBJ block, duplicate the string object to avoid race condition */
+                if (block && block->type == CLIENT_REPLY_BLOCK_ROBJ) {
+                    clientReplyBlockRobj *robj_block = (clientReplyBlockRobj*)block;
 
-        /* Iterate through client's reply list */
-        listIter reply_li;
-        listNode *reply_ln;
-        listRewind(c->reply, &reply_li);
-        while ((reply_ln = listNext(&reply_li))) {
-            clientReplyBlock *block = listNodeValue(reply_ln);
-
-            /* If this is an ROBJ block, duplicate the string object to avoid race condition */
-            if (block && block->type == CLIENT_REPLY_BLOCK_ROBJ) {
-                clientReplyBlockRobj *robj_block = (clientReplyBlockRobj*)block;
-
-                /* Duplicate the string object */
-                robj *new_obj = dupStringObject(robj_block->obj);
-                decrRefCount(robj_block->obj);
-                robj_block->obj = new_obj;
+                    /* Duplicate the string object */
+                    robj *new_obj = dupStringObject(robj_block->obj);
+                    decrRefCount(robj_block->obj);
+                    robj_block->obj = new_obj;
+                }
             }
         }
+
+        /* Process deferred reply blocks */
+        processDeferredReplyBlocks(c);
     }
 
     if (allpaused) resumeAllIOThreads();

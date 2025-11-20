@@ -242,6 +242,7 @@ client *createClient(connection *conn) {
     c->client_list_node = NULL;
     c->io_thread_client_list_node = NULL;
     c->postponed_list_node = NULL;
+    c->pending_ref_reply_client_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
     c->last_cron_check_time = 0;
@@ -397,6 +398,12 @@ static void _addReplyObjectToList(client *c, robj *obj) {
 
     listAddNodeTail(c->reply, block);
     c->reply_bytes += len + block->prefix_cnt + 2; /* data + prefix + crlf */
+
+    /* Add client to the robj blocks list if not already there */
+    if (c->pending_ref_reply_client_list_node == NULL) {
+        listAddNodeTail(server.clients_with_pending_ref_reply, c);
+        c->pending_ref_reply_client_list_node = listLast(server.clients_with_pending_ref_reply);
+    }
 
     closeClientOnOutputBufferLimitReached(c, 1);
 }
@@ -1635,6 +1642,10 @@ void processDeferredReplyBlocks(client *c) {
 
     /* Clear the deferred reply blocks list */
     listEmpty(c->deferred_reply_blocks);
+
+    serverAssert(c->pending_ref_reply_client_list_node == NULL);
+    listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_client_list_node);
+    c->pending_ref_reply_client_list_node = NULL;
 }
 
 void freeClientOriginalArgv(client *c) {
@@ -1775,6 +1786,12 @@ void unlinkClient(client *c) {
         serverAssert(ln != NULL);
         listDelNode(server.unblocked_clients,ln);
         c->flags &= ~CLIENT_UNBLOCKED;
+    }
+
+    /* Remove from the list of clients with robj blocks if needed. */
+    if (c->pending_ref_reply_client_list_node) {
+        listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_client_list_node);
+        c->pending_ref_reply_client_list_node = NULL;
     }
 
     freeClientPendingCommands(c, -1);
@@ -2427,6 +2444,15 @@ int writeToClient(client *c, int handler_installed) {
         if (handler_installed) {
             /* IO Thread also can do that now. */
             connSetWriteHandler(c->conn, NULL);
+        }
+
+        /* Remove from the list of clients with pending ref reply. */
+        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+            c->pending_ref_reply_client_list_node)
+        {
+            serverAssert(listLength(c->deferred_reply_blocks) == 0);
+            listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_client_list_node);
+            c->pending_ref_reply_client_list_node = NULL;
         }
 
         /* Close connection after entire reply has been sent. */
