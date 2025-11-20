@@ -412,7 +412,7 @@ static void _addReplyObjectToList(client *c, robj *obj) {
  * Note: some edits to this function need to be relayed to AddReplyFromClient. */
 void _addReplyProtoToList(client *c, list *reply_list, const char *s, size_t len) {
     listNode *ln = listLast(reply_list);
-    clientReplyBlock *block = ln? listNodeValue(ln): NULL;
+    clientReplyBlock *block = ln ? listNodeValue(ln) : NULL;
     /* Check if the tail node is a plain block that we can append to */
     clientReplyBlockPlain *tail = (block && block->type == CLIENT_REPLY_BLOCK_PLAIN) ?
         (clientReplyBlockPlain*)block: NULL;
@@ -792,7 +792,7 @@ void addReplyStatusFormat(client *c, const char *fmt, ...) {
  * at the end of the last reply node which we won't use anymore. */
 void trimReplyUnusedTailSpace(client *c) {
     listNode *ln = listLast(c->reply);
-    clientReplyBlock *block = ln? listNodeValue(ln): NULL;
+    clientReplyBlock *block = ln ? listNodeValue(ln) : NULL;
     clientReplyBlockPlain *tail = (block && block->type == CLIENT_REPLY_BLOCK_PLAIN) ?
         (clientReplyBlockPlain*)block: NULL;
 
