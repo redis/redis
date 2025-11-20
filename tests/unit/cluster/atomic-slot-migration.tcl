@@ -511,14 +511,14 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # 5. Stop write traffic, verify db's are identical.
 
         # This test runs slowly under the thread sanitizer.
-        #   1. Increase the lag threshold from the default 1 MB to 10 MB to let the destination catch up easily.
-        #   2. Increase the write pause timeout from the default 10s to 60s so the source can wait longer.
+        #  1. Increase the lag threshold from the default 1 MB to 10 MB to let the destination catch up easily.
+        #  2. Increase the write pause timeout from the default 10s to 60s so the source can wait longer.
         set prev_config_lag [lindex [R 0 config get cluster-slot-migration-handoff-max-lag-bytes] 1]
         R 0 config set cluster-slot-migration-handoff-max-lag-bytes 10mb
         R 1 config set cluster-slot-migration-handoff-max-lag-bytes 10mb
         set prev_config_timeout [lindex [R 0 config get cluster-slot-migration-write-pause-timeout] 1]
-        R 0 config set cluster-slot-migration-write-pause-timeout 60
-        R 1 config set cluster-slot-migration-write-pause-timeout 60
+        R 0 config set cluster-slot-migration-write-pause-timeout 60000
+        R 1 config set cluster-slot-migration-write-pause-timeout 60000
 
         R 0 flushall
         R 0 debug asm-trim-method none
