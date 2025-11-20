@@ -960,15 +960,6 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 0}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 1}
-            assert_error "*wrong number of arguments*" {r HGETEX h1 PXAT 1 1}
-            assert_error "*Mandatory argument FIELDS*" {r HGETEX h1 XFIELDX 1 a}
-            assert_error "*Mandatory argument FIELDS*" {r HGETEX h1 PERSIST 1 FIELDS 1 a}
-            assert_error "*must match the number of arguments*" {r HGETEX h1 FIELDS 2 a}
-            assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 0 a}
-            assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS -1 a}
-            assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 9223372036854775808 a}
-            assert_error "*FIELDS keyword is required*" {r HGETEX h1 XFIELDX 1 a}
-            assert_error "*FIELDS keyword is required*" {r HGETEX h1 PXAT 1 1}
             assert_error "*unknown argument*" {r HGETEX h1 XFIELDX 1 a}
             assert_error "*unknown argument*" {r HGETEX h1 PXAT 1 1}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 2 a}
