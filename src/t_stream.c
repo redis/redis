@@ -50,8 +50,7 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 
 /* Structure to hold UID and stream ID for IDMP deduplication */
 typedef struct idmpEntry {
-    char *uid;          /* User-provided unique identifier */
-    size_t uid_len;     /* Length of the UID */
+    robj *uid;          /* User-provided unique identifier (Redis object) */
     streamID id;        /* Associated stream ID */
 } idmpEntry;
 
@@ -62,39 +61,37 @@ static int idmpEntryCompare(const void *a, const void *b) {
     const idmpEntry *ea = (const idmpEntry *)a;
     const idmpEntry *eb = (const idmpEntry *)b;
     
+    /* Get the string data from robj */
+    size_t len_a = sdslen((sds)ea->uid->ptr);
+    size_t len_b = sdslen((sds)eb->uid->ptr);
+    
     /* Fast path: different lengths - use branchless comparison */
-    if (ea->uid_len != eb->uid_len) {
-        return (ea->uid_len > eb->uid_len) - (ea->uid_len < eb->uid_len);
+    if (len_a != len_b) {
+        return (len_a > len_b) - (len_a < len_b);
     }
     
     /* Same length: compare content */
-    return memcmp(ea->uid, eb->uid, ea->uid_len);
+    return memcmp(ea->uid->ptr, eb->uid->ptr, len_a);
 }
 
 /* Create a new idmpEntry with the given UID and stream ID.
- * The UID is copied into newly allocated memory.
+ * The UID robj reference count is incremented.
  * Returns NULL on allocation failure. */
-static idmpEntry *idmpEntryCreate(const char *uid, size_t uid_len, streamID *id) {
+static idmpEntry *idmpEntryCreate(robj *uid, streamID *id) {
     idmpEntry *entry = zmalloc(sizeof(idmpEntry));
     if (entry == NULL) return NULL;
     
-    entry->uid = zmalloc(uid_len);
-    if (entry->uid == NULL) {
-        zfree(entry);
-        return NULL;
-    }
-    
-    memcpy(entry->uid, uid, uid_len);
-    entry->uid_len = uid_len;
+    entry->uid = uid;
+    incrRefCount(uid);
     entry->id = *id;
     
     return entry;
 }
 
-/* Free an idmpEntry and its allocated UID. */
+/* Free an idmpEntry and decrement its UID reference count. */
 static void idmpEntryFree(idmpEntry *entry) {
     if (entry == NULL) return;
-    zfree(entry->uid);
+    decrRefCount(entry->uid);
     zfree(entry);
 }
 
@@ -2465,8 +2462,7 @@ void xaddCommand(client *c) {
     if (parsed_args.idmp_uid != NULL) {
         /* Create a temporary entry for lookup */
         idmpEntry lookup_entry;
-        lookup_entry.uid = parsed_args.idmp_uid->ptr;
-        lookup_entry.uid_len = sdslen(parsed_args.idmp_uid->ptr);
+        lookup_entry.uid = parsed_args.idmp_uid;
         
         /* Check if UID exists in the AVL tree */
         idmpEntry *existing = avlFind(s->idmp_uid_tree, &lookup_entry);
@@ -2507,9 +2503,7 @@ void xaddCommand(client *c) {
 
     /* IDMP: Add entry to both time ring and UID tree */
     if (parsed_args.idmp_uid != NULL) {
-        idmpEntry *entry = idmpEntryCreate(parsed_args.idmp_uid->ptr, 
-                                           sdslen(parsed_args.idmp_uid->ptr), 
-                                           &id);
+        idmpEntry *entry = idmpEntryCreate(parsed_args.idmp_uid, &id);
         if (entry != NULL) {
             /* Insert into AVL tree */
             if (!avlInsert(s->idmp_uid_tree, entry)) {
