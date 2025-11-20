@@ -316,76 +316,102 @@ static uint32_t findMin(tringTree *tree, uint32_t idx) {
     return idx;
 }
 
-/* Helper function to remove a node from the tree.
- * Returns the new root of the subtree. */
-static uint32_t removeNode(tringTree *tree, uint32_t idx, void *value, int *removed, void **removedValue) {
-    if (idx == TRING_NULL) {
-        *removed = 0;
-        return TRING_NULL;
+/* Helper function to rebalance up the tree from a given node to the root.
+ * This is used after deletion to ensure the tree remains balanced. */
+static void rebalanceUp(tringTree *tree, uint32_t startIdx) {
+    uint32_t current = startIdx;
+    
+    while (current != TRING_NULL) {
+        uint32_t parent = tree->parents[current];
+        uint32_t newCurrent = rebalance(tree, current);
+        
+        /* If rebalancing changed the subtree root, update parent's pointer */
+        if (newCurrent != current) {
+            if (parent == TRING_NULL) {
+                /* This is the root */
+                tree->root = newCurrent;
+            } else if (tree->nodes[parent].left == current) {
+                tree->nodes[parent].left = newCurrent;
+            } else {
+                tree->nodes[parent].right = newCurrent;
+            }
+            tree->parents[newCurrent] = parent;
+        }
+        
+        current = parent;
+    }
+}
+
+/* Remove a node by its index directly (no search required).
+ * Returns the value stored in the removed node, or NULL on failure.
+ * This is more efficient than removeNode() when you already know the index. */
+static void *removeNodeByIndex(tringTree *tree, uint32_t idx) {
+    if (idx == TRING_NULL || idx >= tree->tail) {
+        return NULL;
     }
     
-    int cmp = tree->compare(value, tree->nodes[idx].value);
+    void *removedValue = tree->nodes[idx].value;
+    uint32_t parent = tree->parents[idx];
+    uint32_t replacement = TRING_NULL;
     
-    if (cmp < 0) {
-        /* Value is in left subtree */
-        uint32_t newLeft = removeNode(tree, tree->nodes[idx].left, value, removed, removedValue);
-        if (*removed) {
-            tree->nodes[idx].left = newLeft;
-            if (newLeft != TRING_NULL) {
-                tree->parents[newLeft] = idx;
-            }
-        }
-    } else if (cmp > 0) {
-        /* Value is in right subtree */
-        uint32_t newRight = removeNode(tree, tree->nodes[idx].right, value, removed, removedValue);
-        if (*removed) {
-            tree->nodes[idx].right = newRight;
-            if (newRight != TRING_NULL) {
-                tree->parents[newRight] = idx;
-            }
-        }
-    } else {
-        /* Found the node to remove */
-        *removed = 1;
-        *removedValue = tree->nodes[idx].value;
-        
-        /* Case 1: Node with only one child or no child */
-        if (tree->nodes[idx].left == TRING_NULL) {
-            uint32_t temp = tree->nodes[idx].right;
-            if (temp != TRING_NULL) {
-                tree->parents[temp] = tree->parents[idx];
-            }
-            return temp;
-        } else if (tree->nodes[idx].right == TRING_NULL) {
-            uint32_t temp = tree->nodes[idx].left;
-            if (temp != TRING_NULL) {
-                tree->parents[temp] = tree->parents[idx];
-            }
-            return temp;
-        }
-        
-        /* Case 2: Node with two children */
-        /* Get the inorder successor (smallest in the right subtree) */
+    /* Case 1: Node has no left child */
+    if (tree->nodes[idx].left == TRING_NULL) {
+        replacement = tree->nodes[idx].right;
+    }
+    /* Case 2: Node has no right child */
+    else if (tree->nodes[idx].right == TRING_NULL) {
+        replacement = tree->nodes[idx].left;
+    }
+    /* Case 3: Node has two children - use inorder successor */
+    else {
         uint32_t successor = findMin(tree, tree->nodes[idx].right);
         
-        /* Copy the successor's value to this node */
+        /* Copy successor's value to this node */
         tree->nodes[idx].value = tree->nodes[successor].value;
         
-        /* Delete the successor */
-        int successorRemoved = 0;
-        void *dummyValue = NULL;
-        tree->nodes[idx].right = removeNode(tree, tree->nodes[idx].right, 
-                                            tree->nodes[successor].value, 
-                                            &successorRemoved, &dummyValue);
-        if (tree->nodes[idx].right != TRING_NULL) {
-            tree->parents[tree->nodes[idx].right] = idx;
+        /* Now remove the successor (which has at most one child) */
+        uint32_t successorParent = tree->parents[successor];
+        uint32_t successorRightChild = tree->nodes[successor].right;
+        
+        /* Update the parent's pointer to the successor */
+        if (successorParent == idx) {
+            tree->nodes[idx].right = successorRightChild;
+        } else {
+            tree->nodes[successorParent].left = successorRightChild;
         }
+        
+        /* Update successor's right child parent pointer */
+        if (successorRightChild != TRING_NULL) {
+            tree->parents[successorRightChild] = successorParent;
+        }
+        
+        /* Rebalance from successor's old parent up to root */
+        rebalanceUp(tree, successorParent);
+        
+        return removedValue;
     }
     
-    if (!(*removed)) return idx;
+    /* Update parent's pointer to replacement */
+    if (parent == TRING_NULL) {
+        /* Removing the root */
+        tree->root = replacement;
+    } else if (tree->nodes[parent].left == idx) {
+        tree->nodes[parent].left = replacement;
+    } else {
+        tree->nodes[parent].right = replacement;
+    }
     
-    /* Rebalance and return */
-    return rebalance(tree, idx);
+    /* Update replacement's parent pointer */
+    if (replacement != TRING_NULL) {
+        tree->parents[replacement] = parent;
+    }
+    
+    /* Rebalance from parent up to root */
+    if (parent != TRING_NULL) {
+        rebalanceUp(tree, parent);
+    }
+    
+    return removedValue;
 }
 
 void *tringFront(tringTree *tree) {
@@ -406,28 +432,16 @@ void *tringBack(tringTree *tree) {
 void *tringPop(tringTree *tree) {
     if (!tree || tree->count == 0) return NULL;
     
-    /* Get the item pointed to by head */
-    void *headValue = tree->nodes[tree->head].value;
+    /* Remove the node at head index directly from the AVL tree */
+    void *removedValue = removeNodeByIndex(tree, tree->head);
     
-    /* Remove that item from the AVL tree */
-    int removed = 0;
-    void *removedValue = NULL;
-    uint32_t newRoot = removeNode(tree, tree->root, headValue, &removed, &removedValue);
-    
-    if (removed) {
-        tree->root = newRoot;
-        if (newRoot != TRING_NULL) {
-            tree->parents[newRoot] = TRING_NULL;
-        }
-        
+    if (removedValue) {
         /* Update ring buffer: increment head and decrement count */
         tree->head++;
         tree->count--;
-        
-        return removedValue;
     }
     
-    return NULL;
+    return removedValue;
 }
 
 #ifdef REDIS_TEST
