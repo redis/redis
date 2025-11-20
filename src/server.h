@@ -1089,7 +1089,7 @@ struct evictionPoolEntry; /* Defined in evict.c */
 
 /* Type of clientReplyBlock */
 #define CLIENT_REPLY_BLOCK_PLAIN  1  /* Plain, data stored in buf[] */
-#define CLIENT_REPLY_BLOCK_ROBJ   2  /* Shared robj, data referenced via robj pointer */
+#define CLIENT_REPLY_BLOCK_REF    2  /* Reference to robj, data referenced via robj pointer */
 
 /* Plain buffer block */
 typedef struct clientReplyBlockPlain {
@@ -1099,18 +1099,18 @@ typedef struct clientReplyBlockPlain {
 } clientReplyBlockPlain;
 
 /* Robj reference block */
-typedef struct clientReplyBlockRobj {
-    int type;  /* Always CLIENT_REPLY_BLOCK_ROBJ */
+typedef struct clientReplyBlockRef {
+    int type;  /* Always CLIENT_REPLY_BLOCK_REF */
     robj *obj;
     unsigned int prefix_cnt;
     char prefix[LONG_STR_SIZE + 3]; /* $<len>\r\n */
     char crlf[2]; /* \r\n */
-} clientReplyBlockRobj;
+} clientReplyBlockRef;
 
 /* This structure is used in order to represent the output buffer of a client,
  * which is actually a linked list of blocks like that, that is: client->reply. */
 typedef struct clientReplyBlock {
-    int type;  /* CLIENT_REPLY_BLOCK_PLAIN or CLIENT_REPLY_BLOCK_ROBJ */
+    int type;  /* CLIENT_REPLY_BLOCK_PLAIN or CLIENT_REPLY_BLOCK_REF */
 } clientReplyBlock;
 
 /* Replication buffer blocks is the list of replBufBlock.

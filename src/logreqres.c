@@ -152,9 +152,9 @@ void reqresSaveClientReplyOffset(client *c) {
         if (block->type == CLIENT_REPLY_BLOCK_PLAIN) {
             c->reqres.offset.last_node.used = ((clientReplyBlockPlain *)block)->used;
         } else {
-            /* For ROBJ blocks, we track the total size (prefix + data + crlf) */
-            clientReplyBlockRobj *robj_block = (clientReplyBlockRobj *)block;
-            c->reqres.offset.last_node.used = robj_block->prefix_cnt + sdslen(robj_block->obj->ptr) + 2;
+            /* For referenced robj block, we track the total size (prefix + data + crlf) */
+            clientReplyBlockRef *ref_block = (clientReplyBlockRef *)block;
+            c->reqres.offset.last_node.used = ref_block->prefix_cnt + sdslen(ref_block->obj->ptr) + 2;
         }
     } else {
         c->reqres.offset.last_node.index = 0;
@@ -230,9 +230,9 @@ size_t reqresAppendResponse(client *c) {
         if (block->type == CLIENT_REPLY_BLOCK_PLAIN) {
             curr_used = ((clientReplyBlockPlain *)block)->used;
         } else {
-            /* For ROBJ blocks, we track the total size (prefix + data + crlf) */
-            clientReplyBlockRobj *robj_block = (clientReplyBlockRobj *)block;
-            curr_used = robj_block->prefix_cnt + sdslen(robj_block->obj->ptr) + 2;
+            /* For referenced robj block, we track the total size (prefix + data + crlf) */
+            clientReplyBlockRef *ref_block = (clientReplyBlockRef *)block;
+            curr_used = ref_block->prefix_cnt + sdslen(ref_block->obj->ptr) + 2;
         }
     }
 
@@ -272,11 +272,11 @@ size_t reqresAppendResponse(client *c) {
                     written = reqresAppendBuffer(c, plain->buf, plain->used);
                 }
             } else {
-                /* Handle ROBJ blocks */
-                clientReplyBlockRobj *robj_block = (clientReplyBlockRobj *)o;
+                /* Handle referenced robj block. */
+                clientReplyBlockRef *ref_block = (clientReplyBlockRef *)o;
 
-                /* ROBJ blocks store a single complete bulk string (prefix + data + crlf).
-                 * Unlike PLAIN blocks which can be partially logged, ROBJ blocks are
+                /* Referenced block store a single complete bulk string (prefix + data + crlf).
+                 * Unlike PLAIN blocks which can be partially logged, referenced blocks are
                  * either fully logged or not logged at all. */
                 if (i == c->reqres.offset.last_node.index &&
                     c->reqres.offset.last_node.used != 0)
@@ -286,14 +286,14 @@ size_t reqresAppendResponse(client *c) {
                 }
 
                 /* Write prefix */
-                written += reqresAppendBuffer(c, robj_block->prefix, robj_block->prefix_cnt);
+                written += reqresAppendBuffer(c, ref_block->prefix, ref_block->prefix_cnt);
 
                 /* Write data */
-                size_t data_len = sdslen(robj_block->obj->ptr);
-                written += reqresAppendBuffer(c, (char *)robj_block->obj->ptr, data_len);
+                size_t data_len = sdslen(ref_block->obj->ptr);
+                written += reqresAppendBuffer(c, (char *)ref_block->obj->ptr, data_len);
 
                 /* Write CRLF */
-                written += reqresAppendBuffer(c, robj_block->crlf, 2);
+                written += reqresAppendBuffer(c, ref_block->crlf, 2);
             }
             ret += written;
             i++;

@@ -223,14 +223,14 @@ static void protectClientReplyObjects(void) {
             while ((reply_ln = listNext(&reply_li))) {
                 clientReplyBlock *block = listNodeValue(reply_ln);
 
-                /* If this is an ROBJ block, duplicate the string object to avoid race condition */
-                if (block && block->type == CLIENT_REPLY_BLOCK_ROBJ) {
-                    clientReplyBlockRobj *robj_block = (clientReplyBlockRobj*)block;
+                /* If this is an referenced robj block, duplicate the string object to avoid race condition */
+                if (block && block->type == CLIENT_REPLY_BLOCK_REF) {
+                    clientReplyBlockRef *ref_block = (clientReplyBlockRef*)block;
 
                     /* Duplicate the string object */
-                    robj *new_obj = dupStringObject(robj_block->obj);
-                    decrRefCount(robj_block->obj);
-                    robj_block->obj = new_obj;
+                    robj *new_obj = dupStringObject(ref_block->obj);
+                    decrRefCount(ref_block->obj);
+                    ref_block->obj = new_obj;
                 }
             }
         }

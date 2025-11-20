@@ -90,9 +90,9 @@ void *dupClientReplyValue(void *o) {
         buf->type = type;
         memcpy(buf, o, sizeof(clientReplyBlockPlain) + old->size);
         return buf;
-    } else if (type == CLIENT_REPLY_BLOCK_ROBJ) {
-        clientReplyBlockRobj *old = o;
-        clientReplyBlockRobj *new = zmalloc(sizeof(clientReplyBlockRobj));
+    } else if (type == CLIENT_REPLY_BLOCK_REF) {
+        clientReplyBlockRef *old = o;
+        clientReplyBlockRef *new = zmalloc(sizeof(clientReplyBlockRef));
         new->type = type;
         new->obj = old->obj;
         incrRefCount(old->obj);
@@ -105,8 +105,8 @@ void *dupClientReplyValue(void *o) {
 void freeClientReplyValue(void *o) {
     if (!o) return;
     clientReplyBlock *block = o;
-    if (block->type == CLIENT_REPLY_BLOCK_ROBJ)
-        decrRefCount(((clientReplyBlockRobj*)block)->obj);
+    if (block->type == CLIENT_REPLY_BLOCK_REF)
+        decrRefCount(((clientReplyBlockRef*)block)->obj);
     zfree(block);
 }
 
@@ -381,8 +381,8 @@ static void _addReplyObjectToList(client *c, robj *obj) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
     /* Create a new block that references the robj */
-    clientReplyBlockRobj *block = zmalloc(sizeof(clientReplyBlockRobj));
-    block->type = CLIENT_REPLY_BLOCK_ROBJ;
+    clientReplyBlockRef *block = zmalloc(sizeof(clientReplyBlockRef));
+    block->type = CLIENT_REPLY_BLOCK_REF;
     block->obj = obj;
     incrRefCount(obj);
 
@@ -399,7 +399,7 @@ static void _addReplyObjectToList(client *c, robj *obj) {
     listAddNodeTail(c->reply, block);
     c->reply_bytes += len + block->prefix_cnt + 2; /* data + prefix + crlf */
 
-    /* Add client to the robj blocks list if not already there */
+    /* Add client to the referenced reply client list if not already there */
     if (c->pending_ref_reply_client_list_node == NULL) {
         listAddNodeTail(server.clients_with_pending_ref_reply, c);
         c->pending_ref_reply_client_list_node = listLast(server.clients_with_pending_ref_reply);
@@ -1788,7 +1788,7 @@ void unlinkClient(client *c) {
         c->flags &= ~CLIENT_UNBLOCKED;
     }
 
-    /* Remove from the list of clients with robj blocks if needed. */
+    /* Remove from the list of clients with referenced reply blocks if needed. */
     if (c->pending_ref_reply_client_list_node) {
         listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_client_list_node);
         c->pending_ref_reply_client_list_node = NULL;
@@ -2198,23 +2198,23 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     while ((next = listNext(&iter)) && iovcnt < iovmax && iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
         o = listNodeValue(next);
 
-        if (unlikely(o->type == CLIENT_REPLY_BLOCK_ROBJ)) {
-            clientReplyBlockRobj *obj_block = (clientReplyBlockRobj*)o;
-            size_t data_len = sdslen(obj_block->obj->ptr);
+        if (unlikely(o->type == CLIENT_REPLY_BLOCK_REF)) {
+            clientReplyBlockRef *ref_block = (clientReplyBlockRef*)o;
+            size_t data_len = sdslen(ref_block->obj->ptr);
 
             /* Add prefix */
-            if (offset < obj_block->prefix_cnt) {
-                iov[iovcnt].iov_base = obj_block->prefix + offset;
-                iov[iovcnt].iov_len = obj_block->prefix_cnt - offset;
+            if (offset < ref_block->prefix_cnt) {
+                iov[iovcnt].iov_base = ref_block->prefix + offset;
+                iov[iovcnt].iov_len = ref_block->prefix_cnt - offset;
                 iov_bytes_len += iov[iovcnt++].iov_len;
                 offset = 0;
             } else {
-                offset -= obj_block->prefix_cnt;
+                offset -= ref_block->prefix_cnt;
             }
 
             /* Add data */
             if (offset < data_len) {
-                iov[iovcnt].iov_base = (char*)obj_block->obj->ptr + offset;
+                iov[iovcnt].iov_base = (char*)ref_block->obj->ptr + offset;
                 iov[iovcnt].iov_len = data_len - offset;
                 iov_bytes_len += iov[iovcnt++].iov_len;
                 offset = 0;
@@ -2224,7 +2224,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
 
             /* Add CRLF */
             if (offset < 2) {
-                iov[iovcnt].iov_base = obj_block->crlf + offset;
+                iov[iovcnt].iov_base = ref_block->crlf + offset;
                 iov[iovcnt].iov_len = 2 - offset;
                 iov_bytes_len += iov[iovcnt++].iov_len;
             }
@@ -2269,9 +2269,9 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         next = listNext(&iter);
         o = listNodeValue(next);
 
-        if (unlikely(o->type == CLIENT_REPLY_BLOCK_ROBJ)) {
-            clientReplyBlockRobj *robj_block = (clientReplyBlockRobj*)o;
-            size_t len = sdslen(robj_block->obj->ptr) + robj_block->prefix_cnt + 2;
+        if (unlikely(o->type == CLIENT_REPLY_BLOCK_REF)) {
+            clientReplyBlockRef *ref_block = (clientReplyBlockRef*)o;
+            size_t len = sdslen(ref_block->obj->ptr) + ref_block->prefix_cnt + 2;
             if (remaining < (ssize_t)(len - c->sentlen)) {
                 c->sentlen += remaining;
                 break;
