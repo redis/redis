@@ -2276,11 +2276,11 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
                 return C_ERR;
 
             *expire_time_pos = i;
-        } else if (!strcasecmp(c->argv[i]->ptr, "PERSIST") && command_type != HASH_CMD_HSETEX) {
+        } else if (command_type != HASH_CMD_HSETEX && !strcasecmp(c->argv[i]->ptr, "PERSIST")) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_PERSIST))
                 goto err_expiration;
             *flags |= HFE_PERSIST;
-        } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL") && command_type != HASH_CMD_HGETEX) {
+        } else if (command_type != HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
                 goto err_expiration;
             *flags |= HFE_KEEPTTL;
@@ -3574,8 +3574,6 @@ typedef struct {
     int expireCondition;    /* HFE_NX, HFE_XX, HFE_GT, HFE_LT */
 } HashCommandArgs;
 
-
-
 /* Parser for HEXPIRE family commands with flexible keyword ordering.
  * Returns C_OK on success, C_ERR on error (with reply sent). */
 static int parseHashCommandArgs(client *c, HashCommandArgs *args,
@@ -3627,16 +3625,33 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
         }
 
         /* Expiration condition keywords */
-        if (!strcasecmp(arg, "NX") || !strcasecmp(arg, "XX") ||
-            !strcasecmp(arg, "GT") || !strcasecmp(arg, "LT")) {
+        if (!strcasecmp(arg, "NX")) {
             if (args->expireCondition != 0) {
                 addReplyError(c, "Multiple condition flags specified");
                 return C_ERR;
             }
-            if (!strcasecmp(arg, "NX")) args->expireCondition = HFE_NX;
-            else if (!strcasecmp(arg, "XX")) args->expireCondition = HFE_XX;
-            else if (!strcasecmp(arg, "GT")) args->expireCondition = HFE_GT;
-            else if (!strcasecmp(arg, "LT")) args->expireCondition = HFE_LT;
+            args->expireCondition = HFE_NX;
+            continue;
+        } else if (!strcasecmp(arg, "XX")) {
+            if (args->expireCondition != 0) {
+                addReplyError(c, "Multiple condition flags specified");
+                return C_ERR;
+            }
+            args->expireCondition = HFE_XX;
+            continue;
+        } else if (!strcasecmp(arg, "GT")) {
+            if (args->expireCondition != 0) {
+                addReplyError(c, "Multiple condition flags specified");
+                return C_ERR;
+            }
+            args->expireCondition = HFE_GT;
+            continue;
+        } else if (!strcasecmp(arg, "LT")) {
+            if (args->expireCondition != 0) {
+                addReplyError(c, "Multiple condition flags specified");
+                return C_ERR;
+            }
+            args->expireCondition = HFE_LT;
             continue;
         }
 
@@ -3648,8 +3663,7 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
 }
 
 /* HTTL key <FIELDS count field [field ...]>  */
-static void httlGenericCommand(client *c, const char *cmd, long long basetime, int unit)
-{
+static void httlGenericCommand(client *c, const char *cmd, long long basetime, int unit){
     UNUSED(cmd);
     kvobj *hashObj;
     long numFields = 0, numFieldsAt = 3;
@@ -3848,11 +3862,6 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
 
     for (int i = 0; i < args.fieldCount; i++) {
         int fieldPos = args.firstFieldPos + i;
-        if (fieldPos >= c->argc) {
-            addReplyErrorFormat(c, "Internal error: field position %d >= argc %d",
-                               fieldPos, c->argc);
-            return;
-        }
         sds field = c->argv[fieldPos]->ptr;
         SetExRes res = hashTypeSetEx(hashObj, field, args.expireTime, &exCtx);
         updated += (res == HSETEX_OK);
@@ -3895,6 +3904,7 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
      * not met) then it is useless and invalid to propagate command with no fields */
     if (updated == 0) {
         preventCommandPropagation(c);
+        zfree(fieldsToRemove);
         return;
     }
 
