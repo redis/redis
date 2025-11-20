@@ -1643,7 +1643,7 @@ void processDeferredReplyBlocks(client *c) {
     /* Clear the deferred reply blocks list */
     listEmpty(c->deferred_reply_blocks);
 
-    serverAssert(c->pending_ref_reply_client_list_node == NULL);
+    serverAssert(c->pending_ref_reply_client_list_node);
     listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_client_list_node);
     c->pending_ref_reply_client_list_node = NULL;
 }
