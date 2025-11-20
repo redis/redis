@@ -118,8 +118,7 @@ stream *streamNew(void) {
     s->min_cgroup_last_id.ms = UINT64_MAX;
     s->min_cgroup_last_id.seq = UINT64_MAX;
     s->min_cgroup_last_id_valid = 0;
-    s->idmp_time_ring = ringNew();
-    s->idmp_uid_tree = avlNew(idmpEntryCompare);
+    s->idmp_tring = tringNew(idmpEntryCompare);
     return s;
 }
 
@@ -139,8 +138,7 @@ void freeStream(stream *s) {
 #ifdef REDIS_TEST
     serverAssert(s->alloc_size == zmalloc_usable_size(s));
 #endif
-    ringFree(s->idmp_time_ring);
-    avlFree(s->idmp_uid_tree);
+    tringFree(s->idmp_tring);
     zfree(s);
 }
 
@@ -2464,8 +2462,8 @@ void xaddCommand(client *c) {
         idmpEntry lookup_entry;
         lookup_entry.uid = parsed_args.idmp_uid;
         
-        /* Check if UID exists in the AVL tree */
-        idmpEntry *existing = avlFind(s->idmp_uid_tree, &lookup_entry);
+        /* Check if UID exists in the tring tree */
+        idmpEntry *existing = tringFind(s->idmp_tring, &lookup_entry);
         if (existing != NULL) {
             /* UID already exists, return the existing stream ID */
             sds replyid = createStreamIDString(&existing->id);
@@ -2501,17 +2499,14 @@ void xaddCommand(client *c) {
     sds replyid = createStreamIDString(&id);
     addReplyBulkCBuffer(c, replyid, sdslen(replyid));
 
-    /* IDMP: Add entry to both time ring and UID tree */
+    /* IDMP: Add entry to tring */
     if (parsed_args.idmp_uid != NULL) {
         idmpEntry *entry = idmpEntryCreate(parsed_args.idmp_uid, &id);
         if (entry != NULL) {
-            /* Insert into AVL tree */
-            if (!avlInsert(s->idmp_uid_tree, entry)) {
+            /* Insert into tring (combines AVL tree and ring buffer) */
+            if (!tringInsert(s->idmp_tring, entry)) {
                 /* Insert failed (shouldn't happen as we checked earlier), clean up */
                 idmpEntryFree(entry);
-            } else {
-                /* Insert into time ring */
-                ringPush(s->idmp_time_ring, entry);
             }
         }
     }
