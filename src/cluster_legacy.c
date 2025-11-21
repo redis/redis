@@ -1793,10 +1793,9 @@ void clusterHandleConfigEpochCollision(clusterNode *sender) {
     /* Get the next ID available at the best of this node knowledge. */
     server.cluster->currentEpoch++;
     myself->configEpoch = server.cluster->currentEpoch;
-    /* Save the new config epoch and broadcast it to the other nodes. */
-    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                         CLUSTER_TODO_FSYNC_CONFIG|
-                         CLUSTER_TODO_BROADCAST_PONG);
+    clusterSaveConfigOrDie(1);
+    /* Broadcast new config epoch to the other nodes. */
+    clusterDoBeforeSleep(CLUSTER_TODO_BROADCAST_PONG);
     serverLog(LL_VERBOSE,
         "WARNING: configEpoch collision with node %.40s (%s)."
         " configEpoch set to %llu",
@@ -4271,14 +4270,13 @@ void clusterFailoverReplaceYourMaster(void) {
         }
     }
 
-    /* 3) Update state. */
+    /* 3) Update state and save config. */
     clusterUpdateState();
+    clusterSaveConfigOrDie(1);
 
-    /* 4) Save config and pong all the other nodes so that they can update the
-     *    state accordingly and detect that we switched to master role. */
-    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                         CLUSTER_TODO_FSYNC_CONFIG|
-                         CLUSTER_TODO_BROADCAST_PONG);
+    /* 4) Pong all the other nodes so that they can update the state
+     *    accordingly and detect that we switched to master role. */
+    clusterDoBeforeSleep(CLUSTER_TODO_BROADCAST_PONG);
 
     /* 5) If there was a manual failover in progress, clear the state. */
     resetManualFailover();
@@ -6616,9 +6614,8 @@ int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
             }
             /* Bump config epoch and broadcast the new config to the other nodes. */
             clusterBumpConfigEpochWithoutConsensus();
-            clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                 CLUSTER_TODO_FSYNC_CONFIG|
-                                 CLUSTER_TODO_BROADCAST_PONG);
+            clusterSaveConfigOrDie(1);
+            clusterDoBeforeSleep(CLUSTER_BROADCAST_ALL);
             clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
