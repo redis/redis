@@ -142,6 +142,7 @@ dictEntryLink kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *
 void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntryLink plink, int table_index);
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
 dict *kvstoreGetDict(kvstore *kvs, int didx);
+void kvstoreFreeDictIfNeeded(kvstore *kvs, int didx);
 void *kvstoreEnsureDictMetadata(kvstore *kvs, int didx);
 void *kvstoreGetDictMetadata(kvstore *kvs, int didx);
 void *kvstoreGetMetadata(kvstore *kvs);

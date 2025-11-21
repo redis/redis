@@ -255,6 +255,10 @@ run_solo {defrag} {
             # Delete all the keys to create fragmentation
             for {set j 0} {$j < $n} {incr j} { $rd del k$j }
             for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            if {$type eq "cluster"} {
+                $rd config resetstat
+                $rd read ; # Discard config resetstat reply
+            }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -263,7 +267,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.3
+            assert_morethan [s allocator_frag_ratio] 1.4
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -478,6 +482,10 @@ run_solo {defrag} {
             # Delete all the keys to create fragmentation
             for {set j 0} {$j < $n} {incr j} { $rd del k$j }
             for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            if {$type eq "cluster"} {
+                $rd config resetstat
+                $rd read ; # Discard config resetstat reply
+            }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -486,7 +494,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.2
+            assert_morethan [s allocator_frag_ratio] 1.35
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {
@@ -697,6 +705,9 @@ run_solo {defrag} {
             for {set i 0} {$i < [llength $clients]} {incr i} {
                 [lindex $clients $i] close
             }
+            if {$type eq "cluster"} {
+                r config resetstat
+            }
 
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -705,7 +716,7 @@ run_solo {defrag} {
                 puts "frag [s allocator_frag_ratio]"
                 puts "frag_bytes [s allocator_frag_bytes]"
             }
-            assert_morethan [s allocator_frag_ratio] 1.3
+            assert_morethan [s allocator_frag_ratio] 1.35
 
             catch {r config set activedefrag yes} e
             if {[r config get activedefrag] eq "activedefrag yes"} {

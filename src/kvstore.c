@@ -131,6 +131,10 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
     kvs->allocated_dicts--;
 }
 
+void kvstoreFreeDictIfNeeded(kvstore *kvs, int didx) {
+    freeDictIfNeeded(kvs, didx);
+}
+
 /**********************************/
 /*** dict callbacks ***************/
 /**********************************/
