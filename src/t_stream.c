@@ -3130,6 +3130,7 @@ static void streamFreeCG(stream *s, streamCG *cg) {
 
 /* Destroy a consumer group and clean up all associated references. */
 void streamDestroyCG(stream *s, streamCG *cg) {
+    /* Remove all references from the cgroups_ref. */
     raxIterator it;
     raxStart(&it, cg->pel);
     raxSeek(&it, "^", NULL, 0);
@@ -3138,6 +3139,12 @@ void streamDestroyCG(stream *s, streamCG *cg) {
         streamUnlinkEntryFromCGroupRef(s, nack, it.key);
     }
     raxStop(&it);
+
+    /* If we're destroying the group with the minimum last_id, the cached
+     * minimum is no longer valid and needs to be recalculated from the
+     * remaining groups. */
+    if (s->min_cgroup_last_id_valid && streamCompareID(&s->min_cgroup_last_id, &cg->last_id) == 0)
+        s->min_cgroup_last_id_valid = 0;
 
     streamFreeCG(s, cg);
 }
