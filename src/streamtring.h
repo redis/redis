@@ -25,10 +25,11 @@
  *
  * Memory layout:
  *
- * The tree uses parallel arrays for storing node data:
- *   - nodes[]:   Contains value pointer and child indices
- *   - heights[]: Node heights for AVL balancing
- *   - parents[]: Parent indices for efficient updates
+ * The tree uses an array of nodes, where each node contains:
+ *   - value pointer
+ *   - child indices (left, right)
+ *   - parent index for efficient updates
+ *   - height for AVL balancing
  *
  * Ring buffer management:
  *   - head:     Index of the first allocated node
@@ -44,6 +45,7 @@
 #include <stddef.h>
 
 #define TRING_INITIAL_CAPACITY 8
+#define TRING_DEFAULT_MAX_CAPACITY 1000000  /* Default max capacity: 100K */
 #define TRING_NULL UINT32_MAX  /* Special value for null/none indices */
 
 /* Compare function type: returns negative if a < b, 0 if a == b, positive if a > b */
@@ -54,14 +56,15 @@ typedef struct tringNode {
     void *value;
     uint32_t left;   /* Index of left child (TRING_NULL if none) */
     uint32_t right;  /* Index of right child (TRING_NULL if none) */
+    uint32_t parent; /* Index of parent node (TRING_NULL if root) */
+    uint32_t height; /* Height of the node for AVL balancing */
 } tringNode;
 
 /* TRING Tree structure - AVL tree with ring buffer storage */
 typedef struct tringTree {
     tringNode *nodes;       /* Ring buffer array of nodes */
-    uint8_t *heights;       /* Array of node heights */
-    uint32_t *parents;      /* Array of parent indices */
     uint32_t capacity;      /* Total ring buffer capacity */
+    uint32_t max_capacity;  /* Maximum allowed capacity */
     uint32_t count;         /* Number of nodes in use */
     uint32_t head;          /* Index of first allocated node */
     uint32_t tail;          /* Index where next node will be allocated */
@@ -107,10 +110,16 @@ void *tringFront(tringTree *tree);
  * Returns NULL if the tree is empty. */
 void *tringBack(tringTree *tree);
 
-/* Remove and return the first (minimum) item from the tree.
+/* Remove the first (minimum) item from the tree.
  * Also increments the head pointer in the ring buffer.
- * Returns NULL if the tree is empty. */
-void *tringPop(tringTree *tree);
+ * Returns 1 on success, 0 if the tree is empty or on failure. */
+int tringPop(tringTree *tree);
+
+/* Set the maximum capacity for the tree.
+ * If the tree's current capacity exceeds the new max_capacity, the limit
+ * will be enforced on the next resize operation.
+ * Setting max_capacity to 0 means no limit. */
+void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity);
 
 #ifdef REDIS_TEST
 int tringTest(int argc, char *argv[], int flags);
