@@ -3143,7 +3143,7 @@ void streamDestroyCG(stream *s, streamCG *cg) {
     /* If we're destroying the group with the minimum last_id, the cached
      * minimum is no longer valid and needs to be recalculated from the
      * remaining groups. */
-    if (streamCompareID(&s->min_cgroup_last_id, &cg->last_id) == 0)
+    if (s->min_cgroup_last_id_valid && streamCompareID(&s->min_cgroup_last_id, &cg->last_id) == 0)
         s->min_cgroup_last_id_valid = 0;
 
     streamFreeCG(s, cg);
