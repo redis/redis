@@ -179,6 +179,9 @@ void execCommand(client *c) {
 
     c->all_argv_len_sum = c->mstate.argv_len_sums;
 
+    /* Skip ACL check for the AOF client while server loading. */
+    int skip_acl_check = server.loading && c->id == CLIENT_ID_AOF;
+
     addReplyArrayLen(c,c->mstate.count);
     for (j = 0; j < c->mstate.count; j++) {
         c->argc = c->mstate.commands[j]->argc;
@@ -190,8 +193,6 @@ void execCommand(client *c) {
          * they were changed after the commands were queued. */
         int acl_errpos;
         int acl_retval = ACL_OK;
-        /* Skip ACL check for the AOF client while server loading. */
-        int skip_acl_check = server.loading && c->id == CLIENT_ID_AOF;
         if (!skip_acl_check) {
             acl_retval = ACLCheckAllPerm(c,&acl_errpos);
         }

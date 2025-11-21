@@ -375,7 +375,7 @@ tags {"aof external:skip"} {
     }
 
     test {skip EXEC ACL check during AOF load} {
-        set user_acl "default on nopass ~* &* +@all -set"
+        set user_acl "default on nopass ~* &* +@read -@write +multi +exec +select +ping"
 
         create_aof_manifest $aof_dirpath $aof_manifest_file {
             append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
