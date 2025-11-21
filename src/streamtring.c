@@ -351,40 +351,40 @@ static int removeNodeByIndex(tringTree *tree, uint32_t idx) {
     else if (tree->nodes[idx].right == TRING_NULL) {
         replacement = tree->nodes[idx].left;
     }
-    /* Case 3: Node has two children - use inorder successor */
+    /* Case 3: Node has two children - replace with inorder successor */
     else {
-        uint32_t successor = findMin(tree, tree->nodes[idx].right);
+        /* Find the leftmost node (minimum) in the right subtree */
+        uint32_t leftmost = findMin(tree, tree->nodes[idx].right);
         
-        /* Copy successor's value to this node */
-        tree->nodes[idx].value = tree->nodes[successor].value;
+        /* Attach the left subtree to the leftmost node */
+        tree->nodes[leftmost].left = tree->nodes[idx].left;
         
-        /* Now remove the successor (which has at most one child) */
-        uint32_t successorParent = tree->nodes[successor].parent;
-        uint32_t successorRightChild = tree->nodes[successor].right;
-        
-        /* Update the parent's pointer to the successor */
-        if (successorParent == idx) {
-            tree->nodes[idx].right = successorRightChild;
-        } else {
-            tree->nodes[successorParent].left = successorRightChild;
+        /* Update parent pointer of the left subtree */
+        if (tree->nodes[idx].left != TRING_NULL) {
+            tree->nodes[tree->nodes[idx].left].parent = leftmost;
         }
         
-        /* Update successor's right child parent pointer */
-        if (successorRightChild != TRING_NULL) {
-            tree->nodes[successorRightChild].parent = successorParent;
+        /* Update heights and rebalance from leftmost up to the right child */
+        uint32_t curr = leftmost;
+        while (curr != tree->nodes[idx].right) {
+            uint32_t parentNode = tree->nodes[curr].parent;
+            uint32_t newCurr = rebalance(tree, curr);
+            
+            /* If rebalancing changed the node, update parent's pointer */
+            if (newCurr != curr) {
+                if (tree->nodes[parentNode].left == curr) {
+                    tree->nodes[parentNode].left = newCurr;
+                } else {
+                    tree->nodes[parentNode].right = newCurr;
+                }
+                tree->nodes[newCurr].parent = parentNode;
+            }
+            
+            curr = parentNode;
         }
         
-        /* Clear the successor node's pointers to prevent loops */
-        tree->nodes[successor].value = NULL;
-        tree->nodes[successor].left = TRING_NULL;
-        tree->nodes[successor].right = TRING_NULL;
-        tree->nodes[successor].parent = TRING_NULL;
-        tree->nodes[successor].height = 0;
-        
-        /* Rebalance from successor's old parent up to root */
-        rebalanceUp(tree, successorParent);
-        
-        return 1;
+        /* Rebalance the right child itself (root of right subtree) */
+        replacement = rebalance(tree, tree->nodes[idx].right);
     }
     
     /* Update parent's pointer to replacement */

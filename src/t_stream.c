@@ -10,6 +10,8 @@
 #include "server.h"
 #include "endianconv.h"
 #include "stream.h"
+#include <immintrin.h>  // For AVX2/SSE intrinsics
+#include <string.h>
 
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
@@ -54,7 +56,7 @@ typedef struct idmpEntry {
     streamID id;        /* Associated stream ID */
 } idmpEntry;
 
-/* Comparison function for idmpEntry structures in AVL tree.
+/* SIMD-optimized comparison function for idmpEntry structures in AVL tree.
  * Compares entries by UID only (lexicographically).
  * Returns: negative if a < b, 0 if a == b, positive if a > b */
 static int idmpEntryCompare(const void *a, const void *b) {
@@ -70,8 +72,88 @@ static int idmpEntryCompare(const void *a, const void *b) {
         return (len_a > len_b) - (len_a < len_b);
     }
     
-    /* Same length: compare content */
-    return memcmp(ea->uid->ptr, eb->uid->ptr, len_a);
+    const char *str_a = (const char *)ea->uid->ptr;
+    const char *str_b = (const char *)eb->uid->ptr;
+    size_t len = len_a;
+    
+    /* For very short strings, use direct comparison */
+    if (len <= 8) {
+        if (len <= 4) {
+            uint32_t val_a = 0, val_b = 0;
+            memcpy(&val_a, str_a, len);
+            memcpy(&val_b, str_b, len);
+            return (val_a > val_b) - (val_a < val_b);
+        } else {
+            uint64_t val_a = 0, val_b = 0;
+            memcpy(&val_a, str_a, len);
+            memcpy(&val_b, str_b, len);
+            return (val_a > val_b) - (val_a < val_b);
+        }
+    }
+    
+#if defined(__AVX2__)
+    /* AVX2 path: compare 32 bytes at a time */
+    size_t i = 0;
+    for (; i + 32 <= len; i += 32) {
+        __m256i va = _mm256_loadu_si256((const __m256i *)(str_a + i));
+        __m256i vb = _mm256_loadu_si256((const __m256i *)(str_b + i));
+        
+        /* Compare for equality */
+        __m256i cmp = _mm256_cmpeq_epi8(va, vb);
+        int mask = _mm256_movemask_epi8(cmp);
+        
+        /* If not all equal, find first difference */
+        if (mask != -1) {
+            int first_diff = __builtin_ctz(~mask);
+            int pos = i + first_diff;
+            return (unsigned char)str_a[pos] - (unsigned char)str_b[pos];
+        }
+    }
+    
+    /* Handle remaining 16-31 bytes with SSE */
+    if (i + 16 <= len) {
+        __m128i va = _mm_loadu_si128((const __m128i *)(str_a + i));
+        __m128i vb = _mm_loadu_si128((const __m128i *)(str_b + i));
+        
+        __m128i cmp = _mm_cmpeq_epi8(va, vb);
+        int mask = _mm_movemask_epi8(cmp);
+        
+        if (mask != 0xFFFF) {
+            int first_diff = __builtin_ctz(~mask & 0xFFFF);
+            int pos = i + first_diff;
+            return (unsigned char)str_a[pos] - (unsigned char)str_b[pos];
+        }
+        i += 16;
+    }
+    
+#elif defined(__SSE2__)
+    /* SSE2 path: compare 16 bytes at a time */
+    size_t i = 0;
+    for (; i + 16 <= len; i += 16) {
+        __m128i va = _mm_loadu_si128((const __m128i *)(str_a + i));
+        __m128i vb = _mm_loadu_si128((const __m128i *)(str_b + i));
+        
+        __m128i cmp = _mm_cmpeq_epi8(va, vb);
+        int mask = _mm_movemask_epi8(cmp);
+        
+        if (mask != 0xFFFF) {
+            int first_diff = __builtin_ctz(~mask & 0xFFFF);
+            int pos = i + first_diff;
+            return (unsigned char)str_a[pos] - (unsigned char)str_b[pos];
+        }
+    }
+#else
+    size_t i = 0;
+#endif
+    
+    /* Handle remaining bytes */
+    for (; i < len; i++) {
+        if (str_a[i] != str_b[i]) {
+            return (unsigned char)str_a[i] - (unsigned char)str_b[i];
+        }
+    }
+    
+    return 0;
 }
 
 /* Create a new idmpEntry with the given UID and stream ID.

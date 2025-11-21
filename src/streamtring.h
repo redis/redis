@@ -45,7 +45,7 @@
 #include <stddef.h>
 
 #define TRING_INITIAL_CAPACITY 8
-#define TRING_DEFAULT_MAX_CAPACITY 1000000  /* Default max capacity: 100K */
+#define TRING_DEFAULT_MAX_CAPACITY 100000  /* Default max capacity: 100K */
 #define TRING_NULL UINT32_MAX  /* Special value for null/none indices */
 
 /* Compare function type: returns negative if a < b, 0 if a == b, positive if a > b */
