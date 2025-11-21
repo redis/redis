@@ -285,6 +285,128 @@ void *tringFind(tringTree *tree, void *value) {
     return NULL;
 }
 
+void *tringFindOrInsert(tringTree *tree, void *value, int *inserted) {
+    if (!tree || !value || !tree->max_capacity) {
+        if (inserted) *inserted = 0;
+        return NULL;
+    }
+    
+    /* Step 1: Search for the value and remember insertion position */
+    uint32_t parent = TRING_NULL;
+    uint32_t grandparent = TRING_NULL;  /* Parent of parent */
+    int go_left = 0;  /* Direction: 1 for left, 0 for right */
+    uint32_t current = tree->root;
+    
+    /* Search and track where to insert if not found */
+    while (current != TRING_NULL) {
+        int cmp = tree->compare(value, tree->nodes[current].value);
+        
+        if (cmp == 0) {
+            /* Value found - return it immediately */
+            if (inserted) *inserted = 0;
+            return tree->nodes[current].value;
+        }
+        
+        grandparent = parent;
+        parent = current;
+        if (cmp < 0) {
+            go_left = 1;
+            assert(current != tree->nodes[current].left); /* Prevent loops */
+            current = tree->nodes[current].left;
+        } else {
+            go_left = 0;
+            assert(current != tree->nodes[current].right); /* Prevent loops */
+            current = tree->nodes[current].right;
+        }
+    }
+    
+    /* Step 2: Value not found - check capacity and pop if needed */
+    if (tree->count + 1 > tree->max_capacity) {
+        if (!tringPop(tree)) {
+            if (inserted) *inserted = 0;
+            return NULL;
+        }
+        
+        /* After popping, verify parent is still valid by checking if the 
+         * parent-grandparent relationship is still intact */
+        if (parent != TRING_NULL) {
+            /* Check if parent's parent field still points to grandparent.
+             * If this relationship is intact, the insertion position is still valid. */
+            int parent_still_valid = (tree->nodes[parent].parent == grandparent);
+            
+            /* If parent is invalid, re-search for insertion point */
+            if (!parent_still_valid) {
+                parent = TRING_NULL;
+                current = tree->root;
+                while (current != TRING_NULL) {
+                    int cmp = tree->compare(value, tree->nodes[current].value);
+                    if (cmp == 0) {
+                        /* Value now exists after pop (shouldn't happen, but be safe) */
+                        if (inserted) *inserted = 0;
+                        return tree->nodes[current].value;
+                    }
+                    parent = current;
+                    if (cmp < 0) {
+                        go_left = 1;
+                        current = tree->nodes[current].left;
+                    } else {
+                        go_left = 0;
+                        current = tree->nodes[current].right;
+                    }
+                }
+            }
+        }
+    }
+    
+    /* Step 3: Allocate and insert the new node at the found position */
+    uint32_t newIdx = allocateNode(tree, value);
+    if (newIdx == TRING_NULL) {
+        if (inserted) *inserted = 0;
+        return NULL;
+    }
+    
+    /* Insert at the remembered position */
+    if (parent == TRING_NULL) {
+        /* Tree was empty or became empty after pop */
+        tree->root = newIdx;
+        tree->nodes[newIdx].parent = TRING_NULL;
+    } else {
+        /* Insert as child of parent */
+        if (go_left) {
+            tree->nodes[parent].left = newIdx;
+        } else {
+            tree->nodes[parent].right = newIdx;
+        }
+        tree->nodes[newIdx].parent = parent;
+        
+        /* Rebalance from parent upward */
+        uint32_t curr = parent;
+        while (curr != TRING_NULL) {
+            uint32_t p = tree->nodes[curr].parent;
+            uint32_t balanced = rebalance(tree, curr);
+            
+            if (p == TRING_NULL) {
+                /* curr was root */
+                tree->root = balanced;
+                tree->nodes[balanced].parent = TRING_NULL;
+                break;
+            } else {
+                /* Update parent's child pointer */
+                if (tree->nodes[p].left == curr) {
+                    tree->nodes[p].left = balanced;
+                } else {
+                    tree->nodes[p].right = balanced;
+                }
+                tree->nodes[balanced].parent = p;
+                curr = p;
+            }
+        }
+    }
+    
+    if (inserted) *inserted = 1;
+    return value;
+}
+
 size_t tringSize(tringTree *tree) {
     return tree ? tree->count : 0;
 }

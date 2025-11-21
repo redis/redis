@@ -93,6 +93,12 @@ int tringInsert(tringTree *tree, void *value);
  * Returns the value if found, NULL otherwise. */
 void *tringFind(tringTree *tree, void *value);
 
+/* Search for a value in the tree, and insert it if not found.
+ * Returns the found or newly inserted value, NULL on failure.
+ * If inserted is not NULL, sets *inserted to 1 if a new value was inserted,
+ * or 0 if the value already existed or insertion failed. */
+void *tringFindOrInsert(tringTree *tree, void *value, int *inserted);
+
 /* Return the number of elements in the tree. */
 size_t tringSize(tringTree *tree);
 
