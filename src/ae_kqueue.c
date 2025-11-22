@@ -40,7 +40,7 @@ typedef struct aeApiState {
     /* Events mask for merge read and write event.
      * To reduce memory consumption, we use 2 bits to store the mask
      * of an event, so that 1 byte will store the mask of 4 events. */
-    char *eventsMask; 
+    char *eventsMask;
 } aeApiState;
 
 #define EVENT_MASK_MALLOC_SIZE(sz) (((sz) + 3) / 4)
@@ -101,31 +101,24 @@ static void aeApiFree(aeEventLoop *eventLoop) {
 
 static int aeApiAddEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
-    struct kevent ke;
+    struct kevent evs[2];
+    int nch = 0;
 
-    if (mask & AE_READABLE) {
-        EV_SET(&ke, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
-        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
-    }
-    if (mask & AE_WRITABLE) {
-        EV_SET(&ke, fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
-        if (kevent(state->kqfd, &ke, 1, NULL, 0, NULL) == -1) return -1;
-    }
-    return 0;
+    if (mask & AE_READABLE) EV_SET(evs + nch++, fd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+    if (mask & AE_WRITABLE) EV_SET(evs + nch++, fd, EVFILT_WRITE, EV_ADD, 0, 0, NULL);
+
+    return kevent(state->kqfd, evs, nch, NULL, 0, NULL);
 }
 
 static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int mask) {
     aeApiState *state = eventLoop->apidata;
-    struct kevent ke;
+    struct kevent evs[2];
+    int nch = 0;
 
-    if (mask & AE_READABLE) {
-        EV_SET(&ke, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
-        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
-    }
-    if (mask & AE_WRITABLE) {
-        EV_SET(&ke, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
-        kevent(state->kqfd, &ke, 1, NULL, 0, NULL);
-    }
+    if (mask & AE_READABLE) EV_SET(evs + nch++, fd, EVFILT_READ, EV_DELETE, 0, 0, NULL);
+    if (mask & AE_WRITABLE) EV_SET(evs + nch++, fd, EVFILT_WRITE, EV_DELETE, 0, 0, NULL);
+
+    kevent(state->kqfd, evs, nch, NULL, 0, NULL);
 }
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
@@ -148,7 +141,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
         /* Normally we execute the read event first and then the write event.
          * When the barrier is set, we will do it reverse.
-         * 
+         *
          * However, under kqueue, read and write events would be separate
          * events, which would make it impossible to control the order of
          * reads and writes. So we store the event's mask we've got and merge
@@ -156,7 +149,7 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
         for (j = 0; j < retval; j++) {
             struct kevent *e = state->events+j;
             int fd = e->ident;
-            int mask = 0; 
+            int mask = 0;
 
             if (e->filter == EVFILT_READ) mask = AE_READABLE;
             else if (e->filter == EVFILT_WRITE) mask = AE_WRITABLE;
