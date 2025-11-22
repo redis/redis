@@ -159,13 +159,12 @@ static int idmpEntryCompare(const void *a, const void *b) {
 /* Create a new idmpEntry with the given UID and stream ID.
  * The UID robj reference count is incremented.
  * Returns NULL on allocation failure. */
-static idmpEntry *idmpEntryCreate(robj *uid, streamID *id) {
+static idmpEntry *idmpEntryCreate(robj *uid) {
     idmpEntry *entry = zmalloc(sizeof(idmpEntry));
     if (entry == NULL) return NULL;
     
     entry->uid = uid;
     incrRefCount(uid);
-    entry->id = *id;
     
     return entry;
 }
@@ -2544,8 +2543,7 @@ void xaddCommand(client *c) {
     
     if (parsed_args.idmp_uid != NULL) {
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
-        streamID placeholder_id = {0, 0};
-        new_entry = idmpEntryCreate(parsed_args.idmp_uid, &placeholder_id);
+        new_entry = idmpEntryCreate(parsed_args.idmp_uid);
         if (new_entry == NULL) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
