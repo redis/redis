@@ -14,6 +14,10 @@ int numClusterEvents = 0;
 const char *clusterTrimEventLog[MAX_EVENTS];
 int numClusterTrimEvents = 0;
 
+/* Log of cluster trim events. */
+const char *clusterAsmEventLog[MAX_EVENTS];
+int numClusterAsmEvents = 0;
+
 /* Log of last deleted key event. */
 const char *lastDeletedKeyLog = NULL;
 
@@ -260,6 +264,7 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
             /* Log the event. */
             if (numClusterEvents >= MAX_EVENTS) return;
             clusterEventLog[numClusterEvents++] = clusterAsmInfoToString(info, sub);
+            clusterAsmEventLog[numClusterAsmEvents++] = clusterAsmInfoToString(info, sub);
         }
     }
 }
@@ -274,6 +279,22 @@ void clusterTrimEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t 
         if (numClusterTrimEvents >= MAX_EVENTS) return;
         RedisModuleClusterSlotMigrationTrimInfo *info = data;
         clusterTrimEventLog[numClusterTrimEvents++] = clusterTrimInfoToString(info, sub);
+        clusterAsmEventLog[numClusterAsmEvents++] = clusterTrimInfoToString(info, sub);
+    }
+}
+
+void clusterUnownedKeysEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(data);
+
+    RedisModule_Assert(RedisModule_IsSubEventSupported(e, sub));
+
+    if (sub == REDISMODULE_SUBEVENT_CLUSTER_UNOWNEDKEYS_DETECTED) {
+        clusterAsmEventLog[numClusterAsmEvents++] = RedisModule_Strdup("sub: cluster-unownedkeys-detected");
+    } else if (sub == REDISMODULE_SUBEVENT_CLUSTER_UNOWNEDKEYS_RESOLVED) {
+        clusterAsmEventLog[numClusterAsmEvents++] = RedisModule_Strdup("sub: cluster-unownedkeys-resolved");
+    } else {
+        RedisModule_Assert(0);
     }
 }
 
@@ -293,6 +314,7 @@ static int keyspaceNotificationTrimmedCallback(RedisModuleCtx *ctx, int type, co
     snprintf(buf, sizeof(buf), "keyspace: key_trimmed, key: %s", key_str);
 
     clusterTrimEventLog[numClusterTrimEvents++] = RedisModule_Strdup(buf);
+    clusterAsmEventLog[numClusterAsmEvents++] = RedisModule_Strdup(buf);
     return REDISMODULE_OK;
 }
 
@@ -320,6 +342,10 @@ int clearEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_Free((void *)clusterTrimEventLog[i]);
     numClusterTrimEvents = 0;
 
+    for (int i = 0; i < numClusterAsmEvents; i++)
+        RedisModule_Free((void *)clusterAsmEventLog[i]);
+    numClusterAsmEvents = 0;
+
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -345,6 +371,18 @@ int getClusterTrimEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     RedisModule_ReplyWithArray(ctx, numClusterTrimEvents);
     for (int i = 0; i < numClusterTrimEvents; i++)
         RedisModule_ReplyWithStringBuffer(ctx, clusterTrimEventLog[i], strlen(clusterTrimEventLog[i]));
+    return REDISMODULE_OK;
+}
+
+/* Reply with the cluster asm event log. */
+int getClusterAsmEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(ctx);
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+
+    RedisModule_ReplyWithArray(ctx, numClusterAsmEvents);
+    for (int i = 0; i < numClusterAsmEvents; i++)
+        RedisModule_ReplyWithStringBuffer(ctx, clusterAsmEventLog[i], strlen(clusterAsmEventLog[i]));
     return REDISMODULE_OK;
 }
 
@@ -470,6 +508,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.get_cluster_trim_event_log", getClusterTrimEventLog, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    if (RedisModule_CreateCommand(ctx, "asm.get_cluster_asm_event_log", getClusterAsmEventLog, "", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
     if (RedisModule_CreateCommand(ctx, "asm.keyless_cmd", keylessCmd, "write", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
@@ -517,6 +558,9 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, keyEventCallback) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterUnownedKeys, clusterUnownedKeysEventCallback) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

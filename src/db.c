@@ -42,7 +42,7 @@ typedef enum {
     KEY_VALID = 0, /* Could be volatile and not yet expired, non-volatile, or even non-existing key. */
     KEY_EXPIRED, /* Logically expired but not yet deleted. */
     KEY_DELETED, /* The key was deleted now. */
-    KEY_TRIMMED /* Logically trimmed but not yet deleted. */
+    KEY_TRIMMED  /* Logically trimmed but not yet deleted. */
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
@@ -948,7 +948,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     }
 
     if (dbnum == -1 || dbnum == 0)
-        asmCancelTrimJobs();
+        asmHandleOnDbReset();
 
     /* Fire the flushdb modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,
