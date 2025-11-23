@@ -2277,33 +2277,26 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
                 return C_ERR;
 
             *expire_time_pos = i;
-        } else if (!strcasecmp(c->argv[i]->ptr, "PERSIST")) {
-            if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_PERSIST))
-                goto err_expiration;
-            *flags |= HFE_PERSIST;
-        } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
-            if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
-                goto err_expiration;
-            *flags |= HFE_KEEPTTL;
-        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "FXX")) {
-            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-            return C_ERR;
-        } else if (!strcasecmp(c->argv[i]->ptr, "FXX")) {
-            if (*flags & (HFE_FXX | HFE_FNX))
-                goto err_condition;
-            *flags |= HFE_FXX;
-        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "FNX")) {
-            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-            return C_ERR;
-        } else if (!strcasecmp(c->argv[i]->ptr, "FNX")) {
-            if (*flags & (HFE_FXX | HFE_FNX))
-                goto err_condition;
-            *flags |= HFE_FNX;
-        } else {
-            /* Unknown argument - give immediate, clear error */
-            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-            return C_ERR;
-        }
+            } else if (!strcasecmp(c->argv[i]->ptr, "PERSIST")) {
+                if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_PERSIST))
+                    goto err_expiration;
+                *flags |= HFE_PERSIST;
+            } else if (!strcasecmp(c->argv[i]->ptr, "KEEPTTL")) {
+                if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
+                    goto err_expiration;
+                *flags |= HFE_KEEPTTL;
+            } else if (!strcasecmp(c->argv[i]->ptr, "FXX")) {
+                if (*flags & (HFE_FXX | HFE_FNX))
+                    goto err_condition;
+                *flags |= HFE_FXX;
+            } else if (!strcasecmp(c->argv[i]->ptr, "FNX")) {
+                if (*flags & (HFE_FXX | HFE_FNX))
+                    goto err_condition;
+                *flags |= HFE_FNX;
+            } else {
+                addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+                return C_ERR;
+            }
 
         /* Validate command-specific argument compatibility */
         if ((command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) ||
