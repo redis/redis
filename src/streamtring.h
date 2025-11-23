@@ -70,7 +70,8 @@ typedef struct tringTree {
     uint32_t tail;          /* Index where next node will be allocated */
     uint32_t root;          /* Index of root node (TRING_NULL if empty) */
     tringCompareFunc compare; /* Compare function for values */
-    void (*free_callback)(void*);  /* Optional callback for cleanup */
+    void (*free_callback)(void*, void*);  /* Optional callback for cleanup */
+    void *free_callback_user_data;  /* User data passed to free_callback */
     size_t *alloc_size;     /* Optional pointer to track total allocated memory */
 } tringTree;
 
@@ -129,6 +130,9 @@ int tringPopBack(tringTree *tree);
  * will be enforced on the next resize operation.
  * Setting max_capacity to 0 means no limit. */
 void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity);
+
+/* Set a callback function to be called when a value is removed from the tree. */
+void tringSetFreeCallback(tringTree *tree, void (*callback)(void*, void*), void *user_data);
 
 #ifdef REDIS_TEST
 int tringTest(int argc, char *argv[], int flags);

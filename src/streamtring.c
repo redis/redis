@@ -236,6 +236,7 @@ tringTree *tringNew(tringCompareFunc compare, size_t *alloc_size) {
     tree->root = TRING_NULL;
     tree->compare = compare;
     tree->free_callback = NULL;
+    tree->free_callback_user_data = NULL;
     
     return tree;
 }
@@ -248,7 +249,7 @@ void tringFree(tringTree *tree) {
         for (uint32_t i = 0; i < tree->count; i++) {
             uint32_t idx = (tree->head + i) % tree->capacity;
             if (tree->nodes[idx].value) {
-                tree->free_callback(tree->nodes[idx].value);
+                tree->free_callback(tree->nodes[idx].value, tree->free_callback_user_data);
             }
         }
     }
@@ -432,6 +433,11 @@ static int removeNodeByIndex(tringTree *tree, uint32_t idx) {
         tree->nodes[replacement].parent = parent;
     }
     
+    /* Call free callback if set before removing the node */
+    if (tree->free_callback) {
+        tree->free_callback(tree->nodes[tree->head].value, tree->free_callback_user_data);
+    }
+
     /* Clear the removed node's pointers to prevent loops */
     tree->nodes[idx].value = NULL;
     tree->nodes[idx].left = TRING_NULL;
@@ -501,6 +507,13 @@ void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity) {
     tree->max_capacity = max_capacity;
 }
 
+/* Set a callback function to be called when a value is removed from the tree. */
+void tringSetFreeCallback(tringTree *tree, void (*callback)(void*, void*), void *user_data) {
+    if (!tree) return;
+    tree->free_callback = callback;
+    tree->free_callback_user_data = user_data;
+}
+
 #ifdef REDIS_TEST
 #include <assert.h>
 #include <stdio.h>
@@ -519,8 +532,9 @@ static int intCompare(const void *a, const void *b) {
 static int freeCallbackCount = 0;
 
 /* Test callback function */
-static void testFreeCallback(void *ptr) {
+static void testFreeCallback(void *ptr, void *user_data) {
     UNUSED(ptr);
+    UNUSED(user_data);
     freeCallbackCount++;
 }
 
@@ -935,7 +949,7 @@ int tringTest(int argc, char *argv[], int flags) {
         tringTree *tree = tringNew(intCompare, NULL);
         
         /* Set up callback */
-        tree->free_callback = testFreeCallback;
+        tringSetFreeCallback(tree, testFreeCallback, NULL);
         freeCallbackCount = 0;
         
         /* Insert some values */

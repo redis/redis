@@ -160,11 +160,13 @@ static int idmpEntryCompare(const void *a, const void *b) {
 /* Create a new idmpEntry with the given UID and stream ID.
  * The UID string is copied into the entry.
  * Returns NULL on allocation failure. */
-static idmpEntry *idmpEntryCreate(const char *uid, size_t uid_len) {
-    idmpEntry *entry = zmalloc(sizeof(idmpEntry));
+static idmpEntry *idmpEntryCreate(const char *uid, size_t uid_len, size_t *alloc_size) {
+    size_t usable;
+    idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry), &usable);
     if (entry == NULL) return NULL;
     
-    entry->uid = zmalloc(uid_len);
+    size_t uid_usable;
+    entry->uid = zmalloc_usable(uid_len, &uid_usable);
     if (entry->uid == NULL) {
         zfree(entry);
         return NULL;
@@ -173,14 +175,32 @@ static idmpEntry *idmpEntryCreate(const char *uid, size_t uid_len) {
     memcpy(entry->uid, uid, uid_len);
     entry->uid_len = uid_len;
     
+    if (alloc_size) {
+        *alloc_size += usable + uid_usable;
+    }
+    
     return entry;
 }
 
 /* Free an idmpEntry and its UID string. */
-static void idmpEntryFree(idmpEntry *entry) {
+static void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (entry == NULL) return;
+    
+    if (alloc_size) {
+        if (entry->uid != NULL) {
+            *alloc_size -= zmalloc_size(entry->uid);
+        }
+        *alloc_size -= zmalloc_size(entry);
+    }
+    
     if (entry->uid != NULL) zfree(entry->uid);
     zfree(entry);
+}
+
+/* Wrapper for idmpEntryFree to match tringSetFreeCallback signature.
+ * The user_data parameter should point to the alloc_size for proper accounting. */
+static void idmpEntryFreeWrapper(void *entry, void *user_data) {
+    idmpEntryFree((idmpEntry *)entry, (size_t *)user_data);
 }
 
 /* -----------------------------------------------------------------------
@@ -207,6 +227,7 @@ stream *streamNew(void) {
     s->min_cgroup_last_id.seq = UINT64_MAX;
     s->min_cgroup_last_id_valid = 0;
     s->idmp_tring = tringNew(idmpEntryCompare, &s->alloc_size);
+    tringSetFreeCallback(s->idmp_tring, idmpEntryFreeWrapper, &s->alloc_size);
     return s;
 }
 
@@ -2551,7 +2572,7 @@ void xaddCommand(client *c) {
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
         char *uid_str = parsed_args.idmp_uid->ptr;
         size_t uid_len = sdslen((sds)uid_str);
-        new_entry = idmpEntryCreate(uid_str, uid_len);
+        new_entry = idmpEntryCreate(uid_str, uid_len, &s->alloc_size);
         if (new_entry == NULL) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
@@ -2568,7 +2589,7 @@ void xaddCommand(client *c) {
                 sdsfree(replyid);
             }
             /* Clean up the new entry we created since we're using existing one */
-            idmpEntryFree(new_entry);
+            idmpEntryFree(new_entry, &s->alloc_size);
             return;
         }
         /* If inserted==1, the entry was inserted with placeholder ID, 
@@ -2582,7 +2603,6 @@ void xaddCommand(client *c) {
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
             tringPopBack(s->idmp_tring);
-            idmpEntryFree(new_entry);
         }
         return;
     }
@@ -2604,7 +2624,6 @@ void xaddCommand(client *c) {
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
             tringPopBack(s->idmp_tring);
-            idmpEntryFree(new_entry);
         }
         return;
     }
@@ -2613,7 +2632,6 @@ void xaddCommand(client *c) {
 
     /* IDMP: Update the entry's ID if we inserted it earlier */
     if (inserted && new_entry != NULL) {
-        /* Update the placeholder ID with the real stream ID */
         new_entry->id = id;
     }
 
