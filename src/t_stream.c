@@ -206,7 +206,7 @@ stream *streamNew(void) {
     s->min_cgroup_last_id.ms = UINT64_MAX;
     s->min_cgroup_last_id.seq = UINT64_MAX;
     s->min_cgroup_last_id_valid = 0;
-    s->idmp_tring = tringNew(idmpEntryCompare);
+    s->idmp_tring = tringNew(idmpEntryCompare, &s->alloc_size);
     return s;
 }
 

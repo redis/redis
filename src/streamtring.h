@@ -71,13 +71,16 @@ typedef struct tringTree {
     uint32_t root;          /* Index of root node (TRING_NULL if empty) */
     tringCompareFunc compare; /* Compare function for values */
     void (*free_callback)(void*);  /* Optional callback for cleanup */
+    size_t *alloc_size;     /* Optional pointer to track total allocated memory */
 } tringTree;
 
 /* Exported API */
 
 /* Create a new TRING tree with the given comparison function.
+ * If passed `alloc_size` is non-NULL, tring will account for its used
+ * memory at this location.
  * Returns NULL on out of memory. */
-tringTree *tringNew(tringCompareFunc compare);
+tringTree *tringNew(tringCompareFunc compare, size_t *alloc_size);
 
 /* Free the TRING tree structure.
  * Note: This does not free the values stored in the tree.

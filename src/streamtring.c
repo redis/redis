@@ -132,8 +132,14 @@ static uint32_t allocateNode(tringTree *tree, void *value) {
         }
         
         /* Reallocate node array */
-        tringNode *newNodes = zrealloc(tree->nodes, newCapacity * sizeof(tringNode));
+        size_t usable, old_usable;
+        tringNode *newNodes = zrealloc_usable(tree->nodes, newCapacity * sizeof(tringNode), &usable, &old_usable);
         if (!newNodes) return TRING_NULL;
+        
+        if (tree->alloc_size) {
+            *tree->alloc_size -= old_usable;
+            *tree->alloc_size += usable;
+        }
         
         tree->nodes = newNodes;
         tree->capacity = newCapacity;
@@ -203,17 +209,24 @@ static uint32_t insertRecursive(tringTree *tree, uint32_t idx, void *value, void
 
 /* Public API implementation */
 
-tringTree *tringNew(tringCompareFunc compare) {
+tringTree *tringNew(tringCompareFunc compare, size_t *alloc_size) {
     if (!compare) return NULL;
     
-    tringTree *tree = zmalloc(sizeof(tringTree));
+    size_t usable;
+    tringTree *tree = zmalloc_usable(sizeof(tringTree), &usable);
     if (!tree) return NULL;
     
-    tree->nodes = zmalloc(TRING_INITIAL_CAPACITY * sizeof(tringNode));
+    tree->alloc_size = alloc_size;
+    if (tree->alloc_size) *tree->alloc_size += usable;
+    
+    tree->nodes = zmalloc_usable(TRING_INITIAL_CAPACITY * sizeof(tringNode), &usable);
     if (!tree->nodes) {
+        if (tree->alloc_size) *tree->alloc_size -= zmalloc_usable_size(tree);
         zfree(tree);
         return NULL;
     }
+    
+    if (tree->alloc_size) *tree->alloc_size += usable;
     
     tree->capacity = TRING_INITIAL_CAPACITY;
     tree->max_capacity = TRING_DEFAULT_MAX_CAPACITY;
@@ -238,6 +251,11 @@ void tringFree(tringTree *tree) {
                 tree->free_callback(tree->nodes[idx].value);
             }
         }
+    }
+    
+    if (tree->alloc_size) {
+        *tree->alloc_size -= zmalloc_usable_size(tree->nodes);
+        *tree->alloc_size -= zmalloc_usable_size(tree);
     }
     
     zfree(tree->nodes);
@@ -610,7 +628,7 @@ int tringTest(int argc, char *argv[], int flags) {
     int errors = 0;
     
     TEST("tringNew creates empty tree") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         assert(tree != NULL);
         assert(tringEmpty(tree));
         assert(tringSize(tree) == 0);
@@ -618,7 +636,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringInsert adds values") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         assert(tringInsert(tree, (void*)10L, NULL));
         assert(tringInsert(tree, (void*)20L, NULL));
         assert(tringInsert(tree, (void*)5L, NULL));
@@ -632,7 +650,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringInsert rejects duplicates") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         tringInsert(tree, (void*)10L, NULL);
         assert(!tringInsert(tree, (void*)10L, NULL));
         assert(tringSize(tree) == 1);
@@ -647,7 +665,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringFind locates values") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         tringInsert(tree, (void*)10L, NULL);
         tringInsert(tree, (void*)20L, NULL);
         tringInsert(tree, (void*)5L, NULL);
@@ -663,7 +681,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringInsert maintains balance with many insertions") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         /* Insert values that would create an unbalanced tree without rotations */
         for (long i = 1; i <= 100; i++) {
             assert(tringInsert(tree, (void*)i, NULL));
@@ -681,7 +699,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringSize and tringEmpty work correctly") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         assert(tringEmpty(tree));
         tringInsert(tree, (void*)1L, NULL);
         assert(!tringEmpty(tree));
@@ -692,7 +710,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringFront returns head value (first inserted)") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         tringInsert(tree, (void*)50L, NULL);
         tringInsert(tree, (void*)30L, NULL);
         tringInsert(tree, (void*)70L, NULL);
@@ -710,7 +728,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringBack returns last added value") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         tringInsert(tree, (void*)50L, NULL);
         tringInsert(tree, (void*)30L, NULL);
         tringInsert(tree, (void*)70L, NULL);
@@ -727,7 +745,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPop removes items in FIFO order") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         tringInsert(tree, (void*)50L, NULL);
         tringInsert(tree, (void*)30L, NULL);
         tringInsert(tree, (void*)70L, NULL);
@@ -758,7 +776,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringFront/Back return NULL on empty tree") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         assert(tringFront(tree) == NULL);
         assert(tringBack(tree) == NULL);
         assert(tringPopFront(tree) == 0);
@@ -766,7 +784,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPop works until tree is empty") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         tringInsert(tree, (void*)3L, NULL);
         tringInsert(tree, (void*)1L, NULL);
         tringInsert(tree, (void*)2L, NULL);
@@ -792,7 +810,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("AVL properties maintained with mixed operations") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Insert values that trigger various rotations */
         long values[] = {50, 25, 75, 10, 30, 60, 80, 5, 15, 27, 35};
@@ -825,7 +843,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("AVL properties with sequential insertions") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Sequential insertions should trigger rotations */
         for (long i = 1; i <= 50; i++) {
@@ -864,17 +882,17 @@ int tringTest(int argc, char *argv[], int flags) {
         tringFree(NULL);  /* Should not crash */
         
         /* Test NULL compare function */
-        assert(tringNew(NULL) == NULL);
+        assert(tringNew(NULL, NULL) == NULL);
         
         /* Test NULL value parameter */
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         assert(tringInsert(tree, NULL, NULL) == 0);
         assert(tringFind(tree, NULL) == NULL);
         tringFree(tree);
     }
     
     TEST("Right-Left rotation case") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Insert values to trigger Right-Left case:
          * Insert 10, 30, 20 - this creates right-heavy then needs right-left rotation */
@@ -895,7 +913,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("Node removal with only left child") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Create a structure where we remove a node with only left child */
         tringInsert(tree, (void*)50L, NULL);
@@ -914,7 +932,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("Free callback functionality") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Set up callback */
         tree->free_callback = testFreeCallback;
@@ -933,7 +951,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringSize returns correct count") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Verify size on non-NULL tree with 0 elements */
         size_t size = tringSize(tree);
@@ -969,7 +987,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("max_capacity evicts oldest elements when exceeded") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Set max capacity to 6 */
         tringSetMaxCapacity(tree, 6);
@@ -1046,7 +1064,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("ring buffer wraps multiple times with many insertions") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Set small max capacity to force multiple wraps */
         tringSetMaxCapacity(tree, 8);
@@ -1084,7 +1102,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - remove leaf node") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Create a tree where we can remove a leaf node */
         tringInsert(tree, (void*)50L, NULL);
@@ -1111,7 +1129,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - remove node with only left child") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Create structure: insert in order that creates node with only left child */
         tringInsert(tree, (void*)50L, NULL);  /* head at index 0 */
@@ -1136,7 +1154,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - remove node with only right child") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Create structure with node having only right child */
         tringInsert(tree, (void*)10L, NULL);  /* head at index 0 */
@@ -1161,7 +1179,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - remove node with two children") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Create a tree where head node has two children */
         tringInsert(tree, (void*)50L, NULL);  /* head at index 0 - will have two children */
@@ -1187,7 +1205,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - remove root node") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Test removing root with no children */
         tringInsert(tree, (void*)50L, NULL);
@@ -1210,7 +1228,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - sequential removes maintain balance") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Insert multiple elements */
         long values[] = {50, 30, 70, 20, 40, 60, 80, 10, 25, 35, 45};
@@ -1239,7 +1257,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - remove from complex tree structure") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
 
         /* Build a complex tree */
         for (long i = 1; i <= 15; i++) {
@@ -1268,7 +1286,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("removeNodeByIndex - empty tree handling") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Try to pop from empty tree */
         assert(tringPopFront(tree) == 0);
@@ -1285,7 +1303,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPopBack removes last added item") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Insert some values */
         tringInsert(tree, (void*)50L, NULL);
@@ -1321,7 +1339,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPopBack on empty tree") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Try to pop from empty tree */
         assert(tringPopBack(tree) == 0);
@@ -1339,7 +1357,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPopBack works until tree is empty") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Insert values in specific order */
         tringInsert(tree, (void*)3L, NULL);
@@ -1367,7 +1385,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPopBack maintains AVL properties") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Insert values that trigger various rotations */
         long values[] = {50, 25, 75, 10, 30, 60, 80, 5, 15, 27, 35};
@@ -1403,7 +1421,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPopBack with sequential insertions") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Sequential insertions */
         for (long i = 1; i <= 20; i++) {
@@ -1434,7 +1452,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPopBack and tringPopFront mixed operations") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Insert 10 values */
         for (long i = 1; i <= 10; i++) {
@@ -1477,7 +1495,7 @@ int tringTest(int argc, char *argv[], int flags) {
     }
     
     TEST("tringPopBack with ring buffer wraparound") {
-        tringTree *tree = tringNew(intCompare);
+        tringTree *tree = tringNew(intCompare, NULL);
         
         /* Set small max capacity to force wraparound */
         tringSetMaxCapacity(tree, 5);
@@ -1516,10 +1534,56 @@ int tringTest(int argc, char *argv[], int flags) {
         assert(tringPopBack(NULL) == 0);
     }
     
+    TEST("alloc_size tracking with insertions") {
+        size_t alloc_size = 0;
+        tringTree *tree = tringNew(intCompare, &alloc_size);
+        
+        /* Verify initial allocation is tracked */
+        assert(alloc_size > 0);
+        size_t initial_size = alloc_size;
+        
+        /* Insert values and verify size increases */
+        for (long i = 1; i <= 10; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        /* Size should have increased after allocations */
+        assert(alloc_size >= initial_size);
+        
+        /* Verify tree integrity */
+        errors += verifyTreeIntegrity(tree);
+        
+        /* Free tree and verify size goes back to 0 */
+        tringFree(tree);
+        assert(alloc_size == 0);
+    }
+    
+    TEST("alloc_size tracking with resize") {
+        size_t alloc_size = 0;
+        tringTree *tree = tringNew(intCompare, &alloc_size);
+        
+        size_t size_after_init = alloc_size;
+        assert(size_after_init > 0);
+        
+        /* Insert enough elements to trigger resize (TRING_INITIAL_CAPACITY is 8) */
+        for (long i = 1; i <= 20; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        /* Size should have increased significantly after resize */
+        assert(alloc_size > size_after_init);
+        
+        /* Verify tree integrity */
+        errors += verifyTreeIntegrity(tree);
+        
+        tringFree(tree);
+        assert(alloc_size == 0);
+    }
+    
     if (errors > 0) {
         printf("FAILED! %d AVL property violations found.\n", errors);
     } else {
-        printf("PASSED! All 38 tests successful.\n");
+        printf("PASSED! All 40 tests successful.\n");
     }
     return errors;
 }
