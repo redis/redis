@@ -2540,7 +2540,6 @@ void xaddCommand(client *c) {
     /* IDMP: Check if UID already exists or prepare to insert */
     idmpEntry *new_entry = NULL;
     int inserted = 0;
-    
     if (parsed_args.idmp_uid != NULL) {
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
         new_entry = idmpEntryCreate(parsed_args.idmp_uid);
@@ -2549,13 +2548,13 @@ void xaddCommand(client *c) {
             return;
         }
         
-        /* Use tringFindOrInsert to find existing or reserve insertion position */
-        idmpEntry *result = tringFindOrInsert(s->idmp_tring, new_entry, &inserted);
-        
+        /* Use tringInsert to insert or detect duplicate */
+        idmpEntry *existing = NULL;
+        inserted = tringInsert(s->idmp_tring, new_entry, (void **)&existing);
         if (!inserted) {
             /* UID already exists, return the existing stream ID */
-            if (result != NULL) {
-                sds replyid = createStreamIDString(&result->id);
+            if (existing != NULL) {
+                sds replyid = createStreamIDString(&existing->id);
                 addReplyBulkCBuffer(c, replyid, sdslen(replyid));
                 sdsfree(replyid);
             }
@@ -2573,9 +2572,8 @@ void xaddCommand(client *c) {
                         "unable to add more items");
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            /* Note: The entry is already in the tring, but with invalid ID.
-             * In a production system, we'd need to remove it, but tring doesn't
-             * support deletion. For now, we accept this edge case. */
+            tringPopBack(s->idmp_tring);
+            idmpEntryFree(new_entry);
         }
         return;
     }
@@ -2596,9 +2594,8 @@ void xaddCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            /* Note: The entry is already in the tring, but with invalid ID.
-             * In a production system, we'd need to remove it, but tring doesn't
-             * support deletion. For now, we accept this edge case. */
+            tringPopBack(s->idmp_tring);
+            idmpEntryFree(new_entry);
         }
         return;
     }

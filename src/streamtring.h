@@ -86,18 +86,13 @@ void tringFree(tringTree *tree);
 
 /* Insert a value into the tree.
  * Returns 1 if a new value was inserted, 0 if the value already exists or on out of memory.
+ * If existingOut is not NULL and a duplicate is found, stores the existing value in *existingOut.
  * Duplicate values are not allowed. */
-int tringInsert(tringTree *tree, void *value);
+int tringInsert(tringTree *tree, void *value, void **existingOut);
 
 /* Search for a value in the tree.
  * Returns the value if found, NULL otherwise. */
 void *tringFind(tringTree *tree, void *value);
-
-/* Search for a value in the tree, and insert it if not found.
- * Returns the found or newly inserted value, NULL on failure.
- * If inserted is not NULL, sets *inserted to 1 if a new value was inserted,
- * or 0 if the value already existed or insertion failed. */
-void *tringFindOrInsert(tringTree *tree, void *value, int *inserted);
 
 /* Return the number of elements in the tree. */
 size_t tringSize(tringTree *tree);
@@ -119,7 +114,12 @@ void *tringBack(tringTree *tree);
 /* Remove the first (minimum) item from the tree.
  * Also increments the head pointer in the ring buffer.
  * Returns 1 on success, 0 if the tree is empty or on failure. */
-int tringPop(tringTree *tree);
+int tringPopFront(tringTree *tree);
+
+/* Remove the last (most recently added) item from the tree.
+ * Also decrements the tail pointer in the ring buffer.
+ * Returns 1 on success, 0 if the tree is empty or on failure. */
+int tringPopBack(tringTree *tree);
 
 /* Set the maximum capacity for the tree.
  * If the tree's current capacity exceeds the new max_capacity, the limit
