@@ -2801,13 +2801,13 @@ void hgetexCommand(client *c) {
 
     addReplyArrayLen(c, num_fields);
     for (int i = first_field_pos; i < first_field_pos + num_fields; i++) {
-        sds field = c->argv[i]->ptr;
-        int res = addHashFieldToReply(c, o, field,
-                          HFE_LAZY_NO_NOTIFICATION |
+        const int flags = HFE_LAZY_NO_NOTIFICATION |
                           HFE_LAZY_NO_SIGNAL |
                           HFE_LAZY_AVOID_HASH_DEL |
                           HFE_LAZY_NO_UPDATE_KEYSIZES |
-                          HFE_LAZY_NO_UPDATE_ALLOCSIZES);
+                          HFE_LAZY_NO_UPDATE_ALLOCSIZES;
+        sds field = c->argv[i]->ptr;
+        int res = addHashFieldToReply(c, o, field, flags);
         expired += (res == GETF_EXPIRED);
 
         /* Set expiration only if the field exists and not expired lazily. */
