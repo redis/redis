@@ -2193,9 +2193,10 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
     *first_field_pos = -1;
     *field_count = -1;
     *expire_time_pos = -1;
-    int args_per_field = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
+
     for (int i = 2; i < c->argc; i++) {
         if (!strcasecmp(c->argv[i]->ptr, "fields")) {
+            int args_per_field = (command_type == HASH_CMD_HSETEX) ? 2 : 1;
             long val;
             /* Ensure we have at least the numfields argument */
             if (i + 1 >= c->argc) {
@@ -2284,25 +2285,30 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             if (*flags & (HFE_EX | HFE_EXAT | HFE_PX | HFE_PXAT | HFE_KEEPTTL))
                 goto err_expiration;
             *flags |= HFE_KEEPTTL;
+        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "FXX")) {
+            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+            return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "FXX")) {
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FXX;
+        } else if (command_type == HASH_CMD_HGETEX && !strcasecmp(c->argv[i]->ptr, "FNX")) {
+            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+            return C_ERR;
         } else if (!strcasecmp(c->argv[i]->ptr, "FNX")) {
             if (*flags & (HFE_FXX | HFE_FNX))
                 goto err_condition;
             *flags |= HFE_FNX;
         } else {
+            /* Unknown argument - give immediate, clear error */
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
         }
 
         /* Validate command-specific argument compatibility */
-        if (command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) {
-            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-            return C_ERR;
-        }
-        if (command_type == HASH_CMD_HSETEX && (*flags & HFE_PERSIST)) {
+        if ((command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) ||
+            (command_type == HASH_CMD_HSETEX && (*flags & HFE_PERSIST)))
+        {
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
         }
@@ -2705,12 +2711,12 @@ void hgetdelCommand(client *c) {
 
     addReplyArrayLen(c, num_fields);
     for (int i = 4; i < c->argc; i++) {
-        res = addHashFieldToReply(c, o, c->argv[i]->ptr,
-                          HFE_LAZY_NO_NOTIFICATION |
+        const int flags = HFE_LAZY_NO_NOTIFICATION |
                           HFE_LAZY_NO_SIGNAL |
                           HFE_LAZY_AVOID_HASH_DEL |
                           HFE_LAZY_NO_UPDATE_KEYSIZES |
-                          HFE_LAZY_NO_UPDATE_ALLOCSIZES);
+                          HFE_LAZY_NO_UPDATE_ALLOCSIZES;
+        res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
         expired += (res == GETF_EXPIRED);
         /* Try to delete only if it's found and not expired lazily. */
         if (res == GETF_OK) {
@@ -2807,7 +2813,7 @@ void hgetexCommand(client *c) {
                           HFE_LAZY_NO_UPDATE_KEYSIZES |
                           HFE_LAZY_NO_UPDATE_ALLOCSIZES;
         sds field = c->argv[i]->ptr;
-        int res = addHashFieldToReply(c, o, field, flags);
+        int res = addHashFieldToReply(c, o, c->argv[i]->ptr, flags);
         expired += (res == GETF_EXPIRED);
 
         /* Set expiration only if the field exists and not expired lazily. */
