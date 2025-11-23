@@ -8209,9 +8209,9 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         } else {
             clusterManagerLogErr("Cannot stat backup directory %s: %s\n",
                                  backup_dir, strerror(errno));
-            success = 0;
-            goto cleanup;
         }
+        success = 0;
+        goto cleanup;
     } else if (!S_ISDIR(st.st_mode)) {
         clusterManagerLogErr("[ERR] The specified backup path '%s' exists but is not a directory.\n", backup_dir);
         success = 0;
