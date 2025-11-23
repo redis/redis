@@ -52,7 +52,8 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 
 /* Structure to hold UID and stream ID for IDMP deduplication */
 typedef struct idmpEntry {
-    robj *uid;          /* User-provided unique identifier (Redis object) */
+    char *uid;          /* User-provided unique identifier (raw string) */
+    size_t uid_len;     /* Length of the UID string */
     streamID id;        /* Associated stream ID */
 } idmpEntry;
 
@@ -63,17 +64,17 @@ static int idmpEntryCompare(const void *a, const void *b) {
     const idmpEntry *ea = (const idmpEntry *)a;
     const idmpEntry *eb = (const idmpEntry *)b;
     
-    /* Get the string data from robj */
-    size_t len_a = sdslen((sds)ea->uid->ptr);
-    size_t len_b = sdslen((sds)eb->uid->ptr);
+    /* Get the string data directly from idmpEntry */
+    size_t len_a = ea->uid_len;
+    size_t len_b = eb->uid_len;
     
     /* Fast path: different lengths - use branchless comparison */
     if (len_a != len_b) {
         return (len_a > len_b) - (len_a < len_b);
     }
     
-    const char *str_a = (const char *)ea->uid->ptr;
-    const char *str_b = (const char *)eb->uid->ptr;
+    const char *str_a = ea->uid;
+    const char *str_b = eb->uid;
     size_t len = len_a;
     
     /* For very short strings, use direct comparison */
@@ -157,22 +158,28 @@ static int idmpEntryCompare(const void *a, const void *b) {
 }
 
 /* Create a new idmpEntry with the given UID and stream ID.
- * The UID robj reference count is incremented.
+ * The UID string is copied into the entry.
  * Returns NULL on allocation failure. */
-static idmpEntry *idmpEntryCreate(robj *uid) {
+static idmpEntry *idmpEntryCreate(const char *uid, size_t uid_len) {
     idmpEntry *entry = zmalloc(sizeof(idmpEntry));
     if (entry == NULL) return NULL;
     
-    entry->uid = uid;
-    incrRefCount(uid);
+    entry->uid = zmalloc(uid_len);
+    if (entry->uid == NULL) {
+        zfree(entry);
+        return NULL;
+    }
+    
+    memcpy(entry->uid, uid, uid_len);
+    entry->uid_len = uid_len;
     
     return entry;
 }
 
-/* Free an idmpEntry and decrement its UID reference count. */
+/* Free an idmpEntry and its UID string. */
 static void idmpEntryFree(idmpEntry *entry) {
     if (entry == NULL) return;
-    decrRefCount(entry->uid);
+    if (entry->uid != NULL) zfree(entry->uid);
     zfree(entry);
 }
 
@@ -2542,7 +2549,9 @@ void xaddCommand(client *c) {
     int inserted = 0;
     if (parsed_args.idmp_uid != NULL) {
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
-        new_entry = idmpEntryCreate(parsed_args.idmp_uid);
+        char *uid_str = parsed_args.idmp_uid->ptr;
+        size_t uid_len = sdslen((sds)uid_str);
+        new_entry = idmpEntryCreate(uid_str, uid_len);
         if (new_entry == NULL) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
