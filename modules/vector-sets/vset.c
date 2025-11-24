@@ -445,6 +445,12 @@ float *parseVector(RedisModuleString **argv, int argc, int start_idx,
         return NULL;  // Unknown format.
     }
 
+    // reduce_dim must be <= dim
+    if (reduce_dim && *reduce_dim && *reduce_dim > *dim) {
+        if (vec) RedisModule_Free(vec);
+        return NULL;
+    }
+
     if (consumed_args) *consumed_args = consumed;
     return vec;
 }
