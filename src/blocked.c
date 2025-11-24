@@ -763,6 +763,9 @@ void blockedBeforeSleep(void) {
     /* Handle for expired pending entries. */
     handleClaimableStreamEntries();
 
+    /* Handle expired IDMP entries */
+    handleExpiredIdmpEntries();
+
     /* Unblock all the clients blocked for synchronous replication
      * in WAIT or WAITAOF. */
     if (listLength(server.clients_waiting_acks))

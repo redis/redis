@@ -45,36 +45,37 @@ int streamEntryIsReferenced(stream *s, streamID *id);
 void streamCleanupEntryCGroupRefs(stream *s, streamID *id);
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
+void trackStreamIdmpEntries(client *c, robj *key);
 
 /* -----------------------------------------------------------------------
  * IDMP (Idempotent Message Producer) structures
  * ----------------------------------------------------------------------- */
 
-/* Structure to hold UID and stream ID for IDMP deduplication */
+/* Structure to hold IID and stream ID for IDMP deduplication */
 typedef struct idmpEntry {
-    char *uid;          /* User-provided unique identifier (raw string) */
-    size_t uid_len;     /* Length of the UID string */
+    char *iid;          /* User-provided unique identifier (raw string) */
+    size_t iid_len;     /* Length of the IID string */
     streamID id;        /* Associated stream ID */
 } idmpEntry;
 
 /* SIMD-optimized comparison function for idmpEntry structures in AVL tree.
- * Compares entries by UID only (lexicographically).
+ * Compares entries by IID only (lexicographically).
  * Returns: negative if a < b, 0 if a == b, positive if a > b */
 static int idmpEntryCompare(const void *a, const void *b) {
     const idmpEntry *ea = (const idmpEntry *)a;
     const idmpEntry *eb = (const idmpEntry *)b;
     
     /* Get the string data directly from idmpEntry */
-    size_t len_a = ea->uid_len;
-    size_t len_b = eb->uid_len;
+    size_t len_a = ea->iid_len;
+    size_t len_b = eb->iid_len;
     
     /* Fast path: different lengths - use branchless comparison */
     if (len_a != len_b) {
         return (len_a > len_b) - (len_a < len_b);
     }
     
-    const char *str_a = ea->uid;
-    const char *str_b = eb->uid;
+    const char *str_a = ea->iid;
+    const char *str_b = eb->iid;
     size_t len = len_a;
     
     /* For very short strings, use direct comparison */
@@ -157,43 +158,43 @@ static int idmpEntryCompare(const void *a, const void *b) {
     return 0;
 }
 
-/* Create a new idmpEntry with the given UID and stream ID.
- * The UID string is copied into the entry.
+/* Create a new idmpEntry with the given IID and stream ID.
+ * The IID string is copied into the entry.
  * Returns NULL on allocation failure. */
-static idmpEntry *idmpEntryCreate(const char *uid, size_t uid_len, size_t *alloc_size) {
+static idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) {
     size_t usable;
     idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry), &usable);
     if (entry == NULL) return NULL;
     
-    size_t uid_usable;
-    entry->uid = zmalloc_usable(uid_len, &uid_usable);
-    if (entry->uid == NULL) {
+    size_t iid_usable;
+    entry->iid = zmalloc_usable(iid_len, &iid_usable);
+    if (entry->iid == NULL) {
         zfree(entry);
         return NULL;
     }
     
-    memcpy(entry->uid, uid, uid_len);
-    entry->uid_len = uid_len;
+    memcpy(entry->iid, iid, iid_len);
+    entry->iid_len = iid_len;
     
     if (alloc_size) {
-        *alloc_size += usable + uid_usable;
+        *alloc_size += usable + iid_usable;
     }
     
     return entry;
 }
 
-/* Free an idmpEntry and its UID string. */
+/* Free an idmpEntry and its IID string. */
 static void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (entry == NULL) return;
     
     if (alloc_size) {
-        if (entry->uid != NULL) {
-            *alloc_size -= zmalloc_size(entry->uid);
+        if (entry->iid != NULL) {
+            *alloc_size -= zmalloc_size(entry->iid);
         }
         *alloc_size -= zmalloc_size(entry);
     }
     
-    if (entry->uid != NULL) zfree(entry->uid);
+    if (entry->iid != NULL) zfree(entry->iid);
     zfree(entry);
 }
 
@@ -226,8 +227,11 @@ stream *streamNew(void) {
     s->min_cgroup_last_id.ms = UINT64_MAX;
     s->min_cgroup_last_id.seq = UINT64_MAX;
     s->min_cgroup_last_id_valid = 0;
+    s->idmp_duration = 100; /* Default 100 ms */
+    s->idmp_max_entries = 1000; /* Default 1000 entries */ 
     s->idmp_tring = tringNew(idmpEntryCompare, &s->alloc_size);
     tringSetFreeCallback(s->idmp_tring, idmpEntryFreeWrapper, &s->alloc_size);
+    tringSetMaxCapacity(s->idmp_tring, s->idmp_max_entries);
     return s;
 }
 
@@ -858,7 +862,7 @@ typedef struct {
     int id_given; /* Was an ID different than "*" specified? for XADD only. */
     int seq_given; /* Was an ID different than "ms-*" specified? for XADD only. */
     int no_mkstream; /* if set to 1 do not create new stream */
-    robj *idmp_uid; /* IDMP uid parameter, for XADD only. */
+    robj *idmp_iid; /* IDMP uid parameter, for XADD only. */
 
     /* XADD + XTRIM common options */
     int trim_strategy; /* TRIM_STRATEGY_* */
@@ -1226,17 +1230,29 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
         } else if (xadd && !strcasecmp(opt,"idmp") && moreargs) {
-            /* IDMP uid parameter */
-            if (args->idmp_uid != NULL) {
+            /* IDMP iid parameter */
+            if (args->idmp_iid != NULL) {
                 addReplyError(c,"syntax error, IDMP specified multiple times");
                 return -1;
             }
-            args->idmp_uid = c->argv[i+1];
+
+            char *iid = c->argv[i+1]->ptr;
+            if (iid[0] == '\0') {
+                addReplyError(c, "syntax error, IDMP requires a non-empty IID");
+                return -1;
+            }
+
+            args->idmp_iid = c->argv[i+1];
             i++;
         } else if (xadd) {
             /* If we are here is a syntax error or a valid ID. */
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
                 return -1;
+
+            if (args->idmp_iid && opt[0] != '*') {
+                addReplyError(c,"syntax error, IDMP can be used only with auto-generated IDs");
+                return -1;
+            }
             args->id_given = 1;
             break;
         } else {
@@ -2533,7 +2549,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
     decrRefCount(arg);
 }
 
-/* XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [IDMP uid] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] <ID or *> [field value] [field value] ... */
+/* XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [IDMP iid] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] <ID or *> [field value] [field value] ... */
 void xaddCommand(client *c) {
     /* Parse options. */
     streamAddTrimArgs parsed_args;
@@ -2565,14 +2581,14 @@ void xaddCommand(client *c) {
     s = kv->ptr;
     size_t old_alloc = s->alloc_size;
 
-    /* IDMP: Check if UID already exists or prepare to insert */
+    /* IDMP: Check if IID already exists or prepare to insert */
     idmpEntry *new_entry = NULL;
     int inserted = 0;
-    if (parsed_args.idmp_uid != NULL) {
+    if (parsed_args.idmp_iid != NULL) {
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
-        char *uid_str = parsed_args.idmp_uid->ptr;
-        size_t uid_len = sdslen((sds)uid_str);
-        new_entry = idmpEntryCreate(uid_str, uid_len, &s->alloc_size);
+        char *iid_str = parsed_args.idmp_iid->ptr;
+        size_t iid_len = sdslen((sds)iid_str);
+        new_entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         if (new_entry == NULL) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
@@ -2582,7 +2598,7 @@ void xaddCommand(client *c) {
         idmpEntry *existing = NULL;
         inserted = tringInsert(s->idmp_tring, new_entry, (void **)&existing);
         if (!inserted) {
-            /* UID already exists, return the existing stream ID */
+            /* IID already exists, return the existing stream ID */
             if (existing != NULL) {
                 sds replyid = createStreamIDString(&existing->id);
                 addReplyBulkCBuffer(c, replyid, sdslen(replyid));
@@ -2633,6 +2649,7 @@ void xaddCommand(client *c) {
     /* IDMP: Update the entry's ID if we inserted it earlier */
     if (inserted && new_entry != NULL) {
         new_entry->id = id;
+        trackStreamIdmpEntries(c, c->argv[1]);
     }
 
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
@@ -5325,6 +5342,85 @@ void handleClaimableStreamEntries(void) {
             if (expire_time < (uint64_t)server.mstime) {
                 signalKeyAsReady(db, key, kv->type);
                 dictDelete(db->stream_claim_pending_keys, key);
+            }
+        }
+        dictResetIterator(&di);
+    }
+}
+
+/* Track a stream key that has idempotency tracking enabled. This function
+ * registers a stream key in the database's stream_idmp_keys dictionary,
+ * allowing the cron job handleExpiredIdmpEntries() to periodically check
+ * and clean up expired idempotency entries from the stream's idmp_tring.
+ *
+ * 'c' is the client that is performing the XADD operation with IDMP.
+ * 'key' is the stream key object to track.
+ *
+ * If the key is not already tracked, it is added to stream_idmp_keys and its
+ * reference count is incremented. If the key is already being tracked (added
+ * by a previous XADD operation), this function does nothing, as the stream
+ * is already registered for periodic cleanup. */
+void trackStreamIdmpEntries(client *c, robj *key) {
+    dictEntry *db_track_entry;
+    db_track_entry = dictAddRaw(c->db->stream_idmp_keys, key, NULL);
+    if (db_track_entry != NULL) {
+        incrRefCount(key);
+    }
+}
+
+/* Clean up expired idempotency entries from tracked streams. This function
+ * is invoked regularly from blockedBeforeSleep() to remove expired entries
+ * from the idmp_tring of streams that have idempotency tracking enabled,
+ * keeping memory usage under control.
+ *
+ * The function processes up to CRON_DBS_PER_CALL databases per call in a
+ * round-robin fashion, cycling through all databases over multiple invocations.
+ * For each database, it iterates through the stream_idmp_keys dictionary.
+ * For each tracked stream, it compares the timestamp of entries in the stream's
+ * idmp_tring against the expiration threshold (current time - idmp_duration).
+ * Entries with timestamps older than the threshold are popped from the front
+ * of the tring. When all entries have been removed and the tring becomes empty,
+ * the stream key is removed from stream_idmp_keys to stop tracking it. */
+void handleExpiredIdmpEntries(void) {
+    static unsigned int current_db = 0;
+    int dbs_per_call = CRON_DBS_PER_CALL;
+    int j;
+
+    if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
+
+    for (j = 0; j < dbs_per_call; j++) {
+        redisDb *db = &server.db[current_db % server.dbnum];
+        current_db++;
+
+        if (dictIsEmpty(db->stream_idmp_keys))
+            continue;
+
+        dictEntry *de;
+        dictIterator di;
+        dictInitSafeIterator(&di, db->stream_idmp_keys);
+        while ((de = dictNext(&di)) != NULL) {
+            robj *key = dictGetKey(de);
+            kvobj *kv = dbFind(db, key->ptr);
+
+            if (!kv || kv->type != OBJ_STREAM) {
+                dictDelete(db->stream_idmp_keys, key);
+                continue;
+            }
+
+            stream *s = kv->ptr;
+            uint64_t expire_time = server.mstime - s->idmp_duration;
+            while (!tringEmpty(s->idmp_tring)) {
+                idmpEntry *entry = (idmpEntry*)tringFront(s->idmp_tring);
+                if (entry->id.ms <= expire_time) {
+                    tringPopFront(s->idmp_tring);
+                } else {
+                    break;
+                }
+            }
+
+            if (tringEmpty(s->idmp_tring)) {
+                dictDelete(db->stream_idmp_keys, key);
+                continue;
             }
         }
         dictResetIterator(&di);

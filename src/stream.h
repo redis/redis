@@ -26,7 +26,9 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
-    tringTree *idmp_tring;  /* AVL tree with ring buffer for IDMP UIDs */
+    uint64_t idmp_duration; /* IDMP duration in milliseconds. */
+    uint64_t idmp_max_entries; /* Max number of IID for tracking. */
+    tringTree *idmp_tring;  /* IDMP IID tracking tree. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without

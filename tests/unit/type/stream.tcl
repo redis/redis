@@ -290,6 +290,45 @@ start_server {
         assert {[lindex [r XPENDING mystream mygroup] 0] == 0}
     }
 
+    test {XADD IDMP with invalid syntax} {
+        r DEL mystream
+        assert_error "*ERR Invalid stream ID specified*" {r XADD mystream IDMP * f v}
+        assert_error "*IDMP can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 1-1 f v}
+        assert_error "*IDMP can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 1-1 f v}
+        assert_error "*IDMP can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 * f v}
+        assert_error "*IDMP specified multiple times*" {r XADD mystream IDMP 1 IDMP 2 * f v}
+        assert_error "*IDMP specified multiple times*" {r XADD mystream IDMP IDMP IDMP 2 * f v}
+        assert_error "*IDMP specified multiple times*" {r XADD mystream IDMP IDMP IDMP * f v}
+        assert_error "*IDMP requires a non-empty IID*" {r XADD mystream IDMP "" * f v}
+    }
+
+    test {XADD IDMP with valid syntax} {
+        r DEL mystream
+    
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 1 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP IDMP * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 123-456 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP * * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 9999999999999-9999999999999 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "hello世界" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "héllo" * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "line1\nline2" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "tab\there" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "quote\"test" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "with spaces" * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP [string repeat "long" 100] * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP [string repeat "x" 1000] * f v]]}
+        
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "special!@#$%^&*()" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "path/to/file" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "key:value" * f v]]}
+        
+        assert_equal 16 [r XLEN mystream]
+    }
+
     test {XTRIM with MINID option} {
         r DEL mystream
         r XADD mystream 1-0 f v

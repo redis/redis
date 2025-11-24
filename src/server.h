@@ -1135,6 +1135,7 @@ typedef struct redisDb {
                                              * data, and should be unblocked if key is deleted (XREADEDGROUP).
                                              * This is a subset of blocking_keys*/
     dict *stream_claim_pending_keys; /* Keys with clients waiting to claim pending entries */
+    dict *stream_idmp_keys; /* Stream keys with IDMP tracking */
     dict *ready_keys;           /* Blocked keys that received a PUSH */
     dict *watched_keys;         /* WATCHED keys for MULTI/EXEC CAS */
     int id;                     /* Database ID */
@@ -3984,6 +3985,7 @@ int clientsCronHandleTimeout(client *c, mstime_t now_ms);
 
 /* t_stream.c -- Handling of stream data structures */
 void handleClaimableStreamEntries(void);
+void handleExpiredIdmpEntries(void);
 
 /* expire.c -- Handling of expired keys */
 void activeExpireCycle(int type);
