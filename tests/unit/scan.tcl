@@ -199,10 +199,7 @@ proc test_scan {type} {
         # pattern check before expired so key filtered by pattern will not be removed
         # but expiration check is before type check so key:foo and key:hash will be removed
         assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
-        # TODO: uncomment in redis 8.0
-        # make sure that only the expired key in the type match will been removed by scan command
-        #assert_equal 1001 [scan [regexp -inline {keys\=([\d]*)} [r info keyspace]] keys=%d]
-
+        
         r debug set-active-expire 1
     } {OK} {needs:debug}
 
