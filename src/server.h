@@ -4299,6 +4299,7 @@ void xpendingCommand(client *c);
 void xclaimCommand(client *c);
 void xautoclaimCommand(client *c);
 void xinfoCommand(client *c);
+void xidmpCommand(client *c);
 void xdelCommand(client *c);
 void xdelexCommand(client *c);
 void xtrimCommand(client *c);

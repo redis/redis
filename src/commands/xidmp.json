@@ -1,0 +1,10 @@
+{
+    "XIDMP": {
+        "summary": "A container for stream IDMP (Idempotent Message Producer) configuration commands.",
+        "complexity": "Depends on subcommand.",
+        "group": "stream",
+        "since": "8.2.0",
+        "arity": -2
+    }
+}
+

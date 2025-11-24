@@ -51,13 +51,6 @@ void trackStreamIdmpEntries(client *c, robj *key);
  * IDMP (Idempotent Message Producer) structures
  * ----------------------------------------------------------------------- */
 
-/* Structure to hold IID and stream ID for IDMP deduplication */
-typedef struct idmpEntry {
-    char *iid;          /* User-provided unique identifier (raw string) */
-    size_t iid_len;     /* Length of the IID string */
-    streamID id;        /* Associated stream ID */
-} idmpEntry;
-
 /* SIMD-optimized comparison function for idmpEntry structures in AVL tree.
  * Compares entries by IID only (lexicographically).
  * Returns: negative if a < b, 0 if a == b, positive if a > b */
@@ -161,7 +154,7 @@ static int idmpEntryCompare(const void *a, const void *b) {
 /* Create a new idmpEntry with the given IID and stream ID.
  * The IID string is copied into the entry.
  * Returns NULL on allocation failure. */
-static idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) {
+idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) {
     size_t usable;
     idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry), &usable);
     if (entry == NULL) return NULL;
@@ -184,7 +177,7 @@ static idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc
 }
 
 /* Free an idmpEntry and its IID string. */
-static void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
+void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (entry == NULL) return;
     
     if (alloc_size) {
@@ -227,7 +220,7 @@ stream *streamNew(void) {
     s->min_cgroup_last_id.ms = UINT64_MAX;
     s->min_cgroup_last_id.seq = UINT64_MAX;
     s->min_cgroup_last_id_valid = 0;
-    s->idmp_duration = 100; /* Default 100 ms */
+    s->idmp_duration = 100000; /* Default 100000 ms */
     s->idmp_max_entries = 1000; /* Default 1000 entries */ 
     s->idmp_tring = tringNew(idmpEntryCompare, &s->alloc_size);
     tringSetFreeCallback(s->idmp_tring, idmpEntryFreeWrapper, &s->alloc_size);
@@ -5112,6 +5105,123 @@ NULL
     } else if (!strcasecmp(opt,"STREAM")) {
         /* XINFO STREAM <key> [FULL [COUNT <count>]]. */
         xinfoReplyWithStreamInfo(c,s);
+    } else {
+        addReplySubcommandSyntaxError(c);
+    }
+}
+
+/* XIDMP CFGGET <key> [DURATION] [MAXSIZE]
+ * XIDMP CFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
+void xidmpCommand(client *c) {
+    char *opt = c->argv[1]->ptr;
+    robj *key = c->argv[2];
+    
+    /* Lookup the stream key */
+    kvobj *kv = lookupKeyReadOrReply(c, key, shared.nokeyerr);
+    if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
+    stream *s = kv->ptr;
+    
+    if (!strcasecmp(opt, "CFGGET")) {
+        /* XIDMP CFGGET <key> [DURATION] [MAXSIZE] */
+        int get_duration = 0;
+        int get_maxsize = 0;
+        
+        /* If no parameters specified, return both */
+        if (c->argc == 3) {
+            get_duration = 1;
+            get_maxsize = 1;
+        } else {
+            /* Parse which parameters to get */
+            for (int i = 3; i < c->argc; i++) {
+                char *param = c->argv[i]->ptr;
+                if (!strcasecmp(param, "DURATION")) {
+                    get_duration = 1;
+                } else if (!strcasecmp(param, "MAXSIZE")) {
+                    get_maxsize = 1;
+                } else {
+                    addReplyErrorFormat(c, "Unknown parameter '%s'", param);
+                    return;
+                }
+            }
+        }
+        
+        /* Build reply as a map */
+        int num_fields = get_duration + get_maxsize;
+        addReplyMapLen(c, num_fields);
+        
+        if (get_duration) {
+            addReplyBulkCString(c, "duration");
+            addReplyLongLong(c, s->idmp_duration);
+        }
+        if (get_maxsize) {
+            addReplyBulkCString(c, "maxsize");
+            addReplyLongLong(c, s->idmp_max_entries);
+        }
+    } else if (!strcasecmp(opt, "CFGSET")) {
+        /* XIDMP CFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
+        long long duration = -1;
+        long long maxsize = -1;
+        int duration_set = 0;
+        int maxsize_set = 0;
+        
+        /* Parse parameters */
+        for (int i = 3; i < c->argc; i++) {
+            int moreargs = c->argc - i - 1;
+            char *param = c->argv[i]->ptr;
+            
+            if (!strcasecmp(param, "DURATION") && moreargs) {
+                if (duration_set) {
+                    addReplyError(c, "DURATION specified multiple times");
+                    return;
+                }
+                i++;
+                if (getLongLongFromObjectOrReply(c, c->argv[i], &duration, NULL) != C_OK)
+                    return;
+                if (duration < 1 || duration > 100000) {
+                    addReplyError(c, "DURATION must be between 1 and 100000 milliseconds");
+                    return;
+                }
+                duration_set = 1;
+            } else if (!strcasecmp(param, "MAXSIZE") && moreargs) {
+                if (maxsize_set) {
+                    addReplyError(c, "MAXSIZE specified multiple times");
+                    return;
+                }
+                i++;
+                if (getLongLongFromObjectOrReply(c, c->argv[i], &maxsize, NULL) != C_OK)
+                    return;
+                if (maxsize < 1 || maxsize > 1000000) {
+                    addReplyError(c, "MAXSIZE must be between 1 and 1000000 entries");
+                    return;
+                }
+                maxsize_set = 1;
+            } else {
+                addReplyErrorObject(c, shared.syntaxerr);
+                return;
+            }
+        }
+        
+        /* At least one parameter must be specified */
+        if (!duration_set && !maxsize_set) {
+            addReplyError(c, "At least one parameter must be specified");
+            return;
+        }
+        
+        /* Update the stream configuration */
+        if (duration_set) {
+            s->idmp_duration = duration;
+        }
+        if (maxsize_set) {
+            s->idmp_max_entries = maxsize;
+            /* Update the tring max capacity */
+            tringSetMaxCapacity(s->idmp_tring, maxsize);
+        }
+        
+        /* Mark the key as dirty for replication */
+        signalModifiedKey(c, c->db, key);
+        server.dirty++;
+        
+        addReply(c, shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
     }

@@ -128,6 +128,13 @@ typedef struct pelTimeKey {
     streamID id;
 } pelTimeKey;
 
+/* Structure to hold IID and stream ID for IDMP deduplication */
+typedef struct idmpEntry {
+    char *iid;          /* User-provided unique identifier (raw string) */
+    size_t iid_len;     /* Length of the IID string */
+    streamID id;        /* Associated stream ID */
+} idmpEntry;
+
 /* Prototypes of exported APIs. */
 struct client;
 
@@ -175,5 +182,9 @@ void encodePelTimeKey(void* buf, pelTimeKey *timeKey);
 void decodePelTimeKey(void *buf, pelTimeKey *timeKey);
 void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
+
+/* IDMP functions */
+idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
+void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
 
 #endif

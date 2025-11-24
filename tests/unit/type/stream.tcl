@@ -302,13 +302,23 @@ start_server {
         assert_error "*IDMP requires a non-empty IID*" {r XADD mystream IDMP "" * f v}
     }
 
-    test {XADD IDMP with valid syntax} {
+    test {XADD IDMP basic addition} {
         r DEL mystream
     
         assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 1 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP A * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP B * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP - * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP + * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP * * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP ^ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP $ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP # * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP @ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP ? * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP \\ * f v]]}
         assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP IDMP * f v]]}
         assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 123-456 * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP * * f v]]}
         
         assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 9999999999999-9999999999999 * f v]]}
         assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "hello世界" * f v]]}
@@ -326,7 +336,510 @@ start_server {
         assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "path/to/file" * f v]]}
         assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "key:value" * f v]]}
         
-        assert_equal 16 [r XLEN mystream]
+        assert_equal 26 [r XLEN mystream]
+    }
+
+    test "XADD IDMP duplicate request returns same ID" {
+        r DEL mystream
+        
+        # First XADD with IDMP
+        set id1 [r XADD mystream IDMP "payment-abc" * amount "100" currency "USD"]
+        
+        # Second XADD with same iid but different fields
+        set id2 [r XADD mystream IDMP "payment-abc" * amount "200" currency "EUR"]
+        
+        # Verify both IDs are identical
+        assert_equal $id1 $id2
+        
+        # Verify only one entry exists
+        assert_equal 1 [r XLEN mystream]
+        
+        # Verify original fields are preserved
+        set entries [r XRANGE mystream - +]
+        set fields [lindex [lindex $entries 0] 1]
+        assert_equal "100" [dict get $fields amount]
+        assert_equal "USD" [dict get $fields currency]
+    }
+
+    test {XADD IDMP multiple different IIDs create multiple entries} {
+        r DEL mystream
+        
+        # Add entries with different iids
+        set id1 [r XADD mystream IDMP "req-1" * user "alice"]
+        set id2 [r XADD mystream IDMP "req-2" * user "bob"]
+        set id3 [r XADD mystream IDMP "req-3" * user "charlie"]
+        
+        # Verify all IDs are different
+        assert {$id1 != $id2}
+        assert {$id2 != $id3}
+        assert {$id1 != $id3}
+        
+        # Verify all entries exist
+        assert_equal 3 [r XLEN mystream]
+        
+        # Verify each entry has correct data
+        set entries [r XRANGE mystream - +]
+        assert_equal "alice" [dict get [lindex [lindex $entries 0] 1] user]
+        assert_equal "bob" [dict get [lindex [lindex $entries 1] 1] user]
+        assert_equal "charlie" [dict get [lindex [lindex $entries 2] 1] user]
+    }
+
+    test {XADD IDMP with MAXLEN option} {
+        r DEL mystream
+        
+        # Add entries with IDMP and MAXLEN
+        set id1 [r XADD mystream IDMP "req-1" MAXLEN ~ 100 * field "value1"]
+        set id2 [r XADD mystream IDMP "req-2" MAXLEN ~ 100 * field "value2"]
+        
+        # Attempt duplicate
+        set id1_dup [r XADD mystream IDMP "req-1" MAXLEN ~ 100 * field "value3"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id1_dup
+        
+        # Verify only 2 entries exist
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with MINID option} {
+        r DEL mystream
+        
+        # Add entry with IDMP and MINID
+        set id1 [r XADD mystream IDMP "req-1" MINID ~ 1000000000-0 * field "value1"]
+        
+        # Attempt duplicate with MINID
+        set id2 [r XADD mystream IDMP "req-1" MINID ~ 1000000000-0 * field "value2"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with NOMKSTREAM option} {
+        r DEL mystream
+        
+        # Attempt XADD with NOMKSTREAM on non-existent stream
+        set result [r XADD mystream NOMKSTREAM IDMP "req-1" * field "value"]
+        assert_equal {} $result
+        
+        # Create stream normally
+        r XADD mystream IDMP "req-2" * field "value"
+        
+        # Now NOMKSTREAM should work
+        set id [r XADD mystream NOMKSTREAM IDMP "req-3" * field "value"]
+        assert_match {*-*} $id
+        
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with KEEPREF option} {
+        r DEL mystream
+        
+        # Add entry with IDMP and KEEPREF
+        set id1 [r XADD mystream IDMP "req-1" KEEPREF * field "value1"]
+        
+        # Attempt duplicate with KEEPREF
+        set id2 [r XADD mystream IDMP "req-1" KEEPREF * field "value2"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with combined options} {
+        r DEL mystream
+        
+        # Add entry with all options
+        set id1 [r XADD mystream IDMP "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field1 "value1" field2 "value2"]
+        
+        # Attempt duplicate with all options
+        set id2 [r XADD mystream IDMP "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field3 "value3"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+        
+        # Verify original fields preserved
+        set entries [r XRANGE mystream - +]
+        set fields [lindex [lindex $entries 0] 1]
+        assert_equal "value1" [dict get $fields field1]
+        assert_equal "value2" [dict get $fields field2]
+    }
+
+    test {XADD IDMP argument order variations} {
+        r DEL mystream
+        
+        # IDMP before MAXLEN
+        set id1 [r XADD mystream IDMP "req-1" MAXLEN ~ 100 * field "value1"]
+        
+        # IDMP after MAXLEN
+        set id2 [r XADD mystream MAXLEN ~ 100 IDMP "req-2" * field "value2"]
+        
+        # Multiple options in different order
+        set id3 [r XADD mystream NOMKSTREAM IDMP "req-3" MAXLEN ~ 100 * field "value3"]
+        
+        # All should succeed
+        assert_match {*-*} $id1
+        assert_match {*-*} $id2
+        assert_match {*-*} $id3
+        
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XADD IDMP concurrent duplicate requests} {
+        r DEL mystream
+        
+        # Create multiple clients
+        set client1 [redis_client]
+        set client2 [redis_client]
+        set client3 [redis_client]
+        
+        # Send same IDMP request from all clients concurrently
+        set id1 [$client1 XADD mystream IDMP "concurrent-req" * client "1"]
+        set id2 [$client2 XADD mystream IDMP "concurrent-req" * client "2"]
+        set id3 [$client3 XADD mystream IDMP "concurrent-req" * client "3"]
+        
+        # All should return the same ID
+        assert_equal $id1 $id2
+        assert_equal $id2 $id3
+        
+        # Only one entry should exist
+        assert_equal 1 [r XLEN mystream]
+        
+        # Cleanup
+        $client1 close
+        $client2 close
+        $client3 close
+    }
+
+    test {XADD IDMP pipelined requests} {
+        r DEL mystream
+        
+        # Send pipelined requests
+        r MULTI
+        r XADD mystream IDMP "req-1" * field "value1"
+        r XADD mystream IDMP "req-2" * field "value2"
+        r XADD mystream IDMP "req-1" * field "value3"  # Duplicate
+        r XADD mystream IDMP "req-3" * field "value4"
+        set results [r EXEC]
+        
+        # Extract IDs
+        set id1 [lindex $results 0]
+        set id2 [lindex $results 1]
+        set id1_dup [lindex $results 2]
+        set id3 [lindex $results 3]
+        
+        # Verify deduplication
+        assert_equal $id1 $id1_dup
+        
+        # Verify all IDs are different (except duplicate)
+        assert {$id1 != $id2}
+        assert {$id2 != $id3}
+        assert {$id1 != $id3}
+        
+        # Verify only 3 entries exist
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XADD IDMP with consumer groups} {
+        r DEL mystream
+        
+        # Add entries with IDMP
+        set id1 [r XADD mystream IDMP "cg-1" * field "value1"]
+        set id2 [r XADD mystream IDMP "cg-2" * field "value2"]
+        
+        # Create consumer group
+        r XGROUP CREATE mystream mygroup 0
+        
+        # Read entries
+        set entries [r XREADGROUP GROUP mygroup consumer1 COUNT 10 STREAMS mystream >]
+        
+        # Verify both entries are readable
+        set stream_entries [lindex [lindex $entries 0] 1]
+        assert_equal 2 [llength $stream_entries]
+        
+        # ACK entries
+        assert_equal 2 [r XACK mystream mygroup $id1 $id2]
+        
+        # Verify deduplication still works
+        set id1_dup [r XADD mystream IDMP "cg-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+    }
+
+    test {XIDMP CFGSET set DURATION successfully} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Set DURATION to 5000ms
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 5000]
+        
+        # Verify DURATION was set
+        set config [r XIDMP CFGGET mystream DURATION]
+        assert_equal "duration" [lindex $config 0]
+        assert_equal 5000 [lindex $config 1]
+    }
+
+    test {XIDMP CFGSET set MAXSIZE successfully} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Set MAXSIZE to 5000
+        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 5000]
+        
+        # Verify MAXSIZE was set
+        set config [r XIDMP CFGGET mystream MAXSIZE]
+        assert_equal "maxsize" [lindex $config 0]
+        assert_equal 5000 [lindex $config 1]
+    }
+
+    test {XIDMP CFGSET set both DURATION and MAXSIZE} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Set both DURATION and MAXSIZE
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3000 MAXSIZE 10000]
+        
+        # Verify both were set
+        set config [r XIDMP CFGGET mystream DURATION MAXSIZE]
+        assert_equal "duration" [lindex $config 0]
+        assert_equal 3000 [lindex $config 1]
+        assert_equal "maxsize" [lindex $config 2]
+        assert_equal 10000 [lindex $config 3]
+    }
+
+    test {XIDMP CFGGET get all parameters} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Set both DURATION and MAXSIZE
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3000 MAXSIZE 10000]
+        
+        # Verify both were set
+        set config [r XIDMP CFGGET mystream]
+        assert_equal "duration" [lindex $config 0]
+        assert_equal 3000 [lindex $config 1]
+        assert_equal "maxsize" [lindex $config 2]
+        assert_equal 10000 [lindex $config 3]
+    }
+
+    test {XIDMP CFGGET get default parameters} {
+        r DEL mystream
+        
+        # Create stream with IDMP entry
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Verify both were set
+        set config [r XIDMP CFGGET mystream]
+        assert_equal "duration" [lindex $config 0]
+        assert_equal 100000 [lindex $config 1]
+        assert_equal "maxsize" [lindex $config 2]
+        assert_equal 1000 [lindex $config 3]
+    }
+
+    test {XIDMP CFGSET error on non-existent stream} {
+        r DEL mystream
+        
+        # Attempt to set config on non-existent stream
+        assert_error "*no such key*" {r XIDMP CFGSET mystream DURATION 5000}
+    }
+
+    test {XIDMP CFGSET DURATION maximum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Set DURATION to maximum allowed (100000ms = 100 seconds)
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 100000]
+        
+        # Verify it was set
+        set config [r XIDMP CFGGET mystream DURATION]
+        assert_equal 100000 [lindex $config 1]
+        
+        # Attempt to set DURATION above maximum
+        assert_error "*ERR DURATION must be*" {r XIDMP CFGSET mystream DURATION 100001}
+        
+        # Verify DURATION wasn't changed
+        set config [r XIDMP CFGGET mystream DURATION]
+        assert_equal 100000 [lindex $config 1]
+    }
+
+    test {XIDMP CFGSET DURATION minimum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Attempt to set DURATION to 0
+        assert_error "*ERR DURATION must be between*" {r XIDMP CFGSET mystream DURATION 0}
+        
+        # Attempt to set DURATION to negative value
+        assert_error "*ERR DURATION must be between*" {r XIDMP CFGSET mystream DURATION -100}
+        
+        # Set DURATION to minimum valid value (1ms)
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 1]
+        
+        # Verify it was set
+        set config [r XIDMP CFGGET mystream DURATION]
+        assert_equal 1 [lindex $config 1]
+    }
+
+    test {XIDMP CFGSET MAXSIZE maximum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Set MAXSIZE to maximum allowed (1M)
+        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 1000000]
+        
+        # Verify it was set
+        set config [r XIDMP CFGGET mystream MAXSIZE]
+        assert_equal 1000000 [lindex $config 1]
+        
+        # Attempt to set MAXSIZE above maximum
+        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 1000001}
+        
+        # Verify MAXSIZE wasn't changed
+        set config [r XIDMP CFGGET mystream MAXSIZE]
+        assert_equal 1000000 [lindex $config 1]
+    }
+
+    test {XIDMP CFGSET MAXSIZE minimum value validation} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Attempt to set MAXSIZE to 0
+        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 0}
+        
+        # Attempt to set MAXSIZE to negative value
+        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE -50}
+        
+        # Set MAXSIZE to minimum valid value (1)
+        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 1]
+        
+        # Verify it was set
+        set config [r XIDMP CFGGET mystream MAXSIZE]
+        assert_equal 1 [lindex $config 1]
+    }
+
+    test {XIDMP CFGSET invalid syntax} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Attempt CFGSET with invalid syntax
+        assert_error "*ERR At least one parameter*" {r XIDMP CFGSET mystream}
+        assert_error "*syntax*" {r XIDMP CFGSET mystream DURATION}
+        assert_error "*syntax*" {r XIDMP CFGSET mystream MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION A}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION AAA}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION *}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION -}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION +}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION 120-5}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION 3.14}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION 000000000}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION DURATION}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION DURATION DURATION}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE A}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE AAA}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE *}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE -}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE +}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE 120-5}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE 3.14}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE 000000000}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE MAXSIZE MAXSIZE}
+
+        assert_error "*syntax*" {r XIDMP CFGSET mystream INVALID}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION INVALID MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE INVALID DURATION}
+    }
+
+    test {XIDMP CFGSET multiple configuration changes} {
+        r DEL mystream
+        
+        # Create stream with IDMP
+        r XADD mystream IDMP "req-1" * field "value"
+        
+        # Change DURATION multiple times
+        r XIDMP CFGSET mystream DURATION 1000
+        r XIDMP CFGSET mystream DURATION 2000
+        r XIDMP CFGSET mystream DURATION 3000
+        
+        # Change MAXSIZE
+        r XIDMP CFGSET mystream MAXSIZE 100
+        r XIDMP CFGSET mystream MAXSIZE 200
+        
+        # Verify latest values
+        set config [r XIDMP CFGGET mystream]
+        
+        # Parse config
+        array set cfg $config
+        assert_equal 3000 $cfg(duration)
+        assert_equal 200 $cfg(maxsize)
+    }
+
+    test {XIDMP CFGSET configuration persists in RDB} {
+        r DEL mystream
+        
+        # Create stream and set configuration
+        r XADD mystream IDMP "req-1" * field "value"
+        r XIDMP CFGSET mystream DURATION 7500 MAXSIZE 25000
+        
+        # Save and restart
+        r SAVE
+
+        # Restart Redis
+        restart_server 0 true false
+        
+        # Verify configuration persisted
+        set config [r XIDMP CFGGET mystream]
+        array set cfg $config
+        
+        assert_equal 7500 $cfg(duration)
+        assert_equal 25000 $cfg(maxsize)
+    }
+
+    test {XIDMP CFGSET configuration in AOF} {
+        r DEL mystream
+        r config set appendonly yes
+        
+        # Wait for the automatic AOF rewrite triggered by enabling AOF
+        waitForBgrewriteaof r
+
+        # Create stream and set configuration
+        r XADD mystream IDMP "req-1" * field "value"
+        r XIDMP CFGSET mystream DURATION 4500 MAXSIZE 18000
+        
+        # Force AOF rewrite
+        r BGREWRITEAOF
+        waitForBgrewriteaof r
+        
+        # Restart with AOF
+        r DEBUG RELOAD
+        
+        # Verify configuration
+        set config [r XIDMP CFGGET mystream]
+        array set cfg $config
+        
+        assert_equal 4500 $cfg(duration)
+        assert_equal 18000 $cfg(maxsize)
+        
+        r config set appendonly no
     }
 
     test {XTRIM with MINID option} {

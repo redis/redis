@@ -721,7 +721,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_3);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_4);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -785,6 +785,96 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     }
     raxStop(&ri);
     return nwritten;
+}
+
+/* Serialize the IDMP tring entries for a stream into the RDB file.
+ * This saves all the idempotent producer tracking entries (IID -> stream ID mappings). */
+ssize_t rdbSaveStreamIdmpTring(rio *rdb, tringTree *idmp_tring) {
+    ssize_t n, nwritten = 0;
+
+    /* Save the number of IDMP entries. */
+    size_t count = tringSize(idmp_tring);
+    if ((n = rdbSaveLen(rdb, count)) == -1) return -1;
+    nwritten += n;
+
+    /* Iterate through the ring buffer and save each entry.
+     * Since tring uses a ring buffer internally, we iterate from head
+     * for 'count' items. */
+    for (uint32_t i = 0; i < count; i++) {
+        uint32_t idx = (idmp_tring->head + i) % idmp_tring->capacity;
+        tringNode *node = &idmp_tring->nodes[idx];
+        
+        if (node->value == NULL) continue;
+        
+        /* Cast to idmpEntry */
+        idmpEntry *entry = (idmpEntry *)node->value;
+        
+        /* Save the IID string length and data. */
+        if ((n = rdbSaveRawString(rdb, (unsigned char *)entry->iid, entry->iid_len)) == -1) {
+            return -1;
+        }
+        nwritten += n;
+        
+        /* Save the associated stream ID. */
+        if ((n = rdbSaveLen(rdb, entry->id.ms)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb, entry->id.seq)) == -1) return -1;
+        nwritten += n;
+    }
+
+    return nwritten;
+}
+
+/* Load IDMP tring entries for a stream from the RDB file.
+ * This loads all the idempotent producer tracking entries (IID -> stream ID mappings)
+ * and inserts them into the stream's idmp_tring. */
+int rdbLoadStreamIdmpTring(rio *rdb, stream *s) {
+    /* Load the number of IDMP entries. */
+    uint64_t count = rdbLoadLen(rdb, NULL);
+    if (count == RDB_LENERR) {
+        return -1;
+    }
+
+    /* Load each entry. */
+    for (uint64_t i = 0; i < count; i++) {
+        /* Load the IID string. */
+        size_t iid_len;
+        sds iid_sds = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &iid_len);
+        if (iid_sds == NULL) {
+            return -1;
+        }
+
+        /* Load the associated stream ID. */
+        streamID id;
+        id.ms = rdbLoadLen(rdb, NULL);
+        id.seq = rdbLoadLen(rdb, NULL);
+        if (rioGetReadError(rdb)) {
+            sdsfree(iid_sds);
+            return -1;
+        }
+
+        /* Create the idmpEntry. */
+        idmpEntry *entry = idmpEntryCreate(iid_sds, iid_len, &s->alloc_size);
+        sdsfree(iid_sds);
+        if (entry == NULL) {
+            return -1;
+        }
+
+        /* Set the stream ID. */
+        entry->id = id;
+
+        /* Insert into the tring. If insertion fails (e.g., duplicate or out of memory),
+         * we need to handle it appropriately. */
+        idmpEntry *existing = NULL;
+        int inserted = tringInsert(s->idmp_tring, entry, (void **)&existing);
+        if (!inserted) {
+            /* Insertion failed. For RDB loading, we'll just skip duplicates
+             * rather than failing the entire load. */
+            idmpEntryFree(entry, &s->alloc_size);
+        }
+    }
+
+    return 0;
 }
 
 /* Serialize the consumers of a stream consumer group into the RDB. Helper
@@ -1156,6 +1246,20 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             }
             raxStop(&ri);
         }
+
+        /* Save IDMP (Idempotent Message Producer) configuration and entries. */
+        
+        /* Save IDMP duration (in milliseconds). */
+        if ((n = rdbSaveLen(rdb, s->idmp_duration)) == -1) return -1;
+        nwritten += n;
+        
+        /* Save IDMP max entries. */
+        if ((n = rdbSaveLen(rdb, s->idmp_max_entries)) == -1) return -1;
+        nwritten += n;
+        
+        /* Save all IDMP tring entries. */
+        if ((n = rdbSaveStreamIdmpTring(rdb, s->idmp_tring)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -2826,7 +2930,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
     } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -3135,6 +3240,36 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
                 }
                 raxStop(&ri_cg_pel);
+            }
+        }
+
+        /* Load IDMP (Idempotent Message Producer) configuration and entries
+         * for RDB_TYPE_STREAM_LISTPACKS_4 and above. */
+        if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_4) {
+            /* Load IDMP duration. */
+            s->idmp_duration = rdbLoadLen(rdb, NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream IDMP duration loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load IDMP max entries. */
+            s->idmp_max_entries = rdbLoadLen(rdb, NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream IDMP max entries loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Update the tring max capacity with the loaded value. */
+            tringSetMaxCapacity(s->idmp_tring, s->idmp_max_entries);
+
+            /* Load all IDMP tring entries. */
+            if (rdbLoadStreamIdmpTring(rdb, s) == -1) {
+                rdbReportReadError("Stream IDMP tring loading failed.");
+                decrRefCount(o);
+                return NULL;
             }
         }
     } else if (rdbtype == RDB_TYPE_MODULE_PRE_GA) {

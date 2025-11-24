@@ -1,0 +1,78 @@
+{
+    "CFGSET": {
+        "summary": "Sets the IDMP configuration parameters for a stream.",
+        "complexity": "O(1)",
+        "group": "stream",
+        "since": "8.2.0",
+        "arity": -3,
+        "container": "XIDMP",
+        "function": "xidmpCommand",
+        "command_flags": [
+            "WRITE",
+            "FAST"
+        ],
+        "acl_categories": [
+            "STREAM"
+        ],
+        "key_specs": [
+            {
+                "flags": [
+                    "RW",
+                    "UPDATE"
+                ],
+                "begin_search": {
+                    "index": {
+                        "pos": 2
+                    }
+                },
+                "find_keys": {
+                    "range": {
+                        "lastkey": 0,
+                        "step": 1,
+                        "limit": 0
+                    }
+                }
+            }
+        ],
+        "arguments": [
+            {
+                "name": "key",
+                "type": "key",
+                "key_spec_index": 0
+            },
+            {
+                "name": "duration-block",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "duration-token",
+                        "type": "pure-token",
+                        "token": "DURATION"
+                    },
+                    {
+                        "name": "duration",
+                        "type": "integer"
+                    }
+                ]
+            },
+            {
+                "name": "maxsize-block",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "maxsize-token",
+                        "type": "pure-token",
+                        "token": "MAXSIZE"
+                    },
+                    {
+                        "name": "maxsize",
+                        "type": "integer"
+                    }
+                ]
+            }
+        ]
+    }
+}
+
