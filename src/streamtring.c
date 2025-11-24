@@ -31,7 +31,7 @@ static inline int getBalance(tringTree *tree, uint32_t idx) {
 }
 
 /* Update the height of a node based on its children's heights. */
-static void updateHeight(tringTree *tree, uint32_t idx) {
+static inline void updateHeight(tringTree *tree, uint32_t idx) {
     if (idx == TRING_NULL) return;
     uint32_t leftHeight = getHeight(tree, tree->nodes[idx].left);
     uint32_t rightHeight = getHeight(tree, tree->nodes[idx].right);
@@ -41,16 +41,20 @@ static void updateHeight(tringTree *tree, uint32_t idx) {
 /* Right rotation around node y.
  * Returns the new root of the subtree. */
 static uint32_t rotateRight(tringTree *tree, uint32_t y) {
-    uint32_t x = tree->nodes[y].left;
-    uint32_t T2 = tree->nodes[x].right;
+    tringNode *nodeY = &tree->nodes[y];
+    uint32_t x = nodeY->left;
     
-    /* Perform rotation */
-    tree->nodes[x].right = y;
-    tree->nodes[y].left = T2;
+    tringNode *nodeX = &tree->nodes[x];
+    uint32_t T2 = nodeX->right;
     
-    /* Update parents */
-    tree->nodes[x].parent = tree->nodes[y].parent;
-    tree->nodes[y].parent = x;
+    /* Perform rotation using cached pointers */
+    nodeX->right = y;
+    nodeY->left = T2;
+    
+    /* Update parents using cached pointers */
+    nodeX->parent = nodeY->parent;
+    nodeY->parent = x;
+    
     if (T2 != TRING_NULL) {
         tree->nodes[T2].parent = y;
     }
@@ -65,16 +69,20 @@ static uint32_t rotateRight(tringTree *tree, uint32_t y) {
 /* Left rotation around node x.
  * Returns the new root of the subtree. */
 static uint32_t rotateLeft(tringTree *tree, uint32_t x) {
-    uint32_t y = tree->nodes[x].right;
-    uint32_t T2 = tree->nodes[y].left;
+    tringNode *nodeX = &tree->nodes[x];
+    uint32_t y = nodeX->right;
     
-    /* Perform rotation */
-    tree->nodes[y].left = x;
-    tree->nodes[x].right = T2;
+    tringNode *nodeY = &tree->nodes[y];
+    uint32_t T2 = nodeY->left;
     
-    /* Update parents */
-    tree->nodes[y].parent = tree->nodes[x].parent;
-    tree->nodes[x].parent = y;
+    /* Perform rotation using cached pointers */
+    nodeY->left = x;
+    nodeX->right = T2;
+    
+    /* Update parents using cached pointers */
+    nodeY->parent = nodeX->parent;
+    nodeX->parent = y;
+    
     if (T2 != TRING_NULL) {
         tree->nodes[T2].parent = x;
     }
@@ -91,60 +99,149 @@ static uint32_t rotateLeft(tringTree *tree, uint32_t x) {
 static uint32_t rebalance(tringTree *tree, uint32_t idx) {
     if (idx == TRING_NULL) return idx;
     
+    tringNode *node = &tree->nodes[idx];
+    
     updateHeight(tree, idx);
     int balance = getBalance(tree, idx);
     
-    /* Left Left Case */
-    if (balance < -1 && getBalance(tree, tree->nodes[idx].left) <= 0) {
+    if (balance < -1 && getBalance(tree, node->left) <= 0) {
         return rotateRight(tree, idx);
     }
     
-    /* Right Right Case */
-    if (balance > 1 && getBalance(tree, tree->nodes[idx].right) >= 0) {
+    if (balance > 1 && getBalance(tree, node->right) >= 0) {
         return rotateLeft(tree, idx);
     }
     
-    /* Left Right Case */
-    if (balance < -1 && getBalance(tree, tree->nodes[idx].left) > 0) {
-        tree->nodes[idx].left = rotateLeft(tree, tree->nodes[idx].left);
+    if (balance < -1 && getBalance(tree, node->left) > 0) {
+        node->left = rotateLeft(tree, node->left);
         return rotateRight(tree, idx);
     }
     
-    /* Right Left Case */
-    if (balance > 1 && getBalance(tree, tree->nodes[idx].right) < 0) {
-        tree->nodes[idx].right = rotateRight(tree, tree->nodes[idx].right);
+    if (balance > 1 && getBalance(tree, node->right) < 0) {
+        node->right = rotateRight(tree, node->right);
         return rotateLeft(tree, idx);
     }
     
     return idx;
 }
 
+/* Shrink the tree's node array when count is 1/4 of capacity.
+ * This helps free up memory when the tree shrinks significantly. */
+static void shrink(tringTree *tree) {
+    /* Only shrink if count is 1/4 or less of capacity */
+    if (tree->count > tree->capacity / 4) return;
+    
+    /* Don't shrink below initial capacity */
+    if (tree->capacity <= TRING_INITIAL_CAPACITY) return;
+    
+    /* Calculate new capacity (half of current) */
+    uint32_t newCapacity = tree->capacity / 2;
+    if (newCapacity < TRING_INITIAL_CAPACITY) {
+        newCapacity = TRING_INITIAL_CAPACITY;
+    }
+    
+    /* Allocate new smaller array */
+    size_t usable, old_usable;
+    tringNode *newNodes = zmalloc_usable(newCapacity * sizeof(tringNode), &usable);
+    if (!newNodes) return;  /* Failed to allocate, keep existing array */
+    
+    /* Create mapping from old indices to new indices */
+    uint32_t *indexMap = zmalloc(tree->capacity * sizeof(uint32_t));
+    if (!indexMap) {
+        zfree(newNodes);
+        return;  /* Failed to allocate, keep existing array */
+    }
+    
+    /* Initialize mapping */
+    for (uint32_t i = 0; i < tree->capacity; i++) {
+        indexMap[i] = TRING_NULL;
+    }
+    
+    /* Build the mapping */
+    for (uint32_t i = 0; i < tree->count; i++) {
+        uint32_t oldIdx = (tree->head + i) % tree->capacity;
+        indexMap[oldIdx] = i;
+    }
+    
+    /* Copy nodes and update all pointers in one pass using the mapping */
+    for (uint32_t i = 0; i < tree->count; i++) {
+        uint32_t oldIdx = (tree->head + i) % tree->capacity;
+        
+        /* Copy node to new position */
+        newNodes[i] = tree->nodes[oldIdx];
+        
+        /* Update all pointers using the mapping */
+        if (newNodes[i].left != TRING_NULL) {
+            newNodes[i].left = indexMap[newNodes[i].left];
+        }
+        if (newNodes[i].right != TRING_NULL) {
+            newNodes[i].right = indexMap[newNodes[i].right];
+        }
+        if (newNodes[i].parent != TRING_NULL) {
+            newNodes[i].parent = indexMap[newNodes[i].parent];
+        }
+    }
+    
+    /* Update root index using the mapping */
+    if (tree->root != TRING_NULL) {
+        tree->root = indexMap[tree->root];
+    }
+    
+    zfree(indexMap);
+    
+    /* Track allocation size */
+    if (tree->alloc_size) {
+        old_usable = zmalloc_usable_size(tree->nodes);
+        *tree->alloc_size -= old_usable;
+        *tree->alloc_size += usable;
+    }
+    
+    /* Replace old array with new one */
+    zfree(tree->nodes);
+    tree->nodes = newNodes;
+    tree->capacity = newCapacity;
+    tree->head = 0;
+    tree->tail = tree->count;
+}
+
 /* Allocate a new node in the ring buffer.
  * Returns the index of the new node, or TRING_NULL on out of memory. */
 static uint32_t allocateNode(tringTree *tree, void *value) {
-    /* Check if we need to resize */
-    if (tree->count >= tree->capacity && tree->capacity < tree->max_capacity) {        
-        uint32_t newCapacity = tree->capacity * 2;
-        
-        /* Cap new capacity at max_capacity*/
-        if (newCapacity > tree->max_capacity) {
-            newCapacity = tree->max_capacity;
+    /* Check if we need to resize or if we're at capacity */
+    if (tree->count >= tree->capacity) {
+        if (tree->capacity < tree->max_capacity) {
+            /* Calculate new capacity with overflow protection */
+            uint32_t newCapacity;
+            if (tree->capacity > UINT32_MAX / 2) {
+                newCapacity = tree->max_capacity;
+            } else {
+                newCapacity = tree->capacity * 2;
+            }
+            
+            /* Cap new capacity at max_capacity*/
+            if (newCapacity > tree->max_capacity) {
+                newCapacity = tree->max_capacity;
+            }
+            
+            /* Reallocate node array */
+            size_t usable, old_usable;
+            tringNode *newNodes = zrealloc_usable(tree->nodes, newCapacity * sizeof(tringNode), &usable, &old_usable);
+            if (!newNodes) return TRING_NULL;
+            
+            if (tree->alloc_size) {
+                *tree->alloc_size -= old_usable;
+                *tree->alloc_size += usable;
+            }
+            
+            tree->nodes = newNodes;
+            tree->capacity = newCapacity;
+        } else {
+            /* At max capacity and full, cannot allocate */
+            return TRING_NULL;
         }
-        
-        /* Reallocate node array */
-        size_t usable, old_usable;
-        tringNode *newNodes = zrealloc_usable(tree->nodes, newCapacity * sizeof(tringNode), &usable, &old_usable);
-        if (!newNodes) return TRING_NULL;
-        
-        if (tree->alloc_size) {
-            *tree->alloc_size -= old_usable;
-            *tree->alloc_size += usable;
-        }
-        
-        tree->nodes = newNodes;
-        tree->capacity = newCapacity;
     }
     
+    /* Wrap tail if needed */
     if (tree->tail >= tree->capacity) {
         tree->tail = 0;
     }
@@ -162,49 +259,6 @@ static uint32_t allocateNode(tringTree *tree, void *value) {
     tree->count++;
     
     return idx;
-}
-
-/* Recursive helper for insertion.
- * Returns the new root of the subtree. */
-static uint32_t insertRecursive(tringTree *tree, uint32_t idx, void *value, void **existing) {
-    /* Base case: found insertion point */
-    if (idx == TRING_NULL) {
-        uint32_t newIdx = allocateNode(tree, value);
-        if (newIdx == TRING_NULL) {
-            *existing = NULL;
-            return TRING_NULL;
-        }
-        *existing = NULL;
-        return newIdx;
-    }
-    
-    /* Compare and recurse */
-    int cmp = tree->compare(value, tree->nodes[idx].value);
-    
-    if (cmp < 0) {
-        uint32_t newLeft = insertRecursive(tree, tree->nodes[idx].left, value, existing);
-        if (*existing != NULL) return idx;
-        assert(newLeft != idx); /* Prevent loops */
-        tree->nodes[idx].left = newLeft;
-        if (newLeft != TRING_NULL) {
-            tree->nodes[newLeft].parent = idx;
-        }
-    } else if (cmp > 0) {
-        uint32_t newRight = insertRecursive(tree, tree->nodes[idx].right, value, existing);
-        if (*existing != NULL) return idx;
-        assert(newRight != idx); /* Prevent loops */
-        tree->nodes[idx].right = newRight;
-        if (newRight != TRING_NULL) {
-            tree->nodes[newRight].parent = idx;
-        }
-    } else {
-        /* Duplicate value - don't insert, return existing value */
-        *existing = tree->nodes[idx].value;
-        return idx;
-    }
-    
-    /* Rebalance and return */
-    return rebalance(tree, idx);
 }
 
 /* Public API implementation */
@@ -268,28 +322,98 @@ int tringInsert(tringTree *tree, void *value, void **existingOut) {
     
     /* If adding a new element would exceed max_capacity, pop the oldest one first */
     if (tree->count + 1 > tree->max_capacity) {
-        if(!tringPopFront(tree)) {
+        if (!tringPopFront(tree)) {
             return 0;
         }
     }
     
-    void *existing = NULL;
-    uint32_t newRoot = insertRecursive(tree, tree->root, value, &existing);
-    
-    if (existing == NULL) {
-        tree->root = newRoot;
-        if (newRoot != TRING_NULL) {
-            tree->nodes[newRoot].parent = TRING_NULL;
+    /* Handle empty tree case */
+    if (tree->root == TRING_NULL) {
+        uint32_t newIdx = allocateNode(tree, value);
+        if (newIdx == TRING_NULL) {
+            if (existingOut) *existingOut = NULL;
+            return 0;
         }
+        tree->root = newIdx;
         return 1;
     }
     
-    /* Duplicate found - store existing value if caller wants it */
-    if (existingOut) {
-        *existingOut = existing;
+    /* Iterative insertion with path tracking for rebalancing */
+    uint32_t path[48];  /* Maximum tree height for 2^32 nodes is ~47 */
+    int pathLen = 0;
+    uint32_t current = tree->root;
+    uint32_t parent = TRING_NULL;
+    int isLeftChild = 0;
+    
+    /* Find insertion point */
+    while (current != TRING_NULL) {
+        path[pathLen++] = current;
+        int cmp = tree->compare(value, tree->nodes[current].value);
+        
+        if (cmp == 0) {
+            /* Duplicate found - store existing value if caller wants it */
+            if (existingOut) {
+                *existingOut = tree->nodes[current].value;
+            }
+            return 0;
+        }
+        
+        parent = current;
+        if (cmp < 0) {
+            isLeftChild = 1;
+            current = tree->nodes[current].left;
+        } else {
+            isLeftChild = 0;
+            current = tree->nodes[current].right;
+        }
     }
     
-    return 0;
+    /* Allocate new node */
+    uint32_t newIdx = allocateNode(tree, value);
+    if (newIdx == TRING_NULL) {
+        if (existingOut) *existingOut = NULL;
+        return 0;
+    }
+    
+    /* Link new node to parent */
+    tree->nodes[newIdx].parent = parent;
+    if (isLeftChild) {
+        tree->nodes[parent].left = newIdx;
+    } else {
+        tree->nodes[parent].right = newIdx;
+    }
+    
+    /* Rebalance up the path from parent to root */
+    for (int i = pathLen - 1; i >= 0; i--) {
+        uint32_t nodeIdx = path[i];
+        uint32_t nodeParent = (i > 0) ? path[i - 1] : TRING_NULL;
+        
+        /* Update height and rebalance this node */
+        uint32_t rebalanced = rebalance(tree, nodeIdx);
+        
+        /* If rebalancing changed the node, update parent's pointer */
+        if (rebalanced != nodeIdx) {
+            if (nodeParent == TRING_NULL) {
+                /* This is the root */
+                tree->root = rebalanced;
+                tree->nodes[rebalanced].parent = TRING_NULL;
+            } else {
+                /* Update parent's child pointer */
+                if (tree->nodes[nodeParent].left == nodeIdx) {
+                    tree->nodes[nodeParent].left = rebalanced;
+                } else {
+                    tree->nodes[nodeParent].right = rebalanced;
+                }
+                tree->nodes[rebalanced].parent = nodeParent;
+            }
+            
+            /* Update the path array in case nodes above need the new reference */
+            path[i] = rebalanced;
+        }
+    }
+    
+    if (existingOut) *existingOut = NULL;
+    return 1;
 }
 
 void *tringFind(tringTree *tree, void *value) {
@@ -372,6 +496,9 @@ static int removeNodeByIndex(tringTree *tree, uint32_t idx) {
     uint32_t parent = tree->nodes[idx].parent;
     uint32_t replacement = TRING_NULL;
     
+    /* Store the value pointer before any modifications for callback */
+    void *valueToFree = tree->nodes[idx].value;
+    
     /* Case 1: Node has no left child */
     if (tree->nodes[idx].left == TRING_NULL) {
         replacement = tree->nodes[idx].right;
@@ -420,12 +547,13 @@ static int removeNodeByIndex(tringTree *tree, uint32_t idx) {
     if (parent == TRING_NULL) {
         /* Removing the root */
         tree->root = replacement;
-    } else if (tree->nodes[parent].left == idx) {
-        assert(parent != replacement); /* Prevent loops */
-        tree->nodes[parent].left = replacement;
     } else {
-        assert(parent != replacement);
-        tree->nodes[parent].right = replacement;
+        assert(parent != replacement); /* Prevent loops */
+        if (tree->nodes[parent].left == idx) {
+            tree->nodes[parent].left = replacement;
+        } else {
+            tree->nodes[parent].right = replacement;
+        }
     }
     
     /* Update replacement's parent pointer */
@@ -433,18 +561,17 @@ static int removeNodeByIndex(tringTree *tree, uint32_t idx) {
         tree->nodes[replacement].parent = parent;
     }
     
-    /* Call free callback if set before removing the node */
-    if (tree->free_callback) {
-        tree->free_callback(tree->nodes[tree->head].value, tree->free_callback_user_data);
-    }
-
     /* Clear the removed node's pointers to prevent loops */
     tree->nodes[idx].value = NULL;
     tree->nodes[idx].left = TRING_NULL;
     tree->nodes[idx].right = TRING_NULL;
     tree->nodes[idx].parent = TRING_NULL;
     tree->nodes[idx].height = 0;
-
+    
+    /* Call free callback if set, after node is fully removed */
+    if (tree->free_callback && valueToFree) {
+        tree->free_callback(valueToFree, tree->free_callback_user_data);
+    }
     
     /* Rebalance from parent up to root */
     if (parent != TRING_NULL) {
@@ -464,8 +591,9 @@ void *tringFront(tringTree *tree) {
 void *tringBack(tringTree *tree) {
     if (!tree || tree->count == 0) return NULL;
     
-    /* Get the last added element (tail - 1) */
-    void *tailValue = tree->nodes[tree->tail - 1].value;
+    /* Calculate index of last added element (tail - 1) with wraparound */
+    uint32_t tailIdx = (tree->tail == 0) ? (tree->capacity - 1) : (tree->tail - 1);
+    void *tailValue = tree->nodes[tailIdx].value;
     return tailValue;
 }
 
@@ -479,6 +607,9 @@ int tringPopFront(tringTree *tree) {
         /* Update ring buffer: wrap head on capacity and decrement count */
         tree->head = (tree->head + 1) % tree->capacity;
         tree->count--;
+        
+        /* Try to shrink if count is now 1/4 of capacity */
+        shrink(tree);
     }
     
     return success;
@@ -497,6 +628,9 @@ int tringPopBack(tringTree *tree) {
         /* Update ring buffer: decrement tail (with wraparound) and decrement count */
         tree->tail = tailIdx;
         tree->count--;
+        
+        /* Try to shrink if count is now 1/4 of capacity */
+        shrink(tree);
     }
     
     return success;
@@ -508,7 +642,7 @@ void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity) {
 }
 
 /* Set a callback function to be called when a value is removed from the tree. */
-void tringSetFreeCallback(tringTree *tree, void (*callback)(void*, void*), void *user_data) {
+void tringSetFreeCallback(tringTree *tree, tringFreeCallback callback, void *user_data) {
     if (!tree) return;
     tree->free_callback = callback;
     tree->free_callback_user_data = user_data;
@@ -754,6 +888,29 @@ int tringTest(int argc, char *argv[], int flags) {
         /* Insert a smaller value - tringBack should return it (not the max) */
         tringInsert(tree, (void*)10L, NULL);
         assert(tringBack(tree) == (void*)10L);
+        
+        tringFree(tree);
+    }
+
+    TEST("tringBack with tail wraparound at capacity boundary") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        tringSetMaxCapacity(tree, 8);
+        
+        /* Fill to capacity (8) without triggering resize */
+        for (long i = 1; i <= 8; i++) {
+            tringInsert(tree, (void*)i, NULL);
+        }
+        
+        /* At this point:
+        * - count = 8
+        * - capacity = 8  
+        * - head = 0
+        * - tail = 0 (wrapped after 8th insert)
+        */
+        
+        /* This should return 8 (last inserted), not crash */
+        void *back = tringBack(tree);
+        assert(back == (void*)8L);  /* Would crash or return garbage */
         
         tringFree(tree);
     }
@@ -1594,10 +1751,167 @@ int tringTest(int argc, char *argv[], int flags) {
         assert(alloc_size == 0);
     }
     
+    TEST("shrink when count drops to 1/4 of capacity") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Insert 32 elements to grow capacity to 32 */
+        for (long i = 1; i <= 32; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        assert(tringSize(tree) == 32);
+        assert(tree->capacity == 32);
+        errors += verifyTreeIntegrity(tree);
+        
+        /* Pop elements until count is 8 (1/4 of 32) - should trigger shrink */
+        for (int i = 0; i < 24; i++) {
+            assert(tringPopFront(tree) == 1);
+        }
+        
+        assert(tringSize(tree) == 8);
+        /* Capacity should shrink to 16 (half of 32) */
+        assert(tree->capacity == 16);
+        errors += verifyTreeIntegrity(tree);
+        
+        /* Verify remaining elements are correct (25-32) */
+        for (long i = 25; i <= 32; i++) {
+            assert(tringFind(tree, (void*)i) == (void*)i);
+        }
+        
+        /* Pop more to trigger another shrink */
+        for (int i = 0; i < 4; i++) {
+            assert(tringPopFront(tree) == 1);
+        }
+        
+        assert(tringSize(tree) == 4);
+        /* Capacity should shrink to 8 (half of 16) */
+        assert(tree->capacity == 8);
+        errors += verifyTreeIntegrity(tree);
+        
+        /* Verify remaining elements are correct (29-32) */
+        for (long i = 29; i <= 32; i++) {
+            assert(tringFind(tree, (void*)i) == (void*)i);
+        }
+        
+        tringFree(tree);
+    }
+    
+    TEST("shrink maintains AVL properties") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Insert 64 elements */
+        for (long i = 1; i <= 64; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        assert(tree->capacity == 64);
+        errors += verifyTreeIntegrity(tree);
+        
+        /* Pop until we trigger multiple shrinks */
+        for (int i = 0; i < 56; i++) {
+            assert(tringPopBack(tree) == 1);
+            /* Verify integrity after each pop */
+            if ((i + 1) % 8 == 0) {
+                errors += verifyTreeIntegrity(tree);
+            }
+        }
+        
+        assert(tringSize(tree) == 8);
+        /* Should have shrunk to 16 or 8 */
+        assert(tree->capacity <= 16);
+        errors += verifyTreeIntegrity(tree);
+        
+        /* Verify remaining elements are findable */
+        for (long i = 1; i <= 8; i++) {
+            assert(tringFind(tree, (void*)i) == (void*)i);
+        }
+        
+        tringFree(tree);
+    }
+    
+    TEST("shrink does not go below TRING_INITIAL_CAPACITY") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Insert TRING_INITIAL_CAPACITY elements */
+        for (long i = 1; i <= 8; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        assert(tree->capacity == 8);
+        
+        /* Pop elements to 2 (1/4 of 8) */
+        for (int i = 0; i < 6; i++) {
+            assert(tringPopFront(tree) == 1);
+        }
+        
+        assert(tringSize(tree) == 2);
+        /* Should NOT shrink below TRING_INITIAL_CAPACITY */
+        assert(tree->capacity == 8);
+        errors += verifyTreeIntegrity(tree);
+        
+        tringFree(tree);
+    }
+    
+    TEST("alloc_size tracking with shrinking") {
+        size_t alloc_size = 0;
+        tringTree *tree = tringNew(intCompare, &alloc_size);
+        
+        size_t size_after_init = alloc_size;
+        
+        /* Insert 32 elements to grow capacity */
+        for (long i = 1; i <= 32; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        size_t size_after_grow = alloc_size;
+        assert(size_after_grow > size_after_init);
+        
+        /* Pop elements to trigger shrink */
+        for (int i = 0; i < 24; i++) {
+            assert(tringPopFront(tree) == 1);
+        }
+        
+        /* Size should have decreased after shrink */
+        assert(alloc_size < size_after_grow);
+        errors += verifyTreeIntegrity(tree);
+        
+        tringFree(tree);
+        assert(alloc_size == 0);
+    }
+    
+    TEST("shrink with mixed popFront and popBack") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Insert 32 elements */
+        for (long i = 1; i <= 32; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        assert(tree->capacity == 32);
+        
+        /* Pop from both ends */
+        for (int i = 0; i < 12; i++) {
+            assert(tringPopFront(tree) == 1);
+            assert(tringPopBack(tree) == 1);
+        }
+        
+        assert(tringSize(tree) == 8);
+        /* Should have triggered shrink */
+        assert(tree->capacity == 16);
+        errors += verifyTreeIntegrity(tree);
+        
+        /* Verify middle elements remain (13-20) */
+        for (long i = 13; i <= 20; i++) {
+            assert(tringFind(tree, (void*)i) == (void*)i);
+        }
+        
+        tringFree(tree);
+    }
+    
     if (errors > 0) {
         printf("FAILED! %d AVL property violations found.\n", errors);
     } else {
-        printf("PASSED! All 40 tests successful.\n");
+        printf("PASSED! All 45 tests successful.\n");
     }
     return errors;
 }

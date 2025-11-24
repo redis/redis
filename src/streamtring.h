@@ -51,6 +51,9 @@
 /* Compare function type: returns negative if a < b, 0 if a == b, positive if a > b */
 typedef int (*tringCompareFunc)(const void *a, const void *b);
 
+/* Free callback function type: called when a value is removed from the tree */
+typedef void (*tringFreeCallback)(void *value, void *user_data);
+
 /* Node structure stored in ring buffer */
 typedef struct tringNode {
     void *value;
@@ -70,7 +73,7 @@ typedef struct tringTree {
     uint32_t tail;          /* Index where next node will be allocated */
     uint32_t root;          /* Index of root node (TRING_NULL if empty) */
     tringCompareFunc compare; /* Compare function for values */
-    void (*free_callback)(void*, void*);  /* Optional callback for cleanup */
+    tringFreeCallback free_callback;  /* Optional callback for cleanup */
     void *free_callback_user_data;  /* User data passed to free_callback */
     size_t *alloc_size;     /* Optional pointer to track total allocated memory */
 } tringTree;
@@ -132,7 +135,7 @@ int tringPopBack(tringTree *tree);
 void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity);
 
 /* Set a callback function to be called when a value is removed from the tree. */
-void tringSetFreeCallback(tringTree *tree, void (*callback)(void*, void*), void *user_data);
+void tringSetFreeCallback(tringTree *tree, tringFreeCallback callback, void *user_data);
 
 #ifdef REDIS_TEST
 int tringTest(int argc, char *argv[], int flags);
