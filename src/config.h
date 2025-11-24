@@ -93,7 +93,8 @@
 
 /* Detect for kqueue */
 #if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || \
-    defined(__DragonFly__) || \
+#if (defined(__APPLE__) && defined(MAC_OS_10_6_DETECTED)) || defined(__FreeBSD__) || \
+    defined(__OpenBSD__) || defined (__NetBSD__) || defined(__DragonFly__)
     defined(__FreeBSD__) || \
     defined(__OpenBSD__) || \
     defined (__NetBSD__)
