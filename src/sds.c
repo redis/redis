@@ -295,7 +295,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     assert(hdrlen + newlen + 1 > reqlen);  /* Catch size_t overflow */
     use_realloc = (oldtype == type);
     if (use_realloc) {
-        newsh = s_realloc_usable(sh, hdrlen + newlen + 1, &bufsize);
+        newsh = s_realloc_usable(sh, hdrlen + newlen + 1, &bufsize, NULL);
         if (newsh == NULL) return NULL;
         s = (char*)newsh + hdrlen;
         if (adjustTypeIfNeeded(&type, &hdrlen, bufsize)) {
@@ -395,7 +395,7 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
         alloc_already_optimal = (je_nallocx(newlen, 0) == bufsize);
         #endif
         if (!alloc_already_optimal) {
-            newsh = s_realloc_usable(sh, newlen, &bufsize);
+            newsh = s_realloc_usable(sh, newlen, &bufsize, NULL);
             if (newsh == NULL) return NULL;
             s = (char *)newsh + oldhdrlen;
 
@@ -423,18 +423,6 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
     sdssetlen(s, len);
     sdssetalloc(s, newsize);
     return s;
-}
-
-/* Return the total size of the allocation of the specified sds string,
- * including:
- * 1) The sds header before the pointer.
- * 2) The string.
- * 3) The free buffer at the end if any.
- * 4) The implicit null term.
- */
-size_t sdsAllocSize(sds s) {
-    size_t alloc = sdsalloc(s);
-    return sdsHdrSize(s[-1])+alloc+1;
 }
 
 /* Return the pointer of the actual SDS allocation (normally SDS strings

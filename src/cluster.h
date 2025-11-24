@@ -22,6 +22,7 @@
 #define CLUSTER_SLOT_MASK_BITS 14 /* Number of bits used for slot id. */
 #define CLUSTER_SLOTS (1<<CLUSTER_SLOT_MASK_BITS) /* Total number of slots in cluster mode, which is 16384. */
 #define CLUSTER_SLOT_MASK ((unsigned long long)(CLUSTER_SLOTS - 1)) /* Bit mask for slot id stored in LSB. */
+#define INVALID_CLUSTER_SLOT (-1) /* Invalid slot number. */
 #define CLUSTER_OK 0            /* Everything looks ok */
 #define CLUSTER_FAIL 1          /* The cluster can't work */
 #define CLUSTER_NAMELEN 40      /* sha1 hex length */
@@ -39,6 +40,13 @@
 typedef struct _clusterNode clusterNode;
 struct clusterState;
 
+/* Struct used for storing slot statistics. */
+typedef struct clusterSlotStat {
+    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
+    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
+    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
+} clusterSlotStat;
+
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
  * system on top of Redis Cluster message bus, using modules. */
@@ -54,7 +62,7 @@ struct clusterState;
  * However, if the key contains the {...} pattern, only the part between
  * { and } is hashed. This may be useful in the future to force certain
  * keys to be in the same node (assuming no resharding is in progress). */
-static inline unsigned int keyHashSlot(char *key, int keylen) {
+static inline unsigned int keyHashSlot(const char *key, int keylen) {
     int s, e; /* start-end indexes of { and } */
 
     for (s = 0; s < keylen; s++)
@@ -146,17 +154,55 @@ clusterNode *clusterLookupNode(const char *name, int length);
 const char *clusterGetSecret(size_t *len);
 unsigned int countKeysInSlot(unsigned int slot);
 int getSlotOrReply(client *c, robj *o);
+int clusterIsMySlot(int slot);
+int clusterCanAccessKeysInSlot(int slot);
+struct slotRangeArray *clusterGetLocalSlotRanges(void);
 
 /* functions with shared implementations */
-clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot, uint64_t cmd_flags, int *error_code);
+clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, int argc, int *hashslot,
+                            getKeysResult *result, uint8_t read_error, uint64_t cmd_flags, int *error_code);
+int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result);
 int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 void migrateCloseTimedoutSockets(void);
 int patternHashSlot(char *pattern, int length);
+int getSlotOrReply(client *c, robj *o);
 int isValidAuxString(char *s, unsigned int length);
 void migrateCommand(client *c);
 void clusterCommand(client *c);
 ConnectionType *connTypeOfCluster(void);
+
+typedef struct slotRange {
+    unsigned short start, end;
+} slotRange;
+typedef struct slotRangeArray {
+    int num_ranges;
+    slotRange ranges[];
+} slotRangeArray;
+typedef struct slotRangeArrayIter {
+    slotRangeArray *slots; /* the array we’re iterating */
+    int range_index;       /* current range index */
+    int cur_slot;          /* current slot within the range */
+} slotRangeArrayIter;
+slotRangeArray *slotRangeArrayCreate(int num_ranges);
+slotRangeArray *slotRangeArrayDup(slotRangeArray *slots);
+void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end);
+sds slotRangeArrayToString(slotRangeArray *slots);
+slotRangeArray *slotRangeArrayFromString(sds data);
+int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2);
+slotRangeArray *slotRangeArrayAppend(slotRangeArray *slots, int slot);
+int slotRangeArrayContains(slotRangeArray *slots, unsigned int slot);
+void slotRangeArrayFree(slotRangeArray *slots);
+void slotRangeArrayFreeGeneric(void *slots);
+slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots);
+int slotRangeArrayNext(slotRangeArrayIter *it);
+int slotRangeArrayGetCurrentSlot(slotRangeArrayIter *it);
+void slotRangeArrayIteratorFree(slotRangeArrayIter *it);
+int validateSlotRanges(slotRangeArray *slots, sds *err);
+slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos);
+
+unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command);
+unsigned int clusterDelKeysInSlotRangeArray(slotRangeArray *slots, int by_command);
 
 void clusterGenNodesSlotsInfo(int filter);
 void clusterFreeNodesSlotsInfo(clusterNode *n);
@@ -177,4 +223,136 @@ clusterNode *clusterShardNodeFirst(void *shard);
 
 int clusterNodeTcpPort(clusterNode *node);
 int clusterNodeTlsPort(clusterNode *node);
+
+/* API for alternative cluster implementations to start and coordinate
+ * Atomic Slot Migration (ASM).
+ *
+ * These two functions drive ASM for alternative cluster implementations.
+ * - clusterAsmProcess(...) impl -> redis: initiates/advances/cancels ASM operations
+ * - clusterAsmOnEvent(...) redis -> impl: notifies state changes
+ *
+ * Generic steps for an alternative implementation:
+ * - On destination side, implementation calls clusterAsmProcess(ASM_EVENT_IMPORT_START)
+ *   to start an import operation.
+ * - Redis calls clusterAsmOnEvent() when an ASM event occurs.
+ * - On the source side, Redis will call clusterAsmOnEvent(ASM_EVENT_HANDOFF_PREP)
+ *   when slots are ready to be handed off and the write pause is needed.
+ * - Implementation stops the traffic to the slots and calls clusterAsmProcess(ASM_EVENT_HANDOFF)
+ * - On the destination side, Redis calls clusterAsmOnEvent(ASM_EVENT_TAKEOVER)
+ *   when destination node is ready to take over the slot, waiting for ownership change.
+ * - Cluster implementation updates the config and calls clusterAsmProcess(ASM_EVENT_DONE)
+ *   to notify Redis that the slots ownership has changed.
+ *
+ * Sequence diagram for import:
+ *   - Note: shows only the events that cluster implementation needs to react.
+ *
+ * ┌───────────────┐              ┌───────────────┐         ┌───────────────┐             ┌───────────────┐
+ * │ Destination   │              │ Destination   │         │    Source     │             │ Source        │
+ * │ Cluster impl  │              │ Master        │         │    Master     │             │ Cluster impl  │
+ * └───────┬───────┘              └───────┬───────┘         └───────┬───────┘             └───────┬───────┘
+ *         │                              │                         │                             │
+ *         │     ASM_EVENT_IMPORT_START   │                         │                             │
+ *         ├─────────────────────────────►│                         │                             │
+ *         │                              │ CLUSTER SYNCSLOTS <arg> │                             │
+ *         │                              ├────────────────────────►│                             │
+ *         │                              │                         │                             │
+ *         │                              │  SNAPSHOT(restore cmds) │                             │
+ *         │                              │◄────────────────────────┤                             │
+ *         │                              │  Repl stream            │                             │
+ *         │                              │◄────────────────────────┤                             │
+ *         │                              │                         │   ASM_EVENT_HANDOFF_PREP    │
+ *         │                              │                         ├────────────────────────────►│
+ *         │                              │                         │     ASM_EVENT_HANDOFF       │
+ *         │                              │                         │◄────────────────────────────┤
+ *         │                              │ Drain repl stream       │                             │
+ *         │                              │◄────────────────────────┤                             │
+ *         │     ASM_EVENT_TAKEOVER       │                         │                             │
+ *         │◄─────────────────────────────┤                         │                             │
+ *         │                              │                         │                             │
+ *         │       ASM_EVENT_DONE         │                         │                             │
+ *         ├─────────────────────────────►│                         │       ASM_EVENT_DONE        │
+ *         │                              │                         │◄────────────────────────────┤
+ *         │                              │                         │                             │
+ */
+
+#define ASM_EVENT_IMPORT_START      1  /* Start a new import operation (destination side) */
+#define ASM_EVENT_CANCEL            2  /* Cancel an ongoing import/migrate operation (source and destination side) */
+#define ASM_EVENT_HANDOFF_PREP      3  /* Slot is ready to be handed off to the destination shard (source side) */
+#define ASM_EVENT_HANDOFF           4  /* Notify that the slot can be handed off (source side) */
+#define ASM_EVENT_TAKEOVER          5  /* Ready to take over the slot, waiting for config change (destination side) */
+#define ASM_EVENT_DONE              6  /* Notify that import/migrate is completed, config is updated (source and destination side) */
+
+#define ASM_EVENT_IMPORT_PREP       7  /* Import is about to start, the implementation may reject by returning C_ERR */
+#define ASM_EVENT_IMPORT_STARTED    8  /* Import started */
+#define ASM_EVENT_IMPORT_FAILED     9  /* Import failed */
+#define ASM_EVENT_IMPORT_COMPLETED  10 /* Import completed (config updated) */
+#define ASM_EVENT_MIGRATE_PREP      11 /* Migrate is about to start, the implementation may reject by returning C_ERR */
+#define ASM_EVENT_MIGRATE_STARTED   12 /* Migrate started */
+#define ASM_EVENT_MIGRATE_FAILED    13 /* Migrate failed */
+#define ASM_EVENT_MIGRATE_COMPLETED 14 /* Migrate completed (config updated) */
+
+
+/* Called by cluster implementation to request an ASM operation. (cluster impl --> redis)
+ * Valid values for 'event':
+ *  ASM_EVENT_IMPORT_START
+ *  ASM_EVENT_CANCEL
+ *  ASM_EVENT_HANDOFF
+ *  ASM_EVENT_DONE
+ *
+ * For ASM_EVENT_IMPORT_START, 'task_id' should be a unique string.
+ * For other events (ASM_EVENT_CANCEL, ASM_EVENT_HANDOFF, ASM_EVENT_DONE),
+ * 'task_id' should match the ID from the corresponding import operation.
+ *    Usage:
+ *      char *task_id = malloc(CLUSTER_NAMELEN + 1);
+ *      getRandomHexChars(task_id, CLUSTER_NAMELEN);
+ *      task_id[CLUSTER_NAMELEN] = '\0';
+ *
+ *      slotRangeArray *slots  = slotRangeArrayCreate(1);
+ *      slotRangeArraySet(slots, 0, 0, 1000);
+ *
+ *      const char *err = NULL;
+ *      int ret = clusterAsmProcess(task_id, ASM_EVENT_IMPORT_START, slots, &err);
+ *      zfree(task_id);
+ *      slotRangeArrayFree(slots);
+ *
+ *      if (ret != C_OK) {
+ *          perror(err);
+ *          return;
+ *      }
+ *
+ * For ASM_EVENT_CANCEL, if `task_id` is NULL, all tasks will be cancelled.
+ * If `arg` parameter is provided, it should be a pointer to an int. It will be
+ * set to the number of tasks cancelled.
+ *
+ * Return value:
+ *  - Returns C_OK on success, C_ERR on failure and 'err' will be set to the
+ *    error message.
+ *
+ * Memory management:
+ *  - There is no ownership transfer of 'task_id', 'err' or `slotRangeArray`.
+ *  - `task_id` and `slotRangeArray` should be allocated and be freed by the
+ *     caller. Redis internally will make a copy of these.
+ *  - `err` is allocated by Redis and should NOT be freed by the caller.
+ **/
+int clusterAsmProcess(const char *task_id, int event, void *arg, char **err);
+
+/* Called when an ASM event occurs to notify the cluster implementation. (redis --> cluster impl)
+ *
+ * `arg` will point to a `slotRangeArray` for the following events:
+ *  ASM_EVENT_IMPORT_PREP
+ *  ASM_EVENT_IMPORT_STARTED
+ *  ASM_EVENT_MIGRATE_PREP
+ *  ASM_EVENT_MIGRATE_STARTED
+ *  ASM_EVENT_HANDOFF_PREP
+ *
+ *  Memory management:
+ *  - Redis owns the `task_id` and `slotRangeArray`.
+ *
+ *  Returns C_OK on success.
+ *
+ *  If the cluster implementation returns C_ERR for ASM_EVENT_IMPORT_PREP or
+ *  ASM_EVENT_MIGRATE_PREP, operation will not start.
+ **/
+int clusterAsmOnEvent(const char *task_id, int event, void *arg);
+
 #endif /* __CLUSTER_H */

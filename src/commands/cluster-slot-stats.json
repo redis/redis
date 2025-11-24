@@ -36,6 +36,9 @@
                             "key-count": {
                                 "type": "integer"
                             },
+                            "memory-bytes": {
+                                "type": "integer"
+                            },
                             "cpu-usec": {
                                 "type": "integer"
                             },

@@ -151,6 +151,10 @@ start_server {tags {"introspection"}} {
         assert_equal {{k1 {OW update}} {k2 {OW update}}} [r command getkeysandflags mset k1 v1 k2 v2]
         assert_equal {{k1 {RW access delete}} {k2 {RW insert}}} [r command getkeysandflags LMOVE k1 k2 left right]
         assert_equal {{k1 {RO access}} {k2 {OW update}}} [r command getkeysandflags sort k1 store k2]
+        assert_equal {{k1 {RW update}}} [r command getkeysandflags set k1 v1 IFEQ v1]
+        assert_equal {{k1 {RW access update}}} [r command getkeysandflags set k1 v1 GET]
+        assert_equal {{k1 {RM delete}}} [r command getkeysandflags delex k1]
+        assert_equal {{k1 {RW delete}}} [r command getkeysandflags delex k1 ifeq v1]
     }
 
     test {COMMAND GETKEYSANDFLAGS invalid args} {

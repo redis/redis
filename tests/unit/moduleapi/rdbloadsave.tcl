@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/rdbloadsave.so]
 
-start_server {tags {"modules external:skip"}} {
+start_server {tags {"modules external:skip debug_defrag:skip"}} {
     r module load $testmodule
 
     test "Module rdbloadsave sanity" {

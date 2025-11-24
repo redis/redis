@@ -47,6 +47,35 @@
 #include "hnsw.h"
 #include "mixer.h"
 
+/* Check if we can compile SIMD code with function attributes */
+#if defined (__x86_64__) && ((defined(__GNUC__) && __GNUC__ >= 5) || (defined(__clang__) && __clang_major__ >= 4))
+#if defined(__has_attribute) && __has_attribute(target)
+#define HAVE_AVX2
+#define HAVE_AVX512
+#endif
+#endif
+
+#if defined (HAVE_AVX2)
+#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
+#else
+#define ATTRIBUTE_TARGET_AVX2
+#define VSET_USE_AVX2 0
+#endif
+
+#if defined (HAVE_AVX512)
+#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,fma")))
+#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#else
+#define ATTRIBUTE_TARGET_AVX512
+#define VSET_USE_AVX512 0
+#endif
+
+/* Include SIMD headers when supported */
+#if defined(HAVE_AVX2) || defined(HAVE_AVX512)
+#include <immintrin.h>
+#endif
+
 #if 0
 #define debugmsg printf
 #else
@@ -192,16 +221,96 @@ float pq_max_distance(pqueue *pq) {
 
 /* ============================ HNSW algorithm ============================== */
 
-/* Dot product: our vectors are already normalized.
+#if defined(HAVE_AVX512)
+/* AVX512 optimized dot product for float vectors */
+ATTRIBUTE_TARGET_AVX512
+float vectors_distance_float_avx512(const float *x, const float *y, uint32_t dim) {
+    __m512 sum = _mm512_setzero_ps();
+    uint32_t i;
+    
+    /* Process 16 floats at a time with AVX512 */
+    for (i = 0; i + 15 < dim; i += 16) {
+        __m512 vx = _mm512_loadu_ps(&x[i]);
+        __m512 vy = _mm512_loadu_ps(&y[i]);
+        sum = _mm512_fmadd_ps(vx, vy, sum);
+    }
+    
+    /* Horizontal sum of the 16 elements in sum */
+    float dot = _mm512_reduce_add_ps(sum);
+    
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += x[i] * y[i];
+    }
+    
+    return 1.0f - dot;
+}
+#endif /* HAVE_AVX512 */
+
+#if defined(HAVE_AVX2)
+/* AVX2 optimized dot product for float vectors */
+ATTRIBUTE_TARGET_AVX2
+float vectors_distance_float_avx2(const float *x, const float *y, uint32_t dim) {
+    __m256 sum1 = _mm256_setzero_ps();
+    __m256 sum2 = _mm256_setzero_ps();
+    uint32_t i;
+    
+    /* Process 16 floats at a time with two AVX2 registers */
+    for (i = 0; i + 15 < dim; i += 16) {
+        __m256 vx1 = _mm256_loadu_ps(&x[i]);
+        __m256 vy1 = _mm256_loadu_ps(&y[i]);
+        __m256 vx2 = _mm256_loadu_ps(&x[i + 8]);
+        __m256 vy2 = _mm256_loadu_ps(&y[i + 8]);
+        
+        sum1 = _mm256_fmadd_ps(vx1, vy1, sum1);
+        sum2 = _mm256_fmadd_ps(vx2, vy2, sum2);
+    }
+    
+    /* Combine the two sums */
+    __m256 combined = _mm256_add_ps(sum1, sum2);
+    
+    /* Horizontal sum of the 8 elements */
+    __m128 sum_high = _mm256_extractf128_ps(combined, 1);
+    __m128 sum_low = _mm256_castps256_ps128(combined);
+    __m128 sum_128 = _mm_add_ps(sum_high, sum_low);
+    
+    sum_128 = _mm_hadd_ps(sum_128, sum_128);
+    sum_128 = _mm_hadd_ps(sum_128, sum_128);
+    
+    float dot = _mm_cvtss_f32(sum_128);
+    
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += x[i] * y[i];
+    }
+    
+    return 1.0f - dot;
+}
+#endif /* HAVE_AVX2 */
+
+/* Optimized dot product: automatically selects best available implementation 
+ * Dot product: our vectors are already normalized.
  * Version for not quantized vectors of floats. */
 float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
-    /* Use two accumulators to reduce dependencies among multiplications.
-     * This provides a clear speed boost in Apple silicon, but should be
-     * help in general. */
+#if defined(HAVE_AVX512)
+    if (dim >= 16 && VSET_USE_AVX512) {
+        return vectors_distance_float_avx512(x, y, dim);
+    }
+#endif
+
+#if defined(HAVE_AVX2)
+    if (VSET_USE_AVX2 && dim >= 16) {
+        return vectors_distance_float_avx2(x, y, dim);
+    }
+#endif
+
+    /* Fallback to original scalar implementation */
     float dot0 = 0.0f, dot1 = 0.0f;
     uint32_t i;
 
-    // Process 8 elements per iteration, 50/50 with the two accumulators.
+    /* Use two accumulators to reduce dependencies among multiplications.
+     * This provides a clear speed boost in Apple silicon, but should be
+     * help in general. */
     for (i = 0; i + 7 < dim; i += 8) {
         dot0 += x[i] * y[i] +
                 x[i+1] * y[i+1] +

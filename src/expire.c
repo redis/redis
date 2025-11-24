@@ -11,6 +11,8 @@
  */
 
 #include "server.h"
+#include "cluster.h"
+#include "redisassert.h"
 
 /*-----------------------------------------------------------------------------
  * Incremental collection of expired keys.
@@ -124,16 +126,98 @@ void expireScanCallback(void *privdata, const dictEntry *de, dictEntryLink plink
     data->sampled++;
 }
 
-static inline int isExpiryDictValidForSamplingCb(dict *d) {
+static inline int expirySamplingShouldSkipDict(dict *d, int didx) {
     long long numkeys = dictSize(d);
     unsigned long buckets = dictBuckets(d);
     /* When there are less than 1% filled buckets, sampling the key
      * space is expensive, so stop here waiting for better times...
      * The dictionary will be resized asap. */
     if (buckets > DICT_HT_INITIAL_SIZE && (numkeys * 100/buckets < 1)) {
-        return C_ERR;
+        return 1;
     }
-    return C_OK;
+
+    /* During atomic slot migration, keys that are being imported are in an
+     * intermediate state. we cannot expire them and therefore skip them. */
+    if (!clusterCanAccessKeysInSlot(didx)) return 1;
+
+    return 0;
+}
+
+/* SubexpireCtx passed to activeSubexpiresCb() */
+typedef struct SubexpireCtx {
+    uint32_t fieldsToExpireQuota;
+    redisDb *db;
+    int slot;
+} SubexpireCtx;
+
+/*
+ * Active sub-expiration callback
+ *
+ * Called by activeSubexpires() for each key registered in the subexpires DB
+ * with an expiration-time on its "elements"  that are less than or equal current
+ * time.
+ *
+ * This callback performs the following actions for each hash:
+ * - Delete expired fields as by calling ebExpire(hash)
+ * - If afterward there are future fields to expire, it will update the hash in
+ *   HFE DB with the next hash-field minimum expiration time by returning
+ *   ACT_UPDATE_EXP_ITEM.
+ * - If the hash has no more fields to expire, it is removed from the HFE DB
+ *   by returning ACT_REMOVE_EXP_ITEM.
+ * - If hash has no more fields afterward, it will remove the hash from keyspace.
+ */
+static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
+    SubexpireCtx *subexCtx = ctx;
+
+    /* If no more quota left for this callback, stop */
+    if (subexCtx->fieldsToExpireQuota == 0)
+        return ACT_STOP_ACTIVE_EXP;
+
+    kvobj *kv = (kvobj *) item;
+
+    /* currently we only support hash type sub-expire */
+    assert(kv->type == OBJ_HASH);
+    uint64_t nextExpTime = hashTypeActiveExpire(subexCtx->db,kv,
+                                          &subexCtx->fieldsToExpireQuota, 0);
+
+    /* If hash has no more fields to expire or got deleted, indicate
+     * to remove it from HFE DB to the caller ebExpire() */
+    if (nextExpTime == EB_EXPIRE_TIME_INVALID || nextExpTime == 0) {
+        return ACT_REMOVE_EXP_ITEM;
+    } else {
+        /* Hash has more fields to expire. Update next expiration time of the hash
+         * and indicate to add it back to global HFE DS */
+        ebSetMetaExpTime(hashGetExpireMeta(item), nextExpTime);
+        return ACT_UPDATE_EXP_ITEM;
+    }
+}
+
+/* DB active expire and update hashes with time-expiration on fields.
+ *
+ * The callback function activeSubexpiresCb() is invoked for each hash registered
+ * in the subexpires DB with an expiration-time less than or equal to the
+ * current time. This callback performs the following actions for each hash:
+ * - If the hash has one or more fields to expire, it will delete those fields.
+ * - If there are more fields to expire, it will update the hash with the next
+ *   expiration time in subexpires DB.
+ * - If the hash has no more fields to expire, it is removed from the subexpires DB.
+ * - If the hash has no more fields, it is removed from the main DB.
+ *
+ * Returns number of fields active-expired.
+ */
+uint64_t activeSubexpires(redisDb *db, int slot, uint32_t maxFieldsToExpire) {
+    SubexpireCtx ctx = { .db = db, .fieldsToExpireQuota = maxFieldsToExpire, .slot = slot };
+    ExpireInfo info = {
+            .maxToExpire = UINT64_MAX, /* Only maxFieldsToExpire play a role */
+            .onExpireItem = activeSubexpiresCb,
+            .ctx = &ctx,
+            .now = commandTimeSnapshot(),
+            .itemsExpired = 0};
+
+    estoreActiveExpire(db->subexpires, slot, &info);
+
+    /* Return number of fields active-expired */
+    return maxFieldsToExpire - ctx.fieldsToExpireQuota;
 }
 
 /* Active expiration Cycle for hash-fields.
@@ -141,9 +225,10 @@ static inline int isExpiryDictValidForSamplingCb(dict *d) {
  * Note that releasing fields is expected to be more predictable and rewarding
  * than releasing keys because it is stored in `ebuckets` DS which optimized for
  * active expiration and in addition the deletion of fields is simple to handle. */
-static inline void activeExpireHashFieldCycle(int type) {
+static inline void activeSubexpiresCycle(int type) {
     /* Remember current db across calls */
     static unsigned int currentDb = 0;
+    static int currentSlot = -1;
 
     /* Tracks the count of fields actively expired for the current database.
      * This count continues as long as it fails to actively expire all expired
@@ -156,9 +241,21 @@ static inline void activeExpireHashFieldCycle(int type) {
     redisDb *db = server.db + currentDb;
 
     /* If db is empty, move to next db and return */
-    if (ebIsEmpty(db->hexpires)) {
+    if (estoreIsEmpty(db->subexpires)) {
         activeExpirySequence = 0;
         currentDb = (currentDb + 1) % server.dbnum;
+        return;
+    }
+    if (currentSlot == -1)
+        currentSlot = estoreGetFirstNonEmptyBucket(db->subexpires);
+
+    /* During atomic slot migration, keys that are being imported are in an
+     * intermediate state. We cannot expire them and therefore skip them. */
+    if (!clusterCanAccessKeysInSlot(currentSlot)) {
+        /* Move to next non-empty subexpires slot */
+        currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
+        if (currentSlot == -1)
+            currentDb = (currentDb + 1) % server.dbnum; /* Move to next db */
         return;
     }
 
@@ -174,13 +271,16 @@ static inline void activeExpireHashFieldCycle(int type) {
         maxToExpire *= (factor<32) ? factor : 32;
     }
 
-    if (hashTypeDbActiveExpire(db, maxToExpire) == maxToExpire) {
+    if (activeSubexpires(db, currentSlot, maxToExpire) == maxToExpire) {
         /* active-expire reached maxToExpire limit */
         activeExpirySequence += maxToExpire;
     } else {
         /* Managed to active-expire all expired fields of currentDb */
         activeExpirySequence = 0;
-        currentDb = (currentDb + 1) % server.dbnum;
+        /* Move to next non-empty subexpires slot */
+        currentSlot = estoreGetNextNonEmptyBucket(db->subexpires, currentSlot);
+        if (currentSlot == -1)
+            currentDb = (currentDb + 1) % server.dbnum;
     }
 }
 
@@ -282,10 +382,9 @@ void activeExpireCycle(int type) {
          * distribute the time evenly across DBs. */
         current_db++;
 
-        /* Interleaving hash-field expiration with key expiration. Better
-         * call it before handling expired keys because HFE DS is optimized for
-         * active expiration */
-        activeExpireHashFieldCycle(type);
+        /* Interleaving sub-expiration with key expiration. Better call it before
+         * handling expired keys because ebuckets is optimized for active expiration */
+        activeSubexpiresCycle(type);
 
         if (kvstoreSize(db->expires))
             dbs_performed++;
@@ -329,7 +428,7 @@ void activeExpireCycle(int type) {
             int origin_ttl_samples = data.ttl_samples;
 
             while (data.sampled < num && checked_buckets < max_buckets) {
-                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, expireScanCallback, isExpiryDictValidForSamplingCb, &data);
+                db->expires_cursor = kvstoreScan(db->expires, db->expires_cursor, -1, expireScanCallback, expirySamplingShouldSkipDict, &data);
                 if (db->expires_cursor == 0) {
                     db_done = 1;
                     break;
@@ -557,6 +656,7 @@ int checkAlreadyExpired(long long when) {
      *
      * Instead we add the already expired key to the database with expire time
      * (possibly in the past) and wait for an explicit DEL from the master. */
+    if (server.current_client && server.current_client->flags & CLIENT_MASTER) return 0;
     return (when <= commandTimeSnapshot() && !server.loading && !server.masterhost);
 }
 

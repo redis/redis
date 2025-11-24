@@ -232,11 +232,6 @@ void lpFree(unsigned char *lp) {
     lp_free(lp);
 }
 
-/* Generic version of lpFree. */
-void lpFreeGeneric(void *lp) {
-    lp_free((unsigned char *)lp);
-}
-
 /* Shrink the memory to fit. */
 unsigned char* lpShrinkToFit(unsigned char *lp) {
     size_t size = lpGetTotalBytes(lp);

@@ -39,6 +39,7 @@
 #define CLUSTER_TODO_SAVE_CONFIG (1<<2)
 #define CLUSTER_TODO_FSYNC_CONFIG (1<<3)
 #define CLUSTER_TODO_HANDLE_MANUALFAILOVER (1<<4)
+#define CLUSTER_TODO_BROADCAST_PONG (1<<5)
 
 /* clusterLink encapsulates everything needed to talk with a remote node. */
 typedef struct clusterLink {
@@ -331,13 +332,6 @@ struct _clusterNode {
     list *fail_reports;         /* List of nodes signaling this as failing */
 };
 
-/* Struct used for storing slot statistics. */
-typedef struct slotStat {
-    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
-    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
-    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
-} slotStat;
-
 struct clusterState {
     clusterNode *myself;  /* This node */
     uint64_t currentEpoch;
@@ -385,8 +379,6 @@ struct clusterState {
      * stops claiming the slot. This prevents spreading incorrect information (that
      * source still owns the slot) using UPDATE messages. */
     unsigned char owner_not_claiming_slot[CLUSTER_SLOTS / 8];
-    /* Struct used for storing slot statistics, for all slots owned by the current shard. */
-    slotStat slot_stats[CLUSTER_SLOTS];
 };
 
 

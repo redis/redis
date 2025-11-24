@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/defragtest.so]
 
-start_server {tags {"modules external:skip"} overrides {{save ""}}} {
+start_server {tags {"modules external:skip debug_defrag:skip"} overrides {{save ""}}} {
     r module load $testmodule
     r config set hz 100
     r config set active-defrag-ignore-bytes 1

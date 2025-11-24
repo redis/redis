@@ -36,7 +36,6 @@ typedef struct {
 
 unsigned char *lpNew(size_t capacity);
 void lpFree(unsigned char *lp);
-void lpFreeGeneric(void *lp);
 unsigned char* lpShrinkToFit(unsigned char *lp);
 unsigned char *lpInsertString(unsigned char *lp, unsigned char *s, uint32_t slen,
                               unsigned char *p, int where, unsigned char **newp);

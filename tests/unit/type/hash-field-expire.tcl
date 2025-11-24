@@ -292,6 +292,79 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_range [r HEXPIRETIME myhash FIELDS 1 field1] $lo $hi
             assert_range [r HPEXPIRETIME myhash FIELDS 1 field1] [expr $lo*1000] [expr $hi*1000]
         }
+        
+        test "HPEXPIRETIME persists after RDB reload ($type)" {
+            r del myhash
+            r hset myhash field1 value1 field2 value2
+            r hpexpire myhash 150 NX FIELDS 1 field1
+            set before [r HPEXPIRETIME myhash FIELDS 1 field1]
+            r debug reload
+            set after [r HPEXPIRETIME myhash FIELDS 1 field1]
+            assert_equal $before $after
+            # field2 should not have expiration
+            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
+            assert_equal [get_stat_subexpiry r] 1
+            # Wait for field1 to expire robustly
+            wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "subexpiry should be 0" } 
+            assert_equal [r hget myhash field1] ""
+            # field2 remains without expiration
+            assert_equal [r HTTL myhash FIELDS 1 field2] $T_NO_EXPIRY
+        }
+        
+        # For hash data type that had in the past HFEs, Verify that after RDB
+        # reload it still won't be counted in `subexpiry`.
+        test "Verify hash that had HFEs won't be counted in INFO keyspace also after reload ($type)" {
+            # Prepare a hash with one field that will expire before the RDB is written
+            r flushall
+            r hset myhash field1 value1 field2 value2
+            r hpexpire myhash 1 NX FIELDS 1 field1
+            wait_for_condition 50 20 { [get_stat_subexpiry r] == 0 } else { fail "`field1` should be expired" }
+
+            # Disable active expire to prevent the probability of the key from being
+            # added-and-deleted from `subexpiry` just before verifying get_stat_subexpiry()
+            r debug set-active-expire 0
+
+            r debug reload
+
+            # Now verify no sub-expiry keys exist after reload (i.e. not registered in estore)
+            assert_equal [get_stat_subexpiry r] 0
+
+            # Restore to support active expire
+            r debug set-active-expire 1
+        }
+
+        # Test case where PERSIST was used, and active expire didn't do any cleanup yet
+        test "Verify hash with PERSIST'd field won't be counted in INFO keyspace after reload ($type)" {
+            r debug set-active-expire 0
+            r del myhash
+            r hset myhash f1 v1 f2 v2
+            r hexpire myhash 10000 FIELDS 1 f1
+
+            # Verify subexpiry is 1 (field has expiration)
+            assert_equal [get_stat_subexpiry r] 1
+
+            # Persist the field (remove expiration)
+            assert_equal [r hpersist myhash FIELDS 1 f1] $P_OK
+
+            # subexpiry should still be 1 because active expire hasn't cleaned up yet.
+            # We avoid paying the cost of updating subexpiry data structure (estore)
+            # and leave the cleanup to efficient active expire
+            assert_equal [get_stat_subexpiry r] 1
+
+            # After RDB reload, subexpiry should be 0 (field no longer has expiration
+            # and RESTORE should "accurately" identify that and avoid registering it
+            # in estore)
+            r debug reload
+            assert_equal [get_stat_subexpiry r] 0
+
+            # Verify both fields exist and have no expiration
+            assert_equal [r hget myhash f1] "v1"
+            assert_equal [r hget myhash f2] "v2"
+            assert_equal [r httl myhash FIELDS 2 f1 f2] "$T_NO_EXPIRY $T_NO_EXPIRY"
+
+            # Restore to support active expire
+            r debug set-active-expire 1
+        }
 
         test "HTTL/HPTTL - Verify TTL progress until expiration ($type)" {
             r del myhash
@@ -887,9 +960,9 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 0}
             assert_error "*wrong number of arguments*" {r HGETEX h1 FIELDS 1}
-            assert_error "*argument FIELDS is missing*" {r HGETEX h1 XFIELDX 1 a}
-            assert_error "*argument FIELDS is missing*" {r HGETEX h1 PXAT 1 1}
-            assert_error "*argument FIELDS is missing*" {r HGETEX h1 PERSIST 1 FIELDS 1 a}
+            assert_error "*wrong number of arguments*" {r HGETEX h1 PXAT 1 1}
+            assert_error "*Mandatory argument FIELDS*" {r HGETEX h1 XFIELDX 1 a}
+            assert_error "*Mandatory argument FIELDS*" {r HGETEX h1 PERSIST 1 FIELDS 1 a}
             assert_error "*must match the number of arguments*" {r HGETEX h1 FIELDS 2 a}
             assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS 0 a}
             assert_error "*Number of fields must be a positive integer*" {r HGETEX h1 FIELDS -1 a}
@@ -908,6 +981,8 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_error "*invalid expire time*" {r HGETEX h1 EXAT [expr (1<<46) + 100 ] FIELDS 1 a}
             assert_error "*invalid expire time*" {r HGETEX h1 PX [expr (1<<46) - [clock milliseconds] + 100 ] FIELDS 1 a}
             assert_error "*invalid expire time*" {r HGETEX h1 PXAT [expr (1<<46) + 100 ] FIELDS 1 a}
+            assert_error "*wrong number of arguments*" {r HGETEX missingkey EX 100 FIELDS}
+            assert_error "*wrong number of arguments*" {r EVAL "return redis.call('HGETEX', 'missingkey', 'EX', '100', 'FIELDS')" 0}
         }
 
         test "HGETEX - get without setting ttl ($type)" {
@@ -1280,6 +1355,40 @@ start_server {tags {"external:skip needs:debug"}} {
             assert_equal [r hsetex myhash EXAT [expr {[clock seconds] - 1}] FIELDS 2 f1 v1 f2 v2] 1
             assert_equal [r hexists myhash field1] 0
         }
+
+        test "Hash field expire - test allow-access-expired parameter enabled" {
+            r debug set-active-expire 0
+            r debug set-allow-access-expired 1
+            r del H1
+            r hset H1 f1 1
+            r hpexpire H1 1 FIELDS 1 f1
+            after 2
+            # With allow-access-expired 1, expired fields should be accessible
+            assert_equal {1} [r hexists H1 f1]
+            # Test hget with allow-access-expired enabled
+            assert_equal {1} [r hget H1 f1]
+            # Test hscan with allow-access-expired enabled
+            assert_equal {1 f1} [lsort [lindex [r hscan H1 0] 1]]
+            # Test hgetall with allow-access-expired enabled
+            assert_equal {f1 1} [r hgetall H1]
+            # Test hlen with allow-access-expired enabled
+            assert_equal {1} [r hlen H1]
+            # Test hmget with allow-access-expired enabled
+            assert_equal {1} [r hmget H1 f1]
+            # Test hkeys and hvals with allow-access-expired enabled
+            assert_equal {f1} [r hkeys H1]
+            assert_equal {1} [r hvals H1]
+            # Test hincrby with allow-access-expired enabled
+            assert_equal {2} [r hincrby H1 f1 1]
+            # Test hincrbyfloat with allow-access-expired enabled
+            assert_equal {3.5} [r hincrbyfloat H1 f1 1.5]
+            # Test hrandfield with allow-access-expired enabled
+            assert_equal {f1} [r hrandfield H1]
+            assert_equal {f1 3.5} [r hrandfield H1 1 withvalues]
+            # Reset to default
+            r debug set-allow-access-expired 0
+            r debug set-active-expire 1
+        }
     }
 
     test "Statistics - Hashes with HFEs ($type)" {
@@ -1287,14 +1396,20 @@ start_server {tags {"external:skip needs:debug"}} {
         r flushall
 
         # hash1: 5 fields, 3 with TTL. subexpiry incr +1
-        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
-        r hpexpire myhash 150 FIELDS 3 f1 f2 f3
+        r hset myhash1 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash1 150 FIELDS 3 f1 f2 f3
+        assert_match  [get_stat_subexpiry r] 1
+        # Update hash1, f3 field with earlier TTL. subexpiry no change.
+        r hpexpire myhash1 100 FIELDS 1 f3
         assert_match  [get_stat_subexpiry r] 1
 
         # hash2: 5 fields, 3 with TTL. subexpiry incr +1
         r hset myhash2 f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
         assert_match  [get_stat_subexpiry r] 1
         r hpexpire myhash2 100 FIELDS 3 f1 f2 f3
+        assert_match  [get_stat_subexpiry r] 2
+        # Update hash2, f3 field with later TTL. subexpiry no change.
+        r hpexpire myhash2 150 FIELDS 1 f3
         assert_match  [get_stat_subexpiry r] 2
 
         # hash3: 2 fields, 1 with TTL. HDEL field with TTL. subexpiry decr -1
@@ -1378,6 +1493,32 @@ start_server {tags {"external:skip needs:debug"}} {
         after 50
         assert_equal [lsort [r hgetall myhash]] [lsort "f1 f3 f5 f6 f7 f8 f9 f10 v1 v3 v5 v6 v7 v8 v9 v10"]
         r config set hash-max-listpack-entries $prev
+        r debug set-active-expire 1
+    }
+
+    test "Test listpack converts to ht with allow-access-expired enabled" {
+        r debug set-active-expire 0
+        r debug set-allow-access-expired 1
+        set prev [config_get_set hash-max-listpack-entries 5]
+        r del myhash
+
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4
+        r hpexpire myhash 1 FIELDS 2 f1 f2
+        after 2
+
+        assert_equal {f1 f2 f3 f4 v1 v2 v3 v4} [lsort [r hgetall myhash]]
+        assert_equal {1} [r hexists myhash f1]
+
+        for {set i 5} {$i <= 10} {incr i} {
+            r hset myhash f$i v$i
+        }
+
+        assert_equal {hashtable} [r object encoding myhash]
+        assert_equal {v1} [r hget myhash f1]
+        assert_equal {10} [r hlen myhash]
+
+        r config set hash-max-listpack-entries $prev
+        r debug set-allow-access-expired 0
         r debug set-active-expire 1
     }
 

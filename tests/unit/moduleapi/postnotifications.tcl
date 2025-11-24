@@ -175,7 +175,7 @@ tags "modules external:skip" {
 set testmodule2 [file normalize tests/modules/keyspace_events.so]
 
 tags "modules external:skip" {
-    start_server {tags {"external:skip"}} {
+    start_server {} {
         r module load $testmodule with_key_events
         r module load $testmodule2
         test {Test write on post notification callback} {

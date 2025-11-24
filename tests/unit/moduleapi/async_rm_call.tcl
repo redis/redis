@@ -140,7 +140,7 @@ start_server {tags {"modules external:skip"}} {
         $rd wait_and_do_rm_call blpop l 0
         wait_for_blocked_clients_count 1
 
-        start_server {tags {"external:skip"}} {
+        start_server {} {
             test "Connect a replica to the master instance" {
                 r slaveof [srv -1 host] [srv -1 port]
                 wait_for_condition 50 100 {
