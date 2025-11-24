@@ -3122,6 +3122,29 @@ void aclCommand(client *c) {
             addReplyBulkCString(c, "timestamp-last-updated");
             addReplyLongLong(c, le->ctime);
         }
+    } else if (!strcasecmp(sub,"setpass") && c->argc == 3) {
+        /* Redact the password to not leak any information. */
+        redactClientCommandArgument(c, 2);
+
+        /* Check if the user is authenticated. */
+        if (c->user == NULL || !c->authenticated) {
+            addReplyError(c, "ACL SETPASS can only be executed by authenticated users");
+            return;
+        }
+
+        /* Set the password for the current user. */
+        sds password = c->argv[2]->ptr;
+        sds aclop = sdscatlen(sdsnew(">"), password, sdslen(password));
+
+        /* Reset existing passwords and set the new one. */
+        if (ACLSetUser(c->user, "resetpass", -1) != C_OK ||
+            ACLSetUser(c->user, aclop, sdslen(aclop)) != C_OK) {
+            addReplyError(c, "Failed to set password");
+        } else {
+            addReply(c, shared.ok);
+        }
+        sdsfree(aclop);
+        return;
     } else if (!strcasecmp(sub,"dryrun") && c->argc >= 4) {
         struct redisCommand *cmd;
         user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
@@ -3175,6 +3198,8 @@ void aclCommand(client *c) {
 "    Save the current config to the ACL file.",
 "SETUSER <username> <attribute> [<attribute> ...]",
 "    Create or modify a user with the specified attributes.",
+"SETPASS <password>",
+"    Set the password for the current user.",
 "USERS",
 "    List all the registered usernames.",
 "WHOAMI",
