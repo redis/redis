@@ -1499,8 +1499,9 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     /* o and typename can not have values at the same time. */
     serverAssert(!((data->type != LLONG_MAX) && o));
 
-    kvobj *kv = dictGetKV(de);        
+    kvobj *kv = NULL;
     if (!o) { /* If scanning keyspace */
+        kv = dictGetKV(de);
         keyStr = kvobjGetKey(kv);
     } else {
         keyStr = dictGetKey(de);
