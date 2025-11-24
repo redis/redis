@@ -762,7 +762,7 @@ void asmFeedMigrationClient(robj **argv, int argc) {
      *
      * NOTICE: if some keyless commands should be propagated to the destination,
      * we should identify them here and send. */
-    if (slot == GETSLOT_NOKEYS) return;
+    if (slot == INVALID_CLUSTER_SLOT) return;
 
     /* Generally we reject cross-slot commands before executing, but module may
      * replicate this kind of command, so we check again. To guarantee data
@@ -3461,7 +3461,7 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
 
     /* Allow no-keys commands or if keys are in the slot range. */
     slotRange sr = {slot, slot};
-    if (slot != GETSLOT_NOKEYS && !slotRangeArrayOverlaps(task->slots, &sr)) {
+    if (slot != INVALID_CLUSTER_SLOT && !slotRangeArrayOverlaps(task->slots, &sr)) {
         errno = ERANGE;
         return C_ERR;
     }

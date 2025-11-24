@@ -2409,7 +2409,7 @@ typedef struct {
 enum {
     PENDING_CMD_FLAG_INCOMPLETE = 1 << 0,     /* Command parsing is incomplete, still waiting for more data */
     PENDING_CMD_FLAG_PREPROCESSED = 1 << 1,   /* This command has passed pre-processing */
-    PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,     /* Command's keys_result is valid and cached */
+    PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,   /* Command's keys_result is valid and cached */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */
@@ -3872,8 +3872,6 @@ int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc,
 keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
-#define GETSLOT_NOKEYS     (-1)
-#define GETSLOT_CROSSSLOT  (-2)
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc);
 int doesCommandHaveKeys(struct redisCommand *cmd);
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
