@@ -9404,7 +9404,8 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
 }
 
 /* Return the current cluster flags set by the module. */
-uint64_t RM_GetClusterFlags(void) {
+uint64_t RM_GetClusterFlags(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
     uint64_t flags = 0;
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER)
         flags |= REDISMODULE_CLUSTER_FLAG_NO_FAILOVER;
