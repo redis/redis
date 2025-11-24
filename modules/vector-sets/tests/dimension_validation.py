@@ -65,3 +65,33 @@ class DimensionValidation(TestCase):
             assert False, "VSIM with wrong dimension should fail"
         except redis.exceptions.ResponseError as e:
             assert "Input dimension mismatch for projection" in str(e), f"Expected dimension mismatch error in VSIM, got: {e}"
+
+class ReduceDimConstraintValidation(TestCase):
+    def getname(self):
+        return "[regression] VADD enforces reduce_dim <= dim"
+
+    def estimated_runtime(self):
+        return 0.1
+
+    def test(self):
+        import struct
+
+        dim = 16
+        reduce_dim = dim + 1  # Intentionally larger than dim
+
+        # Build a simple FP32 vector of the given dimension.
+        vec = [0.0] * dim
+        vec_bytes = struct.pack(f'{dim}f', *vec)
+
+        try:
+            self.redis.execute_command(
+                'VADD', self.test_key,
+                'REDUCE', reduce_dim,
+                'FP32', vec_bytes,
+                f'{self.test_key}:item:reducemismatch')
+            assert False, "VADD with reduce_dim > dim should fail"
+        except redis.exceptions.ResponseError as e:
+            # Same generic validation error path as other vector spec problems.
+            assert "invalid vector specification" in str(e), (
+                f"Expected invalid vector error, got: {e}")
+
