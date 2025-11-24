@@ -426,7 +426,7 @@ int getKeySlot(sds key) {
 }
 
 /* Return the slot of the key in the command.
- * INVALID_CLUSTER_SLOT if no keys, GETSLOT_CROSSSLOT if cross slot, otherwise the slot number. */
+ * INVALID_CLUSTER_SLOT if no keys, CLUSTER_CROSSSLOT if cross slot, otherwise the slot number. */
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     if (!cmd || !server.cluster_enabled) return INVALID_CLUSTER_SLOT;
 
@@ -440,7 +440,7 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
      * We check if there are keys to determine if it's a cross-slot case. */
     int slot = extractSlotFromKeysResult(argv, &result);
     if (slot == INVALID_CLUSTER_SLOT && result.numkeys > 0) {
-        slot = GETSLOT_CROSSSLOT;
+        slot = CLUSTER_CROSSSLOT;
     }
     getKeysFreeResult(&result);
     return slot;

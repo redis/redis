@@ -23,7 +23,7 @@
 #define CLUSTER_SLOTS (1<<CLUSTER_SLOT_MASK_BITS) /* Total number of slots in cluster mode, which is 16384. */
 #define CLUSTER_SLOT_MASK ((unsigned long long)(CLUSTER_SLOTS - 1)) /* Bit mask for slot id stored in LSB. */
 #define INVALID_CLUSTER_SLOT (-1) /* Invalid slot number. */
-#define GETSLOT_CROSSSLOT  (-2)
+#define CLUSTER_CROSSSLOT  (-2)
 #define CLUSTER_OK 0            /* Everything looks ok */
 #define CLUSTER_FAIL 1          /* The cluster can't work */
 #define CLUSTER_NAMELEN 40      /* sha1 hex length */

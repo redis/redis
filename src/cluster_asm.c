@@ -767,7 +767,7 @@ void asmFeedMigrationClient(robj **argv, int argc) {
     /* Generally we reject cross-slot commands before executing, but module may
      * replicate this kind of command, so we check again. To guarantee data
      * consistency, we cancel the task if we encounter a cross-slot command. */
-    if (slot == GETSLOT_CROSSSLOT) {
+    if (slot == CLUSTER_CROSSSLOT) {
         /* We cannot cancel the task directly here, since it may lead to a recursive
          * call: asmTaskCancel() --> moduleFireServerEvent() --> moduleFreeContext()
          * --> postExecutionUnitOperations() --> propagateNow(). Even worse, this
@@ -3454,7 +3454,7 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
 
     /* Crossslot commands are not allowed */
     int slot = getSlotFromCommand(cmd, argv, argc);
-    if (slot == GETSLOT_CROSSSLOT) {
+    if (slot == CLUSTER_CROSSSLOT) {
         errno = ENOTSUP;
         return C_ERR;
     }
