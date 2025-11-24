@@ -272,6 +272,14 @@ int enableTrimCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+int trimInProgressCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    uint64_t flags = RedisModule_GetContextFlags(ctx);
+    RedisModule_ReplyWithLongLong(ctx, !!(flags & REDISMODULE_CTX_TRIM_IN_PROGRESS));
+    return REDISMODULE_OK;
+}
+
 void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data) {
     REDISMODULE_NOT_USED(ctx);
     int ret;
@@ -581,7 +589,10 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.enable_trim", enableTrimCmd, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "asm.read_pending_trim_key", getPendingTrimKeyCmd, "readonly", 1, 1, 1) == REDISMODULE_ERR)
+    if (RedisModule_CreateCommand(ctx, "asm.read_pending_trim_key", getPendingTrimKeyCmd, "readonly", 0, 0, 0) == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+    
+    if (RedisModule_CreateCommand(ctx, "asm.trim_in_progress", trimInProgressCmd, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.read_keyless_cmd_val", readkeylessCmdVal, "", 0, 0, 0) == REDISMODULE_ERR)

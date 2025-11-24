@@ -2891,31 +2891,6 @@ proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {key
 set testmodule [file normalize tests/modules/atomicslotmigration.so]
 
 start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no appendonly yes]] {
-    test "Test trim is disabled when module requests it" {
-        R 0 asm.disable_trim
-        R 0 debug asm-trim-method active
-
-        set slot0_key [slot_key 0 mykey]
-        R 0 set $slot0_key "value"
-        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
-        wait_for_condition 1000 10 {
-            [string match {*completed*} [migration_status 0 $task_id state]]
-        } else {
-            fail "ASM task did not complete"
-        }
-        assert_equal "value" [R 1 asm.read_pending_trim_key $slot0_key]
-        R 0 asm.enable_trim
-        wait_for_condition 1000 10 {
-            [[R 1 asm.read_pending_trim_key $slot0_key] eq ""]
-        } else {
-            fail "ASM task did not complete"
-        }
-        wait_for_asm_done
-        R 0 CLUSTER MIGRATION IMPORT 0 0
-        wait_for_asm_done
-        R 1 debug asm-trim-method default
-    }
-
     test "TRIMSLOTS in AOF will work synchronously on restart" {
         # When TRIMSLOTS is replayed from AOF during restart, it must execute
         # synchronously rather than using active trim. This prevents race
@@ -2935,6 +2910,7 @@ start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list 
         # restart server and verify aof is loaded
         restart_server 0 yes no yes nosave
         assert {[scan [regexp -inline {aof_current_size:([\d]*)} [R 0 info persistence]] aof_current_size=%d] > 0}
+        wait_for_cluster_state "ok"
 
         # verify TRIMSLOTS in AOF is executed synchronously
         assert_equal 0 [CI 0 cluster_slot_migration_stats_active_trim_completed]
@@ -2944,6 +2920,69 @@ start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list 
         R 0 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
         assert_equal 2000 [R 0 dbsize]
+    }
+
+    test "Test trim is disabled when module requests it" {
+        R 0 asm.disable_trim
+
+        set slot0_key [slot_key 0 mykey]
+        R 0 set $slot0_key "value"
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not complete"
+        }
+        # since we disable trim, the key should still exist on source,
+        # we can read it with REDISMODULE_OPEN_KEY_ACCESS_TRIMMED flag
+        assert_equal "value" [R 0 asm.read_pending_trim_key $slot0_key]
+        assert_equal 1 [R 0 asm.trim_in_progress]
+
+        # enable trim and verify the key is trimmed
+        R 0 asm.enable_trim
+        wait_for_condition 1000 10 {
+            [R 0 asm.read_pending_trim_key $slot0_key] eq "" &&
+            [R 0 asm.trim_in_progress] == 0
+        } else {
+            fail "Trim did not complete"
+        }
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+    }
+
+    test "Can not start new asm task when trim is not allowed" {
+        R 0 asm.disable_trim
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not complete"
+        }
+        # Can not start new migrating task since trim is disabled
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 1 1]
+        wait_for_condition 1000 10 {
+            [string match {*fail*} [migration_status 1 $task_id state]] &&
+            [string match {*Trim is disabled by module*} [migration_status 1 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+        R 0 asm.enable_trim
+        wait_for_asm_done
+
+        R 0 asm.disable_trim
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 2 2]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not complete"
+        }
+        set logline [count_log_lines 0]
+        # Can not start new importing task since trim is disabled
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 2]
+        wait_for_log_messages 0 {"*Can not start import task*trim is disabled by module*"} $logline 1000 10
+        R 0 asm.enable_trim
+        wait_for_asm_done
     }
 }
 

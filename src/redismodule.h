@@ -1743,6 +1743,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetRandomBytes);
     REDISMODULE_GET_API(GetRandomHexChars);
     REDISMODULE_GET_API(SetClusterFlags);
+    REDISMODULE_GET_API(GetClusterFlags);
     REDISMODULE_GET_API(ClusterKeySlot);
     REDISMODULE_GET_API(ClusterKeySlotC);
     REDISMODULE_GET_API(ClusterCanonicalKeyNameInSlot);
