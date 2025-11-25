@@ -1504,9 +1504,22 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     /* o and typename can not have values at the same time. */
     serverAssert(!((data->type != LLONG_MAX) && o));
 
+    kvobj *kv = NULL;
     if (!o) { /* If scanning keyspace */
-        kvobj *kv = dictGetKV(de);
-
+        kv = dictGetKV(de);
+        keyStr = kvobjGetKey(kv);
+    } else {
+        keyStr = dictGetKey(de);
+    }
+    
+    /* Filter element if it does not match the pattern. */
+    if (data->pattern) {
+        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, data->strlen(keyStr), 0)) {
+            return;
+        }
+    }
+    
+    if (!o) {
         /* Expiration check first - only for database keyspace scanning.
          * Use kv obj to avoid robj creation. */
         if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
@@ -1520,17 +1533,6 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
             /* For known types, skip keys that don't match */
             if (!objectTypeCompare(kv, data->type))
                 return;
-        }
-
-        keyStr = kvobjGetKey(kv);
-    } else {
-        keyStr = dictGetKey(de);
-    }
-
-    /* Filter element if it does not match the pattern. */
-    if (data->pattern) {
-        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, data->strlen(keyStr), 0)) {
-            return;
         }
     }
 
