@@ -2986,7 +2986,7 @@ void asmTrimJobProcessPending(void) {
      * - require replicas not paused (so TRIMSLOTS can be propagated).
      * - require trim is not disabled via RM_SetClusterFlags().
      */
-    int logged = 0;
+    static int logged = 0;
     int disabled_by_module = server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_TRIM;
 
     if (isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
