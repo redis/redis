@@ -4138,11 +4138,6 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
     if (num_keys < 0) {
         /* We skip the checks below since We expect the command to be rejected in this case */
         return;
-    } else if (num_keys > 0) {
-        /* If the command has keys but the slot is invalid, it means
-         * there is a cross-slot case. */
-        if (pcmd->slot == INVALID_CLUSTER_SLOT)
-            pcmd->read_error = CLIENT_READ_CROSS_SLOT;
     }
     pcmd->flags |= PENDING_CMD_KEYS_RESULT_VALID;
 }

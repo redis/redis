@@ -434,14 +434,8 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
     getKeysResult result = GETKEYS_RESULT_INIT;
     getKeysFromCommand(cmd, argv, argc, &result);
 
-    /* Extract slot from the keys result.
-     * Note: extractSlotFromKeysResult returns INVALID_CLUSTER_SLOT for both
-     * "no keys" and "cross-slot" cases, but we need to distinguish them.
-     * We check if there are keys to determine if it's a cross-slot case. */
+    /* Extract slot from the keys result. */
     int slot = extractSlotFromKeysResult(argv, &result);
-    if (slot == INVALID_CLUSTER_SLOT && result.numkeys > 0) {
-        slot = CLUSTER_CROSSSLOT;
-    }
     getKeysFreeResult(&result);
     return slot;
 }
@@ -3204,10 +3198,7 @@ int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc,
         }
     }
 
-    *slot = INVALID_CLUSTER_SLOT;
-    if (num_keys >= 0)
-        *slot = extractSlotFromKeysResult(argv, result);
-
+    *slot = extractSlotFromKeysResult(argv, result);
     return num_keys;
 }
 
