@@ -922,6 +922,31 @@ start_server {tags {"acl external:skip"}} {
        set err
     } {ERR The 'default' user cannot be removed}
 
+    test {ACL SETPASS returns timestamp-last-updated} {
+        r ACL setuser setpasstest on >oldpass +acl
+        r AUTH setpasstest oldpass
+        set response [r ACL SETPASS newpass]
+        assert {[dict exists $response timestamp-last-updated]}
+        assert {[dict get $response timestamp-last-updated] > 0}
+        # Verify password was changed
+        r AUTH setpasstest newpass
+        assert_equal [r ACL WHOAMI] {setpasstest}
+        r AUTH default ""
+        r ACL deluser setpasstest
+    }
+
+    test {ACL SETPASS requires authentication} {
+        catch {r ACL SETPASS newpass} err
+        set err
+    } {*ACL SETPASS can only be executed by authenticated users*}
+
+    test {ACL SETPASS validates password length} {
+        r ACL setuser shortpass on >oldpass +acl
+        r AUTH shortpass oldpass
+        catch {r ACL SETPASS abc} err
+        set err
+    } {*Password must be at least 4 characters long*}
+
     test {ACL load non-existing configured ACL file} {
        catch {r ACL load} err
        set err

@@ -3132,48 +3132,60 @@ void aclCommand(client *c) {
             return;
         }
 
-        /* Set the password for the current user. */
-        sds password = c->argv[2]->ptr;
-        sds aclop = sdscatlen(sdsnew(">"), password, sdslen(password));
+        /* Validate password length (min 4 chars for basic security). */
+    /* Validate password length (min 4 chars). */
+size_t pwlen = sdslen(c->argv[2]->ptr);
+if (pwlen < 4) {
+    addReplyErrorFormat(c,
+        "Password must be at least %zu characters long", (size_t)4);
+    return;
+}
 
-        /* Reset existing passwords and set the new one. */
-        if (ACLSetUser(c->user, "resetpass", -1) != C_OK ||
-            ACLSetUser(c->user, aclop, sdslen(aclop)) != C_OK) {
-            addReplyError(c, "Failed to set password");
-        } else {
-            addReply(c, shared.ok);
-        }
-        sdsfree(aclop);
+/* Build ACL operation string: >password */
+sds password = c->argv[2]->ptr;
+sds aclop = sdscatlen(sdsnew(">"), password, pwlen);
+
+/* Reset existing passwords and apply new one */
+int acl_err = ACLSetUser(c->user, "resetpass", -1);
+if (acl_err == C_OK) {
+    acl_err = ACLSetUser(c->user, aclop, sdslen(aclop));
+}
+sdsfree(aclop);
+
+/* Error handling */
+if (acl_err != C_OK) {
+
+    /* Replica / read-only instance */
+    if (server.masterhost && server.master) {
+        addReplyError(c,
+            "Password update failed: instance is read-only");
         return;
-    } else if (!strcasecmp(sub,"dryrun") && c->argc >= 4) {
-        struct redisCommand *cmd;
-        user *u = ACLGetUserByName(c->argv[2]->ptr,sdslen(c->argv[2]->ptr));
-        if (u == NULL) {
-            addReplyErrorFormat(c, "User '%s' not found", (char *)c->argv[2]->ptr);
-            return;
-        }
+    }
 
-        if ((cmd = lookupCommand(c->argv + 3, c->argc - 3)) == NULL) {
-            addReplyErrorFormat(c, "Command '%s' not found", (char *)c->argv[3]->ptr);
-            return;
-        }
+    /* Out-of-memory detection */
+    if (errno == ENOMEM) {
+        addReplyError(c,
+            "Password update failed: Out of memory");
+        return;
+    }
 
-        if ((cmd->arity > 0 && cmd->arity != c->argc-3) ||
-            (c->argc-3 < -cmd->arity))
-        {
-            addReplyErrorFormat(c,"wrong number of arguments for '%s' command", cmd->fullname);
-            return;
-        }
+    /* Specific ACL failure message if available */
+    const char *errmsg = ACLSetUserStringError();
+    if (errmsg && errmsg[0] != '\0') {
+        addReplyErrorFormat(c,
+            "Failed to set password: %s", errmsg);
+    } else {
+        addReplyError(c,
+            "Failed to set password");
+    }
 
-        int idx;
-        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, NULL, &idx);
-        if (result != ACL_OK) {
-            sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, 1);
-            addReplyBulkSds(c, err);
-            return;
-        }
+    return;
+}
 
-        addReply(c,shared.ok);
+/* Success */
+addReply(c, shared.ok);
+
+
     } else if (c->argc == 2 && !strcasecmp(sub,"help")) {
         const char *help[] = {
 "CAT [<category>]",
