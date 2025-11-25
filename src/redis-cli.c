@@ -8207,7 +8207,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         if (errno == ENOENT) {
             clusterManagerLogErr("[ERR] The specified backup directory '%s' does not exist.\n", backup_dir);
         } else {
-            clusterManagerLogErr("Cannot stat backup directory %s: %s\n",
+            clusterManagerLogErr("[ERR] Cannot stat backup directory %s: %s\n",
                                  backup_dir, strerror(errno));
         }
         success = 0;
