@@ -3047,7 +3047,7 @@ void asmTrimSlotsIfNotOwned(slotRangeArray *slots) {
               "Scheduling trim for %zu keys in slots: %s", num_keys, str);
     sdsfree(str);
 
-    /* Detect unowned keys now, fire the event. */
+    /* Detected unowned keys, fire the event. */
     asmUnownedKeysDetected();
 
     asmTrimJobSchedule(trim_slots);
