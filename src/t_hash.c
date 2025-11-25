@@ -2297,13 +2297,13 @@ static int parseHashFieldExpireArgs(client *c, int *flags,
             addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
             return C_ERR;
         }
+    }
 
-        /* Validate command-specific argument compatibility */
-        if ((command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) ||
-            (command_type == HASH_CMD_HSETEX && (*flags & HFE_PERSIST))) {
-            addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
-            return C_ERR;
-        }
+    /* Validate command-specific argument compatibility */
+    if ((command_type == HASH_CMD_HGETEX && (*flags & (HFE_KEEPTTL | HFE_FXX | HFE_FNX))) ||
+        (command_type == HASH_CMD_HSETEX && (*flags & HFE_PERSIST))) {
+        addReplyError(c, "unknown argument");
+        return C_ERR;
     }
 
     return C_OK;
@@ -3624,38 +3624,28 @@ static int parseHashCommandArgs(client *c, HashCommandArgs *args,
             continue;
         }
 
-        /* Expiration condition keywords */
+        /* Expiration condition keywords - validation moved outside loop for performance */
         if (!strcasecmp(arg, "NX")) {
-            if (args->expireCondition != 0) {
-                addReplyError(c, "Multiple condition flags specified");
-                return C_ERR;
-            }
-            args->expireCondition = HFE_NX;
+            args->expireCondition |= HFE_NX;
             continue;
         } else if (!strcasecmp(arg, "XX")) {
-            if (args->expireCondition != 0) {
-                addReplyError(c, "Multiple condition flags specified");
-                return C_ERR;
-            }
-            args->expireCondition = HFE_XX;
+            args->expireCondition |= HFE_XX;
             continue;
         } else if (!strcasecmp(arg, "GT")) {
-            if (args->expireCondition != 0) {
-                addReplyError(c, "Multiple condition flags specified");
-                return C_ERR;
-            }
-            args->expireCondition = HFE_GT;
+            args->expireCondition |= HFE_GT;
             continue;
         } else if (!strcasecmp(arg, "LT")) {
-            if (args->expireCondition != 0) {
-                addReplyError(c, "Multiple condition flags specified");
-                return C_ERR;
-            }
-            args->expireCondition = HFE_LT;
+            args->expireCondition |= HFE_LT;
             continue;
         }
 
         addReplyErrorFormat(c, "unknown argument: %s", (char*) c->argv[i]->ptr);
+        return C_ERR;
+    }
+
+    /* OPTIMIZATION #1: Move validation outside the parsing loop */
+    if (__builtin_popcount(args->expireCondition & (HFE_NX|HFE_XX|HFE_GT|HFE_LT)) > 1) {
+        addReplyError(c, "Multiple condition flags specified");
         return C_ERR;
     }
 
@@ -3856,8 +3846,8 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
     hashTypeSetExInit(keyArg, hashObj, c, c->db, args.expireCondition, &exCtx);
     addReplyArrayLen(c, args.fieldCount);
 
-    /* Collect positions of fields that need to be removed from propagation */
-    int *fieldsToRemove = zmalloc(sizeof(int) * (args.fieldCount > 0 ? args.fieldCount : 1));
+    /* Lazy allocation of fieldsToRemove - only allocate when failures occur */
+    int *fieldsToRemove = NULL;
     int removeCount = 0;
 
     for (int i = 0; i < args.fieldCount; i++) {
@@ -3868,6 +3858,9 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
         deleted += (res == HSETEX_DELETED);
 
         if (unlikely(res != HSETEX_OK)) {
+            if (fieldsToRemove == NULL) {
+                fieldsToRemove = zmalloc(sizeof(int) * (args.fieldCount > 0 ? args.fieldCount : 1));
+            }
             /* Remember this field position for later removal from propagation */
             fieldsToRemove[removeCount++] = fieldPos;
             fieldsNotSet = 1;
@@ -3928,7 +3921,8 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
         decrRefCount(newFieldCount);
     }
 
-    zfree(fieldsToRemove);
+    if (fieldsToRemove)
+        zfree(fieldsToRemove);
 }
 
 /* HPEXPIRE key milliseconds [ NX | XX | GT | LT] FIELDS numfields <field [field ...]> */
