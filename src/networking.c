@@ -2983,7 +2983,8 @@ void handleClientReadError(client *c) {
 int isClientReadErrorFatal(client *c) {
     return c->read_error != 0 &&
            c->read_error != CLIENT_READ_COMMAND_NOT_FOUND &&
-           c->read_error != CLIENT_READ_BAD_ARITY;
+           c->read_error != CLIENT_READ_BAD_ARITY &&
+           c->read_error != CLIENT_READ_CROSS_SLOT;
 }
 
 /* This function is called every time, in the client structure 'c', there is

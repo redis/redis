@@ -137,7 +137,7 @@ static void addReplySortedSlotStats(client *c, slotStatForSort slot_stats[], lon
 }
 
 static int canAddNetworkBytesOut(client *c) {
-    return clusterSlotStatsEnabled() && c->slot >= 0;
+    return clusterSlotStatsEnabled() && c->slot != INVALID_CLUSTER_SLOT;
 }
 
 /* Accumulates egress bytes upon sending RESP responses back to user clients. */
@@ -223,7 +223,7 @@ void clusterSlotStatResetAll(void) {
 static int canAddCpuDuration(client *c) {
     return server.cluster_slot_stats_enabled &&  /* Config should be enabled. */
            server.cluster_enabled &&             /* Cluster mode should be enabled. */
-           c->slot >= 0 &&                       /* Command should be slot specific. */
+           c->slot != INVALID_CLUSTER_SLOT &&    /* Command should be slot specific. */
            (!server.execution_nesting ||         /* Either command should not be nested, */
             (c->realcmd->flags & CMD_BLOCKING)); /* or it must be due to unblocking. */
 }
@@ -249,7 +249,7 @@ static int canAddNetworkBytesIn(client *c) {
      * Third, blocked client is not aggregated, to avoid duplicate aggregation upon unblocking.
      * Fourth, the server is not under a MULTI/EXEC transaction, to avoid duplicate aggregation of
      * EXEC's 14 bytes RESP upon nested call()'s afterCommand(). */
-    return clusterSlotStatsEnabled() && c->slot >= 0 &&
+    return clusterSlotStatsEnabled() && c->slot != INVALID_CLUSTER_SLOT &&
         !(c->flags & CLIENT_BLOCKED) && !server.in_exec;
 }
 
