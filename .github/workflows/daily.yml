@@ -960,7 +960,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx gcc
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
           gmake
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 

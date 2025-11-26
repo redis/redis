@@ -1393,7 +1393,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
     ssize_t written = 0;
     ssize_t res;
     size_t oldsize = 0;
-    kvstoreIterator *kvs_it = NULL;
+    kvstoreIterator kvs_it;
     static long long info_updated_time = 0;
     char *pname = (rdbflags & RDBFLAGS_AOF_PREAMBLE) ? "AOF rewrite" :  "RDB";
 
@@ -1416,20 +1416,20 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
     if ((res = rdbSaveLen(rdb,expires_size)) < 0) goto werr;
     written += res;
 
-    kvs_it = kvstoreIteratorInit(db->keys);
+    kvstoreIteratorInit(&kvs_it, db->keys);
     int last_slot = -1;
     /* Iterate this DB writing every entry */
-    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-        int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+        int curr_slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
         /* Save slot info. */
         if (server.cluster_enabled && curr_slot != last_slot) {
-            if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr;
+            if ((res = rdbSaveType(rdb, RDB_OPCODE_SLOT_INFO)) < 0) goto werr2;
             written += res;
-            if ((res = rdbSaveLen(rdb, curr_slot)) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, curr_slot)) < 0) goto werr2;
             written += res;
-            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->keys, curr_slot))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->keys, curr_slot))) < 0) goto werr2;
             written += res;
-            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr;
+            if ((res = rdbSaveLen(rdb, kvstoreDictSize(db->expires, curr_slot))) < 0) goto werr2;
             written += res;
             last_slot = curr_slot;
         }
@@ -1451,7 +1451,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
         res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid);
         if (server.memory_tracking_per_slot)
             updateSlotAllocSize(db, curr_slot, oldsize, kvobjAllocSize(kv));
-        if (res < 0) goto werr;
+        if (res < 0) goto werr2;
         written += res;
 
         /* In fork child process, we can try to release memory back to the
@@ -1471,11 +1471,12 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
             }
         }
     }
-    kvstoreIteratorRelease(kvs_it);
+    kvstoreIteratorReset(&kvs_it);
     return written;
 
+werr2:
+    kvstoreIteratorReset(&kvs_it);
 werr:
-    if (kvs_it) kvstoreIteratorRelease(kvs_it);
     return -1;
 }
 

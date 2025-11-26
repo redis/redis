@@ -177,6 +177,7 @@ start_cluster 2 2 [list tags {external:skip cluster modules} config_lines $modul
         $master2 set count_dels_{4oi} 1
         $master2 del count_dels_{4oi}
         assert_equal 1 [$master2 keyspace.get_dels]
+        wait_for_ofs_sync $master2 $replica2
         assert_equal 1 [$replica2 keyspace.get_dels]
         $master2 set count_dels_{4oi} 1
 
