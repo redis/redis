@@ -1462,7 +1462,7 @@ void replconfCommand(client *c) {
             }
             c->main_ch_client_id = (uint64_t)client_id;
             /* Inherit the rdb-no-compress request from the main channel. */
-            if (main_ch && main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
+            if (main_ch && (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS))
                 c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
         } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-compress")) {
             long rdb_no_compress = 0;
