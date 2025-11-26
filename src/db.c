@@ -2746,14 +2746,13 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
 
     /* NOTE: Keys in slots scheduled for trimming can still exist for a while.
-     * If a module touches one of these keys, we remove it right away and
-     * return KEY_DELETED. */
+     * We don't delete it here, return KEY_VALID if allowing access to trimmed
+     * keys, and return KEY_TRIMMED otherwise. */
     sds key_name = key ? key->ptr : kvobjGetKey(kv);
     if (asmIsKeyInTrimJob(key_name)) {
         if (server.allow_access_trimmed || (flags & EXPIRE_ALLOW_ACCESS_TRIMMED))
             return KEY_VALID;
 
-        /* Key is in a trim job */
         return KEY_TRIMMED;
     }
 
