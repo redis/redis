@@ -1280,4 +1280,4 @@ jobs:
         sudo pip install redis
     - name: test
       if: true && !contains(github.event.inputs.skiptests, 'redis')
-      run: ./runtest --accurate --verbose --dump-logs --single unit/vectorset/vectorset ${{github.event.inputs.test_args}}
+      run: ./runtest --accurate --verbose --dump-logs --single vectorset/vectorset ${{github.event.inputs.test_args}}

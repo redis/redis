@@ -14,7 +14,7 @@ proc check_python_environment {} {
     return $python_cmd
 }
 
-start_server {tags {"repl network external:skip"}} {
+start_server {} {
     set slave_port [srv 0 port]
 
     start_server {} {
@@ -41,6 +41,6 @@ start_server {tags {"repl network external:skip"}} {
                     fail "Vector set Python test failed: $close_error"
                 }
             }
-        } {} {needs:debug cluster:skip tls:skip}
+        }
     }
 }
