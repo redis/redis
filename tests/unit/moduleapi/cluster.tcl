@@ -10,7 +10,7 @@ set testmodule_blockedclient [file normalize tests/modules/blockedclient.so]
 set testmodule [file normalize tests/modules/blockonkeys.so]
 
 set modules [list loadmodule $testmodule loadmodule $testmodule_nokey loadmodule $testmodule_blockedclient]
-start_cluster 3 0 [list config_lines $modules] {
+start_cluster 3 0 [list tags {external:skip cluster modules} config_lines $modules] {
 
     set node1 [srv 0 client]
     set node2 [srv -1 client]
@@ -166,7 +166,7 @@ start_cluster 3 0 [list config_lines $modules] {
 set testmodule_keyspace_events [file normalize tests/modules/keyspace_events.so]
 set testmodule_postnotifications "[file normalize tests/modules/postnotifications.so] with_key_events"
 set modules [list loadmodule $testmodule_keyspace_events loadmodule $testmodule_postnotifications]
-start_cluster 2 2 [list config_lines $modules] {
+start_cluster 2 2 [list tags {external:skip cluster modules} config_lines $modules] {
 
     set master1 [srv 0 client]
     set master2 [srv -1 client]
@@ -177,6 +177,7 @@ start_cluster 2 2 [list config_lines $modules] {
         $master2 set count_dels_{4oi} 1
         $master2 del count_dels_{4oi}
         assert_equal 1 [$master2 keyspace.get_dels]
+        wait_for_ofs_sync $master2 $replica2
         assert_equal 1 [$replica2 keyspace.get_dels]
         $master2 set count_dels_{4oi} 1
 
@@ -213,7 +214,7 @@ start_cluster 2 2 [list config_lines $modules] {
 
 set testmodule [file normalize tests/modules/basics.so]
 set modules [list loadmodule $testmodule]
-start_cluster 3 0 [list config_lines $modules] {
+start_cluster 3 0 [list tags {external:skip cluster modules} config_lines $modules] {
     set node1 [srv 0 client]
     set node2 [srv -1 client]
     set node3 [srv -2 client]

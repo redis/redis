@@ -1132,7 +1132,7 @@ foreach type {single multiple single_multiple} {
         r config set save $origin_save
         r config set set-max-listpack-entries $origin_max_lp
         r config set rdb-key-save-delay $origin_save_delay
-    } {OK} {needs:debug slow}
+    } {OK} {needs:debug slow debug_defrag:skip}
 
     proc setup_move {} {
         r del myset3{t} myset4{t}

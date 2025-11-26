@@ -16,6 +16,17 @@
 #include "config.h"
 #include <stdint.h>
 
+/* --------------------------------------------------------------------------
+ * Optimized endian conversion helpers
+ * -------------------------------------------------------------------------- */
+
+/* For GCC, Clang — use builtins that compile to a single instruction */
+#if defined(__GNUC__) || defined(__clang__)
+#define REDIS_BSWAP64(v) __builtin_bswap64(v)
+#else
+#define REDIS_BSWAP64(v) intrev64(v)
+#endif
+
 void memrev16(void *p);
 void memrev32(void *p);
 void memrev64(void *p);
@@ -47,8 +58,8 @@ uint64_t intrev64(uint64_t v);
 #define htonu64(v) (v)
 #define ntohu64(v) (v)
 #else
-#define htonu64(v) intrev64(v)
-#define ntohu64(v) intrev64(v)
+#define htonu64(v) REDIS_BSWAP64(v)
+#define ntohu64(v) REDIS_BSWAP64(v)
 #endif
 
 #ifdef REDIS_TEST

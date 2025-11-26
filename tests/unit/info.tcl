@@ -331,7 +331,7 @@ start_server {tags {"info" "external:skip"}} {
             if {$::verbose} { puts "eventloop metrics cmd_sum1: $cmd_sum1, cmd_sum2: $cmd_sum2" }
             assert_morethan $cmd_sum2 $cmd_sum1
             assert_lessthan $cmd_sum2 [expr $cmd_sum1+15000] ;# we expect about tens of ms here, but allow some tolerance
-        }
+        } {} {debug_defrag:skip}
 
         test {stats: instantaneous metrics} {
             r config resetstat
@@ -359,7 +359,7 @@ start_server {tags {"info" "external:skip"}} {
             if {$::verbose} { puts "instantaneous metrics instantaneous_eventloop_duration_usec: $value" }
             assert_morethan $value 0
             assert_lessthan $value [expr $retries*22000] ;# default hz is 10, so duration < 1000 / 10, allow some tolerance
-        }
+        } {} {debug_defrag:skip}
 
         test {stats: debug metrics} {
             # make sure debug info is hidden

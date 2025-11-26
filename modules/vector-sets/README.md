@@ -66,7 +66,7 @@ performed in the background, while the command is executed in the main thread.
 
 **VSIM: return elements by vector similarity**
 
-    VSIM key [ELE|FP32|VALUES] <vector or element> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD]
+    VSIM key [ELE|FP32|VALUES] <vector or element> [WITHSCORES] [WITHATTRIBS] [COUNT num] [EPSILON delta] [EF search-exploration-factor] [FILTER expression] [FILTER-EF max-filtering-effort] [TRUTH] [NOTHREAD]
 
 The command returns similar vectors, for simplicity (and verbosity) in the following example, instead of providing a vector using FP32 or VALUES (like in `VADD`), we will ask for elements having a vector similar to a given element already in the sorted set:
 
@@ -91,6 +91,8 @@ It is possible to specify a `COUNT` and also to get the similarity score (from 1
     4) "0.8598527610301971"
     5) "pear"
     6) "0.8226882219314575"
+
+It is also possible to specify a `EPSILON`, that is a floating point number between 0 and 1 in order to only return elements that have a distance that is no further than the specified one. In vector sets, the returned elements have a similarity score (when compared to the query vector) that is between 1 and 0, where 1 means identical, 0 opposite vectors. If for instance the `EPSILON` option is specified with an argument of 0.2, it means that we will get only elements that have a similarity of 0.8 or better (a distance < 0.2). This is useful when a large `COUNT` is specified, yet we don't want elements that are too far away our query vector.
 
 The `EF` argument is the exploration factor: the higher it is, the slower the command becomes, but the better the index is explored to find nodes that are near to our query. Sensible values are from 50 to 1000.
 
@@ -186,6 +188,78 @@ This command will return 1 (or true) if the specified element is already in the 
     VISMEMBER key element
 
 As with other existence check Redis commands, if the key does not exist it is considered as if it was empty, thus the element is reported as non existing.
+
+**VRANGE: return elements in a lexicographical range
+
+    VRANGE key start end count
+
+The `VRANGE` command has many different use cases, but its main goal is to
+provide a stateless iterator for the elements inside a vector set: that is,
+it allows to retrieve all the elements inside a vector set in small amounts
+for each call, without an explicit cursor, and with guarantees about what
+the user will miss in case the vector set is changing (elements added and/or
+removed) during the iteration.
+
+The command usage is straightforward:
+
+```
+> VRANGE word_embeddings_int8 [Redis + 10
+ 1) "Redis"
+ 2) "Rediscover"
+ 3) "Rediscover_Ashland"
+ 4) "Rediscover_Northern_Ireland"
+ 5) "Rediscovered"
+ 6) "Rediscovered_Bookshop"
+ 7) "Rediscovering"
+ 8) "Rediscovering_God"
+ 9) "Rediscovering_Lost"
+10) "Rediscovers"
+```
+
+The above command returns 10 (or less, if less are available in the specified range) elements from "Redis" (inclusive) to the maximum possible element. The comparison is performed byte by byte, as `memcmp()` would do, in this way the elements have a total order. The start and end range can be either a string, prefixed by `[` or `(` (the prefix is mandatory) to tell the command if the range is inclusive or exclusive, or can be the special symbols `-` and `+` that means the maximum and minimum element.
+
+So for instance if I want to iterate all the elements, ten elements for each call, I'll proceed as such:
+
+```
+> VRANGE mykey - + 10
+ 1) "a"
+ 2) "a-league"
+ 3) "a."
+ 4) "a.d."
+ 5) "a.k.a."
+ 6) "a.m."
+ 7) "a1"
+ 8) "a2"
+ 9) "a3"
+10) "a7"
+```
+
+This will give me the first 10 elements. Then I want the next ten elements
+starting from the last element in the previous result, but *excluding* it,
+so the next range will use the `(` prefix with the last element of the
+previous call, that was `"a7"`:
+
+```
+> VRANGE mykey (a7 + 10
+ 1) "a930913"
+ 2) "aa"
+ 3) "aaa"
+ 4) "aaron"
+ 5) "ab"
+ 6) "aba"
+ 7) "abandon"
+ 8) "abandoned"
+ 9) "abandoning"
+10) "abandonment"
+```
+
+And so forth.
+
+The command count is mandatory, however a negative count means to return all the elements in the set. This means that `VRANGE mykey - + -1` will return every element. Of course, iterating like that means that it is possible to block the server for a long time.
+
+The command time complexity is O(1) to seek to the element (considering the element would be of reasonable size), since we use a Radix Tree in the underlying implementation, plus the time to yield "M" elements. So if M is small, each call is just executed in constant time. However the iteration of a total set (via multiple calls) of N elements is O(N). Basically: this command, with a small count, will never produce latency issues in the Redis server.
+
+In case the elements are changing continuously as the set is iterated, the guarantees are very simple: each range will produce exactly the elements that were present in the range in the moment the `VRANGE` command was executed. In other words, an iteration performed in this way is *guaranteed* to return all the elements that stayed within the vector set from the start to the end of the iteration. Elements removed or added in the meantime may be returned or not depending on the moment they were added or removed.
 
 **VLINKS: introspection command that shows neighbors for a node**
 

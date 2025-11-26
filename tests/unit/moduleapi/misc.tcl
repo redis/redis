@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/misc.so]
 
-start_server {overrides {save {900 1}} tags {"modules"}} {
+start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {test RM_Call} {
@@ -503,7 +503,7 @@ start_server {overrides {save {900 1}} tags {"modules"}} {
     }
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {test Dry Run - OK OOM/ACL} {
@@ -562,7 +562,7 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
     }
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     test {Detect incompatible operations in cluster mode for module} {
         r config set cluster-compatibility-sample-ratio 100
         set incompatible_ops [s cluster_incompatible_ops]

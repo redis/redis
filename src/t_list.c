@@ -90,6 +90,7 @@ static void listTypeTryConvertQuicklist(robj *o, int shrinking, beforeConvertCB 
      * then reset it and release the quicklist. */
     o->ptr = ql->head->entry;
     ql->head->entry = NULL;
+    ql->alloc_size -= ql->head->sz;
     quicklistRelease(ql);
     o->encoding = OBJ_ENCODING_LISTPACK;
 }
@@ -209,6 +210,19 @@ unsigned long listTypeLength(const robj *subject) {
     } else {
         serverPanic("Unknown list encoding");
     }
+}
+
+size_t listTypeAllocSize(const robj *o) {
+    serverAssertWithInfo(NULL,o,o->type == OBJ_LIST);
+    size_t size = 0;
+    if (o->encoding == OBJ_ENCODING_QUICKLIST) {
+        size = quicklistAllocSize(o->ptr);
+    } else if (o->encoding == OBJ_ENCODING_LISTPACK) {
+        size = lpBytes(o->ptr);
+    } else {
+        serverPanic("Unknown list encoding");
+    }
+    return size;
 }
 
 /* Initialize an iterator at the specified index. */
@@ -476,6 +490,7 @@ void pushGenericCommand(client *c, int where, int xx) {
     unsigned long llen;
     dictEntryLink link;
     int j;
+    size_t oldsize = 0;
 
     kvobj *lobj = lookupKeyWriteWithLink(c->db, c->argv[1], &link);
     if (checkType(c,lobj,OBJ_LIST)) return;
@@ -489,6 +504,8 @@ void pushGenericCommand(client *c, int where, int xx) {
         dbAddByLink(c->db, c->argv[1], &lobj, &link);
     }
 
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(lobj);
     listTypeTryConversionAppend(lobj,c->argv,2,c->argc-1,NULL,NULL);
     for (j = 2; j < c->argc; j++) {
         listTypePush(lobj,c->argv[j],where);
@@ -502,6 +519,8 @@ void pushGenericCommand(client *c, int where, int xx) {
     signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen - (c->argc - 2), llen);
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(lobj));
 }
 
 /* LPUSH <key> <element> [<element> ...] */
@@ -531,6 +550,7 @@ void linsertCommand(client *c) {
     listTypeIterator *iter;
     listTypeEntry entry;
     int inserted = 0;
+    size_t oldsize = 0;
 
     if (strcasecmp(c->argv[2]->ptr,"after") == 0) {
         where = LIST_TAIL;
@@ -549,6 +569,8 @@ void linsertCommand(client *c) {
      * the list twice (once to see if the value can be inserted and once
      * to do the actual insert), so we assume this value can be inserted
      * and convert the listpack to a regular list if necessary. */
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(subject);
     listTypeTryConversionAppend(subject,c->argv,4,4,NULL,NULL);
 
     /* Seek pivot from head to tail */
@@ -564,6 +586,8 @@ void linsertCommand(client *c) {
         }
     }
     listTypeReleaseIterator(iter);
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
 
     if (inserted) {
         signalModifiedKey(c,c->db,c->argv[1]);
@@ -623,10 +647,13 @@ void lsetCommand(client *c) {
     if (o == NULL || checkType(c,o,OBJ_LIST)) return;
     long index;
     robj *value = c->argv[3];
+    size_t oldsize = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &index, NULL) != C_OK))
         return;
 
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(o);
     listTypeTryConversionAppend(o,c->argv,3,3,NULL,NULL);
     if (listTypeReplaceAtIndex(o,index,value)) {
         /* We might replace a big item with a small one or vice versa, but we've
@@ -640,6 +667,10 @@ void lsetCommand(client *c) {
     } else {
         addReplyErrorObject(c,shared.outofrangeerr);
     }
+    /* Always update db allocation sizes since listTypeTryConversionAppend()
+     * might have changed object encoding. */
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
 }
 
 /* A helper function like addListRangeReply, more details see below.
@@ -666,9 +697,12 @@ void listPopRangeAndReplyWithKey(client *c, robj *o, robj *key, int where, long 
     addListRangeReply(c, o, rangestart, rangeend, reverse);
 
     /* Pop these elements. */
+    size_t oldsize = 0;
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(o);
     listTypeDelRange(o, rangestart, rangelen);
     /* Maintain the notifications and dirty. */
-    listElementsRemoved(c, key, where, o, rangelen, signal, deleted);
+    listElementsRemoved(c, key, where, o, rangelen, oldsize, signal, deleted);
 }
 
 /* Extracted from `addListRangeReply()` to reply with a quicklist list.
@@ -750,7 +784,7 @@ void addListRangeReply(client *c, robj *o, long start, long end, int reverse) {
  *
  * 'deleted' is an optional output argument to get an indication
  * if the key got deleted by this function. */
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted) {
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, size_t oldsize, int signal, int *deleted) {
     char *event = (where == LIST_HEAD) ? "lpop" : "rpop";
     unsigned long llen = listTypeLength(o);
     
@@ -759,10 +793,14 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, i
     if (llen == 0) {
         if (deleted) *deleted = 1;
 
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, listTypeAllocSize(o));
         dbDelete(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
     } else {
         listTypeTryConversion(o, LIST_CONV_SHRINKING, NULL, NULL);
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, listTypeAllocSize(o));
         if (deleted) *deleted = 0;
     }
     if (signal) signalModifiedKey(c, c->db, key);
@@ -797,6 +835,9 @@ void popGenericCommand(client *c, int where) {
         return;
     }
 
+    size_t oldsize = 0;
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(o);
     if (!count) {
         /* Pop a single element. This is POP's original behavior that replies
          * with a bulk string. */
@@ -804,7 +845,7 @@ void popGenericCommand(client *c, int where) {
         serverAssert(value != NULL);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c,c->argv[1],where,o,1,1,NULL);
+        listElementsRemoved(c,c->argv[1],where,o,1,oldsize,1,NULL);
     } else {
         /* Pop a range of elements. An addition to the original POP command,
          *  which replies with a multi-bulk. */
@@ -816,7 +857,7 @@ void popGenericCommand(client *c, int where) {
 
         addListRangeReply(c,o,rangestart,rangeend,reverse);
         listTypeDelRange(o,rangestart,rangelen);
-        listElementsRemoved(c,c->argv[1],where,o,rangelen,1,NULL);
+        listElementsRemoved(c,c->argv[1],where,o,rangelen,oldsize,1,NULL);
     }
 }
 
@@ -889,6 +930,7 @@ void lrangeCommand(client *c) {
 void ltrimCommand(client *c) {
     kvobj *o;
     long start, end, llen, ltrim, rtrim, llenNew;
+    size_t oldsize = 0;
 
     if ((getLongFromObjectOrReply(c, c->argv[2], &start, NULL) != C_OK) ||
         (getLongFromObjectOrReply(c, c->argv[3], &end, NULL) != C_OK)) return;
@@ -915,6 +957,8 @@ void ltrimCommand(client *c) {
     }
 
     /* Remove list elements to perform the trim */
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(o);
     if (o->encoding == OBJ_ENCODING_QUICKLIST) {
         quicklistDelRange(o->ptr,0,ltrim);
         quicklistDelRange(o->ptr,-rtrim,rtrim);
@@ -925,6 +969,8 @@ void ltrimCommand(client *c) {
         serverPanic("Unknown list encoding");
     }
 
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(o));
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
     if ((llenNew = listTypeLength(o)) == 0) {
         dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
@@ -1080,6 +1126,9 @@ void lremCommand(client *c) {
     const size_t object_len = sdslen(c->argv[3]->ptr);
     long long cached_longval = 0;
     int cached_valid = 0;
+    size_t oldsize = 0;
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(subject);
     while (listTypeNext(li,&entry)) {
         if (listTypeEqual(&entry,obj,object_len,&cached_longval,&cached_valid)) {
             listTypeDelete(li, &entry);
@@ -1092,6 +1141,8 @@ void lremCommand(client *c) {
 
     if (removed) {
         long ll = listTypeLength(subject);
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll + removed, ll);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
         
@@ -1109,13 +1160,18 @@ void lremCommand(client *c) {
 
 void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
                      int where) {
+    size_t oldsize = 0;
     /* Create the list if the key does not exist */
     if (!dstobj) {
         dstobj = createListListpackObject();
         dbAdd(c->db, dstkey, &dstobj);
     }
+    if (server.memory_tracking_per_slot)
+        oldsize = listTypeAllocSize(dstobj);
     listTypeTryConversionAppend(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), oldsize, listTypeAllocSize(dstobj));
     signalModifiedKey(c,c->db,dstkey);
 
     notifyKeyspaceEvent(NOTIFY_LIST,
@@ -1148,6 +1204,7 @@ robj *getStringObjectFromListPosition(int position) {
 }
 
 void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
+    size_t oldsize = 0;
     kvobj *kvsrc = lookupKeyWriteOrReply(c,c->argv[1],shared.null[c->resp]);
     if (kvsrc == NULL || checkType(c,kvsrc,OBJ_LIST)) return;
 
@@ -1166,13 +1223,17 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
             newlen = oldlen + 1;
         }
 
+        if (server.memory_tracking_per_slot)
+            oldsize = listTypeAllocSize(kvsrc);
         robj *value = listTypePop(kvsrc, wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(kvsrc));
         lmoveHandlePush(c, c->argv[2], kvdst, value, whereto);
         /* Update dst obj cardinality in KEYSIZES */
         updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_LIST, oldlen, newlen);
         /* Update src obj cardinality in KEYSIZES by listElementsRemoved() */
-        listElementsRemoved(c, skey, wherefrom, kvsrc, 1, 1, NULL);
+        listElementsRemoved(c, skey, wherefrom, kvsrc, 1, listTypeAllocSize(kvsrc), 1, NULL);
         /* listTypePop returns an object with its refcount incremented */
         decrRefCount(value);
 
@@ -1262,6 +1323,9 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
         }
 
         /* Non empty list, this is like a normal [LR]POP. */
+        size_t oldsize = 0;
+        if (server.memory_tracking_per_slot)
+            oldsize = listTypeAllocSize(o);
         robj *value = listTypePop(o,where);
         serverAssert(value != NULL);
 
@@ -1269,7 +1333,7 @@ void blockingPopGenericCommand(client *c, robj **keys, int numkeys, int where, i
         addReplyBulk(c,key);
         addReplyBulk(c,value);
         decrRefCount(value);
-        listElementsRemoved(c,key,where,o,1,1,NULL);
+        listElementsRemoved(c,key,where,o,1,oldsize,1,NULL);
 
         /* Replicate it as an [LR]POP instead of B[LR]POP. */
         rewriteClientCommandVector(c,2,

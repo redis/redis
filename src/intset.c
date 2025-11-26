@@ -102,6 +102,12 @@ intset *intsetNew(void) {
     return is;
 }
 
+size_t intsetAllocSize(intset *is) {
+    uint64_t size = (uint64_t)intrev32ifbe(is->length)*intrev32ifbe(is->encoding);
+    assert(size <= SIZE_MAX - sizeof(intset));
+    return sizeof(intset)+size;
+}
+
 /* Resize the intset */
 static intset *intsetResize(intset *is, uint32_t len) {
     uint64_t size = (uint64_t)len*intrev32ifbe(is->encoding);

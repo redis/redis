@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/reply.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
     
     #   test all with hello 2/3

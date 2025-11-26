@@ -244,6 +244,33 @@ start_server {
         assert {[r XLEN mystream] == 1} ;# Successfully trimmed to 1 entries
     }
 
+    test {XADD with ACKED option doesn't crash after DEBUG RELOAD} {
+        r DEL mystream
+        r XADD mystream 1-0 f v
+
+        # Create a consumer group and read one message
+        r XGROUP CREATE mystream mygroup 0
+        set records [r XREADGROUP GROUP mygroup consumer1 COUNT 1 STREAMS mystream >]
+        assert_equal [lindex [r XPENDING mystream mygroup] 0] 1
+
+        # After reload, the reference relationship between consumer groups and messages
+        # is correctly rebuilt, so the previously read but unacked message still cannot be deleted.
+        r DEBUG RELOAD
+        r XADD mystream MAXLEN = 1 ACKED 2-0 f v
+        assert_equal [r XLEN mystream] 2
+
+        # Acknowledge the read message so the PEL becomes empty
+        r XACK mystream mygroup [lindex [lindex [lindex [lindex $records 0] 1] 0] 0]
+        assert {[lindex [r XPENDING mystream mygroup] 0] == 0}
+
+        # After reload, since PEL is empty, no cgroup references will be recreated.
+        r DEBUG RELOAD
+
+        # ACKED option should work correctly even without cgroup references.
+        r XADD mystream MAXLEN = 1 ACKED 3-0 f v
+        assert_equal [r XLEN mystream] 2
+    } {} {needs:debug}
+
     test {XADD with MAXLEN option and DELREF option} {
         r DEL mystream
         r XADD mystream 1-0 f v

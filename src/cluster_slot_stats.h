@@ -13,9 +13,7 @@
  */
 
 #include "server.h"
-#include "cluster.h"
 #include "script.h"
-#include "cluster_legacy.h"
 
 /* General use-cases. */
 void clusterSlotStatReset(int slot);

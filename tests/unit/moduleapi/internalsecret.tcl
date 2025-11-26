@@ -1,4 +1,4 @@
-tags {modules} {
+tags {modules external:skip cluster} {
 set testmodule [file normalize tests/modules/internalsecret.so]
 
 set modules [list loadmodule $testmodule]

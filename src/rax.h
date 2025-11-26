@@ -89,7 +89,7 @@ typedef struct raxNode {
      *
      * [header iscompr=0][abc][a-ptr][b-ptr][c-ptr](value-ptr?)
      *
-     * if node is compressed (iscompr bit is 1) the node has 1 children.
+     * if node is compressed (iscompr bit is 1) the node has 1 child.
      * In that case the 'size' bytes of the string stored immediately at
      * the start of the data section, represent a sequence of successive
      * nodes linked one after the other, for which only the last one in
@@ -114,6 +114,7 @@ typedef struct rax {
     raxNode *head;
     uint64_t numele;
     uint64_t numnodes;
+    size_t *alloc_size;
     void *metadata[];
 } rax;
 
@@ -169,7 +170,7 @@ typedef struct raxIterator {
 
 /* Exported API. */
 rax *raxNew(void);
-rax *raxNewWithMetadata(int metaSize);
+rax *raxNewWithMetadata(int metaSize, size_t *alloc_size);
 int raxInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxTryInsert(rax *rax, unsigned char *s, size_t len, void *data, void **old);
 int raxRemove(rax *rax, unsigned char *s, size_t len, void **old);
@@ -195,5 +196,9 @@ void raxSetDebugMsg(int onoff);
 /* Internal API. May be used by the node callback in order to access rax nodes
  * in a low level way, so this function is exported as well. */
 void raxSetData(raxNode *n, void *data);
+
+#ifdef REDIS_TEST
+int raxTest(int argc, char *argv[], int flags);
+#endif
 
 #endif

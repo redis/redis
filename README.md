@@ -23,7 +23,8 @@ This document serves as both a quick start guide to Redis and a detailed resourc
 - [Community](#community)
 - [Build Redis from source](#build-redis-from-source)
   - [Build and run Redis with all data structures - Ubuntu 20.04 (Focal)](#build-and-run-redis-with-all-data-structures---ubuntu-2004-focal)
-  - [Build and run Redis with all data structures - Ubuntu 22.04 (Jammy) / 24.04 (Noble)](#build-and-run-redis-with-all-data-structures---ubuntu-2204-jammy--2404-noble)
+  - [Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)](#build-and-run-redis-with-all-data-structures---ubuntu-2204-jammy)
+  - [Build and run Redis with all data structures - Ubuntu 24.04 (Noble)](#build-and-run-redis-with-all-data-structures---ubuntu-2404-noble)
   - [Build and run Redis with all data structures - Debian 11 (Bullseye) / 12 (Bookworm)](#build-and-run-redis-with-all-data-structures---debian-11-bullseye--12-bookworm)
   - [Build and run Redis with all data structures - AlmaLinux 8.10 / Rocky Linux 8.10](#build-and-run-redis-with-all-data-structures---almalinux-810--rocky-linux-810)
   - [Build and run Redis with all data structures - AlmaLinux 9.5 / Rocky Linux 9.5](#build-and-run-redis-with-all-data-structures---almalinux-95--rocky-linux-95)
@@ -203,7 +204,7 @@ This section refers to building Redis from source. If you want to get up and run
 
 ### Build and run Redis with all data structures - Ubuntu 20.04 (Focal)
 
-Tested with the following Docker images:
+Tested with the following Docker image:
 
 - ubuntu:20.04
 
@@ -275,11 +276,76 @@ Tested with the following Docker images:
    ./src/redis-server redis-full.conf
    ```
 
-### Build and run Redis with all data structures - Ubuntu 22.04 (Jammy) / 24.04 (Noble)
+### Build and run Redis with all data structures - Ubuntu 22.04 (Jammy)
 
 Tested with the following Docker image:
 
 - ubuntu:22.04
+
+1. Install required dependencies
+
+   Update your package lists and install the necessary development tools and libraries:
+
+   ```sh
+   apt-get update
+   apt-get install -y sudo
+   sudo apt-get install -y --no-install-recommends ca-certificates wget dpkg-dev gcc g++ libc6-dev libssl-dev make git cmake python3 python3-pip python3-venv python3-dev unzip rsync clang automake autoconf libtool
+   ```
+
+2. Install CMake
+
+   Install CMake using `pip3` and link it for system-wide access:
+
+   ```sh
+   pip3 install cmake==3.31.6
+   sudo ln -sf /usr/local/bin/cmake /usr/bin/cmake
+   cmake --version
+   ```
+
+   Note: CMake version 3.31.6 is the latest supported version. Newer versions cannot be used.
+
+3. Download the Redis source
+
+   Download a specific version of the Redis source code archive from GitHub.
+
+   Replace `<version>` with the Redis version, for example: `8.0.0`.
+
+   ```sh
+   cd /usr/src
+   wget -O redis-<version>.tar.gz https://github.com/redis/redis/archive/refs/tags/<version>.tar.gz
+   ```
+
+4. Extract the source archive
+
+   Create a directory for the source code and extract the contents into it:
+
+   ```sh
+   cd /usr/src
+   tar xvf redis-<version>.tar.gz
+   rm redis-<version>.tar.gz
+   ```
+
+5. Build Redis
+
+   Set the necessary environment variables and build Redis:
+
+   ```sh
+   cd /usr/src/redis-<version>
+   export BUILD_TLS=yes BUILD_WITH_MODULES=yes INSTALL_RUST_TOOLCHAIN=yes DISABLE_WERRORS=yes
+   make -j "$(nproc)" all
+   ```
+
+6. Run Redis
+
+   ```sh
+   cd /usr/src/redis-<version>
+   ./src/redis-server redis-full.conf
+   ```
+
+### Build and run Redis with all data structures - Ubuntu 24.04 (Noble)
+
+Tested with the following Docker image:
+
 - ubuntu:24.04
 
 1. Install required dependencies
@@ -825,6 +891,27 @@ make V=1
 ### Running Redis with TLS
 
 Please consult the [TLS.md](TLS.md) file for more information on how to use Redis with TLS.
+
+### Running Redis with the Query Engine and optional proprietary Intel SVS-VAMANA optimisations
+
+**License Disclaimer**
+If you are using Redis Open Source under AGPLv3 or SSPLv1, you cannot use it together with the Intel Optimizations (Leanvec and LVQ binaries). The reason is that the Intel SVS license is not compatible with those licenses.
+The Leanvec and LVQ techniques are closed source and are only available for use with Redis Open Source when distributed under the RSALv2 license.
+For more details, please refer to the information provided by Intel [here](https://github.com/intel/ScalableVectorSearch).
+
+By default, Redis with the Redis Query Engine supports SVS-VAMANA index with global 8-bit quantisation. To compile Redis with the Intel SVS-VAMANA optimisations, LeanVec and LVQ, use the following:
+
+```sh
+make BUILD_INTEL_SVS_OPT=yes
+```
+
+Alternatively, you can export the variable before running the build step for your platform:
+
+```sh
+export BUILD_INTEL_SVS_OPT=yes
+make
+```
+
 
 ## Code contributions
 

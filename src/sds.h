@@ -157,6 +157,29 @@ static inline void sdsinclen(sds s, size_t inc) {
     }
 }
 
+/* Return the total size of the allocation of the specified sds string,
+ * including:
+ * 1) The sds header before the pointer.
+ * 2) The string.
+ * 3) The free buffer at the end if any.
+ * 4) The implicit null term.
+ */
+static inline size_t sdsAllocSize(sds s) {
+    switch(sdsType(s)) {
+        case SDS_TYPE_5:
+            return sizeof(struct sdshdr5) + SDS_TYPE_5_LEN(s) + 1;
+        case SDS_TYPE_8:
+            return sizeof(struct sdshdr8) + SDS_HDR(8,s)->alloc + 1;
+        case SDS_TYPE_16:
+            return sizeof(struct sdshdr16) + SDS_HDR(16,s)->alloc + 1;
+        case SDS_TYPE_32:
+            return sizeof(struct sdshdr32) + SDS_HDR(32,s)->alloc + 1;
+        case SDS_TYPE_64:
+            return sizeof(struct sdshdr64) + SDS_HDR(64,s)->alloc + 1;
+    }
+    return 0;
+}
+
 /* sdsalloc() = sdsavail() + sdslen() */
 static inline size_t sdsalloc(const sds s) {
     switch(sdsType(s)) {
@@ -268,7 +291,6 @@ sds sdsMakeRoomForNonGreedy(sds s, size_t addlen);
 void sdsIncrLen(sds s, ssize_t incr);
 sds sdsRemoveFreeSpace(sds s, int would_regrow);
 sds sdsResize(sds s, size_t size, int would_regrow);
-size_t sdsAllocSize(sds s);
 void *sdsAllocPtr(sds s);
 
 /* Returns the minimum required size to store an sds string of the given length

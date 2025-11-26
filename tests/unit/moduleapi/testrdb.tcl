@@ -6,7 +6,7 @@
 # 1 << 3 - do not save data on aux callback
 set testmodule [file normalize tests/modules/testrdb.so]
 
-tags "modules" {
+tags "modules external:skip" {
     test {modules are able to persist types} {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             r testrdb.set.key key1 value1

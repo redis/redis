@@ -8,7 +8,7 @@ set test_script_get "#!lua
 redis.call('get','x')
 return 1"
 
-start_server {tags {"modules usercall"}} {
+start_server {tags {"modules usercall external:skip"}} {
     r module load $testmodule
 
     # baseline test that module isn't doing anything weird

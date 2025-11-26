@@ -421,8 +421,7 @@ user *ACLCreateUser(const char *name, size_t namelen) {
     if (raxFind(Users,(unsigned char*)name,namelen,NULL)) return NULL;
     user *u = zmalloc(sizeof(*u));
     u->name = sdsnewlen(name,namelen);
-    u->flags = USER_FLAG_DISABLED;
-    u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
+    atomicSet(u->flags, USER_FLAG_DISABLED | USER_FLAG_SANITIZE_PAYLOAD);
     u->passwords = listCreate();
     u->acl_string = NULL;
     listSetMatchMethod(u->passwords,ACLListMatchSds);
@@ -1289,22 +1288,18 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
     if (oplen == -1) oplen = strlen(op);
     if (oplen == 0) return C_OK; /* Empty string is a no-operation. */
     if (!strcasecmp(op,"on")) {
-        u->flags |= USER_FLAG_ENABLED;
-        u->flags &= ~USER_FLAG_DISABLED;
+        atomicSet(u->flags, (u->flags | USER_FLAG_ENABLED) & ~USER_FLAG_DISABLED);
     } else if (!strcasecmp(op,"off")) {
-        u->flags |= USER_FLAG_DISABLED;
-        u->flags &= ~USER_FLAG_ENABLED;
+        atomicSet(u->flags, (u->flags | USER_FLAG_DISABLED) & ~USER_FLAG_ENABLED);
     } else if (!strcasecmp(op,"skip-sanitize-payload")) {
-        u->flags |= USER_FLAG_SANITIZE_PAYLOAD_SKIP;
-        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD;
+        atomicSet(u->flags, (u->flags | USER_FLAG_SANITIZE_PAYLOAD_SKIP) & ~USER_FLAG_SANITIZE_PAYLOAD);
     } else if (!strcasecmp(op,"sanitize-payload")) {
-        u->flags &= ~USER_FLAG_SANITIZE_PAYLOAD_SKIP;
-        u->flags |= USER_FLAG_SANITIZE_PAYLOAD;
+        atomicSet(u->flags, (u->flags | USER_FLAG_SANITIZE_PAYLOAD) & ~USER_FLAG_SANITIZE_PAYLOAD_SKIP);
     } else if (!strcasecmp(op,"nopass")) {
-        u->flags |= USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags | USER_FLAG_NOPASS);
         listEmpty(u->passwords);
     } else if (!strcasecmp(op,"resetpass")) {
-        u->flags &= ~USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags & ~USER_FLAG_NOPASS);
         listEmpty(u->passwords);
     } else if (op[0] == '>' || op[0] == '#') {
         sds newpass;
@@ -1324,7 +1319,7 @@ int ACLSetUser(user *u, const char *op, ssize_t oplen) {
             listAddNodeTail(u->passwords,newpass);
         else
             sdsfree(newpass);
-        u->flags &= ~USER_FLAG_NOPASS;
+        atomicSet(u->flags, u->flags & ~USER_FLAG_NOPASS);
     } else if (op[0] == '<' || op[0] == '!') {
         sds delpass;
         if (op[0] == '<') {
@@ -1852,7 +1847,7 @@ int ACLUserCheckChannelPerm(user *u, sds channel, int is_pattern) {
  * If the command fails an ACL check, idxptr will be to set to the first argv entry that
  * causes the failure, either 0 if the command itself fails or the idx of the key/channel
  * that causes the failure */
-int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, int *idxptr) {
+int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, int argc, getKeysResult *key_result, int *idxptr) {
     listIter li;
     listNode *ln;
 
@@ -1869,6 +1864,10 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
      * calls to prevent duplicate lookups. */
     aclKeyResultCache cache;
     initACLKeyResultCache(&cache);
+    if (key_result) {
+        cache.keys = *key_result;
+        cache.keys_init = 1;
+    }
 
     /* Check each selector sequentially */
     listRewind(u->selectors,&li);
@@ -1876,7 +1875,7 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
         aclSelector *s = (aclSelector *) listNodeValue(ln);
         int acl_retval = ACLSelectorCheckCmd(s, cmd, argv, argc, &local_idxptr, &cache);
         if (acl_retval == ACL_OK) {
-            cleanupACLKeyResultCache(&cache);
+            if (!key_result) cleanupACLKeyResultCache(&cache);
             return ACL_OK;
         }
         if (acl_retval > relevant_error ||
@@ -1888,13 +1887,13 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     }
 
     *idxptr = last_idx;
-    cleanupACLKeyResultCache(&cache);
+    if (!key_result) cleanupACLKeyResultCache(&cache);
     return relevant_error;
 }
 
 /* High level API for checking if a client can execute the queued up command */
 int ACLCheckAllPerm(client *c, int *idxptr) {
-    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, idxptr);
+    return ACLCheckAllUserCommandPerm(c->user, c->cmd, c->argv, c->argc, getClientCachedKeyResult(c), idxptr);
 }
 
 /* If 'new' can access all channels 'original' could then return NULL;
@@ -3144,7 +3143,7 @@ void aclCommand(client *c) {
         }
 
         int idx;
-        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, &idx);
+        int result = ACLCheckAllUserCommandPerm(u, cmd, c->argv + 3, c->argc - 3, NULL, &idx);
         if (result != ACL_OK) {
             sds err = getAclErrorMessage(result, u, cmd,  c->argv[idx+3]->ptr, 1);
             addReplyBulkSds(c, err);
@@ -3203,7 +3202,7 @@ void addReplyCommandCategories(client *c, struct redisCommand *cmd) {
 /* When successful, initiates an internal connection, that is able to execute
  * internal commands (see CMD_INTERNAL). */
 static void internalAuth(client *c) {
-    if (server.cluster == NULL) {
+    if (!server.cluster_enabled) {
         addReplyError(c, "Cannot authenticate as an internal connection on non-cluster instances");
         return;
     }

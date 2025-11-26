@@ -1,7 +1,7 @@
 set testmodule [file normalize tests/modules/configaccess.so]
 set othermodule [file normalize tests/modules/moduleconfigs.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
     r module loadex $othermodule CONFIG moduleconfigs.mutable_bool yes
 
@@ -133,6 +133,14 @@ start_server {tags {"modules"}} {
         # Test setting a numeric config with out-of-range value
         catch {r configaccess.setnumeric moduleconfigs.numeric 5000} err
         assert_match "*ERR*" $err
+        catch {r configaccess.setnumeric maxclients -1} err
+        assert_match "*Failed to set numeric config maxclients: argument must be between*" $err
+        catch {r configaccess.setnumeric maxclients -9223372036854775808} err
+        assert_match "*Failed to set numeric config maxclients: argument must be between*" $err
+
+        # Sanity check
+        assert_equal [r configaccess.setnumeric maxmemory 18446744073709551615] "OK"
+        assert_equal [r configaccess.setnumeric maxmemory -1] "OK"
     }
 
     test {Test module get all configs} {

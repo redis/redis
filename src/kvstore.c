@@ -1,14 +1,4 @@
 /*
- * Index-based KV store implementation
- * This file implements a KV store comprised of an array of dicts (see dict.c)
- * The purpose of this KV store is to have easy access to all keys that belong
- * in the same dict (i.e. are in the same dict-index)
- *
- * For example, when Redis is running in cluster mode, we use kvstore to save
- * all keys that map to the same hash-slot in a separate dict within the kvstore
- * struct.
- * This enables us to easily access all keys that map to a specific hash-slot.
- *
  * Copyright (c) 2011-Present, Redis Ltd. and contributors.
  * All rights reserved.
  *
@@ -29,8 +19,11 @@
 
 #include "zmalloc.h"
 #include "kvstore.h"
+#include "fwtree.h"
 #include "redisassert.h"
 #include "monotonic.h"
+#include "server.h"
+
 
 #define UNUSED(V) ((void) V)
 
@@ -46,7 +39,7 @@ struct _kvstore {
     int non_empty_dicts;                   /* The number of non-empty dicts. */
     unsigned long long key_count;          /* Total number of keys in this kvstore. */
     unsigned long long bucket_count;       /* Total number of buckets in this kvstore across dictionaries. */
-    unsigned long long *dict_size_index;   /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
+    fenwickTree *dict_sizes;               /* Binary indexed tree (BIT) that describes cumulative key frequencies up until given dict-index. */
     size_t overhead_hashtable_rehashing;   /* The overhead of dictionaries rehashing. */
     void *metadata[];                      /* conditionally allocated based on "flags" */
 };
@@ -97,22 +90,6 @@ static int kvstoreDictIsRehashingPaused(kvstore *kvs, int didx)
     return d ? dictIsRehashingPaused(d) : 0;
 }
 
-/* Returns total (cumulative) number of keys up until given dict-index (inclusive).
- * Time complexity is O(log(kvs->num_dicts)). */
-static unsigned long long cumulativeKeyCountRead(kvstore *kvs, int didx) {
-    if (kvs->num_dicts == 1) {
-        assert(didx == 0);
-        return kvstoreSize(kvs);
-    }
-    int idx = didx + 1;
-    unsigned long long sum = 0;
-    while (idx > 0) {
-        sum += kvs->dict_size_index[idx];
-        idx -= (idx & -idx);
-    }
-    return sum;
-}
-
 static void addDictIndexToCursor(kvstore *kvs, int didx, unsigned long long *cursor) {
     if (kvs->num_dicts == 1)
         return;
@@ -130,11 +107,7 @@ static int getAndClearDictIndexFromCursor(kvstore *kvs, unsigned long long *curs
     return didx;
 }
 
-/* Updates binary index tree (also known as Fenwick tree), increasing key count for a given dict.
- * You can read more about this data structure here https://en.wikipedia.org/wiki/Fenwick_tree
- * Time complexity is O(log(kvs->num_dicts)). Take care to call it only after 
- * adding or removing keys from the kvstore.
- */
+/* Updates binary index tree (Fenwick tree), updates key count for a given dict */
 static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
     kvs->key_count += delta;
 
@@ -150,14 +123,7 @@ static void cumulativeKeyCountAdd(kvstore *kvs, int didx, long delta) {
         return;
 
     /* Update the BIT */
-    int idx = didx + 1; /* Unlike dict indices, BIT is 1-based, so we need to add 1. */
-    while (idx <= kvs->num_dicts) {
-        if (delta < 0) {
-            assert(kvs->dict_size_index[idx] >= (unsigned long long)labs(delta));
-        }
-        kvs->dict_size_index[idx] += delta;
-        idx += (idx & -idx);
-    }
+    fwTreeUpdate(kvs->dict_sizes, didx, delta);
 }
 
 /* Create the dict if it does not exist and return it. */
@@ -183,6 +149,12 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
         kvstoreDictSize(kvs, didx) != 0 ||
         kvstoreDictIsRehashingPaused(kvs, didx))
         return;
+#ifdef REDIS_TEST
+    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
+        kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(kvs->dicts[didx]);
+        serverAssert(metadata->meta.alloc_size == 0);
+    }
+#endif
     dictRelease(kvs->dicts[didx]);
     kvs->dicts[didx] = NULL;
     kvs->allocated_dicts--;
@@ -245,6 +217,19 @@ static size_t kvstoreDictMetadataExtendSize(dict *d) {
     return sizeof(kvstoreDictMetaEx);
 }
 
+void kvstoreTrackDeallocation(dict *d, void *kv) {
+    if (!server.memory_tracking_per_slot) return;
+    kvstore *kvs = d->type->userdata;
+    if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
+        kvstoreDictMetaEx *metadata = (kvstoreDictMetaEx *)dictMetadata(d);
+        size_t alloc_size = kvobjAllocSize(kv);
+#ifdef REDIS_TEST
+        serverAssert(alloc_size <= metadata->meta.alloc_size);
+#endif
+        metadata->meta.alloc_size -= alloc_size;
+    }
+}
+
 /**********************************/
 /*** API **************************/
 /**********************************/
@@ -294,7 +279,7 @@ kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags) {
     kvs->key_count = 0;
     kvs->non_empty_dicts = 0;
     kvs->resize_cursor = 0;
-    kvs->dict_size_index = kvs->num_dicts > 1? zcalloc(sizeof(unsigned long long) * (kvs->num_dicts + 1)) : NULL;
+    kvs->dict_sizes = kvs->num_dicts > 1 ? fwTreeCreate(kvs->num_dicts_bits) : NULL;
     kvs->bucket_count = 0;
     kvs->overhead_hashtable_rehashing = 0;
     return kvs;
@@ -325,8 +310,8 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
     kvs->non_empty_dicts = 0;
     kvs->resize_cursor = 0;
     kvs->bucket_count = 0;
-    if (kvs->dict_size_index)
-        memset(kvs->dict_size_index, 0, sizeof(unsigned long long) * (kvs->num_dicts + 1));
+    if (kvs->dict_sizes)
+        fwTreeClear(kvs->dict_sizes);
     kvs->overhead_hashtable_rehashing = 0;
 }
 
@@ -338,23 +323,26 @@ void kvstoreRelease(kvstore *kvs) {
         kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
+#ifdef REDIS_TEST
+        dictEmpty(d, NULL);
+        if (kvs->flags & KVSTORE_ALLOC_META_KEYS_HIST) {
+            kvstoreDictMetaEx *metaEx = (kvstoreDictMetaEx *)metadata;
+            serverAssert(metaEx->meta.alloc_size == 0);
+        }
+#endif
         dictRelease(d);
     }
     zfree(kvs->dicts);
 
     listRelease(kvs->rehashing);
-    if (kvs->dict_size_index)
-        zfree(kvs->dict_size_index);
+    if (kvs->dict_sizes)
+        fwTreeDestroy(kvs->dict_sizes);
 
     zfree(kvs);
 }
 
 unsigned long long int kvstoreSize(kvstore *kvs) {
-    if (kvs->num_dicts != 1) {
-        return kvs->key_count;
-    } else {
-        return kvs->dicts[0]? dictSize(kvs->dicts[0]) : 0;
-    }
+    return kvs->key_count;
 }
 
 /* This method provides the cumulative sum of all the dictionary buckets
@@ -423,7 +411,7 @@ unsigned long long kvstoreScan(kvstore *kvs, unsigned long long cursor,
 
     dict *d = kvstoreGetDict(kvs, didx);
 
-    int skip = !d || (skip_cb && skip_cb(d));
+    int skip = !d || (skip_cb && skip_cb(d, didx));
     if (!skip) {
         _cursor = dictScan(d, cursor, scan_cb, privdata);
         /* In dictScan, scan_cb may delete entries (e.g., in active expire case). */
@@ -465,12 +453,56 @@ int kvstoreExpand(kvstore *kvs, uint64_t newsize, int try_expand, kvstoreExpandS
     return 1;
 }
 
-/* Returns fair random dict index, probability of each dict being returned is proportional to the number of elements that dictionary holds.
- * This function guarantees that it returns a dict-index of a non-empty dict, unless the entire kvstore is empty.
- * Time complexity of this function is O(log(kvs->num_dicts)). */
-int kvstoreGetFairRandomDictIndex(kvstore *kvs) {
-    unsigned long target = kvstoreSize(kvs) ? (randomULong() % kvstoreSize(kvs)) + 1 : 0;
-    return kvstoreFindDictIndexByKeyIndex(kvs, target);
+/* Returns fair random dict index, probability of each dict being returned is
+ * proportional to the number of elements that dictionary holds.
+ * This function guarantees that it returns a dict-index of a non-empty dict,
+ * unless the entire kvstore is empty or all dicts are skipped.
+ *
+ * Parameters:
+ * - kvs: the kvstore instance
+ * - skip_cb: callback to determine if a dict should be skipped (NULL means no skipping)
+ * - fair_attempts: number of fair selection attempts before falling back
+ * - slow_fallback: if 1, uses systematic search when fair attempts fail
+ *
+ * Returns:
+ * - Valid dict index (>= 0) on success
+ * - -1 if no valid dict found (either slow_fallback is 0 or all dicts are skipped)
+ *
+ * Time complexity: O(fair_attempts * log(kvs->num_dicts)) for fair attempts,
+ * plus O(kvs->num_dicts) for systematic fallback if enabled.
+ */
+int kvstoreGetFairRandomDictIndex(kvstore *kvs, kvstoreRandomShouldSkipDictIndex *skip_cb,
+                                  int fair_attempts, int slow_fallback)
+{
+    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
+        return 0;
+
+    unsigned long long total_size = kvstoreSize(kvs);
+
+    /* Try fair attempts first. If skip_cb is not applicable, execute only once. */
+    for (int attempt = 0; attempt < fair_attempts; attempt++) {
+        unsigned long target = (randomULong() % total_size) + 1;
+        int didx = kvstoreFindDictIndexByKeyIndex(kvs, target);
+        if (!skip_cb || !skip_cb(didx)) {
+            return didx;
+        }
+    }
+
+    /* If fair attempts failed and slow fallback is allowed */
+    if (slow_fallback) {
+        /* systematic check from random start */
+        int start = randomULong() % kvs->num_dicts;
+        for (int i = 0; i < kvs->num_dicts; i++) {
+            int didx = (start + i) % kvs->num_dicts;
+            dict *d = kvstoreGetDict(kvs, didx);
+            if (d && (!skip_cb || !skip_cb(didx))) {
+                return didx;
+            }
+        }
+    }
+
+    /* Failed to find valid dict that has elements */
+    return -1;
 }
 
 void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full) {
@@ -542,29 +574,14 @@ int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
         return 0;
     assert(target <= kvstoreSize(kvs));
 
-    int result = 0, bit_mask = 1 << kvs->num_dicts_bits;
-    for (int i = bit_mask; i != 0; i >>= 1) {
-        int current = result + i;
-        /* When the target index is greater than 'current' node value the we will update
-         * the target and search in the 'current' node tree. */
-        if (target > kvs->dict_size_index[current]) {
-            target -= kvs->dict_size_index[current];
-            result = current;
-        }
-    }
-    /* Adjust the result to get the correct dict:
-     * 1. result += 1;
-     *    After the calculations, the index of target in dict_size_index should be the next one,
-     *    so we should add 1.
-     * 2. result -= 1;
-     *    Unlike BIT(dict_size_index is 1-based), dict indices are 0-based, so we need to subtract 1.
-     * As the addition and subtraction cancel each other out, we can simply return the result. */
-    return result;
+    return fwTreeFindIndex(kvs->dict_sizes, target);
 }
 
 /* Wrapper for kvstoreFindDictIndexByKeyIndex to get the first non-empty dict index in the kvstore. */
 int kvstoreGetFirstNonEmptyDictIndex(kvstore *kvs) {
-    return kvstoreFindDictIndexByKeyIndex(kvs, 1);
+    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
+        return 0;
+    return fwTreeFindFirstNonEmpty(kvs->dict_sizes);
 }
 
 /* Returns next non-empty dict index strictly after given one, or -1 if provided didx is the last one. */
@@ -573,8 +590,7 @@ int kvstoreGetNextNonEmptyDictIndex(kvstore *kvs, int didx) {
         assert(didx == 0);
         return -1;
     }
-    unsigned long long next_key = cumulativeKeyCountRead(kvs, didx) + 1;
-    return next_key <= kvstoreSize(kvs) ? kvstoreFindDictIndexByKeyIndex(kvs, next_key) : -1;
+    return fwTreeFindNextNonEmpty(kvs->dict_sizes, didx);
 }
 
 int kvstoreNumNonEmptyDicts(kvstore *kvs) {
@@ -587,6 +603,37 @@ int kvstoreNumAllocatedDicts(kvstore *kvs) {
 
 int kvstoreNumDicts(kvstore *kvs) {
     return kvs->num_dicts;
+}
+
+/* Move dict from one kvstore to another. */
+void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
+    serverAssert(kvs->num_dicts > didx);
+    serverAssert(kvs->num_dicts == dst->num_dicts);
+    serverAssert(dst->dicts[didx] == NULL);
+
+    dict *d = kvs->dicts[didx];
+    if (d == NULL) return;
+
+    /* Adjust source kvstore */
+    kvs->allocated_dicts -= 1;
+    cumulativeKeyCountAdd(kvs, didx, -((long long)dictSize(d)));
+    kvstoreDictBucketChanged(d, -((long long) dictBuckets(d)));
+    /* If rehashing, stop it. */
+    if (dictIsRehashing(d))
+        kvstoreDictRehashingCompleted(d);
+    /* Clear dict from source kvstore and create a new one if needed */
+    kvs->dicts[didx] = NULL;
+    if (!(kvs->flags & (KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS)))
+        createDictIfNeeded(kvs, didx);
+
+    /* Move dict to destination kvstore */
+    dst->dicts[didx] = d;
+    dst->dicts[didx]->type = &dst->dtype;
+    dst->allocated_dicts += 1;
+    cumulativeKeyCountAdd(dst, didx, dictSize(d));
+    kvstoreDictBucketChanged(d, dictBuckets(d));
+    if (dictIsRehashing(dst->dicts[didx]))
+        kvstoreDictRehashingStarted(dst->dicts[didx]);
 }
 
 /* Returns kvstore iterator that can be used to iterate through sub-dictionaries.
@@ -720,6 +767,13 @@ unsigned long kvstoreDictSize(kvstore *kvs, int didx)
     return dictSize(d);
 }
 
+size_t kvstoreDictAllocSize(kvstore *kvs, int didx)
+{
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(kvs, didx);
+    if (!dictMeta) return 0;
+    return dictMeta->alloc_size;
+}
+
 kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx)
 {
     kvstoreDictIterator *kvs_di = zmalloc(sizeof(*kvs_di));
@@ -787,7 +841,7 @@ unsigned int kvstoreDictGetSomeKeys(kvstore *kvs, int didx, dictEntry **des, uns
 
 int kvstoreDictExpand(kvstore *kvs, int didx, unsigned long size)
 {
-    dict *d = kvstoreGetDict(kvs, didx);
+    dict *d = createDictIfNeeded(kvs, didx);
     if (!d)
         return DICT_ERR;
     return dictExpand(d, size);

@@ -11,6 +11,7 @@
 #include "bio.h"
 #include "rio.h"
 #include "functions.h"
+#include "cluster_asm.h"
 
 #include <signal.h>
 #include <fcntl.h>
@@ -1474,6 +1475,29 @@ struct client *createAOFClient(void) {
     return c;
 }
 
+static int truncateAppendOnlyFile(char *filename, off_t valid_up_to) {
+    if (valid_up_to == -1) {
+        serverLog(LL_WARNING,"Last valid command offset is invalid");
+        return 0;
+    }
+
+    if (truncate(filename, valid_up_to) == -1) {
+        serverLog(LL_WARNING,"Error truncating the AOF file %s: %s",
+            filename, strerror(errno));
+        return 0;
+    }
+
+    /* Make sure the AOF file descriptor points to the end of the
+     * file after the truncate call. */
+    if (server.aof_fd != -1 && lseek(server.aof_fd, 0, SEEK_END) == -1) {
+        serverLog(LL_WARNING,"Can't seek the end of the AOF file %s: %s",
+            filename, strerror(errno));
+        return 0;
+    }
+
+    return 1; /* Success */
+}
+
 /* Replay an append log file. On success AOF_OK or AOF_TRUNCATED is returned,
  * otherwise, one of the following is returned:
  * AOF_OPEN_ERR: Failed to open the AOF file.
@@ -1640,12 +1664,24 @@ int loadSingleAppendOnlyFile(char *filename) {
         if (fakeClient->flags & CLIENT_MULTI &&
             fakeClient->cmd->proc != execCommand)
         {
+            /* queueMultiCommand requires a pendingCommand, so we create a "fake" one here
+             * for it to consume */
+            pendingCommand *pcmd = zmalloc(sizeof(pendingCommand));
+            initPendingCommand(pcmd);
+            addPendingCommand(&fakeClient->pending_cmds, pcmd);
+
+            pcmd->argc = argc;
+            pcmd->argv_len = argc;
+            pcmd->argv = argv;
+            pcmd->cmd = cmd;
+
             /* Note: we don't have to attempt calling evalGetCommandFlags,
              * since this is AOF, the checks in processCommand are not made
              * anyway.*/
             queueMultiCommand(fakeClient, cmd->flags);
         } else {
             cmd->proc(fakeClient);
+            fakeClient->all_argv_len_sum = 0; /* Otherwise no one cleans this up and we reach cleanup with it non-zero */
         }
 
         /* The fake client should not have a reply */
@@ -1658,7 +1694,7 @@ int loadSingleAppendOnlyFile(char *filename) {
         /* Clean up. Command code may have changed argv/argc so we use the
          * argv/argc of the client instead of the local variables. */
         freeClientArgv(fakeClient);
-        if (server.aof_load_truncated) valid_up_to = ftello(fp);
+        if (server.aof_load_truncated || server.aof_load_corrupt_tail_max_size) valid_up_to = ftello(fp);
         if (server.key_load_delay)
             debugDelay(server.key_load_delay);
     }
@@ -1691,25 +1727,10 @@ uxeof: /* Unexpected AOF end of file. */
         serverLog(LL_WARNING,"!!! Warning: short read while loading the AOF file %s!!!", filename);
         serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu !!!",
             filename, (unsigned long long) valid_up_to);
-        if (valid_up_to == -1 || truncate(aof_filepath,valid_up_to) == -1) {
-            if (valid_up_to == -1) {
-                serverLog(LL_WARNING,"Last valid command offset is invalid");
-            } else {
-                serverLog(LL_WARNING,"Error truncating the AOF file %s: %s",
-                    filename, strerror(errno));
-            }
-        } else {
-            /* Make sure the AOF file descriptor points to the end of the
-             * file after the truncate call. */
-            if (server.aof_fd != -1 && lseek(server.aof_fd,0,SEEK_END) == -1) {
-                serverLog(LL_WARNING,"Can't seek the end of the AOF file %s: %s",
-                    filename, strerror(errno));
-            } else {
-                serverLog(LL_WARNING,
-                    "AOF %s loaded anyway because aof-load-truncated is enabled", filename);
-                ret = AOF_TRUNCATED;
-                goto loaded_ok;
-            }
+        if (truncateAppendOnlyFile(aof_filepath, valid_up_to)) {
+            serverLog(LL_WARNING, "AOF %s loaded anyway because aof-load-truncated is enabled", aof_filepath);
+            ret = AOF_TRUNCATED;
+            goto loaded_ok;
         }
     }
     serverLog(LL_WARNING, "Unexpected end of file reading the append only file %s. You can: "
@@ -1719,8 +1740,22 @@ uxeof: /* Unexpected AOF end of file. */
     goto cleanup;
 
 fmterr: /* Format error. */
-    serverLog(LL_WARNING, "Bad file format reading the append only file %s: "
-        "make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>", filename);
+    /* fmterr may be caused by accidentally machine shutdown, so if the broken tail
+     * is less than a specified size, try to recover it automatically */
+    if (server.aof_load_corrupt_tail_max_size && sb.st_size - valid_up_to < server.aof_load_corrupt_tail_max_size) {
+        serverLog(LL_WARNING,"!!! Warning: corrupt AOF file tail!!!");
+        serverLog(LL_WARNING,"!!! Truncating the AOF %s at offset %llu (remaining %llu) !!!",
+            aof_filepath, (unsigned long long) valid_up_to, (unsigned long long) sb.st_size - valid_up_to);
+        if (truncateAppendOnlyFile(aof_filepath, valid_up_to)) {
+            serverLog(LL_WARNING, "AOF %s loaded anyway because aof-load-corrupt-tail-max-size is enabled", aof_filepath);
+            ret = AOF_BROKEN_RECOVERED;
+            goto loaded_ok;
+        }
+    }
+    serverLog(LL_WARNING, "Bad file format reading the append only file %s at offset %llu. \
+         make a backup of your AOF file, then use ./redis-check-aof --fix <filename.manifest>. \
+         Alternatively you can set the 'aof-load-corrupt-tail-max-size' configuration option to %llu and restart the server.",
+         aof_filepath, (unsigned long long)valid_up_to, (unsigned long long) sb.st_size - valid_up_to);
     ret = AOF_FAILED;
     /* fall through to cleanup. */
 
@@ -1794,13 +1829,13 @@ int loadAppendOnlyFiles(aofManifest *am) {
         last_file = ++aof_num == total_num;
         start = ustime();
         ret = loadSingleAppendOnlyFile(aof_name);
-        if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+        if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
             serverLog(LL_NOTICE, "DB loaded from base file %s: %.3f seconds",
                 aof_name, (float)(ustime()-start)/1000000);
         }
 
         /* If the truncated file is not the last file, we consider this to be a fatal error. */
-        if (ret == AOF_TRUNCATED && !last_file) {
+        if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
             ret = AOF_FAILED;
             serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
         }
@@ -1824,7 +1859,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             last_file = ++aof_num == total_num;
             start = ustime();
             ret = loadSingleAppendOnlyFile(aof_name);
-            if (ret == AOF_OK || (ret == AOF_TRUNCATED && last_file)) {
+            if (ret == AOF_OK || ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && last_file)) {
                 serverLog(LL_NOTICE, "DB loaded from incr file %s: %.3f seconds",
                     aof_name, (float)(ustime()-start)/1000000);
             }
@@ -1834,7 +1869,7 @@ int loadAppendOnlyFiles(aofManifest *am) {
             if (ret == AOF_EMPTY) ret = AOF_OK;
 
             /* If the truncated file is not the last file, we consider this to be a fatal error. */
-            if (ret == AOF_TRUNCATED && !last_file) {
+            if ((ret == AOF_TRUNCATED || ret == AOF_BROKEN_RECOVERED) && !last_file) {
                 ret = AOF_FAILED;
                 serverLog(LL_WARNING, "Fatal error: the truncated file is not the last file");
             }
@@ -2351,11 +2386,48 @@ werr:
     return 0;
 }
 
+int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
+    /* Save the key and associated value */
+    if (o->type == OBJ_STRING) {
+        /* Emit a SET command */
+        static const char cmd[]="*3\r\n$3\r\nSET\r\n";
+        if (rioWrite(r,cmd,sizeof(cmd)-1) == 0) return C_ERR;
+        /* Key and value */
+        if (rioWriteBulkObject(r,key) == 0) return C_ERR;
+        if (rioWriteBulkObject(r,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_LIST) {
+        if (rewriteListObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_SET) {
+        if (rewriteSetObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_ZSET) {
+        if (rewriteSortedSetObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_HASH) {
+        if (rewriteHashObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_STREAM) {
+        if (rewriteStreamObject(r,key,o) == 0) return C_ERR;
+    } else if (o->type == OBJ_MODULE) {
+        if (rewriteModuleObject(r,key,o,dbid) == 0) return C_ERR;
+    } else {
+        serverPanic("Unknown object type");
+    }
+
+    /* Save the expire time */
+    if (expiretime != -1) {
+        static const char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
+        if (rioWrite(r,cmd,sizeof(cmd)-1) == 0) return C_ERR;
+        if (rioWriteBulkObject(r,key) == 0) return C_ERR;
+        if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
+    }
+
+    return C_OK;
+}
+
 int rewriteAppendOnlyFileRio(rio *aof) {
     dictEntry *de;
     int j;
     long key_count = 0;
     long long updated_time = 0;
+    unsigned long long skipped = 0;
     kvstoreIterator *kvs_it = NULL;
 
     /* Record timestamp at the beginning of rewriting AOF. */
@@ -2387,48 +2459,27 @@ int rewriteAppendOnlyFileRio(rio *aof) {
             
             /* Get the expire time */
             expiretime = kvobjGetExpire(o);
+
+            /* Skip keys that are being trimmed */
+            if (server.cluster_enabled) {
+                int curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+                if (isSlotInTrimJob(curr_slot)) {
+                    skipped++;
+                    continue;
+                }
+            }
             
             /* Set on stack string object for key */
             robj key;
             initStaticStringObject(key, kvobjGetKey(o));
 
-            /* Save the key and associated value */
-            if (o->type == OBJ_STRING) {
-                /* Emit a SET command */
-                char cmd[]="*3\r\n$3\r\nSET\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                /* Key and value */
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkObject(aof,o) == 0) goto werr;
-            } else if (o->type == OBJ_LIST) {
-                if (rewriteListObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_SET) {
-                if (rewriteSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_ZSET) {
-                if (rewriteSortedSetObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_HASH) {
-                if (rewriteHashObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_STREAM) {
-                if (rewriteStreamObject(aof,&key,o) == 0) goto werr;
-            } else if (o->type == OBJ_MODULE) {
-                if (rewriteModuleObject(aof,&key,o,j) == 0) goto werr;
-            } else {
-                serverPanic("Unknown object type");
-            }
+            if (rewriteObject(aof, &key, o, j, expiretime) == C_ERR) goto werr;
 
             /* In fork child process, we can try to release memory back to the
              * OS and possibly avoid or decrease COW. We give the dismiss
              * mechanism a hint about an estimated size of the object we stored. */
             size_t dump_size = aof->processed_bytes - aof_bytes_before_key;
             if (server.in_fork_child) dismissObject(o, dump_size);
-
-            /* Save the expire time */
-            if (expiretime != -1) {
-                char cmd[]="*3\r\n$9\r\nPEXPIREAT\r\n";
-                if (rioWrite(aof,cmd,sizeof(cmd)-1) == 0) goto werr;
-                if (rioWriteBulkObject(aof,&key) == 0) goto werr;
-                if (rioWriteBulkLongLong(aof,expiretime) == 0) goto werr;
-            }
 
             /* Update info every 1 second (approximately).
              * in order to avoid calling mstime() on each iteration, we will
@@ -2447,6 +2498,7 @@ int rewriteAppendOnlyFileRio(rio *aof) {
         }
         kvstoreIteratorRelease(kvs_it);
     }
+    serverLog(LL_NOTICE, "AOF rewrite done, %ld keys saved, %llu keys skipped.", key_count, skipped);
     return C_OK;
 
 werr:

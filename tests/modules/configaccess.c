@@ -221,9 +221,17 @@ int TestSetNumericConfig_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **a
     const char *config_name = RedisModule_StringPtrLen(argv[1], &name_len);
 
     long long value;
-    if (RedisModule_StringToLongLong(argv[2], &value) != REDISMODULE_OK) {
-        RedisModule_ReplyWithError(ctx, "ERR Invalid numeric value");
-        return REDISMODULE_ERR;
+    const char *value_str= RedisModule_StringPtrLen(argv[2], NULL);
+    if (value_str[0] == '-') {
+        if (RedisModule_StringToLongLong(argv[2], &value) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR Invalid numeric value");
+            return REDISMODULE_ERR;
+        }
+    } else {
+        if (RedisModule_StringToULongLong(argv[2], (unsigned long long*)&value) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, "ERR Invalid numeric value");
+            return REDISMODULE_ERR;
+        }
     }
 
     RedisModuleString *error = NULL;

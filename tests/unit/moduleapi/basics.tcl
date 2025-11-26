@@ -1,6 +1,6 @@
 set testmodule [file normalize tests/modules/basics.so]
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
 
     test {test module api basics} {

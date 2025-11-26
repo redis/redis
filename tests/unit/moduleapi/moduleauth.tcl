@@ -6,7 +6,7 @@ proc cmdstat {cmd} {
     return [cmdrstat $cmd r]
 }
 
-start_server {tags {"modules"}} {
+start_server {tags {"modules external:skip"}} {
     r module load $testmodule
     r module load $testmoduletwo
 

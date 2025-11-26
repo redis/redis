@@ -22,7 +22,7 @@ proc gen_write_load {host port seconds tls {key ""} {size 0} {sleep 0}} {
     set start_time [clock seconds]
     set r [redis $host $port 1 $tls]
     $r client setname LOAD_HANDLER
-    $r select 9
+    catch {$r select 9} ;# select 9 will fail in cluster mode
 
     # fixed size value
     if {$size != 0} {
