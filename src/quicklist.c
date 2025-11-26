@@ -408,30 +408,30 @@ REDIS_STATIC void __quicklistCompress(const quicklist *quicklist,
 REDIS_STATIC void __quicklistInsertNode(quicklist *quicklist,
                                         quicklistNode *old_node,
                                         quicklistNode *new_node, int after) {
+    quicklistNode *next, *prev;
+
+    /* Pick the neighbour based on 'after' */
     if (after) {
-        new_node->prev = old_node;
-        if (old_node) {
-            new_node->next = old_node->next;
-            if (old_node->next)
-                old_node->next->prev = new_node;
-            old_node->next = new_node;
-        }
-        if (quicklist->tail == old_node)
-            quicklist->tail = new_node;
+        prev = old_node;
+        next = old_node ? old_node->next : NULL;
     } else {
-        new_node->next = old_node;
-        if (old_node) {
-            new_node->prev = old_node->prev;
-            if (old_node->prev)
-                old_node->prev->next = new_node;
-            old_node->prev = new_node;
-        }
-        if (quicklist->head == old_node)
-            quicklist->head = new_node;
+        next = old_node;
+        prev = old_node ? old_node->prev : NULL;
     }
-    /* If this insert creates the only element so far, initialize head/tail. */
-    if (quicklist->len == 0) {
-        quicklist->head = quicklist->tail = new_node;
+
+    new_node->next = next;
+    new_node->prev = prev;
+
+    if (next) {
+        next->prev = new_node;
+    } else {
+        quicklist->tail = new_node;
+    }
+
+    if (prev) {
+        prev->next = new_node;
+    } else {
+        quicklist->head = new_node;
     }
 
     /* Update len first, so in __quicklistCompress we know exactly len */
