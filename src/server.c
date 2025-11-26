@@ -4819,6 +4819,7 @@ int finishShutdown(void) {
          * The temp rdb file fd may won't be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
         rdbRemoveTempFile(server.child_pid, 0);
+        resetChildState();
     }
 
     /* Kill module child if there is one. */
