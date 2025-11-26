@@ -15,7 +15,6 @@ jobs:
     - name: test
       run: |
         sudo apt-get install tcl8.6 tclx
-        sudo pip install redis
         ./runtest --verbose --tags -slow --dump-logs
     - name: module api test
       run: CFLAGS='-Werror' ./runtest-moduleapi --verbose --dump-logs
