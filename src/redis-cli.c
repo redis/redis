@@ -6832,8 +6832,10 @@ static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
     list *moved = listCreate();
     int src_count = listLength(sources), i = 0, tot_slots = 0, j;
     clusterManagerNode **sorted = zmalloc(src_count * sizeof(*sorted));
+    int *moveout = zmalloc(src_count * sizeof(*moveout));
     listIter li;
     listNode *ln;
+    int sum = 0;
     listRewind(sources, &li);
     while ((ln = listNext(&li)) != NULL) {
         clusterManagerNode *node = ln->value;
@@ -6845,13 +6847,35 @@ static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
     for (i = 0; i < src_count; i++) {
         clusterManagerNode *node = sorted[i];
         float n = ((float) numslots / tot_slots * node->slots_count);
-        if (i == 0) n = ceil(n);
-        else n = floor(n);
-        int max = (int) n, count = 0;
+        n = floor(n);
+        moveout[i] = (int)n;
+        sum += moveout[i];
+    }
+    if (sum < numslots) {
+        i = 0;
+        sum = numslots - sum;
+        while (sum > 0) {
+            if (i == src_count) i = 0;
+            for(;;) {
+                if (i == src_count) break;
+                if (sorted[i]->slots_count > moveout[i]) {
+                    moveout[i]++;
+                    i++
+                    break;
+                } else {
+                    i++;
+                }
+            }
+            sum--;
+        }
+    }
+    for (i = 0; i < src_count; i++) {
+        clusterManagerNode *node = sorted[i];
+        int count = 0;
         for (j = 0; j < CLUSTER_MANAGER_SLOTS; j++) {
             int slot = node->slots[j];
             if (!slot) continue;
-            if (count >= max || (int)listLength(moved) >= numslots) break;
+            if (count >= moveout[i] || (int)listLength(moved) >= numslots) break;
             clusterManagerReshardTableItem *item = zmalloc(sizeof(*item));
             item->source = node;
             item->slot = j;
@@ -6860,6 +6884,7 @@ static list *clusterManagerComputeReshardTable(list *sources, int numslots) {
         }
     }
     zfree(sorted);
+    zfree(moveout);
     return moved;
 }
 
