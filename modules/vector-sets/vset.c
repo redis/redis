@@ -1802,14 +1802,50 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         uint32_t input_dim = RedisModule_LoadUnsigned(rdb);
         if (RedisModule_IsIOError(rdb)) goto ioerr;
         uint32_t output_dim = dim;
-        size_t matrix_size = sizeof(float) * input_dim * output_dim;
+
+        /* Sanity check dimensions to avoid absurd / degenerate matrices. */
+        if (input_dim == 0 || output_dim == 0) {
+            RedisModule_LogIOError(rdb, "warning",
+                "Invalid projection matrix dimensions: input_dim=%u, output_dim=%u",
+                (unsigned)input_dim, (unsigned)output_dim);
+            goto ioerr;
+        }
+
+        /* Check for overflow in matrix_size = sizeof(float) * input_dim * output_dim. */
+        #if SIZE_MAX == UINT32_MAX
+                if ((size_t)output_dim > SIZE_MAX / sizeof(float)) {
+                    RedisModule_LogIOError(rdb, "warning",
+                        "Projection matrix size overflow (output_dim too large): input_dim=%u, output_dim=%u",
+                        (unsigned)input_dim, (unsigned)output_dim);
+                    goto ioerr;
+                }
+        #endif
+
+        size_t max_input = SIZE_MAX / (sizeof(float) * (size_t)output_dim);
+        if ((size_t)input_dim > max_input) {
+            RedisModule_LogIOError(rdb, "warning",
+                "Projection matrix size overflow: input_dim=%u, output_dim=%u",
+                (unsigned)input_dim, (unsigned)output_dim);
+            goto ioerr;
+        }
+
+        size_t matrix_size = sizeof(float) * (size_t)input_dim * (size_t)output_dim;
+
+        /* Load projection matrix as a binary blob and validate length. */
+        size_t blob_len = 0;
+        char *matrix_blob = RedisModule_LoadStringBuffer(rdb, &blob_len);
+        if (matrix_blob == NULL) goto ioerr;
+
+        if (blob_len != matrix_size) {
+            RedisModule_LogIOError(rdb, "warning",
+                "Mismatching projection matrix length: expected=%zu, got=%zu",
+                matrix_size, blob_len);
+            RedisModule_Free(matrix_blob);
+            goto ioerr;
+        }
 
         vset->proj_matrix = RedisModule_Alloc(matrix_size);
         vset->proj_input_size = input_dim;
-
-        // Load projection matrix as a binary blob
-        char *matrix_blob = RedisModule_LoadStringBuffer(rdb, NULL);
-        if (matrix_blob == NULL) goto ioerr;
         memcpy(vset->proj_matrix, matrix_blob, matrix_size);
         RedisModule_Free(matrix_blob);
     }

@@ -105,7 +105,14 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     int hdrlen = sdsHdrSize(type);
     size_t bufsize;
 
-    assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
+    if (trymalloc) {
+        /* protect against size_t overflow */
+        if (initlen + hdrlen + 1 <= initlen) 
+            return NULL;
+    } else {
+        assert(initlen + hdrlen + 1 > initlen); /* Catch size_t overflow */
+    }
+    
     sh = trymalloc?
         s_trymalloc_usable(hdrlen+initlen+1, &bufsize) :
         s_malloc_usable(hdrlen+initlen+1, &bufsize);
