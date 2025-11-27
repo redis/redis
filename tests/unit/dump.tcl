@@ -124,6 +124,21 @@ start_server {tags {"dump"}} {
         close_replication_stream $repl
     } {} {needs:repl}
 
+    test {RESTORE fail with invalid payload size} {
+        r debug set-skip-checksum-validation 1
+        # Payload with mismatched size: claims 0xFFFFFFFFFFFFFFF7 bytes (max uint64 - 8) but provides no data
+        # \x00 = String type
+        # \x81 = 64-bit length marker
+        # \xFF\xFF\xFF\xFF\xFF\xFF\xFF\xF7 = 18446744073709551607 in big-endian
+        # \x0c\x00 = RDB version
+        # \x00... = fake CRC64
+        set encoded "\x00\x81\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xF7\x09\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+        r del test
+        catch {r restore test 0 $encoded} e
+        r debug set-skip-checksum-validation 0
+        set e
+    } {*Bad data format*} {needs:debug}
+
     test {DUMP of non existing key returns nil} {
         r dump nonexisting_key
     } {}
