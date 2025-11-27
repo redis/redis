@@ -5245,6 +5245,17 @@ void clusterUpdateState(void) {
     }
 }
 
+/* Remove all the shard channel related information not owned by the current shard. */
+static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
+    if (!kvstoreSize(server.pubsubshard_channels)) return;
+    clusterNode *currmaster = clusterNodeIsMaster(myself) ? myself : myself->slaveof;
+    for (int j = 0; j < CLUSTER_SLOTS; j++) {
+        if (server.cluster->slots[j] != currmaster) {
+            removeChannelsInSlot(j);
+        }
+    }
+}
+
 /* This function is called after the node startup in order to check if there
  * are any slots that we have keys for, but are assigned to no one. If so,
  * we take ownership of them. */
@@ -5270,17 +5281,6 @@ void clusterClaimUnassignedSlots(void) {
         clusterAddSlot(myself, i);
     }
     if (update_config) clusterSaveConfigOrDie(1);
-}
-
-/* Remove all the shard channel related information not owned by the current shard. */
-static inline void removeAllNotOwnedShardChannelSubscriptions(void) {
-    if (!kvstoreSize(server.pubsubshard_channels)) return;
-    clusterNode *currmaster = clusterNodeIsMaster(myself) ? myself : myself->slaveof;
-    for (int j = 0; j < CLUSTER_SLOTS; j++) {
-        if (server.cluster->slots[j] != currmaster) {
-            removeChannelsInSlot(j);
-        }
-    }
 }
 
 /* -----------------------------------------------------------------------------
