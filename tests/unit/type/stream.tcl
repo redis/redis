@@ -566,6 +566,30 @@ start_server {
         assert_equal $id1 $id1_dup
     }
 
+    test {XADD IDMP persists in RDB} {
+        r DEL mystream
+
+        # Add entries with IDMP
+        set id1 [r XADD mystream IDMP "persist-1" * field "value1"]
+        r XADD mystream IDMP "persist-2" * field "value2"
+
+        # Force RDB save
+        r SAVE
+
+        # Restart Redis (this depends on test framework)
+        restart_server 0 true false
+
+        # Verify stream still exists
+        assert_equal 2 [r XLEN mystream]
+
+        # Verify deduplication still works after restart
+        set id1_dup [r XADD mystream IDMP "persist-1" * field "new"]
+        assert_equal $id1 $id1_dup
+
+        # Should still have only 2 entries
+        assert_equal 2 [r XLEN mystream]
+    }
+
     test {XIDMP CFGSET set DURATION successfully} {
         r DEL mystream
         
