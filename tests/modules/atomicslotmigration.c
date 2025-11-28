@@ -242,15 +242,11 @@ static void testNonFatalScenarios(RedisModuleCtx *ctx, RedisModuleClusterSlotMig
 }
 
 static void disableTrim(RedisModuleCtx *ctx) {
-    uint64_t flags = RedisModule_GetClusterFlags(ctx);
-    flags |= REDISMODULE_CLUSTER_FLAG_NO_TRIM;   // Set flag
-    RedisModule_SetClusterFlags(ctx, flags);
+    RedisModule_AcquireClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
 }
 
 static void enableTrim(RedisModuleCtx *ctx) {
-    uint64_t flags = RedisModule_GetClusterFlags(ctx);
-    flags &= ~REDISMODULE_CLUSTER_FLAG_NO_TRIM;  // Clear flag
-    RedisModule_SetClusterFlags(ctx, flags);
+    RedisModule_ReleaseClusterPolicy(ctx, REDISMODULE_CLUSTER_POLICY_NO_TRIM);
 }
 
 int disableTrimCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

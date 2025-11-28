@@ -9382,7 +9382,6 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  *
  * * CLUSTER_MODULE_FLAG_NO_FAILOVER
  * * CLUSTER_MODULE_FLAG_NO_REDIRECTION
- * * CLUSTER_MODULE_FLAG_NO_TRIM
  *
  * With the following effects:
  *
@@ -9393,31 +9392,34 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  *                   partitioning according to the Redis Cluster algorithm.
  *                   Slots information will still be propagated across the
  *                   cluster, but without effect.
- *
- * * NO_TRIM: Prevent Redis Cluster from trimming keys after atomic slot migration.
  */
 void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
     UNUSED(ctx);
-    server.cluster_module_flags = 0;
+    server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     if (flags & REDISMODULE_CLUSTER_FLAG_NO_FAILOVER)
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_FAILOVER;
     if (flags & REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION)
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
-    if (flags & REDISMODULE_CLUSTER_FLAG_NO_TRIM)
-        server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_TRIM;
 }
 
-/* Return the current cluster flags set by the module. */
-uint64_t RM_GetClusterFlags(RedisModuleCtx *ctx) {
+/* Acquire a policy for Redis Cluster to change the normal behavior of
+ * Redis Cluster. It is possible to acquire the same policy multiple times,
+ * and to release it the same number of times.
+ *
+ * * REDISMODULE_CLUSTER_POLICY_NO_TRIM: Prevent Redis Cluster from trimming keys
+ *                                after atomic slot migration. Module should call
+ *                                RM_ReleaseClusterPolicy() after finish its work.
+ */
+void RM_AcquireClusterPolicy(RedisModuleCtx *ctx, int policy) {
     UNUSED(ctx);
-    uint64_t flags = 0;
-    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_FAILOVER)
-        flags |= REDISMODULE_CLUSTER_FLAG_NO_FAILOVER;
-    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
-        flags |= REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION;
-    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_TRIM)
-        flags |= REDISMODULE_CLUSTER_FLAG_NO_TRIM;
-    return flags;
+    if (policy == REDISMODULE_CLUSTER_POLICY_NO_TRIM)
+        server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM]++;
+}
+
+void RM_ReleaseClusterPolicy(RedisModuleCtx *ctx, int policy) {
+    UNUSED(ctx);
+    if (policy == REDISMODULE_CLUSTER_POLICY_NO_TRIM)
+        server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM]--;
 }
 
 /* Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
@@ -15116,7 +15118,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
-    REGISTER_API(GetClusterFlags);
+    REGISTER_API(AcquireClusterPolicy);
+    REGISTER_API(ReleaseClusterPolicy);
     REGISTER_API(ClusterKeySlot);
     REGISTER_API(ClusterKeySlotC);
     REGISTER_API(ClusterCanonicalKeyNameInSlot);

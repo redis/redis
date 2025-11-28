@@ -2320,6 +2320,10 @@ struct redisServer {
                                       to set in order to suppress certain
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
+    int cluster_module_policies[16]; /* Policies that Redis modules are able to
+                                      * set in order to change the behavior of
+                                      * certain Redis Cluster features. Check the
+                                      * REDISMODULE_CLUSTER_POLICY_*. */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flocked. */
