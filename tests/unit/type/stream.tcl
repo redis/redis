@@ -590,6 +590,32 @@ start_server {
         assert_equal 2 [r XLEN mystream]
     }
 
+    test {XADD IDMP set in AOF} {
+        r DEL mystream
+        r config set appendonly yes
+
+        # Wait for the automatic AOF rewrite triggered by enabling AOF
+        waitForBgrewriteaof r
+
+        # Add entries with IDMP
+        set id1 [r XADD mystream IDMP "aof-1" * field "value1"]
+        r XADD mystream IDMP "aof-2" * field "value2"
+
+        # Add duplicate
+        set id1_dup [r XADD mystream IDMP "aof-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+
+        # Restart with AOF
+        r DEBUG RELOAD
+
+        # Verify stream exists
+        assert_equal 2 [r XLEN mystream]
+
+        # Verify deduplication still works
+        set id1_dup2 [r XADD mystream IDMP "aof-1" * field "new"]
+        assert_equal $id1 $id1_dup2
+    }
+
     test {XIDMP CFGSET set DURATION successfully} {
         r DEL mystream
         

@@ -1242,7 +1242,7 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
                 return -1;
 
-            if (args->idmp_iid && opt[0] != '*') {
+            if (args->idmp_iid && opt[0] != '*' && !mustObeyClient(c)) {
                 addReplyError(c,"syntax error, IDMP can be used only with auto-generated IDs");
                 return -1;
             }
