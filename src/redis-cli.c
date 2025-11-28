@@ -265,6 +265,7 @@ static struct config {
     char *server_version;
     char *test_hint;
     char *test_hint_file;
+    char *client_name;
     int prefer_ipv4; /* Prefer IPv4 over IPv6 on DNS lookup. */
     int prefer_ipv6; /* Prefer IPv6 over IPv4 on DNS lookup. */
 } config;
@@ -1635,7 +1636,12 @@ static int cliSwitchProto(void) {
     redisReply *reply;
     if (!config.resp3 || config.resp2) return REDIS_OK;
 
-    reply = redisCommand(context,"HELLO 3");
+    if (config.client_name) {
+        reply = redisCommand(context, "HELLO 3 SETNAME %s", config.client_name);
+    } else {
+        reply = redisCommand(context,"HELLO 3");
+    }
+
     if (reply == NULL) {
         fprintf(stderr, "\nI/O error\n");
         return REDIS_ERR;
@@ -2901,6 +2907,8 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.from_pass = argv[++i];
         } else if (!strcmp(argv[i], "--cluster-from-askpass")) {
             config.cluster_manager_command.from_askpass = 1;
+        } else if (!strcmp(argv[i], "--name") && !lastarg) {
+            config.client_name = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-weight") && !lastarg) {
             if (config.cluster_manager_command.weight != NULL) {
                 fprintf(stderr, "WARNING: you cannot use --cluster-weight "
