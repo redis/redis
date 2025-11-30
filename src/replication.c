@@ -1462,7 +1462,7 @@ void replconfCommand(client *c) {
             }
             c->main_ch_client_id = (uint64_t)client_id;
             /* Inherit the rdb-no-compress request from the main channel. */
-            if (main_ch && (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS))
+            if (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
                 c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
         } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-compress")) {
             long rdb_no_compress = 0;
@@ -3019,10 +3019,12 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
+        /* If we are not going to save the RDB to disk, request that RDB
+         * compression be disabled, which speeds up RDB delivery. */
         replconf_rdb_no_compress = 0;
         if (useDisklessLoad()) {
             replconf_rdb_no_compress = 1;
-            err = sendCommand(conn,"REPLCONF", "rdb-no-compress", "1", NULL);
+            err = sendCommand(conn, "REPLCONF", "rdb-no-compress", "1", NULL);
             if (err) goto write_error;
         }
 
