@@ -9402,24 +9402,34 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
 }
 
-/* Acquire a policy for Redis Cluster to change the normal behavior of
- * Redis Cluster. It is possible to acquire the same policy multiple times,
+/* Acquire a capability for redis server to change the normal behavior of
+ * redis server. It is possible to acquire the same capability multiple times,
  * and to release it the same number of times.
  *
- * * REDISMODULE_CLUSTER_POLICY_NO_TRIM: Prevent Redis Cluster from trimming keys
+ * * REDISMODULE_SERVER_CAPA_NO_TRIM: Prevent redis server from trimming keys
  *                                after atomic slot migration. Module should call
- *                                RM_ReleaseClusterPolicy() after finish its work.
+ *                                RM_ReleaseServerCapability() after finish its work.
  */
-void RM_AcquireClusterPolicy(RedisModuleCtx *ctx, int policy) {
+int RM_AcquireServerCapability(RedisModuleCtx *ctx, int capa) {
     UNUSED(ctx);
-    if (policy == REDISMODULE_CLUSTER_POLICY_NO_TRIM)
-        server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM]++;
+    if (capa == REDISMODULE_SERVER_CAPA_NO_TRIM &&
+        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM] < INT_MAX)
+    {
+        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM]++;
+        return REDISMODULE_OK;
+    }
+    return REDISMODULE_ERR;
 }
 
-void RM_ReleaseClusterPolicy(RedisModuleCtx *ctx, int policy) {
+int RM_ReleaseServerCapability(RedisModuleCtx *ctx, int capa) {
     UNUSED(ctx);
-    if (policy == REDISMODULE_CLUSTER_POLICY_NO_TRIM)
-        server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM]--;
+    if (capa == REDISMODULE_SERVER_CAPA_NO_TRIM &&
+        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM] > 0)
+    {
+        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM]--;
+        return REDISMODULE_OK;
+    }
+    return REDISMODULE_ERR;
 }
 
 /* Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
@@ -15118,8 +15128,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
-    REGISTER_API(AcquireClusterPolicy);
-    REGISTER_API(ReleaseClusterPolicy);
+    REGISTER_API(AcquireServerCapability);
+    REGISTER_API(ReleaseServerCapability);
     REGISTER_API(ClusterKeySlot);
     REGISTER_API(ClusterKeySlotC);
     REGISTER_API(ClusterCanonicalKeyNameInSlot);

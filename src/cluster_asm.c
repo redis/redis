@@ -1720,7 +1720,7 @@ static void asmStartImportTask(asmTask *task) {
     int impl_ret = clusterAsmOnEvent(task->id, ASM_EVENT_IMPORT_PREP, task->slots);
 
     /* We do not start the import task if trim is disabled by module. */
-    int trim_disabled_by_module = server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM];
+    int trim_disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
 
     static int start_blocked_logged = 0;
     /* Cannot start import task since pause action is performed. Otherwise, we
@@ -1860,7 +1860,7 @@ void clusterSyncSlotsCommand(client *c) {
         }
 
         /* We do not start the import task if trim is disabled by module. */
-        int trim_disabled_by_module = server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM];
+        int trim_disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
         if (trim_disabled_by_module) {
             addReplyError(c, "Trim is disabled by module");
             slotRangeArrayFree(slots);
@@ -2984,10 +2984,10 @@ void asmTrimJobProcessPending(void) {
     /* Determine if we can start the trim job:
      * - require client writes not paused (so key deletions are allowed)
      * - require replicas not paused (so TRIMSLOTS can be propagated).
-     * - require trim is not disabled via RM_AcquireClusterPolicy().
+     * - require trim is not disabled via RM_AcquireServerCapability().
      */
     static int logged = 0;
-    int disabled_by_module = server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM];
+    int disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
 
     if (isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
@@ -3408,7 +3408,7 @@ void asmActiveTrimCycle(void) {
     /* Verify client pause is not in effect and trim is not disabled by module,
      * so we can delete keys. */
     static int blocked = 0;
-    int disabled_by_module = server.cluster_module_policies[CLUSTER_MODULE_POLICY_NO_TRIM];
+    int disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         disabled_by_module)

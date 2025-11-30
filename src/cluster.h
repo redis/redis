@@ -54,11 +54,6 @@ typedef struct clusterSlotStat {
 #define CLUSTER_MODULE_FLAG_NO_FAILOVER (1<<1)
 #define CLUSTER_MODULE_FLAG_NO_REDIRECTION (1<<2)
 
-/* Policies that a module can set in order to change the behavior of Redis Cluster
- * features. */
-#define CLUSTER_MODULE_POLICY_NO_TRIM 0 /* No trim keys in slots. */
-#define CLUSTER_MODULE_POLICY_COUNT   1
-
 /* ---------------------- API exported outside cluster.c -------------------- */
 
 /* We have 16384 hash slots. The hash slot of a given key is obtained
