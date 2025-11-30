@@ -134,6 +134,9 @@ static uint64_t VectorSetTypeNextId = 0;
 // Default num elements returned by VSIM.
 #define VSET_DEFAULT_COUNT 10
 
+// Maximum allowed vector dimension for input vectors and sets.
+#define VSET_MAX_VECTOR_DIM (1<<16)
+
 /* ========================== Internal data structure  ====================== */
 
 /* Our abstract data type needs a dual representation similar to Redis
@@ -408,6 +411,7 @@ float *parseVector(RedisModuleString **argv, int argc, int start_idx,
         // Must be 4 bytes per component.
         if (vec_raw_len % 4 || vec_raw_len < 4) return NULL;
         *dim = vec_raw_len/4;
+        if (*dim > VSET_MAX_VECTOR_DIM) return NULL;
 
         vec = RedisModule_Alloc(vec_raw_len);
         if (!vec) return NULL;
@@ -417,7 +421,7 @@ float *parseVector(RedisModuleString **argv, int argc, int start_idx,
         if (argc < start_idx + 2) return NULL;  // Need at least the dimension.
         long long vdim; // Vector dimension passed by the user.
         if (RedisModule_StringToLongLong(argv[start_idx+1],&vdim)
-            != REDISMODULE_OK || vdim < 1) return NULL;
+            != REDISMODULE_OK || vdim < 1 || vdim > VSET_MAX_VECTOR_DIM) return NULL;
 
         // Check that all the arguments are available.
         if (argc < start_idx + 2 + vdim) return NULL;
@@ -1966,6 +1970,15 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
     uint32_t quant_type = hnsw_config & 0xff;
     uint32_t hnsw_m = (hnsw_config >> 8) & 0xffff;
 
+    /* Validate dimension loaded from RDB to enforce invariants and
+     * avoid absurd allocations or inconsistent state. */
+    if (dim == 0 || dim > VSET_MAX_VECTOR_DIM) {
+        RedisModule_LogIOError(rdb, "warning",
+            "Invalid vector dimension in RDB: dim=%u (max allowed %u)",
+            (unsigned)dim, (unsigned)VSET_MAX_VECTOR_DIM);
+        return NULL;
+    }
+
     /* Check that the quantization type is correct. Otherwise
      * return ASAP signaling the error. */
     if (quant_type != HNSW_QUANT_NONE &&
@@ -1988,31 +2001,25 @@ void *VectorSetRdbLoad(RedisModuleIO *rdb, int encver) {
         if (RedisModule_IsIOError(rdb)) goto ioerr;
         uint32_t output_dim = dim;
 
-        /* Sanity check dimensions to avoid absurd / degenerate matrices. */
-        if (input_dim == 0 || output_dim == 0) {
+        /* Sanity check projection dimensions. */
+        if (input_dim == 0 || output_dim == 0 || input_dim > VSET_MAX_VECTOR_DIM || output_dim > input_dim) {
             RedisModule_LogIOError(rdb, "warning",
-                "Invalid projection matrix dimensions: input_dim=%u, output_dim=%u",
-                (unsigned)input_dim, (unsigned)output_dim);
+                "Invalid projection matrix dimensions: input_dim=%u, output_dim=%u (max allowed %u)",
+                (unsigned)input_dim, (unsigned)output_dim,
+                (unsigned)VSET_MAX_VECTOR_DIM);
             goto ioerr;
         }
 
         /* Check for overflow in matrix_size = sizeof(float) * input_dim * output_dim. */
         #if SIZE_MAX == UINT32_MAX
-                if ((size_t)output_dim > SIZE_MAX / sizeof(float)) {
-                    RedisModule_LogIOError(rdb, "warning",
-                        "Projection matrix size overflow (output_dim too large): input_dim=%u, output_dim=%u",
-                        (unsigned)input_dim, (unsigned)output_dim);
-                    goto ioerr;
-                }
+            uint64_t product = (uint64_t) output_dim * (uint64_t) input_dim * sizeof(float);
+            if (product > SIZE_MAX) {
+                RedisModule_LogIOError(rdb, "warning",
+                    "Projection matrix size overflow (output_dim too large): input_dim=%u, output_dim=%u",
+                    (unsigned)input_dim, (unsigned)output_dim);
+                goto ioerr;
+            }
         #endif
-
-        size_t max_input = SIZE_MAX / (sizeof(float) * (size_t)output_dim);
-        if ((size_t)input_dim > max_input) {
-            RedisModule_LogIOError(rdb, "warning",
-                "Projection matrix size overflow: input_dim=%u, output_dim=%u",
-                (unsigned)input_dim, (unsigned)output_dim);
-            goto ioerr;
-        }
 
         size_t matrix_size = sizeof(float) * (size_t)input_dim * (size_t)output_dim;
 
