@@ -1170,12 +1170,21 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
             existing_keys = 0;
     int pubsubshard_included = 0; /* Flag to indicate if a pubsub shard cmd is included. */
 
+    /* Base case: default to no redirection when serving locally. */
+    if (error_code) *error_code = CLUSTER_REDIR_NONE;
+
+    /* If cluster state isn't initialized, report cluster-down immediately. */
+    if (!myself) {
+        if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
+        serverLog(LL_DEBUG,
+                  "getNodeByQuery: cluster not initialized (myself=NULL); client=%llu cmd=%s -> CLUSTER_REDIR_DOWN_STATE",
+                  (unsigned long long)c->id,
+                  c->cmd ? c->cmd->fullname : "(nil)");
+        return myself; /* NULL */
+    }
     /* Allow any key to be set if a module disabled cluster redirections. */
     if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
         return myself;
-
-    /* Set error code optimistically for the base case. */
-    if (error_code) *error_code = CLUSTER_REDIR_NONE;
 
     /* Modules can turn off Redis Cluster redirection: this is useful
      * when writing a module that implements a completely different
