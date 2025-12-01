@@ -1357,8 +1357,7 @@ size_t hashTypeAllocSize(const robj *o) {
     return size;
 }
 
-hashTypeIterator *hashTypeInitIterator(robj *subject) {
-    hashTypeIterator *hi = zmalloc(sizeof(hashTypeIterator));
+void hashTypeInitIterator(hashTypeIterator *hi, robj *subject) {
     hi->subject = subject;
     hi->encoding = subject->encoding;
 
@@ -1370,17 +1369,15 @@ hashTypeIterator *hashTypeInitIterator(robj *subject) {
         hi->tptr = NULL;
         hi->expire_time = EB_EXPIRE_TIME_INVALID;
     } else if (hi->encoding == OBJ_ENCODING_HT) {
-        hi->di = dictGetIterator(subject->ptr);
+        dictInitIterator(&hi->di, subject->ptr);
     } else {
         serverPanic("Unknown hash encoding");
     }
-    return hi;
 }
 
-void hashTypeReleaseIterator(hashTypeIterator *hi) {
+void hashTypeResetIterator(hashTypeIterator *hi) {
     if (hi->encoding == OBJ_ENCODING_HT)
-        dictReleaseIterator(hi->di);
-    zfree(hi);
+        dictResetIterator(&hi->di);
 }
 
 /* Move to the next entry in the hash. Return C_OK when the next entry
@@ -1459,7 +1456,7 @@ int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields) {
         hi->expire_time = (expire_time != HASH_LP_NO_TTL) ? (uint64_t) expire_time : EB_EXPIRE_TIME_INVALID;
     } else if (hi->encoding == OBJ_ENCODING_HT) {
 
-        while ((hi->de = dictNext(hi->di)) != NULL) {
+        while ((hi->de = dictNext(&hi->di)) != NULL) {
             hi->expire_time = hfieldGetExpireTime(dictGetKey(hi->de));
             /* this condition still valid if expire_time equals EB_EXPIRE_TIME_INVALID */
             if (skipExpiredFields && ((mstime_t)hi->expire_time < commandTimeSnapshot()))
@@ -1621,34 +1618,34 @@ void hashTypeConvertListpack(robj *o, int enc) {
         o->encoding = OBJ_ENCODING_LISTPACK_EX;
         o->ptr = lpt;
     } else if (enc == OBJ_ENCODING_HT) {
-        hashTypeIterator *hi;
+        hashTypeIterator hi;
         dict *dict;
         int ret;
 
-        hi = hashTypeInitIterator(o);
+        hashTypeInitIterator(&hi, o);
         dict = dictCreate(&mstrHashDictType);
 
         /* Presize the dict to avoid rehashing */
         dictExpand(dict,hashTypeLength(o, 0));
 
         size_t usable, *alloc_size = htGetMetadataSize(dict);
-        while (hashTypeNext(hi, 0) != C_ERR) {
+        while (hashTypeNext(&hi, 0) != C_ERR) {
 
-            hfield key = hashTypeCurrentObjectNewHfield(hi, &usable);
-            sds value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            hfield key = hashTypeCurrentObjectNewHfield(&hi, &usable);
+            sds value = hashTypeCurrentObjectNewSds(&hi,OBJ_HASH_VALUE);
             dictUseStoredKeyApi(dict, 1);
             ret = dictAdd(dict, key, value);
             dictUseStoredKeyApi(dict, 0);
             if (ret != DICT_OK) {
                 hfieldFree(key, NULL); sdsfree(value); /* Needed for gcc ASAN */
-                hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
+                hashTypeResetIterator(&hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                     o->ptr,lpBytes(o->ptr));
                 serverPanic("Listpack corruption detected");
             }
             *alloc_size += usable + sdsAllocSize(value);
         }
-        hashTypeReleaseIterator(hi);
+        hashTypeResetIterator(&hi);
         zfree(o->ptr);
         o->encoding = OBJ_ENCODING_HT;
         o->ptr = dict;
@@ -1666,7 +1663,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
     } else if (enc == OBJ_ENCODING_HT) {
         uint64_t minExpire = EB_EXPIRE_TIME_INVALID;
         int ret, slot = -1;
-        hashTypeIterator *hi;
+        hashTypeIterator hi;
         dict *dict;
         htMetadataEx *dictExpireMeta;
         listpackEx *lpt = o->ptr;
@@ -1685,28 +1682,28 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         dictExpireMeta->hfe = ebCreate();     /* Allocate HFE DS */
         dictExpireMeta->expireMeta.trash = 1; /* mark as trash (as long it wasn't ebAdd()) */
 
-        hi = hashTypeInitIterator(o);
+        hashTypeInitIterator(&hi, o);
 
         size_t usable, *alloc_size = &dictExpireMeta->alloc_size;
-        while (hashTypeNext(hi, 0) != C_ERR) {
-            hfield key = hashTypeCurrentObjectNewHfield(hi, &usable);
-            sds value = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+        while (hashTypeNext(&hi, 0) != C_ERR) {
+            hfield key = hashTypeCurrentObjectNewHfield(&hi, &usable);
+            sds value = hashTypeCurrentObjectNewSds(&hi,OBJ_HASH_VALUE);
             dictUseStoredKeyApi(dict, 1);
             ret = dictAdd(dict, key, value);
             dictUseStoredKeyApi(dict, 0);
             if (ret != DICT_OK) {
                 hfieldFree(key, NULL); sdsfree(value); /* Needed for gcc ASAN */
-                hashTypeReleaseIterator(hi);  /* Needed for gcc ASAN */
+                hashTypeResetIterator(&hi);  /* Needed for gcc ASAN */
                 serverLogHexDump(LL_WARNING,"listpack with dup elements dump",
                                  lpt->lp,lpBytes(lpt->lp));
                 serverPanic("Listpack corruption detected");
             }
             *alloc_size += usable + sdsAllocSize(value);
 
-            if (hi->expire_time != EB_EXPIRE_TIME_INVALID)
-                ebAdd(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, key, hi->expire_time);
+            if (hi.expire_time != EB_EXPIRE_TIME_INVALID)
+                ebAdd(&dictExpireMeta->hfe, &hashFieldExpireBucketsType, key, hi.expire_time);
         }
-        hashTypeReleaseIterator(hi);
+        hashTypeResetIterator(&hi);
         listpackExFree(lpt);
 
         o->encoding = OBJ_ENCODING_HT;
@@ -1739,7 +1736,7 @@ void hashTypeConvert(redisDb *db, robj *o, int enc) {
  * The resulting object always has refcount set to 1 */
 robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
     robj *hobj;
-    hashTypeIterator *hi;
+    hashTypeIterator hi;
 
     serverAssert(o->type == OBJ_HASH);
 
@@ -1787,14 +1784,14 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
         dictExpand(d, dictSize((const dict*)o->ptr));
 
         size_t usable, *alloc_size = htGetMetadataSize(d);
-        hi = hashTypeInitIterator(o);
-        while (hashTypeNext(hi, 0) != C_ERR) {
+        hashTypeInitIterator(&hi, o);
+        while (hashTypeNext(&hi, 0) != C_ERR) {
             uint64_t expireTime;
             sds newfield, newvalue;
             /* Extract a field-value pair from an original hash object.*/
             char *field, *value;
             size_t fieldLen, valueLen;
-            hashTypeCurrentFromHashTable(hi, OBJ_HASH_KEY, &field, &fieldLen, &expireTime);
+            hashTypeCurrentFromHashTable(&hi, OBJ_HASH_KEY, &field, &fieldLen, &expireTime);
             if (expireTime == EB_EXPIRE_TIME_INVALID) {
                 newfield = hfieldNew(field, fieldLen, 0, &usable);
             } else {
@@ -1802,7 +1799,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
                 ebAdd(&dictExpireMetaDst->hfe, &hashFieldExpireBucketsType, newfield, expireTime);
             }
 
-            hashTypeCurrentFromHashTable(hi, OBJ_HASH_VALUE, &value, &valueLen, NULL);
+            hashTypeCurrentFromHashTable(&hi, OBJ_HASH_VALUE, &value, &valueLen, NULL);
             newvalue = sdsnewlen(value, valueLen);
 
             /* Add a field-value pair to a new hash object. */
@@ -1811,7 +1808,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
             dictUseStoredKeyApi(d, 0);
             *alloc_size += usable + sdsAllocSize(newvalue);
         }
-        hashTypeReleaseIterator(hi);
+        hashTypeResetIterator(&hi);
 
         hobj = createObject(OBJ_HASH, d);
         hobj->encoding = OBJ_ENCODING_HT;
@@ -3012,7 +3009,7 @@ static void addHashIteratorCursorToReply(client *c, hashTypeIterator *hi, int wh
 
 void genericHgetallCommand(client *c, int flags) {
     kvobj *o;
-    hashTypeIterator *hi;
+    hashTypeIterator hi;
     int length, count = 0;
     size_t oldsize = 0;
 
@@ -3036,20 +3033,20 @@ void genericHgetallCommand(client *c, int flags) {
 
     if (server.memory_tracking_per_slot)
         oldsize = hashTypeAllocSize(o);
-    hi = hashTypeInitIterator(o);
+    hashTypeInitIterator(&hi, o);
 
-    while (hashTypeNext(hi, 1 /*skipExpiredFields*/) != C_ERR) {
+    while (hashTypeNext(&hi, 1 /*skipExpiredFields*/) != C_ERR) {
         if (flags & OBJ_HASH_KEY) {
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+            addHashIteratorCursorToReply(c, &hi, OBJ_HASH_KEY);
             count++;
         }
         if (flags & OBJ_HASH_VALUE) {
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+            addHashIteratorCursorToReply(c, &hi, OBJ_HASH_VALUE);
             count++;
         }
     }
 
-    hashTypeReleaseIterator(hi);
+    hashTypeResetIterator(&hi);
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
 
@@ -3216,15 +3213,16 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     * The number of requested elements is greater than the number of
     * elements inside the hash: simply return the whole hash. */
     if(count >= size) {
-        hashTypeIterator *hi = hashTypeInitIterator(hash);
-        while (hashTypeNext(hi, 0) != C_ERR) {
+        hashTypeIterator hi;
+        hashTypeInitIterator(&hi, hash);
+        while (hashTypeNext(&hi, 0) != C_ERR) {
             if (withvalues && c->resp > 2)
                 addReplyArrayLen(c,2);
-            addHashIteratorCursorToReply(c, hi, OBJ_HASH_KEY);
+            addHashIteratorCursorToReply(c, &hi, OBJ_HASH_KEY);
             if (withvalues)
-                addHashIteratorCursorToReply(c, hi, OBJ_HASH_VALUE);
+                addHashIteratorCursorToReply(c, &hi, OBJ_HASH_VALUE);
         }
-        hashTypeReleaseIterator(hi);
+        hashTypeResetIterator(&hi);
         goto out;
     }
 

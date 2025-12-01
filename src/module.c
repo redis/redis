@@ -736,7 +736,10 @@ int moduleCreateEmptyKey(RedisModuleKey *key, int type) {
 static void moduleFreeKeyIterator(RedisModuleKey *key) {
     serverAssert(key->iter != NULL);
     switch (key->kv->type) {
-    case OBJ_LIST: listTypeReleaseIterator(key->iter); break;
+    case OBJ_LIST:
+        listTypeResetIterator(key->iter);
+        zfree(key->iter);
+        break;
     case OBJ_STREAM:
         streamIteratorStop(key->iter);
         zfree(key->iter);
@@ -4530,8 +4533,8 @@ int moduleListIteratorSeek(RedisModuleKey *key, long index, int mode) {
 
     if (key->iter == NULL) {
         /* No existing iterator. Create one. */
-        key->iter = listTypeInitIterator(key->kv, index, LIST_TAIL);
-        serverAssert(key->iter != NULL);
+        key->iter = zmalloc(sizeof(listTypeIterator));
+        listTypeInitIterator(key->iter, key->kv, index, LIST_TAIL);
         serverAssert(listTypeNext(key->iter, &key->u.list.entry));
         key->u.list.index = index;
         return 1;
@@ -11645,14 +11648,15 @@ int RM_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleSc
             ret = 0;
         }
     } else if (kv->type == OBJ_SET) {
-        setTypeIterator *si = setTypeInitIterator(kv);
+        setTypeIterator si;
         sds sdsele;
-        while ((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, kv);
+        while ((sdsele = setTypeNextObject(&si)) != NULL) {
             robj *field = createObject(OBJ_STRING, sdsele);
             fn(key, field, NULL, privdata);
             decrRefCount(field);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         cursor->cursor = 1;
         cursor->done = 1;
         ret = 0;

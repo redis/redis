@@ -2773,7 +2773,7 @@ typedef struct {
     robj *subject;
     int encoding;
     int ii; /* intset iterator */
-    dictIterator *di;
+    dictIterator di;
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
@@ -2788,7 +2788,7 @@ typedef struct {
     unsigned char *fptr, *vptr, *tptr;
     uint64_t expire_time; /* Only used with OBJ_ENCODING_LISTPACK_EX */
 
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 } hashTypeIterator;
 
@@ -3106,8 +3106,8 @@ void listTypePush(robj *subject, robj *value, int where);
 robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
 size_t listTypeAllocSize(const robj *o);
-listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
-void listTypeReleaseIterator(listTypeIterator *li);
+void listTypeInitIterator(listTypeIterator *li, robj *subject, long index, unsigned char direction);
+void listTypeResetIterator(listTypeIterator *li);
 void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, unsigned char direction);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
@@ -3561,8 +3561,8 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-setTypeIterator *setTypeInitIterator(robj *subject);
-void setTypeReleaseIterator(setTypeIterator *si);
+void setTypeInitIterator(setTypeIterator *si, robj *subject);
+void setTypeResetIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
@@ -3629,8 +3629,8 @@ int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashD
 int hashTypeDelete(robj *o, void *key, int isSdsField);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 size_t hashTypeAllocSize(const robj *o);
-hashTypeIterator *hashTypeInitIterator(robj *subject);
-void hashTypeReleaseIterator(hashTypeIterator *hi);
+void hashTypeInitIterator(hashTypeIterator *hi, robj *subject);
+void hashTypeResetIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields);
 void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
                                  unsigned char **vstr,

@@ -8189,6 +8189,9 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     UNUSED(argc);
     int success = 1, port = 0;
     char *ip = NULL;
+    sds json = NULL;
+    sds jsonpath = NULL;
+
     if (!getClusterHostFromCmdArgs(1, argv, &ip, &port)) goto invalid_args;
     clusterManagerNode *refnode = clusterManagerNewNode(ip, port, 0);
     if (!clusterManagerLoadInfoFromNode(refnode)) return 0;
@@ -8196,8 +8199,26 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
     int cluster_errors_count = (no_issues ? 0 :
                                 listLength(cluster_manager.errors));
     config.cluster_manager_command.backup_dir = argv[1];
-    /* TODO: check if backup_dir is a valid directory. */
-    sds json = sdsnew("[\n");
+
+    struct stat st = {0};
+    char *backup_dir = config.cluster_manager_command.backup_dir;
+
+    if (stat(backup_dir, &st) == -1) {
+        if (errno == ENOENT) {
+            clusterManagerLogErr("[ERR] The specified backup directory '%s' does not exist.\n", backup_dir);
+        } else {
+            clusterManagerLogErr("[ERR] Cannot stat backup directory %s: %s\n",
+                                 backup_dir, strerror(errno));
+        }
+        success = 0;
+        goto cleanup;
+    } else if (!S_ISDIR(st.st_mode)) {
+        clusterManagerLogErr("[ERR] The specified backup path '%s' exists but is not a directory.\n", backup_dir);
+        success = 0;
+        goto cleanup;
+    }
+
+    json = sdsnew("[\n");
     int first_node = 0;
     listIter li;
     listNode *ln;
@@ -8217,7 +8238,7 @@ static int clusterManagerCommandBackup(int argc, char **argv) {
         getRDB(node);
     }
     json = sdscat(json, "\n]");
-    sds jsonpath = sdsnew(config.cluster_manager_command.backup_dir);
+    jsonpath = sdsnew(config.cluster_manager_command.backup_dir);
     if (jsonpath[sdslen(jsonpath) - 1] != '/')
         jsonpath = sdscat(jsonpath, "/");
     jsonpath = sdscat(jsonpath, "nodes.json");

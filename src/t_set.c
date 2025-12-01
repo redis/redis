@@ -76,8 +76,9 @@ static void maybeConvertToIntset(robj *set) {
     char *str;
     size_t len = 0;
     int64_t llval = 0;
-    setTypeIterator *si = setTypeInitIterator(set);
-    while (setTypeNext(si, &str, &len, &llval) != -1) {
+    setTypeIterator si;
+    setTypeInitIterator(&si, set);
+    while (setTypeNext(&si, &str, &len, &llval) != -1) {
         if (str) {
             /* If the element is returned as a string, we may be able to convert
              * it to integer. This happens for OBJ_ENCODING_HT. */
@@ -87,7 +88,7 @@ static void maybeConvertToIntset(robj *set) {
         is = intsetAdd(is, llval, &success);
         serverAssert(success);
     }
-    setTypeReleaseIterator(si);
+    setTypeResetIterator(&si);
     freeSetObject(set); /* frees the internals but not robj itself */
     set->ptr = is;
     set->encoding = OBJ_ENCODING_INTSET;
@@ -313,12 +314,11 @@ int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_
     }
 }
 
-setTypeIterator *setTypeInitIterator(robj *subject) {
-    setTypeIterator *si = zmalloc(sizeof(setTypeIterator));
+void setTypeInitIterator(setTypeIterator *si, robj *subject) {
     si->subject = subject;
     si->encoding = subject->encoding;
     if (si->encoding == OBJ_ENCODING_HT) {
-        si->di = dictGetIterator(subject->ptr);
+        dictInitIterator(&si->di, subject->ptr);
     } else if (si->encoding == OBJ_ENCODING_INTSET) {
         si->ii = 0;
     } else if (si->encoding == OBJ_ENCODING_LISTPACK) {
@@ -326,13 +326,11 @@ setTypeIterator *setTypeInitIterator(robj *subject) {
     } else {
         serverPanic("Unknown set encoding");
     }
-    return si;
 }
 
-void setTypeReleaseIterator(setTypeIterator *si) {
+void setTypeResetIterator(setTypeIterator *si) {
     if (si->encoding == OBJ_ENCODING_HT)
-        dictReleaseIterator(si->di);
-    zfree(si);
+        dictResetIterator(&si->di);
 }
 
 /* Move to the next entry in the set. Returns the object at the current
@@ -358,7 +356,7 @@ void setTypeReleaseIterator(setTypeIterator *si) {
  * When there are no more elements -1 is returned. */
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele) {
     if (si->encoding == OBJ_ENCODING_HT) {
-        dictEntry *de = dictNext(si->di);
+        dictEntry *de = dictNext(&si->di);
         if (de == NULL) return -1;
         *str = dictGetKey(de);
         *len = sdslen(*str);
@@ -507,7 +505,7 @@ void setTypeConvert(robj *setobj, int enc) {
  * C_ERR on OOM (panic=0). If panic=1 is given, this function always returns
  * C_OK. */
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic) {
-    setTypeIterator *si;
+    setTypeIterator si;
     serverAssertWithInfo(NULL,setobj,setobj->type == OBJ_SET &&
                              setobj->encoding != enc);
 
@@ -525,12 +523,12 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
 
         /* To add the elements we extract integers and create redis objects */
         size_t *alloc_size = htGetMetadataSize(d);
-        si = setTypeInitIterator(setobj);
-        while ((element = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, setobj);
+        while ((element = setTypeNextObject(&si)) != NULL) {
             serverAssert(dictAdd(d,element,NULL) == DICT_OK);
             *alloc_size += sdsAllocSize(element);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
 
         freeSetObject(setobj); /* frees the internals but not setobj itself */
         setobj->encoding = OBJ_ENCODING_HT;
@@ -548,14 +546,14 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
         char *str;
         size_t len = 0;
         int64_t llele = 0;
-        si = setTypeInitIterator(setobj);
-        while (setTypeNext(si, &str, &len, &llele) != -1) {
+        setTypeInitIterator(&si, setobj);
+        while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str != NULL)
                 lp = lpAppend(lp, (unsigned char *)str, len);
             else
                 lp = lpAppendInteger(lp, llele);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
 
         freeSetObject(setobj); /* frees the internals but not setobj itself */
         setobj->encoding = OBJ_ENCODING_LISTPACK;
@@ -573,7 +571,6 @@ int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic)
  * The resulting object always has refcount set to 1 */
 robj *setTypeDup(robj *o) {
     robj *set;
-    setTypeIterator *si;
 
     serverAssert(o->type == OBJ_SET);
 
@@ -596,14 +593,15 @@ robj *setTypeDup(robj *o) {
         set = createSetObject();
         dict *d = o->ptr;
         dictExpand(set->ptr, dictSize(d));
-        si = setTypeInitIterator(o);
+        setTypeIterator si;
+        setTypeInitIterator(&si, o);
         char *str;
         size_t len = 0;
         int64_t intobj = 0;
-        while (setTypeNext(si, &str, &len, &intobj) != -1) {
+        while (setTypeNext(&si, &str, &len, &intobj) != -1) {
             setTypeAdd(set, (sds)str);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
     } else {
         serverPanic("Unknown set encoding");
     }
@@ -993,9 +991,9 @@ void spopWithCountCommand(client *c) {
         }
 
         /* Transfer the old set to the client. */
-        setTypeIterator *si;
-        si = setTypeInitIterator(set);
-        while (setTypeNext(si, &str, &len, &llele) != -1) {
+        setTypeIterator si;
+        setTypeInitIterator(&si, set);
+        while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
                 propargv[propindex++] = createStringObjectFromLongLong(llele);
@@ -1012,7 +1010,7 @@ void spopWithCountCommand(client *c) {
                 propindex = 2;
             }
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
 
         /* Update key size histogram "explicitly" and not indirectly by dbReplaceValue()
          * since function dbReplaceValue() assumes the entire set is being replaced, 
@@ -1183,10 +1181,10 @@ void srandmemberWithCountCommand(client *c) {
      * The number of requested elements is greater than the number of
      * elements inside the set: simply return the whole set. */
     if (count >= size) {
-        setTypeIterator *si;
+        setTypeIterator si;
         addReplyArrayLen(c,size);
-        si = setTypeInitIterator(set);
-        while (setTypeNext(si, &str, &len, &llele) != -1) {
+        setTypeInitIterator(&si, set);
+        while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 addReplyBulkLongLong(c,llele);
             } else {
@@ -1194,7 +1192,7 @@ void srandmemberWithCountCommand(client *c) {
             }
             size--;
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         serverAssert(size==0);
         return;
     }
@@ -1240,12 +1238,12 @@ void srandmemberWithCountCommand(client *c) {
      * a bit less than the number of elements in the set, the natural approach
      * used into CASE 4 is highly inefficient. */
     if (count*SRANDMEMBER_SUB_STRATEGY_MUL > size) {
-        setTypeIterator *si;
+        setTypeIterator si;
 
         /* Add all the elements into the temporary dictionary. */
-        si = setTypeInitIterator(set);
+        setTypeInitIterator(&si, set);
         dictExpand(d, size);
-        while (setTypeNext(si, &str, &len, &llele) != -1) {
+        while (setTypeNext(&si, &str, &len, &llele) != -1) {
             int retval = DICT_ERR;
 
             if (str == NULL) {
@@ -1255,7 +1253,7 @@ void srandmemberWithCountCommand(client *c) {
             }
             serverAssert(retval == DICT_OK);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         serverAssert(dictSize(d) == size);
 
         /* Remove random elements to reach the right count. */
@@ -1377,7 +1375,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
                           unsigned long setnum, robj *dstkey,
                           int cardinality_only, unsigned long limit) {
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
-    setTypeIterator *si;
+    setTypeIterator si;
     robj *dstset = NULL;
     char *str;
     size_t len = 0;
@@ -1461,8 +1459,8 @@ void sinterGenericCommand(client *c, robj **setkeys,
      * the element against all the other sets, if at least one set does
      * not include the element it is discarded */
     int only_integers = 1;
-    si = setTypeInitIterator(sets[0].set);
-    while((encoding = setTypeNext(si, &str, &len, &intobj)) != -1) {
+    setTypeInitIterator(&si, sets[0].set);
+    while((encoding = setTypeNext(&si, &str, &len, &intobj)) != -1) {
         for (j = 1; j < setnum; j++) {
             if (sets[j].set == sets[0].set) continue;
             if (!setTypeIsMemberAux(sets[j].set, str, len, intobj,
@@ -1505,7 +1503,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
             }
         }
     }
-    setTypeReleaseIterator(si);
+    setTypeResetIterator(&si);
 
     if (server.memory_tracking_per_slot) {
         for (j = 0; j < setnum; j++) {
@@ -1554,7 +1552,7 @@ void sinterCommand(client *c) {
 
 /* SMEMBERS key */
 void smembersCommand(client *c) {
-    setTypeIterator *si;
+    setTypeIterator si;
     char *str;
     size_t len = 0;
     int64_t intobj = 0;
@@ -1572,16 +1570,16 @@ void smembersCommand(client *c) {
     if (server.memory_tracking_per_slot)
         oldsize = setTypeAllocSize(setobj);
     /* Iterate through the elements of the set. */
-    si = setTypeInitIterator(setobj);
+    setTypeInitIterator(&si, setobj);
 
-    while (setTypeNext(si, &str, &len, &intobj) != -1) {
+    while (setTypeNext(&si, &str, &len, &intobj) != -1) {
         if (str != NULL)
             addReplyBulkCBuffer(c, str, len);
         else
             addReplyBulkLongLong(c, intobj);
         length--;
     }
-    setTypeReleaseIterator(si);
+    setTypeResetIterator(&si);
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(setobj));
     serverAssert(length == 0); /* fail on corrupt data */
@@ -1627,7 +1625,7 @@ void sinterstoreCommand(client *c) {
 void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                               robj *dstkey, int op) {
     setopsrc *sets = zmalloc(sizeof(setopsrc)*setnum);
-    setTypeIterator *si;
+    setTypeIterator si;
     robj *dstset = NULL;
     int dstset_encoding = OBJ_ENCODING_INTSET;
     char *str;
@@ -1722,11 +1720,11 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 0; j < setnum; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            si = setTypeInitIterator(sets[j].set);
-            while ((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
+            setTypeInitIterator(&si, sets[j].set);
+            while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             }
-            setTypeReleaseIterator(si);
+            setTypeResetIterator(&si);
         }
     } else if (op == SET_OP_DIFF && sameset) {
         /* At least one of the sets is the same one (same key) as the first one, result must be empty. */
@@ -1739,8 +1737,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
          *
          * This way we perform at max N*M operations, where N is the size of
          * the first set, and M the number of sets. */
-        si = setTypeInitIterator(sets[0].set);
-        while ((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
+        setTypeInitIterator(&si, sets[0].set);
+        while ((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
             for (j = 1; j < setnum; j++) {
                 if (!sets[j].set) continue; /* no key is an empty set. */
                 if (sets[j].set == sets[0].set) break; /* same set! */
@@ -1753,7 +1751,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                 cardinality += setTypeAddAux(dstset, str, len, llval, encoding == OBJ_ENCODING_HT);
             }
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
     } else if (op == SET_OP_DIFF && sets[0].set && diff_algo == 2) {
         /* DIFF Algorithm 2:
          *
@@ -1765,8 +1763,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
         for (j = 0; j < setnum; j++) {
             if (!sets[j].set) continue; /* non existing keys are like empty sets */
 
-            si = setTypeInitIterator(sets[j].set);
-            while((encoding = setTypeNext(si, &str, &len, &llval)) != -1) {
+            setTypeInitIterator(&si, sets[j].set);
+            while((encoding = setTypeNext(&si, &str, &len, &llval)) != -1) {
                 if (j == 0) {
                     cardinality += setTypeAddAux(dstset, str, len, llval,
                                                  encoding == OBJ_ENCODING_HT);
@@ -1775,7 +1773,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
                                                     encoding == OBJ_ENCODING_HT);
                 }
             }
-            setTypeReleaseIterator(si);
+            setTypeResetIterator(&si);
 
             /* Exit if result set is empty as any additional removal
              * of elements will have no effect. */
@@ -1793,14 +1791,14 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
     /* Output the content of the resulting set, if not in STORE mode */
     if (!dstkey) {
         addReplySetLen(c,cardinality);
-        si = setTypeInitIterator(dstset);
-        while (setTypeNext(si, &str, &len, &llval) != -1) {
+        setTypeInitIterator(&si, dstset);
+        while (setTypeNext(&si, &str, &len, &llval) != -1) {
             if (str)
                 addReplyBulkCBuffer(c, str, len);
             else
                 addReplyBulkLongLong(c, llval);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         server.lazyfree_lazy_server_del ? freeObjAsync(NULL, dstset, -1) :
                                           decrRefCount(dstset);
     } else {

@@ -44,21 +44,6 @@ struct _kvstore {
     void *metadata[];                      /* conditionally allocated based on "flags" */
 };
 
-/* Structure for kvstore iterator that allows iterating across multiple dicts. */
-struct _kvstoreIterator {
-    kvstore *kvs;
-    long long didx;
-    long long next_didx;
-    dictIterator di;
-};
-
-/* Structure for kvstore dict iterator that allows iterating the corresponding dict. */
-struct _kvstoreDictIterator {
-    kvstore *kvs;
-    long long didx;
-    dictIterator di;
-};
-
 /* Basic metadata allocated per dict */
 typedef struct {
     listNode *rehashing_node;   /* list node in rehashing list */
@@ -514,8 +499,10 @@ void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full) {
     dictStats *mainHtStats = NULL;
     dictStats *rehashHtStats = NULL;
     dict *d;
-    kvstoreIterator *kvs_it = kvstoreIteratorInit(kvs);
-    while ((d = kvstoreIteratorNextDict(kvs_it))) {
+    kvstoreIterator kvs_it;
+
+    kvstoreIteratorInit(&kvs_it, kvs);
+    while ((d = kvstoreIteratorNextDict(&kvs_it))) {
         dictStats *stats = dictGetStatsHt(d, 0, full);
         if (!mainHtStats) {
             mainHtStats = stats;
@@ -533,7 +520,7 @@ void kvstoreGetStats(kvstore *kvs, char *buf, size_t bufsize, int full) {
             }
         }
     }
-    kvstoreIteratorRelease(kvs_it);
+    kvstoreIteratorReset(&kvs_it);
 
     if (mainHtStats && bufsize > 0) {
         l = dictGetStatsMsg(buf, bufsize, mainHtStats, full);
@@ -638,25 +625,21 @@ void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx) {
 
 /* Returns kvstore iterator that can be used to iterate through sub-dictionaries.
  *
- * The caller should free the resulting kvs_it with kvstoreIteratorRelease. */
-kvstoreIterator *kvstoreIteratorInit(kvstore *kvs) {
-    kvstoreIterator *kvs_it = zmalloc(sizeof(*kvs_it));
+ * The caller should reset kvs_it with kvstoreIteratorReset. */
+void kvstoreIteratorInit(kvstoreIterator *kvs_it, kvstore *kvs) {
     kvs_it->kvs = kvs;
     kvs_it->didx = -1;
     kvs_it->next_didx = kvstoreGetFirstNonEmptyDictIndex(kvs_it->kvs); /* Finds first non-empty dict index. */
     dictInitSafeIterator(&kvs_it->di, NULL);
-    return kvs_it;
 }
 
 /* Free the kvs_it returned by kvstoreIteratorInit. */
-void kvstoreIteratorRelease(kvstoreIterator *kvs_it) {
+void kvstoreIteratorReset(kvstoreIterator *kvs_it) {
     dictIterator *iter = &kvs_it->di;
     dictResetIterator(iter);
     /* In the safe iterator context, we may delete entries. */
     freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
-    zfree(kvs_it);
 }
-
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete.
  *
@@ -774,26 +757,22 @@ size_t kvstoreDictAllocSize(kvstore *kvs, int didx)
     return dictMeta->alloc_size;
 }
 
-kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx)
+void kvstoreInitDictIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx)
 {
-    kvstoreDictIterator *kvs_di = zmalloc(sizeof(*kvs_di));
     kvs_di->kvs = kvs;
     kvs_di->didx = didx;
     dictInitIterator(&kvs_di->di, kvstoreGetDict(kvs, didx));
-    return kvs_di;
 }
 
-kvstoreDictIterator *kvstoreGetDictSafeIterator(kvstore *kvs, int didx)
+void kvstoreInitDictSafeIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx)
 {
-    kvstoreDictIterator *kvs_di = zmalloc(sizeof(*kvs_di));
     kvs_di->kvs = kvs;
     kvs_di->didx = didx;
     dictInitSafeIterator(&kvs_di->di, kvstoreGetDict(kvs, didx));
-    return kvs_di;
 }
 
 /* Free the kvs_di returned by kvstoreGetDictIterator and kvstoreGetDictSafeIterator. */
-void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_di)
+void kvstoreResetDictIterator(kvstoreDictIterator *kvs_di)
 {
     /* The dict may be deleted during the iteration process, so here need to check for NULL. */
     if (kvstoreGetDict(kvs_di->kvs, kvs_di->didx)) {
@@ -801,8 +780,6 @@ void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_di)
         /* In the safe iterator context, we may delete entries. */
         freeDictIfNeeded(kvs_di->kvs, kvs_di->didx);
     }
-
-    zfree(kvs_di);
 }
 
 /* Get the next element of the dict through kvstoreDictIterator and dictNext. */
@@ -1081,8 +1058,8 @@ int kvstoreTest(int argc, char **argv, int flags) {
     int i;
     void *key;
     dictEntry *de;
-    kvstoreIterator *kvs_it;
-    kvstoreDictIterator *kvs_di;
+    kvstoreIterator kvs_it;
+    kvstoreDictIterator kvs_di;
 
     /* Test also dictType with no_value=1 */
     dictType KvstoreDictNovalTestType = KvstoreDictTestType;
@@ -1107,13 +1084,13 @@ int kvstoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("kvstoreIterator case 1: removing all keys does not delete the empty dict") {
-        kvs_it = kvstoreIteratorInit(kvs1);
-        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-            curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+        kvstoreIteratorInit(&kvs_it, kvs1);
+        while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+            curr_slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
             key = dictGetKey(de);
             assert(kvstoreDictDelete(kvs1, curr_slot, key) == DICT_OK);
         }
-        kvstoreIteratorRelease(kvs_it);
+        kvstoreIteratorReset(&kvs_it);
 
         dict *d = kvstoreGetDict(kvs1, didx);
         assert(d != NULL);
@@ -1122,13 +1099,13 @@ int kvstoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("kvstoreIterator case 2: removing all keys will delete the empty dict") {
-        kvs_it = kvstoreIteratorInit(kvs2);
-        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
-            curr_slot = kvstoreIteratorGetCurrentDictIndex(kvs_it);
+        kvstoreIteratorInit(&kvs_it, kvs2);
+        while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+            curr_slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
             key = dictGetKey(de);
             assert(kvstoreDictDelete(kvs2, curr_slot, key) == DICT_OK);
         }
-        kvstoreIteratorRelease(kvs_it);
+        kvstoreIteratorReset(&kvs_it);
 
         /* Make sure the dict was removed from the rehashing list. */
         while (kvstoreIncrementallyRehash(kvs2, 1000)) {}
@@ -1153,12 +1130,12 @@ int kvstoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("kvstoreDictIterator case 1: removing all keys does not delete the empty dict") {
-        kvs_di = kvstoreGetDictSafeIterator(kvs1, didx);
-        while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+        kvstoreInitDictSafeIterator(&kvs_di, kvs1, didx);
+        while((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
             key = dictGetKey(de);
             assert(kvstoreDictDelete(kvs1, didx, key) == DICT_OK);
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
 
         dict *d = kvstoreGetDict(kvs1, didx);
         assert(d != NULL);
@@ -1167,12 +1144,12 @@ int kvstoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("kvstoreDictIterator case 2: removing all keys will delete the empty dict") {
-        kvs_di = kvstoreGetDictSafeIterator(kvs2, didx);
-        while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+        kvstoreInitDictSafeIterator(&kvs_di, kvs2, didx);
+        while((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
             key = dictGetKey(de);
             assert(kvstoreDictDelete(kvs2, didx, key) == DICT_OK);
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
 
         dict *d = kvstoreGetDict(kvs2, didx);
         assert(d == NULL);
@@ -1207,14 +1184,14 @@ int kvstoreTest(int argc, char **argv, int flags) {
 
         /* Step by step, clear all dictionaries and ensure non-empty dict count is updated */
         for (int idx = 0; idx < 4; idx++) {
-            kvs_di = kvstoreGetDictSafeIterator(kvs, idx);
-            while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+            kvstoreInitDictSafeIterator(&kvs_di, kvs, idx);
+            while((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
                 key = dictGetKey(de);
                 assert(kvstoreDictDelete(kvs, idx, key) == DICT_OK);
                 /* When the dictionary is emptied, the number of non-empty dictionaries is reduced by 1. */
                 if (kvstoreDictSize(kvs, idx) == 0) assert(kvstoreNumNonEmptyDicts(kvs) == 3 - idx);
             }
-            kvstoreReleaseDictIterator(kvs_di);
+            kvstoreResetDictIterator(&kvs_di);
         }
         kvstoreRelease(kvs);
     }

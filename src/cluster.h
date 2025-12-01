@@ -86,8 +86,10 @@ static inline unsigned int keyHashSlot(const char *key, int keylen) {
 /* functions requiring mechanism specific implementations */
 void clusterInit(void);
 void clusterInitLast(void);
+void clusterCommonInit(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
+void clusterClaimUnassignedSlots(void);
 int verifyClusterConfigWithData(void);
 
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);

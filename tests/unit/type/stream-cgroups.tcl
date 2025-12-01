@@ -713,6 +713,33 @@ start_server {
         assert_equal 0 [r XLEN mystream] 
     }
 
+    test {XGROUP DESTROY correctly manage min_cgroup_last_id cache} {
+        r DEL mystream
+        # Add some entries
+        r XADD mystream 1-0 f1 v1
+        r XADD mystream 2-0 f2 v2
+        r XADD mystream 3-0 f3 v3
+        r XADD mystream 4-0 f4 v4
+        r XADD mystream 5-0 f5 v5
+
+        # Create two consumer groups
+        r XGROUP CREATE mystream group1 1-0 ;# min_cgroup_last_id is 1-0 now
+        r XGROUP CREATE mystream group2 3-0
+
+        # Entry 1-0 should be deletable (1-0 <= min_cgroup_last_id and not in any PEL)
+        assert_equal {1} [r XDELEX mystream ACKED IDS 1 1-0]
+
+        # Entry 2-0 should be referenced (2-0 > 1-0, not yet consumed by all consume groups)
+        assert_equal {2} [r XDELEX mystream ACKED IDS 1 2-0]
+
+        # Destroy group1
+        # min_cgroup_last_id is 3-0 now
+        r XGROUP DESTROY mystream group1
+
+        # Entry 2-0 should now be deletable (2-0 < 3-0 and not in any PEL)
+        assert_equal {1} [r XDELEX mystream ACKED IDS 1 2-0]
+    }
+
     test {RENAME can unblock XREADGROUP with data} {
         r del mystream{t}
         r XGROUP CREATE mystream{t} mygroup $ MKSTREAM

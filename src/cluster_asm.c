@@ -2179,7 +2179,7 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
     serverAssert(req & SLAVE_REQ_SLOTS_SNAPSHOT);
 
     dictEntry *de;
-    kvstoreDictIterator *kvs_di = NULL;
+    kvstoreDictIterator kvs_di;
 
     if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_RDB_CHANNEL, ASM_SEND_BULK_AND_STREAM)))
         rioAbort(rdb); /* Simulate a failure */
@@ -2227,9 +2227,9 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
             /* Iterate all keys in the slot range */
             for (int k = sr->start; k <= sr->end; k++) {
                 int send_slot_info = 0;
-                kvs_di = kvstoreGetDictIterator(server.db->keys, k);
 
-                while ((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+                kvstoreInitDictIterator(&kvs_di, server.db->keys, k);
+                while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
                     /* Send slot info before the first key in the slot */
                     if (!send_slot_info) {
                         /* Format slot info */
@@ -2240,28 +2240,27 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
                         serverAssert(len > 0 && len < (int)sizeof(buf));
 
                         /* Send slot info */
-                        if (rioWriteBulkCount(rdb, '*', 5) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "CLUSTER", 7) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "SYNCSLOTS", 9) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "CONF", 4) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "SLOT-INFO", 9) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, buf, len) == 0) goto werr;
+                        if (rioWriteBulkCount(rdb, '*', 5) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "CLUSTER", 7) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "SYNCSLOTS", 9) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "CONF", 4) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "SLOT-INFO", 9) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, buf, len) == 0) goto werr2;
                         send_slot_info = 1;
                     }
 
                     /* Save a key-value pair */
                     kvobj *o = dictGetKV(de);
-                    if (slotSnapshotSaveKeyValuePair(rdb, o, db->id) == C_ERR) goto werr;
+                    if (slotSnapshotSaveKeyValuePair(rdb, o, db->id) == C_ERR) goto werr2;
 
                     /* Delay return if required (for testing) */
                     if (unlikely(server.rdb_key_save_delay)) {
                         /* Send buffer to the destination ASAP. */
-                        if (rioFlush(rdb) == 0) goto werr;
+                        if (rioFlush(rdb) == 0) goto werr2;
                         debugDelay(server.rdb_key_save_delay);
                     }
                 }
-                kvstoreReleaseDictIterator(kvs_di);
-                kvs_di = NULL;
+                kvstoreResetDictIterator(&kvs_di);
             }
         }
     }
@@ -2273,8 +2272,9 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
     if (rioWriteBulkString(rdb, "SNAPSHOT-EOF", 12) == 0) goto werr;
     return C_OK;
 
+werr2:
+    kvstoreResetDictIterator(&kvs_di);
 werr:
-    if (kvs_di) kvstoreReleaseDictIterator(kvs_di);
     if (error) *error = errno;
     return C_ERR;
 }
@@ -3355,8 +3355,9 @@ void asmActiveTrimCycle(void) {
 
     while (!time_exceeded && slot != -1) {
         dictEntry *de;
-        kvstoreDictIterator *kvs_di = kvstoreGetDictSafeIterator(server.db[0].keys, slot);
-        while ((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+        kvstoreDictIterator kvs_di;
+        kvstoreInitDictSafeIterator(&kvs_di, server.db[0].keys, slot);
+        while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
             kvobj *kv = dictGetKV(de);
             sds sdskey = kvobjGetKey(kv);
 
@@ -3374,7 +3375,7 @@ void asmActiveTrimCycle(void) {
                 break;
             }
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
         if (!time_exceeded) slot = slotRangeArrayNext(asmManager->active_trim_it);
     }
 
