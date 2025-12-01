@@ -85,6 +85,23 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
                 }
             },
             {
+                .name = "idmp",
+                .type = REDISMODULE_ARG_TYPE_BLOCK,
+                .flags = REDISMODULE_CMD_ARG_OPTIONAL,
+                .subargs = (RedisModuleCommandArg[]){
+                    {
+                        .name = "idmp-token",
+                        .type = REDISMODULE_ARG_TYPE_PURE_TOKEN,
+                        .token = "IDMP"
+                    },
+                    {
+                        .name = "uid",
+                        .type = REDISMODULE_ARG_TYPE_STRING,
+                    },
+                    {0}
+                }
+            },
+            {
                 .name = "trim",
                 .type = REDISMODULE_ARG_TYPE_BLOCK,
                 .flags = REDISMODULE_CMD_ARG_OPTIONAL,
