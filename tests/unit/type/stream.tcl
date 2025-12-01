@@ -575,9 +575,7 @@ start_server {
 
         # Force RDB save
         r SAVE
-
-        # Restart Redis (this depends on test framework)
-        restart_server 0 true false
+        r DEBUG RELOAD
 
         # Verify stream still exists
         assert_equal 2 [r XLEN mystream]
