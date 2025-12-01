@@ -586,7 +586,7 @@ start_server {
 
         # Should still have only 2 entries
         assert_equal 2 [r XLEN mystream]
-    }
+    } {} {external:skip needs:debug}
 
     test {XADD IDMP set in AOF} {
         r DEL mystream
@@ -612,7 +612,7 @@ start_server {
         # Verify deduplication still works
         set id1_dup2 [r XADD mystream IDMP "aof-1" * field "new"]
         assert_equal $id1 $id1_dup2
-    }
+    } {} {external:skip needs:debug}
 
     test {XIDMP CFGSET set DURATION successfully} {
         r DEL mystream
