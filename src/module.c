@@ -9391,8 +9391,7 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  * * NO_REDIRECTION: Every node will accept any key, without trying to perform
  *                   partitioning according to the Redis Cluster algorithm.
  *                   Slots information will still be propagated across the
- *                   cluster, but without effect.
- */
+ *                   cluster, but without effect. */
 void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
     UNUSED(ctx);
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
@@ -9402,14 +9401,15 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
 }
 
-/* Acquire a capability for redis server to change the normal behavior of
- * redis server. It is possible to acquire the same capability multiple times,
- * and to release it the same number of times.
+/* Acquire a server capability that changes the normal behavior of Redis.
+ * Capabilities are reference-counted: a capability may be acquired
+ * multiple times concurrently by multiple modules.
  *
- * * REDISMODULE_SERVER_CAPA_NO_TRIM: Prevent redis server from trimming keys
- *                                after atomic slot migration. Module should call
- *                                RM_ReleaseServerCapability() after finish its work.
- */
+ * Currently supported capabilities:
+ *   - REDISMODULE_SERVER_CAPA_NO_TRIM:
+ *       Prevent the server from trimming keys after atomic slot migration.
+ *
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR otherwise. */
 int RM_AcquireServerCapability(RedisModuleCtx *ctx, int capa) {
     UNUSED(ctx);
     if (capa == REDISMODULE_SERVER_CAPA_NO_TRIM &&
@@ -9421,6 +9421,14 @@ int RM_AcquireServerCapability(RedisModuleCtx *ctx, int capa) {
     return REDISMODULE_ERR;
 }
 
+/* Release a previously acquired server capability.
+ *
+ * This function must be called once for each successful call to
+ * RM_AcquireServerCapability() with the same capability. The underlying
+ * behavior is restored when the reference count for that capability
+ * reaches zero.
+ *
+ * Returns REDISMODULE_OK on success, REDISMODULE_ERR otherwise. */
 int RM_ReleaseServerCapability(RedisModuleCtx *ctx, int capa) {
     UNUSED(ctx);
     if (capa == REDISMODULE_SERVER_CAPA_NO_TRIM &&
