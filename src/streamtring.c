@@ -648,6 +648,43 @@ void tringSetFreeCallback(tringTree *tree, tringFreeCallback callback, void *use
     tree->free_callback_user_data = user_data;
 }
 
+/* Clear all entries from the tree and reset it to initial state.
+ * For each entry, the free callback (if set) is called.
+ * The tree's memory is freed and reallocated at initial capacity. */
+void tringClear(tringTree *tree) {
+    if (!tree) return;
+    
+    /* Call free callback for all values - handle ring buffer wraparound */
+    if (tree->free_callback) {
+        for (uint32_t i = 0; i < tree->count; i++) {
+            uint32_t idx = (tree->head + i) % tree->capacity;
+            if (tree->nodes[idx].value) {
+                tree->free_callback(tree->nodes[idx].value, tree->free_callback_user_data);
+            }
+        }
+    }
+    
+    /* Free the current nodes array and update alloc_size */
+    if (tree->alloc_size) {
+        *tree->alloc_size -= zmalloc_usable_size(tree->nodes);
+    }
+    zfree(tree->nodes);
+    
+    /* Allocate new nodes array at initial capacity */
+    size_t usable;
+    tree->nodes = zmalloc_usable(TRING_INITIAL_CAPACITY * sizeof(tringNode), &usable);
+    if (tree->alloc_size) {
+        *tree->alloc_size += usable;
+    }
+    
+    /* Reset tree to initial state */
+    tree->capacity = TRING_INITIAL_CAPACITY;
+    tree->count = 0;
+    tree->head = 0;
+    tree->tail = 0;
+    tree->root = TRING_NULL;
+}
+
 #ifdef REDIS_TEST
 #include <assert.h>
 #include <stdio.h>
@@ -1908,10 +1945,221 @@ int tringTest(int argc, char *argv[], int flags) {
         tringFree(tree);
     }
     
+    TEST("tringClear removes all entries and resets tree") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Insert some elements */
+        for (long i = 1; i <= 10; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        assert(tringSize(tree) == 10);
+        assert(!tringEmpty(tree));
+        
+        /* Clear the tree */
+        tringClear(tree);
+        
+        /* Verify tree is empty */
+        assert(tringSize(tree) == 0);
+        assert(tringEmpty(tree));
+        assert(tree->root == TRING_NULL);
+        assert(tree->head == 0);
+        assert(tree->tail == 0);
+        assert(tree->count == 0);
+        
+        /* Verify capacity reset to initial */
+        assert(tree->capacity == TRING_INITIAL_CAPACITY);
+        
+        /* Verify all elements are gone */
+        for (long i = 1; i <= 10; i++) {
+            assert(tringFind(tree, (void*)i) == NULL);
+        }
+        
+        /* Verify tree can be reused after clear */
+        assert(tringInsert(tree, (void*)100L, NULL));
+        assert(tringSize(tree) == 1);
+        assert(tringFind(tree, (void*)100L) == (void*)100L);
+        
+        tringFree(tree);
+    }
+    
+    TEST("tringClear calls free callback for all entries") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Set up callback */
+        tringSetFreeCallback(tree, testFreeCallback, NULL);
+        freeCallbackCount = 0;
+        
+        /* Insert some values */
+        for (long i = 1; i <= 15; i++) {
+            tringInsert(tree, (void*)i, NULL);
+        }
+        
+        assert(tringSize(tree) == 15);
+        
+        /* Clear the tree - callback should be called for each value */
+        tringClear(tree);
+        
+        /* Verify callback was called for all 15 values */
+        assert(freeCallbackCount == 15);
+        
+        /* Verify tree is empty */
+        assert(tringSize(tree) == 0);
+        assert(tringEmpty(tree));
+        
+        tringFree(tree);
+        /* Note: tringFree won't call callbacks since tree is empty */
+        assert(freeCallbackCount == 15);
+    }
+    
+    TEST("tringClear frees memory from grown capacity") {
+        size_t alloc_size = 0;
+        tringTree *tree = tringNew(intCompare, &alloc_size);
+        
+        size_t size_after_init = alloc_size;
+        
+        /* Insert 64 elements to grow capacity */
+        for (long i = 1; i <= 64; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        assert(tree->capacity == 64);
+        size_t size_after_grow = alloc_size;
+        assert(size_after_grow > size_after_init);
+        
+        /* Clear should free memory and reset to initial capacity */
+        tringClear(tree);
+        
+        /* Verify capacity is back to initial */
+        assert(tree->capacity == TRING_INITIAL_CAPACITY);
+        assert(tringSize(tree) == 0);
+        
+        /* Verify alloc_size is back to approximately initial size */
+        /* (tree struct + initial capacity nodes) */
+        assert(alloc_size < size_after_grow);
+        assert(alloc_size >= size_after_init);
+        
+        tringFree(tree);
+        assert(alloc_size == 0);
+    }
+    
+    TEST("tringClear on empty tree") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Clear empty tree - should not crash */
+        assert(tringEmpty(tree));
+        tringClear(tree);
+        
+        /* Should still be empty */
+        assert(tringEmpty(tree));
+        assert(tringSize(tree) == 0);
+        assert(tree->capacity == TRING_INITIAL_CAPACITY);
+        
+        /* Should be usable after clear */
+        assert(tringInsert(tree, (void*)42L, NULL));
+        assert(tringSize(tree) == 1);
+        
+        tringFree(tree);
+    }
+    
+    TEST("tringClear NULL parameter check") {
+        /* Should not crash with NULL */
+        tringClear(NULL);
+    }
+    
+    TEST("tringClear with ring buffer wraparound") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Set max capacity and cause wraparound */
+        tringSetMaxCapacity(tree, 10);
+        
+        /* Insert 20 elements - causes wraparound and evictions */
+        for (long i = 1; i <= 20; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        assert(tringSize(tree) == 10);
+        /* head and tail should be wrapped */
+        
+        /* Set callback to track clears */
+        tringSetFreeCallback(tree, testFreeCallback, NULL);
+        freeCallbackCount = 0;
+        
+        /* Clear should handle wrapped state correctly */
+        tringClear(tree);
+        
+        /* Should have called callback for all 10 remaining elements */
+        assert(freeCallbackCount == 10);
+        assert(tringSize(tree) == 0);
+        assert(tree->head == 0);
+        assert(tree->tail == 0);
+        
+        tringFree(tree);
+    }
+    
+    TEST("tringClear multiple times") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Insert, clear, insert, clear */
+        for (long i = 1; i <= 5; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        assert(tringSize(tree) == 5);
+        
+        tringClear(tree);
+        assert(tringSize(tree) == 0);
+        
+        /* Insert again after clear */
+        for (long i = 10; i <= 15; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        assert(tringSize(tree) == 6);
+        
+        tringClear(tree);
+        assert(tringSize(tree) == 0);
+        
+        /* Verify tree still works */
+        assert(tringInsert(tree, (void*)99L, NULL));
+        assert(tringFind(tree, (void*)99L) == (void*)99L);
+        
+        tringFree(tree);
+    }
+    
+    TEST("tringClear preserves tree configuration") {
+        tringTree *tree = tringNew(intCompare, NULL);
+        
+        /* Set max capacity and callback */
+        tringSetMaxCapacity(tree, 50);
+        tringSetFreeCallback(tree, testFreeCallback, (void*)0x12345);
+        
+        /* Insert elements */
+        for (long i = 1; i <= 10; i++) {
+            assert(tringInsert(tree, (void*)i, NULL));
+        }
+        
+        /* Clear */
+        tringClear(tree);
+        
+        /* Verify configuration is preserved */
+        assert(tree->max_capacity == 50);
+        assert(tree->compare == intCompare);
+        assert(tree->free_callback == testFreeCallback);
+        assert(tree->free_callback_user_data == (void*)0x12345);
+        
+        /* Verify tree is still functional with preserved config */
+        for (long i = 1; i <= 60; i++) {
+            tringInsert(tree, (void*)i, NULL);
+        }
+        /* Should respect max_capacity of 50 */
+        assert(tringSize(tree) == 50);
+        
+        tringFree(tree);
+    }
+    
     if (errors > 0) {
         printf("FAILED! %d AVL property violations found.\n", errors);
     } else {
-        printf("PASSED! All 45 tests successful.\n");
+        printf("PASSED! All 53 tests successful.\n");
     }
     return errors;
 }

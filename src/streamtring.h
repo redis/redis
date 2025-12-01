@@ -137,6 +137,11 @@ void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity);
 /* Set a callback function to be called when a value is removed from the tree. */
 void tringSetFreeCallback(tringTree *tree, tringFreeCallback callback, void *user_data);
 
+/* Clear all entries from the tree and reset it to initial state.
+ * For each entry, the free callback (if set) is called.
+ * The tree's memory is freed and reallocated at initial capacity. */
+void tringClear(tringTree *tree);
+
 #ifdef REDIS_TEST
 int tringTest(int argc, char *argv[], int flags);
 #endif

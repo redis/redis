@@ -5210,11 +5210,13 @@ void xidmpCommand(client *c) {
         /* Update the stream configuration */
         if (duration_set) {
             s->idmp_duration = duration;
+            tringClear(s->idmp_tring);
         }
         if (maxsize_set) {
             s->idmp_max_entries = maxsize;
             /* Update the tring max capacity */
             tringSetMaxCapacity(s->idmp_tring, maxsize);
+            tringClear(s->idmp_tring);
         }
         
         /* Mark the key as dirty for replication */

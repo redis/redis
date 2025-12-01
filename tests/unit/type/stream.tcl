@@ -891,6 +891,98 @@ start_server {
         
         r config set appendonly no
     }
+    test {XIDMP CFGSET changing DURATION clears all iids history} {
+        r DEL mystream
+        
+        # Create stream and add entries with IDMP
+        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP "req-2" * field "value2"]
+        
+        # Verify deduplication works before config change
+        set dup_id [r XADD mystream IDMP "req-1" * field "dup"]
+        assert_equal $id1 $dup_id
+        
+        # Change DURATION - should clear iids history
+        r XIDMP CFGSET mystream DURATION 5000
+        
+        # Now req-1 should create a new entry (history was cleared)
+        set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
+        assert {$id1 ne $new_id1}
+        
+        # Should have 3 entries total (2 original + 1 new)
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XIDMP CFGSET changing MAXSIZE clears all iids history} {
+        r DEL mystream
+        
+        # Create stream and add entries with IDMP
+        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP "req-2" * field "value2"]
+        
+        # Verify deduplication works before config change
+        set dup_id [r XADD mystream IDMP "req-2" * field "dup"]
+        assert_equal $id2 $dup_id
+        
+        # Change MAXSIZE - should clear iids history
+        r XIDMP CFGSET mystream MAXSIZE 20000
+        
+        # Now req-2 should create a new entry (history was cleared)
+        set new_id2 [r XADD mystream IDMP "req-2" * field "new2"]
+        assert {$id2 ne $new_id2}
+        
+        # Should have 3 entries total (2 original + 1 new)
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XIDMP CFGSET history cleared then new deduplication works} {
+        r DEL mystream
+        
+        # Create stream and add entries
+        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
+        
+        # Change configuration to clear history
+        r XIDMP CFGSET mystream DURATION 6000
+        
+        # Add new entry with same iid
+        set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
+        assert {$id1 ne $new_id1}
+        
+        # Now deduplication should work with new history
+        set dup_id1 [r XADD mystream IDMP "req-1" * field "dup1"]
+        assert_equal $new_id1 $dup_id1
+        
+        # Should have 2 entries (1 original + 1 new)
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XIDMP CFGSET history cleared preserves stream entries} {
+        r DEL mystream
+        
+        # Create stream with entries
+        set id1 [r XADD mystream IDMP "req-1" * field "value1" data "data1"]
+        set id2 [r XADD mystream IDMP "req-2" * field "value2" data "data2"]
+        
+        # Verify entries exist with correct data
+        set entries [r XRANGE mystream - +]
+        assert_equal 2 [llength $entries]
+        
+        # Change configuration to clear iids history
+        r XIDMP CFGSET mystream DURATION 7000
+        
+        # Stream entries should still exist unchanged
+        set entries_after [r XRANGE mystream - +]
+        assert_equal 2 [llength $entries_after]
+        
+        # Verify original entries have correct data
+        set entry1_fields [lindex [lindex $entries_after 0] 1]
+        assert_equal "value1" [dict get $entry1_fields field]
+        assert_equal "data1" [dict get $entry1_fields data]
+        
+        # But iids history is cleared, so can add new entries
+        set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
+        assert {$id1 ne $new_id1}
+    }
 
     test {XTRIM with MINID option} {
         r DEL mystream
