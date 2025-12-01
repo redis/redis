@@ -1173,13 +1173,10 @@ clusterNode *getNodeByQuery(client *c, struct redisCommand *cmd, robj **argv, in
     /* Base case: default to no redirection when serving locally. */
     if (error_code) *error_code = CLUSTER_REDIR_NONE;
 
-    /* If cluster state isn't initialized, report cluster-down immediately. */
+    /* If local node isn't initialized, report cluster-down immediately. */
     if (!myself) {
         if (error_code) *error_code = CLUSTER_REDIR_DOWN_STATE;
-        serverLog(LL_DEBUG,
-                  "getNodeByQuery: cluster not initialized (myself=NULL); client=%llu cmd=%s -> CLUSTER_REDIR_DOWN_STATE",
-                  (unsigned long long)c->id,
-                  c->cmd ? c->cmd->fullname : "(nil)");
+        serverLog(LL_DEBUG, "Cluster local node not initialized, returning CLUSTERDOWN");
         return myself; /* NULL */
     }
     /* Allow any key to be set if a module disabled cluster redirections. */
