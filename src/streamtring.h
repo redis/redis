@@ -67,7 +67,6 @@ typedef struct tringNode {
 typedef struct tringTree {
     tringNode *nodes;       /* Ring buffer array of nodes */
     uint32_t capacity;      /* Total ring buffer capacity */
-    uint32_t max_capacity;  /* Maximum allowed capacity */
     uint32_t count;         /* Number of nodes in use */
     uint32_t head;          /* Index of first allocated node */
     uint32_t tail;          /* Index where next node will be allocated */
@@ -127,12 +126,6 @@ int tringPopFront(tringTree *tree);
  * Also decrements the tail pointer in the ring buffer.
  * Returns 1 on success, 0 if the tree is empty or on failure. */
 int tringPopBack(tringTree *tree);
-
-/* Set the maximum capacity for the tree.
- * If the tree's current capacity exceeds the new max_capacity, the limit
- * will be enforced on the next resize operation.
- * Setting max_capacity to 0 means no limit. */
-void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity);
 
 /* Set a callback function to be called when a value is removed from the tree. */
 void tringSetFreeCallback(tringTree *tree, tringFreeCallback callback, void *user_data);

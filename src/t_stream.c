@@ -111,7 +111,6 @@ stream *streamNew(void) {
     s->idmp_max_entries = 1000; /* Default 1000 entries */ 
     s->idmp_tring = tringNew(idmpEntryCompare, &s->alloc_size);
     tringSetFreeCallback(s->idmp_tring, idmpEntryFreeWrapper, &s->alloc_size);
-    tringSetMaxCapacity(s->idmp_tring, s->idmp_max_entries);
     return s;
 }
 
@@ -1116,8 +1115,8 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
                 return -1;
             }
 
-            char *iid = c->argv[i+1]->ptr;
-            if (iid[0] == '\0') {
+            size_t iid_len = sdslen((sds)c->argv[i+1]->ptr);
+            if (iid_len == 0) {
                 addReplyError(c, "syntax error, IDMP requires a non-empty IID");
                 return -1;
             }
@@ -2530,6 +2529,8 @@ void xaddCommand(client *c) {
     if (inserted && new_entry != NULL) {
         new_entry->id = id;
         trackStreamIdmpEntries(c, c->argv[1]);
+        if(tringSize(s->idmp_tring) > s->idmp_max_entries)
+            tringPopFront(s->idmp_tring);
     }
 
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
@@ -5108,8 +5109,6 @@ void xidmpCommand(client *c) {
         }
         if (maxsize_set) {
             s->idmp_max_entries = maxsize;
-            /* Update the tring max capacity */
-            tringSetMaxCapacity(s->idmp_tring, maxsize);
             tringClear(s->idmp_tring);
         }
         

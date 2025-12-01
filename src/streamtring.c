@@ -209,36 +209,28 @@ static void shrink(tringTree *tree) {
 static uint32_t allocateNode(tringTree *tree, void *value) {
     /* Check if we need to resize or if we're at capacity */
     if (tree->count >= tree->capacity) {
-        if (tree->capacity < tree->max_capacity) {
-            /* Calculate new capacity with overflow protection */
-            uint32_t newCapacity;
-            if (tree->capacity > UINT32_MAX / 2) {
-                newCapacity = tree->max_capacity;
-            } else {
-                newCapacity = tree->capacity * 2;
-            }
-            
-            /* Cap new capacity at max_capacity*/
-            if (newCapacity > tree->max_capacity) {
-                newCapacity = tree->max_capacity;
-            }
-            
-            /* Reallocate node array */
-            size_t usable, old_usable;
-            tringNode *newNodes = zrealloc_usable(tree->nodes, newCapacity * sizeof(tringNode), &usable, &old_usable);
-            if (!newNodes) return TRING_NULL;
-            
-            if (tree->alloc_size) {
-                *tree->alloc_size -= old_usable;
-                *tree->alloc_size += usable;
-            }
-            
-            tree->nodes = newNodes;
-            tree->capacity = newCapacity;
-        } else {
-            /* At max capacity and full, cannot allocate */
-            return TRING_NULL;
+        /* Calculate new capacity with overflow protection */
+        uint32_t newCapacity = tree->capacity * 2;
+        if (newCapacity > UINT32_MAX / 2) {
+            newCapacity = UINT32_MAX / 2;
         }
+        
+        /* Reallocate node array */
+        size_t usable, old_usable;
+        tringNode *newNodes = zrealloc_usable(tree->nodes, newCapacity * sizeof(tringNode), &usable, &old_usable);
+        if (!newNodes) return TRING_NULL;
+        
+        if (tree->alloc_size) {
+            *tree->alloc_size -= old_usable;
+            *tree->alloc_size += usable;
+        }
+        
+        tree->nodes = newNodes;
+        tree->capacity = newCapacity;
+    }
+
+    if(tree->count == tree->capacity) {
+        return TRING_NULL; /* Still at capacity after resize attempt */
     }
     
     /* Wrap tail if needed */
@@ -283,7 +275,6 @@ tringTree *tringNew(tringCompareFunc compare, size_t *alloc_size) {
     if (tree->alloc_size) *tree->alloc_size += usable;
     
     tree->capacity = TRING_INITIAL_CAPACITY;
-    tree->max_capacity = TRING_DEFAULT_MAX_CAPACITY;
     tree->count = 0;
     tree->head = 0;
     tree->tail = 0;
@@ -318,14 +309,7 @@ void tringFree(tringTree *tree) {
 }
 
 int tringInsert(tringTree *tree, void *value, void **existingOut) {
-    if (!tree || !value || !tree->max_capacity) return 0;
-    
-    /* If adding a new element would exceed max_capacity, pop the oldest one first */
-    if (tree->count + 1 > tree->max_capacity) {
-        if (!tringPopFront(tree)) {
-            return 0;
-        }
-    }
+    if (!tree || !value) return 0;
     
     /* Handle empty tree case */
     if (tree->root == TRING_NULL) {
@@ -411,7 +395,7 @@ int tringInsert(tringTree *tree, void *value, void **existingOut) {
             path[i] = rebalanced;
         }
     }
-    
+
     if (existingOut) *existingOut = NULL;
     return 1;
 }
@@ -634,11 +618,6 @@ int tringPopBack(tringTree *tree) {
     }
     
     return success;
-}
-
-void tringSetMaxCapacity(tringTree *tree, uint32_t max_capacity) {
-    if (!tree) return;
-    tree->max_capacity = max_capacity;
 }
 
 /* Set a callback function to be called when a value is removed from the tree. */
@@ -929,29 +908,6 @@ int tringTest(int argc, char *argv[], int flags) {
         tringFree(tree);
     }
 
-    TEST("tringBack with tail wraparound at capacity boundary") {
-        tringTree *tree = tringNew(intCompare, NULL);
-        tringSetMaxCapacity(tree, 8);
-        
-        /* Fill to capacity (8) without triggering resize */
-        for (long i = 1; i <= 8; i++) {
-            tringInsert(tree, (void*)i, NULL);
-        }
-        
-        /* At this point:
-        * - count = 8
-        * - capacity = 8  
-        * - head = 0
-        * - tail = 0 (wrapped after 8th insert)
-        */
-        
-        /* This should return 8 (last inserted), not crash */
-        void *back = tringBack(tree);
-        assert(back == (void*)8L);  /* Would crash or return garbage */
-        
-        tringFree(tree);
-    }
-    
     TEST("tringPop removes items in FIFO order") {
         tringTree *tree = tringNew(intCompare, NULL);
         tringInsert(tree, (void*)50L, NULL);
@@ -1190,121 +1146,6 @@ int tringTest(int argc, char *argv[], int flags) {
         assert(tringPopFront(tree) == 1);
         size = tringSize(tree);
         assert(size == 0);
-        
-        tringFree(tree);
-    }
-    
-    TEST("max_capacity evicts oldest elements when exceeded") {
-        tringTree *tree = tringNew(intCompare, NULL);
-        
-        /* Set max capacity to 6 */
-        tringSetMaxCapacity(tree, 6);
-        
-        /* Insert 12 elements */
-        assert(tringInsert(tree, (void*)1L, NULL));
-        assert(tringSize(tree) == 1);
-        assert(tringFind(tree, (void*)1L) != NULL);
-
-        assert(tringInsert(tree, (void*)2L, NULL));
-        assert(tringSize(tree) == 2);
-        assert(tringFind(tree, (void*)2L) != NULL);
-
-        assert(tringInsert(tree, (void*)3L, NULL));
-        assert(tringSize(tree) == 3);
-        assert(tringFind(tree, (void*)3L) != NULL);
-
-        assert(tringInsert(tree, (void*)4L, NULL));
-        assert(tringSize(tree) == 4);
-        assert(tringFind(tree, (void*)4L) != NULL);
-
-        assert(tringInsert(tree, (void*)5L, NULL));
-        assert(tringSize(tree) == 5);
-        assert(tringFind(tree, (void*)5L) != NULL);
-
-        assert(tringInsert(tree, (void*)6L, NULL));
-        assert(tringSize(tree) == 6);
-        assert(tringFind(tree, (void*)6L) != NULL);
-
-        assert(tringInsert(tree, (void*)7L, NULL));
-        assert(tringSize(tree) == 6);
-        assert(tringFind(tree, (void*)7L) != NULL);
-
-        assert(tringInsert(tree, (void*)8L, NULL));
-        assert(tringSize(tree) == 6);
-        assert(tringFind(tree, (void*)8L) != NULL);
-
-        assert(tringInsert(tree, (void*)9L, NULL));
-        assert(tringSize(tree) == 6);
-        assert(tringFind(tree, (void*)9L) != NULL);
-
-        assert(tringInsert(tree, (void*)10L, NULL));
-        assert(tringSize(tree) == 6);
-        assert(tringFind(tree, (void*)10L) != NULL);
-
-        assert(tringInsert(tree, (void*)11L, NULL));
-        assert(tringSize(tree) == 6);
-        assert(tringFind(tree, (void*)11L) != NULL);
-
-        assert(tringInsert(tree, (void*)12L, NULL));
-        assert(tringSize(tree) == 6);
-        assert(tringFind(tree, (void*)12L) != NULL);
-
-        /* Should have exactly 6 elements (max_capacity) */
-        assert(tringSize(tree) == 6);
-        
-        /* First 6 elements (1 to 6) should have been auto-evicted */
-        assert(tringFind(tree, (void*)1L) == NULL);
-        assert(tringFind(tree, (void*)2L) == NULL);
-        assert(tringFind(tree, (void*)3L) == NULL);
-        assert(tringFind(tree, (void*)4L) == NULL);
-        assert(tringFind(tree, (void*)5L) == NULL);
-        assert(tringFind(tree, (void*)6L) == NULL);
-        
-        /* Elements 7-12 should still be present */
-        for (long i = 7; i <= 12; i++) {
-            assert(tringFind(tree, (void*)i) == (void*)i);
-        }
-        
-        /* Verify AVL properties */
-        errors += verifyTreeIntegrity(tree);
-        
-        tringFree(tree);
-    }
-    
-    TEST("ring buffer wraps multiple times with many insertions") {
-        tringTree *tree = tringNew(intCompare, NULL);
-        
-        /* Set small max capacity to force multiple wraps */
-        tringSetMaxCapacity(tree, 8);
-        
-        /* Insert 100 elements - this will cause many wraps */
-        for (long i = 1; i <= 100; i++) {
-            assert(tringInsert(tree, (void*)i, NULL));
-            
-            /* Verify AVL properties periodically */
-            if (i % 10 == 0) {
-                errors += verifyTreeIntegrity(tree);
-            }
-        }
-        
-        /* Should still have exactly 8 elements */
-        assert(tringSize(tree) == 8);
-        
-        /* Only the last 8 elements (93-100) should be present */
-        for (long i = 1; i <= 92; i++) {
-            assert(tringFind(tree, (void*)i) == NULL);
-        }
-        
-        for (long i = 93; i <= 100; i++) {
-            assert(tringFind(tree, (void*)i) == (void*)i);
-        }
-        
-        /* Final AVL verification after all operations */
-        errors += verifyTreeIntegrity(tree);
-        
-        /* Verify head and tail have wrapped (tail should be less than head or wrapped around) */
-        /* With 100 insertions and capacity 8, we expect multiple wraps */
-        assert(tree->count == 8);
         
         tringFree(tree);
     }
@@ -1702,41 +1543,6 @@ int tringTest(int argc, char *argv[], int flags) {
         tringFree(tree);
     }
     
-    TEST("tringPopBack with ring buffer wraparound") {
-        tringTree *tree = tringNew(intCompare, NULL);
-        
-        /* Set small max capacity to force wraparound */
-        tringSetMaxCapacity(tree, 5);
-        
-        /* Insert 10 elements - this will cause wraparound and auto-eviction */
-        for (long i = 1; i <= 10; i++) {
-            assert(tringInsert(tree, (void*)i, NULL));
-        }
-        
-        /* Should have exactly 5 elements (max_capacity) */
-        assert(tringSize(tree) == 5);
-        errors += verifyTreeIntegrity(tree);
-        
-        /* Last 5 elements (6-10) should be present */
-        for (long i = 6; i <= 10; i++) {
-            assert(tringFind(tree, (void*)i) == (void*)i);
-        }
-        
-        /* tringBack should return 10 (last inserted) */
-        assert(tringBack(tree) == (void*)10L);
-        
-        /* Pop from back */
-        assert(tringPopBack(tree) == 1);
-        assert(tringSize(tree) == 4);
-        assert(tringFind(tree, (void*)10L) == NULL);
-        errors += verifyTreeIntegrity(tree);
-        
-        /* tringBack should now return 9 */
-        assert(tringBack(tree) == (void*)9L);
-        
-        tringFree(tree);
-    }
-    
     TEST("tringPopBack NULL parameter check") {
         /* Test NULL tree parameter */
         assert(tringPopBack(NULL) == 0);
@@ -2067,36 +1873,6 @@ int tringTest(int argc, char *argv[], int flags) {
         tringClear(NULL);
     }
     
-    TEST("tringClear with ring buffer wraparound") {
-        tringTree *tree = tringNew(intCompare, NULL);
-        
-        /* Set max capacity and cause wraparound */
-        tringSetMaxCapacity(tree, 10);
-        
-        /* Insert 20 elements - causes wraparound and evictions */
-        for (long i = 1; i <= 20; i++) {
-            assert(tringInsert(tree, (void*)i, NULL));
-        }
-        
-        assert(tringSize(tree) == 10);
-        /* head and tail should be wrapped */
-        
-        /* Set callback to track clears */
-        tringSetFreeCallback(tree, testFreeCallback, NULL);
-        freeCallbackCount = 0;
-        
-        /* Clear should handle wrapped state correctly */
-        tringClear(tree);
-        
-        /* Should have called callback for all 10 remaining elements */
-        assert(freeCallbackCount == 10);
-        assert(tringSize(tree) == 0);
-        assert(tree->head == 0);
-        assert(tree->tail == 0);
-        
-        tringFree(tree);
-    }
-    
     TEST("tringClear multiple times") {
         tringTree *tree = tringNew(intCompare, NULL);
         
@@ -2125,41 +1901,10 @@ int tringTest(int argc, char *argv[], int flags) {
         tringFree(tree);
     }
     
-    TEST("tringClear preserves tree configuration") {
-        tringTree *tree = tringNew(intCompare, NULL);
-        
-        /* Set max capacity and callback */
-        tringSetMaxCapacity(tree, 50);
-        tringSetFreeCallback(tree, testFreeCallback, (void*)0x12345);
-        
-        /* Insert elements */
-        for (long i = 1; i <= 10; i++) {
-            assert(tringInsert(tree, (void*)i, NULL));
-        }
-        
-        /* Clear */
-        tringClear(tree);
-        
-        /* Verify configuration is preserved */
-        assert(tree->max_capacity == 50);
-        assert(tree->compare == intCompare);
-        assert(tree->free_callback == testFreeCallback);
-        assert(tree->free_callback_user_data == (void*)0x12345);
-        
-        /* Verify tree is still functional with preserved config */
-        for (long i = 1; i <= 60; i++) {
-            tringInsert(tree, (void*)i, NULL);
-        }
-        /* Should respect max_capacity of 50 */
-        assert(tringSize(tree) == 50);
-        
-        tringFree(tree);
-    }
-    
     if (errors > 0) {
         printf("FAILED! %d AVL property violations found.\n", errors);
     } else {
-        printf("PASSED! All 53 tests successful.\n");
+        printf("PASSED! All 49 tests successful.\n");
     }
     return errors;
 }

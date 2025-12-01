@@ -384,6 +384,25 @@ start_server {
         assert_equal "charlie" [dict get [lindex [lindex $entries 2] 1] user]
     }
 
+    test {XADD IDMP with binary-safe iid} {
+        r DEL mystream
+        
+        # Test with null bytes and binary data
+        set binary_iid "\x00\x01\x02\xff"
+        set id1 [r XADD mystream IDMP $binary_iid * field "value"]
+        set id2 [r XADD mystream IDMP $binary_iid * field "dup"]
+        assert_equal $id1 $id2
+    }
+
+    test {XADD IDMP with maximum length iid} {
+        r DEL mystream
+        
+        # Test with very long iid (e.g., 64KB)
+        set long_iid [string repeat "x" 65536]
+        set id [r XADD mystream IDMP $long_iid * field "value"]
+        assert_match {*-*} $id
+    }
+
     test {XADD IDMP with MAXLEN option} {
         r DEL mystream
         
@@ -614,6 +633,55 @@ start_server {
         assert_equal $id1 $id1_dup2
     } {} {external:skip needs:debug}
 
+    test {XIDMP entries expire after DURATION milliseconds} {
+        r DEL mystream
+        r XADD mystream IDMP "req-1" * field "value1"
+        r XIDMP CFGSET mystream DURATION 100
+        
+        # Immediate duplicate should be detected
+        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP "req-1" * field "value2"]
+        assert_equal $id1 $id2
+        
+        # Wait for expiration (100ms + margin)
+        after 500
+        
+        # Now should create new entry
+        set id3 [r XADD mystream IDMP "req-1" * field "value3"]
+        assert {$id1 ne $id3}
+    }
+
+    test {XIDMP set evicts entries when MAXSIZE is reached} {
+        r DEL mystream
+        
+        # First add an entry to create the stream, then set config
+        r XADD mystream IDMP "init" * field "init"
+        r XIDMP CFGSET mystream MAXSIZE 3 DURATION 60000
+        
+        # Add 3 unique entries
+        set id1 [r XADD mystream IDMP "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP "req-2" * field "v2"]
+        set id3 [r XADD mystream IDMP "req-3" * field "v3"]
+        
+        # All duplicates should still work (IDMP set has: req-1, req-2, req-3)
+        assert_equal $id1 [r XADD mystream IDMP "req-1" * field "dup"]
+        assert_equal $id2 [r XADD mystream IDMP "req-2" * field "dup"]
+        assert_equal $id3 [r XADD mystream IDMP "req-3" * field "dup"]
+        
+        # Add 4th entry - should evict oldest (req-1)
+        set id4 [r XADD mystream IDMP "req-4" * field "v4"]
+        
+        # req-1 should be evicted, so it should create new entry
+        set result [r XADD mystream IDMP "req-1" * field "new"]
+        assert {$result ne $id1}
+        
+        # req-2 is also eveicted but req-3 should still be in the set
+        assert_equal $id3 [r XADD mystream IDMP "req-3" * field "dup2"]
+        
+        # Stream should have: init, req-1, req-2, req-3, req-4, req-1(new) = 6 entries
+        assert_equal 6 [r XLEN mystream]
+    }
+
     test {XIDMP CFGSET set DURATION successfully} {
         r DEL mystream
         
@@ -791,6 +859,7 @@ start_server {
         assert_error "*ERR At least one parameter*" {r XIDMP CFGSET mystream}
         assert_error "*syntax*" {r XIDMP CFGSET mystream DURATION}
         assert_error "*syntax*" {r XIDMP CFGSET mystream MAXSIZE}
+        assert_error "*" {r XIDMP CFGGET mystream INVALID}
         assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION A}
         assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION AAA}
         assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION *}
@@ -889,6 +958,7 @@ start_server {
         
         r config set appendonly no
     }
+
     test {XIDMP CFGSET changing DURATION clears all iids history} {
         r DEL mystream
         
@@ -980,6 +1050,39 @@ start_server {
         # But iids history is cleared, so can add new entries
         set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
         assert {$id1 ne $new_id1}
+    }
+
+    test {XIDMP CFGSET MAXSIZE wraparound keeps last 8 entries} {
+        r DEL mystream
+        
+        # Create stream and set MAXSIZE to 8
+        r XADD mystream IDMP "init" * field "init"
+        r XIDMP CFGSET mystream MAXSIZE 8 DURATION 60000
+        
+        # Add 100 unique entries and store their IDs in a list
+        set id_list {}
+        for {set i 1} {$i <= 100} {incr i} {
+            lappend id_list [r XADD mystream IDMP "req-$i" * field "v$i"]
+        }
+        
+        # Verify the last 8 entries (93-100) still deduplicate
+        for {set i 93} {$i <= 100} {incr i} {
+            set idx [expr {$i - 1}]
+            set original_id [lindex $id_list $idx]
+            set dup_id [r XADD mystream IDMP "req-$i" * field "dup"]
+            assert_equal $original_id $dup_id
+        }
+        
+        # Verify earlier entries (1-92) are evicted and create new entries
+        for {set i 1} {$i <= 92} {incr i} {
+            set idx [expr {$i - 1}]
+            set original_id [lindex $id_list $idx]
+            set new_id [r XADD mystream IDMP "req-$i" * field "new"]
+            assert {$new_id ne $original_id}
+        }
+        
+        # Total entries: init + 100 original + 92 new = 193
+        assert_equal 193 [r XLEN mystream]
     }
 
     test {XTRIM with MINID option} {

@@ -3263,9 +3263,6 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* Update the tring max capacity with the loaded value. */
-            tringSetMaxCapacity(s->idmp_tring, s->idmp_max_entries);
-
             /* Load all IDMP tring entries. */
             if (rdbLoadStreamIdmpTring(rdb, s) == -1) {
                 rdbReportReadError("Stream IDMP tring loading failed.");
