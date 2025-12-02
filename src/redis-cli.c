@@ -2907,8 +2907,6 @@ static int parseOptions(int argc, char **argv) {
             config.cluster_manager_command.from_pass = argv[++i];
         } else if (!strcmp(argv[i], "--cluster-from-askpass")) {
             config.cluster_manager_command.from_askpass = 1;
-        } else if (!strcmp(argv[i], "--name") && !lastarg) {
-            config.client_name = argv[++i];
         } else if (!strcmp(argv[i],"--cluster-weight") && !lastarg) {
             if (config.cluster_manager_command.weight != NULL) {
                 fprintf(stderr, "WARNING: you cannot use --cluster-weight "
@@ -2967,6 +2965,8 @@ static int parseOptions(int argc, char **argv) {
             config.test_hint = argv[++i];
         } else if (!strcmp(argv[i],"--test_hint_file") && !lastarg) {
             config.test_hint_file = argv[++i];
+        } else if (!strcmp(argv[i], "--name") && !lastarg) {
+            config.client_name = argv[++i];
 #ifdef USE_OPENSSL
         } else if (!strcmp(argv[i],"--tls")) {
             config.tls = 1;
