@@ -1668,6 +1668,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         migrateCloseTimedoutSockets();
     }
 
+    /* Cleanup expired IDMP entries from tracked streams */
+    run_with_period(1000) {
+        handleExpiredIdmpEntries();
+    }
+
     /* Periodically shrink pending command reuse pool */
     run_with_period(2000) {
         pendingCommandPoolCron();
