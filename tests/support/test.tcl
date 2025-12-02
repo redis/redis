@@ -241,6 +241,10 @@ proc test {name code {okpattern undefined} {tags {}}} {
                 gets stdin
             }
         } else {
+            # Set global variables to record the failed test info
+            set ::last_failed_test_name $name
+            set ::last_failed_test_file $::curfile
+
             # Re-raise, let handler up the stack take care of this.
             error $error $::errorInfo
         }
