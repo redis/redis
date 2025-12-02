@@ -1496,10 +1496,10 @@ void asmSyncWithSource(connection *conn) {
                 "Source node replied to SYNCSLOTS SYNC, syncslots can continue...");
         } else if (!strncmp(err, "-NOTREADY", strlen("-NOTREADY"))) {
             /* The source-side cluster is temporarily not ready to start a
-             * migration and replied -NOTREADY. Instead of failing the task,
-             * we'll retry sending SYNCSLOTS later in asmCron(). This avoids
-             * failing the task due to a transient condition and prevents
-             * unnecessary cleanup in the cluster implementation. */
+             * migration and replied -NOTREADY. We could fail this attempt and
+             * let the import task start another attempt later but that could
+             * trigger unnecessary cleanup in the cluster implementation.
+             * Instead, we'll retry sending SYNCSLOTS later in asmCron(). */
             sdsfree(err);
             err = NULL;
             task->state = ASM_SEND_SYNCSLOTS;
@@ -2553,7 +2553,7 @@ void asmCron(void) {
         } else if (task->state == ASM_SEND_SYNCSLOTS) {
             /* Rare case: the source node replied to SYNCSLOTS with -NOTREADY
              * because it wasn't ready to start a migration. We'll retry
-             * SYNCSLOTS every second instead of failing the task which could
+             * SYNCSLOTS every second instead of failing the attempt which could
              * trigger unnecessary cleanup in the cluster implementation. */
             if (asm_cron_runs % 10 == 0)
                 asmSyncWithSource(task->main_channel_conn);
