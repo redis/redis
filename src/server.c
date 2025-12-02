@@ -7448,8 +7448,6 @@ struct redisTest {
     {"ebuckets", ebucketsTest},
     {"bitmap", bitopsTest},
     {"rax", raxTest},
-    {"ring", ringTest},
-    {"avl", avlTest},
     {"tring", tringTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
