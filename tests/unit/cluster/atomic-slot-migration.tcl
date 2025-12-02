@@ -2314,6 +2314,10 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             R 3 debug asm-trim-method $trim_method
             R 6 debug asm-trim-method $trim_method
 
+            # FORCE EXCEPTION: Migrate slot 0 first to trigger MOVED error
+            R 1 CLUSTER MIGRATION IMPORT 0 0
+            wait_for_asm_done
+
             # Set a key in the slot range
             set key [slot_key 0 mykey]
             R 0 set $key "value"
