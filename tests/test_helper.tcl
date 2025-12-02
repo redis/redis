@@ -396,10 +396,10 @@ proc read_from_test_client fd {
             gets stdin
         }
     } elseif {$status eq {exception}} {
-        puts "\[[colorstr red $status]\]: $data"
-        kill_clients
-        force_kill_all_servers
-        exit 1
+        set err "\[[colorstr red $status]\]: $data"
+        puts $err
+        lappend ::failed_tests $err
+        set ::active_clients_task($fd) "(EXCEPTION) $data"
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
     } elseif {$status eq {server-spawning}} {
