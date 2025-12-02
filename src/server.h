@@ -3168,6 +3168,7 @@ size_t getObjectLength(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
 size_t stringObjectAllocSize(const robj *o);
+unsigned char *getObjectReadOnlyString(robj *o, long *len, char *llbuf);
 robj *createStringObjectFromLongLong(long long value);
 robj *createStringObjectFromLongLongForValue(long long value);
 robj *createStringObjectFromLongLongWithSds(long long value);

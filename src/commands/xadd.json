@@ -89,17 +89,28 @@
             },
             {
                 "name": "idmp",
-                "type": "block",
+                "type": "oneof",
                 "optional": true,
                 "arguments": [
                     {
-                        "token": "IDMP",
-                        "name": "idmp-token",
-                        "type": "pure-token"
+                        "name": "idmpauto",
+                        "type": "pure-token",
+                        "token": "IDMPAUTO"
                     },
                     {
-                        "name": "uid",
-                        "type": "string"
+                        "name": "idmp-with-uid",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "token": "IDMP",
+                                "name": "idmp-token",
+                                "type": "pure-token"
+                            },
+                            {
+                                "name": "uid",
+                                "type": "string"
+                            }
+                        ]
                     }
                 ]
             },

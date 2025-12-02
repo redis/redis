@@ -11,6 +11,7 @@
 #include "server.h"
 #include "streamidmp.h"
 #include <string.h>
+#include "../deps/xxhash/xxhash.h"
 
 #ifdef HAVE_AVX2
 /* Define __MM_MALLOC_H to prevent importing the memory aligned
@@ -475,5 +476,89 @@ void handleExpiredIdmpEntries(void) {
         }
         dictResetIterator(&di);
     }
+}
+
+/* -----------------------------------------------------------------------
+ * Field-Value Pair Hashing for AUTOIDMP
+ * ----------------------------------------------------------------------- */
+
+/* Hash field-value pairs using XXH3_128bits for AUTOIDMP.
+ * 
+ * This function takes an array of robj pointers representing field-value pairs
+ * and the number of pairs. It hashes each field-value pair together using
+ * XXH3_128bits and XORs all the pair hashes to produce a final 128-bit hash.
+ * 
+ * The raw 128-bit hash (16 bytes) is written directly to the provided result buffer.
+ * 
+ * Algorithm:
+ * 1. For each field-value pair:
+ *    a. Create a streaming hash state with XXH3_128bits_reset()
+ *    b. Update hash with field data using XXH3_128bits_update()
+ *    c. Update hash with value data using XXH3_128bits_update()
+ *    d. Finalize pair hash with XXH3_128bits_digest()
+ *    e. XOR the pair hash with the accumulated result
+ * 2. Write final 128-bit hash to result buffer
+ * 
+ * Parameters:
+ *   argv      - Array of robj pointers containing field-value pairs
+ *               (argv[0] = field1, argv[1] = value1, argv[2] = field2, ...)
+ *   numfields - Number of field-value pairs (not the array length)
+ *   result    - Buffer to store the raw 16-byte hash (must be at least 16 bytes)
+ * 
+ * Returns:
+ *   1 on success
+ *   0 on error (memory allocation failure or hash function error) */
+int createIdempotencyHash(robj **argv, int64_t numfields, char *result) {
+    XXH128_hash_t hash_result = {0, 0};
+    XXH3_state_t* state = XXH3_createState();
+    if (state == NULL) return 0;
+    
+    char llbuf[LONG_STR_SIZE];
+    XXH_errorcode err;
+    
+    /* Process each field-value pair */
+    for (int64_t i = 0; i < numfields; i++) {
+        robj *field = argv[i * 2];
+        robj *value = argv[i * 2 + 1];
+        
+        /* Initialize hash state for this pair */
+        err = XXH3_128bits_reset(state);
+        if (err != XXH_OK) {
+            XXH3_freeState(state);
+            return 0;
+        }
+        
+        /* Hash the field */
+        long field_len;
+        unsigned char *field_data = getObjectReadOnlyString(field, &field_len, llbuf);
+        err = XXH3_128bits_update(state, field_data, field_len);
+        if (err != XXH_OK) {
+            XXH3_freeState(state);
+            return 0;
+        }
+        
+        /* Hash the value */
+        long value_len;
+        unsigned char *value_data = getObjectReadOnlyString(value, &value_len, llbuf);
+        err = XXH3_128bits_update(state, value_data, value_len);
+        if (err != XXH_OK) {
+            XXH3_freeState(state);
+            return 0;
+        }
+        
+        /* Get the hash for this pair */
+        XXH128_hash_t pair_hash = XXH3_128bits_digest(state);
+        
+        /* XOR with accumulated result */
+        hash_result.low64 ^= pair_hash.low64;
+        hash_result.high64 ^= pair_hash.high64;
+    }
+    
+    XXH3_freeState(state);
+    
+    /* Write raw 128-bit hash to result buffer (16 bytes) */
+    memcpy(result, &hash_result, 16);
+    
+    return 1;
 }
 

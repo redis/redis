@@ -44,5 +44,18 @@ void trackStreamIdmpEntries(client *c, robj *key);
  * tracking enabled, keeping memory usage under control. */
 void handleExpiredIdmpEntries(void);
 
+/* Hash field-value pairs using XXH3_128bits for AUTOIDMP.
+ * Takes an array of robj pointers (field-value pairs) and the number of pairs.
+ * Each field-value pair is hashed together, and all pair hashes are XORed.
+ * The raw 128-bit hash (16 bytes) is written to the provided result buffer.
+ * 
+ * Parameters:
+ *   argv      - Array of robj pointers containing field-value pairs
+ *   numfields - Number of field-value pairs (not the array length)
+ *   result    - Buffer to store the raw 16-byte hash (must be at least 16 bytes)
+ * 
+ * Returns: 1 on success, 0 on error */
+int createIdempotencyHash(robj **argv, int64_t numfields, char *result);
+
 #endif /* __STREAMIDMP_H */
 

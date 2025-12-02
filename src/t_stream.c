@@ -742,6 +742,7 @@ typedef struct {
     int seq_given; /* Was an ID different than "ms-*" specified? for XADD only. */
     int no_mkstream; /* if set to 1 do not create new stream */
     robj *idmp_iid; /* IDMP uid parameter, for XADD only. */
+    int idmp_auto; /* If set to 1, auto-generate IID from client info, for XADD only. */
 
     /* XADD + XTRIM common options */
     int trim_strategy; /* TRIM_STRATEGY_* */
@@ -1108,10 +1109,17 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             args->delete_strategy = DELETE_STRATEGY_ACKED;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
+        } else if (xadd && !strcasecmp(opt,"idmpauto")) {
+            /* IDMPAUTO option - auto-generate IID */
+            if (args->idmp_iid != NULL || args->idmp_auto) {
+                addReplyError(c,"syntax error, IDMP/IDMPAUTO specified multiple times");
+                return -1;
+            }
+            args->idmp_auto = 1;
         } else if (xadd && !strcasecmp(opt,"idmp") && moreargs) {
             /* IDMP iid parameter */
-            if (args->idmp_iid != NULL) {
-                addReplyError(c,"syntax error, IDMP specified multiple times");
+            if (args->idmp_iid != NULL || args->idmp_auto) {
+                addReplyError(c,"syntax error, IDMP/IDMPAUTO specified multiple times");
                 return -1;
             }
 
@@ -1128,8 +1136,8 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
                 return -1;
 
-            if (args->idmp_iid && opt[0] != '*' && !mustObeyClient(c)) {
-                addReplyError(c,"syntax error, IDMP can be used only with auto-generated IDs");
+            if ((args->idmp_iid || args->idmp_auto) && opt[0] != '*' && !mustObeyClient(c)) {
+                addReplyError(c,"syntax error, IDMP/IDMPAUTO can be used only with auto-generated IDs");
                 return -1;
             }
             args->id_given = 1;
@@ -2428,7 +2436,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
     decrRefCount(arg);
 }
 
-/* XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [IDMP iid] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] <ID or *> [field value] [field value] ... */
+/* XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [IDMPAUTO | IDMP iid] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] <ID or *> [field value] [field value] ... */
 void xaddCommand(client *c) {
     /* Parse options. */
     streamAddTrimArgs parsed_args;
@@ -2463,12 +2471,32 @@ void xaddCommand(client *c) {
     /* IDMP: Check if IID already exists or prepare to insert */
     idmpEntry *new_entry = NULL;
     int inserted = 0;
-    if (parsed_args.idmp_iid != NULL) {
+    sds auto_iid = NULL; /* For IDMPAUTO, we'll generate and track this */
+    
+    if (parsed_args.idmp_iid != NULL || parsed_args.idmp_auto) {
+        /* Generate IID based on option */
+        char *iid_str;
+        size_t iid_len;
+        char hash_buffer[16];
+        if (parsed_args.idmp_auto) {
+            /* Auto-generate IID by hashing field-value pairs */
+            int64_t numfields = (c->argc - field_pos) / 2;
+            if (!createIdempotencyHash(&c->argv[field_pos], numfields, hash_buffer)) {
+                addReplyError(c,"Failed to create idempotency hash");
+                return;
+            }
+            iid_str = hash_buffer;
+            iid_len = 16;
+        } else {
+            /* Use user-provided IID */
+            iid_str = parsed_args.idmp_iid->ptr;
+            iid_len = sdslen((sds)iid_str);
+        }
+        
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
-        char *iid_str = parsed_args.idmp_iid->ptr;
-        size_t iid_len = sdslen((sds)iid_str);
         new_entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         if (new_entry == NULL) {
+            if (auto_iid) sdsfree(auto_iid);
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
         }
@@ -2485,10 +2513,14 @@ void xaddCommand(client *c) {
             }
             /* Clean up the new entry we created since we're using existing one */
             idmpEntryFree(new_entry, &s->alloc_size);
+            if (auto_iid) sdsfree(auto_iid);
             return;
         }
         /* If inserted==1, the entry was inserted with placeholder ID, 
          * we'll update it after streamAppendItem */
+        
+        /* Clean up auto_iid after using it - the iid string is now owned by the entry */
+        if (auto_iid) sdsfree(auto_iid);
     }
 
     /* Return ASAP if the stream has reached the last possible ID */
