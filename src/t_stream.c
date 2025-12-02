@@ -107,8 +107,8 @@ stream *streamNew(void) {
     s->min_cgroup_last_id.ms = UINT64_MAX;
     s->min_cgroup_last_id.seq = UINT64_MAX;
     s->min_cgroup_last_id_valid = 0;
-    s->idmp_duration = 100000; /* Default 100000 ms */
-    s->idmp_max_entries = 1000; /* Default 1000 entries */ 
+    s->idmp_duration = server.stream_idmp_duration; /* Default from server config */
+    s->idmp_max_entries = server.stream_idmp_maxsize; /* Default from server config */ 
     s->idmp_tring = tringNew(idmpEntryCompare, &s->alloc_size);
     tringSetFreeCallback(s->idmp_tring, idmpEntryFreeWrapper, &s->alloc_size);
     return s;
@@ -5098,8 +5098,8 @@ void xidmpCommand(client *c) {
                 i++;
                 if (getLongLongFromObjectOrReply(c, c->argv[i], &duration, NULL) != C_OK)
                     return;
-                if (duration < 1 || duration > 100000) {
-                    addReplyError(c, "DURATION must be between 1 and 100000 milliseconds");
+                if (duration < 1 || duration > 300) {
+                    addReplyError(c, "DURATION must be between 1 and 300 seconds");
                     return;
                 }
                 duration_set = 1;

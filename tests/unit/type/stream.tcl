@@ -921,18 +921,18 @@ start_server {
         assert_equal 2 [r XLEN mystream]
     }
 
-    test {XIDMP entries expire after DURATION milliseconds} {
+    test {XIDMP entries expire after DURATION seconds} {
         r DEL mystream
         r XADD mystream IDMP "req-1" * field "value1"
-        r XIDMP CFGSET mystream DURATION 100
+        r XIDMP CFGSET mystream DURATION 1
         
         # Immediate duplicate should be detected
         set id1 [r XADD mystream IDMP "req-1" * field "value1"]
         set id2 [r XADD mystream IDMP "req-1" * field "value2"]
         assert_equal $id1 $id2
         
-        # Wait for expiration (100ms + margin)
-        after 500
+        # Wait for expiration (1 second + margin)
+        after 1500
         
         # Now should create new entry
         set id3 [r XADD mystream IDMP "req-1" * field "value3"]
@@ -944,7 +944,7 @@ start_server {
         
         # First add an entry to create the stream, then set config
         r XADD mystream IDMP "init" * field "init"
-        r XIDMP CFGSET mystream MAXSIZE 3 DURATION 60000
+        r XIDMP CFGSET mystream MAXSIZE 3 DURATION 60
         
         # Add 3 unique entries
         set id1 [r XADD mystream IDMP "req-1" * field "v1"]
@@ -976,13 +976,13 @@ start_server {
         # Create stream with IDMP entry
         r XADD mystream IDMP "req-1" * field "value"
         
-        # Set DURATION to 5000ms
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 5000]
+        # Set DURATION to 5s
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 5]
         
         # Verify DURATION was set
         set config [r XIDMP CFGGET mystream DURATION]
         assert_equal "duration" [lindex $config 0]
-        assert_equal 5000 [lindex $config 1]
+        assert_equal 5 [lindex $config 1]
     }
 
     test {XIDMP CFGSET set MAXSIZE successfully} {
@@ -1007,12 +1007,12 @@ start_server {
         r XADD mystream IDMP "req-1" * field "value"
         
         # Set both DURATION and MAXSIZE
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3000 MAXSIZE 10000]
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
         
         # Verify both were set
         set config [r XIDMP CFGGET mystream DURATION MAXSIZE]
         assert_equal "duration" [lindex $config 0]
-        assert_equal 3000 [lindex $config 1]
+        assert_equal 3 [lindex $config 1]
         assert_equal "maxsize" [lindex $config 2]
         assert_equal 10000 [lindex $config 3]
     }
@@ -1024,12 +1024,12 @@ start_server {
         r XADD mystream IDMP "req-1" * field "value"
         
         # Set both DURATION and MAXSIZE
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3000 MAXSIZE 10000]
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
         
         # Verify both were set
         set config [r XIDMP CFGGET mystream]
         assert_equal "duration" [lindex $config 0]
-        assert_equal 3000 [lindex $config 1]
+        assert_equal 3 [lindex $config 1]
         assert_equal "maxsize" [lindex $config 2]
         assert_equal 10000 [lindex $config 3]
     }
@@ -1043,7 +1043,7 @@ start_server {
         # Verify both were set
         set config [r XIDMP CFGGET mystream]
         assert_equal "duration" [lindex $config 0]
-        assert_equal 100000 [lindex $config 1]
+        assert_equal 100 [lindex $config 1]
         assert_equal "maxsize" [lindex $config 2]
         assert_equal 1000 [lindex $config 3]
     }
@@ -1052,7 +1052,7 @@ start_server {
         r DEL mystream
         
         # Attempt to set config on non-existent stream
-        assert_error "*no such key*" {r XIDMP CFGSET mystream DURATION 5000}
+        assert_error "*no such key*" {r XIDMP CFGSET mystream DURATION 5}
     }
 
     test {XIDMP CFGSET DURATION maximum value validation} {
@@ -1061,19 +1061,19 @@ start_server {
         # Create stream with IDMP
         r XADD mystream IDMP "req-1" * field "value"
         
-        # Set DURATION to maximum allowed (100000ms = 100 seconds)
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 100000]
+        # Set DURATION to maximum allowed (300 seconds)
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 300]
         
         # Verify it was set
         set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal 100000 [lindex $config 1]
+        assert_equal 300 [lindex $config 1]
         
         # Attempt to set DURATION above maximum
-        assert_error "*ERR DURATION must be*" {r XIDMP CFGSET mystream DURATION 100001}
+        assert_error "*ERR DURATION must be*" {r XIDMP CFGSET mystream DURATION 301}
         
         # Verify DURATION wasn't changed
         set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal 100000 [lindex $config 1]
+        assert_equal 300 [lindex $config 1]
     }
 
     test {XIDMP CFGSET DURATION minimum value validation} {
@@ -1088,7 +1088,7 @@ start_server {
         # Attempt to set DURATION to negative value
         assert_error "*ERR DURATION must be between*" {r XIDMP CFGSET mystream DURATION -100}
         
-        # Set DURATION to minimum valid value (1ms)
+        # Set DURATION to minimum valid value (1 second)
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 1]
         
         # Verify it was set
@@ -1181,9 +1181,9 @@ start_server {
         r XADD mystream IDMP "req-1" * field "value"
         
         # Change DURATION multiple times
-        r XIDMP CFGSET mystream DURATION 1000
-        r XIDMP CFGSET mystream DURATION 2000
-        r XIDMP CFGSET mystream DURATION 3000
+        r XIDMP CFGSET mystream DURATION 1
+        r XIDMP CFGSET mystream DURATION 2
+        r XIDMP CFGSET mystream DURATION 3
         
         # Change MAXSIZE
         r XIDMP CFGSET mystream MAXSIZE 100
@@ -1194,7 +1194,7 @@ start_server {
         
         # Parse config
         array set cfg $config
-        assert_equal 3000 $cfg(duration)
+        assert_equal 3 $cfg(duration)
         assert_equal 200 $cfg(maxsize)
     }
 
@@ -1203,7 +1203,7 @@ start_server {
         
         # Create stream and set configuration
         r XADD mystream IDMP "req-1" * field "value"
-        r XIDMP CFGSET mystream DURATION 7500 MAXSIZE 25000
+        r XIDMP CFGSET mystream DURATION 75 MAXSIZE 25000
         
         # Save and restart
         r SAVE
@@ -1215,7 +1215,7 @@ start_server {
         set config [r XIDMP CFGGET mystream]
         array set cfg $config
         
-        assert_equal 7500 $cfg(duration)
+        assert_equal 75 $cfg(duration)
         assert_equal 25000 $cfg(maxsize)
     }
 
@@ -1228,7 +1228,7 @@ start_server {
 
         # Create stream and set configuration
         r XADD mystream IDMP "req-1" * field "value"
-        r XIDMP CFGSET mystream DURATION 4500 MAXSIZE 18000
+        r XIDMP CFGSET mystream DURATION 45 MAXSIZE 18000
         
         # Force AOF rewrite
         r BGREWRITEAOF
@@ -1241,7 +1241,7 @@ start_server {
         set config [r XIDMP CFGGET mystream]
         array set cfg $config
         
-        assert_equal 4500 $cfg(duration)
+        assert_equal 45 $cfg(duration)
         assert_equal 18000 $cfg(maxsize)
         
         r config set appendonly no
@@ -1259,7 +1259,7 @@ start_server {
         assert_equal $id1 $dup_id
         
         # Change DURATION - should clear iids history
-        r XIDMP CFGSET mystream DURATION 5000
+        r XIDMP CFGSET mystream DURATION 5
         
         # Now req-1 should create a new entry (history was cleared)
         set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
@@ -1298,7 +1298,7 @@ start_server {
         set id1 [r XADD mystream IDMP "req-1" * field "value1"]
         
         # Change configuration to clear history
-        r XIDMP CFGSET mystream DURATION 6000
+        r XIDMP CFGSET mystream DURATION 6
         
         # Add new entry with same iid
         set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
@@ -1324,7 +1324,7 @@ start_server {
         assert_equal 2 [llength $entries]
         
         # Change configuration to clear iids history
-        r XIDMP CFGSET mystream DURATION 7000
+        r XIDMP CFGSET mystream DURATION 7
         
         # Stream entries should still exist unchanged
         set entries_after [r XRANGE mystream - +]
@@ -1345,7 +1345,7 @@ start_server {
         
         # Create stream and set MAXSIZE to 8
         r XADD mystream IDMP "init" * field "init"
-        r XIDMP CFGSET mystream MAXSIZE 8 DURATION 60000
+        r XIDMP CFGSET mystream MAXSIZE 8 DURATION 60
         
         # Add 100 unique entries and store their IDs in a list
         set id_list {}

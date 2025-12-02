@@ -458,7 +458,7 @@ void handleExpiredIdmpEntries(void) {
             }
 
             stream *s = kv->ptr;
-            uint64_t expire_time = server.mstime - s->idmp_duration;
+            uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
             while (!tringEmpty(s->idmp_tring)) {
                 idmpEntry *entry = (idmpEntry*)tringFront(s->idmp_tring);
                 if (entry->id.ms <= expire_time) {

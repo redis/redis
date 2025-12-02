@@ -1249,7 +1249,7 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
         /* Save IDMP (Idempotent Message Producer) configuration and entries. */
         
-        /* Save IDMP duration (in milliseconds). */
+        /* Save IDMP duration (in seconds). */
         if ((n = rdbSaveLen(rdb, s->idmp_duration)) == -1) return -1;
         nwritten += n;
         
