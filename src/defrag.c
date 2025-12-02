@@ -935,6 +935,47 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     return cg;
 }
 
+/* Defrag IDMP tring including:
+ * 1) tringTree struct
+ * 2) tring nodes array
+ * 3) all idmpEntry structures and their iid strings */
+void defragIdmpTring(tringTree **tringref) {
+    tringTree *tring;
+    
+    /* Defrag the tring tree structure itself */
+    if ((tring = activeDefragAlloc(*tringref)))
+        *tringref = tring;
+    tring = *tringref;
+    
+    /* Defrag the nodes array */
+    tringNode *newnodes = activeDefragAlloc(tring->nodes);
+    if (newnodes) {
+        tring->nodes = newnodes;
+    }
+    
+    /* Iterate through all nodes in the ring buffer and defrag each idmpEntry */
+    for (uint32_t i = 0; i < tring->count; i++) {
+        uint32_t idx = (tring->head + i) % tring->capacity;
+        tringNode *node = &tring->nodes[idx];
+        
+        if (node->value != NULL) {
+            idmpEntry *entry = (idmpEntry *)node->value;
+            idmpEntry *newentry = activeDefragAlloc(entry);
+            if (newentry) {
+                node->value = entry = newentry;
+            }
+            
+            /* Defrag the iid string inside the entry */
+            if (entry->iid != NULL) {
+                char *newiid = activeDefragAlloc(entry->iid);
+                if (newiid) {
+                    entry->iid = newiid;
+                }
+            }
+        }
+    }
+}
+
 void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     serverAssert(ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM);
     stream *s = ob->ptr, *news;
@@ -965,18 +1006,10 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     }
 
     if (s->idmp_tring) {
-        /* Defrag the tring tree structure and its nodes */
-        tringTree *newtring = activeDefragAlloc(s->idmp_tring);
-        if (newtring) {
-            s->idmp_tring = newtring;
-        }
         /* Update tring back-pointer to new stream */
         s->idmp_tring->alloc_size = &s->alloc_size;
-        /* Defrag the tring nodes array */
-        tringNode *newnodes = activeDefragAlloc(s->idmp_tring->nodes);
-        if (newnodes) {
-            s->idmp_tring->nodes = newnodes;
-        }
+        /* Defrag the tring tree, nodes array, and all idmpEntry structures */
+        defragIdmpTring(&s->idmp_tring);
     }
 }
 
