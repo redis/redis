@@ -963,6 +963,21 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
         /* Update cgroups_ref back-pointer to new stream */
         s->cgroups_ref->alloc_size = &s->alloc_size;
     }
+
+    if (s->idmp_tring) {
+        /* Defrag the tring tree structure and its nodes */
+        tringTree *newtring = activeDefragAlloc(s->idmp_tring);
+        if (newtring) {
+            s->idmp_tring = newtring;
+        }
+        /* Update tring back-pointer to new stream */
+        s->idmp_tring->alloc_size = &s->alloc_size;
+        /* Defrag the tring nodes array */
+        tringNode *newnodes = activeDefragAlloc(s->idmp_tring->nodes);
+        if (newnodes) {
+            s->idmp_tring->nodes = newnodes;
+        }
+    }
 }
 
 /* Defrag a module key. This is either done immediately or scheduled

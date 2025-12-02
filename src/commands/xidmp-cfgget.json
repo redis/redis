@@ -14,6 +14,12 @@
         "acl_categories": [
             "STREAM"
         ],
+        "reply_schema": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "integer"
+            }
+        },
         "key_specs": [
             {
                 "flags": [

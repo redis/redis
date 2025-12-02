@@ -31,7 +31,6 @@
 #include "cluster_asm.h"
 #include "fwtree.h"
 #include "estore.h"
-#include "ring.h"
 
 #include <time.h>
 #include <signal.h>
