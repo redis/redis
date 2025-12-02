@@ -293,12 +293,12 @@ start_server {
     test {XADD IDMP with invalid syntax} {
         r DEL mystream
         assert_error "*ERR Invalid stream ID specified*" {r XADD mystream IDMP * f v}
-        assert_error "*IDMP can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 1-1 f v}
-        assert_error "*IDMP can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 1-1 f v}
-        assert_error "*IDMP can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 * f v}
-        assert_error "*IDMP specified multiple times*" {r XADD mystream IDMP 1 IDMP 2 * f v}
-        assert_error "*IDMP specified multiple times*" {r XADD mystream IDMP IDMP IDMP 2 * f v}
-        assert_error "*IDMP specified multiple times*" {r XADD mystream IDMP IDMP IDMP * f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 1-1 f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 1-1 f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP 1 IDMP 2 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP IDMP IDMP 2 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP IDMP IDMP * f v}
         assert_error "*IDMP requires a non-empty IID*" {r XADD mystream IDMP "" * f v}
     }
 
@@ -632,6 +632,294 @@ start_server {
         set id1_dup2 [r XADD mystream IDMP "aof-1" * field "new"]
         assert_equal $id1 $id1_dup2
     } {} {external:skip needs:debug}
+
+    test {XADD IDMPAUTO with invalid syntax} {
+        r DEL mystream
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO IDMPAUTO * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO IDMP 1 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP 1 IDMPAUTO * f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMPAUTO 1-1 f v}
+    }
+
+    test {XADD IDMPAUTO basic deduplication based on field-value pairs} {
+        r DEL mystream
+        
+        # First XADD with IDMPAUTO
+        set id1 [r XADD mystream IDMPAUTO * amount "100" currency "USD"]
+        assert {[regexp {^[0-9]+-[0-9]+$} $id1]}
+        
+        # Second XADD with same fields and values should deduplicate
+        set id2 [r XADD mystream IDMPAUTO * amount "100" currency "USD"]
+        assert_equal $id1 $id2
+        
+        # Verify only one entry exists
+        assert_equal 1 [r XLEN mystream]
+        
+        # Third XADD with different values should create new entry
+        set id3 [r XADD mystream IDMPAUTO * amount "200" currency "USD"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO deduplicates regardless of field order} {
+        r DEL mystream
+        
+        # Add entry with fields in one order
+        set id1 [r XADD mystream IDMPAUTO * field1 "a" field2 "b" field3 "c"]
+        
+        # Add entry with same fields in different order (should deduplicate)
+        set id2 [r XADD mystream IDMPAUTO * field2 "b" field3 "c" field1 "a"]
+        assert_equal $id1 $id2
+        
+        # Verify only one entry exists
+        assert_equal 1 [r XLEN mystream]
+        
+        # Add entry with different order but different values (should be new)
+        set id3 [r XADD mystream IDMPAUTO * field3 "c" field1 "x" field2 "b"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO different field-value pairs create different entries} {
+        r DEL mystream
+        
+        # Add different entries
+        set id1 [r XADD mystream IDMPAUTO * user "alice" action "login"]
+        set id2 [r XADD mystream IDMPAUTO * user "bob" action "login"]
+        set id3 [r XADD mystream IDMPAUTO * user "alice" action "logout"]
+        
+        # Verify all IDs are different
+        assert {$id1 != $id2}
+        assert {$id2 != $id3}
+        assert {$id1 != $id3}
+        
+        # Verify all entries exist
+        assert_equal 3 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with single field-value pair} {
+        r DEL mystream
+        
+        # Add entry with single field
+        set id1 [r XADD mystream IDMPAUTO * status "active"]
+        set id2 [r XADD mystream IDMPAUTO * status "active"]
+        assert_equal $id1 $id2
+        
+        # Different value should create new entry
+        set id3 [r XADD mystream IDMPAUTO * status "inactive"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with many field-value pairs} {
+        r DEL mystream
+        
+        # Add entry with many fields
+        set id1 [r XADD mystream IDMPAUTO * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
+        set id2 [r XADD mystream IDMPAUTO * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
+        assert_equal $id1 $id2
+        
+        # Change one value should create new entry
+        set id3 [r XADD mystream IDMPAUTO * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "different"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with binary-safe values} {
+        r DEL mystream
+        
+        # Test with null bytes and binary data
+        set binary_val "\x00\x01\x02\xff"
+        set id1 [r XADD mystream IDMPAUTO * field $binary_val]
+        set id2 [r XADD mystream IDMPAUTO * field $binary_val]
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with unicode values} {
+        r DEL mystream
+        
+        # Test with unicode characters
+        set id1 [r XADD mystream IDMPAUTO * message "hello世界"]
+        set id2 [r XADD mystream IDMPAUTO * message "hello世界"]
+        assert_equal $id1 $id2
+        
+        # Different unicode should create new entry
+        set id3 [r XADD mystream IDMPAUTO * message "héllo"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with long values} {
+        r DEL mystream
+        
+        # Test with very long values
+        set long_val [string repeat "x" 10000]
+        set id1 [r XADD mystream IDMPAUTO * data $long_val]
+        set id2 [r XADD mystream IDMPAUTO * data $long_val]
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with empty string values} {
+        r DEL mystream
+        
+        # Test with empty string values
+        set id1 [r XADD mystream IDMPAUTO * field ""]
+        set id2 [r XADD mystream IDMPAUTO * field ""]
+        assert_equal $id1 $id2
+        
+        # Non-empty should be different
+        set id3 [r XADD mystream IDMPAUTO * field "value"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with MAXLEN option} {
+        r DEL mystream
+        
+        # Add entries with IDMPAUTO and MAXLEN
+        set id1 [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "value1"]
+        set id2 [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "value2"]
+        
+        # Attempt duplicate
+        set id1_dup [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "value1"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id1_dup
+        
+        # Verify only 2 entries exist
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with MINID option} {
+        r DEL mystream
+        
+        # Add entry with IDMPAUTO and MINID
+        set id1 [r XADD mystream IDMPAUTO MINID ~ 1000000000-0 * field "value1"]
+        
+        # Attempt duplicate with MINID
+        set id2 [r XADD mystream IDMPAUTO MINID ~ 1000000000-0 * field "value1"]
+        
+        # Verify deduplication works
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with NOMKSTREAM option} {
+        r DEL mystream
+        
+        # Attempt XADD with NOMKSTREAM on non-existent stream
+        set result [r XADD mystream NOMKSTREAM IDMPAUTO * field "value"]
+        assert_equal {} $result
+        
+        # Create stream first
+        r XADD mystream * field "initial"
+        
+        # Now NOMKSTREAM with IDMPAUTO should work
+        set id [r XADD mystream NOMKSTREAM IDMPAUTO * field "test"]
+        assert {[regexp {^[0-9]+-[0-9]+$} $id]}
+    }
+
+    test {XADD IDMPAUTO with KEEPREF option} {
+        r DEL mystream
+        
+        # Add entries with IDMPAUTO and KEEPREF
+        set id1 [r XADD mystream KEEPREF IDMPAUTO * field "value1"]
+        set id2 [r XADD mystream KEEPREF IDMPAUTO * field "value1"]
+        
+        # Verify deduplication works with KEEPREF
+        assert_equal $id1 $id2
+        assert_equal 1 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO argument order variations} {
+        r DEL mystream
+        
+        # Test different argument orders
+        set id1 [r XADD mystream IDMPAUTO * field "test"]
+        set id2 [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "test2"]
+        set id3 [r XADD mystream MAXLEN ~ 100 IDMPAUTO * field "test3"]
+        set id4 [r XADD mystream KEEPREF IDMPAUTO * field "test4"]
+        set id5 [r XADD mystream IDMPAUTO KEEPREF * field "test5"]
+        
+        # All should be valid stream IDs
+        assert {[regexp {^[0-9]+-[0-9]+$} $id1]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id2]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id3]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id4]}
+        assert {[regexp {^[0-9]+-[0-9]+$} $id5]}
+        
+        # Verify all entries exist
+        assert_equal 5 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO persists in RDB} {
+        r DEL mystream
+        
+        # Add entries with IDMPAUTO
+        set id1 [r XADD mystream IDMPAUTO * field "value1"]
+        set id2 [r XADD mystream IDMPAUTO * field "value2"]
+        
+        # Save and reload
+        r DEBUG RELOAD
+        
+        # Verify stream exists
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify deduplication still works after restart
+        set id1_dup [r XADD mystream IDMPAUTO * field "value1"]
+        assert_equal $id1 $id1_dup
+        
+        # Should still have only 2 entries
+        assert_equal 2 [r XLEN mystream]
+    } {} {external:skip needs:debug}
+
+    test {XADD IDMPAUTO with consumer groups} {
+        r DEL mystream
+        
+        # Create consumer group
+        r XADD mystream * initial "value"
+        r XGROUP CREATE mystream mygroup 0
+        
+        # Add entries with IDMPAUTO
+        set id1 [r XADD mystream IDMPAUTO * event "login" user "alice"]
+        set id2 [r XADD mystream IDMPAUTO * event "logout" user "bob"]
+        
+        # Attempt duplicate
+        set id1_dup [r XADD mystream IDMPAUTO * event "login" user "alice"]
+        assert_equal $id1 $id1_dup
+        
+        # Read from consumer group (should get 3 new entries, not 4)
+        set messages [r XREADGROUP GROUP mygroup consumer1 COUNT 10 STREAMS mystream >]
+        set stream_data [lindex $messages 0 1]
+        assert_equal 3 [llength $stream_data]
+    }
+
+    test {XADD IDMPAUTO field names matter} {
+        r DEL mystream
+        
+        # Different field names should create different entries
+        set id1 [r XADD mystream IDMPAUTO * field1 "value"]
+        set id2 [r XADD mystream IDMPAUTO * field2 "value"]
+        
+        assert {$id1 != $id2}
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO with numeric field names and values} {
+        r DEL mystream
+        
+        # Test with numeric field names
+        set id1 [r XADD mystream IDMPAUTO * 123 "456" 789 "012"]
+        set id2 [r XADD mystream IDMPAUTO * 123 "456" 789 "012"]
+        assert_equal $id1 $id2
+        
+        # Different numeric values
+        set id3 [r XADD mystream IDMPAUTO * 123 "999" 789 "012"]
+        assert {$id3 != $id1}
+        assert_equal 2 [r XLEN mystream]
+    }
 
     test {XIDMP entries expire after DURATION milliseconds} {
         r DEL mystream

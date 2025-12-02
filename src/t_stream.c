@@ -2470,9 +2470,7 @@ void xaddCommand(client *c) {
 
     /* IDMP: Check if IID already exists or prepare to insert */
     idmpEntry *new_entry = NULL;
-    int inserted = 0;
-    sds auto_iid = NULL; /* For IDMPAUTO, we'll generate and track this */
-    
+    int inserted = 0;    
     if (parsed_args.idmp_iid != NULL || parsed_args.idmp_auto) {
         /* Generate IID based on option */
         char *iid_str;
@@ -2496,7 +2494,6 @@ void xaddCommand(client *c) {
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
         new_entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
         if (new_entry == NULL) {
-            if (auto_iid) sdsfree(auto_iid);
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
         }
@@ -2513,14 +2510,10 @@ void xaddCommand(client *c) {
             }
             /* Clean up the new entry we created since we're using existing one */
             idmpEntryFree(new_entry, &s->alloc_size);
-            if (auto_iid) sdsfree(auto_iid);
             return;
         }
         /* If inserted==1, the entry was inserted with placeholder ID, 
          * we'll update it after streamAppendItem */
-        
-        /* Clean up auto_iid after using it - the iid string is now owned by the entry */
-        if (auto_iid) sdsfree(auto_iid);
     }
 
     /* Return ASAP if the stream has reached the last possible ID */
