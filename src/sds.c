@@ -31,6 +31,7 @@ const char *SDS_NOINIT = "SDS_NOINIT";
  * would be truncated, creating a mismatch between `alloc` and the actual buffer size.
  */
 char sdsReqType(size_t string_size) {
+    if (string_size == 0) return SDS_TYPE_8;
     if (string_size < 1 << 5) return SDS_TYPE_5;
     if (string_size <= (1 << 8) - sizeof(struct sdshdr8) - 1) return SDS_TYPE_8;
     if (string_size <= (1 << 16) - sizeof(struct sdshdr16) - 1) return SDS_TYPE_16;
@@ -101,7 +102,6 @@ sds _sdsnewlen(const void *init, size_t initlen, int trymalloc) {
     char type = sdsReqType(initlen);
     /* Empty strings are usually created in order to append. Use type 8
      * since type 5 is not good at this. */
-    if (type == SDS_TYPE_5 && initlen == 0) type = SDS_TYPE_8;
     int hdrlen = sdsHdrSize(type);
     size_t bufsize;
 
