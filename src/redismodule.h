@@ -273,8 +273,6 @@ This flag should not be used directly by the module.
 #define REDISMODULE_CLUSTER_FLAG_NO_FAILOVER (1<<1)
 #define REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION (1<<2)
 
-#define REDISMODULE_SERVER_CAPA_NO_TRIM 0
-
 #define REDISMODULE_NOT_USED(V) ((void) V)
 
 /* Logging level strings */
