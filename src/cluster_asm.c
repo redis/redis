@@ -64,8 +64,8 @@ struct asmManager {
     asmTask *master_task;               /* The task that is currently active on the master */
 
     /* Fail point injection for debugging */
-    int debug_failed_channel;     /* Channel where the task failed */
-    int debug_failed_state;       /* State where the task failed */
+    int debug_fail_channel;       /* Channel where the task will fail */
+    int debug_fail_state;         /* State where the task will fail */
     int debug_trim_method;        /* Method to trim the buffer */
     int debug_active_trim_delay;  /* Sleep before trimming each key */
 
@@ -152,8 +152,8 @@ void asmInit(void) {
     asmManager->pending_trim_jobs = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->master_task = NULL;
-    asmManager->debug_failed_channel = 0;
-    asmManager->debug_failed_state = 0;
+    asmManager->debug_fail_channel = -1;
+    asmManager->debug_fail_state = -1;
     asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
     asmManager->debug_active_trim_delay = 0;
     asmManager->active_trim_jobs = listCreate();
@@ -213,13 +213,13 @@ const char *asmChannelToString(int channel) {
     }
 }
 
-int asmDebugSetFailPoint(char * channel, char *state) {
+int asmDebugSetFailPoint(char *channel, char *state) {
     if (!asmManager) {
         serverLog(LL_WARNING, "ASM manager is not initialized");
         return C_ERR;
     }
-    asmManager->debug_failed_channel = 0;
-    asmManager->debug_failed_state = 0;
+    asmManager->debug_fail_channel = -1;
+    asmManager->debug_fail_state = -1;
     if (!channel && !state) return C_ERR;
     if (sdslen(channel) == 0 && sdslen(state) == 0) {
         serverLog(LL_WARNING, "ASM fail point is cleared");
@@ -228,19 +228,19 @@ int asmDebugSetFailPoint(char * channel, char *state) {
 
     for (int i = ASM_IMPORT_MAIN_CHANNEL; i <= ASM_MIGRATE_RDB_CHANNEL; i++) {
         if (!strcasecmp(channel, asmChannelToString(i))) {
-            asmManager->debug_failed_channel = i;
+            asmManager->debug_fail_channel = i;
             break;
         }
     }
-    if (asmManager->debug_failed_channel == 0) return C_ERR;
+    if (asmManager->debug_fail_channel == -1) return C_ERR;
 
     for (int i = ASM_NONE; i <= ASM_RDBCHANNEL_TRANSFER; i++) {
         if (!strcasecmp(state, asmTaskStateToString(i))) {
-            asmManager->debug_failed_state = i;
+            asmManager->debug_fail_state = i;
             break;
         }
     }
-    if (asmManager->debug_failed_state == 0) return C_ERR;
+    if (asmManager->debug_fail_state == -1) return C_ERR;
 
     serverLog(LL_NOTICE, "ASM fail point set: channel=%s, state=%s", channel, state);
     return C_OK;
@@ -272,7 +272,7 @@ int asmDebugSetTrimMethod(const char *method, int active_trim_delay) {
 
 int asmDebugIsFailPointActive(int channel, int state) {
     if (!asmManager) return 0; /* ASM manager not initialized */
-    if (asmManager->debug_failed_channel == channel && asmManager->debug_failed_state == state) {
+    if (asmManager->debug_fail_channel == channel && asmManager->debug_fail_state == state) {
         serverLog(LL_NOTICE, "ASM fail point active: channel=%s, state=%s",
                   asmChannelToString(channel), asmTaskStateToString(state));
         return 1;
@@ -1493,7 +1493,18 @@ void asmSyncWithSource(connection *conn) {
             err = NULL;
             task->state = ASM_INIT_RDBCHANNEL;
             serverLog(LL_NOTICE,
-                "Source node replied to RDBCHANNELSYNCSLOTS, syncslots can continue...");
+                "Source node replied to SYNCSLOTS SYNC, syncslots can continue...");
+        } else if (!strncmp(err, "-NOTREADY", strlen("-NOTREADY"))) {
+            /* The source-side cluster is temporarily not ready to start a
+             * migration and replied -NOTREADY. We could fail this attempt and
+             * let the import task start another attempt later but that could
+             * trigger unnecessary cleanup in the cluster implementation.
+             * Instead, we'll retry sending SYNCSLOTS later in asmCron(). */
+            sdsfree(err);
+            task->state = ASM_SEND_SYNCSLOTS;
+            serverLog(LL_NOTICE,
+                "Source node replied to SYNCSLOTS SYNC with -NOTREADY, will retry later...");
+            return;
         } else {
             task_error_msg = sdscatprintf(sdsempty(),
                 "Error reply to CLUSTER SYNCSLOTS SYNC from the source: %s", err);
@@ -1823,8 +1834,10 @@ void clusterSyncSlotsCommand(client *c) {
 
         sds task_id = c->argv[3]->ptr;
         /* Notify the cluster implementation to prepare for the migrate task. */
-        if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK) {
-            addReplyError(c, "Cluster is not ready right now, please retry later");
+        if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK ||
+            asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_NONE))
+        {
+            addReplyError(c, "-NOTREADY Cluster is not ready to migrate slots");
             slotRangeArrayFree(slots);
             return;
         }
@@ -2536,6 +2549,13 @@ void asmCron(void) {
             serverAssert(c->task == task);
             if (server.unixtime - c->lastinteraction > server.repl_timeout)
                 asmTaskSetFailed(task, "RDB channel - Connection timeout");
+        } else if (task->state == ASM_SEND_SYNCSLOTS) {
+            /* Rare case: the source node replied to SYNCSLOTS with -NOTREADY
+             * because it wasn't ready to start a migration. We'll retry
+             * SYNCSLOTS every second instead of failing the attempt which could
+             * trigger unnecessary cleanup in the cluster implementation. */
+            if (asm_cron_runs % 10 == 0)
+                asmSyncWithSource(task->main_channel_conn);
         }
     } else if (task->operation == ASM_MIGRATE) {
         if (task->state == ASM_SEND_STREAM) {

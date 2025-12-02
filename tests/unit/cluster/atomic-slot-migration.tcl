@@ -1446,6 +1446,28 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
     }
+
+    test "Cluster implementation cannot start migrate task temporarily" {
+        # Inject a fail point to make the source node not ready
+        R 0 debug asm-failpoint "migrate-main-channel" "none"
+
+        # start migration from node 0 to 1
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+
+        # verify source node replies SYNCSLOTS with -NOTREADY
+        set loglines [count_log_lines -1]
+        wait_for_log_messages -1 {"*Source node replied to SYNCSLOTS SYNC with -NOTREADY, will retry later*"} $loglines 100 100
+
+        # clear the fail point and verify the task is completed
+        R 0 debug asm-failpoint "" ""
+        wait_for_asm_done
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+
+        # cleanup
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
