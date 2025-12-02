@@ -1835,8 +1835,8 @@ void clusterSyncSlotsCommand(client *c) {
 
         sds task_id = c->argv[3]->ptr;
         /* Notify the cluster implementation to prepare for the migrate task. */
-        int debug_fail = asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_NONE);
-        if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK || debug_fail)
+        if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK ||
+            asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_NONE))
         {
             addReplyError(c, "-NOTREADY Cluster is not ready to migrate slots");
             slotRangeArrayFree(slots);
