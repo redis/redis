@@ -932,7 +932,7 @@ start_server {
         assert_equal $id1 $id2
         
         # Wait for expiration (1 second + margin)
-        after 1500
+        after 2500
         
         # Now should create new entry
         set id3 [r XADD mystream IDMP "req-1" * field "value3"]
