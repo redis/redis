@@ -2469,8 +2469,8 @@ void xaddCommand(client *c) {
     size_t old_alloc = s->alloc_size;
 
     /* IDMP: Check if IID already exists or prepare to insert */
-    idmpEntry *new_entry = NULL;
-    int inserted = 0;    
+    int inserted = 0; 
+    idmpEntry *new_entry = NULL;   
     if (parsed_args.idmp_iid != NULL || parsed_args.idmp_auto) {
         /* Generate IID based on option */
         char *iid_str;
@@ -2554,6 +2554,7 @@ void xaddCommand(client *c) {
     if (inserted && new_entry != NULL) {
         new_entry->id = id;
         trackStreamIdmpEntries(c, c->argv[1]);
+        /* Remove oldest entries if exceeding max entries */
         if(tringSize(s->idmp_tring) > s->idmp_max_entries)
             tringPopFront(s->idmp_tring);
     }
