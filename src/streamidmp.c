@@ -8,10 +8,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-#include "server.h"
 #include "streamidmp.h"
 #include <string.h>
-#include "../deps/xxhash/xxhash.h"
+#include "xxhash.h"
 
 #ifdef HAVE_AVX2
 /* Define __MM_MALLOC_H to prevent importing the memory aligned

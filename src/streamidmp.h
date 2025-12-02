@@ -11,12 +11,9 @@
 #ifndef __STREAMIDMP_H
 #define __STREAMIDMP_H
 
+#include "server.h"
 #include "stream.h"
 #include <stddef.h>
-
-/* Forward declarations */
-typedef struct client client;
-typedef struct redisObject robj;
 
 /* SIMD-optimized comparison function for idmpEntry structures.
  * Used as the comparison callback for tring (AVL tree with ring buffer).
