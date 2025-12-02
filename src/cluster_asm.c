@@ -1501,7 +1501,6 @@ void asmSyncWithSource(connection *conn) {
              * trigger unnecessary cleanup in the cluster implementation.
              * Instead, we'll retry sending SYNCSLOTS later in asmCron(). */
             sdsfree(err);
-            err = NULL;
             task->state = ASM_SEND_SYNCSLOTS;
             serverLog(LL_NOTICE,
                 "Source node replied to SYNCSLOTS SYNC with -NOTREADY, will retry later...");
