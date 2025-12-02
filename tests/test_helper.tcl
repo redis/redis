@@ -402,6 +402,11 @@ proc read_from_test_client fd {
         puts $err
         lappend ::failed_tests $err
         set ::active_clients_task($fd) "(EXCEPTION) $data"
+        if {$::stop_on_failure} {
+            puts -nonewline "(Test stopped, press enter to resume the tests)"
+            flush stdout
+            gets stdin
+        }
     } elseif {$status eq {testing}} {
         set ::active_clients_task($fd) "(IN PROGRESS) $data"
     } elseif {$status eq {server-spawning}} {
