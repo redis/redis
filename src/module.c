@@ -9401,40 +9401,21 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
 }
 
-/* Acquire a server capability that changes the normal behavior of Redis.
- * Capabilities are reference-counted: a capability may be acquired
- * multiple times concurrently by multiple modules.
- *
- * Currently supported capabilities:
- *   - REDISMODULE_SERVER_CAPA_NO_TRIM:
- *       Prevent the server from trimming keys after atomic slot migration.
- *
- * Returns REDISMODULE_OK on success, REDISMODULE_ERR otherwise. */
-int RM_AcquireServerCapability(RedisModuleCtx *ctx, int capa) {
+/* Disable automatic slot trimming. */
+int RM_ClusterDisableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
-    if (capa == REDISMODULE_SERVER_CAPA_NO_TRIM &&
-        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM] < INT_MAX)
-    {
-        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM]++;
+    if (server.cluster_module_trim_disablers < INT_MAX) {
+        server.cluster_module_trim_disablers++;
         return REDISMODULE_OK;
     }
     return REDISMODULE_ERR;
 }
 
-/* Release a previously acquired server capability.
- *
- * This function must be called once for each successful call to
- * RM_AcquireServerCapability() with the same capability. The underlying
- * behavior is restored when the reference count for that capability
- * reaches zero.
- *
- * Returns REDISMODULE_OK on success, REDISMODULE_ERR otherwise. */
-int RM_ReleaseServerCapability(RedisModuleCtx *ctx, int capa) {
+/* Enable automatic slot trimming */
+int RM_ClusterEnableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
-    if (capa == REDISMODULE_SERVER_CAPA_NO_TRIM &&
-        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM] > 0)
-    {
-        server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM]--;
+    if (server.cluster_module_trim_disablers > 0) {
+        server.cluster_module_trim_disablers--;
         return REDISMODULE_OK;
     }
     return REDISMODULE_ERR;
@@ -15136,8 +15117,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
-    REGISTER_API(AcquireServerCapability);
-    REGISTER_API(ReleaseServerCapability);
+    REGISTER_API(ClusterDisableTrim);
+    REGISTER_API(ClusterEnableTrim);
     REGISTER_API(ClusterKeySlot);
     REGISTER_API(ClusterKeySlotC);
     REGISTER_API(ClusterCanonicalKeyNameInSlot);

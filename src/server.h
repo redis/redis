@@ -805,11 +805,6 @@ typedef enum {
 #define BUSY_MODULE_YIELD_EVENTS (1<<0)
 #define BUSY_MODULE_YIELD_CLIENTS (1<<1)
 
-/* Capabilities that a module can set in order to change the behavior of
- * redis features. */
-#define SERVER_MODULE_CAPA_NO_TRIM      0 /* No trim keys in slots. */
-#define SERVER_MODULE_CAPA_COUNT        1
-
 /*-----------------------------------------------------------------------------
  * Data types
  *----------------------------------------------------------------------------*/
@@ -2325,10 +2320,7 @@ struct redisServer {
                                       to set in order to suppress certain
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
-    int server_module_capas[SERVER_MODULE_CAPA_COUNT]; /* Capabilities that redis
-                                      * modules are able to set in order to change
-                                      * the behavior of certain redis features.
-                                      * Check the REDISMODULE_SERVER_CAPA_*. */
+    int cluster_module_trim_disablers; /* Number of module requests to disable trimming */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flocked. */

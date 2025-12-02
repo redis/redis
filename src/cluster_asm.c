@@ -1720,7 +1720,7 @@ static void asmStartImportTask(asmTask *task) {
     int impl_ret = clusterAsmOnEvent(task->id, ASM_EVENT_IMPORT_PREP, task->slots);
 
     /* We do not start the import task if trim is disabled by module. */
-    int trim_disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
+    int disabled_by_module = server.cluster_module_trim_disablers > 0;
 
     static int start_blocked_logged = 0;
     /* Cannot start import task since pause action is performed. Otherwise, we
@@ -1729,9 +1729,9 @@ static void asmStartImportTask(asmTask *task) {
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         trim_in_progress ||
         impl_ret != C_OK ||
-        trim_disabled_by_module)
+        disabled_by_module)
     {
-        const char *reason = trim_disabled_by_module ? "trim is disabled by module" :
+        const char *reason = disabled_by_module ? "trim is disabled by module" :
                              impl_ret != C_OK ? "cluster is not ready" :
                              trim_in_progress ? "trim in progress for some of the slots" :
                                                 "server paused";
@@ -1860,8 +1860,8 @@ void clusterSyncSlotsCommand(client *c) {
         }
 
         /* We do not start the import task if trim is disabled by module. */
-        int trim_disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
-        if (trim_disabled_by_module) {
+        int disabled_by_module = server.cluster_module_trim_disablers > 0;
+        if (disabled_by_module) {
             addReplyError(c, "Trim is disabled by module");
             slotRangeArrayFree(slots);
             return;
@@ -2984,10 +2984,10 @@ void asmTrimJobProcessPending(void) {
     /* Determine if we can start the trim job:
      * - require client writes not paused (so key deletions are allowed)
      * - require replicas not paused (so TRIMSLOTS can be propagated).
-     * - require trim is not disabled via RM_AcquireServerCapability().
+     * - require trim is not disabled via RedisModule_ClusterDisableTrim().
      */
     static int logged = 0;
-    int disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
+    int disabled_by_module = server.cluster_module_trim_disablers > 0;
 
     if (isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
@@ -3408,7 +3408,7 @@ void asmActiveTrimCycle(void) {
     /* Verify client pause is not in effect and trim is not disabled by module,
      * so we can delete keys. */
     static int blocked = 0;
-    int disabled_by_module = server.server_module_capas[SERVER_MODULE_CAPA_NO_TRIM];
+    int disabled_by_module = server.cluster_module_trim_disablers > 0;
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         disabled_by_module)

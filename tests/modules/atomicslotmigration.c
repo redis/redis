@@ -241,20 +241,12 @@ static void testNonFatalScenarios(RedisModuleCtx *ctx, RedisModuleClusterSlotMig
     testReplicatingUnknownCommand(ctx);
 }
 
-static void disableTrim(RedisModuleCtx *ctx) {
-    RedisModule_Assert(RedisModule_AcquireServerCapability(ctx, REDISMODULE_SERVER_CAPA_NO_TRIM) == REDISMODULE_OK);
-}
-
-static void enableTrim(RedisModuleCtx *ctx) {
-    RedisModule_Assert(RedisModule_ReleaseServerCapability(ctx, REDISMODULE_SERVER_CAPA_NO_TRIM) == REDISMODULE_OK);
-}
-
 int disableTrimCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     disableTrimFlag = 1;
     /* Only disable when MIGRATE_COMPLETED for simulating recommended usage. */
-    // disableTrim(ctx);
+    // RedisModule_ClusterDisableTrim(ctx)
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -263,7 +255,7 @@ int enableTrimCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     disableTrimFlag = 0;
-    enableTrim(ctx);
+    RedisModule_Assert(RedisModule_ClusterEnableTrim(ctx) == REDISMODULE_OK);
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -307,7 +299,9 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
 
             if (sub == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED) {
                 /* If users ask to disable trim, we disable trim. */
-                if (disableTrimFlag) disableTrim(ctx);
+                if (disableTrimFlag) {
+                    RedisModule_Assert(RedisModule_ClusterDisableTrim(ctx) == REDISMODULE_OK);
+                }
             }
         }
     }
