@@ -577,7 +577,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             # Start the slot 0 write load on the R 0
             set port [get_port 0]
             set key [slot_key 0 mykey]
-            set load_handle0 [start_write_load "127.0.0.1" $port 100 $key]
+            set load_handle0 [start_write_load "127.0.0.1" $port 100 $key 0 5]
         }
 
         # Start write traffic on node-1
@@ -586,7 +586,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             # Start the slot 6000 write load on the R 1
             set port [get_port 1]
             set key [slot_key 6000 mykey]
-            set load_handle1 [start_write_load "127.0.0.1" $port 100 $key]
+            set load_handle1 [start_write_load "127.0.0.1" $port 100 $key 0 5]
         }
 
         # Migrate keys
@@ -2329,6 +2329,9 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         } else {
             fail "migrate failed"
         }
+
+        # Wait for config propagation before checking the slot ownership on replica
+        wait_for_cluster_propagation
 
         # Verify slots that are being trimmed are not local
         assert_equal 0 [R 0 asm.cluster_can_access_keys_in_slot 0]
