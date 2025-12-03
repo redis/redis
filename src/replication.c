@@ -2658,6 +2658,19 @@ char *sendCommandArgv(connection *conn, int argc, char **argv, size_t *argv_lens
     return NULL;
 }
 
+/* Sends an AUTH command on the connection using the internal cluster secret.
+ * Returns an error string if the command fails, or NULL on success. */
+char *sendInternalAuth(connection *conn) {
+    size_t len = 0;
+    const char *internal_secret = clusterGetSecret(&len);
+    serverAssert(internal_secret != NULL);
+
+    sds secret = sdsnewlen(internal_secret, len);
+    char *err = sendCommand(conn, "AUTH", "internal connection", secret, NULL);
+    sdsfree(secret);
+    return err;
+}
+
 /* Try a partial resynchronization with the master if we are about to reconnect.
  * If there is no cached master structure, at least try to issue a
  * "PSYNC ? -1" command in order to trigger a full resync using the PSYNC
@@ -2908,6 +2921,8 @@ void syncWithMaster(connection *conn) {
     char tmpfile[256], *err = NULL;
     int dfd = -1, maxtries = 5;
     int psync_result;
+    int need_auth = 0;
+    static int sent_internal_auth = 0;
 
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
@@ -2960,6 +2975,7 @@ void syncWithMaster(connection *conn) {
             sdsfree(err);
             goto error;
         } else {
+            if (err[0] == '-') need_auth = 1;
             serverLog(LL_NOTICE,
                 "Master replied to PING, replication can continue...");
         }
@@ -2969,6 +2985,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_SEND_HANDSHAKE) {
+        sent_internal_auth = 0;
         /* AUTH with the master if required. */
         if (server.masterauth) {
             char *args[3] = {"AUTH",NULL,NULL};
@@ -2983,6 +3000,13 @@ void syncWithMaster(connection *conn) {
             lens[argc] = sdslen(server.masterauth);
             argc++;
             err = sendCommandArgv(conn, argc, args, lens);
+            if (err) goto write_error;
+        } else if (server.cluster_enabled && need_auth) {
+            /* Authenticate with the internal secret if cluster is enabled and
+             * no master username/password is configured and master requires
+             * authentication. */
+            err = sendInternalAuth(conn);
+            sent_internal_auth = 1;
             if (err) goto write_error;
         }
 
@@ -3022,8 +3046,12 @@ void syncWithMaster(connection *conn) {
         return;
     }
 
-    if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY && !server.masterauth)
+    if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY &&
+        !server.masterauth &&
+        !sent_internal_auth)
+    {
         server.repl_state = REPL_STATE_RECEIVE_PORT_REPLY;
+    }
 
     /* Receive AUTH reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_AUTH_REPLY) {
@@ -3586,6 +3614,14 @@ static int rdbChannelSendHandshake(connection *conn, sds *err) {
             serverLog(LL_WARNING, "Error sending AUTH to master in rdb channel replication handshake: %s", *err);
             return C_ERR;
         }
+    } else if (server.cluster_enabled) {
+        /* Authenticate with the internal secret if cluster is enabled and
+         * no master username/password is configured. */
+        *err = sendInternalAuth(conn);
+        if (*err) {
+            serverLog(LL_WARNING, "Error sending AUTH to master in rdb channel replication handshake: %s", *err);
+            return C_ERR;
+        }
     }
 
     char buf[LONG_STR_SIZE];
@@ -3734,7 +3770,7 @@ static void rdbChannelFullSyncWithMaster(connection *conn) {
                 server.repl_rdb_ch_state = REPL_RDB_CH_RECEIVE_AUTH_REPLY;
             break;
         case REPL_RDB_CH_RECEIVE_AUTH_REPLY:
-            if (server.masterauth) {
+            if (server.masterauth || server.cluster_enabled) {
                 ret = rdbChannelHandleAuthReply(conn, &err);
                 if (ret == C_OK)
                     server.repl_rdb_ch_state = REPL_RDB_CH_RECEIVE_REPLCONF_REPLY;
