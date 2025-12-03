@@ -4,6 +4,7 @@
 #include "rax.h"
 #include "listpack.h"
 #include "streamtring.h"
+#include "xxhash.h"
 
 /* Stream item ID: a 128 bit number composed of a milliseconds time and
  * a sequence counter. IDs generated in the same millisecond (or in a past
@@ -130,8 +131,7 @@ typedef struct pelTimeKey {
 
 /* Structure to hold IID and stream ID for IDMP deduplication */
 typedef struct idmpEntry {
-    char *iid;          /* User-provided unique identifier (raw string) */
-    size_t iid_len;     /* Length of the IID string */
+    XXH128_hash_t iid;  /* 128-bit hash of user-provided unique identifier */
     streamID id;        /* Associated stream ID */
 } idmpEntry;
 
@@ -184,7 +184,7 @@ void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 
 /* IDMP functions */
-idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
+idmpEntry *idmpEntryCreate(XXH128_hash_t iid, size_t *alloc_size);
 void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
 
 #endif

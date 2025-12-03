@@ -2473,26 +2473,20 @@ void xaddCommand(client *c) {
     idmpEntry *new_entry = NULL;   
     if (parsed_args.idmp_iid != NULL || parsed_args.idmp_auto) {
         /* Generate IID based on option */
-        char *iid_str;
-        size_t iid_len;
-        char hash_buffer[16];
+        XXH128_hash_t iid_hash;
         if (parsed_args.idmp_auto) {
             /* Auto-generate IID by hashing field-value pairs */
             int64_t numfields = (c->argc - field_pos) / 2;
-            if (!createIdempotencyHash(&c->argv[field_pos], numfields, hash_buffer)) {
-                addReplyError(c,"Failed to create idempotency hash");
-                return;
-            }
-            iid_str = hash_buffer;
-            iid_len = 16;
+            iid_hash = createIdempotencyHash(&c->argv[field_pos], numfields);
         } else {
-            /* Use user-provided IID */
-            iid_str = parsed_args.idmp_iid->ptr;
-            iid_len = sdslen((sds)iid_str);
+            /* Hash user-provided IID */
+            char *user_iid = parsed_args.idmp_iid->ptr;
+            size_t user_iid_len = sdslen((sds)user_iid);
+            iid_hash = createIdempotencyHashFromBuffer(user_iid, user_iid_len);
         }
         
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
-        new_entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+        new_entry = idmpEntryCreate(iid_hash, &s->alloc_size);
         if (new_entry == NULL) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;

@@ -809,10 +809,10 @@ ssize_t rdbSaveStreamIdmpTring(rio *rdb, tringTree *idmp_tring) {
         /* Cast to idmpEntry */
         idmpEntry *entry = (idmpEntry *)node->value;
         
-        /* Save the IID string length and data. */
-        if ((n = rdbSaveRawString(rdb, (unsigned char *)entry->iid, entry->iid_len)) == -1) {
-            return -1;
-        }
+        /* Save the IID hash (XXH128_hash_t: high64 and low64). */
+        if ((n = rdbSaveLen(rdb, entry->iid.high64)) == -1) return -1;
+        nwritten += n;
+        if ((n = rdbSaveLen(rdb, entry->iid.low64)) == -1) return -1;
         nwritten += n;
         
         /* Save the associated stream ID. */
@@ -837,10 +837,11 @@ int rdbLoadStreamIdmpTring(rio *rdb, stream *s) {
 
     /* Load each entry. */
     for (uint64_t i = 0; i < count; i++) {
-        /* Load the IID string. */
-        size_t iid_len;
-        sds iid_sds = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &iid_len);
-        if (iid_sds == NULL) {
+        /* Load the IID hash (XXH128_hash_t: high64 and low64). */
+        XXH128_hash_t iid;
+        iid.high64 = rdbLoadLen(rdb, NULL);
+        iid.low64 = rdbLoadLen(rdb, NULL);
+        if (rioGetReadError(rdb)) {
             return -1;
         }
 
@@ -849,13 +850,11 @@ int rdbLoadStreamIdmpTring(rio *rdb, stream *s) {
         id.ms = rdbLoadLen(rdb, NULL);
         id.seq = rdbLoadLen(rdb, NULL);
         if (rioGetReadError(rdb)) {
-            sdsfree(iid_sds);
             return -1;
         }
 
         /* Create the idmpEntry. */
-        idmpEntry *entry = idmpEntryCreate(iid_sds, iid_len, &s->alloc_size);
-        sdsfree(iid_sds);
+        idmpEntry *entry = idmpEntryCreate(iid, &s->alloc_size);
         if (entry == NULL) {
             return -1;
         }

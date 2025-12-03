@@ -13,20 +13,20 @@
 
 #include "server.h"
 #include "stream.h"
+#include "xxhash.h"
 #include <stddef.h>
 
-/* SIMD-optimized comparison function for idmpEntry structures.
+/* Comparison function for idmpEntry structures.
  * Used as the comparison callback for tring (AVL tree with ring buffer).
- * Compares entries by IID only (lexicographically).
+ * Compares entries by IID (XXH128_hash_t) only.
  * Returns: negative if a < b, 0 if a == b, positive if a > b */
 int idmpEntryCompare(const void *a, const void *b);
 
-/* Create a new idmpEntry with the given IID and stream ID.
- * The IID string is copied into the entry.
+/* Create a new idmpEntry with the given IID hash.
  * Returns NULL on allocation failure. */
-idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
+idmpEntry *idmpEntryCreate(XXH128_hash_t iid, size_t *alloc_size);
 
-/* Free an idmpEntry and its IID string. */
+/* Free an idmpEntry. */
 void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
 
 /* Register a stream key for IDMP entry tracking.
@@ -44,15 +44,23 @@ void handleExpiredIdmpEntries(void);
 /* Hash field-value pairs using XXH3_128bits for AUTOIDMP.
  * Takes an array of robj pointers (field-value pairs) and the number of pairs.
  * Each field-value pair is hashed together, and all pair hashes are XORed.
- * The raw 128-bit hash (16 bytes) is written to the provided result buffer.
  * 
  * Parameters:
  *   argv      - Array of robj pointers containing field-value pairs
  *   numfields - Number of field-value pairs (not the array length)
- *   result    - Buffer to store the raw 16-byte hash (must be at least 16 bytes)
  * 
- * Returns: 1 on success, 0 on error */
-int createIdempotencyHash(robj **argv, int64_t numfields, char *result);
+ * Returns: XXH128_hash_t containing the 128-bit hash result */
+XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
+
+/* Hash a raw buffer using XXH3_128bits for AUTOIDMP.
+ * Takes a raw character buffer and its length, and produces a 128-bit hash.
+ * 
+ * Parameters:
+ *   data   - Pointer to the data buffer to hash
+ *   len    - Length of the data buffer in bytes
+ * 
+ * Returns: XXH128_hash_t containing the 128-bit hash result */
+XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t len);
 
 #endif /* __STREAMIDMP_H */
 

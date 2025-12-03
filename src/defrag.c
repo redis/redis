@@ -962,15 +962,7 @@ void defragIdmpTring(tringTree **tringref) {
             idmpEntry *entry = (idmpEntry *)node->value;
             idmpEntry *newentry = activeDefragAlloc(entry);
             if (newentry) {
-                node->value = entry = newentry;
-            }
-            
-            /* Defrag the iid string inside the entry */
-            if (entry->iid != NULL) {
-                char *newiid = activeDefragAlloc(entry->iid);
-                if (newiid) {
-                    entry->iid = newiid;
-                }
+                node->value = newentry;
             }
         }
     }
