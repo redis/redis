@@ -1142,10 +1142,11 @@ typedef struct redisDb {
 /* maximum number of bins of keysizes histogram */
 #define MAX_KEYSIZES_BINS 60
 #define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
+typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
 typedef struct {
-    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+    keysizesHist keysizes_hist;
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -1155,7 +1156,7 @@ typedef struct {
     uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
     uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
     uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
-    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+    keysizesHist keysizes_hist;
 } kvstoreDictMetadata;
 
 /* forward declaration for functions ctx */
