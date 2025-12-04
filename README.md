@@ -784,6 +784,8 @@ To build Redis with all the data structures (including JSON, time series, Bloom 
 make BUILD_WITH_MODULES=yes
 ```
 
+Note: `BUILD_WITH_MODULES=yes` is not supported on 32 bit systems.
+
 To build Redis with just the core data structures, use:
 
 ```sh
