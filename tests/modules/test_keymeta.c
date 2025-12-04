@@ -7,29 +7,30 @@
  * The module pre-registers several metadata classes during initialization and exposes
  * the following commands (via RedisModule_CreateCommand):
  *
- * 1) KEYMETA.REGISTER <9-byte-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE]
+ * 1) KEYMETA.REGISTER <4-char-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE]
  *    Register a new metadata-key class during module load.
  *    Returns the <keymeta-class-id> index (Returned from RedisModule_CreateKeyMetaClass)
  *    On failure, returns nil
+ *    In a real module it should be registered "automatically" via OnLoad.
  *
- *    Example: > keymeta.register KMTEST001 1 KEEPONCOPY:KEEPONRENAME
+ *    Example: > keymeta.register KMT1 1 KEEPONCOPY:KEEPONRENAME
  *
- * 2) KEYMETA.SET <9-byte-id> <key> <string-value>
+ * 2) KEYMETA.SET <4-char-id> <key> <string-value>
  *    Set the string value as metadata to given key.
  *    Note:
  *    - If already set earlier, then it is expected that it will released before setting a
  *      new string. That is why this command should start with trying to get first
  *      metadata for given key.
  *
- * 3) KEYMETA.GET <9-byte-id> <key>
+ * 3) KEYMETA.GET <4-char-id> <key>
  *    Get the metadata attached to the key for the given class.
  *    Returns a string attached to the given key. Or nil if nothing is attached.
  *
- * 4) KEYMETA.UNREGISTER <9-byte-id>
+ * 4) KEYMETA.UNREGISTER <4-char-id>
  *    This will mark the key metadata class as released. It can later be reused again
  *    by the same class (consider comment above).
  *    Return REDISMODULE_OK/REDISMODULE_ERR.
- *    
+ *
  * 5) KEYMETA.ACTIVE
  *    Return total number of active metadata at the moment.
  */
@@ -41,9 +42,9 @@
 /* Virtualize class IDs for testing. Values: 0 unused, 1..7 used, -1 released */
 RedisModuleKeyMetaClassId class_ids[8] = { 0 };
 
-/* Mapping from 9-byte-id to class-id */
+/* Mapping from 4-char-id to class-id */
 typedef struct {
-    char name[10];  /* 9 chars + null terminator */
+    char name[5];  /* 4 chars + null terminator */
     RedisModuleKeyMetaClassId class_id;
 } ClassMapping;
 
@@ -51,7 +52,7 @@ typedef struct {
 static ClassMapping class_mappings[MAX_CLASS_MAPPINGS];
 static int num_class_mappings = 0;
 
-/* Reverse lookup: given a class_id, find the 9-byte-id name */
+/* Reverse lookup: given a class_id, find the 4-char-id name */
 static const char* lookupClassName(RedisModuleKeyMetaClassId class_id) {
     for (int i = 0; i < num_class_mappings; i++) {
         if (class_mappings[i].class_id == class_id) {
@@ -66,32 +67,32 @@ static long long active_metadata_count = 0;
 
 /* Helper functions for class mapping */
 
-/* Add a mapping from 9-byte-id to class-id */
+/* Add a mapping from 4-char-id to class-id */
 static int addClassMapping(const char *name, RedisModuleKeyMetaClassId class_id) {
     if (num_class_mappings >= MAX_CLASS_MAPPINGS) {
         return 0; /* No space */
     }
-    strncpy(class_mappings[num_class_mappings].name, name, 9);
-    class_mappings[num_class_mappings].name[9] = '\0';
+    strncpy(class_mappings[num_class_mappings].name, name, 4);
+    class_mappings[num_class_mappings].name[4] = '\0';
     class_mappings[num_class_mappings].class_id = class_id;
     num_class_mappings++;
     return 1;
 }
 
-/* Lookup class-id by 9-byte-id. Returns -1 if not found. */
+/* Lookup class-id by 4-char-id. Returns -1 if not found. */
 static RedisModuleKeyMetaClassId lookupClassId(const char *name) {
     for (int i = 0; i < num_class_mappings; i++) {
-        if (strncmp(class_mappings[i].name, name, 9) == 0) {
+        if (strncmp(class_mappings[i].name, name, 4) == 0) {
             return class_mappings[i].class_id;
         }
     }
     return -1;
 }
 
-/* Remove a mapping by 9-byte-id */
+/* Remove a mapping by 4-char-id */
 static int removeClassMapping(const char *name) {
     for (int i = 0; i < num_class_mappings; i++) {
-        if (strncmp(class_mappings[i].name, name, 9) == 0) {
+        if (strncmp(class_mappings[i].name, name, 4) == 0) {
             /* Shift remaining entries down */
             for (int j = i; j < num_class_mappings - 1; j++) {
                 class_mappings[j] = class_mappings[j + 1];
@@ -223,7 +224,7 @@ static void KeyMetaAOFRewriteCb7(RedisModuleIO *aof, void *value, uint64_t meta)
     KeyMetaAOFRewriteCallback_Class(aof, value, meta, 7);
 }
 
-/* KEYMETA.REGISTER <9-byte-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE] */
+/* KEYMETA.REGISTER <4-char-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE] */
 static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3 || argc > 4) {
         return RedisModule_WrongArity(ctx);

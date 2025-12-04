@@ -72,7 +72,10 @@ typedef int (*KeyMetaMoveFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta)
 
 /* For explanation, see struct RedisModuleKeyMetaClassConfig */
 typedef struct KeyMetaClassConf {
-#define KEY_META_FLAG_ALLOW_IGNORE 0   /* Ignore silently on RDB load, if module not avail */
+#define KEY_META_FLAGS_RDB_MASK      0x3 /* First 3 flags are serialized into RDB with key */
+#define KEY_META_FLAG_ALLOW_IGNORE   0   /* Ignore silently on RDB load, if module not avail */
+#define KEY_META_FLAG_RBB_RESERVED_1 1   /* Reserved for future use */
+#define KEY_META_FLAG_RBB_RESERVED_2 2   /* Reserved for future use */
     uint64_t flags;
     uint64_t reset_value;
     

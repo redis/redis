@@ -27,9 +27,9 @@
 
 set testmodule [file normalize tests/modules/test_keymeta.so]
 
-# Helper procedure to convert class ID to 9-byte-id name
+# Helper procedure to convert class ID to 4-char-id name
 proc cname {cid} {
-    return "XXXXXCID$cid"
+    return "KMT$cid"
 }
 
 # Helper procedure to check if a class should keep metadata for a given operation
@@ -112,7 +112,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
     array set classes {}
     for {set cid 1} {$cid <= 7} {incr cid} {
         set spec $classesSpec($cid)
-        set classes($cid) [r keymeta.register XXXXXCID$cid 1 $spec]
+        set classes($cid) [r keymeta.register [cname $cid] 1 $spec]
         puts "Registered class $cid with spec $spec"
         assert_equal $classes($cid) $cid
     }

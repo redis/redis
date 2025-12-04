@@ -11,28 +11,91 @@ typedef enum KeyMetaClassState {
 
 /* Key metadata class */
 typedef struct KeyMetaClass {
-    ModuleEntityId mEntity;  /* module key metadata name and ID. */
-    KeyMetaClassConf conf; /* copy of configuration callbacks and options */
+    char name[5];                 /* 4-char name of the class */
+    ModuleEntityId mEntity;       /* module key metadata name and ID. */
+    KeyMetaClassConf conf;        /* copy of configuration callbacks and options */
     KeyMetaClassState state;
+    uint32_t classSpecSerialized; /* 32-bits serialized form of [name][version][flags] */
 } KeyMetaClass;
 
 static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
 
-/* like moduleTypeEncodeId(), yet KeyMeta has its own namespace */
-static uint64_t keyMetaClassEncodeId(const char *name, int metaver) {
-    return moduleTypeEncodeId(name, metaver);
+/* Encode 64-bit module-style ID and 32-bit serialized class ID 
+ *
+ * Takes a 4-character name (e.g., "KMT1"), version (0-31), and flags, and:
+ * 1. Validates the 4-char name uses valid character set
+ * 2. Validates version is 5 bits (0-31) for metadata classes
+ * 3. Generates 9-char entity name with "META-" prefix (e.g., "META-KMT1")
+ * -> Encodes the 9-char name into 64-bit ID (compatible with moduleTypeEncodeId).
+ * -> Encodes compact 32-bit RDB/DUMP serialized class ID:
+ *            31                           8 7     3 2   0
+ *            ┌─────────────────────────────┬───────┬─────┐
+ *            │   4-char name (24 bits)     │ ver   │flags│
+ *            │   (6 bits per char)         │(5 bit)│(3b) │
+ *            └─────────────────────────────┴───────┴─────┘
+ *
+ * Returns 64-bit entityID and keyMetaClassSer, 0 on error 
+ */
+static uint64_t keyMetaEncodeId(const char *name, int metaver, uint64_t flags,
+                                char *fullname, uint32_t *keyMetaClassSer) {
+/* Character set for metadata class names (same as module types). */
+    static const char *cset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                              "abcdefghijklmnopqrstuvwxyz"
+                              "0123456789_-";
+    /* Validate name is exactly 4 characters */
+    if (strlen(name) != 4) return 0;
+
+    /* Validate version range (5 bits = 0-31 for metadata classes) */
+    if (metaver < 0 || metaver > 31) return 0;
+    
+    /* Generate 9-char name with "META-" prefix */
+    memcpy(fullname, "META-", 5);
+    memcpy(fullname + 5, name, 4);
+    fullname[9] = '\0';
+
+    /* Encode 9-char name into 64-bit entityId (module-style ID, 54 bits name
+     * plus 10 bits version) */
+    uint64_t entityId = 0;
+    /* Encode last 4-char into 32-bit serialized class ID (24b name + 5b version + 3b flags) */
+    uint32_t classSer = 0;
+    for (int j = 0; j < 9; j++) {
+        char *p = strchr(cset, fullname[j]);
+        if (!p) return 0; /* Invalid character in name */
+        unsigned long pos = p - cset;
+        entityId = (entityId << 6) | pos;
+        if (j >= 5) classSer = (classSer << 6) | pos;
+    }
+    /* Add version (10 bits) to entityId */
+    entityId = (entityId << 10) | metaver;
+
+    /* Add version (5 bits) and flags (3 bits) to serialized class ID if requested */
+    if (keyMetaClassSer) {
+        classSer = (classSer << 5) | (metaver & 0x1F);
+        classSer = (classSer << 3) | (flags & 0x07);
+        *keyMetaClassSer = classSer;
+    }
+
+    return entityId; /* Return 64-bit module ID (0 on error) */
 }
 
-/* Return 0 if not found, positive slot if INUSE, negative slot if RELEASED. */
-static int keyMetaClassLookupByName(const char *name) {
-    if (!name) return 0;
+/* Return -1 if not found, 1..7 for slot if INUSE, alreadyReleased if found but released */
+static int keyMetaClassLookupByName(const char *name, int *alreayReleased) {
+    *alreayReleased = 0;
+    if (!name) return -1;
+    
     for (int i = KEY_META_ID_MODULE_FIRST; i <= KEY_META_ID_MODULE_LAST; i++) {
-        if (keyMetaClass[i].state == CLASS_STATE_FREE) continue;
-        if (memcmp(keyMetaClass[i].mEntity.name, name, 9) != 0) continue;
-        if (keyMetaClass[i].state == CLASS_STATE_INUSE) return i;
-        if (keyMetaClass[i].state == CLASS_STATE_RELEASED) return -i;
+        if (keyMetaClass[i].state == CLASS_STATE_FREE) 
+            continue;
+        if (memcmp(keyMetaClass[i].name, name, 4) != 0) 
+            continue;
+        if (keyMetaClass[i].state == CLASS_STATE_INUSE) 
+            return i;
+        if (keyMetaClass[i].state == CLASS_STATE_RELEASED) {
+            *alreayReleased = 1;
+            return i;
+        }
     }
-    return 0;
+    return -1;
 }
 
 /* Initialize server.keyMeta with defaults and reserve built-in classes. */
@@ -303,22 +366,32 @@ void keyMetaTransition(kvobj *kvOld, kvobj *kvNew) {
  * 
  * context - In case of a module, pass the module pointer. Otherwise NULL.
  */
-KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *metaname, 
+KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
                                   int metaver, KeyMetaClassConf *conf) {
     if (!conf) return 0;
 
-    /* Validate and encode ID similar to moduleTypeEncodeId(). */
-    uint64_t classId = keyMetaClassEncodeId(metaname, metaver);
-    if (classId == 0) return 0;
+    /* Validate and encode ID. This also validates 4-char name and generates "META-" prefix. */
+    char fullname[10];
+    uint32_t classSpecSerialized;
+    /* Resovle: entityId, fullname, keyMetaClassSer */
+    uint64_t entityId = keyMetaEncodeId(name,
+                                        metaver,
+                                        conf->flags & KEY_META_FLAGS_RDB_MASK,
+                                        fullname,
+                                        &classSpecSerialized);
+    if (entityId == 0) return 0;
 
-    /* Check for name conflicts. Allow reuse of RELEASED; forbid if INUSE. */
+    /* Check for name conflicts using 4-char name. Allow reuse of RELEASED; forbid if INUSE. */
+    int alreayReleased;
+    int slot = keyMetaClassLookupByName(name, &alreayReleased);
 
-    int slot = keyMetaClassLookupByName(metaname);
-    
-    serverAssert(!(slot > 0)); /* Assert no INUSE class with same name. */
+    if (alreayReleased) {
+        /* If already released, then reuse the slot. */
+    } else {
+        /* Assert class is registered for first time */
+        serverAssert(slot == -1);
 
-    /* if not found, search for free slot */
-    if (slot == 0) {
+        /* Find free slot */
         for (int i = KEY_META_ID_MODULE_FIRST; i <= KEY_META_ID_MODULE_LAST; i++) {
             if (keyMetaClass[i].state == CLASS_STATE_FREE) {
                 slot = i;
@@ -326,20 +399,21 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *metaname,
             }
         }
         if (slot == -1) return 0; /* no free slots */
-    } else { /* Negaative slot: class was RELEASED in the past. Reuse it. */
-        slot = -slot;
     }
-    
-    KeyMetaClass *dst = &keyMetaClass[slot];
-    /* Fill entry. Name is exactly 9 chars + NUL. */
 
-    memcpy(dst->mEntity.name, metaname, 9);
-    dst->mEntity.name[9] = '\0';
-    dst->mEntity.id = classId;
-    dst->mEntity.module = context;
-    
-    dst->state = CLASS_STATE_INUSE;
-    dst->conf = *conf; /* Copy config as is. */
+    KeyMetaClass *pKeyMetaClass = &keyMetaClass[slot];
+
+    /* Store 4-char short name */
+    memcpy(pKeyMetaClass->name, name, 4);
+    pKeyMetaClass->name[4] = '\0';
+
+    /* Store 9-char full name with "META-" prefix */
+    memcpy(pKeyMetaClass->mEntity.name, fullname,sizeof(fullname));
+    pKeyMetaClass->mEntity.id = entityId;
+    pKeyMetaClass->mEntity.module = context;
+    pKeyMetaClass->state = CLASS_STATE_INUSE;
+    pKeyMetaClass->classSpecSerialized = classSpecSerialized;
+    pKeyMetaClass->conf = *conf; /* Copy config as is. */
     return slot; /* Return handle (1..7). */
 }
 
