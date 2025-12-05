@@ -698,6 +698,54 @@ double exprTokenToNum(exprtoken *t) {
     }
 }
 
+/* Compare two tokens.
+ * In case tokens are both string but actual numeric values they are compared as numeric.
+ * Otherwhise if both are string but not numeric a string comparison will be performed.
+ * Otherwhise they will be treat as numeric values. */
+int exprTokens(exprtoken *a, exprtoken *b, int (*comparator)(double, double)) {
+    // If both are strings, do string comparison.
+    if (a->token_type == EXPR_TOKEN_STR && b->token_type == EXPR_TOKEN_STR) {
+        char buf[256];
+        memcpy(buf, a->str.start, a->str.len);
+        buf[a->str.len] = '\0';
+        char *endptr;
+        double aAsDouble = strtod(buf, &endptr);
+
+        /* If the first value is a numeric fallback directly fallback into numeric comparison.
+           Avoid to re-convert the value since it's already available. */
+        if (*endptr == '\0') return aAsDouble > exprTokenToNum(b) ? 1 : 0;
+
+        memcpy(buf, b->str.start, b->str.len);
+        buf[b->str.len] = '\0';
+        double bAsDouble = strtod(buf, &endptr);
+
+        /* If the second value is a numeric do numeric comparison between values. */
+        if (*endptr == '\0') return aAsDouble > bAsDouble ? 1 : 0;
+
+        /* At this point both the values are verified as strings that cannot be treat as numeric.
+           Let's perform string comparison and then apply the input logic to the result. */
+        return comparator(memcmp(a->str.start, b->str.start, a->str.len), 0);
+    }
+
+    return comparator(exprTokenToNum(a), exprTokenToNum(b));
+}
+
+int gt(double a, double b) {
+    return a > b ? 1 : 0;
+}
+
+int gte(double a, double b) {
+    return a >= b ? 1 : 0;
+}
+
+int lt(double a, double b) {
+    return a < b ? 1 : 0;
+}
+
+int lte(double a, double b) {
+    return a <= b ? 1 : 0;
+}
+
 /* Convert object to true/false (0 or 1) */
 double exprTokenToBool(exprtoken *t) {
     if (t->token_type == EXPR_TOKEN_NUM) {
@@ -816,16 +864,16 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             result->num = exprTokenToNum(a) - exprTokenToNum(b);
             break;
         case EXPR_OP_GT:
-            result->num = exprTokenToNum(a) > exprTokenToNum(b) ? 1 : 0;
+            result->num = exprTokens(a, b, gt);
             break;
         case EXPR_OP_GTE:
-            result->num = exprTokenToNum(a) >= exprTokenToNum(b) ? 1 : 0;
+            result->num = exprTokens(a, b, gte);
             break;
         case EXPR_OP_LT:
-            result->num = exprTokenToNum(a) < exprTokenToNum(b) ? 1 : 0;
+            result->num = exprTokens(a, b, lt);
             break;
         case EXPR_OP_LTE:
-            result->num = exprTokenToNum(a) <= exprTokenToNum(b) ? 1 : 0;
+            result->num = exprTokens(a, b, lte);
             break;
         case EXPR_OP_EQ:
             result->num = exprTokensEqual(a, b) ? 1 : 0;
@@ -954,6 +1002,49 @@ int main(int argc, char **argv) {
     printf("Result2: %s\n", result ? "True" : "False");
 
     exprFree(es);
+
+    testexpr = ".age > \"20\"";
+    testjson = "{\"age\": \"1\"}";
+    printf("Compiling expression: %s\n", testexpr);
+    errpos = 0;
+    es = exprCompile(testexpr,&errpos);
+    if (es == NULL) {
+        printf("Compilation failed near \"...%s\"\n", testexpr+errpos);
+        return 1;
+    }
+    exprPrintStack(&es->tokens, "Tokens");
+    exprPrintStack(&es->program, "Program");
+    printf("Running against object: %s\n", testjson);
+    result = exprRun(es,testjson,strlen(testjson));
+    printf("Result1: %s\n", result ? "True" : "False");
+    testjson = "{\"age\": \"25\"}";
+    printf("Running against object: %s\n", testjson);
+    result = exprRun(es,testjson,strlen(testjson));
+    printf("Result2: %s\n", result ? "True" : "False");
+    exprFree(es);
+
+
+    // Test missing fields in json.
+    testexpr = ".name < \"b\"";
+    testjson = "{\"name\": \"a\"}";
+    printf("Compiling expression: %s\n", testexpr);
+    errpos = 0;
+    es = exprCompile(testexpr,&errpos);
+    if (es == NULL) {
+        printf("Compilation failed near \"...%s\"\n", testexpr+errpos);
+        return 1;
+    }
+    exprPrintStack(&es->tokens, "Tokens");
+    exprPrintStack(&es->program, "Program");
+    printf("Running against object: %s\n", testjson);
+    result = exprRun(es,testjson,strlen(testjson));
+    printf("Result1: %s\n", result ? "True" : "False");
+    testjson = "{\"name\": \"b\"}";
+    printf("Running against object: %s\n", testjson);
+    result = exprRun(es,testjson,strlen(testjson));
+    printf("Result2: %s\n", result ? "True" : "False");
+    exprFree(es);
+
     return 0;
 }
 #endif
