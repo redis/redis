@@ -702,32 +702,32 @@ double exprTokenToNum(exprtoken *t) {
  * In case tokens are both string but actual numeric values they are compared as numeric.
  * Otherwhise if both are string but not numeric a string comparison will be performed.
  * Otherwhise they will be treat as numeric values. */
-int exprTokens(exprtoken *a, exprtoken *b, int (*comparator)(double, double)) {
+int exprCompareTokens(exprtoken *a, exprtoken *b, int (*compareFunction)(double, double)) {
     // If both are strings, do string comparison.
     if (a->token_type == EXPR_TOKEN_STR && b->token_type == EXPR_TOKEN_STR) {
         char buf[256];
         memcpy(buf, a->str.start, a->str.len);
         buf[a->str.len] = '\0';
         char *endptr;
-        double aAsDouble = strtod(buf, &endptr);
+        double aAsNumeric = strtod(buf, &endptr);
 
-        /* If the first value is a numeric fallback directly fallback into numeric comparison.
+        /* If the first value is a numeric fallback directly into numeric comparison.
            Avoid to re-convert the value since it's already available. */
-        if (*endptr == '\0') return aAsDouble > exprTokenToNum(b) ? 1 : 0;
+        if (*endptr == '\0') return compareFunction(aAsNumeric, exprTokenToNum(b));
 
         memcpy(buf, b->str.start, b->str.len);
         buf[b->str.len] = '\0';
-        double bAsDouble = strtod(buf, &endptr);
+        double bAsNumeric = strtod(buf, &endptr);
 
         /* If the second value is a numeric do numeric comparison between values. */
-        if (*endptr == '\0') return aAsDouble > bAsDouble ? 1 : 0;
+        if (*endptr == '\0') return compareFunction(aAsNumeric, bAsNumeric);
 
         /* At this point both the values are verified as strings that cannot be treat as numeric.
            Let's perform string comparison and then apply the input logic to the result. */
-        return comparator(memcmp(a->str.start, b->str.start, a->str.len), 0);
+        return compareFunction(memcmp(a->str.start, b->str.start, a->str.len), 0);
     }
 
-    return comparator(exprTokenToNum(a), exprTokenToNum(b));
+    return compareFunction(exprTokenToNum(a), exprTokenToNum(b));
 }
 
 int gt(double a, double b) {
@@ -760,7 +760,7 @@ double exprTokenToBool(exprtoken *t) {
 }
 
 /* Compare two tokens. Returns true if they are equal. */
-int exprTokensEqual(exprtoken *a, exprtoken *b) {
+int exprCompareTokensEqual(exprtoken *a, exprtoken *b) {
     // If both are strings, do string comparison.
     if (a->token_type == EXPR_TOKEN_STR && b->token_type == EXPR_TOKEN_STR) {
         return a->str.len == b->str.len &&
@@ -783,7 +783,7 @@ int exprTokensEqual(exprtoken *a, exprtoken *b) {
 }
 
 /* Return true if the string a is a substring of b. */
-int exprTokensStringIn(exprtoken *a, exprtoken *b) {
+int exprCompareTokensStringIn(exprtoken *a, exprtoken *b) {
     RedisModule_Assert(a->token_type == EXPR_TOKEN_STR &&
                        b->token_type == EXPR_TOKEN_STR);
     if (a->str.len > b->str.len) return 0; // A is bigger, can't be a substring.
@@ -864,22 +864,22 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             result->num = exprTokenToNum(a) - exprTokenToNum(b);
             break;
         case EXPR_OP_GT:
-            result->num = exprTokens(a, b, gt);
+            result->num = exprCompareTokens(a, b, gt);
             break;
         case EXPR_OP_GTE:
-            result->num = exprTokens(a, b, gte);
+            result->num = exprCompareTokens(a, b, gte);
             break;
         case EXPR_OP_LT:
-            result->num = exprTokens(a, b, lt);
+            result->num = exprCompareTokens(a, b, lt);
             break;
         case EXPR_OP_LTE:
-            result->num = exprTokens(a, b, lte);
+            result->num = exprCompareTokens(a, b, lte);
             break;
         case EXPR_OP_EQ:
-            result->num = exprTokensEqual(a, b) ? 1 : 0;
+            result->num = exprCompareTokensEqual(a, b) ? 1 : 0;
             break;
         case EXPR_OP_NEQ:
-            result->num = !exprTokensEqual(a, b) ? 1 : 0;
+            result->num = !exprCompareTokensEqual(a, b) ? 1 : 0;
             break;
         case EXPR_OP_IN: {
             /* For 'in' operator, b must be a tuple, and we check for
@@ -888,7 +888,7 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             result->num = 0;  // Default to false.
             if (b->token_type == EXPR_TOKEN_TUPLE) {
                 for (size_t j = 0; j < b->tuple.len; j++) {
-                    if (exprTokensEqual(a, b->tuple.ele[j])) {
+                    if (exprCompareTokensEqual(a, b->tuple.ele[j])) {
                         result->num = 1;  // Found a match.
                         break;
                     }
@@ -896,7 +896,7 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             } else if (a->token_type == EXPR_TOKEN_STR &&
                        b->token_type == EXPR_TOKEN_STR)
             {
-                result->num = exprTokensStringIn(a,b);
+                result->num = exprCompareTokensStringIn(a,b);
             }
             break;
         }
@@ -1022,7 +1022,6 @@ int main(int argc, char **argv) {
     result = exprRun(es,testjson,strlen(testjson));
     printf("Result2: %s\n", result ? "True" : "False");
     exprFree(es);
-
 
     // Test missing fields in json.
     testexpr = ".name < \"b\"";

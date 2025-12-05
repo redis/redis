@@ -28,7 +28,7 @@ class VSIMFilterExpressions(TestCase):
         self.redis.execute_command('VADD', self.test_key, 'VALUES', 4,
                                  *[str(x) for x in vec3], f'{self.test_key}:item:3')
         self.redis.execute_command('VSETATTR', self.test_key, f'{self.test_key}:item:3',
-                                  '{"age": 35, "name": "Charlie", "scores": [60, 65, 70], "city": "Seattle"}')
+                                  '{"age": "35", "name": "Charlie", "scores": [60, 65, 70], "city": "Seattle"}')
 
         self.redis.execute_command('VADD', self.test_key, 'VALUES', 4,
                                  *[str(x) for x in vec4], f'{self.test_key}:item:4')
@@ -59,6 +59,16 @@ class VSIMFilterExpressions(TestCase):
 
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
+                                          'FILTER', '.age > 0')
+        assert len(result) == 3, "Expected 3 results for age > 0"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.age > "0"')
+        assert len(result) == 3, "Expected 3 results for age > 0 as string"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
                                           'FILTER', '.name > "Bob"')
         assert len(result) == 1, "Expected 1 results for name > \"Bob\""
 
@@ -72,6 +82,16 @@ class VSIMFilterExpressions(TestCase):
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age >= "25"')
         assert len(result) == 3, "Expected 2 results for age >= 25 as string"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.age >= 0')
+        assert len(result) == 3, "Expected 3 results for age >= 0"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.age >= "0"')
+        assert len(result) == 3, "Expected 3 results for age >= 0 as string"
 
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
@@ -91,6 +111,16 @@ class VSIMFilterExpressions(TestCase):
 
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
+                                          'FILTER', '.age < 0')
+        assert len(result) == 0, "Expected 0 results for age < 0"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.age < "0"')
+        assert len(result) == 0, "Expected 0 results for age < 0 as string"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
                                           'FILTER', '.name < "Charlie"')
         assert len(result) == 2, "Expected 2 results for name < \"Charlie\""
 
@@ -104,6 +134,17 @@ class VSIMFilterExpressions(TestCase):
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age <= "30"')
         assert len(result) == 2, "Expected 2 results for age <= 30 as string"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.age <= 0')
+        assert len(result) == 0, "Expected 0 results for age <= 0"
+
+        result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
+                                          *[str(x) for x in vec1],
+                                          'FILTER', '.age <= "0"')
+        assert len(result) == 0, "Expected 0 results for age <= 0 as string"
+
 
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
