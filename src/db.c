@@ -451,7 +451,7 @@ int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
  *
  * If added to db, returns pointer to the object, Otherwise NULL is returned.
  */
-kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
+kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyMetaSpec) {
     /* Add new kvobj to the db. */
     int slot = getKeySlot(key);
 
@@ -462,15 +462,27 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
     if (link != NULL)
         return NULL;
 
-    /* prepare kvobj for insertion. Pass expire to reserve space for it */
-    int keyMetaBits = (expire != -1) ? KEY_META_MASK_EXPIRE : 0;
-    kvobj *kv = kvobjSet(key, *valref, keyMetaBits);
+    /* Create kvobj with metadata bits from KeyMetaSpec */
+    robj *val = *valref;
+    kvobj *kv = kvobjSet(key, val, keyMetaSpec->metabits);
     initObjectLRUOrLFU(kv);
     kvstoreDictSetAtLink(db->keys, slot, kv, &bucket, 1);
 
-    /* Set the expire time if needed */
-    if (expire != -1)
-        kv = setExpireByLink(NULL, db, key, expire, bucket);
+    /* Handle metadata (expiration and modules metadata) */
+    if (keyMetaSpec->metabits) {
+        if (keyMetaSpec->metabits & KEY_META_MASK_EXPIRE) {
+            /* Expiry is always the first meta (from last) */
+            long long expire = keyMetaSpec->meta[KEY_META_ID_MAX - 1];
+            kvobj *newkv = setExpireByLink(NULL, db, key, expire, bucket);
+            serverAssert(newkv == kv);
+        }
+
+        /* memcpy modules metadata to beginning of kvobj */
+        if (keyMetaSpec->metabits & KEY_META_MASK_MODULES)
+            memcpy(kvobjGetAllocPtr(kv),
+                   keyMetaSpec->meta + KEY_META_ID_MAX - keyMetaSpec->numMeta,
+                   keyMetaSpec->numMeta * sizeof(uint64_t));
+    }
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
     return *valref = kv;

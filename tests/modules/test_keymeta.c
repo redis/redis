@@ -7,13 +7,24 @@
  * The module pre-registers several metadata classes during initialization and exposes
  * the following commands (via RedisModule_CreateCommand):
  *
- * 1) KEYMETA.REGISTER <4-char-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE]
+ * 1) KEYMETA.REGISTER <4-char-id> <version> [FLAGS]
  *    Register a new metadata-key class during module load.
  *    Returns the <keymeta-class-id> index (Returned from RedisModule_CreateKeyMetaClass)
  *    On failure, returns nil
  *    In a real module it should be registered "automatically" via OnLoad.
  *
- *    Example: > keymeta.register KMT1 1 KEEPONCOPY:KEEPONRENAME
+ *    FLAGS (colon-separated):
+ *      KEEPONCOPY     - Keep metadata on COPY operation
+ *      KEEPONRENAME   - Keep metadata on RENAME operation
+ *      KEEPONMOVE     - Keep metadata on MOVE operation
+ *      UNLINKFREE     - Use unlink callback for async free
+ *      RDBLOAD        - Enable rdb_load callback (metadata can be loaded from RDB)
+ *      RDBSAVE        - Enable rdb_save callback (metadata can be saved to RDB)
+ *      ALLOWIGNORE    - Enable ALLOW_IGNORE flag (graceful discard on load if
+ *                       class not registered or no rdb_load callback)
+ *
+ *    Example: > keymeta.register KMT1 1 KEEPONCOPY:KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE
+ *    Example: > keymeta.register KMT2 1 ALLOWIGNORE
  *
  * 2) KEYMETA.SET <4-char-id> <key> <string-value>
  *    Set the string value as metadata to given key.
@@ -38,6 +49,7 @@
 #include "redismodule.h"
 #include <string.h>
 #include <stdlib.h>
+#include <assert.h>
 
 /* Virtualize class IDs for testing. Values: 0 unused, 1..7 used, -1 released */
 RedisModuleKeyMetaClassId class_ids[8] = { 0 };
@@ -153,6 +165,84 @@ static int KeyMetaMoveDiscardCallback(RedisModuleKeyOptCtx *ctx, uint64_t *meta)
     return 0; /* discard metadata */
 }
 
+/* RDB Save Callback - Serialize metadata to RDB
+ * This callback is invoked during RDB save to write the metadata value.
+ *
+ * Parameters:
+ *   - rdb: RedisModuleIO context for writing to RDB
+ *   - value: The kvobj (key-value object) - not used in this implementation
+ *   - meta: Pointer to the 8-byte metadata value (pointer to our string)
+ */
+static void KeyMetaRDBSaveCallback(RedisModuleIO *rdb, void *value, uint64_t *meta) {
+    REDISMODULE_NOT_USED(value);
+
+    /* If metadata is NULL (reset_value), don't save anything */
+    if (*meta == 0) return;
+
+    /* Extract the string from the metadata pointer */
+    char *metadata_string = (char *)*meta;
+
+    /* Save the string to RDB using SaveStringBuffer */
+    RedisModule_SaveStringBuffer(rdb, metadata_string, strlen(metadata_string));
+    /* Save more silly data */
+    RedisModule_SaveSigned(rdb, 1);
+    RedisModule_SaveFloat(rdb, 1.5);
+    RedisModule_SaveLongDouble(rdb, 0.333333333333333333L);
+}
+
+/* RDB Load Callback - Deserialize metadata from RDB
+ * This callback is invoked during RDB load to read the metadata value.
+ *
+ * Parameters:
+ *   - rdb: RedisModuleIO context for reading from RDB
+ *   - meta: Pointer to store the loaded 8-byte metadata value
+ *   - encver: Encoding version (class version from RDB)
+ *
+ * Returns:
+ *   - 1: Attach metadata to key (success)
+ *   - 0: Ignore/skip metadata (not an error)
+ *   - -1: Error - abort RDB load
+ */
+static int KeyMetaRDBLoadCallback(RedisModuleIO *rdb, uint64_t *meta, int encver) {
+    REDISMODULE_NOT_USED(encver);
+
+    /* Load the string from RDB using LoadStringBuffer */
+    size_t len;
+    char *loaded_string = RedisModule_LoadStringBuffer(rdb, &len);
+
+    if (loaded_string == NULL) {
+        /* Error loading string */
+        return -1;
+    }
+
+    /* Allocate and copy the string (LoadStringBuffer returns a buffer that must be freed) */
+    char *metadata_string = malloc(len + 1);
+    if (metadata_string == NULL) {
+        RedisModule_Free(loaded_string);
+        return -1;
+    }
+
+    memcpy(metadata_string, loaded_string, len);
+    metadata_string[len] = '\0';
+    RedisModule_Free(loaded_string);
+
+    /* Load the additional data that was saved (must match rdb_save) */
+    int64_t signed_val = RedisModule_LoadSigned(rdb);
+    float float_val = RedisModule_LoadFloat(rdb);
+    long double ldouble_val = RedisModule_LoadLongDouble(rdb);
+    /* We don't use these values, just need to consume them from the stream */
+    (void)signed_val;
+    (void)float_val;
+    (void)ldouble_val;
+
+    /* Store the pointer in metadata */
+    *meta = (uint64_t)metadata_string;
+    active_metadata_count++; /* New metadata instance created */
+
+    /* Return 1 to attach metadata to the key */
+    return 1;
+}
+
 /* AOF Rewrite Callback - Common implementation for all classes
  * This callback is invoked during AOF rewrite to emit commands that will
  * recreate the metadata when the AOF is loaded.
@@ -224,7 +314,7 @@ static void KeyMetaAOFRewriteCb7(RedisModuleIO *aof, void *value, uint64_t meta)
     KeyMetaAOFRewriteCallback_Class(aof, value, meta, 7);
 }
 
-/* KEYMETA.REGISTER <4-char-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE] */
+/* KEYMETA.REGISTER <4-char-id> <version> [KEEPONCOPY:KEEPONRENAME:UNLINKFREE:ALLOWIGNORE:NORDBLOAD:NORDBSAVE] */
 static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc < 3 || argc > 4) {
         return RedisModule_WrongArity(ctx);
@@ -233,7 +323,7 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     /* argv[1]: key metadata class name */
     size_t namelen;
     const char *metaname = RedisModule_StringPtrLen(argv[1], &namelen);
-    
+
     /* argv[2]: key metadata class version */
     long long metaver;
     if (RedisModule_StringToLongLong(argv[2], &metaver) != REDISMODULE_OK) {
@@ -243,21 +333,28 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
 
     /* Parse optional callback flags */
     int keep_on_copy = 0, keep_on_rename = 0, unlink_free = 0, keep_on_move = 0;
+    int allow_ignore = 0;  /* Default: ALLOW_IGNORE disabled */
+    int rdb_load = 0;      /* Default: rdb_load disabled */
+    int rdb_save = 0;      /* Default: rdb_save disabled */
+
     if (argc == 4) {
         const char *flags = RedisModule_StringPtrLen(argv[3], NULL);
         if (strstr(flags, "KEEPONCOPY")) keep_on_copy = 1;
         if (strstr(flags, "KEEPONRENAME")) keep_on_rename = 1;
         if (strstr(flags, "UNLINKFREE")) unlink_free = 1;
         if (strstr(flags, "KEEPONMOVE")) keep_on_move = 1;
+        if (strstr(flags, "ALLOWIGNORE")) allow_ignore = 1;   /* Enable ALLOW_IGNORE */
+        if (strstr(flags, "RDBLOAD")) rdb_load = 1;           /* Enable rdb_load */
+        if (strstr(flags, "RDBSAVE")) rdb_save = 1;           /* Enable rdb_save */
     }
 
     /* Setup configuration */
     RedisModuleKeyMetaClassConfig config = {0};
     config.version = REDISMODULE_KEY_META_VERSION;
-    config.flags = REDISMODULE_META_ALLOW_IGNORE;
+    config.flags = allow_ignore ? (1 << REDISMODULE_META_ALLOW_IGNORE) : 0;
     config.reset_value = (uint64_t)NULL;  /* NULL pointer means no resource to free */
-    config.rdb_load = NULL;
-    config.rdb_save = NULL;
+    config.rdb_load = rdb_load ? KeyMetaRDBLoadCallback : NULL;
+    config.rdb_save = rdb_save ? KeyMetaRDBSaveCallback : NULL;
     switch (num_class_mappings + 1) { /* distinct cb per class */
         case 1: config.aof_rewrite = KeyMetaAOFRewriteCb1; break;
         case 2: config.aof_rewrite = KeyMetaAOFRewriteCb2; break;

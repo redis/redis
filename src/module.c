@@ -4424,14 +4424,17 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *     > Read custom serialized data from `rdb` using RedisModule_Load*() APIs
  *     > Deserialize and reconstruct the 8-byte metadata value
  *     > Write the final 8-byte value into `*meta`
- *     > Return 1 to attach `meta` to the key, or 0 to skip attachment
+ *     > Return appropriate status code (see below)
  *     > Database ID can be derived from `rdb` if needed. The associated key
  *       will be loaded immediately after this callback returns.
  *   - Parameters:
  *     > rdb: RDB I/O context (use RedisModule_Load*() functions to read data)
  *     > meta: Pointer to 8-byte metadata slot (write your deserialized value here)
  *     > encver: Encoding version (the metadata class version at save time)
- *   - Return 1 to attach value `*meta` to the key, or return 0 to ignore.
+ *   - Return values:
+ *     > 1: Attach value `*meta` to the key (success)
+ *     > 0: Ignore/skip metadata (don't attach, but continue loading - not an error)
+ *     > -1: Error - abort RDB load (e.g., invalid data, version incompatibility)
  *
  * * **rdb_save**: A callback function pointer for RDB saving (optional).
  *   - If set to NULL, Redis will not save metadata to RDB.

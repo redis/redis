@@ -58,6 +58,7 @@ typedef int KeyMetaClassId; /* Index into redisServer.keyMetaClass[] */
 #define KEY_META_MASK_MODULES     (((1U << KEY_META_MAX_NUM_MODULES) - 1) << KEY_META_ID_MODULE_FIRST)
 #define KEY_META_MASK_EXPIRE      (1U << KEY_META_ID_EXPIRE)
 
+/* RDB load callback: Return 1 to attach, 0 to skip, -1 on error */
 typedef int (*KeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
 typedef void (*KeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
 typedef void (*KeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
@@ -72,8 +73,8 @@ typedef int (*KeyMetaMoveFunc)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta)
 
 /* For explanation, see struct RedisModuleKeyMetaClassConfig */
 typedef struct KeyMetaClassConf {
-#define KEY_META_FLAGS_RDB_MASK      0x3 /* First 3 flags are serialized into RDB with key */
-#define KEY_META_FLAG_ALLOW_IGNORE   0   /* Ignore silently on RDB load, if module not avail */
+#define KEY_META_FLAGS_RDB_MASK      0x7 /* First 3 flags are serialized into RDB with key */
+#define KEY_META_FLAG_ALLOW_IGNORE   0   /* Aligned with: REDISMODULE_META_ALLOW_IGNORE */
 #define KEY_META_FLAG_RBB_RESERVED_1 1   /* Reserved for future use */
 #define KEY_META_FLAG_RBB_RESERVED_2 2   /* Reserved for future use */
     uint64_t flags;
@@ -121,6 +122,10 @@ void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, KeyMetaSpec *
 void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDbId, KeyMetaSpec *kms);
 int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid);
 
+/* RDB serialization */
+int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid);
+int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms);
+
 void keyMetaResetModuleValues(kvobj *kv);
 void keyMetaTransition(kvobj *kvOld, kvobj *kvNew);
 
@@ -132,10 +137,6 @@ int keyMetaClassRelease(KeyMetaClassId class_id);
 kvobj *keyMetaSetMetadata(struct redisDb *db, kvobj *kv, KeyMetaClassId kmcId, uint64_t metadata);
 int keyMetaGetMetadata(KeyMetaClassId kmcId, kvobj *kv, uint64_t *metadata);
 int keyMetaRemoveMetadata(KeyMetaClassId kmcId, RedisModuleKey *key);
-
-/* KeyMetaSpec helpers */
-static inline void keyMetaSpecInit(KeyMetaSpec *keymeta);
-static inline void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
 
 /* bit operations on metabits */
 static inline uint32_t getNumMeta(uint16_t metabits);
@@ -157,13 +158,8 @@ static inline void keyMetaSpecInit(KeyMetaSpec *keymeta) {
     keymeta->numMeta = 0;
 }
 
-/* Add metadata to keymeta spec. metaid must be in range 0..7. */
-static inline void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
-    keymeta->metabits |= 1 << metaid ;
-    keymeta->numMeta++;
-    /* populated in reverse order */
-    keymeta->meta[KEY_META_ID_MAX - keymeta->numMeta] = metaval;
-}
+/* Add metadata to keymeta spec. metaid must be in range 0..7 and added in order! */
+void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
 
 static inline uint32_t getNumMeta(uint16_t metabits) {
     /* Assumed expire is always first meta */

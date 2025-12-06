@@ -1,7 +1,29 @@
-/* Keys Metadata subsystem initialization and callbacks scaffolding. */
+/* Read keymeta.h for high-level overview. */
 
 #include "server.h"
 #include <string.h>
+
+/* Encoding constants for metadata class names and serialization */
+#define KM_NAME_LEN           4    /* Short name length (e.g., "KMT1") */
+#define KM_PREFIX             "META-"
+#define KM_PREFIX_LEN         5    /* Length of "META-" prefix */
+#define KM_FULLNAME_LEN       9    /* Full name length: "META-xxxx" */
+#define KM_ENC_CHAR_BITS      6    /* Bits per character in encoding */
+#define KM_CHARSET_SIZE       64   /* Size of character set (2^6) */
+#define KM_VER_BITS           5    /* Bits for version in 32-bit class spec */
+#define KM_VER_MAX            31   /* Max version value (2^5 - 1) */
+#define KM_FLAGS_BITS         3    /* Bits for flags in 32-bit class spec */
+#define KM_FLAGS_MASK         0x7  /* Mask for 3-bit flags */
+#define KM_VER_MASK           0x1F /* Mask for 5-bit version */
+#define KM_CHAR_MASK          0x3F /* Mask for 6-bit character */
+#define KM_ENTITY_VER_BITS    10  /* Bits for version in 64-bit entity ID */
+#define KM_CLASS_SPEC_SIZE    4    /* Size of 32-bit class spec in bytes */
+#define KM_EXPIRE_RESET_VALUE ((uint64_t)-1) /* Sentinel: no expiration */
+
+/* Character set for metadata class names (same as module types). */
+static const char *keyMetaCharSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                    "abcdefghijklmnopqrstuvwxyz"
+                                    "0123456789_-";
 
 typedef enum KeyMetaClassState {
     CLASS_STATE_FREE = 0, /* Free must be 0. */
@@ -15,80 +37,115 @@ typedef struct KeyMetaClass {
     ModuleEntityId mEntity;       /* module key metadata name and ID. */
     KeyMetaClassConf conf;        /* copy of configuration callbacks and options */
     KeyMetaClassState state;
-    uint32_t classSpecSerialized; /* 32-bits serialized form of [name][version][flags] */
+    uint32_t classSpecEncoded;    /* See keyMetaClassEncode() */
 } KeyMetaClass;
-
 static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
 
-/* Encode 64-bit module-style ID and 32-bit serialized class ID 
+/* Encode 64b For module entity encode. Encode 32b class spec for RDB. 
  *
- * Takes a 4-character name (e.g., "KMT1"), version (0-31), and flags, and:
- * 1. Validates the 4-char name uses valid character set
- * 2. Validates version is 5 bits (0-31) for metadata classes
- * 3. Generates 9-char entity name with "META-" prefix (e.g., "META-KMT1")
- * -> Encodes the 9-char name into 64-bit ID (compatible with moduleTypeEncodeId).
- * -> Encodes compact 32-bit RDB/DUMP serialized class ID:
+ * Takes a 4-character name (e.g., "KMT1"), version (0-31), and flags, validates 
+ * 4-char name uses valid character set. Version is 5 bits (0-31).
+ * 
+ * >> ENCODING 32-BIT CLASS SPEC
+ * Encodes compact 32-bit class Spec for RDB/DUMP serialization:
  *            31                           8 7     3 2   0
- *            ┌─────────────────────────────┬───────┬─────┐
- *            │   4-char name (24 bits)     │ ver   │flags│
- *            │   (6 bits per char)         │(5 bit)│(3b) │
- *            └─────────────────────────────┴───────┴─────┘
+ *            ┌───────────────────────────────┬───────┬─────┐
+ *            │   4-char name "xxxx"(24 bits) │ ver   │flags│
+ *            │   (6 bits per char)           │(5 bit)│(3b) │
+ *            └───────────────────────────────┴───────┴─────┘
  *
- * Returns 64-bit entityID and keyMetaClassSer, 0 on error 
+ * >> ENCODING MODULE-STYLE ID
+ * Generates 9-char entity name with "META-" prefix (e.g., "META-KMT1"), 54 bits
+ * in total, plus 10 bits version (values 0-31). Compatible with moduleTypeEncodeId:
+ *            63                                     10 9           0
+ *            ┌───────────────────────────────────────┬─────────────┐
+ *            │   9-char name (56 bits) "META-xxxx"   │  ver (0-31) │
+ *            │   (6 bits per char)                   │   (10 bit)  │
+ *            └───────────────────────────────────────┴─────────────┘
+ * 
  */
-static uint64_t keyMetaEncodeId(const char *name, int metaver, uint64_t flags,
-                                char *fullname, uint32_t *keyMetaClassSer) {
-/* Character set for metadata class names (same as module types). */
-    static const char *cset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                              "abcdefghijklmnopqrstuvwxyz"
-                              "0123456789_-";
+static uint64_t keyMetaClassEncode(const char *name, int metaver, uint64_t flags,
+                                char *fullname, uint32_t *rdbEncodedValue) {
     /* Validate name is exactly 4 characters */
-    if (strlen(name) != 4) return 0;
+    if (strlen(name) != KM_NAME_LEN) return 0;
 
     /* Validate version range (5 bits = 0-31 for metadata classes) */
-    if (metaver < 0 || metaver > 31) return 0;
-    
+    if (metaver < 0 || metaver > KM_VER_MAX) return 0;
+
     /* Generate 9-char name with "META-" prefix */
-    memcpy(fullname, "META-", 5);
-    memcpy(fullname + 5, name, 4);
-    fullname[9] = '\0';
+    memcpy(fullname, KM_PREFIX, KM_PREFIX_LEN);
+    memcpy(fullname + KM_PREFIX_LEN, name, KM_NAME_LEN);
+    fullname[KM_FULLNAME_LEN] = '\0';
 
     /* Encode 9-char name into 64-bit entityId (module-style ID, 54 bits name
      * plus 10 bits version) */
-    uint64_t entityId = 0;
+    uint64_t encName9Chars = 0;
     /* Encode last 4-char into 32-bit serialized class ID (24b name + 5b version + 3b flags) */
-    uint32_t classSer = 0;
-    for (int j = 0; j < 9; j++) {
-        char *p = strchr(cset, fullname[j]);
+    uint32_t encName4chars = 0;
+    for (int j = 0; j < KM_FULLNAME_LEN; j++) {
+        char *p = strchr(keyMetaCharSet, fullname[j]);
         if (!p) return 0; /* Invalid character in name */
-        unsigned long pos = p - cset;
-        entityId = (entityId << 6) | pos;
-        if (j >= 5) classSer = (classSer << 6) | pos;
-    }
-    /* Add version (10 bits) to entityId */
-    entityId = (entityId << 10) | metaver;
-
-    /* Add version (5 bits) and flags (3 bits) to serialized class ID if requested */
-    if (keyMetaClassSer) {
-        classSer = (classSer << 5) | (metaver & 0x1F);
-        classSer = (classSer << 3) | (flags & 0x07);
-        *keyMetaClassSer = classSer;
+        unsigned long pos = p - keyMetaCharSet;
+        encName9Chars = (encName9Chars << KM_ENC_CHAR_BITS) | pos;
+        if (j >= KM_PREFIX_LEN) encName4chars = (encName4chars << KM_ENC_CHAR_BITS) | pos;
     }
 
-    return entityId; /* Return 64-bit module ID (0 on error) */
+    /* Encodes compact 32-bit RDB/DUMP serialized class Spec */
+    *rdbEncodedValue = ((encName4chars << KM_VER_BITS) | metaver) << KM_FLAGS_BITS | (flags & KM_FLAGS_MASK);
+
+    /* Encodes the 9-char name into 64-bit ID (compatible with moduleTypeEncodeId) */
+    uint64_t entityId = (encName9Chars << KM_ENTITY_VER_BITS) | metaver;
+    return entityId;
+}
+
+/* Decode 32-bit class spec from RDB/DUMP format
+ *
+ * Takes a 32-bit keyMetaClassSer and extracts:
+ * - 4-character name (24 bits, 6 bits per char)
+ * - version (5 bits, 0-31)
+ * - flags (3 bits)
+ *
+ * This is the reverse of the encoding done in keyMetaClassEncode().
+ *
+ * Returns 1 on success, 0 on error (invalid encoding).
+ */
+int keyMetaClassDecode(uint32_t value, char *name, int *metaver, uint8_t *flags) {
+    debugServerAssert(name && metaver && flags);
+
+    /* Extract flags (lowest 3 bits) */
+    *flags = value & KM_FLAGS_MASK;
+    value >>= KM_FLAGS_BITS;
+
+    /* Extract version (next 5 bits) */
+    *metaver = value & KM_VER_MASK;
+    value >>= KM_VER_BITS;
+
+    /* Extract 4-char name (24 bits, 6 bits per char, big-endian) */
+    for (int i = KM_NAME_LEN - 1; i >= 0; i--) {
+        unsigned int pos = value & KM_CHAR_MASK;
+        if (pos >= KM_CHARSET_SIZE) return 0; /* Invalid character position */
+        name[i] = keyMetaCharSet[pos];
+        value >>= KM_ENC_CHAR_BITS;
+    }
+    name[KM_NAME_LEN] = '\0';
+
+    /* Verify no extra bits set */
+    if (value != 0) return 0;
+
+    return 1;
 }
 
 /* Return -1 if not found, 1..7 for slot if INUSE, alreadyReleased if found but released */
 static int keyMetaClassLookupByName(const char *name, int *alreayReleased) {
     *alreayReleased = 0;
     if (!name) return -1;
-    
+
     for (int i = KEY_META_ID_MODULE_FIRST; i <= KEY_META_ID_MODULE_LAST; i++) {
-        if (keyMetaClass[i].state == CLASS_STATE_FREE) 
+        if (keyMetaClass[i].state == CLASS_STATE_FREE)
             continue;
-        if (memcmp(keyMetaClass[i].name, name, 4) != 0) 
+        if (memcmp(keyMetaClass[i].name, name, KM_NAME_LEN) != 0)
             continue;
-        if (keyMetaClass[i].state == CLASS_STATE_INUSE) 
+        if (keyMetaClass[i].state == CLASS_STATE_INUSE)
             return i;
         if (keyMetaClass[i].state == CLASS_STATE_RELEASED) {
             *alreayReleased = 1;
@@ -105,7 +162,7 @@ void keyMetaInit(void) {
     /* Slot 0 is EXPIRE, built-in and always active. */
     keyMetaClass[KEY_META_ID_EXPIRE].state = CLASS_STATE_INUSE;
     keyMetaClass[KEY_META_ID_EXPIRE].conf.flags = 0; /* No special flags for EXPIRE. */
-    keyMetaClass[KEY_META_ID_EXPIRE].conf.reset_value = (uint64_t)-1; /* -1 means no expire */
+    keyMetaClass[KEY_META_ID_EXPIRE].conf.reset_value = KM_EXPIRE_RESET_VALUE;
 }
 
 /* Prepare key metadata spec for copy of `srcKv` */
@@ -114,7 +171,7 @@ void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDb
 {
     uint64_t *pMeta = ((uint64_t *)kv) - 1;
     if (kv->metabits & KEY_META_MASK_EXPIRE) {
-        if (*pMeta != (uint64_t)-1)
+        if (*pMeta != KM_EXPIRE_RESET_VALUE)
             keyMetaSpecAdd(keymeta, KEY_META_ID_EXPIRE, *pMeta);
         pMeta--;
     }
@@ -147,7 +204,7 @@ void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey,
     /* Handle builtin expire: add only if set and value != -1, but always advance
      * the pointer when the expire bit is set since the slot exists either way. */
     if (kv->metabits & KEY_META_MASK_EXPIRE) {
-        if (*pMeta != ((uint64_t)-1))
+        if (*pMeta != KM_EXPIRE_RESET_VALUE)
             keyMetaSpecAdd(kms, KEY_META_ID_EXPIRE, *pMeta);
         pMeta--; /* skip expire slot */
     }
@@ -184,7 +241,7 @@ void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, KeyMetaSpec *
     /* Handle builtin expire: add only if set and value != -1, but always advance
      * the pointer when the expire bit is set since the slot exists either way. */
     if (kv->metabits & KEY_META_MASK_EXPIRE) {
-        if (*pMeta != ((uint64_t)-1))
+        if (*pMeta != KM_EXPIRE_RESET_VALUE)
             keyMetaSpecAdd(kms, KEY_META_ID_EXPIRE, *pMeta);
         pMeta--; /* skip expire slot */
     }
@@ -287,6 +344,254 @@ void keyMetaOnFree(kvobj *kv) {
     } while (mbits != 0);
 }
 
+int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
+    static int countDownNotice = 0;
+    static rio *lastRdb = NULL;
+    if (lastRdb != rdb) {
+        countDownNotice = 10;
+        lastRdb = rdb;
+    }
+
+    /* Check ALLOW_IGNORE flag */
+    if (flags & (1 << KEY_META_FLAG_ALLOW_IGNORE)) {
+        if (countDownNotice-- > 0) {
+            /* Skip this metadata gracefully */
+            serverLog(LL_NOTICE, "Skipping metadata for class '%s' (not registered or missing rdb_load)", cname);
+        }
+
+        /* Skip the metadata value by loading and discarding it.
+         * The metadata format is: VALUE (variable length) + EOF marker.
+         *
+         * The VALUE is saved using RedisModule_Save* functions which use module opcodes
+         * (RDB_MODULE_OPCODE_SINT, etc.), so we use rdbLoadCheckModuleValue() to skip it.
+         *
+         * Note: rdbLoadCheckModuleValue() reads opcodes until it finds RDB_MODULE_OPCODE_EOF,
+         * so it consumes the EOF marker as well. We don't need to read it separately. */
+        robj *dummy = rdbLoadCheckModuleValue(rdb, cname);
+        if (dummy == NULL) {
+            serverLog(LL_WARNING, "Corrupted metadata value for class '%s'", cname);
+            return -1;
+        }
+
+        decrRefCount(dummy);
+        return 0;
+    } else {
+        serverLog(LL_WARNING, "RDB load key metadata failed: Class '%s' not registered or missing rdb_load().", cname);
+        return -1;
+    }
+}
+
+/* Load module metadata from RDB.
+ * Returns 0 on success, -1 on error.
+ * Stores loaded metadata in the provided KeyMetaSpec structure.
+ *
+ * Format (same as save):
+ *   1B: NUM_CLASSES (already read by caller)
+ *   For each class:
+ *     4B: CLASS_SPEC (32-bit classSpecEncoded)
+ *     ?B: VALUE (from rdb_load callback)
+ *     1B: RDB_MODULE_OPCODE_EOF
+ */
+int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
+    if (numClasses > KEY_META_MAX_NUM_MODULES) {
+        serverLog(LL_WARNING, "Too many metadata classes: %d (max %d)",
+                  numClasses, KEY_META_MAX_NUM_MODULES);
+        return -1;
+    }
+
+    for (int i = 0; i < numClasses; i++) {
+        /* Read 32-bit encoded class spec */
+        uint32_t encClassSpec;
+        if (rioRead(rdb, &encClassSpec, KM_CLASS_SPEC_SIZE) == 0) return -1;
+
+        /* Deserialize to get name, version, flags */
+        char name[5];
+        int metaver;
+        uint8_t flags;
+        if (keyMetaClassDecode(encClassSpec, name, &metaver, &flags) == 0) {
+            serverLog(LL_WARNING, "Corrupted metadata class spec: 0x%08x", encClassSpec);
+            return -1;
+        }
+
+        /* Lookup class by name */
+        int alreadyReleased = 0;
+        KeyMetaClassId classId = keyMetaClassLookupByName(name, &alreadyReleased);
+
+        /* If class not found or released, check ALLOW_IGNORE flag */
+        if (classId == -1 || alreadyReleased) {
+            int rc = rdbLoadSkipMetaIfAllowed(rdb, name, flags);
+            if (rc == -1) return -1;
+            continue;
+        } 
+        
+        /* Verify version matches */
+        KeyMetaClass *pClass = &keyMetaClass[classId];
+        debugServerAssert(pClass->state == CLASS_STATE_INUSE);
+
+        /* If no rdb_load callback, check ALLOW_IGNORE flag */
+        if (pClass->conf.rdb_load == NULL) {
+            /* No rdb_load callback - check ALLOW_IGNORE flag */
+            int rc = rdbLoadSkipMetaIfAllowed(rdb, name, flags);
+            if (rc == -1) return -1;
+            continue;            
+        }
+
+        RedisModuleIO io;
+        /* We don't have the key yet, so pass NULL for now */
+        moduleInitIOContext(&io, &pClass->mEntity, rdb, NULL, dbid);
+
+        uint64_t meta = 0;
+        int rc = pClass->conf.rdb_load(&io, &meta, metaver);
+
+        /* Read EOF marker */
+        uint64_t eof = rdbLoadLen(rdb, NULL);
+        if (eof != RDB_MODULE_OPCODE_EOF) {
+            serverLog(LL_WARNING, "Missing EOF after key metadata '%s' (got 0x%llx)",
+                      name, (unsigned long long)eof);
+            io.error = 1;
+        }
+
+        if (io.ctx) {
+            moduleFreeContext(io.ctx);
+            zfree(io.ctx);
+        }
+
+        if (io.error) return -1;
+
+        /* Handle rdb_load return value:
+         *   1: Attach metadata to key (success)
+         *   0: Ignore/skip metadata (not an error)
+         *  -1: Error - abort RDB load */
+        if (rc == 1) {
+            /* Attach metadata. Cannot overflow since loop is bounded by numClasses <= KEY_META_MAX_NUM_MODULES */
+            keyMetaSpecAdd(kms, classId, meta);
+        } else if (rc == 0) {
+            /* Ignore/skip - don't attach metadata, continue loading */
+        } else if (rc == -1) {
+            /* Error - abort RDB load */
+            serverLog(LL_WARNING,
+                "RDB load failed: rdb_load callback for metadata class '%s' returned error", name);
+            return -1;
+        } else {
+            /* Invalid return value */
+            serverLog(LL_WARNING,
+                "RDB load failed: rdb_load callback for metadata class '%s' "
+                "returned invalid value %d (expected -1, 0, or 1)",
+                name, rc);
+            return -1;
+        }
+    }
+    return 0; /* Success */
+}
+
+/* Save all key metadata to RDB using lazy header writing.
+ * We accumulate class data (CLASS_SPEC + VALUE + EOF) in a temporary buffer,
+ * counting classes that actually write data. Only if count > 0, we write the
+ * opcode and NUM_CLASSES to RDB, followed by the accumulated payload.
+ * This avoids writing RDB_OPCODE_KEY_META when no module writes any data.
+ *
+ * Format:
+ *   1B: RDB_OPCODE_KEY_META
+ *   ?B: NUM_CLASSES (count of classes that wrote data)
+ *   For each class:
+ *     4B: CLASS_SPEC (32-bit classSpecEncoded)
+ *     ?B: VALUE (from rdb_save callback)
+ *     1B: RDB_MODULE_OPCODE_EOF
+ *     
+  * Returns -1 on error, 0 on success.
+ */
+int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
+
+    /* Check if there are any module metadata bits set */
+    uint32_t mbits = kv->metabits >> KEY_META_ID_MODULE_FIRST;
+    if (likely(mbits == 0)) return 0; /* No module metadata */
+
+    /* Skip builtin expire slot if present */
+    uint64_t *pMeta = ((uint64_t *)kv) - 1;
+    if (kv->metabits & KEY_META_MASK_EXPIRE)
+        pMeta--;
+
+    /* Create temporary buffer for payload (class data only, no headers) */
+    rio payload_rio;
+    rioInitWithBuffer(&payload_rio, sdsempty());
+
+    /* Iterate through classes and accumulate payload */
+    int numClasses = 0;
+    int keyMetaId = KEY_META_ID_MODULE_FIRST;
+    uint32_t mbits_copy = mbits;
+
+    do {
+        /* Check if metadata is attached for this class */
+        if (mbits_copy & 1) {
+            KeyMetaClass *pClass = &keyMetaClass[keyMetaId];
+            serverAssert(pClass->state == CLASS_STATE_INUSE);
+
+            if (pClass->conf.rdb_save) {
+                /* Write 32-bit class spec to payload buffer */
+                uint32_t classSpec = pClass->classSpecEncoded;
+                if (rdbWriteRaw(&payload_rio, &classSpec, KM_CLASS_SPEC_SIZE) == -1) goto error;
+
+                size_t bytes_before = sdslen(payload_rio.io.buffer.ptr);
+
+                /* Call module's rdb_save callback */
+                RedisModuleIO io;
+                moduleInitIOContext(&io, &pClass->mEntity, &payload_rio, key, dbid);
+                pClass->conf.rdb_save(&io, kv, pMeta);
+
+                if (io.ctx) {
+                    moduleFreeContext(io.ctx);
+                    zfree(io.ctx);
+                }
+
+                if (io.error) goto error;
+
+                size_t bytes_after = sdslen(payload_rio.io.buffer.ptr);
+
+                /* Check if module actually wrote any data */
+                if (bytes_after > bytes_before) {
+                    /* Module wrote data - add EOF marker and count it */
+                    if (rdbSaveLen(&payload_rio, RDB_MODULE_OPCODE_EOF) == -1) goto error;
+                    numClasses++;
+                } else {
+                    /* Module didn't write data - remove the class spec we wrote.
+                     * bytes_before is the length after writing the class spec, so we want
+                     * to keep bytes_before - KM_CLASS_SPEC_SIZE bytes. We also need to update the RIO's pos to match. */
+                    sdssubstr(payload_rio.io.buffer.ptr, 0, bytes_before - KM_CLASS_SPEC_SIZE);
+                    payload_rio.io.buffer.pos = bytes_before - KM_CLASS_SPEC_SIZE;
+                }
+            }
+
+            pMeta--; /* Move to next metadata slot */
+        }
+        keyMetaId++;
+        mbits_copy >>= 1;
+    } while (mbits_copy);
+
+    /* If no classes wrote data, discard everything */
+    if (numClasses == 0) {
+        sdsfree(payload_rio.io.buffer.ptr);
+        return 0;
+    }
+
+    /* Now write headers to RDB, followed by payload */
+    if (rdbSaveType(rdb, RDB_OPCODE_KEY_META) == -1) goto error;
+    if (rdbSaveLen(rdb, numClasses) == -1) goto error;
+
+    /* Write accumulated payload to RDB */
+    sds payload = payload_rio.io.buffer.ptr;
+    if (rdbWriteRaw(rdb, payload, sdslen(payload)) == -1) {
+        sdsfree(payload);
+        return -1;
+    }
+
+    sdsfree(payload);
+    return 0;
+
+error:
+    sdsfree(payload_rio.io.buffer.ptr);
+    return -1;
+}
+
 /* returns 0 on error, 1 on success. */
 int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
     /* Skip builtin expire slot if present; no action needed for expire itself. */
@@ -371,14 +676,14 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     if (!conf) return 0;
 
     /* Validate and encode ID. This also validates 4-char name and generates "META-" prefix. */
-    char fullname[10];
-    uint32_t classSpecSerialized;
+    char fullname[KM_FULLNAME_LEN+1];
+    uint32_t classSpecEncoded;
     /* Resovle: entityId, fullname, keyMetaClassSer */
-    uint64_t entityId = keyMetaEncodeId(name,
+    uint64_t entityId = keyMetaClassEncode(name,
                                         metaver,
                                         conf->flags & KEY_META_FLAGS_RDB_MASK,
                                         fullname,
-                                        &classSpecSerialized);
+                                        &classSpecEncoded);
     if (entityId == 0) return 0;
 
     /* Check for name conflicts using 4-char name. Allow reuse of RELEASED; forbid if INUSE. */
@@ -404,15 +709,15 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     KeyMetaClass *pKeyMetaClass = &keyMetaClass[slot];
 
     /* Store 4-char short name */
-    memcpy(pKeyMetaClass->name, name, 4);
-    pKeyMetaClass->name[4] = '\0';
+    memcpy(pKeyMetaClass->name, name, KM_NAME_LEN);
+    pKeyMetaClass->name[KM_NAME_LEN] = '\0';
 
     /* Store 9-char full name with "META-" prefix */
-    memcpy(pKeyMetaClass->mEntity.name, fullname,sizeof(fullname));
+    memcpy(pKeyMetaClass->mEntity.name, fullname, KM_FULLNAME_LEN+1);
     pKeyMetaClass->mEntity.id = entityId;
     pKeyMetaClass->mEntity.module = context;
     pKeyMetaClass->state = CLASS_STATE_INUSE;
-    pKeyMetaClass->classSpecSerialized = classSpecSerialized;
+    pKeyMetaClass->classSpecEncoded = classSpecEncoded;
     pKeyMetaClass->conf = *conf; /* Copy config as is. */
     return slot; /* Return handle (1..7). */
 }
@@ -506,6 +811,16 @@ int keyMetaGetMetadata(KeyMetaClassId kmcId, kvobj *kv, uint64_t *metadata) {
 
     *metadata = *kvobjMetaRef(kv, kmcId);
     return 1;
+}
+
+/* Add metadata to keymeta spec. Must be in range 0..7 and in order! */
+void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
+    /* Verify added in order and for the first time */
+    debugServerAssert(keymeta->metabits == 0 || (1<<metaid) > keymeta->metabits);
+    keymeta->metabits |= 1 << metaid ;
+    keymeta->numMeta++;
+    /* populated in reverse order */
+    keymeta->meta[KEY_META_ID_MAX - keymeta->numMeta] = metaval;
 }
 
 /* Blindly reset modules metadata values to reset_value */

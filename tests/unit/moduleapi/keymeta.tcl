@@ -101,13 +101,13 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
     r module load $testmodule
 
     array set classesSpec {}
-    set classesSpec(1) "KEEPONCOPY:KEEPONRENAME:KEEPONMOVE"
-    set classesSpec(2) "KEEPONCOPY:KEEPONRENAME:UNLINKFREE"
-    set classesSpec(3) "KEEPONCOPY"
-    set classesSpec(4) ""
-    set classesSpec(5) "KEEPONRENAME:KEEPONMOVE"
-    set classesSpec(6) "KEEPONRENAME"
-    set classesSpec(7) "KEEPONMOVE:UNLINKFREE"
+    set classesSpec(1) "KEEPONCOPY:KEEPONRENAME:KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(2) "KEEPONCOPY:KEEPONRENAME:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(3) "KEEPONCOPY:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(4) "ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(5) "KEEPONRENAME:KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(6) "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+    set classesSpec(7) "KEEPONMOVE:UNLINKFREE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
 
     array set classes {}
     for {set cid 1} {$cid <= 7} {incr cid} {
@@ -409,4 +409,350 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
         set keymeta_count [regexp -all {KEYMETA\.SET} $aof_content]
         assert_equal $keymeta_count 4
     } {} {external:skip}
+
+    # ========================================================================
+    # RDB Save/Load Tests
+    # ========================================================================
+
+    test {RDB: SAVE and reload preserves metadata} {
+        # Create key with metadata
+        r set key1 "value1"
+        r keymeta.set [cname 1] key1 "key1_meta1"
+        assert_equal [r keymeta.get [cname 1] key1] "key1_meta1"
+
+        r save
+        r debug reload
+
+        # Verify metadata persisted after reload
+        assert_equal [r keymeta.get [cname 1] key1] "key1_meta1"
+
+        flushallAndVerifyCleanup
+    } {} {external:skip needs:save}
+
+    test {RDB: BGSAVE writes metadata to RDB file} {
+        # Create keys with different metadata combinations
+        r set key1 "value1"
+        r keymeta.set [cname 1] key1 "key1_meta1"
+
+        r set key2 "value2"
+        r keymeta.set [cname 1] key2 "key2_meta1"
+        r keymeta.set [cname 2] key2 "key2_meta2"
+
+        # Trigger BGSAVE and reload (debug reload preserves modules)
+        r bgsave
+        waitForBgsave r
+        r debug reload
+
+        # Verify metadata persisted after reload
+        assert_equal [r keymeta.get [cname 1] key1] "key1_meta1"
+        assert_equal [r keymeta.get [cname 1] key2] "key2_meta1"
+        assert_equal [r keymeta.get [cname 2] key2] "key2_meta2"
+
+        flushallAndVerifyCleanup
+    } {} {external:skip needs:save}
+
+    test {RDB: Metadata persists with expiretime} {
+        # Create key with both expiry and metadata
+        r set key1 "value1"
+        set expire_time [expr {[clock seconds] + 10000}]
+        r expireat key1 $expire_time
+        r keymeta.set [cname 1] key1 "meta_with_expire"
+
+        assert_equal [r expiretime key1] $expire_time
+        assert_equal [r keymeta.get [cname 1] key1] "meta_with_expire"
+
+        # Reload from RDB
+        r debug reload
+
+        # Verify metadata and expiry persist after reload
+        assert_equal [r expiretime key1] $expire_time
+        assert_equal [r keymeta.get [cname 1] key1] "meta_with_expire"
+
+        flushallAndVerifyCleanup
+    } {} {external:skip needs:debug}
+
+    test {RDB: Create keys with upto 7 meta classes, with or without expiry} {
+        # Test all combinations of 1-7 metadata classes, with or without expiry
+        for {set n 1} {$n <= 7} {incr n} {
+            foreach hasExpiry {0 1} {
+                set keyname "key_${n}_exp${hasExpiry}"
+                r set $keyname "value$n"
+
+                # Set expiry if hasExpiry is 1
+                if {$hasExpiry} {
+                    set ttl [expr {3600 + $n}]
+                    r expire $keyname $ttl
+                    # Get the actual expiretime set by Redis to use as expected value
+                    set expExpiry [r expiretime $keyname]
+                }
+
+                # Create list of class IDs to attach (1 through n)
+                set class_ids {}
+                for {set i 1} {$i <= $n} {incr i} {
+                    lappend class_ids $i
+                }
+
+                # Randomize the order of metadata attachment
+                set class_ids [lshuffle $class_ids]
+
+                # Attach metadata in randomized order
+                foreach cid $class_ids {
+                    r keymeta.set [cname $cid] $keyname "meta$cid"
+                }
+
+                # Verify metadata before RDB save
+                # Verify exactly n metadata classes are attached
+                for {set i 1} {$i <= 7} {incr i} {
+                    if {$i <= $n} {
+                        assert_equal [r keymeta.get [cname $i] $keyname] "meta$i"
+                    } else {
+                        assert_equal [r keymeta.get [cname $i] $keyname] ""
+                    }
+                }
+
+                # Verify expiry before RDB save
+                if {$hasExpiry} {
+                    set actual_expiretime [r expiretime $keyname]
+                    assert_equal $actual_expiretime $expExpiry
+                }
+
+                # Save and reload from RDB (debug reload preserves modules)
+                r save
+                r debug reload
+
+                # Verify metadata after RDB reload
+                # Verify exactly n metadata classes are still attached
+                for {set i 1} {$i <= 7} {incr i} {
+                    if {$i <= $n} {
+                        assert_equal [r keymeta.get [cname $i] $keyname] "meta$i"
+                    } else {
+                        assert_equal [r keymeta.get [cname $i] $keyname] ""
+                    }
+                }
+
+                # Verify expiry after RDB reload
+                if {$hasExpiry} {
+                    set actual_expiretime [r expiretime $keyname]
+                    assert_equal $actual_expiretime $expExpiry
+                } else {
+                    # Verify no expiry set
+                    assert_equal [r expiretime $keyname] -1
+                }
+                flushallAndVerifyCleanup
+            }
+        }
+    } {} {external:skip needs:save}
+
+    # ========================================================================
+    # RDB Flag Tests: ALLOW_IGNORE, RDBLOAD, RDBSAVE
+    # ========================================================================
+
+    # Test all combinations except the error case (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)
+    foreach RDBLOAD {0 1} {
+        foreach RDBSAVE {0 1} {
+            foreach ALLOW_IGNORE {0 1} {
+                # Skip the error case - we'll test it last since it causes RDB load to fail
+                if {!$RDBLOAD && $RDBSAVE && !$ALLOW_IGNORE} { continue }
+
+                test "RDB: SAVE and LOAD (ALLOW_IGNORE=$ALLOW_IGNORE, RDBLOAD=$RDBLOAD, RDBSAVE=$RDBSAVE)" {
+                    # Flush all data and save empty RDB to start with a clean slate
+                    r flushall
+                    r save
+
+                    # re-register class 1 with new flags. Expected re-registered same class ID
+                    r keymeta.unregister [cname 1]
+                    # dummy default spec
+                    set newSpec "KEEPONCOPY"
+                    if {$ALLOW_IGNORE} { append newSpec ":ALLOWIGNORE" }
+                    if {$RDBLOAD} { append newSpec ":RDBLOAD" }
+                    if {$RDBSAVE} { append newSpec ":RDBSAVE" }
+
+                    # Must reuse same class-id that it had before
+                    assert_equal $classes(1) [r keymeta.register [cname 1] 1 $newSpec]
+
+                    r set key1 "value1"
+                    r keymeta.set [cname 1] key1 "key1_meta1"
+                    assert_equal [r keymeta.get [cname 1] key1] "key1_meta1"
+
+                    r save
+                    r debug reload
+
+                    # Metadata is preserved only when BOTH rdb_save AND rdb_load are enabled
+                    # Otherwise metadata is lost (either not saved, or saved but not loaded)
+                    set metaPreserved [expr {$RDBSAVE && $RDBLOAD}]
+                    set expectedMeta [expr {$metaPreserved ? "key1_meta1" : ""}]
+
+                    assert_equal [r keymeta.get [cname 1] key1] $expectedMeta
+
+                    flushallAndVerifyCleanup
+                } {} {external:skip needs:save}
+            }
+        }
+    }
+
+    # Test the error case last (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)
+    # This test causes RDB load to fail, so we test it last to avoid polluting subsequent tests
+    test "RDB: SAVE and LOAD Invalid combination: (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)" {
+        # re-register class 1 with RDBSAVE flag but no RDBLOAD or ALLOW_IGNORE
+        r keymeta.unregister [cname 1]
+        set newSpec "KEEPONCOPY:RDBSAVE"
+        assert_equal $classes(1) [r keymeta.register [cname 1] 1 $newSpec]
+
+        r set key1 "value1"
+        r keymeta.set [cname 1] key1 "key1_meta1"
+        assert_equal [r keymeta.get [cname 1] key1] "key1_meta1"
+
+        r save
+
+        # This combination causes RDB load to fail because:
+        # - Metadata was saved (RDBSAVE=1)
+        # - Class has no rdb_load callback (RDBLOAD=0)
+        # - Errors are not ignored (ALLOW_IGNORE=0)
+        catch {r debug reload} err
+        assert_match "*Error trying to load the RDB dump*" $err
+    } {} {external:skip needs:save}
+
+    # ========================================================================
+    # DUMP/RESTORE Tests
+    # ========================================================================
+
+    test {DUMP/RESTORE: 1 to 7 metadata classes, optional TTL} {
+        foreach withTTL {0 1} {
+            for {set numClasses 1} {$numClasses < 8} {incr numClasses} {
+                # Re-register classes with RDBLOAD and RDBSAVE flags
+                for {set cid 1} {$cid <= $numClasses} {incr cid} {
+                    r keymeta.unregister [cname $cid]
+                    assert_equal $classes($cid) [r keymeta.register [cname $cid] 1 $classesSpec($cid)]
+                }
+    
+                # Create key with metadata classes
+                r set key1 "value1"
+                for {set i 1} {$i <= $numClasses} {incr i} {
+                    r keymeta.set [cname $i] key1 "meta${i}_value"
+                }
+                
+                if {$withTTL} { r expire key1 10000 }
+    
+                # Verify all metadata before DUMP
+                for {set i 1} {$i <= $numClasses} {incr i} {
+                    assert_equal [r keymeta.get [cname $i] key1] "meta${i}_value"
+                }
+    
+                # DUMP the key
+                set encoded [r dump key1]
+    
+                # Delete and RESTORE
+                r del key1
+                r restore key1 [expr {$withTTL ? 10000 : 0}] $encoded
+    
+                # Verify all metadata was restored
+                assert_equal [r get key1] "value1"
+                for {set i 1} {$i <= $numClasses} {incr i} {
+                    assert_equal [r keymeta.get [cname $i] key1] "meta${i}_value"
+                }
+                if {$withTTL} { assert_range [r pttl key1] 9000 10000 }
+    
+                flushallAndVerifyCleanup
+            }
+        }
+    }
+
+    test {DUMP/RESTORE: REPLACE with metadata} {
+        # Create key with metadata
+        r set key1 value1
+        r keymeta.set [cname 1] key1 "meta1_original"
+
+        # DUMP the key
+        set encoded1 [r dump key1]
+
+        # Create different key with different metadata
+        r set key1 value2
+        r keymeta.set [cname 1] key1 "meta1_new"
+
+        # DUMP the second version
+        set encoded2 [r dump key1]
+
+        # Delete and restore first version
+        r del key1
+        r restore key1 0 $encoded1
+        assert_equal [r get key1] "value1"
+        assert_equal [r keymeta.get [cname 1] key1] "meta1_original"
+
+        # RESTORE second version with REPLACE
+        r restore key1 0 $encoded2 replace
+        assert_equal [r get key1] "value2"
+        assert_equal [r keymeta.get [cname 1] key1] "meta1_new"
+        
+        flushallAndVerifyCleanup
+    }
+    
+    
+    # Test all combinations except the error case (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)
+    foreach RDBLOAD {0 1} {
+        foreach RDBSAVE {0 1} {
+            foreach ALLOW_IGNORE {0 1} {
+                # Skip the error case - we'll test it last since it causes RESTORE to fail
+                if {!$RDBLOAD && $RDBSAVE && !$ALLOW_IGNORE} { continue }
+
+                test "DUMP/RESTORE: (ALLOW_IGNORE=$ALLOW_IGNORE, RDBLOAD=$RDBLOAD, RDBSAVE=$RDBSAVE)" {
+                    # re-register class 1 with new flags. Expected re-registered same class ID
+                    r keymeta.unregister [cname 1]
+                    # dummy default spec
+                    set newSpec "KEEPONCOPY"
+                    if {$ALLOW_IGNORE} { append newSpec ":ALLOWIGNORE" }
+                    if {$RDBLOAD} { append newSpec ":RDBLOAD" }
+                    if {$RDBSAVE} { append newSpec ":RDBSAVE" }
+
+                    # Must reuse same class-id that it had before
+                    assert_equal $classes(1) [r keymeta.register [cname 1] 1 $newSpec]
+
+                    r set key1 "value1"
+                    r keymeta.set [cname 1] key1 "key1_meta1"
+                    assert_equal [r keymeta.get [cname 1] key1] "key1_meta1"
+
+                    # DUMP & RESTORE
+                    set encoded [r dump key1]
+                    r del key1
+                    r restore key1 0 $encoded
+
+                    # Metadata is preserved only when BOTH rdb_save AND rdb_load are enabled
+                    # Otherwise metadata is lost (either not saved, or saved but not loaded)
+                    set metaPreserved [expr {$RDBSAVE && $RDBLOAD}]
+                    set expectedMeta [expr {$metaPreserved ? "key1_meta1" : ""}]
+
+                    assert_equal [r keymeta.get [cname 1] key1] $expectedMeta
+
+                    flushallAndVerifyCleanup
+                }
+            }
+        }
+    }
+
+    # Test the error case last (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)
+    # This test causes RESTORE to fail, so we test it last to avoid polluting subsequent tests
+    test "DUMP/RESTORE: Invalid combination: (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)" {
+        # re-register class 1 with RDBSAVE flag but no RDBLOAD or ALLOW_IGNORE
+        r keymeta.unregister [cname 1]
+        set newSpec "KEEPONCOPY:RDBSAVE"
+        assert_equal $classes(1) [r keymeta.register [cname 1] 1 $newSpec]
+
+        r set key1 "value1"
+        r keymeta.set [cname 1] key1 "key1_meta1"
+        assert_equal [r keymeta.get [cname 1] key1] "key1_meta1"
+
+        # DUMP the key
+        set encoded [r dump key1]
+
+        # Delete and try to RESTORE
+        r del key1
+
+        # This combination causes RESTORE to fail because:
+        # - Metadata was saved (RDBSAVE=1)
+        # - Class has no rdb_load callback (RDBLOAD=0)
+        # - Errors are not ignored (ALLOW_IGNORE=0)
+        catch {r restore key1 0 $encoded} err
+        assert_match "*Bad data format*" $err
+
+        flushallAndVerifyCleanup
+    }
 }
