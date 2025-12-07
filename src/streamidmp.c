@@ -67,7 +67,7 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
 /* Register a stream key for IDMP entry tracking.
  * This registers a stream key in the database's stream_idmp_keys dictionary,
  * allowing the cron job handleExpiredIdmpEntries() to periodically check
- * and clean up expired idempotency entries from the stream's idmp_tring.
+ * and clean up expired idempotency entries from the stream's idmp_dict.
  *
  * 'c' is the client that is performing the XADD operation with IDMP.
  * 'key' is the stream key object to track.
@@ -86,16 +86,16 @@ void trackStreamIdmpEntries(client *c, robj *key) {
 
 /* Clean up expired idempotency entries from tracked streams. This function
  * is invoked regularly from blockedBeforeSleep() to remove expired entries
- * from the idmp_tring of streams that have idempotency tracking enabled,
+ * from the idmp_dict of streams that have idempotency tracking enabled,
  * keeping memory usage under control.
  *
  * The function processes up to CRON_DBS_PER_CALL databases per call in a
  * round-robin fashion, cycling through all databases over multiple invocations.
  * For each database, it iterates through the stream_idmp_keys dictionary.
  * For each tracked stream, it compares the timestamp of entries in the stream's
- * idmp_tring against the expiration threshold (current time - idmp_duration).
- * Entries with timestamps older than the threshold are popped from the front
- * of the tring. When all entries have been removed and the tring becomes empty,
+ * idmp linked list against the expiration threshold (current time - idmp_duration).
+ * Entries with timestamps older than the threshold are removed from the head
+ * of the linked list. When all entries have been removed and the list becomes empty,
  * the stream key is removed from stream_idmp_keys to stop tracking it. */
 void handleExpiredIdmpEntries(void) {
     static unsigned int current_db = 0;
@@ -125,16 +125,26 @@ void handleExpiredIdmpEntries(void) {
 
             stream *s = kv->ptr;
             uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
-            while (!tringEmpty(s->idmp_tring)) {
-                idmpEntry *entry = (idmpEntry*)tringFront(s->idmp_tring);
+            
+            /* Remove expired entries from the head of the linked list */
+            while (s->idmp_head != NULL) {
+                idmpEntry *entry = s->idmp_head;
                 if (entry->id.ms <= expire_time) {
-                    tringPopFront(s->idmp_tring);
+                    /* Remove from dict */
+                    dictDelete(s->idmp_dict, entry);
+                    /* Remove from linked list head */
+                    s->idmp_head = entry->next;
+                    if (s->idmp_head == NULL) {
+                        s->idmp_tail = NULL;
+                    }
+                    /* Free the entry */
+                    idmpEntryFree(entry, &s->alloc_size);
                 } else {
                     break;
                 }
             }
 
-            if (tringEmpty(s->idmp_tring)) {
+            if (s->idmp_head == NULL) {
                 dictDelete(db->stream_idmp_keys, key);
                 continue;
             }

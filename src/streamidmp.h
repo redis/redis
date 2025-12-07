@@ -17,7 +17,6 @@
 #include <stddef.h>
 
 /* Comparison function for idmpEntry structures.
- * Used as the comparison callback for tring (AVL tree with ring buffer).
  * Compares entries by IID (XXH128_hash_t) only.
  * Returns: negative if a < b, 0 if a == b, positive if a > b */
 int idmpEntryCompare(const void *a, const void *b);
@@ -32,12 +31,12 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
 /* Register a stream key for IDMP entry tracking.
  * This registers a stream key in the database's stream_idmp_keys dictionary,
  * allowing the cron job handleExpiredIdmpEntries() to periodically check
- * and clean up expired idempotency entries from the stream's idmp_tring. */
+ * and clean up expired idempotency entries from the stream's idmp_dict. */
 void trackStreamIdmpEntries(client *c, robj *key);
 
 /* Clean up expired idempotency entries from tracked streams.
  * This function is invoked regularly from blockedBeforeSleep() to remove 
- * expired entries from the idmp_tring of streams that have idempotency 
+ * expired entries from the idmp_dict of streams that have idempotency 
  * tracking enabled, keeping memory usage under control. */
 void handleExpiredIdmpEntries(void);
 

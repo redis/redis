@@ -787,28 +787,19 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     return nwritten;
 }
 
-/* Serialize the IDMP tring entries for a stream into the RDB file.
+/* Serialize the IDMP entries for a stream into the RDB file.
  * This saves all the idempotent producer tracking entries (IID -> stream ID mappings). */
-ssize_t rdbSaveStreamIdmpTring(rio *rdb, tringTree *idmp_tring) {
+ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
     ssize_t n, nwritten = 0;
 
-    /* Save the number of IDMP entries. */
-    size_t count = tringSize(idmp_tring);
+    /* Save the number of IDMP entries by counting linked list. */
+    size_t count = dictSize(s->idmp_dict);
     if ((n = rdbSaveLen(rdb, count)) == -1) return -1;
     nwritten += n;
 
-    /* Iterate through the ring buffer and save each entry.
-     * Since tring uses a ring buffer internally, we iterate from head
-     * for 'count' items. */
-    for (uint32_t i = 0; i < count; i++) {
-        uint32_t idx = (idmp_tring->head + i) % idmp_tring->capacity;
-        tringNode *node = &idmp_tring->nodes[idx];
-        
-        if (node->value == NULL) continue;
-        
-        /* Cast to idmpEntry */
-        idmpEntry *entry = (idmpEntry *)node->value;
-        
+    /* Iterate through the linked list and save each entry in insertion order. */
+    idmpEntry *entry = s->idmp_head;
+    while (entry != NULL) {
         /* Save the IID hash (XXH128_hash_t: high64 and low64). */
         if ((n = rdbSaveLen(rdb, entry->iid.high64)) == -1) return -1;
         nwritten += n;
@@ -820,15 +811,17 @@ ssize_t rdbSaveStreamIdmpTring(rio *rdb, tringTree *idmp_tring) {
         nwritten += n;
         if ((n = rdbSaveLen(rdb, entry->id.seq)) == -1) return -1;
         nwritten += n;
+        
+        entry = entry->next;
     }
 
     return nwritten;
 }
 
-/* Load IDMP tring entries for a stream from the RDB file.
+/* Load IDMP entries for a stream from the RDB file.
  * This loads all the idempotent producer tracking entries (IID -> stream ID mappings)
- * and inserts them into the stream's idmp_tring. */
-int rdbLoadStreamIdmpTring(rio *rdb, stream *s) {
+ * and inserts them into the stream's idmp_dict and linked list. */
+int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
     /* Load the number of IDMP entries. */
     uint64_t count = rdbLoadLen(rdb, NULL);
     if (count == RDB_LENERR) {
@@ -861,15 +854,22 @@ int rdbLoadStreamIdmpTring(rio *rdb, stream *s) {
 
         /* Set the stream ID. */
         entry->id = id;
+        entry->next = NULL;
 
-        /* Insert into the tring. If insertion fails (e.g., duplicate or out of memory),
-         * we need to handle it appropriately. */
-        idmpEntry *existing = NULL;
-        int inserted = tringInsert(s->idmp_tring, entry, (void **)&existing);
-        if (!inserted) {
-            /* Insertion failed. For RDB loading, we'll just skip duplicates
+        /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
+        int ret = dictAdd(s->idmp_dict, entry, NULL);
+        if (ret != DICT_OK) {
+            /* Insertion failed (duplicate). For RDB loading, we'll just skip duplicates
              * rather than failing the entire load. */
             idmpEntryFree(entry, &s->alloc_size);
+        } else {
+            /* Add to linked list tail */
+            if (s->idmp_tail == NULL) {
+                s->idmp_head = s->idmp_tail = entry;
+            } else {
+                s->idmp_tail->next = entry;
+                s->idmp_tail = entry;
+            }
         }
     }
 
@@ -1256,8 +1256,8 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         if ((n = rdbSaveLen(rdb, s->idmp_max_entries)) == -1) return -1;
         nwritten += n;
         
-        /* Save all IDMP tring entries. */
-        if ((n = rdbSaveStreamIdmpTring(rdb, s->idmp_tring)) == -1) return -1;
+        /* Save all IDMP entries. */
+        if ((n = rdbSaveStreamIdmpEntries(rdb, s)) == -1) return -1;
         nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
@@ -3262,9 +3262,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 return NULL;
             }
 
-            /* Load all IDMP tring entries. */
-            if (rdbLoadStreamIdmpTring(rdb, s) == -1) {
-                rdbReportReadError("Stream IDMP tring loading failed.");
+            /* Load all IDMP entries. */
+            if (rdbLoadStreamIdmpEntries(rdb, s) == -1) {
+                rdbReportReadError("Stream IDMP entries loading failed.");
                 decrRefCount(o);
                 return NULL;
             }

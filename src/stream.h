@@ -3,7 +3,7 @@
 
 #include "rax.h"
 #include "listpack.h"
-#include "streamtring.h"
+#include "dict.h"
 #include "xxhash.h"
 
 /* Stream item ID: a 128 bit number composed of a milliseconds time and
@@ -14,6 +14,16 @@ typedef struct streamID {
     uint64_t ms;        /* Unix time in milliseconds. */
     uint64_t seq;       /* Sequence number. */
 } streamID;
+
+/* Structure to hold IID and stream ID for IDMP deduplication */
+typedef struct idmpEntry {
+    XXH128_hash_t iid;  /* 128-bit hash of user-provided unique identifier */
+    streamID id;        /* Associated stream ID */
+    struct idmpEntry *next;  /* Pointer to next entry in insertion order (linked list) */
+} idmpEntry;
+
+/* Dictionary type for IDMP entries - uses IID hash as key */
+extern dictType idmpDictType;
 
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
@@ -29,7 +39,9 @@ typedef struct stream {
     unsigned int min_cgroup_last_id_valid: 1;
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
-    tringTree *idmp_tring;  /* IDMP IID tracking tree. */
+    dict *idmp_dict;       /* IDMP IID tracking tree. */
+    idmpEntry *idmp_head;
+    idmpEntry *idmp_tail;
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
@@ -128,12 +140,6 @@ typedef struct pelTimeKey {
     uint64_t delivery_time;
     streamID id;
 } pelTimeKey;
-
-/* Structure to hold IID and stream ID for IDMP deduplication */
-typedef struct idmpEntry {
-    XXH128_hash_t iid;  /* 128-bit hash of user-provided unique identifier */
-    streamID id;        /* Associated stream ID */
-} idmpEntry;
 
 /* Prototypes of exported APIs. */
 struct client;

@@ -935,36 +935,43 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     return cg;
 }
 
-/* Defrag IDMP tring including:
- * 1) tringTree struct
- * 2) tring nodes array
- * 3) all idmpEntry structures and their iid strings */
-void defragIdmpTring(tringTree **tringref) {
-    tringTree *tring;
+/* Defrag IDMP dict and linked list including:
+ * 1) The dict structure
+ * 2) All idmpEntry structures in the linked list
+ * Note: We need to update both dict and linked list pointers when defragging entries */
+void defragIdmpDict(stream *s) {
+    if (s->idmp_dict == NULL) return;
     
-    /* Defrag the tring tree structure itself */
-    if ((tring = activeDefragAlloc(*tringref)))
-        *tringref = tring;
-    tring = *tringref;
+    /* Defrag the dict structure itself */
+    dict *newdict = activeDefragAlloc(s->idmp_dict);
+    if (newdict)
+        s->idmp_dict = newdict;
     
-    /* Defrag the nodes array */
-    tringNode *newnodes = activeDefragAlloc(tring->nodes);
-    if (newnodes) {
-        tring->nodes = newnodes;
-    }
+    /* Iterate through the linked list and defrag each idmpEntry.
+     * We need to update both the linked list pointers and dict entries. */
+    idmpEntry **prevnext = &s->idmp_head;
+    idmpEntry *entry = s->idmp_head;
     
-    /* Iterate through all nodes in the ring buffer and defrag each idmpEntry */
-    for (uint32_t i = 0; i < tring->count; i++) {
-        uint32_t idx = (tring->head + i) % tring->capacity;
-        tringNode *node = &tring->nodes[idx];
-        
-        if (node->value != NULL) {
-            idmpEntry *entry = (idmpEntry *)node->value;
-            idmpEntry *newentry = activeDefragAlloc(entry);
-            if (newentry) {
-                node->value = newentry;
+    while (entry != NULL) {
+        idmpEntry *newentry = activeDefragAlloc(entry);
+        if (newentry) {
+            /* Update the linked list pointer */
+            *prevnext = newentry;
+            
+            /* Update tail if this was the tail */
+            if (s->idmp_tail == entry) {
+                s->idmp_tail = newentry;
             }
+            
+            /* The dict uses the entry pointer as key, so we need to delete old and add new */
+            dictDelete(s->idmp_dict, entry);
+            dictAdd(s->idmp_dict, newentry, NULL);
+            
+            entry = newentry;
         }
+        
+        prevnext = &entry->next;
+        entry = entry->next;
     }
 }
 
@@ -997,11 +1004,9 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
         s->cgroups_ref->alloc_size = &s->alloc_size;
     }
 
-    if (s->idmp_tring) {
-        /* Update tring back-pointer to new stream */
-        s->idmp_tring->alloc_size = &s->alloc_size;
-        /* Defrag the tring tree, nodes array, and all idmpEntry structures */
-        defragIdmpTring(&s->idmp_tring);
+    if (s->idmp_dict) {
+        /* Defrag the dict and all idmpEntry structures in the linked list */
+        defragIdmpDict(s);
     }
 }
 

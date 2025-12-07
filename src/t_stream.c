@@ -78,10 +78,58 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id);
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
 
-/* Wrapper for idmpEntryFree to match tringSetFreeCallback signature.
- * The user_data parameter should point to the alloc_size for proper accounting. */
-static void idmpEntryFreeWrapper(void *entry, void *user_data) {
-    idmpEntryFree((idmpEntry *)entry, (size_t *)user_data);
+/* Hash function for idmpEntry - uses the XXH128_hash_t iid */
+static uint64_t idmpDictHashFunction(const void *key) {
+    const idmpEntry *entry = (const idmpEntry *)key;
+    /* Combine high64 and low64 for a 64-bit hash */
+    return entry->iid.high64 ^ entry->iid.low64;
+}
+
+/* Key comparison function for idmpEntry - compares iid */
+static int idmpDictKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    UNUSED(cache);
+    const idmpEntry *e1 = (const idmpEntry *)key1;
+    const idmpEntry *e2 = (const idmpEntry *)key2;
+    return (e1->iid.high64 == e2->iid.high64 && e1->iid.low64 == e2->iid.low64);
+}
+
+/* Dictionary type for IDMP entries - keys are idmpEntry pointers, no separate values */
+dictType idmpDictType = {
+    idmpDictHashFunction,       /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    idmpDictKeyCompare,         /* key compare */
+    NULL,                       /* key destructor - handled manually with linked list */
+    NULL,                       /* val destructor */
+    NULL,                       /* resize allowed */
+    NULL,                       /* rehashing started */
+    NULL,                       /* rehashing completed */
+    NULL,                       /* bucket changed */
+    NULL,                       /* dict metadata bytes */
+    NULL,                       /* userdata */
+    .no_value = 1,              /* no_value - we only store keys */
+    .keys_are_odd = 0,          /* keys are not odd */
+    .force_full_rehash = 0,     /* no force full rehash */
+    NULL,                       /* stored hash function */
+    NULL,                       /* stored key compare */
+    NULL,                       /* on dict release */
+};
+
+/* Clear all IDMP entries from a stream - free linked list and empty dict */
+static void streamClearIdmpEntries(stream *s) {
+    /* Free linked list entries */
+    idmpEntry *entry = s->idmp_head;
+    while (entry) {
+        idmpEntry *next = entry->next;
+        idmpEntryFree(entry, &s->alloc_size);
+        entry = next;
+    }
+    s->idmp_head = NULL;
+    s->idmp_tail = NULL;
+    /* Empty the dict (keys already freed above) */
+    if (s->idmp_dict) {
+        dictEmpty(s->idmp_dict, NULL);
+    }
 }
 
 /* -----------------------------------------------------------------------
@@ -109,8 +157,9 @@ stream *streamNew(void) {
     s->min_cgroup_last_id_valid = 0;
     s->idmp_duration = server.stream_idmp_duration; /* Default from server config */
     s->idmp_max_entries = server.stream_idmp_maxsize; /* Default from server config */ 
-    s->idmp_tring = tringNew(idmpEntryCompare, &s->alloc_size);
-    tringSetFreeCallback(s->idmp_tring, idmpEntryFreeWrapper, &s->alloc_size);
+    s->idmp_dict = dictCreate(&idmpDictType);
+    s->idmp_head = NULL;
+    s->idmp_tail = NULL;
     return s;
 }
 
@@ -127,7 +176,16 @@ void freeStream(stream *s) {
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
-    tringFree(s->idmp_tring);
+    /* Free IDMP linked list entries */
+    idmpEntry *entry = s->idmp_head;
+    while (entry) {
+        idmpEntry *next = entry->next;
+        idmpEntryFree(entry, &s->alloc_size);
+        entry = next;
+    }
+    /* Release the dict (keys already freed above) */
+    if (s->idmp_dict)
+        dictRelease(s->idmp_dict);
 #ifdef REDIS_TEST
     serverAssert(s->alloc_size == zmalloc_usable_size(s));
 #endif
@@ -2470,7 +2528,8 @@ void xaddCommand(client *c) {
 
     /* IDMP: Check if IID already exists or prepare to insert */
     int inserted = 0; 
-    idmpEntry *new_entry = NULL;   
+    idmpEntry *new_entry = NULL;
+    idmpEntry *old_idmp_tail = NULL;  /* Save tail before insertion for rollback */
     if (parsed_args.idmp_iid != NULL || parsed_args.idmp_auto) {
         /* Generate IID based on option */
         XXH128_hash_t iid_hash;
@@ -2485,29 +2544,48 @@ void xaddCommand(client *c) {
             iid_hash = createIdempotencyHashFromBuffer(user_iid, user_iid_len);
         }
         
+        /* Create a temporary entry for lookup */
+        idmpEntry lookup_entry;
+        lookup_entry.iid = iid_hash;
+        
+        /* Check if IID already exists in dict */
+        dictEntry *de = dictFind(s->idmp_dict, &lookup_entry);
+        if (de != NULL) {
+            /* IID already exists, return the existing stream ID */
+            idmpEntry *existing = (idmpEntry *)dictGetKey(de);
+            sds replyid = createStreamIDString(&existing->id);
+            addReplyBulkCBuffer(c, replyid, sdslen(replyid));
+            sdsfree(replyid);
+            return;
+        }
+        
         /* Create entry with placeholder ID (will be updated after streamAppendItem) */
         new_entry = idmpEntryCreate(iid_hash, &s->alloc_size);
         if (new_entry == NULL) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
         }
+        new_entry->next = NULL;
         
-        /* Use tringInsert to insert or detect duplicate */
-        idmpEntry *existing = NULL;
-        inserted = tringInsert(s->idmp_tring, new_entry, (void **)&existing);
-        if (!inserted) {
-            /* IID already exists, return the existing stream ID */
-            if (existing != NULL) {
-                sds replyid = createStreamIDString(&existing->id);
-                addReplyBulkCBuffer(c, replyid, sdslen(replyid));
-                sdsfree(replyid);
+        /* Save current tail before insertion for potential rollback */
+        old_idmp_tail = s->idmp_tail;
+        
+        /* Insert into dict */
+        int ret = dictAdd(s->idmp_dict, new_entry, NULL);
+        if (ret == DICT_OK) {
+            inserted = 1;
+            /* Add to linked list tail */
+            if (s->idmp_tail == NULL) {
+                s->idmp_head = s->idmp_tail = new_entry;
+            } else {
+                s->idmp_tail->next = new_entry;
+                s->idmp_tail = new_entry;
             }
-            /* Clean up the new entry we created since we're using existing one */
+        } else {
+            /* Should not happen since we checked above, but handle it */
             idmpEntryFree(new_entry, &s->alloc_size);
-            return;
+            new_entry = NULL;
         }
-        /* If inserted==1, the entry was inserted with placeholder ID, 
-         * we'll update it after streamAppendItem */
     }
 
     /* Return ASAP if the stream has reached the last possible ID */
@@ -2516,7 +2594,16 @@ void xaddCommand(client *c) {
                         "unable to add more items");
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            tringPopBack(s->idmp_tring);
+            /* Remove from dict */
+            dictDelete(s->idmp_dict, new_entry);
+            /* Restore linked list to state before insertion */
+            if (old_idmp_tail == NULL) {
+                s->idmp_head = s->idmp_tail = NULL;
+            } else {
+                old_idmp_tail->next = NULL;
+                s->idmp_tail = old_idmp_tail;
+            }
+            idmpEntryFree(new_entry, &s->alloc_size);
         }
         return;
     }
@@ -2537,7 +2624,16 @@ void xaddCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            tringPopBack(s->idmp_tring);
+            /* Remove from dict */
+            dictDelete(s->idmp_dict, new_entry);
+            /* Restore linked list to state before insertion */
+            if (old_idmp_tail == NULL) {
+                s->idmp_head = s->idmp_tail = NULL;
+            } else {
+                old_idmp_tail->next = NULL;
+                s->idmp_tail = old_idmp_tail;
+            }
+            idmpEntryFree(new_entry, &s->alloc_size);
         }
         return;
     }
@@ -2548,9 +2644,16 @@ void xaddCommand(client *c) {
     if (inserted && new_entry != NULL) {
         new_entry->id = id;
         trackStreamIdmpEntries(c, c->argv[1]);
-        /* Remove oldest entries if exceeding max entries */
-        if(tringSize(s->idmp_tring) > s->idmp_max_entries)
-            tringPopFront(s->idmp_tring);
+        /* Remove oldest entry if exceeding max entries */
+        if (dictSize(s->idmp_dict) > s->idmp_max_entries) {
+            idmpEntry *oldest = s->idmp_head;
+            s->idmp_head = oldest->next;
+            if (s->idmp_head == NULL) {
+                s->idmp_tail = NULL;
+            }
+            dictDelete(s->idmp_dict, oldest);
+            idmpEntryFree(oldest, &s->alloc_size);
+        }
     }
 
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
@@ -5125,11 +5228,11 @@ void xidmpCommand(client *c) {
         /* Update the stream configuration */
         if (duration_set) {
             s->idmp_duration = duration;
-            tringClear(s->idmp_tring);
+            streamClearIdmpEntries(s);
         }
         if (maxsize_set) {
             s->idmp_max_entries = maxsize;
-            tringClear(s->idmp_tring);
+            streamClearIdmpEntries(s);
         }
         
         /* Mark the key as dirty for replication */
