@@ -89,11 +89,11 @@ typedef struct KeyMetaClassConf {
     int (*move)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
     void (*unlink)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
     void (*free)(const char *keyname, uint64_t meta);
-
-    /****************************** TBD: ******************************/
     int (*rdb_load)(struct RedisModuleIO *rdb, uint64_t *meta, int metaver);
     void (*rdb_save)(struct RedisModuleIO *rdb, void *value, uint64_t *meta);
     void (*aof_rewrite)(struct RedisModuleIO *aof, void *value, uint64_t meta);
+    
+    /****************************** TBD: ******************************/
     int (*defrag) (struct RedisModuleDefragCtx *ctx, struct redisObject *key, uint64_t meta);
     size_t (*mem_usage)(struct RedisModuleKeyOptCtx *ctx, size_t sample_size, uint64_t meta);
     size_t (*free_effort)(struct RedisModuleKeyOptCtx *ctx, uint64_t meta);
