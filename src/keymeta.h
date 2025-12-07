@@ -78,8 +78,12 @@ typedef struct KeyMetaClassConf {
 #define KEY_META_FLAG_RBB_RESERVED_1 1   /* Reserved for future use */
 #define KEY_META_FLAG_RBB_RESERVED_2 2   /* Reserved for future use */
     uint64_t flags;
-    uint64_t reset_value;
     
+    /* Sentinel value meaning "no resource attached". It guarantees callbacks are 
+     * ONLY invoked when meta != reset_value. This prevents double-free, avoids 
+     * persisting sentinels to RDB/AOF, and simplifies module logic. */
+    uint64_t reset_value;
+
     int (*copy)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
     int (*rename)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);
     int (*move)(struct RedisModuleKeyOptCtx *ctx, uint64_t *meta);

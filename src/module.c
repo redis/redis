@@ -4376,8 +4376,10 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *   will fail if metadata is encountered but cannot be loaded.
  *
  * * **reset_value**: The value to which metadata should be reset when it is being
- *   "removed" from a key. Typically 0, but can be any 8-byte value. This is 
+ *   "removed" from a key. Typically 0, but can be any 8-byte value. This is
  *   especially relevant when metadata is a pointer/handler to external resources.
+ *
+ *   IMPORTANT GUARANTEE: Redis only invokes callbacks when meta != reset_value.
  *
  * * **copy**: A callback function pointer for COPY command (optional).
  *   - Return 1 to attach `meta` to the new key, or 0 to skip attaching metadata.
@@ -4400,8 +4402,9 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *   - If not provided, then metadata is ignored during unlink.
  *   - Indication that key may soon be freed by background thread.
  *   - Pointer to meta is provided for modification. If the metadata holds a pointer
- *     or handle to resources and you free them here, you MUST set `*meta=reset_value`
- *     to prevent the free callback from attempting to free the same resource again.
+ *     or handle to resources and you free them here, you should set `*meta=reset_value`
+ *     to prevent the free callback from being invoked (Redis skips callbacks when
+ *     meta == reset_value, see reset_value documentation above).
  *
  * * **free**: A callback function pointer for cleanup (optional).
  *   Invoked when a key with this metadata is deleted/overwritten/expired,

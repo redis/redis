@@ -186,10 +186,9 @@ void keyMetaOnCopy(kvobj *kv, robj *srcKey, robj *dstKey, int srcDbId, int dstDb
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
             /* Copy metadata from kv to temporary storage keymeta */
             uint64_t tmpMeta = *pMeta--;
-            /* if callback provided, then it is to decide whether to keep
-             * or discard the metadata. Otherwise, it is discarded. */
-            if ((keyMetaClass[keyMetaId].conf.copy) &&
-                (keyMetaClass[keyMetaId].conf.copy(&ctx, &tmpMeta)))
+            if (tmpMeta != keyMetaClass[keyMetaId].conf.reset_value &&
+                keyMetaClass[keyMetaId].conf.copy &&
+                keyMetaClass[keyMetaId].conf.copy(&ctx, &tmpMeta))
                 keyMetaSpecAdd(keymeta, keyMetaId, tmpMeta);
         }
         mbits >>= 1;
@@ -219,10 +218,10 @@ void keyMetaOnRename(struct redisDb *db,  kvobj *kv, robj *oldKey, robj *newKey,
         if (mbits & 1) {
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
             uint64_t tmpMeta = *pMeta; /* read current module slot */
-            int keep = 1; /* default: keep if no callback */
-            if (keyMetaClass[keyMetaId].conf.rename)
-                keep = keyMetaClass[keyMetaId].conf.rename(&ctx, &tmpMeta);
-            if (keep) {
+            if (tmpMeta != keyMetaClass[keyMetaId].conf.reset_value &&
+                (!keyMetaClass[keyMetaId].conf.rename || 
+                 keyMetaClass[keyMetaId].conf.rename(&ctx, &tmpMeta))) 
+            {
                 keyMetaSpecAdd(kms, keyMetaId, tmpMeta);
                 /* Set old metadata slot to reset_value to prevent free callback */
                 *pMeta = keyMetaClass[keyMetaId].conf.reset_value;
@@ -256,10 +255,10 @@ void keyMetaOnMove(kvobj *kv, robj *key, int srcDbId, int dstDbId, KeyMetaSpec *
         if (mbits & 1) {
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
             uint64_t tmpMeta = *pMeta; /* read current module slot */
-            int keep = 1; /* default: keep if no callback */
-            if (keyMetaClass[keyMetaId].conf.move)
-                keep = keyMetaClass[keyMetaId].conf.move(&ctx, &tmpMeta);
-            if (keep) {
+            if (tmpMeta != keyMetaClass[keyMetaId].conf.reset_value &&
+                (!keyMetaClass[keyMetaId].conf.move || 
+                 keyMetaClass[keyMetaId].conf.move(&ctx, &tmpMeta))) 
+            {
                 keyMetaSpecAdd(kms, keyMetaId, tmpMeta);
                 /* If keep, set old metadata to reset_value to prevent free callback */
                 *pMeta = keyMetaClass[keyMetaId].conf.reset_value;
@@ -299,7 +298,10 @@ void keyMetaOnUnlink(redisDb *db, robj *key, kvobj *kv) {
     do {
         if (mbits & 1) {
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
-            if (keyMetaClass[keyMetaId].conf.unlink) {
+
+            if (*pMeta != keyMetaClass[keyMetaId].conf.reset_value &&
+                keyMetaClass[keyMetaId].conf.unlink) 
+            {
                 keyMetaClass[keyMetaId].conf.unlink(&ctx, pMeta);
             }
             pMeta--;
@@ -336,7 +338,8 @@ void keyMetaOnFree(kvobj *kv) {
         if (mbits & 1) {
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
             uint64_t meta = *pMeta--; /* consume this module's metadata slot */
-            if (keyMetaClass[keyMetaId].conf.free)
+            if (meta != keyMetaClass[keyMetaId].conf.reset_value &&
+                keyMetaClass[keyMetaId].conf.free)
                 keyMetaClass[keyMetaId].conf.free(keyname, meta);
         }
         mbits >>= 1;
@@ -526,7 +529,7 @@ int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
             KeyMetaClass *pClass = &keyMetaClass[keyMetaId];
             serverAssert(pClass->state == CLASS_STATE_INUSE);
 
-            if (pClass->conf.rdb_save) {
+            if (*pMeta != pClass->conf.reset_value && pClass->conf.rdb_save) {
                 /* Write 32-bit class spec to payload buffer */
                 uint32_t classSpec = pClass->classSpecEncoded;
                 if (rdbWriteRaw(&payload_rio, &classSpec, KM_CLASS_SPEC_SIZE) == -1) goto error;
@@ -608,9 +611,10 @@ int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
         if (mbits & 1) {
             serverAssert(keyMetaClass[keyMetaId].state == CLASS_STATE_INUSE);
 
-            /* If module provided aof_rewrite callback, invoke it */
-            if (keyMetaClass[keyMetaId].conf.aof_rewrite) {
-                uint64_t meta = *pMeta;
+            uint64_t meta = *pMeta;
+            if (meta != keyMetaClass[keyMetaId].conf.reset_value &&
+                keyMetaClass[keyMetaId].conf.aof_rewrite) 
+            {
                 RedisModuleIO io;
                 moduleInitIOContext(&io, &keyMetaClass[keyMetaId].mEntity, r, key, dbid);
                 keyMetaClass[keyMetaId].conf.aof_rewrite(&io, kv, meta);

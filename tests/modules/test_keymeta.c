@@ -122,6 +122,7 @@ static int removeClassMapping(const char *name) {
 static int KeyMetaCopyCallback(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     REDISMODULE_NOT_USED(ctx);
     char *str = (char *)*meta;
+    /* Note, condition is redundant since cb only invoked when meta != reset_value */
     if (str) {
         char *new_str = strdup(str);
         *meta = (uint64_t)new_str;
@@ -140,10 +141,11 @@ static int KeyMetaRenameDiscardCallback(RedisModuleKeyOptCtx *ctx, uint64_t *met
 /* Unlink callback - called when a key is unlinked */
 static void KeyMetaUnlinkCallback(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
     /* Let's challenge and free early on before free callback */
+    /* Note, condition is redundant since cb only invoked when meta != reset_value */
     if (*meta != 0) {
         char *str = (char *)*meta;
         free(str);
-        *meta = 0;
+        *meta = 0;  /* Set to reset_value !!! */
         active_metadata_count--; /* Metadata instance freed */
     }
     REDISMODULE_NOT_USED(ctx);
@@ -152,6 +154,7 @@ static void KeyMetaUnlinkCallback(RedisModuleKeyOptCtx *ctx, uint64_t *meta) {
 /* Free callback - called when metadata needs to be freed */
 static void KeyMetaFreeCallback(const char *keyname, uint64_t meta) {
     REDISMODULE_NOT_USED(keyname);
+    /* Note, condition is redundant since cb only invoked when meta != reset_value */
     if (meta != 0) {
         char *str = (char *)meta;
         free(str);
