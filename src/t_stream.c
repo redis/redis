@@ -10,40 +10,8 @@
 #include "server.h"
 #include "endianconv.h"
 #include "stream.h"
-#include "streamidmp.h"
+#include "xxhash.h"
 #include <string.h>
-
-#ifdef HAVE_AVX2
-/* Define __MM_MALLOC_H to prevent importing the memory aligned
- * allocation functions, which we don't use. */
-#define __MM_MALLOC_H
-#include <immintrin.h>
-#endif
-
-#ifdef HAVE_AVX512
-/* Define __MM_MALLOC_H to prevent importing the memory aligned
- * allocation functions, which we don't use. */
-#define __MM_MALLOC_H
-#include <immintrin.h>
-#endif
-
-#ifdef HAVE_AARCH64_NEON
-#include <arm_neon.h>
-#endif
-
-#ifdef HAVE_AVX2
-#define BITOP_USE_AVX2 (__builtin_cpu_supports("avx2"))
-#else
-#define BITOP_USE_AVX2 0
-#endif
-
-/* AArch64 NEON support is determined at compile time via HAVE_AARCH64_NEON */
-#ifdef HAVE_AVX512
-#define BITOP_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw"))
-#else
-#define BITOP_USE_AVX512 0
-#endif
-
 
 /* Every stream item inside the listpack, has a flags field that is used to
  * mark the entry as deleted, or having the same field as the "master"
@@ -78,59 +46,12 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id);
 void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
 
-/* Hash function for idmpEntry - uses the XXH128_hash_t iid */
-static uint64_t idmpDictHashFunction(const void *key) {
-    const idmpEntry *entry = (const idmpEntry *)key;
-    /* Combine high64 and low64 for a 64-bit hash */
-    return entry->iid.high64 ^ entry->iid.low64;
-}
-
-/* Key comparison function for idmpEntry - compares iid */
-static int idmpDictKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
-    UNUSED(cache);
-    const idmpEntry *e1 = (const idmpEntry *)key1;
-    const idmpEntry *e2 = (const idmpEntry *)key2;
-    return (e1->iid.high64 == e2->iid.high64 && e1->iid.low64 == e2->iid.low64);
-}
-
-/* Dictionary type for IDMP entries - keys are idmpEntry pointers, no separate values */
-dictType idmpDictType = {
-    idmpDictHashFunction,       /* hash function */
-    NULL,                       /* key dup */
-    NULL,                       /* val dup */
-    idmpDictKeyCompare,         /* key compare */
-    NULL,                       /* key destructor - handled manually with linked list */
-    NULL,                       /* val destructor */
-    NULL,                       /* resize allowed */
-    NULL,                       /* rehashing started */
-    NULL,                       /* rehashing completed */
-    NULL,                       /* bucket changed */
-    NULL,                       /* dict metadata bytes */
-    NULL,                       /* userdata */
-    .no_value = 1,              /* no_value - we only store keys */
-    .keys_are_odd = 0,          /* keys are not odd */
-    .force_full_rehash = 0,     /* no force full rehash */
-    NULL,                       /* stored hash function */
-    NULL,                       /* stored key compare */
-    NULL,                       /* on dict release */
-};
-
-/* Clear all IDMP entries from a stream - free linked list and empty dict */
-static void streamClearIdmpEntries(stream *s) {
-    /* Free linked list entries */
-    idmpEntry *entry = s->idmp_head;
-    while (entry) {
-        idmpEntry *next = entry->next;
-        idmpEntryFree(entry, &s->alloc_size);
-        entry = next;
-    }
-    s->idmp_head = NULL;
-    s->idmp_tail = NULL;
-    /* Empty the dict (keys already freed above) */
-    if (s->idmp_dict) {
-        dictEmpty(s->idmp_dict, NULL);
-    }
-}
+/* Forward declarations for IDMP functions (defined at end of file) */
+extern dictType idmpDictType;
+static void trackStreamIdmpEntries(client *c, robj *key);
+static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
+static XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t len);
+static void streamClearIdmpEntries(stream *s);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -5473,6 +5394,271 @@ void handleClaimableStreamEntries(void) {
             }
         }
         dictResetIterator(&di);
+    }
+}
+
+/* -----------------------------------------------------------------------
+ * IDMP (Idempotent Message Producer) Functions
+ * ----------------------------------------------------------------------- */
+
+/* Hash function for idmpEntry - uses the XXH128_hash_t iid */
+static uint64_t idmpDictHashFunction(const void *key) {
+    const idmpEntry *entry = (const idmpEntry *)key;
+    /* Combine high64 and low64 for a 64-bit hash */
+    return entry->iid.high64 ^ entry->iid.low64;
+}
+
+/* Key comparison function for idmpEntry - compares iid */
+static int idmpDictKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
+    UNUSED(cache);
+    const idmpEntry *e1 = (const idmpEntry *)key1;
+    const idmpEntry *e2 = (const idmpEntry *)key2;
+    return (e1->iid.high64 == e2->iid.high64 && e1->iid.low64 == e2->iid.low64);
+}
+
+/* Dictionary type for IDMP entries - keys are idmpEntry pointers, no separate values */
+dictType idmpDictType = {
+    idmpDictHashFunction,       /* hash function */
+    NULL,                       /* key dup */
+    NULL,                       /* val dup */
+    idmpDictKeyCompare,         /* key compare */
+    NULL,                       /* key destructor - handled manually with linked list */
+    NULL,                       /* val destructor */
+    NULL,                       /* resize allowed */
+    NULL,                       /* rehashing started */
+    NULL,                       /* rehashing completed */
+    NULL,                       /* bucket changed */
+    NULL,                       /* dict metadata bytes */
+    NULL,                       /* userdata */
+    .no_value = 1,              /* no_value - we only store keys */
+    .keys_are_odd = 0,          /* keys are not odd */
+    .force_full_rehash = 0,     /* no force full rehash */
+    NULL,                       /* stored hash function */
+    NULL,                       /* stored key compare */
+    NULL,                       /* on dict release */
+};
+
+/* Create a new idmpEntry with the given IID hash.
+ * Returns NULL on allocation failure. */
+idmpEntry *idmpEntryCreate(XXH128_hash_t iid, size_t *alloc_size) {
+    size_t usable;
+    idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry), &usable);
+    if (entry == NULL) return NULL;
+    
+    entry->iid = iid;
+    
+    if (alloc_size) {
+        *alloc_size += usable;
+    }
+    
+    return entry;
+}
+
+/* Free an idmpEntry. */
+void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
+    if (entry == NULL) return;
+    
+    if (alloc_size) {
+        *alloc_size -= zmalloc_size(entry);
+    }
+    
+    zfree(entry);
+}
+
+/* Register a stream key for IDMP entry tracking.
+ * This registers a stream key in the database's stream_idmp_keys dictionary,
+ * allowing the cron job handleExpiredIdmpEntries() to periodically check
+ * and clean up expired idempotency entries from the stream's idmp_dict.
+ *
+ * 'c' is the client that is performing the XADD operation with IDMP.
+ * 'key' is the stream key object to track.
+ *
+ * If the key is not already tracked, it is added to stream_idmp_keys and its
+ * reference count is incremented. If the key is already being tracked (added
+ * by a previous XADD operation), this function does nothing, as the stream
+ * is already registered for periodic cleanup. */
+static void trackStreamIdmpEntries(client *c, robj *key) {
+    dictEntry *db_track_entry;
+    db_track_entry = dictAddRaw(c->db->stream_idmp_keys, key, NULL);
+    if (db_track_entry != NULL) {
+        incrRefCount(key);
+    }
+}
+
+/* Clean up expired idempotency entries from tracked streams. This function
+ * is invoked regularly from blockedBeforeSleep() to remove expired entries
+ * from the idmp_dict of streams that have idempotency tracking enabled,
+ * keeping memory usage under control.
+ *
+ * The function processes up to CRON_DBS_PER_CALL databases per call in a
+ * round-robin fashion, cycling through all databases over multiple invocations.
+ * For each database, it iterates through the stream_idmp_keys dictionary.
+ * For each tracked stream, it compares the timestamp of entries in the stream's
+ * idmp linked list against the expiration threshold (current time - idmp_duration).
+ * Entries with timestamps older than the threshold are removed from the head
+ * of the linked list. When all entries have been removed and the list becomes empty,
+ * the stream key is removed from stream_idmp_keys to stop tracking it. */
+void handleExpiredIdmpEntries(void) {
+    static unsigned int current_db = 0;
+    int dbs_per_call = CRON_DBS_PER_CALL;
+    int j;
+
+    if (dbs_per_call > server.dbnum) dbs_per_call = server.dbnum;
+
+    for (j = 0; j < dbs_per_call; j++) {
+        redisDb *db = &server.db[current_db % server.dbnum];
+        current_db++;
+
+        if (dictIsEmpty(db->stream_idmp_keys))
+            continue;
+
+        dictEntry *de;
+        dictIterator di;
+        dictInitSafeIterator(&di, db->stream_idmp_keys);
+        while ((de = dictNext(&di)) != NULL) {
+            robj *key = dictGetKey(de);
+            kvobj *kv = dbFind(db, key->ptr);
+
+            if (!kv || kv->type != OBJ_STREAM) {
+                dictDelete(db->stream_idmp_keys, key);
+                continue;
+            }
+
+            stream *s = kv->ptr;
+            uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
+            
+            /* Remove expired entries from the head of the linked list */
+            while (s->idmp_head != NULL) {
+                idmpEntry *entry = s->idmp_head;
+                if (entry->id.ms <= expire_time) {
+                    /* Remove from dict */
+                    dictDelete(s->idmp_dict, entry);
+                    /* Remove from linked list head */
+                    s->idmp_head = entry->next;
+                    if (s->idmp_head == NULL) {
+                        s->idmp_tail = NULL;
+                    }
+                    /* Free the entry */
+                    idmpEntryFree(entry, &s->alloc_size);
+                } else {
+                    break;
+                }
+            }
+
+            if (s->idmp_head == NULL) {
+                dictDelete(db->stream_idmp_keys, key);
+                continue;
+            }
+        }
+        dictResetIterator(&di);
+    }
+}
+
+/* Hash field-value pairs using XXH3_128bits for AUTOIDMP.
+ * 
+ * This function takes an array of robj pointers representing field-value pairs
+ * and the number of pairs. It hashes each field-value pair together using
+ * XXH3_128bits and XORs all the pair hashes to produce a final 128-bit hash.
+ * 
+ * The raw 128-bit hash (16 bytes) is written directly to the provided result buffer.
+ * 
+ * Algorithm:
+ * 1. For each field-value pair:
+ *    a. Create a streaming hash state with XXH3_128bits_reset()
+ *    b. Update hash with field data using XXH3_128bits_update()
+ *    c. Update hash with value data using XXH3_128bits_update()
+ *    d. Finalize pair hash with XXH3_128bits_digest()
+ *    e. XOR the pair hash with the accumulated result
+ * 2. Write final 128-bit hash to result buffer
+ * 
+ * Parameters:
+ *   argv      - Array of robj pointers containing field-value pairs
+ *               (argv[0] = field1, argv[1] = value1, argv[2] = field2, ...)
+ *   numfields - Number of field-value pairs (not the array length)
+ *   result    - Buffer to store the raw 16-byte hash (must be at least 16 bytes)
+ * 
+ * Returns:
+ *   XXH128_hash_t containing the 128-bit hash result */
+static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
+    XXH128_hash_t hash_result = {0, 0};
+    XXH3_state_t* state = XXH3_createState();
+    if (state == NULL) return hash_result;
+    
+    char llbuf[LONG_STR_SIZE];
+    XXH_errorcode err;
+    
+    /* Process each field-value pair */
+    for (int64_t i = 0; i < numfields; i++) {
+        robj *field = argv[i * 2];
+        robj *value = argv[i * 2 + 1];
+        
+        /* Initialize hash state for this pair */
+        err = XXH3_128bits_reset(state);
+        if (err != XXH_OK) {
+            XXH3_freeState(state);
+            return (XXH128_hash_t){0, 0};
+        }
+        
+        /* Hash the field */
+        long field_len;
+        unsigned char *field_data = getObjectReadOnlyString(field, &field_len, llbuf);
+        err = XXH3_128bits_update(state, field_data, field_len);
+        if (err != XXH_OK) {
+            XXH3_freeState(state);
+            return (XXH128_hash_t){0, 0};
+        }
+        
+        /* Hash the value */
+        long value_len;
+        unsigned char *value_data = getObjectReadOnlyString(value, &value_len, llbuf);
+        err = XXH3_128bits_update(state, value_data, value_len);
+        if (err != XXH_OK) {
+            XXH3_freeState(state);
+            return (XXH128_hash_t){0, 0};
+        }
+        
+        /* Get the hash for this pair */
+        XXH128_hash_t pair_hash = XXH3_128bits_digest(state);
+        
+        /* XOR with accumulated result */
+        hash_result.low64 ^= pair_hash.low64;
+        hash_result.high64 ^= pair_hash.high64;
+    }
+    
+    XXH3_freeState(state);
+    
+    return hash_result;
+}
+
+/* Hash a raw buffer using XXH3_128bits for AUTOIDMP.
+ * 
+ * This function takes a raw character buffer and its length, and produces
+ * a 128-bit hash using XXH3_128bits.
+ * 
+ * Parameters:
+ *   data   - Pointer to the data buffer to hash
+ *   len    - Length of the data buffer in bytes
+ * 
+ * Returns:
+ *   XXH128_hash_t containing the 128-bit hash result */
+static XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t len) {
+    return XXH3_128bits(data, len);
+}
+
+/* Clear all IDMP entries from a stream - free linked list and empty dict */
+static void streamClearIdmpEntries(stream *s) {
+    /* Free linked list entries */
+    idmpEntry *entry = s->idmp_head;
+    while (entry) {
+        idmpEntry *next = entry->next;
+        idmpEntryFree(entry, &s->alloc_size);
+        entry = next;
+    }
+    s->idmp_head = NULL;
+    s->idmp_tail = NULL;
+    /* Empty the dict (keys already freed above) */
+    if (s->idmp_dict) {
+        dictEmpty(s->idmp_dict, NULL);
     }
 }
 
