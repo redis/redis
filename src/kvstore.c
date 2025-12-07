@@ -182,7 +182,7 @@ static void kvstoreDictBucketChanged(dict *d, long long delta) {
 }
 
 /* Returns the size of the DB dict extended metadata in bytes. */
-static size_t kvstoreDictBaseMetadataSize(dict *d) {
+static size_t kvstoreDictBaseMetaSize(dict *d) {
     UNUSED(d);
     return sizeof(kvstoreDictMetaBase);
 }
@@ -219,7 +219,7 @@ kvstore *kvstoreCreate(kvstoreType *type, dictType *dtype, int num_dicts_bits, i
     assert(!dtype->rehashingCompleted);
     kvs->dtype.userdata = kvs;
     kvs->dtype.dictMetadataBytes = type->dictMetadataBytes ?
-        type->dictMetadataBytes : kvstoreDictBaseMetadataSize;
+        type->dictMetadataBytes : kvstoreDictBaseMetaSize;
     kvs->dtype.rehashingStarted = kvstoreDictRehashingStarted;
     kvs->dtype.rehashingCompleted = kvstoreDictRehashingCompleted;
     kvs->dtype.bucketChanged = kvstoreDictBucketChanged;
@@ -931,14 +931,12 @@ int kvstoreDictDelete(kvstore *kvs, int didx, const void *key) {
     return ret;
 }
 
-void *kvstoreEnsureDictMetadata(kvstore *kvs, int didx) {
-    dict *d = createDictIfNeeded(kvs, didx);
-    return dictMetadata(d);
-}
-
-void *kvstoreGetDictMetadata(kvstore *kvs, int didx) {
+void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded) {
     dict *d = kvstoreGetDict(kvs, didx);
-    if (!d) return NULL;
+    if (!d) {
+        if (!createIfNeeded) return NULL;
+        d = createDictIfNeeded(kvs, didx);
+    }
     return dictMetadata(d);
 }
 

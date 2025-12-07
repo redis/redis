@@ -47,7 +47,7 @@ static int markSlotsAssignedToMyShard(unsigned char *assigned_slots, int start_s
 }
 
 static uint64_t getSlotStat(int slot, slotStatType stat_type) {
-    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(server.db->keys, slot);
+    kvstoreDictMetadata *meta = getSlotMeta(slot, 0);
     switch (stat_type) {
     case KEY_COUNT: return countKeysInSlot(slot);
     case CPU_USEC: return meta ? meta->cpu_usec : 0;
@@ -103,7 +103,7 @@ static void addReplySlotStat(client *c, int slot) {
 
     /* Any additional metrics aside from key-count come with a performance trade-off,
      * and are aggregated and returned based on its server config. */
-    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(server.db->keys, slot);
+    kvstoreDictMetadata *meta = getSlotMeta(slot, 0);
     if (server.memory_tracking_per_slot) {
         addReplyBulkCString(c, "memory-bytes");
         addReplyLongLong(c, meta ? meta->alloc_size : 0);
@@ -147,7 +147,7 @@ void clusterSlotStatsAddNetworkBytesOutForUserClient(client *c) {
     if (!canAddNetworkBytesOut(c)) return;
 
     serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
-    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
+    kvstoreDictMetadata *meta = getSlotMeta(c->slot, 1);
     meta->network_bytes_out += c->net_output_bytes_curr_cmd;
 }
 
@@ -160,10 +160,10 @@ static void clusterSlotStatsUpdateNetworkBytesOutForReplication(long long len) {
     len *= (long long)listLength(server.slaves);
     serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
     serverAssert(clusterNodeIsMaster(getMyClusterNode()));
-    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
+    kvstoreDictMetadata *meta = getSlotMeta(c->slot, 1);
     /* We sometimes want to adjust the counter downwards (for example when we want to undo accounting for
      * SELECT commands that don't belong to any slot) so let's make sure we don't underflow the counter. */
-    serverAssert(len >= 0 || meta->network_bytes_out >= (uint64_t)-len);
+    debugServerAssert(len >= 0 || meta->network_bytes_out >= (uint64_t)-len);
     meta->network_bytes_out += len;
 }
 
@@ -192,7 +192,7 @@ void clusterSlotStatsAddNetworkBytesOutForShardedPubSubInternalPropagation(clien
     c->slot = slot;
     if (canAddNetworkBytesOut(c)) {
         serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
-        kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
+        kvstoreDictMetadata *meta = getSlotMeta(c->slot, 1);
         meta->network_bytes_out += c->net_output_bytes_curr_cmd;
     }
     /* For sharded pubsub, the client's network bytes metrics must be reset here,
@@ -211,7 +211,7 @@ static void addReplyOrderBy(client *c, slotStatType order_by, long limit, int de
 
 /* Resets applicable slot statistics. */
 void clusterSlotStatReset(int slot) {
-    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreGetDictMetadata(server.db->keys, slot);
+    kvstoreDictMetadata *meta = getSlotMeta(slot, 0);
     if (!meta) return;
     meta->cpu_usec = 0;
     meta->network_bytes_in = 0;
@@ -242,7 +242,7 @@ void clusterSlotStatsAddCpuDuration(client *c, ustime_t duration) {
     if (!canAddCpuDuration(c)) return;
 
     serverAssert(c->slot >= 0 && c->slot < CLUSTER_SLOTS);
-    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(server.db->keys, c->slot);
+    kvstoreDictMetadata *meta = getSlotMeta(c->slot, 1);
     meta->cpu_usec += duration;
 }
 
@@ -278,7 +278,7 @@ void clusterSlotStatsAddNetworkBytesInForUserClient(client *c) {
         c->net_input_bytes_curr_cmd += 15;
     }
 
-    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)kvstoreEnsureDictMetadata(c->db->keys, c->slot);
+    kvstoreDictMetadata *meta = getSlotMeta(c->slot, 1);
     meta->network_bytes_in += c->net_input_bytes_curr_cmd;
 }
 

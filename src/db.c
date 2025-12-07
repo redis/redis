@@ -77,7 +77,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
         return;
 
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
 
     if (oldLen > 0) {
@@ -127,11 +127,9 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 
 void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize) {
     debugServerAssert(server.memory_tracking_per_slot);
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
     if (!dictMeta) return;
-#ifdef REDIS_TEST
-    serverAssert(oldsize <= dictMeta->alloc_size);
-#endif
+    debugServerAssert(oldsize <= dictMeta->alloc_size);
     dictMeta->alloc_size -= oldsize;
     dictMeta->alloc_size += newsize;
 }
@@ -155,8 +153,8 @@ void dbgAssertKeysizesHist(redisDb *db) {
     }
     kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        kvstoreMetadata *kvstoreMeta = (kvstoreMetadata *)kvstoreGetMetadata(db->keys);
-        volatile int64_t *keysizesHist = kvstoreMeta->keysizes_hist[type];
+        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+        volatile int64_t *keysizesHist = meta->keysizes_hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])
                 continue;
@@ -197,7 +195,7 @@ void dbgAssertAllocSizePerSlot(redisDb *db) {
 
     int num_slots = kvstoreNumDicts(db->keys);
     for (int slot = 0; slot < num_slots; slot++) {
-        kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, slot);
+        kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, slot, 0);
         size_t want = slot_sizes[slot];
         size_t have = dictMeta ? dictMeta->alloc_size : 0;
         if (have == want) continue;

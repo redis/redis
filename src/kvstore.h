@@ -143,8 +143,7 @@ void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntryLink plink, 
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
 dict *kvstoreGetDict(kvstore *kvs, int didx);
 void kvstoreFreeDictIfNeeded(kvstore *kvs, int didx);
-void *kvstoreEnsureDictMetadata(kvstore *kvs, int didx);
-void *kvstoreGetDictMetadata(kvstore *kvs, int didx);
+void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded);
 void *kvstoreGetMetadata(kvstore *kvs);
 
 dictEntryLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntryLink *bucket);
