@@ -4347,7 +4347,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *
  *         RedisModuleKeyMetaClassConfig config = {
  *             .version = REDISMODULE_KEY_META_VERSION,
- *             .flags = 0,
+ *             .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
  *             .reset_value = 0,
  *             .copy = myMeta_CopyCallback,
  *             .rename = myMeta_RenameCallback,
