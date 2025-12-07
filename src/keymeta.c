@@ -678,7 +678,7 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     /* Validate and encode ID. This also validates 4-char name and generates "META-" prefix. */
     char fullname[KM_FULLNAME_LEN+1];
     uint32_t classSpecEncoded;
-    /* Resovle: entityId, fullname, keyMetaClassSer */
+    /* Resolve: entityId, fullname, keyMetaClassSer */
     uint64_t entityId = keyMetaClassEncode(name,
                                         metaver,
                                         conf->flags & KEY_META_FLAGS_RDB_MASK,
