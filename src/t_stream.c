@@ -49,12 +49,11 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 /* Forward declarations for IDMP functions (defined at end of file) */
 extern dictType idmpDictType;
 static void trackStreamIdmpEntries(client *c, robj *key);
-static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
-static XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t len);
 static void streamClearIdmpEntries(stream *s);
-static int idmpInsertEntry(stream *s, XXH128_hash_t iid_hash, idmpEntry **out_entry, idmpEntry **out_old_tail);
+static int idmpInsertEntry(stream *s, const char *iid, size_t iid_len, idmpEntry **out_entry, idmpEntry **out_old_tail);
 static void idmpRollbackInsert(stream *s, idmpEntry *entry, idmpEntry *old_tail);
-static int idmpLookupAndReply(stream *s, XXH128_hash_t *iid, client *c);
+static int idmpLookupAndReply(stream *s, const char *iid, size_t iid_len, client *c);
+static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -2451,30 +2450,37 @@ void xaddCommand(client *c) {
     size_t old_alloc = s->alloc_size;
 
     /* IDMP: Check if IID already exists or prepare to insert */
-    int inserted = 0; 
+    int inserted = 0;
+    XXH128_hash_t hash;
     idmpEntry *new_entry = NULL;
     idmpEntry *old_idmp_tail = NULL;  /* Save tail before insertion for rollback */
     if (parsed_args.idmp_iid != NULL || parsed_args.idmp_auto) {
-        /* Generate IID based on option */
-        XXH128_hash_t iid_hash;
+        /* Get IID string based on option */
+        char *iid_str;
+        size_t iid_len;
+        sds auto_iid = NULL;  /* Only used for auto-generated IID */
+        
         if (parsed_args.idmp_auto) {
             /* Auto-generate IID by hashing field-value pairs */
             int64_t numfields = (c->argc - field_pos) / 2;
-            iid_hash = createIdempotencyHash(&c->argv[field_pos], numfields);
+            hash = createIdempotencyHash(&c->argv[field_pos], numfields);
+            iid_str = (char *)&hash;
+            iid_len = 16;
         } else {
-            /* Hash user-provided IID */
-            char *user_iid = parsed_args.idmp_iid->ptr;
-            size_t user_iid_len = sdslen((sds)user_iid);
-            iid_hash = createIdempotencyHashFromBuffer(user_iid, user_iid_len);
+            /* Use user-provided IID directly */
+            iid_str = parsed_args.idmp_iid->ptr;
+            iid_len = sdslen((sds)iid_str);
         }
         
         /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, &iid_hash, c)) {
+        if (idmpLookupAndReply(s, iid_str, iid_len, c)) {
+            if (auto_iid) sdsfree(auto_iid);
             return;
         }
         
         /* Insert entry into dict and linked list */
-        inserted = idmpInsertEntry(s, iid_hash, &new_entry, &old_idmp_tail);
+        inserted = idmpInsertEntry(s, iid_str, iid_len, &new_entry, &old_idmp_tail);
+        if (auto_iid) sdsfree(auto_iid);
         if (inserted < 0) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
@@ -5355,19 +5361,19 @@ void handleClaimableStreamEntries(void) {
  * IDMP (Idempotent Message Producer) Functions
  * ----------------------------------------------------------------------- */
 
-/* Hash function for idmpEntry - uses the XXH128_hash_t iid */
+/* Hash function for idmpEntry - hashes the embedded iid buffer */
 static uint64_t idmpDictHashFunction(const void *key) {
     const idmpEntry *entry = (const idmpEntry *)key;
-    /* Combine high64 and low64 for a 64-bit hash */
-    return entry->iid.high64 ^ entry->iid.low64;
+    return dictGenHashFunction((const char *)entry->iid, entry->iid_len);
 }
 
-/* Key comparison function for idmpEntry - compares iid */
+/* Key comparison function for idmpEntry - compares embedded iid buffers */
 static int idmpDictKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
     UNUSED(cache);
     const idmpEntry *e1 = (const idmpEntry *)key1;
     const idmpEntry *e2 = (const idmpEntry *)key2;
-    return (e1->iid.high64 == e2->iid.high64 && e1->iid.low64 == e2->iid.low64);
+    if (e1->iid_len != e2->iid_len) return 0;
+    return memcmp((const char *)e1->iid, (const char *)e2->iid, e1->iid_len) == 0;
 }
 
 /* Dictionary type for IDMP entries - keys are idmpEntry pointers, no separate values */
@@ -5392,14 +5398,17 @@ dictType idmpDictType = {
     NULL,                       /* on dict release */
 };
 
-/* Create a new idmpEntry with the given IID hash.
+/* Create a new idmpEntry with the given IID string.
+ * The entry and IID are allocated together using flexible array member.
  * Returns NULL on allocation failure. */
-idmpEntry *idmpEntryCreate(XXH128_hash_t iid, size_t *alloc_size) {
+idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) {
     size_t usable;
-    idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry), &usable);
+    idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry) + iid_len, &usable);
     if (entry == NULL) return NULL;
     
-    entry->iid = iid;
+    entry->next = NULL;
+    entry->iid_len = iid_len;
+    memcpy(entry->iid, iid, iid_len);
     
     if (alloc_size) {
         *alloc_size += usable;
@@ -5408,7 +5417,7 @@ idmpEntry *idmpEntryCreate(XXH128_hash_t iid, size_t *alloc_size) {
     return entry;
 }
 
-/* Free an idmpEntry. */
+/* Free an idmpEntry (iid is embedded via flexible array member). */
 void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (entry == NULL) return;
     
@@ -5422,11 +5431,13 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
 /* Check if an IID already exists in the stream's idmp_dict.
  * If found, sends the existing stream ID as a reply and returns 1.
  * Returns 0 if the IID was not found. */
-static int idmpLookupAndReply(stream *s, XXH128_hash_t *iid, client *c) {
-    idmpEntry lookup_entry;
-    lookup_entry.iid = *iid;
+static int idmpLookupAndReply(stream *s, const char *iid, size_t iid_len, client *c) {
+    /* Allocate lookup entry on stack with embedded iid using alloca */
+    idmpEntry *lookup_entry = alloca(sizeof(idmpEntry) + iid_len);
+    lookup_entry->iid_len = iid_len;
+    memcpy(lookup_entry->iid, iid, iid_len);
     
-    dictEntry *de = dictFind(s->idmp_dict, &lookup_entry);
+    dictEntry *de = dictFind(s->idmp_dict, lookup_entry);
     if (de != NULL) {
         /* IID already exists, return the existing stream ID */
         idmpEntry *existing = (idmpEntry *)dictGetKey(de);
@@ -5440,10 +5451,10 @@ static int idmpLookupAndReply(stream *s, XXH128_hash_t *iid, client *c) {
  * Returns 1 on success, 0 if dict add failed, -1 on allocation failure.
  * On success, *out_entry is set to the new entry and *out_old_tail is set
  * to the previous tail (for potential rollback). */
-static int idmpInsertEntry(stream *s, XXH128_hash_t iid_hash,
+static int idmpInsertEntry(stream *s, const char *iid, size_t iid_len,
                            idmpEntry **out_entry, idmpEntry **out_old_tail) {
     /* Create entry with placeholder ID (will be updated after streamAppendItem) */
-    idmpEntry *new_entry = idmpEntryCreate(iid_hash, &s->alloc_size);
+    idmpEntry *new_entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
     if (new_entry == NULL) {
         *out_entry = NULL;
         return -1;
@@ -5582,8 +5593,6 @@ void handleExpiredIdmpEntries(void) {
  * and the number of pairs. It hashes each field-value pair together using
  * XXH3_128bits and XORs all the pair hashes to produce a final 128-bit hash.
  * 
- * The raw 128-bit hash (16 bytes) is written directly to the provided result buffer.
- * 
  * Algorithm:
  * 1. For each field-value pair:
  *    a. Create a streaming hash state with XXH3_128bits_reset()
@@ -5591,13 +5600,12 @@ void handleExpiredIdmpEntries(void) {
  *    c. Update hash with value data using XXH3_128bits_update()
  *    d. Finalize pair hash with XXH3_128bits_digest()
  *    e. XOR the pair hash with the accumulated result
- * 2. Write final 128-bit hash to result buffer
+ * 2. Return the final 128-bit hash
  * 
  * Parameters:
  *   argv      - Array of robj pointers containing field-value pairs
  *               (argv[0] = field1, argv[1] = value1, argv[2] = field2, ...)
  *   numfields - Number of field-value pairs (not the array length)
- *   result    - Buffer to store the raw 16-byte hash (must be at least 16 bytes)
  * 
  * Returns:
  *   XXH128_hash_t containing the 128-bit hash result */
@@ -5650,21 +5658,6 @@ static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
     XXH3_freeState(state);
     
     return hash_result;
-}
-
-/* Hash a raw buffer using XXH3_128bits for AUTOIDMP.
- * 
- * This function takes a raw character buffer and its length, and produces
- * a 128-bit hash using XXH3_128bits.
- * 
- * Parameters:
- *   data   - Pointer to the data buffer to hash
- *   len    - Length of the data buffer in bytes
- * 
- * Returns:
- *   XXH128_hash_t containing the 128-bit hash result */
-static XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t len) {
-    return XXH3_128bits(data, len);
 }
 
 /* Clear all IDMP entries from a stream - free linked list and empty dict */

@@ -937,7 +937,7 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
 
 /* Defrag IDMP dict and linked list including:
  * 1) The dict structure
- * 2) All idmpEntry structures in the linked list
+ * 2) All idmpEntry structures in the linked list (iid is embedded via FAM)
  * Note: We need to update both dict and linked list pointers when defragging entries */
 void defragIdmpDict(stream *s) {
     if (s->idmp_dict == NULL) return;
@@ -962,7 +962,7 @@ void defragIdmpDict(stream *s) {
         /* Remove from dict first while entry is still valid */
         dictDelete(s->idmp_dict, entry);
         
-        /* Try to defrag the entry - this may free entry */
+        /* Try to defrag the entry (iid is embedded, no separate allocation) */
         idmpEntry *newentry = activeDefragAlloc(entry);
         if (newentry) {
             /* Defrag happened - update linked list pointers */

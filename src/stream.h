@@ -17,9 +17,10 @@ typedef struct streamID {
 
 /* Structure to hold IID and stream ID for IDMP deduplication */
 typedef struct idmpEntry {
-    XXH128_hash_t iid;  /* 128-bit hash of user-provided unique identifier */
-    streamID id;        /* Associated stream ID */
     struct idmpEntry *next;  /* Pointer to next entry in insertion order (linked list) */
+    streamID id;             /* Associated stream ID */
+    size_t iid_len;          /* Length of the IID */
+    char iid[];              /* Flexible array member for inline IID storage */
 } idmpEntry;
 
 /* Dictionary type for IDMP entries - uses IID hash as key */
@@ -190,7 +191,7 @@ void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 
 /* IDMP functions */
-idmpEntry *idmpEntryCreate(XXH128_hash_t iid, size_t *alloc_size);
+idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
 void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
 
 #endif
