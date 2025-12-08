@@ -108,7 +108,7 @@ static size_t reqresAppendEncodedBuffer(client *c, char *buf, size_t len) {
         payloadHeader *header = (payloadHeader *)ptr;
         if (header->payload_type == PLAIN_REPLY) {
             /* Plain reply data - copy directly */
-            ret += reqresAppendBuffer(c, ptr, header->payload_len);
+            ret += reqresAppendBuffer(c, ptr + sizeof(payloadHeader), header->payload_len);
         } else {
             /* BULK_STR_REF - expand to full RESP format */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
@@ -243,12 +243,12 @@ size_t reqresAppendResponse(client *c) {
     /* First append the static reply buffer */
     if (c->bufpos > c->reqres.offset.bufpos) {
         size_t written;
-        if (c->buf_encoded) {
-            /* Decode and append encoded buffer */
-            written = reqresAppendEncodedBuffer(c, c->buf + c->reqres.offset.bufpos, c->bufpos - c->reqres.offset.bufpos);
-        } else {
+        if (!c->buf_encoded) {
             /* Plain buffer - copy directly */
             written = reqresAppendBuffer(c, c->buf + c->reqres.offset.bufpos, c->bufpos - c->reqres.offset.bufpos);
+        } else {
+            /* Decode and append encoded buffer */
+            written = reqresAppendEncodedBuffer(c, c->buf + c->reqres.offset.bufpos, c->bufpos - c->reqres.offset.bufpos);
         }
         ret += written;
     }

@@ -513,6 +513,11 @@ void _addReplyToBufferOrList(client *c, const char *s, size_t len) {
 static void _addBulkStrRefToBufferOrList(client *c, robj *obj, size_t len) {
     if (c->flags & CLIENT_CLOSE_AFTER_REPLY) return;
 
+    c->net_output_bytes_curr_cmd += len;
+    /* We call it here because this function may affect the reply
+     * buffer offset (see function comment) */
+    reqresSaveClientReplyOffset(c);
+
     /* Refcount will be decremented in write completion handler by the main thread */
     incrRefCount(obj);
 
