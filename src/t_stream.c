@@ -52,6 +52,8 @@ static void trackStreamIdmpEntries(client *c, robj *key);
 static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
 static XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t len);
 static void streamClearIdmpEntries(stream *s);
+static int idmpInsertEntry(stream *s, XXH128_hash_t iid_hash, idmpEntry **out_entry, idmpEntry **out_old_tail);
+static void idmpRollbackInsert(stream *s, idmpEntry *entry, idmpEntry *old_tail);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -2480,32 +2482,11 @@ void xaddCommand(client *c) {
             return;
         }
         
-        /* Create entry with placeholder ID (will be updated after streamAppendItem) */
-        new_entry = idmpEntryCreate(iid_hash, &s->alloc_size);
-        if (new_entry == NULL) {
+        /* Insert entry into dict and linked list */
+        inserted = idmpInsertEntry(s, iid_hash, &new_entry, &old_idmp_tail);
+        if (inserted < 0) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
-        }
-        new_entry->next = NULL;
-        
-        /* Save current tail before insertion for potential rollback */
-        old_idmp_tail = s->idmp_tail;
-        
-        /* Insert into dict */
-        int ret = dictAdd(s->idmp_dict, new_entry, NULL);
-        if (ret == DICT_OK) {
-            inserted = 1;
-            /* Add to linked list tail */
-            if (s->idmp_tail == NULL) {
-                s->idmp_head = s->idmp_tail = new_entry;
-            } else {
-                s->idmp_tail->next = new_entry;
-                s->idmp_tail = new_entry;
-            }
-        } else {
-            /* Should not happen since we checked above, but handle it */
-            idmpEntryFree(new_entry, &s->alloc_size);
-            new_entry = NULL;
         }
     }
 
@@ -2515,16 +2496,7 @@ void xaddCommand(client *c) {
                         "unable to add more items");
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            /* Remove from dict */
-            dictDelete(s->idmp_dict, new_entry);
-            /* Restore linked list to state before insertion */
-            if (old_idmp_tail == NULL) {
-                s->idmp_head = s->idmp_tail = NULL;
-            } else {
-                old_idmp_tail->next = NULL;
-                s->idmp_tail = old_idmp_tail;
-            }
-            idmpEntryFree(new_entry, &s->alloc_size);
+            idmpRollbackInsert(s, new_entry, old_idmp_tail);
         }
         return;
     }
@@ -2545,16 +2517,7 @@ void xaddCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            /* Remove from dict */
-            dictDelete(s->idmp_dict, new_entry);
-            /* Restore linked list to state before insertion */
-            if (old_idmp_tail == NULL) {
-                s->idmp_head = s->idmp_tail = NULL;
-            } else {
-                old_idmp_tail->next = NULL;
-                s->idmp_tail = old_idmp_tail;
-            }
-            idmpEntryFree(new_entry, &s->alloc_size);
+            idmpRollbackInsert(s, new_entry, old_idmp_tail);
         }
         return;
     }
@@ -5465,6 +5428,57 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     zfree(entry);
 }
 
+/* Insert a new idmpEntry into the stream's dict and linked list.
+ * Returns 1 on success, 0 if dict add failed, -1 on allocation failure.
+ * On success, *out_entry is set to the new entry and *out_old_tail is set
+ * to the previous tail (for potential rollback). */
+static int idmpInsertEntry(stream *s, XXH128_hash_t iid_hash,
+                           idmpEntry **out_entry, idmpEntry **out_old_tail) {
+    /* Create entry with placeholder ID (will be updated after streamAppendItem) */
+    idmpEntry *new_entry = idmpEntryCreate(iid_hash, &s->alloc_size);
+    if (new_entry == NULL) {
+        *out_entry = NULL;
+        return -1;
+    }
+    new_entry->next = NULL;
+
+    /* Save current tail before insertion for potential rollback */
+    *out_old_tail = s->idmp_tail;
+
+    /* Insert into dict */
+    int ret = dictAdd(s->idmp_dict, new_entry, NULL);
+    if (ret == DICT_OK) {
+        /* Add to linked list tail */
+        if (s->idmp_tail == NULL) {
+            s->idmp_head = s->idmp_tail = new_entry;
+        } else {
+            s->idmp_tail->next = new_entry;
+            s->idmp_tail = new_entry;
+        }
+        *out_entry = new_entry;
+        return 1;
+    } else {
+        /* Should not happen since caller checked, but handle it */
+        idmpEntryFree(new_entry, &s->alloc_size);
+        *out_entry = NULL;
+        return 0;
+    }
+}
+
+/* Rollback an idmpEntry insertion from both dict and linked list, then free it. */
+static void idmpRollbackInsert(stream *s, idmpEntry *entry, idmpEntry *old_tail) {
+    /* Remove from dict */
+    dictDelete(s->idmp_dict, entry);
+    /* Restore linked list to state before insertion */
+    if (old_tail == NULL) {
+        s->idmp_head = s->idmp_tail = NULL;
+    } else {
+        old_tail->next = NULL;
+        s->idmp_tail = old_tail;
+    }
+    idmpEntryFree(entry, &s->alloc_size);
+}
+
 /* Register a stream key for IDMP entry tracking.
  * This registers a stream key in the database's stream_idmp_keys dictionary,
  * allowing the cron job handleExpiredIdmpEntries() to periodically check
@@ -5647,6 +5661,10 @@ static XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t le
 
 /* Clear all IDMP entries from a stream - free linked list and empty dict */
 static void streamClearIdmpEntries(stream *s) {
+    /* Empty the dict */
+    if (s->idmp_dict) {
+        dictEmpty(s->idmp_dict, NULL);
+    }
     /* Free linked list entries */
     idmpEntry *entry = s->idmp_head;
     while (entry) {
@@ -5656,9 +5674,5 @@ static void streamClearIdmpEntries(stream *s) {
     }
     s->idmp_head = NULL;
     s->idmp_tail = NULL;
-    /* Empty the dict (keys already freed above) */
-    if (s->idmp_dict) {
-        dictEmpty(s->idmp_dict, NULL);
-    }
 }
 
