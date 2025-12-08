@@ -43,6 +43,7 @@ typedef struct stream {
     dict *idmp_dict;       /* IDMP IID tracking tree. */
     idmpEntry *idmp_head;
     idmpEntry *idmp_tail;
+    uint64_t iids_added;   /* All time count of entries with IID added. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without

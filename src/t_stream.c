@@ -83,6 +83,7 @@ stream *streamNew(void) {
     s->idmp_dict = dictCreate(&idmpDictType);
     s->idmp_head = NULL;
     s->idmp_tail = NULL;
+    s->iids_added = 0;
     return s;
 }
 
@@ -2524,6 +2525,7 @@ void xaddCommand(client *c) {
     /* IDMP: Update the entry's ID if we inserted it earlier */
     if (inserted && new_entry != NULL) {
         new_entry->id = id;
+        s->iids_added++;
         trackStreamIdmpEntries(c, c->argv[1]);
         /* Remove oldest entry if exceeding max entries */
         if (dictSize(s->idmp_dict) > s->idmp_max_entries) {
@@ -4728,7 +4730,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 9 : 10);
+    addReplyMapLen(c,full ? 11 : 12);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -4743,6 +4745,10 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyLongLong(c,s->entries_added);
     addReplyBulkCString(c,"recorded-first-entry-id");
     addReplyStreamID(c,&s->first_id);
+    addReplyBulkCString(c,"iids-tracked");
+    addReplyLongLong(c,s->idmp_dict ? dictSize(s->idmp_dict) : 0);
+    addReplyBulkCString(c,"iids-added");
+    addReplyLongLong(c,s->iids_added);
 
     size_t old_alloc = s->alloc_size;
     if (!full) {

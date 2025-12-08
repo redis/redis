@@ -1340,6 +1340,125 @@ start_server {
         assert {$id1 ne $new_id1}
     }
 
+    test {XINFO STREAM returns iids-tracked and iids-added fields} {
+        r DEL mystream
+        
+        # Create stream without IDMP first
+        r XADD mystream * field "value"
+        
+        # Verify initial values: no IDMP entries yet
+        set reply [r XINFO STREAM mystream]
+        assert_equal 0 [dict get $reply iids-tracked]
+        assert_equal 0 [dict get $reply iids-added]
+        
+        # Add entries with IDMP
+        r XADD mystream IDMP "req-1" * field "value1"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply iids-tracked]
+        assert_equal 1 [dict get $reply iids-added]
+        
+        r XADD mystream IDMP "req-2" * field "value2"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        
+        # Duplicate IDMP should NOT increment counters
+        r XADD mystream IDMP "req-1" * field "duplicate"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        
+        # Also verify FULL mode returns the same fields
+        set reply_full [r XINFO STREAM mystream FULL]
+        assert_equal 2 [dict get $reply_full iids-tracked]
+        assert_equal 2 [dict get $reply_full iids-added]
+    }
+
+    test {XINFO STREAM iids-added is lifetime counter even after eviction} {
+        r DEL mystream
+        
+        # Set small MAXSIZE to trigger eviction
+        r XADD mystream IDMP "init" * field "init"
+        r XIDMP CFGSET mystream MAXSIZE 3
+        
+        # Add 3 more entries (total 4, but MAXSIZE=3 so oldest evicted)
+        r XADD mystream IDMP "req-1" * field "v1"
+        r XADD mystream IDMP "req-2" * field "v2"
+        r XADD mystream IDMP "req-3" * field "v3"
+        
+        set reply [r XINFO STREAM mystream]
+        # iids-tracked should be capped at MAXSIZE (3)
+        assert_equal 3 [dict get $reply iids-tracked]
+        # iids-added should be lifetime count (4)
+        assert_equal 4 [dict get $reply iids-added]
+        
+        # Add more entries to verify lifetime counter keeps growing
+        r XADD mystream IDMP "req-4" * field "v4"
+        r XADD mystream IDMP "req-5" * field "v5"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 6 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM iids counters after CFGSET clears history} {
+        r DEL mystream
+        
+        # Add entries with IDMP
+        r XADD mystream IDMP "req-1" * field "v1"
+        r XADD mystream IDMP "req-2" * field "v2"
+        r XADD mystream IDMP "req-3" * field "v3"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 3 [dict get $reply iids-added]
+        
+        # CFGSET clears IID history
+        r XIDMP CFGSET mystream DURATION 60
+        
+        set reply [r XINFO STREAM mystream]
+        # iids-tracked should be 0 after history cleared
+        assert_equal 0 [dict get $reply iids-tracked]
+        # iids-added should still be preserved (lifetime counter)
+        assert_equal 3 [dict get $reply iids-added]
+        
+        # Add new entry and verify counters
+        r XADD mystream IDMP "req-4" * field "v4"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply iids-tracked]
+        assert_equal 4 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM iids-added persists in RDB} {
+        r DEL mystream
+        
+        # Add entries with IDMP to build up iids-added counter
+        r XADD mystream IDMP "req-1" * field "v1"
+        r XADD mystream IDMP "req-2" * field "v2"
+        r XADD mystream IDMP "req-3" * field "v3"
+        
+        # Set small MAXSIZE to cause eviction
+        r XIDMP CFGSET mystream MAXSIZE 2
+        
+        # Add more to trigger eviction (iids-tracked will be 2, but iids-added=5)
+        r XADD mystream IDMP "req-4" * field "v4"
+        r XADD mystream IDMP "req-5" * field "v5"
+        
+        # Verify values before save
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+        
+        # Save and restart
+        r SAVE
+        restart_server 0 true false
+        
+        # Verify iids-added persisted after restart
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+    }
+
     test {XIDMP CFGSET MAXSIZE wraparound keeps last 8 entries} {
         r DEL mystream
         

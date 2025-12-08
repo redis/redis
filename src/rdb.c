@@ -1258,6 +1258,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         /* Save all IDMP entries. */
         if ((n = rdbSaveStreamIdmpEntries(rdb, s)) == -1) return -1;
         nwritten += n;
+
+        /* Save the all-time count of IIDs added. */
+        if ((n = rdbSaveLen(rdb, s->iids_added)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -3264,6 +3268,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             /* Load all IDMP entries. */
             if (rdbLoadStreamIdmpEntries(rdb, s) == -1) {
                 rdbReportReadError("Stream IDMP entries loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all-time count of IIDs added. */
+            s->iids_added = rdbLoadLen(rdb, NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream iids_added loading failed.");
                 decrRefCount(o);
                 return NULL;
             }
