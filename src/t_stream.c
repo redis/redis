@@ -5413,7 +5413,7 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (entry == NULL) return;
     
     if (alloc_size) {
-        *alloc_size -= zmalloc_size(entry);
+        *alloc_size -= zmalloc_usable_size(entry);
     }
     
     zfree(entry);
