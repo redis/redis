@@ -97,6 +97,9 @@ void freeStream(stream *s) {
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
+    /* Release the dict (keys already freed above) */
+    if (s->idmp_dict)
+        dictRelease(s->idmp_dict);
     /* Free IDMP linked list entries */
     idmpEntry *entry = s->idmp_head;
     while (entry) {
@@ -104,9 +107,6 @@ void freeStream(stream *s) {
         idmpEntryFree(entry, &s->alloc_size);
         entry = next;
     }
-    /* Release the dict (keys already freed above) */
-    if (s->idmp_dict)
-        dictRelease(s->idmp_dict);
 #ifdef REDIS_TEST
     serverAssert(s->alloc_size == zmalloc_usable_size(s));
 #endif

@@ -948,14 +948,24 @@ void defragIdmpDict(stream *s) {
         s->idmp_dict = newdict;
     
     /* Iterate through the linked list and defrag each idmpEntry.
-     * We need to update both the linked list pointers and dict entries. */
+     * We need to update both the linked list pointers and dict entries.
+     * 
+     * IMPORTANT: We must delete from dict BEFORE calling activeDefragAlloc
+     * because activeDefragAlloc frees the old entry, and dictDelete needs
+     * to hash the key (which would be use-after-free). */
     idmpEntry **prevnext = &s->idmp_head;
     idmpEntry *entry = s->idmp_head;
     
     while (entry != NULL) {
+        idmpEntry *next = entry->next;  /* Save next before potential free */
+        
+        /* Remove from dict first while entry is still valid */
+        dictDelete(s->idmp_dict, entry);
+        
+        /* Try to defrag the entry - this may free entry */
         idmpEntry *newentry = activeDefragAlloc(entry);
         if (newentry) {
-            /* Update the linked list pointer */
+            /* Defrag happened - update linked list pointers */
             *prevnext = newentry;
             
             /* Update tail if this was the tail */
@@ -963,15 +973,14 @@ void defragIdmpDict(stream *s) {
                 s->idmp_tail = newentry;
             }
             
-            /* The dict uses the entry pointer as key, so we need to delete old and add new */
-            dictDelete(s->idmp_dict, entry);
-            dictAdd(s->idmp_dict, newentry, NULL);
-            
             entry = newentry;
         }
         
+        /* Add back to dict (using new or original pointer) */
+        dictAdd(s->idmp_dict, entry, NULL);
+        
         prevnext = &entry->next;
-        entry = entry->next;
+        entry = next;
     }
 }
 
