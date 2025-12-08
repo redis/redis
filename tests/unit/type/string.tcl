@@ -803,22 +803,22 @@ if {[string match {*jemalloc*} [s mem_allocator]]} {
             
             if {[s arch_bits] == 64} {  
                 # 16 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 5 (val) + 1 (\0) = 32bytes
-                expected_mem x234 y2345 0 32 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 32, val_sds_len:5, val_sds_avail:0, val_zmalloc: 0"
+                expected_mem x234 y2345 0 40 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:5, val_sds_avail:0, val_zmalloc: 0"
                 # 16 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 6 (val) + 1 (\0) = 33bytes
-                expected_mem x234 y23456 0 40 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:6, val_sds_avail:7, val_zmalloc: 0"
+                expected_mem x234 y23456 0 48 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 48, val_sds_len:6, val_sds_avail:7, val_zmalloc: 0"
                 # 16 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 13 (val) + 1 (\0) = 40bytes
-                expected_mem x234 y234561234567 0 40 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:13, val_sds_avail:0, val_zmalloc: 0"
+                expected_mem x234 y234561234567 0 48 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 48, val_sds_len:13, val_sds_avail:0, val_zmalloc: 0"
                 # 16 (kvobj) + 8 (expiry) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 13 (val) + 1 (\0) = 48bytes
-                expected_mem x234 y234561234567 1 48 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 48, val_sds_len:13, val_sds_avail:0, val_zmalloc: 0"
+                expected_mem x234 y234561234567 1 56 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 56, val_sds_len:13, val_sds_avail:0, val_zmalloc: 0"
             } else {
                 # 12 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 9 (val) + 1 (\0) = 32bytes
-                expected_mem x234 y23456789 0 32 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 32, val_sds_len:9, val_sds_avail:0, val_zmalloc: 0"
+                expected_mem x234 y23456789 0 40 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:9, val_sds_avail:4, val_zmalloc: 0"
                 # 12 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 10 (val) + 1 (\0) = 33bytes
-                expected_mem x234 y234567890 0 40 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:10, val_sds_avail:7, val_zmalloc: 0"
+                expected_mem x234 y234567890 0 40 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:10, val_sds_avail:3, val_zmalloc: 0"
                 # 12 (kvobj) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 17 (val) + 1 (\0) = 40bytes 
-                expected_mem x234 y2345678901234567 0 40 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 40, val_sds_len:17, val_sds_avail:0, val_zmalloc: 0"
+                expected_mem x234 y2345678901234567 0 48 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 48, val_sds_len:17, val_sds_avail:4, val_zmalloc: 0"
                 # 12 (kvobj) + 8 (expiry) + 1 (key-hdr-size) + 1 (sdshdr5) + 4 (key) + 1 (\0) + 3 (sdshdr8) + 17 (val) + 1 (\0) = 48bytes
-                expected_mem x234 y2345678901234567 1 48 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 48, val_sds_len:17, val_sds_avail:0, val_zmalloc: 0"
+                expected_mem x234 y2345678901234567 1 56 "key_sds_len:4, key_sds_avail:0, key_zmalloc: 56, val_sds_len:17, val_sds_avail:4, val_zmalloc: 0"
             }
         } {} {needs:debug}
     }

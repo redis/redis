@@ -903,6 +903,8 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
     if(!server.reply_buffer_resizing_enabled)
         return 0;
 
+    if (c->buf_encoded) return 0;
+
     if (buffer_target_shrink_size >= PROTO_REPLY_MIN_BYTES &&
         c->buf_peak < buffer_target_shrink_size )
     {

@@ -9,6 +9,10 @@ proc get_reply_buffer_size {cname} {
 }
 
 start_server {tags {"replybufsize"}} {
+    # Disable copy avoidance because it affects memory usage
+    r config set min-io-threads-avoid-copy-reply 0
+    r config set min-string-size-avoid-copy-reply 0
+    r config set min-string-size-avoid-copy-reply-threaded 0
     
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low

@@ -580,27 +580,34 @@ void freeStreamObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
-        o->refcount++;
+    unsigned int refcount;
+    atomicGet(o->refcount, refcount);
+
+    if (refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
+        atomicIncr(o->refcount, 1);
     } else {
-        if (o->refcount == OBJ_SHARED_REFCOUNT) {
+        if (refcount == OBJ_SHARED_REFCOUNT) {
             /* Nothing to do: this refcount is immutable. */
-        } else if (o->refcount == OBJ_STATIC_REFCOUNT) {
+        } else if (refcount == OBJ_STATIC_REFCOUNT) {
             serverPanic("You tried to retain an object allocated in the stack");
         }
     }
 }
 
 void decrRefCount(robj *o) {
-    if (o->refcount == OBJ_SHARED_REFCOUNT)
+    unsigned int refcount;
+    atomicGet(o->refcount, refcount);
+
+    if (refcount == OBJ_SHARED_REFCOUNT)
         return; /* Nothing to do: this refcount is immutable. */
 
-    if (unlikely(o->refcount <= 0)) {
+    if (unlikely(refcount <= 0)) {
         serverPanic("illegal decrRefCount for object with: type %u, encoding %u, refcount %d",
-            o->type, o->encoding, o->refcount);
+            o->type, o->encoding, refcount);
     }
 
-    if (--(o->refcount) == 0) {
+    atomicDecr(o->refcount, 1);
+    if (refcount == 1) {
         if (o->ptr != NULL) {
             switch(o->type) {
             case OBJ_STRING: freeStringObject(o); break;
