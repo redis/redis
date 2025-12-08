@@ -3569,9 +3569,6 @@ kvobj *dbFindByLink(redisDb *db, sds key, dictEntryLink *link);
 kvobj *dbFindExpires(redisDb *db, sds key);
 unsigned long long dbSize(redisDb *db);
 unsigned long long dbScan(redisDb *db, unsigned long long cursor, dictScanFunction *scan_cb, void *privdata);
-static inline kvstoreDictMetadata *getSlotMeta(int slot, int createIfNeeded) {
-    return kvstoreGetDictMeta(server.db->keys, slot, createIfNeeded);
-}
 
 /* Set data type */
 robj *setTypeCreate(sds value, size_t size_hint);

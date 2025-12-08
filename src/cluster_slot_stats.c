@@ -46,6 +46,10 @@ static int markSlotsAssignedToMyShard(unsigned char *assigned_slots, int start_s
     return assigned_slots_count;
 }
 
+static inline kvstoreDictMetadata *getSlotMeta(int slot, int createIfNeeded) {
+    return kvstoreGetDictMeta(server.db->keys, slot, createIfNeeded);
+}
+
 static uint64_t getSlotStat(int slot, slotStatType stat_type) {
     kvstoreDictMetadata *meta = getSlotMeta(slot, 0);
     switch (stat_type) {
