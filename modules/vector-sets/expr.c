@@ -1031,7 +1031,6 @@ int main(int argc, char **argv) {
     printf("Result2: %s\n", result ? "True" : "False");
     exprFree(es);
 
-    // Test missing fields in json.
     testexpr = ".name < \"b\"";
     testjson = "{\"name\": \"a\"}";
     printf("Compiling expression: %s\n", testexpr);
