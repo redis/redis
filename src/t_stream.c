@@ -54,6 +54,7 @@ static XXH128_hash_t createIdempotencyHashFromBuffer(const char *data, size_t le
 static void streamClearIdmpEntries(stream *s);
 static int idmpInsertEntry(stream *s, XXH128_hash_t iid_hash, idmpEntry **out_entry, idmpEntry **out_old_tail);
 static void idmpRollbackInsert(stream *s, idmpEntry *entry, idmpEntry *old_tail);
+static int idmpLookupAndReply(stream *s, XXH128_hash_t *iid, client *c);
 
 /* -----------------------------------------------------------------------
  * Low level stream encoding: a radix tree of listpacks.
@@ -2467,18 +2468,8 @@ void xaddCommand(client *c) {
             iid_hash = createIdempotencyHashFromBuffer(user_iid, user_iid_len);
         }
         
-        /* Create a temporary entry for lookup */
-        idmpEntry lookup_entry;
-        lookup_entry.iid = iid_hash;
-        
-        /* Check if IID already exists in dict */
-        dictEntry *de = dictFind(s->idmp_dict, &lookup_entry);
-        if (de != NULL) {
-            /* IID already exists, return the existing stream ID */
-            idmpEntry *existing = (idmpEntry *)dictGetKey(de);
-            sds replyid = createStreamIDString(&existing->id);
-            addReplyBulkCBuffer(c, replyid, sdslen(replyid));
-            sdsfree(replyid);
+        /* Check if IID already exists and reply if found */
+        if (idmpLookupAndReply(s, &iid_hash, c)) {
             return;
         }
         
@@ -5426,6 +5417,23 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     }
     
     zfree(entry);
+}
+
+/* Check if an IID already exists in the stream's idmp_dict.
+ * If found, sends the existing stream ID as a reply and returns 1.
+ * Returns 0 if the IID was not found. */
+static int idmpLookupAndReply(stream *s, XXH128_hash_t *iid, client *c) {
+    idmpEntry lookup_entry;
+    lookup_entry.iid = *iid;
+    
+    dictEntry *de = dictFind(s->idmp_dict, &lookup_entry);
+    if (de != NULL) {
+        /* IID already exists, return the existing stream ID */
+        idmpEntry *existing = (idmpEntry *)dictGetKey(de);
+        addReplyStreamID(c, &existing->id);
+        return 1;
+    }
+    return 0;
 }
 
 /* Insert a new idmpEntry into the stream's dict and linked list.
