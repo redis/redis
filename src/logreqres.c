@@ -287,8 +287,7 @@ size_t reqresAppendResponse(client *c) {
                 if (i == c->reqres.offset.last_node.index) {
                     /* Write the potentially incomplete node, which had data from
                     * before the current command started */
-                    written = reqresAppendBuffer(c,
-                                                 o->buf + c->reqres.offset.last_node.used,
+                    written = reqresAppendBuffer(c, o->buf + c->reqres.offset.last_node.used,
                                                  o->used - c->reqres.offset.last_node.used);
                 } else {
                     /* New node */
@@ -299,8 +298,7 @@ size_t reqresAppendResponse(client *c) {
                 if (i == c->reqres.offset.last_node.index) {
                     /* Write the potentially incomplete node, which had data from
                     * before the current command started */
-                    written = reqresAppendEncodedBuffer(c,
-                                                        o->buf + c->reqres.offset.last_node.used,
+                    written = reqresAppendEncodedBuffer(c, o->buf + c->reqres.offset.last_node.used,
                                                         o->used - c->reqres.offset.last_node.used);
                 } else {
                     /* New node */

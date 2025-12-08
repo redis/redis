@@ -417,8 +417,8 @@ static void _addReplyPayloadToList(client *c, list *reply_list, const char *payl
         if (tail->buf_encoded) {
             serverAssert(tryAddPayload(tail->buf, &tail->used, tail->size, payload_type, (void *)payload, len));
         } else {
-            memcpy(tail->buf + tail->used, payload, len);
-            tail->used += len;
+            tail->used = len;
+            memcpy(tail->buf, payload, len);
         }
         listAddNodeTail(reply_list, tail);
         c->reply_bytes += tail->size;
@@ -1200,7 +1200,7 @@ void addReplyBulkLen(client *c, robj *obj) {
  * Copy avoidance allows I/O threads to directly reference obj->ptr
  * instead of copying data to reply buffers. */
 static int isCopyAvoidPreferred(client *c, robj *obj, size_t len) {
-    /* Don't use copy avoidance for fake clients or when deferred replies are enabled */
+    /* Don't use copy avoidance for fake clients. */
     if (!c->conn) return 0;
 
     int type = getClientType(c);
@@ -2017,8 +2017,7 @@ void freeClient(client *c) {
     dictRelease(c->pubsubshard_channels);
 
     /* Free data structures. */
-    /* Release all references to string objects in encoded buffers before freeing */
-    releaseAllBufReferences(c);
+    releaseAllBufReferences(c); /* Release all references to string objects in encoded buffers before freeing */
     listRelease(c->reply);
     zfree(c->buf);
     freeReplicaReferencedReplBuffer(c);
@@ -2209,54 +2208,24 @@ client *lookupClientByID(uint64_t id) {
     return c;
 }
 
+/* This struct is used by writevToClient to prepare iovec array for submitting to connWritev */
 typedef struct ReplyIOV {
-    struct iovec *iov;
-    int iovmax;
-    int iovcnt;
-    size_t iov_bytes_len;
+    struct iovec *iov;      /* Array of iovec structures for writev() */
+    int iovmax;             /* Maximum number of iovec entries allocated */
+    int iovcnt;             /* Current number of iovec entries in use */
+    size_t iov_bytes_len;   /* Total bytes across all iovec entries */
 } ReplyIOV;
 
-/* Helper function to add BULK_STR_REF components to iov array with offset support. */
-static void addBulkStrRefToIov(ReplyIOV *reply_iov, bulkStrRef *str_ref, size_t offset) {
-    size_t prefix_len = str_ref->prefix_cnt;
-    size_t str_len = sdslen(str_ref->obj->ptr);
-
-    /* Add prefix if not fully sent */
-    if (offset < prefix_len) {
-        if (reply_iov->iovcnt >= reply_iov->iovmax || reply_iov->iov_bytes_len >= NET_MAX_WRITES_PER_EVENT) return;
-        reply_iov->iov[reply_iov->iovcnt].iov_base = str_ref->prefix + offset;
-        reply_iov->iov[reply_iov->iovcnt].iov_len = prefix_len - offset;
-        reply_iov->iov_bytes_len += reply_iov->iov[reply_iov->iovcnt++].iov_len;
-        offset = 0;
-    } else {
-        offset -= prefix_len;
-    }
-
-    /* Add string data if not fully sent */
-    if (offset < str_len) {
-        if (reply_iov->iovcnt >= reply_iov->iovmax || reply_iov->iov_bytes_len >= NET_MAX_WRITES_PER_EVENT) return;
-        reply_iov->iov[reply_iov->iovcnt].iov_base = (char *)str_ref->obj->ptr + offset;
-        reply_iov->iov[reply_iov->iovcnt].iov_len = str_len - offset;
-        reply_iov->iov_bytes_len += reply_iov->iov[(reply_iov->iovcnt)++].iov_len;
-        offset = 0;
-    } else {
-        offset -= str_len;
-    }
-
-    /* Add crlf if not fully sent */
-    if (offset < 2) {
-        if (reply_iov->iovcnt >= reply_iov->iovmax || reply_iov->iov_bytes_len >= NET_MAX_WRITES_PER_EVENT) return;
-        reply_iov->iov[reply_iov->iovcnt].iov_base = str_ref->crlf + offset;
-        reply_iov->iov[reply_iov->iovcnt].iov_len = 2 - offset;
-        reply_iov->iov_bytes_len += reply_iov->iov[reply_iov->iovcnt++].iov_len;
-    }
+/* Check if the reply IOV has reached its limit yet. */
+static int replyIOVReachLimit(ReplyIOV *reply_iov) {
+    return reply_iov->iovcnt >= reply_iov->iovmax || reply_iov->iov_bytes_len >= NET_MAX_WRITES_PER_EVENT;
 }
 
 /* Helper function to process encoded buffer and build iov array.
  * Uses last_header and sentlen to track position for partial sends. */
 static void processEncodedBufferForWrite(ReplyIOV *reply_iov, char *start_ptr, char *end_ptr, size_t offset) {
     char *ptr = start_ptr;
-    while (ptr < end_ptr && reply_iov->iovcnt < reply_iov->iovmax && reply_iov->iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
+    while (ptr < end_ptr && !replyIOVReachLimit(reply_iov)) {
         payloadHeader *head = (payloadHeader *)ptr;
 
         if (head->payload_type == PLAIN_REPLY) {
@@ -2267,7 +2236,38 @@ static void processEncodedBufferForWrite(ReplyIOV *reply_iov, char *start_ptr, c
         } else {
             /* BULK_STR_REF - expand to prefix + string + crlf */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
-            addBulkStrRefToIov(reply_iov, str_ref, offset);
+            size_t prefix_len = str_ref->prefix_cnt;
+            size_t str_len = sdslen(str_ref->obj->ptr);
+
+            /* Add prefix */
+            if (offset < prefix_len) {
+                if (replyIOVReachLimit(reply_iov)) return;
+                reply_iov->iov[reply_iov->iovcnt].iov_base = str_ref->prefix + offset;
+                reply_iov->iov[reply_iov->iovcnt].iov_len = prefix_len - offset;
+                reply_iov->iov_bytes_len += reply_iov->iov[reply_iov->iovcnt++].iov_len;
+                offset = 0;
+            } else {
+                offset -= prefix_len;
+            }
+
+            /* Add string data */
+            if (offset < str_len) {
+                if (replyIOVReachLimit(reply_iov)) return;
+                reply_iov->iov[reply_iov->iovcnt].iov_base = (char *)str_ref->obj->ptr + offset;
+                reply_iov->iov[reply_iov->iovcnt].iov_len = str_len - offset;
+                reply_iov->iov_bytes_len += reply_iov->iov[(reply_iov->iovcnt)++].iov_len;
+                offset = 0;
+            } else {
+                offset -= str_len;
+            }
+
+            /* Add crlf */
+            if (offset < 2) {
+                if (replyIOVReachLimit(reply_iov)) return;
+                reply_iov->iov[reply_iov->iovcnt].iov_base = str_ref->crlf + offset;
+                reply_iov->iov[reply_iov->iovcnt].iov_len = 2 - offset;
+                reply_iov->iov_bytes_len += reply_iov->iov[reply_iov->iovcnt++].iov_len;
+            }
         }
 
         offset = 0;
@@ -2277,7 +2277,9 @@ static void processEncodedBufferForWrite(ReplyIOV *reply_iov, char *start_ptr, c
 
 /* Helper function to consume sent data from encoded buffer and release references.
  * Returns the remaining bytes not consumed. */
-static payloadHeader *consumeEncodedBuffer(char *start_ptr, char *end_ptr, size_t *sentlen, ssize_t *remaining) {
+static payloadHeader *processSentDataInEncodedBuffer(char *start_ptr, char *end_ptr,
+                                                     size_t *sentlen, ssize_t *remaining)
+{
     char *ptr = start_ptr;
     while (ptr < end_ptr && *remaining > 0) {
         payloadHeader *head = (payloadHeader *)ptr;
@@ -2330,7 +2332,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
             iov[reply_iov.iovcnt].iov_len = c->bufpos - c->sentlen;
             reply_iov.iov_bytes_len += iov[reply_iov.iovcnt++].iov_len;
         } else {
-            /* Encoded buffer - use helper function */
+            /* Encoded buffer */
             char *start_ptr = c->last_header ? (char *)c->last_header : c->buf;
             serverAssert(start_ptr >= c->buf && start_ptr < (c->buf + c->bufpos));
             processEncodedBufferForWrite(&reply_iov, start_ptr, c->buf + c->bufpos, c->sentlen);
@@ -2338,7 +2340,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
     }
 
     /* Add c->reply list nodes to iov array */
-    if (reply_iov.iovcnt < iovmax && reply_iov.iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
+    if (!replyIOVReachLimit(&reply_iov)) {
         /* The first node of reply list might be incomplete from the last call,
          * thus it needs to be calibrated to get the actual data address and length. */
         size_t offset = c->bufpos > 0 ? 0 : c->sentlen;
@@ -2346,7 +2348,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
         listIter iter;
         listNode *next;
         listRewind(c->reply, &iter);
-        while ((next = listNext(&iter)) && reply_iov.iovcnt < iovmax && reply_iov.iov_bytes_len < NET_MAX_WRITES_PER_EVENT) {
+        while ((next = listNext(&iter)) && !replyIOVReachLimit(&reply_iov)) {
             clientReplyBlock *o = listNodeValue(next);
             if (o->used == 0) { /* empty node, just release it and skip. */
                 c->reply_bytes -= o->size;
@@ -2363,7 +2365,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
                 reply_iov.iov_bytes_len += iov[reply_iov.iovcnt++].iov_len;
                 offset = 0;
             } else {
-                /* Encoded reply block - use helper function */
+                /* Encoded reply block */
                 char *start_ptr = last_header ? (char *)last_header : o->buf;
                 processEncodedBufferForWrite(&reply_iov, start_ptr, o->buf + o->used, offset);
                 offset = 0;
@@ -2391,9 +2393,9 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
             }
             remaining -= buf_len;
         } else {
-            /* For encoded buffers, use helper function */
+            /* For encoded buffers */
             char *start_ptr = c->last_header ? (char *)c->last_header : c->buf;
-            c->last_header = consumeEncodedBuffer(start_ptr, c->buf + c->bufpos, &c->sentlen, &remaining);
+            c->last_header = processSentDataInEncodedBuffer(start_ptr, c->buf + c->bufpos, &c->sentlen, &remaining);
             if (!c->last_header) { /* reach end */
                 c->bufpos = 0;
                 c->buf_encoded = 0;
@@ -2419,9 +2421,9 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
             listDelNode(c->reply, next);
             c->sentlen = 0;
         } else {
-            /* Encoded reply block - use helper function */
+            /* Encoded reply block */
             char *start_ptr = c->last_header ? (char *)c->last_header : o->buf;
-            c->last_header = consumeEncodedBuffer(start_ptr, o->buf + o->used, &c->sentlen, &remaining);
+            c->last_header = processSentDataInEncodedBuffer(start_ptr, o->buf + o->used, &c->sentlen, &remaining);
             if (!c->last_header) { /* reach end */
                 /* Block fully consumed, remove it */
                 c->reply_bytes -= o->size;
