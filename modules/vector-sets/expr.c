@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <string.h>
 
@@ -704,27 +705,33 @@ double exprTokenToNum(exprtoken *t) {
  * Otherwhise they will be treat as numeric values. */
 int exprCompareTokens(exprtoken *a, exprtoken *b, int (*compareFunction)(double, double)) {
     // If both are strings, do string comparison.
+    char buf[256];
     if (a->token_type == EXPR_TOKEN_STR && b->token_type == EXPR_TOKEN_STR) {
-        char buf[256];
-        memcpy(buf, a->str.start, a->str.len);
-        buf[a->str.len] = '\0';
-        char *endptr;
-        double aAsNumeric = strtod(buf, &endptr);
+        /* If tokens are strings and potentially could be converted into numbers,
+            try to treat them as numbers. Otherwhise performs string comparison. */
+        if (a->str.len < sizeof(buf) && b->str.len < sizeof(buf)) {
+            memcpy(buf, a->str.start, a->str.len);
+            buf[a->str.len] = '\0';
+            char *endptr;
+            double aAsNumeric = strtod(buf, &endptr);
 
-        /* If the first value is a numeric fallback directly into numeric comparison.
-           Avoid to re-convert the value since it's already available. */
-        if (*endptr == '\0') return compareFunction(aAsNumeric, exprTokenToNum(b));
+            /* If the first value is a numeric fallback directly into numeric comparison.
+            Avoid to re-convert the value since it's already available. */
+            if (*endptr == '\0' && errno != ERANGE) return compareFunction(aAsNumeric, exprTokenToNum(b));
 
-        memcpy(buf, b->str.start, b->str.len);
-        buf[b->str.len] = '\0';
-        double bAsNumeric = strtod(buf, &endptr);
+            memcpy(buf, b->str.start, b->str.len);
+            buf[b->str.len] = '\0';
+            double bAsNumeric = strtod(buf, &endptr);
 
-        /* If the second value is a numeric do numeric comparison between values. */
-        if (*endptr == '\0') return compareFunction(aAsNumeric, bAsNumeric);
+            /* If the second value is a numeric do numeric comparison between values. */
+            if (*endptr == '\0' && errno != ERANGE) return compareFunction(aAsNumeric, bAsNumeric);
+        }
+
 
         /* At this point both the values are verified as strings that cannot be treat as numeric.
            Let's perform string comparison and then apply the input logic to the result. */
-        return compareFunction(memcmp(a->str.start, b->str.start, a->str.len), 0);
+        int minLength = a->str.len < b->str.len ? a->str.len : b->str.len;
+        return compareFunction((double)memcmp(a->str.start, b->str.start, minLength), 0);
     }
 
     return compareFunction(exprTokenToNum(a), exprTokenToNum(b));
