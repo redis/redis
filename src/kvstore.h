@@ -65,7 +65,7 @@ typedef struct kvstoreType {
     /* Check if a dict at given index can be freed. Used by kvstore when
      * KVSTORE_FREE_EMPTY_DICTS is set. Return 1 if can free, 0 otherwise.
      * Parameters: kvstore pointer, dict index */
-    int (*canFreeDictIfNeeded)(kvstore *kvs, int didx);
+    int (*canFreeDict)(kvstore *kvs, int didx);
 
     /* Called when kvstore becomes empty. */
     void (*onKvstoreEmpty)(kvstore *kvs);

@@ -123,7 +123,7 @@ static void freeDictIfNeeded(kvstore *kvs, int didx) {
         return;
 
     /* Use callback if provided to check if dict can be freed */
-    if (kvs->type->canFreeDictIfNeeded && !kvs->type->canFreeDictIfNeeded(kvs, didx))
+    if (kvs->type->canFreeDict && !kvs->type->canFreeDict(kvs, didx))
         return;
 
     dictRelease(kvs->dicts[didx]);
