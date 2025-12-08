@@ -1245,7 +1245,7 @@ start_server {
         assert_equal 18000 $cfg(maxsize)
         
         r config set appendonly no
-    }
+    } {} {external:skip needs:debug}
 
     test {XIDMP CFGSET changing DURATION clears all iids history} {
         r DEL mystream
