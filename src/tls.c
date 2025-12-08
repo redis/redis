@@ -17,6 +17,7 @@
 
 #include <openssl/conf.h>
 #include <openssl/ssl.h>
+#include <openssl/x509.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/pem.h>
@@ -630,6 +631,57 @@ static void tlsPendingRemove(tls_connection *conn) {
     }
 }
 
+static int getCertFieldByName(X509 *cert, const char *field, char *out, size_t outlen) {
+    if (!cert || !field || !out) return 0;
+
+    int nid = -1;
+
+    if (!strcasecmp(field, "CN"))
+        nid = NID_commonName;
+    else if (!strcasecmp(field, "O"))
+        nid = NID_organizationName;
+    /* Add more mappings here as needed */
+
+    if (nid == -1) return 0;
+
+    X509_NAME *subject = X509_get_subject_name(cert);
+    if (!subject) return 0;
+
+    return X509_NAME_get_text_by_NID(subject, nid, out, outlen) > 0;
+}
+
+sds tlsGetPeerUsername(connection *conn_) {
+    tls_connection *conn = (tls_connection *)conn_;
+    if (!conn || !SSL_is_init_finished(conn->ssl)) return NULL;
+
+    /* Find the corresponding field name from the enum mapping */
+    const char *field = NULL;
+    switch (server.tls_ctx_config.client_auth_user) {
+    case TLS_CLIENT_FIELD_CN:
+        field = "CN";
+        break;
+    default:
+        return NULL;
+    }
+
+    if (!field) return NULL;
+
+    X509 *cert = SSL_get_peer_certificate(conn->ssl);
+    if (!cert) return NULL;
+
+    char field_value[256];
+    sds result = NULL;
+
+    if (getCertFieldByName(cert, field, field_value, sizeof(field_value))) {
+        result = sdsnew(field_value);
+    } else {
+        serverLog(LL_NOTICE, "TLS: Failed to extract field '%s' from certificate", field);
+    }
+
+    X509_free(cert);
+    return result;
+}
+
 static void tlsHandleEvent(tls_connection *conn, int mask) {
     int ret, conn_error;
 
@@ -1185,6 +1237,7 @@ static ConnectionType CT_TLS = {
 
     /* TLS specified methods */
     .get_peer_cert = connTLSGetPeerCert,
+    .get_peer_username = tlsGetPeerUsername,
 };
 
 int RedisRegisterConnectionTypeTLS(void) {
