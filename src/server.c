@@ -549,20 +549,18 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
     return 1;
 }
 
-static void kvstoreOnEmpty(kvstore *kvs, int is_release) {
+static void kvstoreOnEmpty(kvstore *kvs) {
     kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
-    if (!is_release)
-        memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
+    memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
 }
 
-static void kvstoreOnDictEmpty(kvstore *kvs, int didx, int is_release) {
+static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
     kvstoreDictMetadata *meta = kvstoreGetDictMeta(kvs, didx, 0);
 #ifdef DEBUG_ASSERTIONS
-    if (is_release) dictEmpty(kvstoreGetDict(kvs, didx), NULL);
-    debugServerAssert(meta->alloc_size == 0);
+    dictEmpty(kvstoreGetDict(kvs, didx), NULL);
 #endif
-    if (!is_release)
-        memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
+    debugServerAssert(meta->alloc_size == 0);
+    memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
 }
 
 /* Return 1 if currently we allow dict to expand. Dict may allocate huge

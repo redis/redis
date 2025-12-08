@@ -251,11 +251,11 @@ void kvstoreEmpty(kvstore *kvs, void(callback)(dict*)) {
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
         dictEmpty(d, callback);
-        if (kvs->type->onDictEmpty) kvs->type->onDictEmpty(kvs, didx, 0);
+        if (kvs->type->onDictEmpty) kvs->type->onDictEmpty(kvs, didx);
         freeDictIfNeeded(kvs, didx);
     }
 
-    if (kvs->type->onKvstoreEmpty) kvs->type->onKvstoreEmpty(kvs, 0);
+    if (kvs->type->onKvstoreEmpty) kvs->type->onKvstoreEmpty(kvs);
 
     listEmpty(kvs->rehashing);
 
@@ -276,7 +276,7 @@ void kvstoreRelease(kvstore *kvs) {
         kvstoreDictMetaBase *metadata = (kvstoreDictMetaBase *)dictMetadata(d);
         if (metadata->rehashing_node)
             metadata->rehashing_node = NULL;
-        if (kvs->type->onDictEmpty) kvs->type->onDictEmpty(kvs, didx, 1);
+        if (kvs->type->onDictEmpty) kvs->type->onDictEmpty(kvs, didx);
         dictRelease(d);
     }
     zfree(kvs->dicts);

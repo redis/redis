@@ -67,13 +67,12 @@ typedef struct kvstoreType {
      * Parameters: kvstore pointer, dict index */
     int (*canFreeDictIfNeeded)(kvstore *kvs, int didx);
 
-    /* Called when kvstore becomes empty. Parameters: kvstore pointer,
-     * is_release (1 if kvstore is being released) */
-    void (*onKvstoreEmpty)(kvstore *kvs, int is_release);
+    /* Called when kvstore becomes empty. */
+    void (*onKvstoreEmpty)(kvstore *kvs);
 
     /* Called when per slot dict becomes empty. Parameters: kvstore pointer,
-     * dict index, is_release (1 if dict is being released) */
-    void (*onDictEmpty)(kvstore *kvs, int didx, int is_release);
+     * dict index. */
+    void (*onDictEmpty)(kvstore *kvs, int didx);
 } kvstoreType;
 
 /* Basic metadata allocated per dict.
