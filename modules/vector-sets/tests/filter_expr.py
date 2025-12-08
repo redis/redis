@@ -28,7 +28,7 @@ class VSIMFilterExpressions(TestCase):
         self.redis.execute_command('VADD', self.test_key, 'VALUES', 4,
                                  *[str(x) for x in vec3], f'{self.test_key}:item:3')
         self.redis.execute_command('VSETATTR', self.test_key, f'{self.test_key}:item:3',
-                                  '{"age": "35", "name": "Charlie", "scores": [60, 65, 70], "city": "Seattle"}')
+                                  '{"age": "0035", "name": "Charlie", "scores": [60, 65, 70], "city": "Seattle"}')
 
         self.redis.execute_command('VADD', self.test_key, 'VALUES', 4,
                                  *[str(x) for x in vec4], f'{self.test_key}:item:4')

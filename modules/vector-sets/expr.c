@@ -699,16 +699,17 @@ double exprTokenToNum(exprtoken *t) {
     }
 }
 
-/* Compare two tokens.
- * In case tokens are both string but actual numeric values they are compared as numeric.
- * Otherwhise if both are string but not numeric a string comparison will be performed.
- * Otherwhise they will be treat as numeric values. */
+/* Compare two string tokens.
+ * In case tokens are both strings and can be converted into numeric values they will be compared as numbers.
+ * Otherwhise a string comparison will be performed.
+ */
 int exprCompareTokens(exprtoken *a, exprtoken *b, int (*compareFunction)(double, double)) {
-    // If both are strings, do string comparison.
     char buf[256];
     if (a->token_type == EXPR_TOKEN_STR && b->token_type == EXPR_TOKEN_STR) {
         /* If tokens are strings and potentially could be converted into numbers,
             try to treat them as numbers. Otherwhise performs string comparison. */
+
+        /* Checking that the size of the potential number contained by the string is not supported. */
         if (a->str.len < sizeof(buf) && b->str.len < sizeof(buf)) {
             memcpy(buf, a->str.start, a->str.len);
             buf[a->str.len] = '\0';
@@ -716,7 +717,7 @@ int exprCompareTokens(exprtoken *a, exprtoken *b, int (*compareFunction)(double,
             double aAsNumeric = strtod(buf, &endptr);
 
             /* If the first value is a numeric fallback directly into numeric comparison.
-            Avoid to re-convert the value since it's already available. */
+                Avoid to re-convert the value since it's already available. */
             if (*endptr == '\0' && errno != ERANGE) return compareFunction(aAsNumeric, exprTokenToNum(b));
 
             memcpy(buf, b->str.start, b->str.len);
@@ -729,9 +730,9 @@ int exprCompareTokens(exprtoken *a, exprtoken *b, int (*compareFunction)(double,
 
 
         /* At this point both the values are verified as strings that cannot be treat as numeric.
-           Let's perform string comparison and then apply the input logic to the result. */
-        int minLength = a->str.len < b->str.len ? a->str.len : b->str.len;
-        return compareFunction((double)memcmp(a->str.start, b->str.start, minLength), 0);
+           Let's perform string comparison and then apply the comparison logic provided in input to the result. */
+        int minLen = a->str.len < b->str.len ? a->str.len : b->str.len;
+        return compareFunction((double)memcmp(a->str.start, b->str.start, minLen), 0);
     }
 
     return compareFunction(exprTokenToNum(a), exprTokenToNum(b));
