@@ -23,7 +23,7 @@ typedef struct idmpEntry {
     char iid[];              /* Flexible array member for inline IID storage */
 } idmpEntry;
 
-/* Dictionary type for IDMP entries - uses IID hash as key */
+/* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
 typedef struct stream {
