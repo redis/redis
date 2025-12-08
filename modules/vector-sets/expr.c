@@ -760,7 +760,7 @@ double exprTokenToBool(exprtoken *t) {
 }
 
 /* Compare two tokens. Returns true if they are equal. */
-int exprCompareTokensEqual(exprtoken *a, exprtoken *b) {
+int exprTokensEqual(exprtoken *a, exprtoken *b) {
     // If both are strings, do string comparison.
     if (a->token_type == EXPR_TOKEN_STR && b->token_type == EXPR_TOKEN_STR) {
         return a->str.len == b->str.len &&
@@ -783,7 +783,7 @@ int exprCompareTokensEqual(exprtoken *a, exprtoken *b) {
 }
 
 /* Return true if the string a is a substring of b. */
-int exprCompareTokensStringIn(exprtoken *a, exprtoken *b) {
+int exprTokensStringIn(exprtoken *a, exprtoken *b) {
     RedisModule_Assert(a->token_type == EXPR_TOKEN_STR &&
                        b->token_type == EXPR_TOKEN_STR);
     if (a->str.len > b->str.len) return 0; // A is bigger, can't be a substring.
@@ -876,10 +876,10 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             result->num = exprCompareTokens(a, b, lte);
             break;
         case EXPR_OP_EQ:
-            result->num = exprCompareTokensEqual(a, b) ? 1 : 0;
+            result->num = exprTokensEqual(a, b) ? 1 : 0;
             break;
         case EXPR_OP_NEQ:
-            result->num = !exprCompareTokensEqual(a, b) ? 1 : 0;
+            result->num = !exprTokensEqual(a, b) ? 1 : 0;
             break;
         case EXPR_OP_IN: {
             /* For 'in' operator, b must be a tuple, and we check for
@@ -888,7 +888,7 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             result->num = 0;  // Default to false.
             if (b->token_type == EXPR_TOKEN_TUPLE) {
                 for (size_t j = 0; j < b->tuple.len; j++) {
-                    if (exprCompareTokensEqual(a, b->tuple.ele[j])) {
+                    if (exprTokensEqual(a, b->tuple.ele[j])) {
                         result->num = 1;  // Found a match.
                         break;
                     }
@@ -896,7 +896,7 @@ int exprRun(exprstate *es, char *json, size_t json_len) {
             } else if (a->token_type == EXPR_TOKEN_STR &&
                        b->token_type == EXPR_TOKEN_STR)
             {
-                result->num = exprCompareTokensStringIn(a,b);
+                result->num = exprTokensStringIn(a,b);
             }
             break;
         }
