@@ -46,7 +46,7 @@ class VSIMFilterExpressions(TestCase):
         assert len(result) == 1, "Expected 1 result for age == 25"
         assert result[0].decode() == f'{self.test_key}:item:1', "Expected item:1 for age == 25"
 
-        # Greater
+        # Greater than
         result = self.redis.execute_command('VSIM', self.test_key, 'VALUES', 4,
                                           *[str(x) for x in vec1],
                                           'FILTER', '.age > 25')
