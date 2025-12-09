@@ -2281,8 +2281,8 @@ static void processEncodedBufferForWrite(ReplyIOV *reply_iov, char *start_ptr, c
     }
 }
 
-/* Helper function to consume sent data from encoded buffer and release references.
- * Returns the remaining bytes not consumed. */
+/* Process sent data in the encoded buffer.
+ * Returns pointer to the current payload header being processed, or NULL if all data is processed. */
 static payloadHeader *processSentDataInEncodedBuffer(char *start_ptr, char *end_ptr,
                                                      size_t *sentlen, ssize_t *remaining)
 {
