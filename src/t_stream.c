@@ -110,9 +110,7 @@ void freeStream(stream *s) {
         idmpEntryFree(entry, &s->alloc_size);
         entry = next;
     }
-#ifdef REDIS_TEST
-    serverAssert(s->alloc_size == zmalloc_usable_size(s));
-#endif
+    debugServerAssert(s->alloc_size == zmalloc_usable_size(s));
     zfree(s);
 }
 

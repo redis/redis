@@ -113,9 +113,7 @@ void zslFree(zskiplist *zsl) {
         zslFreeNode(zsl, node);
         node = next;
     }
-#ifdef REDIS_TEST
-    serverAssert(zsl->alloc_size == zmalloc_usable_size(zsl));
-#endif
+    debugServerAssert(zsl->alloc_size == zmalloc_usable_size(zsl));
     zfree(zsl);
 }
 

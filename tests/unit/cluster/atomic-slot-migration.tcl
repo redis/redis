@@ -534,7 +534,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             # Start the slot 0 write load on the R 0
             set port [get_port 0]
             set key [slot_key 0 mykey]
-            set load_handle0 [start_write_load "127.0.0.1" $port 100 $key]
+            set load_handle0 [start_write_load "127.0.0.1" $port 100 $key 0 5]
         }
 
         # Start write traffic on node-1
@@ -543,7 +543,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
             # Start the slot 6000 write load on the R 1
             set port [get_port 1]
             set key [slot_key 6000 mykey]
-            set load_handle1 [start_write_load "127.0.0.1" $port 100 $key]
+            set load_handle1 [start_write_load "127.0.0.1" $port 100 $key 0 5]
         }
 
         # Migrate keys
@@ -1454,6 +1454,28 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         R 0 cluster migration cancel id $task_id
         R 1 cluster migration cancel id $task_id
     }
+
+    test "Cluster implementation cannot start migrate task temporarily" {
+        # Inject a fail point to make the source node not ready
+        R 0 debug asm-failpoint "migrate-main-channel" "none"
+
+        # start migration from node 0 to 1
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 100]
+
+        # verify source node replies SYNCSLOTS with -NOTREADY
+        set loglines [count_log_lines -1]
+        wait_for_log_messages -1 {"*Source node replied to SYNCSLOTS SYNC with -NOTREADY, will retry later*"} $loglines 100 100
+
+        # clear the fail point and verify the task is completed
+        R 0 debug asm-failpoint "" ""
+        wait_for_asm_done
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+
+        # cleanup
+        R 0 CLUSTER MIGRATION IMPORT 0 100
+        wait_for_asm_done
+    }
 }
 
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
@@ -2279,6 +2301,9 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         } else {
             fail "migrate failed"
         }
+
+        # Wait for config propagation before checking the slot ownership on replica
+        wait_for_cluster_propagation
 
         # Verify slots that are being trimmed are not local
         assert_equal 0 [R 0 asm.cluster_can_access_keys_in_slot 0]

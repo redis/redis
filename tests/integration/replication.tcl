@@ -916,6 +916,7 @@ start_server {tags {"repl external:skip tsan:skip"} overrides {save ""}} {
                     # so that the whole rdb generation process is bound to that
                     set loglines [count_log_lines -2]
                     [lindex $replicas 0] config set repl-diskless-load swapdb
+                    [lindex $replicas 1] config set repl-diskless-load swapdb
                     [lindex $replicas 0] config set key-load-delay 100 ;# 20k keys and 100 microseconds sleep means at least 2 seconds
                     [lindex $replicas 0] replicaof $master_host $master_port
                     [lindex $replicas 1] replicaof $master_host $master_port

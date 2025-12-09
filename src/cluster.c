@@ -1100,15 +1100,13 @@ void clusterCommand(client *c) {
 }
 
 /* Extract slot number from keys in a keys_result structure and return to caller.
- * Returns INVALID_CLUSTER_SLOT if keys belong to different slots (cross-slot error),
- * or if there are no keys.
- */
+ * Returns:
+ *   - The slot number if all keys belong to the same slot
+ *   - INVALID_CLUSTER_SLOT if there are no keys or cluster is disabled
+ *   - CLUSTER_CROSSSLOT if keys belong to different slots (cross-slot error) */
 int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
-    if (keys_result->numkeys == 0)
+    if (keys_result->numkeys == 0 || !server.cluster_enabled)
         return INVALID_CLUSTER_SLOT;
-
-    if (!server.cluster_enabled)
-        return 0;
 
     int first_slot = INVALID_CLUSTER_SLOT;
     for (int j = 0; j < keys_result->numkeys; j++) {
@@ -1118,7 +1116,7 @@ int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
         if (first_slot == INVALID_CLUSTER_SLOT)
             first_slot = this_slot;
         else if (first_slot != this_slot) {
-            return INVALID_CLUSTER_SLOT;
+            return CLUSTER_CROSSSLOT;
         }
     }
     return first_slot;
@@ -2135,7 +2133,6 @@ void resetClusterStats(void) {
 /* This function is called at server startup in order to initialize cluster data
  * structures that are shared between the different cluster implementations. */
 void clusterCommonInit(void) {
-    server.cluster_slot_stats = zmalloc(CLUSTER_SLOTS*sizeof(clusterSlotStat));
     resetClusterStats();
     asmInit();
 }

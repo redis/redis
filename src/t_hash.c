@@ -2035,9 +2035,9 @@ void hashTypeFree(robj *o) {
                 htMetadataEx *m = htGetMetadataEx((dict*)o->ptr);
                 serverAssert(m->expireMeta.trash == 1);
             }
-#ifdef REDIS_TEST
+#ifdef DEBUG_ASSERTIONS
             dictEmpty(o->ptr, NULL);
-            serverAssert(*htGetMetadataSize(o->ptr) == 0);
+            debugServerAssert(*htGetMetadataSize(o->ptr) == 0);
 #endif
             dictRelease((dict*) o->ptr);
             break;
