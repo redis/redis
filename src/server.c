@@ -903,6 +903,9 @@ int clientsCronResizeOutputBuffer(client *c, mstime_t now_ms) {
     if(!server.reply_buffer_resizing_enabled)
         return 0;
 
+    /* Don't resize encoded buffers. When buf is encoded, we track the last
+     * partially written payloadHeader pointer, so we can't
+     * reallocate the buffer as it would invalidate this pointer. */
     if (c->buf_encoded) return 0;
 
     if (buffer_target_shrink_size >= PROTO_REPLY_MIN_BYTES &&
