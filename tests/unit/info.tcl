@@ -412,7 +412,6 @@ start_server {tags {"info" "external:skip"}} {
             r set key [string repeat a 100000] ;# to trigger output buffer limit check this needs to be big
             catch {r get key}
             r config set client-output-buffer-limit $org_outbuf_limit
-
             set info [r info stats]
             assert_equal [getInfoProperty $info client_output_buffer_limit_disconnections] {1}
         } {} {logreqres:skip} ;# same as obuf-limits.tcl, skip logreqres
