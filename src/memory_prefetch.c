@@ -209,7 +209,7 @@ static void prefetchEntry(KeyPrefetchInfo *info) {
         prefetchAndMoveToNextKey(info->current_entry);
         info->current_kv = NULL;
         info->state = PREFETCH_KVOBJ;
-    } else if (server.io_threads_num >= server.min_io_threads_copy_avoid) {
+    } else if (server.io_threads_num >= COPY_AVOID_MIN_IO_THREADS) {
         /* Copy avoidance should be more efficient without value prefetch
          * starting certain number of I/O threads */
         markKeyAsdone(info);
