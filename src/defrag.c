@@ -935,50 +935,29 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     return cg;
 }
 
-/* Defrag IDMP dict and linked list including:
- * 1) The dict structure
- * 2) All idmpEntry structures in the linked list (iid is embedded via FAM)
- * Note: We need to update both dict and linked list pointers when defragging entries */
+/* Defrag IDMP dict and linked list entries. */
 void defragIdmpDict(stream *s) {
     if (s->idmp_dict == NULL) return;
-    
-    /* Defrag the dict structure itself */
-    dict *newdict = activeDefragAlloc(s->idmp_dict);
+
+    dict *newdict = dictDefragTables(s->idmp_dict);
     if (newdict)
         s->idmp_dict = newdict;
-    
-    /* Iterate through the linked list and defrag each idmpEntry.
-     * We need to update both the linked list pointers and dict entries.
-     * 
-     * IMPORTANT: We must delete from dict BEFORE calling activeDefragAlloc
-     * because activeDefragAlloc frees the old entry, and dictDelete needs
-     * to hash the key (which would be use-after-free). */
+
     idmpEntry **prevnext = &s->idmp_head;
     idmpEntry *entry = s->idmp_head;
-    
+
     while (entry != NULL) {
-        idmpEntry *next = entry->next;  /* Save next before potential free */
-        
-        /* Remove from dict first while entry is still valid */
+        idmpEntry *next = entry->next;
+        /* Delete before defrag to avoid use-after-free in hash */
         dictDelete(s->idmp_dict, entry);
-        
-        /* Try to defrag the entry (iid is embedded, no separate allocation) */
         idmpEntry *newentry = activeDefragAlloc(entry);
         if (newentry) {
-            /* Defrag happened - update linked list pointers */
             *prevnext = newentry;
-            
-            /* Update tail if this was the tail */
-            if (s->idmp_tail == entry) {
+            if (s->idmp_tail == entry)
                 s->idmp_tail = newentry;
-            }
-            
             entry = newentry;
         }
-        
-        /* Add back to dict (using new or original pointer) */
         dictAdd(s->idmp_dict, entry, NULL);
-        
         prevnext = &entry->next;
         entry = next;
     }

@@ -19,4 +19,3 @@ filetest
 ro
 exat
 clen
-tring
