@@ -873,7 +873,7 @@ jobs:
   build-macos:
     strategy:
       matrix:
-        os: [macos-13, macos-15]
+        os: [macos-14, macos-26]
     runs-on: ${{ matrix.os }}
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
@@ -900,7 +900,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
 
   test-freebsd:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd')
@@ -916,7 +916,7 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.22.0
+      uses: cross-platform-actions/action@v0.30.0
       with:
         operating_system: freebsd
         environment_variables: MAKE
