@@ -3248,7 +3248,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
          * for RDB_TYPE_STREAM_LISTPACKS_4 and above. */
         if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_4) {
             /* Load IDMP duration. */
-            s->idmp_duration = rdbLoadLen(rdb, NULL);
+            s->idmp_duration = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) {
                 rdbReportReadError("Stream IDMP duration loading failed.");
                 decrRefCount(o);
@@ -3256,7 +3256,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Load IDMP max entries. */
-            s->idmp_max_entries = rdbLoadLen(rdb, NULL);
+            s->idmp_max_entries = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) {
                 rdbReportReadError("Stream IDMP max entries loading failed.");
                 decrRefCount(o);
@@ -3264,14 +3264,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             }
 
             /* Load all IDMP entries. */
-            if (rdbLoadStreamIdmpEntries(rdb, s) == -1) {
+            if (rdbLoadStreamIdmpEntries(rdb,s) == -1) {
                 rdbReportReadError("Stream IDMP entries loading failed.");
                 decrRefCount(o);
                 return NULL;
             }
 
             /* Load all-time count of IIDs added. */
-            s->iids_added = rdbLoadLen(rdb, NULL);
+            s->iids_added = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) {
                 rdbReportReadError("Stream iids_added loading failed.");
                 decrRefCount(o);
