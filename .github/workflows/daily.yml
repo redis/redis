@@ -264,7 +264,7 @@ jobs:
       run: ./runtest-cluster
 
   test-freebsd:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     if: github.repository == 'redis/redis'
     timeout-minutes: 14400
     steps:
@@ -277,7 +277,7 @@ jobs:
         version: 13.2
         shell: bash
         run: |
-          sudo pkg install -y bash gmake lang/tcl86 lang/tclx gcc
+          sudo pkg install -y bash gmake lang/tcl86 lang/tclX gcc
           gmake
           ./runtest --single unit/keyspace --single unit/auth --single unit/networking --single unit/protocol
 
