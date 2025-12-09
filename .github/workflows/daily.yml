@@ -907,7 +907,7 @@ jobs:
   build-macos:
     strategy:
       matrix:
-        os: [macos-13, macos-15]
+        os: [macos-14, macos-15]
     runs-on: ${{ matrix.os }}
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
@@ -934,7 +934,7 @@ jobs:
       run: make REDIS_CFLAGS='-Werror -DREDIS_TEST'
 
   test-freebsd:
-    runs-on: macos-13
+    runs-on: macos-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd')
