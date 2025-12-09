@@ -1206,7 +1206,7 @@ void addReplyBulkLen(client *c, robj *obj) {
  * instead of copying data to reply buffers. */
 static int isCopyAvoidPreferred(client *c, robj *obj, size_t len) {
     /* Don't use copy avoidance for fake clients. */
-    if (!c->conn) return 0;
+    if (!c->conn || !server.reply_copy_avoidance_enabled) return 0;
 
     int type = getClientType(c);
     if (type != CLIENT_TYPE_NORMAL && type != CLIENT_TYPE_PUBSUB) return 0;

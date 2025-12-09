@@ -2854,6 +2854,7 @@ void initServer(void) {
     server.cluster_drop_packet_filter = -1;
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
+    server.reply_copy_avoidance_enabled = 1;
     server.client_mem_usage_buckets = NULL;
     /* Enable per slot memory accounting only if cluster-slot-stats-enabled is
      * enabled on startup and disregard future configuration changes.

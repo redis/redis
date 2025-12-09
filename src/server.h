@@ -2412,6 +2412,7 @@ struct redisServer {
                                                 is down, doesn't affect pubsub global. */
     long reply_buffer_peak_reset_time; /* The amount of time (in milliseconds) to wait between reply buffer peak resets */
     int reply_buffer_resizing_enabled; /* Is reply buffer resizing enabled (1 by default) */
+    int reply_copy_avoidance_enabled; /* Is reply copy avoidance enabled (1 by default) */
     /* Local environment */
     char *locale_collate;
     int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */

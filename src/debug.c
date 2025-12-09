@@ -516,6 +516,8 @@ void debugCommand(client *c) {
 "    Disable trimming or force active/background trimming for cluster atomic slot migration.",
 "    Active trim delay is used only when method is 'active'. If it is negative,",
 "    active trim is disabled.",
+"REPLY-COPY-AVOIDANCE <0|1>",
+"    Enable/disable reply copy avoidance optimization.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1140,6 +1142,9 @@ NULL
         } else {
             addReply(c, shared.ok);
         }
+    } else if(!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
+        server.reply_copy_avoidance_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
         return;

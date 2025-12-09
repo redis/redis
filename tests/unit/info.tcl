@@ -393,10 +393,7 @@ start_server {tags {"info" "external:skip"}} {
         }
 
         test {stats: client input and output buffer limit disconnections} {
-            # Disable copy avoidance because it affects memory usage
-            r config set min-io-threads-avoid-copy-reply 0
-            r config set min-string-size-avoid-copy-reply 0
-            r config set min-string-size-avoid-copy-reply-threaded 0
+            r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
 
             r config resetstat
             set info [r info stats]

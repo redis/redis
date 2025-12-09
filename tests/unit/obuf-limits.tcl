@@ -1,6 +1,5 @@
 start_server {tags {"obuf-limits external:skip logreqres:skip"}} {
-    # Disable copy avoidance because it affects memory usage
-    r config set min-io-threads-avoid-copy-reply 0
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
 
     test {CONFIG SET client-output-buffer-limit} {
         set oldval [lindex [r config get client-output-buffer-limit] 1]
