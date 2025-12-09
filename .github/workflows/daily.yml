@@ -871,7 +871,7 @@ jobs:
       run: ./runtest-cluster ${{github.event.inputs.cluster_test_args}}
 
   test-freebsd:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd') && !(contains(github.event.inputs.skiptests, 'redis') && contains(github.event.inputs.skiptests, 'modules'))
@@ -891,14 +891,13 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.21.1
+      uses: cross-platform-actions/action@v0.30.0
       env:
         MAKE: gmake
       with:
         operating_system: freebsd
         environment_variables: MAKE
         version: 13.2
-        memory: 8GB
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclx
@@ -907,7 +906,7 @@ jobs:
           if echo "${{github.event.inputs.skiptests}}" | grep -vq modules ; then ./runtest-moduleapi --verbose --timeout 2400 --no-latency --dump-logs ${{github.event.inputs.test_args}} ; fi
 
   test-freebsd-sentinel:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd') && !contains(github.event.inputs.skiptests, 'sentinel')
@@ -927,11 +926,10 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.21.1
+      uses: cross-platform-actions/action@v0.30.0
       with:
         operating_system: freebsd
         version: 13.2
-        memory: 8GB
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclx
@@ -939,7 +937,7 @@ jobs:
           if echo "${{github.event.inputs.skiptests}}" | grep -vq sentinel ; then ./runtest-sentinel ${{github.event.inputs.cluster_test_args}} ; fi
 
   test-freebsd-cluster:
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     if: |
       (github.event_name == 'workflow_dispatch' || (github.event_name != 'workflow_dispatch' && github.repository == 'redis/redis')) &&
       !contains(github.event.inputs.skipjobs, 'freebsd') && !contains(github.event.inputs.skiptests, 'cluster')
@@ -959,11 +957,10 @@ jobs:
         repository: ${{ env.GITHUB_REPOSITORY }}
         ref: ${{ env.GITHUB_HEAD_REF }}
     - name: test
-      uses: cross-platform-actions/action@v0.21.1
+      uses: cross-platform-actions/action@v0.30.0
       with:
         operating_system: freebsd
         version: 13.2
-        memory: 8GB
         shell: bash
         run: |
           sudo pkg install -y bash gmake lang/tcl86 lang/tclx
