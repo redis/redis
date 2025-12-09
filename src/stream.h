@@ -41,8 +41,8 @@ typedef struct stream {
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
     dict *idmp_dict;       /* IDMP IID tracking tree. */
-    idmpEntry *idmp_head;
-    idmpEntry *idmp_tail;
+    idmpEntry *idmp_head;  /* Head of the IDMP entries linked list. */
+    idmpEntry *idmp_tail;  /* Tail of the IDMP entries linked list. */
     uint64_t iids_added;   /* All time count of entries with IID added. */
 } stream;
 

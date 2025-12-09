@@ -729,9 +729,9 @@ typedef struct {
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
     int delete_strategy; /* DELETE_STRATEGY_* */
     int approx_trim; /* If 1 only delete whole radix tree nodes, so
-                     * the trim argument is not applied verbatim. */
+                      * the trim argument is not applied verbatim. */
     long long limit; /* Maximum amount of entries to trim. If 0, no limitation
-                     * on the amount of trimming work is enforced. */
+                      * on the amount of trimming work is enforced. */
     /* TRIM_STRATEGY_MAXLEN options */
     long long maxlen; /* After trimming, leave stream at this length . */
     /* TRIM_STRATEGY_MINID options */
@@ -2457,14 +2457,16 @@ void xaddCommand(client *c) {
         /* Get IID string based on option */
         char *iid_str;
         size_t iid_len;
-        sds auto_iid = NULL;  /* Only used for auto-generated IID */
-        
         if (parsed_args.idmp_auto) {
             /* Auto-generate IID by hashing field-value pairs */
             int64_t numfields = (c->argc - field_pos) / 2;
             hash = createIdempotencyHash(&c->argv[field_pos], numfields);
+            if (hash.low64 == 0 && hash.high64 == 0) {
+                addReplyError(c, "Failed to create idempotency hash");
+                return;
+            }
             iid_str = (char *)&hash;
-            iid_len = 16;
+            iid_len = sizeof(hash);
         } else {
             /* Use user-provided IID directly */
             iid_str = parsed_args.idmp_iid->ptr;
@@ -2473,13 +2475,11 @@ void xaddCommand(client *c) {
         
         /* Check if IID already exists and reply if found */
         if (idmpLookupAndReply(s, iid_str, iid_len, c)) {
-            if (auto_iid) sdsfree(auto_iid);
             return;
         }
         
         /* Insert entry into dict and linked list */
         inserted = idmpInsertEntry(s, iid_str, iid_len, &new_entry, &old_idmp_tail);
-        if (auto_iid) sdsfree(auto_iid);
         if (inserted < 0) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
@@ -5023,7 +5023,6 @@ void xidmpCommand(client *c) {
     kvobj *kv = lookupKeyReadOrReply(c, key, shared.nokeyerr);
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
-    
     if (!strcasecmp(opt, "CFGGET")) {
         /* XIDMP CFGGET <key> [DURATION] [MAXSIZE] */
         int get_duration = 0;
@@ -5051,7 +5050,6 @@ void xidmpCommand(client *c) {
         /* Build reply as a map */
         int num_fields = get_duration + get_maxsize;
         addReplyMapLen(c, num_fields);
-        
         if (get_duration) {
             addReplyBulkCString(c, "duration");
             addReplyLongLong(c, s->idmp_duration);
@@ -5071,7 +5069,6 @@ void xidmpCommand(client *c) {
         for (int i = 3; i < c->argc; i++) {
             int moreargs = c->argc - i - 1;
             char *param = c->argv[i]->ptr;
-            
             if (!strcasecmp(param, "DURATION") && moreargs) {
                 if (duration_set) {
                     addReplyError(c, "DURATION specified multiple times");
@@ -5109,7 +5106,6 @@ void xidmpCommand(client *c) {
             addReplyError(c, "At least one parameter must be specified");
             return;
         }
-        
         /* Update the stream configuration */
         if (duration_set) {
             s->idmp_duration = duration;
@@ -5123,7 +5119,6 @@ void xidmpCommand(client *c) {
         /* Mark the key as dirty for replication */
         signalModifiedKey(c, c->db, key);
         server.dirty++;
-        
         addReply(c, shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
@@ -5428,7 +5423,7 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (alloc_size) {
         *alloc_size -= zmalloc_usable_size(entry);
     }
-    
+
     zfree(entry);
 }
 
@@ -5523,7 +5518,7 @@ static void trackStreamIdmpEntries(client *c, robj *key) {
 }
 
 /* Clean up expired idempotency entries from tracked streams. This function
- * is invoked regularly from blockedBeforeSleep() to remove expired entries
+ * is invoked regularly from serverCron() to remove expired entries
  * from the idmp_dict of streams that have idempotency tracking enabled,
  * keeping memory usage under control.
  *
@@ -5591,28 +5586,12 @@ void handleExpiredIdmpEntries(void) {
     }
 }
 
-/* Hash field-value pairs using XXH3_128bits for AUTOIDMP.
- * 
- * This function takes an array of robj pointers representing field-value pairs
- * and the number of pairs. It hashes each field-value pair together using
- * XXH3_128bits and XORs all the pair hashes to produce a final 128-bit hash.
- * 
- * Algorithm:
- * 1. For each field-value pair:
- *    a. Create a streaming hash state with XXH3_128bits_reset()
- *    b. Update hash with field data using XXH3_128bits_update()
- *    c. Update hash with value data using XXH3_128bits_update()
- *    d. Finalize pair hash with XXH3_128bits_digest()
- *    e. XOR the pair hash with the accumulated result
- * 2. Return the final 128-bit hash
- * 
- * Parameters:
- *   argv      - Array of robj pointers containing field-value pairs
- *               (argv[0] = field1, argv[1] = value1, argv[2] = field2, ...)
- *   numfields - Number of field-value pairs (not the array length)
- * 
- * Returns:
- *   XXH128_hash_t containing the 128-bit hash result */
+/* Hash field-value pairs using XXH3_128bits for AUTOIDMP. The function
+ * takes an array of robj pointers in 'argv' representing field-value pairs
+ * (field1, value1, field2, value2, ...) and 'numfields' indicating the number
+ * of pairs (not the array length). Each field-value pair is hashed using
+ * streaming XXH3_128bits, and the resulting pair hashes are XORed together
+ * to produce a final 128-bit hash. Returns a zero hash {0, 0} on error. */
 static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
     XXH128_hash_t hash_result = {0, 0};
     XXH3_state_t* state = XXH3_createState();
@@ -5660,7 +5639,6 @@ static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
     }
     
     XXH3_freeState(state);
-    
     return hash_result;
 }
 

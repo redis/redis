@@ -794,25 +794,24 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
 
     /* Save the number of IDMP entries by counting linked list. */
     size_t count = dictSize(s->idmp_dict);
-    if ((n = rdbSaveLen(rdb, count)) == -1) return -1;
+    if ((n = rdbSaveLen(rdb,count)) == -1) return -1;
     nwritten += n;
 
     /* Iterate through the linked list and save each entry in insertion order. */
     idmpEntry *entry = s->idmp_head;
-    while (entry != NULL) {
+    while(entry != NULL) {
         /* Save the IID string (length + data). */
-        if ((n = rdbSaveRawString(rdb, (unsigned char *)entry->iid, entry->iid_len)) == -1) return -1;
+        if ((n = rdbSaveRawString(rdb,(unsigned char *)entry->iid,entry->iid_len)) == -1) return -1;
         nwritten += n;
-        
+
         /* Save the associated stream ID. */
-        if ((n = rdbSaveLen(rdb, entry->id.ms)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,entry->id.ms)) == -1) return -1;
         nwritten += n;
-        if ((n = rdbSaveLen(rdb, entry->id.seq)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,entry->id.seq)) == -1) return -1;
         nwritten += n;
-        
+
         entry = entry->next;
     }
-
     return nwritten;
 }
 
@@ -821,32 +820,32 @@ ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
  * and inserts them into the stream's idmp_dict and linked list. */
 int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
     /* Load the number of IDMP entries. */
-    uint64_t count = rdbLoadLen(rdb, NULL);
+    uint64_t count = rdbLoadLen(rdb,NULL);
     if (count == RDB_LENERR) {
         return -1;
     }
 
     /* Load each entry. */
-    for (uint64_t i = 0; i < count; i++) {
+    for(uint64_t i = 0; i < count; i++) {
         /* Load the IID string. */
         size_t iid_len;
-        char *iid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &iid_len);
+        char *iid = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,&iid_len);
         if (iid == NULL) {
             return -1;
         }
 
         /* Load the associated stream ID. */
         streamID id;
-        id.ms = rdbLoadLen(rdb, NULL);
-        id.seq = rdbLoadLen(rdb, NULL);
+        id.ms = rdbLoadLen(rdb,NULL);
+        id.seq = rdbLoadLen(rdb,NULL);
         if (rioGetReadError(rdb)) {
             sdsfree(iid);
             return -1;
         }
 
         /* Create the idmpEntry. */
-        idmpEntry *entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
-        sdsfree(iid);  /* idmpEntryCreate makes a copy */
+        idmpEntry *entry = idmpEntryCreate(iid,iid_len,&s->alloc_size);
+        sdsfree(iid); /* idmpEntryCreate makes a copy */
         if (entry == NULL) {
             return -1;
         }
@@ -856,13 +855,13 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
         entry->next = NULL;
 
         /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
-        int ret = dictAdd(s->idmp_dict, entry, NULL);
+        int ret = dictAdd(s->idmp_dict,entry,NULL);
         if (ret != DICT_OK) {
-            /* Insertion failed (duplicate). For RDB loading, we'll just skip duplicates
-             * rather than failing the entire load. */
-            idmpEntryFree(entry, &s->alloc_size);
+            /* Insertion failed (duplicate). For RDB loading, we'll just skip
+             * duplicates rather than failing the entire load. */
+            idmpEntryFree(entry,&s->alloc_size);
         } else {
-            /* Add to linked list tail */
+            /* Add to linked list tail. */
             if (s->idmp_tail == NULL) {
                 s->idmp_head = s->idmp_tail = entry;
             } else {
@@ -871,7 +870,6 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             }
         }
     }
-
     return 0;
 }
 
@@ -1248,19 +1246,19 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         /* Save IDMP (Idempotent Message Producer) configuration and entries. */
         
         /* Save IDMP duration (in seconds). */
-        if ((n = rdbSaveLen(rdb, s->idmp_duration)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,s->idmp_duration)) == -1) return -1;
         nwritten += n;
         
         /* Save IDMP max entries. */
-        if ((n = rdbSaveLen(rdb, s->idmp_max_entries)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,s->idmp_max_entries)) == -1) return -1;
         nwritten += n;
         
         /* Save all IDMP entries. */
-        if ((n = rdbSaveStreamIdmpEntries(rdb, s)) == -1) return -1;
+        if ((n = rdbSaveStreamIdmpEntries(rdb,s)) == -1) return -1;
         nwritten += n;
 
         /* Save the all-time count of IIDs added. */
-        if ((n = rdbSaveLen(rdb, s->iids_added)) == -1) return -1;
+        if ((n = rdbSaveLen(rdb,s->iids_added)) == -1) return -1;
         nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
