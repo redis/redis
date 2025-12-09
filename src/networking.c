@@ -2227,8 +2227,7 @@ static int replyIOVReachLimit(ReplyIOV *reply_iov) {
     return reply_iov->iovcnt >= reply_iov->iovmax || reply_iov->iov_bytes_len >= NET_MAX_WRITES_PER_EVENT;
 }
 
-/* Helper function to process encoded buffer and build iov array.
- * Uses last_header and sentlen to track position for partial sends. */
+/* Helper function to process encoded buffer and build iov array. */
 static void processEncodedBufferForWrite(ReplyIOV *reply_iov, char *start_ptr, char *end_ptr, size_t offset) {
     char *ptr = start_ptr;
     while (ptr < end_ptr && !replyIOVReachLimit(reply_iov)) {
