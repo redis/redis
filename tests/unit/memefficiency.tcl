@@ -257,6 +257,10 @@ run_solo {defrag} {
             # Delete all the keys to create fragmentation
             for {set j 0} {$j < $n} {incr j} { $rd del k$j }
             for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            if {$type eq "cluster"} {
+                $rd config resetstat
+                $rd read ; # Discard config resetstat reply
+            }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -480,6 +484,10 @@ run_solo {defrag} {
             # Delete all the keys to create fragmentation
             for {set j 0} {$j < $n} {incr j} { $rd del k$j }
             for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            if {$type eq "cluster"} {
+                $rd config resetstat
+                $rd read ; # Discard config resetstat reply
+            }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -698,6 +706,9 @@ run_solo {defrag} {
             }
             for {set i 0} {$i < [llength $clients]} {incr i} {
                 [lindex $clients $i] close
+            }
+            if {$type eq "cluster"} {
+                r config resetstat
             }
 
             after 120 ;# serverCron only updates the info once in 100ms

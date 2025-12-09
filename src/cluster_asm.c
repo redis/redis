@@ -762,12 +762,12 @@ void asmFeedMigrationClient(robj **argv, int argc) {
      *
      * NOTICE: if some keyless commands should be propagated to the destination,
      * we should identify them here and send. */
-    if (slot == GETSLOT_NOKEYS) return;
+    if (slot == INVALID_CLUSTER_SLOT) return;
 
     /* Generally we reject cross-slot commands before executing, but module may
      * replicate this kind of command, so we check again. To guarantee data
      * consistency, we cancel the task if we encounter a cross-slot command. */
-    if (slot == GETSLOT_CROSSSLOT) {
+    if (slot == CLUSTER_CROSSSLOT) {
         /* We cannot cancel the task directly here, since it may lead to a recursive
          * call: asmTaskCancel() --> moduleFireServerEvent() --> moduleFreeContext()
          * --> postExecutionUnitOperations() --> propagateNow(). Even worse, this
@@ -2884,10 +2884,10 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
 
     /* Create temp kvstores and estore, move relevant slot dicts/ebuckets into them,
      * and delete them in BIO thread asynchronously. */
-    kvstore *keys = kvstoreCreate(&dbDictType,
+    kvstore *keys = kvstoreCreate(&kvstoreBaseType, &dbDictType,
                                   CLUSTER_SLOT_MASK_BITS,
                                   KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-    kvstore *expires = kvstoreCreate(&dbExpiresDictType,
+    kvstore *expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                      CLUSTER_SLOT_MASK_BITS,
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
@@ -3475,14 +3475,14 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
 
     /* Crossslot commands are not allowed */
     int slot = getSlotFromCommand(cmd, argv, argc);
-    if (slot == GETSLOT_CROSSSLOT) {
+    if (slot == CLUSTER_CROSSSLOT) {
         errno = ENOTSUP;
         return C_ERR;
     }
 
     /* Allow no-keys commands or if keys are in the slot range. */
     slotRange sr = {slot, slot};
-    if (slot != GETSLOT_NOKEYS && !slotRangeArrayOverlaps(task->slots, &sr)) {
+    if (slot != INVALID_CLUSTER_SLOT && !slotRangeArrayOverlaps(task->slots, &sr)) {
         errno = ERANGE;
         return C_ERR;
     }

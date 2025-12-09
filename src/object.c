@@ -533,9 +533,9 @@ void freeListObject(robj *o) {
 void freeSetObject(robj *o) {
     switch (o->encoding) {
     case OBJ_ENCODING_HT:
-#ifdef REDIS_TEST
+#ifdef DEBUG_ASSERTIONS
         dictEmpty(o->ptr, NULL);
-        serverAssert(*htGetMetadataSize(o->ptr) == 0);
+        debugServerAssert(*htGetMetadataSize(o->ptr) == 0);
 #endif
         dictRelease((dict*) o->ptr);
         break;
