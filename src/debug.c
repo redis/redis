@@ -502,6 +502,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"REPLY-COPY-AVOIDANCE <0|1>",
+"    Enable/disable reply copy avoidance optimization.",
 "REPL-PAUSE <clear|after-fork|before-rdb-channel|on-streaming-repl-buf>",
 "    Pause the server's main process during various replication steps.",
 "DICT-RESIZING <0|1>",
@@ -516,8 +518,6 @@ void debugCommand(client *c) {
 "    Disable trimming or force active/background trimming for cluster atomic slot migration.",
 "    Active trim delay is used only when method is 'active'. If it is negative,",
 "    active trim is disabled.",
-"REPLY-COPY-AVOIDANCE <0|1>",
-"    Enable/disable reply copy avoidance optimization.",
 NULL
         };
         addExtendedReplyHelp(c, help, clusterDebugCommandExtendedHelp());
@@ -1077,6 +1077,9 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if(!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
+        server.reply_copy_avoidance_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr, "repl-pause") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr, "clear")) {
             server.repl_debug_pause = REPL_DEBUG_PAUSE_NONE;
@@ -1142,9 +1145,6 @@ NULL
         } else {
             addReply(c, shared.ok);
         }
-    } else if(!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
-        server.reply_copy_avoidance_enabled = atoi(c->argv[2]->ptr);
-        addReply(c,shared.ok);
     } else if(!handleDebugClusterCommand(c)) {
         addReplySubcommandSyntaxError(c);
         return;
