@@ -202,5 +202,39 @@ start_server {tags {"tls"}} {
 	        regexp {acl_access_denied_tls_cert:(\d+)} $info_after -> after
 	        assert {$after == $before + 1}
 	    }
+
+	    test {TLS: Disabled user cannot auto-authenticate via certificate} {
+	        r ACL SETUSER {Client-only} on >clientpass allcommands allkeys
+	        r ACL SETUSER {Client-only} off  ;# Disable the user
+
+	        # Reset ACL log so we only see entries from this test
+	        r ACL LOG RESET
+	        r CONFIG SET tls-auth-clients-user CN
+
+	        # Capture the current value of acl_access_denied_tls_cert from INFO stats
+	        set info_before [r INFO stats]
+	        regexp {acl_access_denied_tls_cert:(\d+)} $info_before -> before
+
+	        # Connect over TLS using the test client certificate (CN=Client-only)
+	        # Since the user exists but is disabled, auto-auth should fail and the
+	        # connection should remain authenticated as the default user
+	        set s [redis [srv 0 host] [srv 0 port] 0 1]
+	        assert_equal "default" [$s ACL WHOAMI]
+
+	        # The ACL LOG should contain a single entry with reason "tls-cert"
+	        # and username "Client-only" (same as non-existent user case)
+	        set log [r ACL LOG]
+	        assert_equal 1 [llength $log]
+	        set entry [lindex $log 0]
+	        assert_equal "tls-cert" [dict get $entry reason]
+	        assert_equal "Client-only" [dict get $entry username]
+
+	        # INFO stats should report that acl_access_denied_tls_cert increased by 1
+	        set info_after [r INFO stats]
+	        regexp {acl_access_denied_tls_cert:(\d+)} $info_after -> after
+	        assert {$after == $before + 1}
+
+	        r ACL DELUSER {Client-only}
+	    }
     }
 }
