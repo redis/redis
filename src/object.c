@@ -580,7 +580,7 @@ void freeStreamObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    unsigned int refcount;
+    unsigned short refcount;
     atomicGet(o->refcount, refcount);
 
     if (refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
@@ -595,7 +595,7 @@ void incrRefCount(robj *o) {
 }
 
 void decrRefCount(robj *o) {
-    unsigned int refcount;
+    unsigned short refcount;
     atomicGet(o->refcount, refcount);
 
     if (refcount == OBJ_SHARED_REFCOUNT)
