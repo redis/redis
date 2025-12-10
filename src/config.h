@@ -89,7 +89,7 @@
 /* Test for accept4() */
 #if defined(__linux__) || defined(OpenBSD5_7) || \
     defined(__FreeBSD__) || \
-    (defined(__NetBSD__) && (defined(NetBSD8_0) || __NetBSD_Version__ >= 800000000)) || \
+    (defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000) || \
     (defined(__DragonFly__) && __DragonFly_version >= 400305)
 #define HAVE_ACCEPT4 1
 #endif
