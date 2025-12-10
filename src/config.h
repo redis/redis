@@ -87,7 +87,7 @@
 #endif
 
 /* Test for accept4() */
-#if defined(__linux__) || defined(OpenBSD5_7) || \
+#if defined(__linux__) || (defined(OpenBSD) && OpenBSD >= 201505) || \
     defined(__FreeBSD__) || \
     (defined(__NetBSD_Version__) && __NetBSD_Version__ >= 800000000) || \
     (defined(__DragonFly__) && __DragonFly_version >= 400305)
