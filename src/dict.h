@@ -32,7 +32,7 @@
  * - Odd-address key (keys_are_odd=1): Direct pointer to a 
  *   key with odd address (e.g., all SDS strings), Left intact: 
  *   ENTRY_PTR_IS_ODD_KEY=XX1
- * - Even-address key  (keys_are_odd=1): Direct pointer to a key with 
+ * - Even-address key  (keys_are_odd=0): Direct pointer to a key with 
  *   even address. Since 8-byte alignment yields bits = 000, same as dictEntry, 
  *   we tag it by setting bit 1 which results with: 
  *   ENTRY_PTR_IS_EVEN_KEY=010.
