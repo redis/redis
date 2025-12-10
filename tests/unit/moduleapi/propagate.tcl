@@ -779,7 +779,7 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
 
             test {module propagates from timer} {
                 # Replicate large commands to make the replica disconnected.
-                $master write [format_command propagate-test.verbatim 100000 [string repeat "a" 1000]] ;# almost 100mb
+                $master write [format_command propagate-test.verbatim 50000 [string repeat "a" 2000]] ;# almost 100mb
                 # Execute this command together with module commands within the same
                 # event loop to prevent periodic cleanup of replication backlog.
                 $master write [format_command info memory]

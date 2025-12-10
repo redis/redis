@@ -311,6 +311,9 @@ int propagateTestVerbatim(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
     long long replicate_num;
     RedisModule_StringToLongLong(argv[1], &replicate_num);
+    if (replicate_num > 60000)
+        return RedisModule_ReplyWithError(ctx, "ERR replicate count exceeds maximum allowed value");
+
     /* Replicate the command verbatim for the specified number of times. */
     for (long long i = 0; i < replicate_num; i++)
         RedisModule_ReplicateVerbatim(ctx);
