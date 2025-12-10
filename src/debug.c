@@ -1077,7 +1077,7 @@ NULL
             return;
         }
         addReply(c, shared.ok);
-    } else if(!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
+    } else if (!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
         server.reply_copy_avoidance_enabled = atoi(c->argv[2]->ptr);
         addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr, "repl-pause") && c->argc == 3) {
