@@ -292,49 +292,48 @@ start_server {
 
     test {XADD IDMP with invalid syntax} {
         r DEL mystream
-        assert_error "*ERR Invalid stream ID specified*" {r XADD mystream IDMP * f v}
-        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 1-1 f v}
-        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 1-1 f v}
-        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP 1 2 * f v}
-        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP 1 IDMP 2 * f v}
-        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP IDMP IDMP 2 * f v}
-        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP IDMP IDMP * f v}
-        assert_error "*IDMP requires a non-empty IID*" {r XADD mystream IDMP "" * f v}
+        assert_error "*ERR Invalid stream ID specified*" {r XADD mystream IDMP p1 * f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMP p1 iid1 1-1 f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP p1 iid1 IDMP p2 iid2 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO p1 IDMP p2 iid2 * f v}
+        assert_error "*IDMP requires a non-empty producer ID*" {r XADD mystream IDMP "" iid1 * f v}
+        assert_error "*IDMP requires a non-empty idempotent ID*" {r XADD mystream IDMP p1 "" * f v}
+        assert_error "*IDMPAUTO requires a non-empty producer ID*" {r XADD mystream IDMPAUTO "" * f v}
     }
 
     test {XADD IDMP basic addition} {
         r DEL mystream
     
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 1 * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP A * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP B * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP - * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP + * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP * * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP ^ * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP $ * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP # * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP @ * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP ? * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP \\ * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP IDMP * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 123-456 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 1 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 A * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 B * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 - * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 + * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 * * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 ^ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 $ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 # * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 @ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 ? * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 \\ * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 IDMP * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 123-456 * f v]]}
         
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP 9999999999999-9999999999999 * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "hello世界" * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "héllo" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 9999999999999-9999999999999 * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "hello世界" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "héllo" * f v]]}
         
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "line1\nline2" * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "tab\there" * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "quote\"test" * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "with spaces" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "line1\nline2" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "tab\there" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "quote\"test" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "with spaces" * f v]]}
         
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP [string repeat "long" 100] * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP [string repeat "x" 1000] * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 [string repeat "long" 100] * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 [string repeat "x" 1000] * f v]]}
         
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "special!@#$%^&*()" * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "path/to/file" * f v]]}
-        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP "key:value" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "special!@#$%^&*()" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "path/to/file" * f v]]}
+        assert {[regexp {^[0-9]+-[0-9]+$} [r XADD mystream IDMP p1 "key:value" * f v]]}
         
         assert_equal 26 [r XLEN mystream]
     }
@@ -343,10 +342,10 @@ start_server {
         r DEL mystream
         
         # First XADD with IDMP
-        set id1 [r XADD mystream IDMP "payment-abc" * amount "100" currency "USD"]
+        set id1 [r XADD mystream IDMP p1 "payment-abc" * amount "100" currency "USD"]
         
         # Second XADD with same iid but different fields
-        set id2 [r XADD mystream IDMP "payment-abc" * amount "200" currency "EUR"]
+        set id2 [r XADD mystream IDMP p1 "payment-abc" * amount "200" currency "EUR"]
         
         # Verify both IDs are identical
         assert_equal $id1 $id2
@@ -365,9 +364,9 @@ start_server {
         r DEL mystream
         
         # Add entries with different iids
-        set id1 [r XADD mystream IDMP "req-1" * user "alice"]
-        set id2 [r XADD mystream IDMP "req-2" * user "bob"]
-        set id3 [r XADD mystream IDMP "req-3" * user "charlie"]
+        set id1 [r XADD mystream IDMP p1 "req-1" * user "alice"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * user "bob"]
+        set id3 [r XADD mystream IDMP p1 "req-3" * user "charlie"]
         
         # Verify all IDs are different
         assert {$id1 != $id2}
@@ -389,8 +388,8 @@ start_server {
         
         # Test with null bytes and binary data
         set binary_iid "\x00\x01\x02\xff"
-        set id1 [r XADD mystream IDMP $binary_iid * field "value"]
-        set id2 [r XADD mystream IDMP $binary_iid * field "dup"]
+        set id1 [r XADD mystream IDMP p1 $binary_iid * field "value"]
+        set id2 [r XADD mystream IDMP p1 $binary_iid * field "dup"]
         assert_equal $id1 $id2
     }
 
@@ -399,7 +398,7 @@ start_server {
         
         # Test with very long iid (e.g., 64KB)
         set long_iid [string repeat "x" 65536]
-        set id [r XADD mystream IDMP $long_iid * field "value"]
+        set id [r XADD mystream IDMP p1 $long_iid * field "value"]
         assert_match {*-*} $id
     }
 
@@ -407,11 +406,11 @@ start_server {
         r DEL mystream
         
         # Add entries with IDMP and MAXLEN
-        set id1 [r XADD mystream IDMP "req-1" MAXLEN ~ 100 * field "value1"]
-        set id2 [r XADD mystream IDMP "req-2" MAXLEN ~ 100 * field "value2"]
+        set id1 [r XADD mystream IDMP p1 "req-1" MAXLEN ~ 100 * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" MAXLEN ~ 100 * field "value2"]
         
         # Attempt duplicate
-        set id1_dup [r XADD mystream IDMP "req-1" MAXLEN ~ 100 * field "value3"]
+        set id1_dup [r XADD mystream IDMP p1 "req-1" MAXLEN ~ 100 * field "value3"]
         
         # Verify deduplication works
         assert_equal $id1 $id1_dup
@@ -424,10 +423,10 @@ start_server {
         r DEL mystream
         
         # Add entry with IDMP and MINID
-        set id1 [r XADD mystream IDMP "req-1" MINID ~ 1000000000-0 * field "value1"]
+        set id1 [r XADD mystream IDMP p1 "req-1" MINID ~ 1000000000-0 * field "value1"]
         
         # Attempt duplicate with MINID
-        set id2 [r XADD mystream IDMP "req-1" MINID ~ 1000000000-0 * field "value2"]
+        set id2 [r XADD mystream IDMP p1 "req-1" MINID ~ 1000000000-0 * field "value2"]
         
         # Verify deduplication works
         assert_equal $id1 $id2
@@ -438,14 +437,14 @@ start_server {
         r DEL mystream
         
         # Attempt XADD with NOMKSTREAM on non-existent stream
-        set result [r XADD mystream NOMKSTREAM IDMP "req-1" * field "value"]
+        set result [r XADD mystream NOMKSTREAM IDMP p1 "req-1" * field "value"]
         assert_equal {} $result
         
         # Create stream normally
-        r XADD mystream IDMP "req-2" * field "value"
+        r XADD mystream IDMP p1 "req-2" * field "value"
         
         # Now NOMKSTREAM should work
-        set id [r XADD mystream NOMKSTREAM IDMP "req-3" * field "value"]
+        set id [r XADD mystream NOMKSTREAM IDMP p1 "req-3" * field "value"]
         assert_match {*-*} $id
         
         assert_equal 2 [r XLEN mystream]
@@ -455,10 +454,10 @@ start_server {
         r DEL mystream
         
         # Add entry with IDMP and KEEPREF
-        set id1 [r XADD mystream IDMP "req-1" KEEPREF * field "value1"]
+        set id1 [r XADD mystream IDMP p1 "req-1" KEEPREF * field "value1"]
         
         # Attempt duplicate with KEEPREF
-        set id2 [r XADD mystream IDMP "req-1" KEEPREF * field "value2"]
+        set id2 [r XADD mystream IDMP p1 "req-1" KEEPREF * field "value2"]
         
         # Verify deduplication works
         assert_equal $id1 $id2
@@ -469,10 +468,10 @@ start_server {
         r DEL mystream
         
         # Add entry with all options
-        set id1 [r XADD mystream IDMP "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field1 "value1" field2 "value2"]
+        set id1 [r XADD mystream IDMP p1 "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field1 "value1" field2 "value2"]
         
         # Attempt duplicate with all options
-        set id2 [r XADD mystream IDMP "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field3 "value3"]
+        set id2 [r XADD mystream IDMP p1 "req-1" KEEPREF MAXLEN ~ 1000 LIMIT 10 * field3 "value3"]
         
         # Verify deduplication works
         assert_equal $id1 $id2
@@ -489,13 +488,13 @@ start_server {
         r DEL mystream
         
         # IDMP before MAXLEN
-        set id1 [r XADD mystream IDMP "req-1" MAXLEN ~ 100 * field "value1"]
+        set id1 [r XADD mystream IDMP p1 "req-1" MAXLEN ~ 100 * field "value1"]
         
         # IDMP after MAXLEN
-        set id2 [r XADD mystream MAXLEN ~ 100 IDMP "req-2" * field "value2"]
+        set id2 [r XADD mystream MAXLEN ~ 100 IDMP p1 "req-2" * field "value2"]
         
         # Multiple options in different order
-        set id3 [r XADD mystream NOMKSTREAM IDMP "req-3" MAXLEN ~ 100 * field "value3"]
+        set id3 [r XADD mystream NOMKSTREAM IDMP p1 "req-3" MAXLEN ~ 100 * field "value3"]
         
         # All should succeed
         assert_match {*-*} $id1
@@ -514,9 +513,9 @@ start_server {
         set client3 [redis_client]
         
         # Send same IDMP request from all clients concurrently
-        set id1 [$client1 XADD mystream IDMP "concurrent-req" * client "1"]
-        set id2 [$client2 XADD mystream IDMP "concurrent-req" * client "2"]
-        set id3 [$client3 XADD mystream IDMP "concurrent-req" * client "3"]
+        set id1 [$client1 XADD mystream IDMP p1 "concurrent-req" * client "1"]
+        set id2 [$client2 XADD mystream IDMP p1 "concurrent-req" * client "2"]
+        set id3 [$client3 XADD mystream IDMP p1 "concurrent-req" * client "3"]
         
         # All should return the same ID
         assert_equal $id1 $id2
@@ -536,10 +535,10 @@ start_server {
         
         # Send pipelined requests
         r MULTI
-        r XADD mystream IDMP "req-1" * field "value1"
-        r XADD mystream IDMP "req-2" * field "value2"
-        r XADD mystream IDMP "req-1" * field "value3"  # Duplicate
-        r XADD mystream IDMP "req-3" * field "value4"
+        r XADD mystream IDMP p1 "req-1" * field "value1"
+        r XADD mystream IDMP p1 "req-2" * field "value2"
+        r XADD mystream IDMP p1 "req-1" * field "value3"  # Duplicate
+        r XADD mystream IDMP p1 "req-3" * field "value4"
         set results [r EXEC]
         
         # Extract IDs
@@ -564,8 +563,8 @@ start_server {
         r DEL mystream
         
         # Add entries with IDMP
-        set id1 [r XADD mystream IDMP "cg-1" * field "value1"]
-        set id2 [r XADD mystream IDMP "cg-2" * field "value2"]
+        set id1 [r XADD mystream IDMP p1 "cg-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "cg-2" * field "value2"]
         
         # Create consumer group
         r XGROUP CREATE mystream mygroup 0
@@ -581,7 +580,7 @@ start_server {
         assert_equal 2 [r XACK mystream mygroup $id1 $id2]
         
         # Verify deduplication still works
-        set id1_dup [r XADD mystream IDMP "cg-1" * field "dup"]
+        set id1_dup [r XADD mystream IDMP p1 "cg-1" * field "dup"]
         assert_equal $id1 $id1_dup
     }
 
@@ -589,8 +588,8 @@ start_server {
         r DEL mystream
 
         # Add entries with IDMP
-        set id1 [r XADD mystream IDMP "persist-1" * field "value1"]
-        r XADD mystream IDMP "persist-2" * field "value2"
+        set id1 [r XADD mystream IDMP p1 "persist-1" * field "value1"]
+        r XADD mystream IDMP p1 "persist-2" * field "value2"
 
         # Force RDB save
         r SAVE
@@ -600,7 +599,7 @@ start_server {
         assert_equal 2 [r XLEN mystream]
 
         # Verify deduplication still works after restart
-        set id1_dup [r XADD mystream IDMP "persist-1" * field "new"]
+        set id1_dup [r XADD mystream IDMP p1 "persist-1" * field "new"]
         assert_equal $id1 $id1_dup
 
         # Should still have only 2 entries
@@ -615,11 +614,11 @@ start_server {
         waitForBgrewriteaof r
 
         # Add entries with IDMP
-        set id1 [r XADD mystream IDMP "aof-1" * field "value1"]
-        r XADD mystream IDMP "aof-2" * field "value2"
+        set id1 [r XADD mystream IDMP p1 "aof-1" * field "value1"]
+        r XADD mystream IDMP p1 "aof-2" * field "value2"
 
         # Add duplicate
-        set id1_dup [r XADD mystream IDMP "aof-1" * field "dup"]
+        set id1_dup [r XADD mystream IDMP p1 "aof-1" * field "dup"]
         assert_equal $id1 $id1_dup
 
         # Restart with AOF
@@ -629,34 +628,34 @@ start_server {
         assert_equal 2 [r XLEN mystream]
 
         # Verify deduplication still works
-        set id1_dup2 [r XADD mystream IDMP "aof-1" * field "new"]
+        set id1_dup2 [r XADD mystream IDMP p1 "aof-1" * field "new"]
         assert_equal $id1 $id1_dup2
     } {} {external:skip needs:debug}
 
     test {XADD IDMPAUTO with invalid syntax} {
         r DEL mystream
-        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO IDMPAUTO * f v}
-        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO IDMP 1 * f v}
-        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP 1 IDMPAUTO * f v}
-        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMPAUTO 1-1 f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO p1 IDMPAUTO p2 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO p1 IDMP p2 iid1 * f v}
+        assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMP p1 iid1 IDMPAUTO p2 * f v}
+        assert_error "*IDMP/IDMPAUTO can be used only with auto-generated IDs*" {r XADD mystream IDMPAUTO p1 1-1 f v}
     }
 
     test {XADD IDMPAUTO basic deduplication based on field-value pairs} {
         r DEL mystream
         
         # First XADD with IDMPAUTO
-        set id1 [r XADD mystream IDMPAUTO * amount "100" currency "USD"]
+        set id1 [r XADD mystream IDMPAUTO p1 * amount "100" currency "USD"]
         assert {[regexp {^[0-9]+-[0-9]+$} $id1]}
         
         # Second XADD with same fields and values should deduplicate
-        set id2 [r XADD mystream IDMPAUTO * amount "100" currency "USD"]
+        set id2 [r XADD mystream IDMPAUTO p1 * amount "100" currency "USD"]
         assert_equal $id1 $id2
         
         # Verify only one entry exists
         assert_equal 1 [r XLEN mystream]
         
         # Third XADD with different values should create new entry
-        set id3 [r XADD mystream IDMPAUTO * amount "200" currency "USD"]
+        set id3 [r XADD mystream IDMPAUTO p1 * amount "200" currency "USD"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
     }
@@ -665,17 +664,17 @@ start_server {
         r DEL mystream
         
         # Add entry with fields in one order
-        set id1 [r XADD mystream IDMPAUTO * field1 "a" field2 "b" field3 "c"]
+        set id1 [r XADD mystream IDMPAUTO p1 * field1 "a" field2 "b" field3 "c"]
         
         # Add entry with same fields in different order (should deduplicate)
-        set id2 [r XADD mystream IDMPAUTO * field2 "b" field3 "c" field1 "a"]
+        set id2 [r XADD mystream IDMPAUTO p1 * field2 "b" field3 "c" field1 "a"]
         assert_equal $id1 $id2
         
         # Verify only one entry exists
         assert_equal 1 [r XLEN mystream]
         
         # Add entry with different order but different values (should be new)
-        set id3 [r XADD mystream IDMPAUTO * field3 "c" field1 "x" field2 "b"]
+        set id3 [r XADD mystream IDMPAUTO p1 * field3 "c" field1 "x" field2 "b"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
     }
@@ -684,9 +683,9 @@ start_server {
         r DEL mystream
         
         # Add different entries
-        set id1 [r XADD mystream IDMPAUTO * user "alice" action "login"]
-        set id2 [r XADD mystream IDMPAUTO * user "bob" action "login"]
-        set id3 [r XADD mystream IDMPAUTO * user "alice" action "logout"]
+        set id1 [r XADD mystream IDMPAUTO p1 * user "alice" action "login"]
+        set id2 [r XADD mystream IDMPAUTO p1 * user "bob" action "login"]
+        set id3 [r XADD mystream IDMPAUTO p1 * user "alice" action "logout"]
         
         # Verify all IDs are different
         assert {$id1 != $id2}
@@ -701,12 +700,12 @@ start_server {
         r DEL mystream
         
         # Add entry with single field
-        set id1 [r XADD mystream IDMPAUTO * status "active"]
-        set id2 [r XADD mystream IDMPAUTO * status "active"]
+        set id1 [r XADD mystream IDMPAUTO p1 * status "active"]
+        set id2 [r XADD mystream IDMPAUTO p1 * status "active"]
         assert_equal $id1 $id2
         
         # Different value should create new entry
-        set id3 [r XADD mystream IDMPAUTO * status "inactive"]
+        set id3 [r XADD mystream IDMPAUTO p1 * status "inactive"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
     }
@@ -715,12 +714,12 @@ start_server {
         r DEL mystream
         
         # Add entry with many fields
-        set id1 [r XADD mystream IDMPAUTO * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
-        set id2 [r XADD mystream IDMPAUTO * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
+        set id1 [r XADD mystream IDMPAUTO p1 * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
+        set id2 [r XADD mystream IDMPAUTO p1 * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "v8"]
         assert_equal $id1 $id2
         
         # Change one value should create new entry
-        set id3 [r XADD mystream IDMPAUTO * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "different"]
+        set id3 [r XADD mystream IDMPAUTO p1 * f1 "v1" f2 "v2" f3 "v3" f4 "v4" f5 "v5" f6 "v6" f7 "v7" f8 "different"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
     }
@@ -730,8 +729,8 @@ start_server {
         
         # Test with null bytes and binary data
         set binary_val "\x00\x01\x02\xff"
-        set id1 [r XADD mystream IDMPAUTO * field $binary_val]
-        set id2 [r XADD mystream IDMPAUTO * field $binary_val]
+        set id1 [r XADD mystream IDMPAUTO p1 * field $binary_val]
+        set id2 [r XADD mystream IDMPAUTO p1 * field $binary_val]
         assert_equal $id1 $id2
         assert_equal 1 [r XLEN mystream]
     }
@@ -740,12 +739,12 @@ start_server {
         r DEL mystream
         
         # Test with unicode characters
-        set id1 [r XADD mystream IDMPAUTO * message "hello世界"]
-        set id2 [r XADD mystream IDMPAUTO * message "hello世界"]
+        set id1 [r XADD mystream IDMPAUTO p1 * message "hello世界"]
+        set id2 [r XADD mystream IDMPAUTO p1 * message "hello世界"]
         assert_equal $id1 $id2
         
         # Different unicode should create new entry
-        set id3 [r XADD mystream IDMPAUTO * message "héllo"]
+        set id3 [r XADD mystream IDMPAUTO p1 * message "héllo"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
     }
@@ -755,8 +754,8 @@ start_server {
         
         # Test with very long values
         set long_val [string repeat "x" 10000]
-        set id1 [r XADD mystream IDMPAUTO * data $long_val]
-        set id2 [r XADD mystream IDMPAUTO * data $long_val]
+        set id1 [r XADD mystream IDMPAUTO p1 * data $long_val]
+        set id2 [r XADD mystream IDMPAUTO p1 * data $long_val]
         assert_equal $id1 $id2
         assert_equal 1 [r XLEN mystream]
     }
@@ -765,12 +764,12 @@ start_server {
         r DEL mystream
         
         # Test with empty string values
-        set id1 [r XADD mystream IDMPAUTO * field ""]
-        set id2 [r XADD mystream IDMPAUTO * field ""]
+        set id1 [r XADD mystream IDMPAUTO p1 * field ""]
+        set id2 [r XADD mystream IDMPAUTO p1 * field ""]
         assert_equal $id1 $id2
         
         # Non-empty should be different
-        set id3 [r XADD mystream IDMPAUTO * field "value"]
+        set id3 [r XADD mystream IDMPAUTO p1 * field "value"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
     }
@@ -779,11 +778,11 @@ start_server {
         r DEL mystream
         
         # Add entries with IDMPAUTO and MAXLEN
-        set id1 [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "value1"]
-        set id2 [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "value2"]
+        set id1 [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "value1"]
+        set id2 [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "value2"]
         
         # Attempt duplicate
-        set id1_dup [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "value1"]
+        set id1_dup [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "value1"]
         
         # Verify deduplication works
         assert_equal $id1 $id1_dup
@@ -796,10 +795,10 @@ start_server {
         r DEL mystream
         
         # Add entry with IDMPAUTO and MINID
-        set id1 [r XADD mystream IDMPAUTO MINID ~ 1000000000-0 * field "value1"]
+        set id1 [r XADD mystream IDMPAUTO p1 MINID ~ 1000000000-0 * field "value1"]
         
         # Attempt duplicate with MINID
-        set id2 [r XADD mystream IDMPAUTO MINID ~ 1000000000-0 * field "value1"]
+        set id2 [r XADD mystream IDMPAUTO p1 MINID ~ 1000000000-0 * field "value1"]
         
         # Verify deduplication works
         assert_equal $id1 $id2
@@ -810,14 +809,14 @@ start_server {
         r DEL mystream
         
         # Attempt XADD with NOMKSTREAM on non-existent stream
-        set result [r XADD mystream NOMKSTREAM IDMPAUTO * field "value"]
+        set result [r XADD mystream NOMKSTREAM IDMPAUTO p1 * field "value"]
         assert_equal {} $result
         
         # Create stream first
         r XADD mystream * field "initial"
         
         # Now NOMKSTREAM with IDMPAUTO should work
-        set id [r XADD mystream NOMKSTREAM IDMPAUTO * field "test"]
+        set id [r XADD mystream NOMKSTREAM IDMPAUTO p1 * field "test"]
         assert {[regexp {^[0-9]+-[0-9]+$} $id]}
     }
 
@@ -825,8 +824,8 @@ start_server {
         r DEL mystream
         
         # Add entries with IDMPAUTO and KEEPREF
-        set id1 [r XADD mystream KEEPREF IDMPAUTO * field "value1"]
-        set id2 [r XADD mystream KEEPREF IDMPAUTO * field "value1"]
+        set id1 [r XADD mystream KEEPREF IDMPAUTO p1 * field "value1"]
+        set id2 [r XADD mystream KEEPREF IDMPAUTO p1 * field "value1"]
         
         # Verify deduplication works with KEEPREF
         assert_equal $id1 $id2
@@ -837,11 +836,11 @@ start_server {
         r DEL mystream
         
         # Test different argument orders
-        set id1 [r XADD mystream IDMPAUTO * field "test"]
-        set id2 [r XADD mystream IDMPAUTO MAXLEN ~ 100 * field "test2"]
-        set id3 [r XADD mystream MAXLEN ~ 100 IDMPAUTO * field "test3"]
-        set id4 [r XADD mystream KEEPREF IDMPAUTO * field "test4"]
-        set id5 [r XADD mystream IDMPAUTO KEEPREF * field "test5"]
+        set id1 [r XADD mystream IDMPAUTO p1 * field "test"]
+        set id2 [r XADD mystream IDMPAUTO p1 MAXLEN ~ 100 * field "test2"]
+        set id3 [r XADD mystream MAXLEN ~ 100 IDMPAUTO p1 * field "test3"]
+        set id4 [r XADD mystream KEEPREF IDMPAUTO p1 * field "test4"]
+        set id5 [r XADD mystream IDMPAUTO p1 KEEPREF * field "test5"]
         
         # All should be valid stream IDs
         assert {[regexp {^[0-9]+-[0-9]+$} $id1]}
@@ -858,8 +857,8 @@ start_server {
         r DEL mystream
         
         # Add entries with IDMPAUTO
-        set id1 [r XADD mystream IDMPAUTO * field "value1"]
-        set id2 [r XADD mystream IDMPAUTO * field "value2"]
+        set id1 [r XADD mystream IDMPAUTO p1 * field "value1"]
+        set id2 [r XADD mystream IDMPAUTO p1 * field "value2"]
         
         # Save and reload
         r DEBUG RELOAD
@@ -868,7 +867,7 @@ start_server {
         assert_equal 2 [r XLEN mystream]
         
         # Verify deduplication still works after restart
-        set id1_dup [r XADD mystream IDMPAUTO * field "value1"]
+        set id1_dup [r XADD mystream IDMPAUTO p1 * field "value1"]
         assert_equal $id1 $id1_dup
         
         # Should still have only 2 entries
@@ -883,11 +882,11 @@ start_server {
         r XGROUP CREATE mystream mygroup 0
         
         # Add entries with IDMPAUTO
-        set id1 [r XADD mystream IDMPAUTO * event "login" user "alice"]
-        set id2 [r XADD mystream IDMPAUTO * event "logout" user "bob"]
+        set id1 [r XADD mystream IDMPAUTO p1 * event "login" user "alice"]
+        set id2 [r XADD mystream IDMPAUTO p1 * event "logout" user "bob"]
         
         # Attempt duplicate
-        set id1_dup [r XADD mystream IDMPAUTO * event "login" user "alice"]
+        set id1_dup [r XADD mystream IDMPAUTO p1 * event "login" user "alice"]
         assert_equal $id1 $id1_dup
         
         # Read from consumer group (should get 3 new entries, not 4)
@@ -900,8 +899,8 @@ start_server {
         r DEL mystream
         
         # Different field names should create different entries
-        set id1 [r XADD mystream IDMPAUTO * field1 "value"]
-        set id2 [r XADD mystream IDMPAUTO * field2 "value"]
+        set id1 [r XADD mystream IDMPAUTO p1 * field1 "value"]
+        set id2 [r XADD mystream IDMPAUTO p1 * field2 "value"]
         
         assert {$id1 != $id2}
         assert_equal 2 [r XLEN mystream]
@@ -911,31 +910,31 @@ start_server {
         r DEL mystream
         
         # Test with numeric field names
-        set id1 [r XADD mystream IDMPAUTO * 123 "456" 789 "012"]
-        set id2 [r XADD mystream IDMPAUTO * 123 "456" 789 "012"]
+        set id1 [r XADD mystream IDMPAUTO p1 * 123 "456" 789 "012"]
+        set id2 [r XADD mystream IDMPAUTO p1 * 123 "456" 789 "012"]
         assert_equal $id1 $id2
         
         # Different numeric values
-        set id3 [r XADD mystream IDMPAUTO * 123 "999" 789 "012"]
+        set id3 [r XADD mystream IDMPAUTO p1 * 123 "999" 789 "012"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
     }
 
     test {XIDMP entries expire after DURATION seconds} {
         r DEL mystream
-        r XADD mystream IDMP "req-1" * field "value1"
+        r XADD mystream IDMP p1 "req-1" * field "value1"
         r XIDMP CFGSET mystream DURATION 1
         
         # Immediate duplicate should be detected
-        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
-        set id2 [r XADD mystream IDMP "req-1" * field "value2"]
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-1" * field "value2"]
         assert_equal $id1 $id2
         
         # Wait for expiration (1 second + margin)
         after 2500
         
         # Now should create new entry
-        set id3 [r XADD mystream IDMP "req-1" * field "value3"]
+        set id3 [r XADD mystream IDMP p1 "req-1" * field "value3"]
         assert {$id1 ne $id3}
     }
 
@@ -943,28 +942,28 @@ start_server {
         r DEL mystream
         
         # First add an entry to create the stream, then set config
-        r XADD mystream IDMP "init" * field "init"
+        r XADD mystream IDMP p1 "init" * field "init"
         r XIDMP CFGSET mystream MAXSIZE 3 DURATION 60
         
         # Add 3 unique entries
-        set id1 [r XADD mystream IDMP "req-1" * field "v1"]
-        set id2 [r XADD mystream IDMP "req-2" * field "v2"]
-        set id3 [r XADD mystream IDMP "req-3" * field "v3"]
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "v2"]
+        set id3 [r XADD mystream IDMP p1 "req-3" * field "v3"]
         
         # All duplicates should still work (IDMP set has: req-1, req-2, req-3)
-        assert_equal $id1 [r XADD mystream IDMP "req-1" * field "dup"]
-        assert_equal $id2 [r XADD mystream IDMP "req-2" * field "dup"]
-        assert_equal $id3 [r XADD mystream IDMP "req-3" * field "dup"]
+        assert_equal $id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id2 [r XADD mystream IDMP p1 "req-2" * field "dup"]
+        assert_equal $id3 [r XADD mystream IDMP p1 "req-3" * field "dup"]
         
         # Add 4th entry - should evict oldest (req-1)
-        set id4 [r XADD mystream IDMP "req-4" * field "v4"]
+        set id4 [r XADD mystream IDMP p1 "req-4" * field "v4"]
         
         # req-1 should be evicted, so it should create new entry
-        set result [r XADD mystream IDMP "req-1" * field "new"]
+        set result [r XADD mystream IDMP p1 "req-1" * field "new"]
         assert {$result ne $id1}
         
         # req-2 is also eveicted but req-3 should still be in the set
-        assert_equal $id3 [r XADD mystream IDMP "req-3" * field "dup2"]
+        assert_equal $id3 [r XADD mystream IDMP p1 "req-3" * field "dup2"]
         
         # Stream should have: init, req-1, req-2, req-3, req-4, req-1(new) = 6 entries
         assert_equal 6 [r XLEN mystream]
@@ -974,7 +973,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP entry
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set DURATION to 5s
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 5]
@@ -989,7 +988,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP entry
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set MAXSIZE to 5000
         assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 5000]
@@ -1004,7 +1003,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP entry
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set both DURATION and MAXSIZE
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
@@ -1021,7 +1020,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP entry
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set both DURATION and MAXSIZE
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
@@ -1038,7 +1037,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP entry
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Verify both were set
         set config [r XIDMP CFGGET mystream]
@@ -1059,7 +1058,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set DURATION to maximum allowed (300 seconds)
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 300]
@@ -1080,7 +1079,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Attempt to set DURATION to 0
         assert_error "*ERR DURATION must be between*" {r XIDMP CFGSET mystream DURATION 0}
@@ -1100,7 +1099,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set MAXSIZE to maximum allowed (1M)
         assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 1000000]
@@ -1121,7 +1120,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Attempt to set MAXSIZE to 0
         assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 0}
@@ -1141,7 +1140,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Attempt CFGSET with invalid syntax
         assert_error "*ERR At least one parameter*" {r XIDMP CFGSET mystream}
@@ -1178,7 +1177,7 @@ start_server {
         r DEL mystream
         
         # Create stream with IDMP
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Change DURATION multiple times
         r XIDMP CFGSET mystream DURATION 1
@@ -1202,7 +1201,7 @@ start_server {
         r DEL mystream
         
         # Create stream and set configuration
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         r XIDMP CFGSET mystream DURATION 75 MAXSIZE 25000
         
         # Save and restart
@@ -1227,7 +1226,7 @@ start_server {
         waitForBgrewriteaof r
 
         # Create stream and set configuration
-        r XADD mystream IDMP "req-1" * field "value"
+        r XADD mystream IDMP p1 "req-1" * field "value"
         r XIDMP CFGSET mystream DURATION 45 MAXSIZE 18000
         
         # Force AOF rewrite
@@ -1251,18 +1250,18 @@ start_server {
         r DEL mystream
         
         # Create stream and add entries with IDMP
-        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
-        set id2 [r XADD mystream IDMP "req-2" * field "value2"]
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2"]
         
         # Verify deduplication works before config change
-        set dup_id [r XADD mystream IDMP "req-1" * field "dup"]
+        set dup_id [r XADD mystream IDMP p1 "req-1" * field "dup"]
         assert_equal $id1 $dup_id
         
         # Change DURATION - should clear iids history
         r XIDMP CFGSET mystream DURATION 5
         
         # Now req-1 should create a new entry (history was cleared)
-        set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
         assert {$id1 ne $new_id1}
         
         # Should have 3 entries total (2 original + 1 new)
@@ -1273,18 +1272,18 @@ start_server {
         r DEL mystream
         
         # Create stream and add entries with IDMP
-        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
-        set id2 [r XADD mystream IDMP "req-2" * field "value2"]
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2"]
         
         # Verify deduplication works before config change
-        set dup_id [r XADD mystream IDMP "req-2" * field "dup"]
+        set dup_id [r XADD mystream IDMP p1 "req-2" * field "dup"]
         assert_equal $id2 $dup_id
         
         # Change MAXSIZE - should clear iids history
         r XIDMP CFGSET mystream MAXSIZE 20000
         
         # Now req-2 should create a new entry (history was cleared)
-        set new_id2 [r XADD mystream IDMP "req-2" * field "new2"]
+        set new_id2 [r XADD mystream IDMP p1 "req-2" * field "new2"]
         assert {$id2 ne $new_id2}
         
         # Should have 3 entries total (2 original + 1 new)
@@ -1295,17 +1294,17 @@ start_server {
         r DEL mystream
         
         # Create stream and add entries
-        set id1 [r XADD mystream IDMP "req-1" * field "value1"]
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
         
         # Change configuration to clear history
         r XIDMP CFGSET mystream DURATION 6
         
         # Add new entry with same iid
-        set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
         assert {$id1 ne $new_id1}
         
         # Now deduplication should work with new history
-        set dup_id1 [r XADD mystream IDMP "req-1" * field "dup1"]
+        set dup_id1 [r XADD mystream IDMP p1 "req-1" * field "dup1"]
         assert_equal $new_id1 $dup_id1
         
         # Should have 2 entries (1 original + 1 new)
@@ -1316,8 +1315,8 @@ start_server {
         r DEL mystream
         
         # Create stream with entries
-        set id1 [r XADD mystream IDMP "req-1" * field "value1" data "data1"]
-        set id2 [r XADD mystream IDMP "req-2" * field "value2" data "data2"]
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "value1" data "data1"]
+        set id2 [r XADD mystream IDMP p1 "req-2" * field "value2" data "data2"]
         
         # Verify entries exist with correct data
         set entries [r XRANGE mystream - +]
@@ -1336,7 +1335,7 @@ start_server {
         assert_equal "data1" [dict get $entry1_fields data]
         
         # But iids history is cleared, so can add new entries
-        set new_id1 [r XADD mystream IDMP "req-1" * field "new1"]
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
         assert {$id1 ne $new_id1}
     }
 
@@ -1352,18 +1351,18 @@ start_server {
         assert_equal 0 [dict get $reply iids-added]
         
         # Add entries with IDMP
-        r XADD mystream IDMP "req-1" * field "value1"
+        r XADD mystream IDMP p1 "req-1" * field "value1"
         set reply [r XINFO STREAM mystream]
         assert_equal 1 [dict get $reply iids-tracked]
         assert_equal 1 [dict get $reply iids-added]
         
-        r XADD mystream IDMP "req-2" * field "value2"
+        r XADD mystream IDMP p1 "req-2" * field "value2"
         set reply [r XINFO STREAM mystream]
         assert_equal 2 [dict get $reply iids-tracked]
         assert_equal 2 [dict get $reply iids-added]
         
         # Duplicate IDMP should NOT increment counters
-        r XADD mystream IDMP "req-1" * field "duplicate"
+        r XADD mystream IDMP p1 "req-1" * field "duplicate"
         set reply [r XINFO STREAM mystream]
         assert_equal 2 [dict get $reply iids-tracked]
         assert_equal 2 [dict get $reply iids-added]
@@ -1378,13 +1377,13 @@ start_server {
         r DEL mystream
         
         # Set small MAXSIZE to trigger eviction
-        r XADD mystream IDMP "init" * field "init"
+        r XADD mystream IDMP p1 "init" * field "init"
         r XIDMP CFGSET mystream MAXSIZE 3
         
         # Add 3 more entries (total 4, but MAXSIZE=3 so oldest evicted)
-        r XADD mystream IDMP "req-1" * field "v1"
-        r XADD mystream IDMP "req-2" * field "v2"
-        r XADD mystream IDMP "req-3" * field "v3"
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-3" * field "v3"
         
         set reply [r XINFO STREAM mystream]
         # iids-tracked should be capped at MAXSIZE (3)
@@ -1393,8 +1392,8 @@ start_server {
         assert_equal 4 [dict get $reply iids-added]
         
         # Add more entries to verify lifetime counter keeps growing
-        r XADD mystream IDMP "req-4" * field "v4"
-        r XADD mystream IDMP "req-5" * field "v5"
+        r XADD mystream IDMP p1 "req-4" * field "v4"
+        r XADD mystream IDMP p1 "req-5" * field "v5"
         
         set reply [r XINFO STREAM mystream]
         assert_equal 3 [dict get $reply iids-tracked]
@@ -1405,9 +1404,9 @@ start_server {
         r DEL mystream
         
         # Add entries with IDMP
-        r XADD mystream IDMP "req-1" * field "v1"
-        r XADD mystream IDMP "req-2" * field "v2"
-        r XADD mystream IDMP "req-3" * field "v3"
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-3" * field "v3"
         
         set reply [r XINFO STREAM mystream]
         assert_equal 3 [dict get $reply iids-tracked]
@@ -1423,7 +1422,7 @@ start_server {
         assert_equal 3 [dict get $reply iids-added]
         
         # Add new entry and verify counters
-        r XADD mystream IDMP "req-4" * field "v4"
+        r XADD mystream IDMP p1 "req-4" * field "v4"
         set reply [r XINFO STREAM mystream]
         assert_equal 1 [dict get $reply iids-tracked]
         assert_equal 4 [dict get $reply iids-added]
@@ -1433,16 +1432,16 @@ start_server {
         r DEL mystream
         
         # Add entries with IDMP to build up iids-added counter
-        r XADD mystream IDMP "req-1" * field "v1"
-        r XADD mystream IDMP "req-2" * field "v2"
-        r XADD mystream IDMP "req-3" * field "v3"
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-3" * field "v3"
         
         # Set small MAXSIZE to cause eviction
         r XIDMP CFGSET mystream MAXSIZE 2
         
         # Add more to trigger eviction (iids-tracked will be 2, but iids-added=5)
-        r XADD mystream IDMP "req-4" * field "v4"
-        r XADD mystream IDMP "req-5" * field "v5"
+        r XADD mystream IDMP p1 "req-4" * field "v4"
+        r XADD mystream IDMP p1 "req-5" * field "v5"
         
         # Verify values before save
         set reply [r XINFO STREAM mystream]
@@ -1463,20 +1462,20 @@ start_server {
         r DEL mystream
         
         # Create stream and set MAXSIZE to 8
-        r XADD mystream IDMP "init" * field "init"
+        r XADD mystream IDMP p1 "init" * field "init"
         r XIDMP CFGSET mystream MAXSIZE 8 DURATION 60
         
         # Add 100 unique entries and store their IDs in a list
         set id_list {}
         for {set i 1} {$i <= 100} {incr i} {
-            lappend id_list [r XADD mystream IDMP "req-$i" * field "v$i"]
+            lappend id_list [r XADD mystream IDMP p1 "req-$i" * field "v$i"]
         }
         
         # Verify the last 8 entries (93-100) still deduplicate
         for {set i 93} {$i <= 100} {incr i} {
             set idx [expr {$i - 1}]
             set original_id [lindex $id_list $idx]
-            set dup_id [r XADD mystream IDMP "req-$i" * field "dup"]
+            set dup_id [r XADD mystream IDMP p1 "req-$i" * field "dup"]
             assert_equal $original_id $dup_id
         }
         
@@ -1484,7 +1483,7 @@ start_server {
         for {set i 1} {$i <= 92} {incr i} {
             set idx [expr {$i - 1}]
             set original_id [lindex $id_list $idx]
-            set new_id [r XADD mystream IDMP "req-$i" * field "new"]
+            set new_id [r XADD mystream IDMP p1 "req-$i" * field "new"]
             assert {$new_id ne $original_id}
         }
         

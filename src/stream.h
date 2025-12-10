@@ -26,6 +26,13 @@ typedef struct idmpEntry {
 /* Dictionary type for IDMP entries - uses IID as key */
 extern dictType idmpDictType;
 
+/* IDMP Producer structure for per-producer deduplication tracking */
+typedef struct idmpProducer {
+    dict *idmp_dict;       /* IDMP IID tracking tree. */
+    idmpEntry *idmp_head;  /* Head of the IDMP entries linked list. */
+    idmpEntry *idmp_tail;  /* Tail of the IDMP entries linked list. */
+} idmpProducer;
+
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
     uint64_t length;        /* Current number of elements inside this stream. */
@@ -40,9 +47,7 @@ typedef struct stream {
     unsigned int min_cgroup_last_id_valid: 1;
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
-    dict *idmp_dict;       /* IDMP IID tracking tree. */
-    idmpEntry *idmp_head;  /* Head of the IDMP entries linked list. */
-    idmpEntry *idmp_tail;  /* Tail of the IDMP entries linked list. */
+    rax *idmp_producers;   /* IDMP producers radix tree: producer_id -> idmpProducer */
     uint64_t iids_added;   /* All time count of entries with IID added. */
 } stream;
 
@@ -194,5 +199,7 @@ void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 /* IDMP functions */
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
 void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
+idmpProducer *idmpProducerCreate(size_t *alloc_size);
+void idmpProducerFree(idmpProducer *producer, size_t *alloc_size);
 
 #endif

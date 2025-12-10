@@ -21,7 +21,7 @@
             ],
             [
                 "8.0.0",
-                "Added the `iids-tracked` and `iids-added` fields for IDMP tracking."
+                "Added the `pids-tracked`, `iids-tracked` and `iids-added` fields for IDMP tracking."
             ]
         ],
         "function": "xinfoCommand",
@@ -87,6 +87,10 @@
                         },
                         "entries-added": {
                             "description": "the count of all entries added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "pids-tracked": {
+                            "description": "the number of idempotent producer ids currently tracked in the stream",
                             "type": "integer"
                         },
                         "iids-tracked": {
@@ -191,6 +195,10 @@
                         },
                         "entries-added": {
                             "description": "the count of all entries added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "pids-tracked": {
+                            "description": "the number of idempotent producer ids currently tracked in the stream",
                             "type": "integer"
                         },
                         "iids-tracked": {

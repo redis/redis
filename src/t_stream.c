@@ -50,9 +50,10 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 extern dictType idmpDictType;
 static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
-static int idmpInsertEntry(stream *s, const char *iid, size_t iid_len, idmpEntry **out_entry, idmpEntry **out_old_tail);
-static void idmpRollbackInsert(stream *s, idmpEntry *entry, idmpEntry *old_tail);
-static int idmpLookupAndReply(stream *s, const char *iid, size_t iid_len, client *c);
+static int idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, idmpEntry **out_entry, idmpEntry **out_old_tail);
+static void idmpRollbackInsert(stream *s, idmpProducer *producer, idmpEntry *entry, idmpEntry *old_tail);
+static int idmpLookupAndReply(idmpProducer *producer, const char *iid, size_t iid_len, client *c);
+static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
 
 /* -----------------------------------------------------------------------
@@ -80,9 +81,7 @@ stream *streamNew(void) {
     s->min_cgroup_last_id_valid = 0;
     s->idmp_duration = server.stream_idmp_duration; /* Default from server config */
     s->idmp_max_entries = server.stream_idmp_maxsize; /* Default from server config */ 
-    s->idmp_dict = dictCreate(&idmpDictType);
-    s->idmp_head = NULL;
-    s->idmp_tail = NULL;
+    s->idmp_producers = NULL; /* Created on demand to save memory when not used. */
     s->iids_added = 0;
     return s;
 }
@@ -100,15 +99,16 @@ void freeStream(stream *s) {
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
-    /* Release the dict (keys already freed above) */
-    if (s->idmp_dict)
-        dictRelease(s->idmp_dict);
-    /* Free IDMP linked list entries */
-    idmpEntry *entry = s->idmp_head;
-    while (entry) {
-        idmpEntry *next = entry->next;
-        idmpEntryFree(entry, &s->alloc_size);
-        entry = next;
+    /* Free IDMP producers rax tree */
+    if (s->idmp_producers) {
+        raxIterator ri;
+        raxStart(&ri, s->idmp_producers);
+        raxSeek(&ri, "^", NULL, 0);
+        while (raxNext(&ri)) {
+            idmpProducerFree(ri.data, &s->alloc_size);
+        }
+        raxStop(&ri);
+        raxFree(s->idmp_producers);
     }
     debugServerAssert(s->alloc_size == zmalloc_usable_size(s));
     zfree(s);
@@ -721,8 +721,9 @@ typedef struct {
     int id_given; /* Was an ID different than "*" specified? for XADD only. */
     int seq_given; /* Was an ID different than "ms-*" specified? for XADD only. */
     int no_mkstream; /* if set to 1 do not create new stream */
-    robj *idmp_iid; /* IDMP uid parameter, for XADD only. */
-    int idmp_auto; /* If set to 1, auto-generate IID from client info, for XADD only. */
+    robj *idmp_pid; /* IDMP producer id parameter, for XADD only. */
+    robj *idmp_iid; /* IDMP idempotent id parameter, for XADD only. */
+    int idmp_auto; /* If set to 1, auto-generate IID from field-value pairs, for XADD only. */
 
     /* XADD + XTRIM common options */
     int trim_strategy; /* TRIM_STRATEGY_* */
@@ -1089,34 +1090,50 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             args->delete_strategy = DELETE_STRATEGY_ACKED;
         } else if (xadd && !strcasecmp(opt,"nomkstream")) {
             args->no_mkstream = 1;
-        } else if (xadd && !strcasecmp(opt,"idmpauto")) {
-            /* IDMPAUTO option - auto-generate IID */
-            if (args->idmp_iid != NULL || args->idmp_auto) {
+        } else if (xadd && !strcasecmp(opt,"idmpauto") && moreargs) {
+            /* IDMPAUTO pid - auto-generate IID from field-value pairs */
+            if (args->idmp_pid != NULL) {
                 addReplyError(c,"syntax error, IDMP/IDMPAUTO specified multiple times");
                 return -1;
             }
+
+            size_t pid_len = sdslen((sds)c->argv[i+1]->ptr);
+            if (pid_len == 0) {
+                addReplyError(c, "syntax error, IDMPAUTO requires a non-empty producer ID");
+                return -1;
+            }
+
+            args->idmp_pid = c->argv[i+1];
             args->idmp_auto = 1;
-        } else if (xadd && !strcasecmp(opt,"idmp") && moreargs) {
-            /* IDMP iid parameter */
-            if (args->idmp_iid != NULL || args->idmp_auto) {
+            i++;
+        } else if (xadd && !strcasecmp(opt,"idmp") && moreargs >= 2) {
+            /* IDMP pid iid - explicit producer ID and idempotent ID */
+            if (args->idmp_pid != NULL) {
                 addReplyError(c,"syntax error, IDMP/IDMPAUTO specified multiple times");
                 return -1;
             }
 
-            size_t iid_len = sdslen((sds)c->argv[i+1]->ptr);
-            if (iid_len == 0) {
-                addReplyError(c, "syntax error, IDMP requires a non-empty IID");
+            size_t pid_len = sdslen((sds)c->argv[i+1]->ptr);
+            if (pid_len == 0) {
+                addReplyError(c, "syntax error, IDMP requires a non-empty producer ID");
                 return -1;
             }
 
-            args->idmp_iid = c->argv[i+1];
-            i++;
+            size_t iid_len = sdslen((sds)c->argv[i+2]->ptr);
+            if (iid_len == 0) {
+                addReplyError(c, "syntax error, IDMP requires a non-empty idempotent ID");
+                return -1;
+            }
+
+            args->idmp_pid = c->argv[i+1];
+            args->idmp_iid = c->argv[i+2];
+            i += 2;
         } else if (xadd) {
             /* If we are here is a syntax error or a valid ID. */
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
                 return -1;
 
-            if ((args->idmp_iid || args->idmp_auto) && opt[0] != '*' && !mustObeyClient(c)) {
+            if (args->idmp_pid && opt[0] != '*' && !mustObeyClient(c)) {
                 addReplyError(c,"syntax error, IDMP/IDMPAUTO can be used only with auto-generated IDs");
                 return -1;
             }
@@ -2453,7 +2470,17 @@ void xaddCommand(client *c) {
     XXH128_hash_t hash;
     idmpEntry *new_entry = NULL;
     idmpEntry *old_idmp_tail = NULL;  /* Save tail before insertion for rollback */
-    if (parsed_args.idmp_iid != NULL || parsed_args.idmp_auto) {
+    idmpProducer *producer = NULL;
+    if (parsed_args.idmp_pid != NULL) {
+        /* Get or create the producer for this pid */
+        char *pid_str = parsed_args.idmp_pid->ptr;
+        size_t pid_len = sdslen((sds)pid_str);
+        producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
+        if (producer == NULL) {
+            addReplyError(c, "Failed to allocate IDMP producer");
+            return;
+        }
+
         /* Get IID string based on option */
         char *iid_str;
         size_t iid_len;
@@ -2474,12 +2501,12 @@ void xaddCommand(client *c) {
         }
         
         /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, iid_str, iid_len, c)) {
+        if (idmpLookupAndReply(producer, iid_str, iid_len, c)) {
             return;
         }
         
         /* Insert entry into dict and linked list */
-        inserted = idmpInsertEntry(s, iid_str, iid_len, &new_entry, &old_idmp_tail);
+        inserted = idmpInsertEntry(s, producer, iid_str, iid_len, &new_entry, &old_idmp_tail);
         if (inserted < 0) {
             addReplyError(c,"Failed to allocate IDMP entry");
             return;
@@ -2492,7 +2519,7 @@ void xaddCommand(client *c) {
                         "unable to add more items");
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            idmpRollbackInsert(s, new_entry, old_idmp_tail);
+            idmpRollbackInsert(s, producer, new_entry, old_idmp_tail);
         }
         return;
     }
@@ -2513,7 +2540,7 @@ void xaddCommand(client *c) {
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         /* Clean up if we inserted a placeholder entry */
         if (inserted && new_entry != NULL) {
-            idmpRollbackInsert(s, new_entry, old_idmp_tail);
+            idmpRollbackInsert(s, producer, new_entry, old_idmp_tail);
         }
         return;
     }
@@ -2526,13 +2553,13 @@ void xaddCommand(client *c) {
         s->iids_added++;
         trackStreamIdmpEntries(c, c->argv[1]);
         /* Remove oldest entry if exceeding max entries */
-        if (dictSize(s->idmp_dict) > s->idmp_max_entries) {
-            idmpEntry *oldest = s->idmp_head;
-            s->idmp_head = oldest->next;
-            if (s->idmp_head == NULL) {
-                s->idmp_tail = NULL;
+        if (dictSize(producer->idmp_dict) > s->idmp_max_entries) {
+            idmpEntry *oldest = producer->idmp_head;
+            producer->idmp_head = oldest->next;
+            if (producer->idmp_head == NULL) {
+                producer->idmp_tail = NULL;
             }
-            dictDelete(s->idmp_dict, oldest);
+            dictDelete(producer->idmp_dict, oldest);
             idmpEntryFree(oldest, &s->alloc_size);
         }
     }
@@ -4728,7 +4755,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 11 : 12);
+    addReplyMapLen(c,full ? 12 : 13);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -4743,8 +4770,22 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyLongLong(c,s->entries_added);
     addReplyBulkCString(c,"recorded-first-entry-id");
     addReplyStreamID(c,&s->first_id);
+    addReplyBulkCString(c,"pids-tracked");
+    addReplyLongLong(c, s->idmp_producers ? raxSize(s->idmp_producers) : 0);
     addReplyBulkCString(c,"iids-tracked");
-    addReplyLongLong(c,s->idmp_dict ? dictSize(s->idmp_dict) : 0);
+    /* Count total IIDs across all producers */
+    size_t total_iids = 0;
+    if (s->idmp_producers) {
+        raxIterator ri;
+        raxStart(&ri, s->idmp_producers);
+        raxSeek(&ri, "^", NULL, 0);
+        while (raxNext(&ri)) {
+            idmpProducer *producer = ri.data;
+            total_iids += dictSize(producer->idmp_dict);
+        }
+        raxStop(&ri);
+    }
+    addReplyLongLong(c, total_iids);
     addReplyBulkCString(c,"iids-added");
     addReplyLongLong(c,s->iids_added);
 
@@ -5427,16 +5468,57 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     zfree(entry);
 }
 
-/* Check if an IID already exists in the stream's idmp_dict.
+/* Create a new idmpProducer with an empty dict and linked list.
+ * Returns NULL on allocation failure. */
+idmpProducer *idmpProducerCreate(size_t *alloc_size) {
+    size_t usable;
+    idmpProducer *producer = zmalloc_usable(sizeof(idmpProducer), &usable);
+    if (producer == NULL) return NULL;
+
+    producer->idmp_dict = dictCreate(&idmpDictType);
+    producer->idmp_head = NULL;
+    producer->idmp_tail = NULL;
+
+    if (alloc_size) {
+        *alloc_size += usable;
+    }
+
+    return producer;
+}
+
+/* Free an idmpProducer including its dict and all linked list entries. */
+void idmpProducerFree(idmpProducer *producer, size_t *alloc_size) {
+    if (producer == NULL) return;
+
+    /* Release the dict */
+    if (producer->idmp_dict)
+        dictRelease(producer->idmp_dict);
+
+    /* Free IDMP linked list entries */
+    idmpEntry *entry = producer->idmp_head;
+    while (entry) {
+        idmpEntry *next = entry->next;
+        idmpEntryFree(entry, alloc_size);
+        entry = next;
+    }
+
+    if (alloc_size) {
+        *alloc_size -= zmalloc_usable_size(producer);
+    }
+
+    zfree(producer);
+}
+
+/* Check if an IID already exists in the producer's idmp_dict.
  * If found, sends the existing stream ID as a reply and returns 1.
  * Returns 0 if the IID was not found. */
-static int idmpLookupAndReply(stream *s, const char *iid, size_t iid_len, client *c) {
+static int idmpLookupAndReply(idmpProducer *producer, const char *iid, size_t iid_len, client *c) {
     /* Allocate lookup entry on stack with embedded iid using alloca */
     idmpEntry *lookup_entry = alloca(sizeof(idmpEntry) + iid_len);
     lookup_entry->iid_len = iid_len;
     memcpy(lookup_entry->iid, iid, iid_len);
     
-    dictEntry *de = dictFind(s->idmp_dict, lookup_entry);
+    dictEntry *de = dictFind(producer->idmp_dict, lookup_entry);
     if (de != NULL) {
         /* IID already exists, return the existing stream ID */
         idmpEntry *existing = (idmpEntry *)dictGetKey(de);
@@ -5446,11 +5528,11 @@ static int idmpLookupAndReply(stream *s, const char *iid, size_t iid_len, client
     return 0;
 }
 
-/* Insert a new idmpEntry into the stream's dict and linked list.
+/* Insert a new idmpEntry into the producer's dict and linked list.
  * Returns 1 on success, 0 if dict add failed, -1 on allocation failure.
  * On success, *out_entry is set to the new entry and *out_old_tail is set
  * to the previous tail (for potential rollback). */
-static int idmpInsertEntry(stream *s, const char *iid, size_t iid_len,
+static int idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len,
                            idmpEntry **out_entry, idmpEntry **out_old_tail) {
     /* Create entry with placeholder ID (will be updated after streamAppendItem) */
     idmpEntry *new_entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
@@ -5461,17 +5543,17 @@ static int idmpInsertEntry(stream *s, const char *iid, size_t iid_len,
     new_entry->next = NULL;
 
     /* Save current tail before insertion for potential rollback */
-    *out_old_tail = s->idmp_tail;
+    *out_old_tail = producer->idmp_tail;
 
     /* Insert into dict */
-    int ret = dictAdd(s->idmp_dict, new_entry, NULL);
+    int ret = dictAdd(producer->idmp_dict, new_entry, NULL);
     if (ret == DICT_OK) {
         /* Add to linked list tail */
-        if (s->idmp_tail == NULL) {
-            s->idmp_head = s->idmp_tail = new_entry;
+        if (producer->idmp_tail == NULL) {
+            producer->idmp_head = producer->idmp_tail = new_entry;
         } else {
-            s->idmp_tail->next = new_entry;
-            s->idmp_tail = new_entry;
+            producer->idmp_tail->next = new_entry;
+            producer->idmp_tail = new_entry;
         }
         *out_entry = new_entry;
         return 1;
@@ -5484,17 +5566,45 @@ static int idmpInsertEntry(stream *s, const char *iid, size_t iid_len,
 }
 
 /* Rollback an idmpEntry insertion from both dict and linked list, then free it. */
-static void idmpRollbackInsert(stream *s, idmpEntry *entry, idmpEntry *old_tail) {
+static void idmpRollbackInsert(stream *s, idmpProducer *producer, idmpEntry *entry, idmpEntry *old_tail) {
     /* Remove from dict */
-    dictDelete(s->idmp_dict, entry);
+    dictDelete(producer->idmp_dict, entry);
     /* Restore linked list to state before insertion */
     if (old_tail == NULL) {
-        s->idmp_head = s->idmp_tail = NULL;
+        producer->idmp_head = producer->idmp_tail = NULL;
     } else {
         old_tail->next = NULL;
-        s->idmp_tail = old_tail;
+        producer->idmp_tail = old_tail;
     }
     idmpEntryFree(entry, &s->alloc_size);
+}
+
+/* Get or create an idmpProducer for the given producer ID.
+ * Returns the producer, or NULL on allocation failure. */
+static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len) {
+    /* Create the producers rax tree if it doesn't exist */
+    if (s->idmp_producers == NULL) {
+        s->idmp_producers = raxNew();
+        if (s->idmp_producers == NULL) return NULL;
+    }
+
+    /* Look up the producer */
+    idmpProducer *producer = NULL;
+    int found = raxFind(s->idmp_producers, (unsigned char *)pid, pid_len, (void **)&producer);
+    if (!found) {
+        /* Create a new producer */
+        producer = idmpProducerCreate(&s->alloc_size);
+        if (producer == NULL) return NULL;
+
+        /* Insert into the rax tree */
+        int inserted = raxInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL);
+        if (!inserted) {
+            idmpProducerFree(producer, &s->alloc_size);
+            return NULL;
+        }
+    }
+
+    return producer;
 }
 
 /* Register a stream key for IDMP entry tracking.
@@ -5559,25 +5669,45 @@ void handleExpiredIdmpEntries(void) {
             stream *s = kv->ptr;
             uint64_t expire_time = server.mstime - (s->idmp_duration * 1000);
             
-            /* Remove expired entries from the head of the linked list */
-            while (s->idmp_head != NULL) {
-                idmpEntry *entry = s->idmp_head;
-                if (entry->id.ms <= expire_time) {
-                    /* Remove from dict */
-                    dictDelete(s->idmp_dict, entry);
-                    /* Remove from linked list head */
-                    s->idmp_head = entry->next;
-                    if (s->idmp_head == NULL) {
-                        s->idmp_tail = NULL;
-                    }
-                    /* Free the entry */
-                    idmpEntryFree(entry, &s->alloc_size);
-                } else {
-                    break;
-                }
+            /* Skip if no producers */
+            if (s->idmp_producers == NULL) {
+                dictDelete(db->stream_idmp_keys, key);
+                continue;
             }
 
-            if (s->idmp_head == NULL) {
+            /* Iterate through all producers and remove expired entries */
+            int has_entries = 0;
+            raxIterator ri;
+            raxStart(&ri, s->idmp_producers);
+            raxSeek(&ri, "^", NULL, 0);
+            while (raxNext(&ri)) {
+                idmpProducer *producer = ri.data;
+                
+                /* Remove expired entries from the head of this producer's linked list */
+                while (producer->idmp_head != NULL) {
+                    idmpEntry *entry = producer->idmp_head;
+                    if (entry->id.ms <= expire_time) {
+                        /* Remove from dict */
+                        dictDelete(producer->idmp_dict, entry);
+                        /* Remove from linked list head */
+                        producer->idmp_head = entry->next;
+                        if (producer->idmp_head == NULL) {
+                            producer->idmp_tail = NULL;
+                        }
+                        /* Free the entry */
+                        idmpEntryFree(entry, &s->alloc_size);
+                    } else {
+                        break;
+                    }
+                }
+
+                if (producer->idmp_head != NULL) {
+                    has_entries = 1;
+                }
+            }
+            raxStop(&ri);
+
+            if (!has_entries) {
                 dictDelete(db->stream_idmp_keys, key);
                 continue;
             }
@@ -5642,20 +5772,30 @@ static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
     return hash_result;
 }
 
-/* Clear all IDMP entries from a stream - free linked list and empty dict */
+/* Clear all IDMP entries from a stream - free all producers and their entries */
 static void streamClearIdmpEntries(stream *s) {
-    /* Empty the dict */
-    if (s->idmp_dict) {
-        dictEmpty(s->idmp_dict, NULL);
+    if (s->idmp_producers == NULL) return;
+
+    /* Iterate through all producers and clear their entries */
+    raxIterator ri;
+    raxStart(&ri, s->idmp_producers);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        idmpProducer *producer = ri.data;
+        /* Empty the dict */
+        if (producer->idmp_dict) {
+            dictEmpty(producer->idmp_dict, NULL);
+        }
+        /* Free linked list entries */
+        idmpEntry *entry = producer->idmp_head;
+        while (entry) {
+            idmpEntry *next = entry->next;
+            idmpEntryFree(entry, &s->alloc_size);
+            entry = next;
+        }
+        producer->idmp_head = NULL;
+        producer->idmp_tail = NULL;
     }
-    /* Free linked list entries */
-    idmpEntry *entry = s->idmp_head;
-    while (entry) {
-        idmpEntry *next = entry->next;
-        idmpEntryFree(entry, &s->alloc_size);
-        entry = next;
-    }
-    s->idmp_head = NULL;
-    s->idmp_tail = NULL;
+    raxStop(&ri);
 }
 

@@ -9914,16 +9914,23 @@ struct COMMAND_ARG XADD_condition_Subargs[] = {
 {MAKE_ARG("acked",ARG_TYPE_PURE_TOKEN,-1,"ACKED",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* XADD idmp idmp_with_uid argument table */
-struct COMMAND_ARG XADD_idmp_idmp_with_uid_Subargs[] = {
+/* XADD idmp idmpauto_with_pid argument table */
+struct COMMAND_ARG XADD_idmp_idmpauto_with_pid_Subargs[] = {
+{MAKE_ARG("idmpauto-token",ARG_TYPE_PURE_TOKEN,-1,"IDMPAUTO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XADD idmp idmp_with_pid_iid argument table */
+struct COMMAND_ARG XADD_idmp_idmp_with_pid_iid_Subargs[] = {
 {MAKE_ARG("idmp-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("uid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("pid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("iid",ARG_TYPE_STRING,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* XADD idmp argument table */
 struct COMMAND_ARG XADD_idmp_Subargs[] = {
-{MAKE_ARG("idmpauto",ARG_TYPE_PURE_TOKEN,-1,"IDMPAUTO",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("idmp-with-uid",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_idmp_idmp_with_uid_Subargs},
+{MAKE_ARG("idmpauto-with-pid",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,2,NULL),.subargs=XADD_idmp_idmpauto_with_pid_Subargs},
+{MAKE_ARG("idmp-with-pid-iid",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_NONE,3,NULL),.subargs=XADD_idmp_idmp_with_pid_iid_Subargs},
 };
 
 /* XADD trim strategy argument table */
@@ -10469,7 +10476,7 @@ commandHistory XINFO_STREAM_History[] = {
 {"6.0.0","Added the `FULL` modifier."},
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
 {"7.2.0","Added the `active-time` field, and changed the meaning of `seen-time`."},
-{"8.0.0","Added the `iids-tracked` and `iids-added` fields for IDMP tracking."},
+{"8.0.0","Added the `pids-tracked`, `iids-tracked` and `iids-added` fields for IDMP tracking."},
 };
 #endif
 

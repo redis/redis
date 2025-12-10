@@ -93,12 +93,23 @@
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "idmpauto",
-                        "type": "pure-token",
-                        "token": "IDMPAUTO"
+                        "name": "idmpauto-with-pid",
+                        "type": "block",
+                        "arguments": [
+                            {
+                                "token": "IDMPAUTO",
+                                "name": "idmpauto-token",
+                                "type": "pure-token"
+                            },
+                            {
+                                "name": "pid",
+                                "type": "string",
+                                "display_text": "producer-id"
+                            }
+                        ]
                     },
                     {
-                        "name": "idmp-with-uid",
+                        "name": "idmp-with-pid-iid",
                         "type": "block",
                         "arguments": [
                             {
@@ -107,8 +118,14 @@
                                 "type": "pure-token"
                             },
                             {
-                                "name": "uid",
-                                "type": "string"
+                                "name": "pid",
+                                "type": "string",
+                                "display_text": "producer-id"
+                            },
+                            {
+                                "name": "iid",
+                                "type": "string",
+                                "display_text": "idempotent-id"
                             }
                         ]
                     }
