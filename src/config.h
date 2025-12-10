@@ -94,9 +94,9 @@
 /* Detect for pipe2() */
 #if defined(__linux__) || \
     defined(__FreeBSD__) || \
-    defined(OpenBSD5_7) || \
+    (defined(__OpenBSD__) && OpenBSD >= 201505) || \
     (defined(__DragonFly__) && __DragonFly_version >= 400106) || \
-    (defined(__NetBSD__) && (defined(NetBSD6_0) || __NetBSD_Version__ >= 600000000))
+    (defined(__NetBSD_Version__) && __NetBSD_Version__ >= 600000000)
 #define HAVE_PIPE2 1
 #endif
 
