@@ -632,6 +632,273 @@ start_server {
         assert_equal $id1 $id1_dup2
     } {} {external:skip needs:debug}
 
+    test {XADD IDMP multiple producers have isolated namespaces} {
+        r DEL mystream
+        
+        # Add entry with producer p1
+        set id1 [r XADD mystream IDMP producer1 "req-123" * field "from-p1"]
+        
+        # Add entry with same IID but different producer p2 - should create NEW entry
+        set id2 [r XADD mystream IDMP producer2 "req-123" * field "from-p2"]
+        
+        # IDs should be different since producers are isolated
+        assert {$id1 ne $id2}
+        
+        # Both entries should exist
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify each entry has correct data
+        set entries [r XRANGE mystream - +]
+        assert_equal "from-p1" [dict get [lindex [lindex $entries 0] 1] field]
+        assert_equal "from-p2" [dict get [lindex [lindex $entries 1] 1] field]
+        
+        # Duplicate within same producer should still deduplicate
+        set id1_dup [r XADD mystream IDMP producer1 "req-123" * field "dup-p1"]
+        assert_equal $id1 $id1_dup
+        
+        set id2_dup [r XADD mystream IDMP producer2 "req-123" * field "dup-p2"]
+        assert_equal $id2 $id2_dup
+        
+        # Still only 2 entries
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMP multiple producers each have their own MAXSIZE limit} {
+        r DEL mystream
+        
+        # Create stream and set global MAXSIZE
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XIDMP CFGSET mystream MAXSIZE 3 DURATION 60
+        
+        # Add entries for producer p1 (will have 3: init, req-1, req-2, then req-3 evicts init)
+        set p1_id1 [r XADD mystream IDMP p1 "req-1" * field "p1-v1"]
+        set p1_id2 [r XADD mystream IDMP p1 "req-2" * field "p1-v2"]
+        set p1_id3 [r XADD mystream IDMP p1 "req-3" * field "p1-v3"]
+        
+        # Add entries for producer p2 (separate tracking)
+        set p2_id1 [r XADD mystream IDMP p2 "req-1" * field "p2-v1"]
+        set p2_id2 [r XADD mystream IDMP p2 "req-2" * field "p2-v2"]
+        set p2_id3 [r XADD mystream IDMP p2 "req-3" * field "p2-v3"]
+        
+        # p1's oldest entries should be evicted, but p1 req-1,2,3 should still work
+        assert_equal $p1_id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $p1_id2 [r XADD mystream IDMP p1 "req-2" * field "dup"]
+        assert_equal $p1_id3 [r XADD mystream IDMP p1 "req-3" * field "dup"]
+        
+        # p2's entries should also still work (each producer has own MAXSIZE tracking)
+        assert_equal $p2_id1 [r XADD mystream IDMP p2 "req-1" * field "dup"]
+        assert_equal $p2_id2 [r XADD mystream IDMP p2 "req-2" * field "dup"]
+        assert_equal $p2_id3 [r XADD mystream IDMP p2 "req-3" * field "dup"]
+        
+        # Verify pids-tracked
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers with binary producer IDs} {
+        r DEL mystream
+        
+        # Test with binary producer IDs
+        set bin_pid1 "\x00\x01\x02"
+        set bin_pid2 "\x03\x04\x05"
+        
+        set id1 [r XADD mystream IDMP $bin_pid1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP $bin_pid2 "req-1" * field "v2"]
+        
+        # Different binary PIDs should be isolated
+        assert {$id1 ne $id2}
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify deduplication within same binary PID
+        set id1_dup [r XADD mystream IDMP $bin_pid1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+    }
+
+    test {XADD IDMP multiple producers with unicode producer IDs} {
+        r DEL mystream
+        
+        # Test with unicode producer IDs
+        set id1 [r XADD mystream IDMP "producer-世界" "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP "producer-héllo" "req-1" * field "v2"]
+        set id3 [r XADD mystream IDMP "producer-日本" "req-1" * field "v3"]
+        
+        # All should be separate entries
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert_equal 3 [r XLEN mystream]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers with long producer IDs} {
+        r DEL mystream
+        
+        # Test with very long producer IDs
+        set long_pid1 [string repeat "a" 1000]
+        set long_pid2 [string repeat "b" 1000]
+        
+        set id1 [r XADD mystream IDMP $long_pid1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP $long_pid2 "req-1" * field "v2"]
+        
+        # Different long PIDs should be isolated
+        assert {$id1 ne $id2}
+        assert_equal 2 [r XLEN mystream]
+        
+        # Verify deduplication
+        set id1_dup [r XADD mystream IDMP $long_pid1 "req-1" * field "dup"]
+        assert_equal $id1 $id1_dup
+    }
+
+    test {XADD IDMP multiple producers persistence in RDB} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP p2 "req-1" * field "v2"]
+        set id3 [r XADD mystream IDMP p3 "req-1" * field "v3"]
+        
+        # Verify before save
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        assert_equal 3 [dict get $reply iids-tracked]
+        
+        # Save and reload
+        r SAVE
+        restart_server 0 true false
+        
+        # Verify after reload
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        assert_equal 3 [dict get $reply iids-tracked]
+        
+        # Verify deduplication still works for all producers
+        assert_equal $id1 [r XADD mystream IDMP p1 "req-1" * field "dup"]
+        assert_equal $id2 [r XADD mystream IDMP p2 "req-1" * field "dup"]
+        assert_equal $id3 [r XADD mystream IDMP p3 "req-1" * field "dup"]
+    } {} {external:skip}
+
+    test {XADD IDMP multiple producers concurrent access} {
+        r DEL mystream
+        
+        # Create multiple clients
+        set client1 [redis_client]
+        set client2 [redis_client]
+        set client3 [redis_client]
+        
+        # Each client acts as a different producer
+        set id1 [$client1 XADD mystream IDMP service-a "order-123" * data "from-a"]
+        set id2 [$client2 XADD mystream IDMP service-b "order-123" * data "from-b"]
+        set id3 [$client3 XADD mystream IDMP service-c "order-123" * data "from-c"]
+        
+        # All should be different entries
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert_equal 3 [r XLEN mystream]
+        
+        # Duplicate from same service should return same ID
+        set id1_dup [$client1 XADD mystream IDMP service-a "order-123" * data "retry"]
+        assert_equal $id1 $id1_dup
+        
+        # Verify pids-tracked
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        
+        # Cleanup
+        $client1 close
+        $client2 close
+        $client3 close
+    }
+
+    test {XADD IDMP multiple producers pipelined requests} {
+        r DEL mystream
+        
+        # Send pipelined requests from multiple producers
+        r MULTI
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p2 "req-1" * field "v2"
+        r XADD mystream IDMP p1 "req-1" * field "dup"
+        r XADD mystream IDMP p2 "req-2" * field "v3"
+        r XADD mystream IDMP p3 "req-1" * field "v4"
+        set results [r EXEC]
+        
+        set id_p1_r1 [lindex $results 0]
+        set id_p2_r1 [lindex $results 1]
+        set id_p1_r1_dup [lindex $results 2]
+        set id_p2_r2 [lindex $results 3]
+        set id_p3_r1 [lindex $results 4]
+        
+        # p1 req-1 and its duplicate should match
+        assert_equal $id_p1_r1 $id_p1_r1_dup
+        
+        # Different producers or different IIDs should be different
+        assert {$id_p1_r1 ne $id_p2_r1}
+        assert {$id_p2_r1 ne $id_p2_r2}
+        assert {$id_p2_r1 ne $id_p3_r1}
+        
+        # 4 unique entries: p1/req-1, p2/req-1, p2/req-2, p3/req-1
+        assert_equal 4 [r XLEN mystream]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers with mixed IDMP and IDMPAUTO} {
+        r DEL mystream
+        
+        # Mix of IDMP and IDMPAUTO from different producers
+        set id1 [r XADD mystream IDMP p1 "explicit-iid" * field "v1"]
+        set id2 [r XADD mystream IDMPAUTO p2 * field "v1"]
+        set id3 [r XADD mystream IDMP p3 "another-iid" * field "v1"]
+        set id4 [r XADD mystream IDMPAUTO p4 * field "v1"]
+        
+        # All should be different entries
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert {$id3 ne $id4}
+        assert_equal 4 [r XLEN mystream]
+        
+        # Duplicates should work for each type
+        set id1_dup [r XADD mystream IDMP p1 "explicit-iid" * field "dup"]
+        set id2_dup [r XADD mystream IDMPAUTO p2 * field "v1"]
+        
+        assert_equal $id1 $id1_dup
+        assert_equal $id2 $id2_dup
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 4 [dict get $reply pids-tracked]
+    }
+
+    test {XADD IDMP multiple producers stress test} {
+        r DEL mystream
+        
+        # Create many producers
+        set num_producers 50
+        set ids {}
+        
+        for {set i 0} {$i < $num_producers} {incr i} {
+            lappend ids [r XADD mystream IDMP "producer-$i" "request-1" * field "value-$i"]
+        }
+        
+        # Verify all entries exist
+        assert_equal $num_producers [r XLEN mystream]
+        
+        # Verify pids-tracked
+        set reply [r XINFO STREAM mystream]
+        assert_equal $num_producers [dict get $reply pids-tracked]
+        assert_equal $num_producers [dict get $reply iids-tracked]
+        
+        # Verify deduplication for each producer
+        for {set i 0} {$i < $num_producers} {incr i} {
+            set original_id [lindex $ids $i]
+            set dup_id [r XADD mystream IDMP "producer-$i" "request-1" * field "dup"]
+            assert_equal $original_id $dup_id
+        }
+        
+        # No new entries should have been added
+        assert_equal $num_producers [r XLEN mystream]
+    }
+
     test {XADD IDMPAUTO with invalid syntax} {
         r DEL mystream
         assert_error "*IDMP/IDMPAUTO specified multiple times*" {r XADD mystream IDMPAUTO p1 IDMPAUTO p2 * f v}
@@ -918,6 +1185,47 @@ start_server {
         set id3 [r XADD mystream IDMPAUTO p1 * 123 "999" 789 "012"]
         assert {$id3 != $id1}
         assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO multiple producers have isolated namespaces} {
+        r DEL mystream
+        
+        # Same field-value pairs with different producers should create separate entries
+        set id1 [r XADD mystream IDMPAUTO producer1 * amount "100" currency "USD"]
+        set id2 [r XADD mystream IDMPAUTO producer2 * amount "100" currency "USD"]
+        
+        # Different producers = different entries
+        assert {$id1 ne $id2}
+        assert_equal 2 [r XLEN mystream]
+        
+        # Same producer with same fields should deduplicate
+        set id1_dup [r XADD mystream IDMPAUTO producer1 * amount "100" currency "USD"]
+        set id2_dup [r XADD mystream IDMPAUTO producer2 * amount "100" currency "USD"]
+        
+        assert_equal $id1 $id1_dup
+        assert_equal $id2 $id2_dup
+        assert_equal 2 [r XLEN mystream]
+    }
+
+    test {XADD IDMPAUTO multiple producers} {
+        r DEL mystream
+        
+        # Different producers with same content should create separate entries
+        set id1 [r XADD mystream IDMPAUTO app1 * event "login" user "alice"]
+        set id2 [r XADD mystream IDMPAUTO app2 * event "login" user "alice"]
+        set id3 [r XADD mystream IDMPAUTO app3 * event "login" user "alice"]
+        
+        # All should be different (different producers)
+        assert {$id1 ne $id2}
+        assert {$id2 ne $id3}
+        assert_equal 3 [r XLEN mystream]
+        
+        # Same producer with same content should deduplicate
+        set id1_dup [r XADD mystream IDMPAUTO app1 * event "login" user "alice"]
+        assert_equal $id1 $id1_dup
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
     }
 
     test {XIDMP entries expire after DURATION seconds} {
@@ -1216,7 +1524,7 @@ start_server {
         
         assert_equal 75 $cfg(duration)
         assert_equal 25000 $cfg(maxsize)
-    }
+    } {} {external:skip}
 
     test {XIDMP CFGSET configuration in AOF} {
         r DEL mystream
@@ -1456,6 +1764,76 @@ start_server {
         set reply [r XINFO STREAM mystream]
         assert_equal 2 [dict get $reply iids-tracked]
         assert_equal 5 [dict get $reply iids-added]
+    } {} {external:skip}
+
+    test {XINFO STREAM returns pids-tracked field} {
+        r DEL mystream
+        
+        # Create stream without IDMP
+        r XADD mystream * field "value"
+        
+        # Verify initial pids-tracked is 0
+        set reply [r XINFO STREAM mystream]
+        assert_equal 0 [dict get $reply pids-tracked]
+        
+        # Add entry with first producer
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply pids-tracked]
+        
+        # Add entry with same producer - pids-tracked should stay 1
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply pids-tracked]
+        
+        # Add entry with second producer
+        r XADD mystream IDMP p2 "req-1" * field "v3"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        
+        # Add entry with third producer
+        r XADD mystream IDMP producer3 "req-1" * field "v4"
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XINFO STREAM FULL returns pids-tracked field} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        r XADD mystream IDMP prod-a "req-1" * field "v1"
+        r XADD mystream IDMP prod-b "req-1" * field "v2"
+        r XADD mystream IDMP prod-c "req-1" * field "v3"
+        
+        # Verify FULL mode also returns pids-tracked
+        set reply [r XINFO STREAM mystream FULL]
+        assert_equal 3 [dict get $reply pids-tracked]
+    }
+
+    test {XINFO STREAM iids-tracked counts across all producers} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p2 "req-1" * field "v3"
+        r XADD mystream IDMP p2 "req-2" * field "v4"
+        r XADD mystream IDMP p2 "req-3" * field "v5"
+        
+        # iids-tracked should count all IIDs across all producers (2 + 3 = 5)
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 5 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+        
+        # Duplicates should not increment counters
+        r XADD mystream IDMP p1 "req-1" * field "dup"
+        r XADD mystream IDMP p2 "req-2" * field "dup"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 5 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
     }
 
     test {XIDMP CFGSET MAXSIZE wraparound keeps last 8 entries} {
@@ -1489,6 +1867,33 @@ start_server {
         
         # Total entries: init + 100 original + 92 new = 193
         assert_equal 193 [r XLEN mystream]
+    }
+
+    test {XIDMP CFGSET clears all producer histories} {
+        r DEL mystream
+        
+        # Add entries with multiple producers
+        set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
+        set id2 [r XADD mystream IDMP p2 "req-1" * field "v2"]
+        set id3 [r XADD mystream IDMP p3 "req-1" * field "v3"]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply pids-tracked]
+        assert_equal 3 [dict get $reply iids-tracked]
+        
+        # CFGSET clears all histories
+        r XIDMP CFGSET mystream DURATION 60
+        
+        set reply [r XINFO STREAM mystream]
+        # pids-tracked should be 0 after clearing
+        assert_equal 0 [dict get $reply pids-tracked]
+        assert_equal 0 [dict get $reply iids-tracked]
+        # iids-added is lifetime counter, should persist
+        assert_equal 3 [dict get $reply iids-added]
+        
+        # Can now add "duplicates" since history is cleared
+        set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new"]
+        assert {$id1 ne $new_id1}
     }
 
     test {XTRIM with MINID option} {

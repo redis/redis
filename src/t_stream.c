@@ -5776,26 +5776,17 @@ static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
 static void streamClearIdmpEntries(stream *s) {
     if (s->idmp_producers == NULL) return;
 
-    /* Iterate through all producers and clear their entries */
+    /* Iterate through all producers and free them */
     raxIterator ri;
     raxStart(&ri, s->idmp_producers);
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
-        idmpProducer *producer = ri.data;
-        /* Empty the dict */
-        if (producer->idmp_dict) {
-            dictEmpty(producer->idmp_dict, NULL);
-        }
-        /* Free linked list entries */
-        idmpEntry *entry = producer->idmp_head;
-        while (entry) {
-            idmpEntry *next = entry->next;
-            idmpEntryFree(entry, &s->alloc_size);
-            entry = next;
-        }
-        producer->idmp_head = NULL;
-        producer->idmp_tail = NULL;
+        idmpProducerFree(ri.data, &s->alloc_size);
     }
     raxStop(&ri);
+
+    /* Free the producers rax tree and reset */
+    raxFree(s->idmp_producers);
+    s->idmp_producers = NULL;
 }
 
