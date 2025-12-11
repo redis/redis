@@ -1352,7 +1352,7 @@ start_server {
         assert_equal "duration" [lindex $config 0]
         assert_equal 100 [lindex $config 1]
         assert_equal "maxsize" [lindex $config 2]
-        assert_equal 1000 [lindex $config 3]
+        assert_equal 100 [lindex $config 3]
     }
 
     test {XIDMP CFGSET error on non-existent stream} {
