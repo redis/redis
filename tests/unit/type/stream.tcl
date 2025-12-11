@@ -1368,19 +1368,19 @@ start_server {
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
-        # Set DURATION to maximum allowed (300 seconds)
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 300]
+        # Set DURATION to maximum allowed (86400 seconds = 24 hours)
+        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 86400]
         
         # Verify it was set
         set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal 300 [lindex $config 1]
+        assert_equal 86400 [lindex $config 1]
         
         # Attempt to set DURATION above maximum
-        assert_error "*ERR DURATION must be*" {r XIDMP CFGSET mystream DURATION 301}
+        assert_error "*ERR DURATION must be*" {r XIDMP CFGSET mystream DURATION 86401}
         
         # Verify DURATION wasn't changed
         set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal 300 [lindex $config 1]
+        assert_equal 86400 [lindex $config 1]
     }
 
     test {XIDMP CFGSET DURATION minimum value validation} {
@@ -1409,19 +1409,19 @@ start_server {
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
-        # Set MAXSIZE to maximum allowed (1M)
-        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 1000000]
+        # Set MAXSIZE to maximum allowed (10000)
+        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 10000]
         
         # Verify it was set
         set config [r XIDMP CFGGET mystream MAXSIZE]
-        assert_equal 1000000 [lindex $config 1]
+        assert_equal 10000 [lindex $config 1]
         
         # Attempt to set MAXSIZE above maximum
-        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 1000001}
+        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 10001}
         
         # Verify MAXSIZE wasn't changed
         set config [r XIDMP CFGGET mystream MAXSIZE]
-        assert_equal 1000000 [lindex $config 1]
+        assert_equal 10000 [lindex $config 1]
     }
 
     test {XIDMP CFGSET MAXSIZE minimum value validation} {
@@ -1510,7 +1510,7 @@ start_server {
         
         # Create stream and set configuration
         r XADD mystream IDMP p1 "req-1" * field "value"
-        r XIDMP CFGSET mystream DURATION 75 MAXSIZE 25000
+        r XIDMP CFGSET mystream DURATION 75 MAXSIZE 7500
         
         # Save and restart
         r SAVE
@@ -1523,7 +1523,7 @@ start_server {
         array set cfg $config
         
         assert_equal 75 $cfg(duration)
-        assert_equal 25000 $cfg(maxsize)
+        assert_equal 7500 $cfg(maxsize)
     } {} {external:skip}
 
     test {XIDMP CFGSET configuration in AOF} {
@@ -1535,7 +1535,7 @@ start_server {
 
         # Create stream and set configuration
         r XADD mystream IDMP p1 "req-1" * field "value"
-        r XIDMP CFGSET mystream DURATION 45 MAXSIZE 18000
+        r XIDMP CFGSET mystream DURATION 45 MAXSIZE 4500
         
         # Force AOF rewrite
         r BGREWRITEAOF
@@ -1549,7 +1549,7 @@ start_server {
         array set cfg $config
         
         assert_equal 45 $cfg(duration)
-        assert_equal 18000 $cfg(maxsize)
+        assert_equal 4500 $cfg(maxsize)
         
         assert_equal "OK" [r config set appendonly no]
     } {} {external:skip needs:debug}
@@ -1588,7 +1588,7 @@ start_server {
         assert_equal $id2 $dup_id
         
         # Change MAXSIZE - should clear iids history
-        r XIDMP CFGSET mystream MAXSIZE 20000
+        r XIDMP CFGSET mystream MAXSIZE 5000
         
         # Now req-2 should create a new entry (history was cleared)
         set new_id2 [r XADD mystream IDMP p1 "req-2" * field "new2"]

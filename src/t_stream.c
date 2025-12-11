@@ -5118,8 +5118,8 @@ void xidmpCommand(client *c) {
                 i++;
                 if (getLongLongFromObjectOrReply(c, c->argv[i], &duration, NULL) != C_OK)
                     return;
-                if (duration < 1 || duration > 300) {
-                    addReplyError(c, "DURATION must be between 1 and 300 seconds");
+                if (duration < 1 || duration > 86400) {
+                    addReplyError(c, "DURATION must be between 1 and 86400 seconds");
                     return;
                 }
                 duration_set = 1;
@@ -5131,8 +5131,8 @@ void xidmpCommand(client *c) {
                 i++;
                 if (getLongLongFromObjectOrReply(c, c->argv[i], &maxsize, NULL) != C_OK)
                     return;
-                if (maxsize < 1 || maxsize > 1000000) {
-                    addReplyError(c, "MAXSIZE must be between 1 and 1000000 entries");
+                if (maxsize < 1 || maxsize > 10000) {
+                    addReplyError(c, "MAXSIZE must be between 1 and 10000 entries");
                     return;
                 }
                 maxsize_set = 1;
