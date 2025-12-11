@@ -23,15 +23,15 @@ typedef struct idmpEntry {
     char iid[];              /* Flexible array member for inline IID storage */
 } idmpEntry;
 
-/* Dictionary type for IDMP entries - uses IID as key */
-extern dictType idmpDictType;
-
 /* IDMP Producer structure for per-producer deduplication tracking */
 typedef struct idmpProducer {
     dict *idmp_dict;       /* IDMP IID tracking tree. */
     idmpEntry *idmp_head;  /* Head of the IDMP entries linked list. */
     idmpEntry *idmp_tail;  /* Tail of the IDMP entries linked list. */
 } idmpProducer;
+
+/* Dictionary type for IDMP entries - uses IID as key */
+extern dictType idmpDictType;
 
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
@@ -47,7 +47,7 @@ typedef struct stream {
     unsigned int min_cgroup_last_id_valid: 1;
     uint64_t idmp_duration; /* IDMP duration in seconds. */
     uint64_t idmp_max_entries; /* Max number of IID for tracking. */
-    rax *idmp_producers;   /* IDMP producers radix tree: producer_id -> idmpProducer */
+    rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
     uint64_t iids_added;   /* All time count of entries with IID added. */
 } stream;
 

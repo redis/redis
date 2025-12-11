@@ -47,7 +47,7 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
 
 /* Forward declarations for IDMP functions (defined at end of file) */
-extern dictType idmpDictType;
+dictType idmpDictType;
 static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
 static int idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, idmpEntry **out_entry, idmpEntry **out_old_tail);
