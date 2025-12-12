@@ -1671,6 +1671,27 @@ static int cliSwitchProto(void) {
     return result;
 }
 
+/* Set the client name if configured.
+ * In RESP3 this is handled by HELLO, so we only need to do this
+ * if we are in RESP2 mode. */
+static int cliSetName(void) {
+    if (config.client_name == NULL) return REDIS_OK;
+    if (config.current_resp3) return REDIS_OK; // Already handled by HELLO
+
+    redisReply *reply = redisCommand(context,"CLIENT SETNAME %s", config.client_name);
+    if (reply == NULL) {
+        fprintf(stderr, "\nI/O error\n");
+        return REDIS_ERR;
+    }
+    int result = REDIS_OK;
+    if (reply->type == REDIS_REPLY_ERROR) {
+        fprintf(stderr,"CLIENT SETNAME failed: %s\n", reply->str);
+        result = REDIS_ERR;
+    }
+    freeReplyObject(reply);
+    return result;
+}
+
 /* Connect to the server. It is possible to pass certain flags to the function:
  *      CC_FORCE: The connection is performed even if there is already
  *                a connected socket.
@@ -1738,6 +1759,8 @@ static int cliConnect(int flags) {
         if (cliSelect() != REDIS_OK)
             return REDIS_ERR;
         if (cliSwitchProto() != REDIS_OK)
+            return REDIS_ERR;
+        if (cliSetName() != REDIS_OK)
             return REDIS_ERR;
     }
 
