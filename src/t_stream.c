@@ -47,7 +47,6 @@ void streamUpdateCGroupLastId(stream *s, streamCG *cg, streamID *id);
 void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expire_time);
 
 /* Forward declarations for IDMP functions (defined at end of file) */
-dictType idmpDictType;
 static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
 static int idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, idmpEntry **out_entry, idmpEntry **out_old_tail);
@@ -92,6 +91,11 @@ static void streamLpFreeGeneric(void *lp, void *strm) {
     lpFree(lp);
 }
 
+static void streamFreeIdmpProducerGeneric(void *producer, void *strm) {
+    stream *s = strm;
+    idmpProducerFree((idmpProducer *)producer, &s->alloc_size);
+}
+
 /* Free a stream, including the listpacks stored inside the radix tree. */
 void freeStream(stream *s) {
     raxFreeWithCbAndContext(s->rax, streamLpFreeGeneric, s);
@@ -100,16 +104,8 @@ void freeStream(stream *s) {
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
     /* Free IDMP producers rax tree */
-    if (s->idmp_producers) {
-        raxIterator ri;
-        raxStart(&ri, s->idmp_producers);
-        raxSeek(&ri, "^", NULL, 0);
-        while (raxNext(&ri)) {
-            idmpProducerFree(ri.data, &s->alloc_size);
-        }
-        raxStop(&ri);
-        raxFree(s->idmp_producers);
-    }
+    if (s->idmp_producers)
+        raxFreeWithCbAndContext(s->idmp_producers, streamFreeIdmpProducerGeneric, s);
     debugServerAssert(s->alloc_size == zmalloc_usable_size(s));
     zfree(s);
 }
@@ -5737,28 +5733,19 @@ static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
         
         /* Initialize hash state for this pair */
         err = XXH3_128bits_reset(state);
-        if (err != XXH_OK) {
-            XXH3_freeState(state);
-            return (XXH128_hash_t){0, 0};
-        }
+        if (err != XXH_OK) goto cleanup;
         
         /* Hash the field */
         long field_len;
         unsigned char *field_data = getObjectReadOnlyString(field, &field_len, llbuf);
         err = XXH3_128bits_update(state, field_data, field_len);
-        if (err != XXH_OK) {
-            XXH3_freeState(state);
-            return (XXH128_hash_t){0, 0};
-        }
+        if (err != XXH_OK) goto cleanup;
         
         /* Hash the value */
         long value_len;
         unsigned char *value_data = getObjectReadOnlyString(value, &value_len, llbuf);
         err = XXH3_128bits_update(state, value_data, value_len);
-        if (err != XXH_OK) {
-            XXH3_freeState(state);
-            return (XXH128_hash_t){0, 0};
-        }
+        if (err != XXH_OK) goto cleanup;
         
         /* Get the hash for this pair */
         XXH128_hash_t pair_hash = XXH3_128bits_digest(state);
@@ -5770,6 +5757,10 @@ static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
     
     XXH3_freeState(state);
     return hash_result;
+
+cleanup:
+    XXH3_freeState(state);
+    return (XXH128_hash_t){0, 0};
 }
 
 /* Clear all IDMP entries from a stream - free all producers and their entries */
