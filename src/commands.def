@@ -10374,8 +10374,8 @@ struct COMMAND_ARG XIDMP_CFGSET_Args[] = {
 
 /* XIDMP command table */
 struct COMMAND_STRUCT XIDMP_Subcommands[] = {
-{MAKE_CMD("cfgget","Returns the IDMP configuration parameters for a stream.","O(1)","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_CFGGET_History,0,XIDMP_CFGGET_Tips,0,xidmpCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XIDMP_CFGGET_Keyspecs,1,NULL,2),.args=XIDMP_CFGGET_Args},
-{MAKE_CMD("cfgset","Sets the IDMP configuration parameters for a stream.","O(1)","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_CFGSET_History,0,XIDMP_CFGSET_Tips,0,xidmpCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XIDMP_CFGSET_Keyspecs,1,NULL,3),.args=XIDMP_CFGSET_Args},
+{MAKE_CMD("cfgget","Returns the IDMP configuration parameters for a stream.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_CFGGET_History,0,XIDMP_CFGGET_Tips,0,xidmpCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XIDMP_CFGGET_Keyspecs,1,NULL,2),.args=XIDMP_CFGGET_Args},
+{MAKE_CMD("cfgset","Sets the IDMP configuration parameters for a stream.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_CFGSET_History,0,XIDMP_CFGSET_Tips,0,xidmpCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XIDMP_CFGSET_Keyspecs,1,NULL,3),.args=XIDMP_CFGSET_Args},
 {0}
 };
 

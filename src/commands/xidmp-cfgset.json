@@ -3,7 +3,7 @@
         "summary": "Sets the IDMP configuration parameters for a stream.",
         "complexity": "O(1)",
         "group": "stream",
-        "since": "8.2.0",
+        "since": "8.6.0",
         "arity": -3,
         "container": "XIDMP",
         "function": "xidmpCommand",

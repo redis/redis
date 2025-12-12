@@ -948,16 +948,18 @@ static void defragIdmpProducer(idmpProducer *producer) {
 
     while (entry != NULL) {
         idmpEntry *next = entry->next;
-        /* Delete before defrag to avoid use-after-free in hash */
-        dictDelete(producer->idmp_dict, entry);
-        idmpEntry *newentry = activeDefragAlloc(entry);
+        idmpEntry *newentry = activeDefragAllocWithoutFree(entry);
         if (newentry) {
+            uint64_t hash = dictGetHash(producer->idmp_dict, entry);
+            dictEntry *de = dictFindByHashAndPtr(producer->idmp_dict, entry, hash);
+            serverAssert(de);
+            dictSetKey(producer->idmp_dict, de, newentry);
             *prevnext = newentry;
             if (producer->idmp_tail == entry)
                 producer->idmp_tail = newentry;
+            zfree(entry);
             entry = newentry;
         }
-        dictAdd(producer->idmp_dict, entry, NULL);
         prevnext = &entry->next;
         entry = next;
     }
