@@ -97,6 +97,7 @@ configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
     {"swapdb", REPL_DISKLESS_LOAD_SWAPDB},
+    {"flushdb", REPL_DISKLESS_LOAD_ALWAYS},
     {NULL, 0}
 };
 

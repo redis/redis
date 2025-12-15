@@ -162,7 +162,6 @@ int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 void migrateCloseTimedoutSockets(void);
 int patternHashSlot(char *pattern, int length);
-int getSlotOrReply(client *c, robj *o);
 int isValidAuxString(char *s, unsigned int length);
 void migrateCommand(client *c);
 void clusterCommand(client *c);

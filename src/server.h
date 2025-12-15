@@ -635,6 +635,7 @@ typedef enum {
 #define REPL_DISKLESS_LOAD_DISABLED 0
 #define REPL_DISKLESS_LOAD_WHEN_DB_EMPTY 1
 #define REPL_DISKLESS_LOAD_SWAPDB 2
+#define REPL_DISKLESS_LOAD_ALWAYS 3
 
 /* TLS Client Authentication */
 #define TLS_CLIENT_AUTH_NO 0
