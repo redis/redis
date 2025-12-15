@@ -20,8 +20,8 @@
                 "Added the `active-time` field, and changed the meaning of `seen-time`."
             ],
             [
-                "8.0.0",
-                "Added the `pids-tracked`, `iids-tracked` and `iids-added` fields for IDMP tracking."
+                "8.6.0",
+                "Added the `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."
             ]
         ],
         "function": "xinfoCommand",
@@ -99,6 +99,10 @@
                         },
                         "iids-added": {
                             "description": "the count of all entries with an idempotent id added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "iids-duplicates": {
+                            "description": "the count of duplicate idempotent ids detected during the stream's lifetime",
                             "type": "integer"
                         },
                         "groups": {
@@ -207,6 +211,10 @@
                         },
                         "iids-added": {
                             "description": "the count of all entries with an idempotent id added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "iids-duplicates": {
+                            "description": "the count of duplicate idempotent ids detected during the stream's lifetime",
                             "type": "integer"
                         },
                         "entries": {

@@ -51,7 +51,7 @@ static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
 static int idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, idmpEntry **out_entry, idmpEntry **out_old_tail);
 static void idmpRollbackInsert(stream *s, idmpProducer *producer, idmpEntry *entry, idmpEntry *old_tail);
-static int idmpLookupAndReply(idmpProducer *producer, const char *iid, size_t iid_len, client *c);
+static int idmpLookupAndReply(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, client *c);
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
 
@@ -82,6 +82,7 @@ stream *streamNew(void) {
     s->idmp_max_entries = server.stream_idmp_maxsize; /* Default from server config */ 
     s->idmp_producers = NULL; /* Created on demand to save memory when not used. */
     s->iids_added = 0;
+    s->iids_duplicates = 0;
     return s;
 }
 
@@ -2497,7 +2498,7 @@ void xaddCommand(client *c) {
         }
         
         /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(producer, iid_str, iid_len, c)) {
+        if (idmpLookupAndReply(s, producer, iid_str, iid_len, c)) {
             return;
         }
         
@@ -4751,7 +4752,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 12 : 13);
+    addReplyMapLen(c,full ? 13 : 14);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -4784,6 +4785,8 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyLongLong(c, total_iids);
     addReplyBulkCString(c,"iids-added");
     addReplyLongLong(c,s->iids_added);
+    addReplyBulkCString(c,"iids-duplicates");
+    addReplyLongLong(c,s->iids_duplicates);
 
     size_t old_alloc = s->alloc_size;
     if (!full) {
@@ -5508,7 +5511,7 @@ void idmpProducerFree(idmpProducer *producer, size_t *alloc_size) {
 /* Check if an IID already exists in the producer's idmp_dict.
  * If found, sends the existing stream ID as a reply and returns 1.
  * Returns 0 if the IID was not found. */
-static int idmpLookupAndReply(idmpProducer *producer, const char *iid, size_t iid_len, client *c) {
+static int idmpLookupAndReply(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, client *c) {
     /* Allocate lookup entry on stack with embedded iid using alloca */
     idmpEntry *lookup_entry = alloca(sizeof(idmpEntry) + iid_len);
     lookup_entry->iid_len = iid_len;
@@ -5519,6 +5522,7 @@ static int idmpLookupAndReply(idmpProducer *producer, const char *iid, size_t ii
         /* IID already exists, return the existing stream ID */
         idmpEntry *existing = (idmpEntry *)dictGetKey(de);
         addReplyStreamID(c, &existing->id);
+        s->iids_duplicates++;
         return 1;
     }
     return 0;

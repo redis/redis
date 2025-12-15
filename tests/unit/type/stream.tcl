@@ -1708,17 +1708,126 @@ start_server {
         assert_equal 6 [dict get $reply iids-added]
     }
 
+    test {XINFO STREAM iids-duplicates is lifetime counter} {
+        r DEL mystream
+        
+        # Add initial entry with unique IID
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        
+        set reply [r XINFO STREAM mystream]
+        # No duplicates yet
+        assert_equal 0 [dict get $reply iids-duplicates]
+        assert_equal 1 [dict get $reply iids-added]
+        
+        # Try to add duplicate IID - should be rejected and increment counter
+        set dup_id [r XADD mystream IDMP p1 "req-1" * field "v1-dup"]
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply iids-duplicates]
+        assert_equal 1 [dict get $reply iids-added]  ;# Still 1 successful add
+        
+        # Try same duplicate again
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup2"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-duplicates]
+        assert_equal 1 [dict get $reply iids-added]
+        
+        # Add a different IID (should succeed, duplicates unchanged)
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply iids-duplicates]
+        assert_equal 2 [dict get $reply iids-added]
+        
+        # Try the first IID again
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup3"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-duplicates]
+        assert_equal 2 [dict get $reply iids-added]
+    }
+
+    test {XINFO STREAM iids-duplicates persists after eviction} {
+        r DEL mystream
+        
+        # Add initial entry and configure MAXSIZE
+        r XADD mystream IDMP p1 "init" * field "init"
+        r XIDMP CFGSET mystream MAXSIZE 3
+        # Note: CFGSET clears IID history, so "init" is no longer tracked
+        
+        # Add entries and create some duplicates
+        r XADD mystream IDMP p1 "req-1" * field "v1"
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup"  ;# Duplicate
+        r XADD mystream IDMP p1 "req-2" * field "v2"
+        r XADD mystream IDMP p1 "req-2" * field "v2-dup"  ;# Duplicate
+        
+        set reply [r XINFO STREAM mystream]
+        # iids-tracked should be 2 (req-1, req-2) - "init" was cleared by CFGSET
+        assert_equal 2 [dict get $reply iids-tracked]
+        # iids-added should be 3 (init, req-1, req-2) - lifetime counter includes "init"
+        assert_equal 3 [dict get $reply iids-added]
+        # iids-duplicates should be 2
+        assert_equal 2 [dict get $reply iids-duplicates]
+        
+        # Add more entries to trigger eviction of old IIDs
+        r XADD mystream IDMP p1 "req-3" * field "v3"
+        r XADD mystream IDMP p1 "req-4" * field "v4"
+        
+        # Now we have: req-2, req-3, req-4 (MAXSIZE=3, so req-1 was evicted)
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]  ;# Now capped at MAXSIZE (3)
+        assert_equal 5 [dict get $reply iids-added]    ;# 5 successful adds total
+        assert_equal 2 [dict get $reply iids-duplicates]  ;# Still 2 (lifetime counter)
+        
+        # Try to duplicate one of the currently tracked IIDs
+        r XADD mystream IDMP p1 "req-3" * field "v3-dup"
+        r XADD mystream IDMP p1 "req-4" * field "v4-dup"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply iids-tracked]
+        assert_equal 5 [dict get $reply iids-added]
+        assert_equal 4 [dict get $reply iids-duplicates]  ;# Incremented by 2
+    }
+
+    test {XINFO STREAM iids-duplicates with multiple producers} {
+        r DEL mystream
+        
+        # Add entries from different producers with same IID
+        # (same IID but different producer = NOT a duplicate)
+        r XADD mystream IDMP p1 "req-1" * field "v1-p1"
+        r XADD mystream IDMP p2 "req-1" * field "v1-p2"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        assert_equal 0 [dict get $reply iids-duplicates]  ;# No duplicates
+        
+        # Now add actual duplicates (same IID, same producer)
+        r XADD mystream IDMP p1 "req-1" * field "v1-p1-dup"
+        r XADD mystream IDMP p2 "req-1" * field "v1-p2-dup"
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 2 [dict get $reply pids-tracked]
+        assert_equal 2 [dict get $reply iids-added]
+        assert_equal 2 [dict get $reply iids-duplicates]  ;# 2 duplicates (one per producer)
+    }
+
     test {XINFO STREAM iids counters after CFGSET clears history} {
         r DEL mystream
         
-        # Add entries with IDMP
+        # Add entries with IDMP and create some duplicates
         r XADD mystream IDMP p1 "req-1" * field "v1"
         r XADD mystream IDMP p1 "req-2" * field "v2"
         r XADD mystream IDMP p1 "req-3" * field "v3"
+        r XADD mystream IDMP p1 "req-1" * field "v1-dup"  ;# Duplicate
+        r XADD mystream IDMP p1 "req-2" * field "v2-dup"  ;# Duplicate
         
         set reply [r XINFO STREAM mystream]
         assert_equal 3 [dict get $reply iids-tracked]
         assert_equal 3 [dict get $reply iids-added]
+        assert_equal 2 [dict get $reply iids-duplicates]
         
         # CFGSET clears IID history
         r XIDMP CFGSET mystream DURATION 60
@@ -1728,6 +1837,8 @@ start_server {
         assert_equal 0 [dict get $reply iids-tracked]
         # iids-added should still be preserved (lifetime counter)
         assert_equal 3 [dict get $reply iids-added]
+        # iids-duplicates should still be preserved (lifetime counter)
+        assert_equal 2 [dict get $reply iids-duplicates]
         
         # Add new entry and verify counters
         r XADD mystream IDMP p1 "req-4" * field "v4"

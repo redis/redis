@@ -1337,6 +1337,10 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
         /* Save the all-time count of IIDs added. */
         if ((n = rdbSaveLen(rdb,s->iids_added)) == -1) return -1;
         nwritten += n;
+
+        /* Save the all-time count of duplicate IIDs detected. */
+        if ((n = rdbSaveLen(rdb,s->iids_duplicates)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -3351,6 +3355,14 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             s->iids_added = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) {
                 rdbReportReadError("Stream iids_added loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all-time count of duplicate IIDs detected. */
+            s->iids_duplicates = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream iids_duplicates loading failed.");
                 decrRefCount(o);
                 return NULL;
             }
