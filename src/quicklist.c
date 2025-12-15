@@ -226,9 +226,7 @@ void quicklistRelease(quicklist *quicklist) {
         current = next;
     }
     quicklistBookmarksClear(quicklist);
-#ifdef REDIS_TEST
-    assert(quicklist->alloc_size == zmalloc_usable_size(quicklist));
-#endif
+    debugAssert(quicklist->alloc_size == zmalloc_usable_size(quicklist));
     zfree(quicklist);
 }
 

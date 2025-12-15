@@ -23,6 +23,7 @@
 #define CLUSTER_SLOTS (1<<CLUSTER_SLOT_MASK_BITS) /* Total number of slots in cluster mode, which is 16384. */
 #define CLUSTER_SLOT_MASK ((unsigned long long)(CLUSTER_SLOTS - 1)) /* Bit mask for slot id stored in LSB. */
 #define INVALID_CLUSTER_SLOT (-1) /* Invalid slot number. */
+#define CLUSTER_CROSSSLOT  (-2)
 #define CLUSTER_OK 0            /* Everything looks ok */
 #define CLUSTER_FAIL 1          /* The cluster can't work */
 #define CLUSTER_NAMELEN 40      /* sha1 hex length */
@@ -39,13 +40,6 @@
 
 typedef struct _clusterNode clusterNode;
 struct clusterState;
-
-/* Struct used for storing slot statistics. */
-typedef struct clusterSlotStat {
-    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
-    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
-    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
-} clusterSlotStat;
 
 /* Flags that a module can set in order to prevent certain Redis Cluster
  * features to be enabled. Useful when implementing a different distributed
@@ -86,8 +80,10 @@ static inline unsigned int keyHashSlot(const char *key, int keylen) {
 /* functions requiring mechanism specific implementations */
 void clusterInit(void);
 void clusterInitLast(void);
+void clusterCommonInit(void);
 void clusterCron(void);
 void clusterBeforeSleep(void);
+void clusterClaimUnassignedSlots(void);
 int verifyClusterConfigWithData(void);
 
 int clusterSendModuleMessageToTarget(const char *target, uint64_t module_id, uint8_t type, const char *payload, uint32_t len);
@@ -166,7 +162,6 @@ int clusterRedirectBlockedClientIfNeeded(client *c);
 void clusterRedirectClient(client *c, clusterNode *n, int hashslot, int error_code);
 void migrateCloseTimedoutSockets(void);
 int patternHashSlot(char *pattern, int length);
-int getSlotOrReply(client *c, robj *o);
 int isValidAuxString(char *s, unsigned int length);
 void migrateCommand(client *c);
 void clusterCommand(client *c);

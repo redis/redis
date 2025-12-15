@@ -1089,6 +1089,10 @@ void clusterCommand(client *c) {
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr, "migration")) {
+        clusterMigrationCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"syncslots") && c->argc >= 3) {
+        clusterSyncSlotsCommand(c);
     } else if(!clusterCommandSpecial(c)) {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1096,15 +1100,13 @@ void clusterCommand(client *c) {
 }
 
 /* Extract slot number from keys in a keys_result structure and return to caller.
- * Returns INVALID_CLUSTER_SLOT if keys belong to different slots (cross-slot error),
- * or if there are no keys.
- */
+ * Returns:
+ *   - The slot number if all keys belong to the same slot
+ *   - INVALID_CLUSTER_SLOT if there are no keys or cluster is disabled
+ *   - CLUSTER_CROSSSLOT if keys belong to different slots (cross-slot error) */
 int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
-    if (keys_result->numkeys == 0)
+    if (keys_result->numkeys == 0 || !server.cluster_enabled)
         return INVALID_CLUSTER_SLOT;
-
-    if (!server.cluster_enabled)
-        return 0;
 
     int first_slot = INVALID_CLUSTER_SLOT;
     for (int j = 0; j < keys_result->numkeys; j++) {
@@ -1114,7 +1116,7 @@ int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
         if (first_slot == INVALID_CLUSTER_SLOT)
             first_slot = this_slot;
         else if (first_slot != this_slot) {
-            return INVALID_CLUSTER_SLOT;
+            return CLUSTER_CROSSSLOT;
         }
     }
     return first_slot;
@@ -2126,4 +2128,84 @@ void resetClusterStats(void) {
     if (!server.cluster_enabled) return;
 
     clusterSlotStatResetAll();
+}
+
+/* This function is called at server startup in order to initialize cluster data
+ * structures that are shared between the different cluster implementations. */
+void clusterCommonInit(void) {
+    resetClusterStats();
+    asmInit();
+}
+
+/* This function is called after the node startup in order to check if there
+ * are any slots that we have keys for, but are not assigned to us. If so,
+ * we delete the keys. */
+void clusterDeleteKeysInUnownedSlots(void) {
+    if (clusterNodeIsSlave(getMyClusterNode())) return;
+
+    /* Check that all the slots we have keys for are assigned to us. Otherwise,
+     * delete the keys. */
+    for (int i = 0; i < CLUSTER_SLOTS; i++) {
+        /* Skip if: no keys in the slot, it's our slot, or we are importing it. */
+        if (!countKeysInSlot(i) ||
+            clusterIsMySlot(i) ||
+            getImportingSlotSource(i))
+        {
+            continue;
+        }
+
+        serverLog(LL_NOTICE, "I have keys for slot %d, but the slot is "
+                             "assigned to another node. "
+                             "Deleting keys in the slot.", i);
+        /* With atomic slot migration, it is safe to drop keys from slots
+         * that are not owned. This will not result in data loss under the
+         * legacy slot migration approach either, since the importing state
+         * has already been persisted in node.conf. */
+        clusterDelKeysInSlot(i, 0);
+    }
+}
+
+
+/* This function is called after the node startup in order to verify that data
+ * loaded from disk is in agreement with the cluster configuration:
+ *
+ * 1) If we find keys about hash slots we have no responsibility for, the
+ *    following happens:
+ *    A) If no other node is in charge according to the current cluster
+ *       configuration, we add these slots to our node.
+ *    B) If according to our config other nodes are already in charge for
+ *       this slots, we set the slots as IMPORTING from our point of view
+ *       in order to justify we have those slots, and in order to make
+ *       redis-cli aware of the issue, so that it can try to fix it.
+ * 2) If we find data in a DB different than DB0 we return C_ERR to
+ *    signal the caller it should quit the server with an error message
+ *    or take other actions.
+ *
+ * The function always returns C_OK even if it will try to correct
+ * the error described in "1". However if data is found in DB different
+ * from DB0, C_ERR is returned.
+ *
+ * The function also uses the logging facility in order to warn the user
+ * about desynchronizations between the data we have in memory and the
+ * cluster configuration. */
+int verifyClusterConfigWithData(void) {
+    /* Return ASAP if a module disabled cluster redirections. In that case
+     * every master can store keys about every possible hash slot. */
+    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
+        return C_OK;
+
+    /* If this node is a slave, don't perform the check at all as we
+     * completely depend on the replication stream. */
+    if (clusterNodeIsSlave(getMyClusterNode())) return C_OK;
+
+    /* Make sure we only have keys in DB0. */
+    for (int i = 1; i < server.dbnum; i++) {
+        if (kvstoreSize(server.db[i].keys)) return C_ERR;
+    }
+
+    /* Take over slots that we have keys for, but are assigned to no one. */
+    clusterClaimUnassignedSlots();
+    /* Delete keys in unowned slots */
+    clusterDeleteKeysInUnownedSlots();
+    return C_OK;
 }

@@ -5096,7 +5096,7 @@ void freePendingCommand(client *c, pendingCommand *pcmd) {
     if (pcmd->argv) {
         for (int j = 0; j < pcmd->argc; j++) {
             robj *o = pcmd->argv[j];
-            if (!o) continue; /* TODO */
+            if (!o) continue; /* argv[j] may be NULL when called from reclaimPendingCommand */
             decrRefCount(o);
         }
 

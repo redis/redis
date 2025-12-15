@@ -4010,6 +4010,10 @@ int rdbSaveToSlavesSockets(int req, rdbSaveInfo *rsi) {
         redisSetProcTitle("redis-rdb-to-slaves");
         redisSetCpuAffinity(server.bgsave_cpulist);
 
+        /* Disable RDB compression if requested. */
+        if (req & SLAVE_REQ_RDB_NO_COMPRESS)
+            server.rdb_compression = 0;
+
         if (req & SLAVE_REQ_SLOTS_SNAPSHOT) {
             /* Slots snapshot is required */
             retval = slotSnapshotSaveRio(req, &rdb, NULL);
