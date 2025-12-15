@@ -1666,9 +1666,7 @@ static int cliSwitchProto(void) {
     return result;
 }
 
-/* Set the client name if configured.
- * In RESP3 this is handled by HELLO, so we only need to do this
- * if we are in RESP2 mode. */
+/* Set the client name if configured. */
 static int cliSetName(void) {
     if (config.client_name == NULL) return REDIS_OK;
 
@@ -3154,7 +3152,7 @@ static void usage(int err) {
 "                     This interval is also used in --scan and --stat per cycle.\n"
 "                     and in --bigkeys, --memkeys, --keystats, and --hotkeys per 100 cycles.\n"
 "  -n <db>            Database number.\n"
-"  --name <name>      Set the client name\n"
+"  --name <name>      Set the client name.\n"
 "  -2                 Start session in RESP2 protocol mode.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN (see example below).\n"
