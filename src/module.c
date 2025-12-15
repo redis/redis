@@ -4043,7 +4043,7 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     }
 
     if (asmIsTrimInProgress())
-        flags |= REDISMODULE_CTX_TRIM_IN_PROGRESS;
+        flags |= REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS;
 
     return flags;
 }

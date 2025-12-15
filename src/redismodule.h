@@ -214,7 +214,7 @@ typedef struct RedisModuleStreamID {
 /* This context can call execute debug commands. */
 #define REDISMODULE_CTX_FLAGS_DEBUG_ENABLED (1<<25)
 /* Trim is in progress due to slot migration. */
-#define REDISMODULE_CTX_TRIM_IN_PROGRESS (1<<26)
+#define REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS (1<<26)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.

@@ -260,7 +260,7 @@ int trimInProgressCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
     uint64_t flags = RedisModule_GetContextFlags(ctx);
-    RedisModule_ReplyWithLongLong(ctx, !!(flags & REDISMODULE_CTX_TRIM_IN_PROGRESS));
+    RedisModule_ReplyWithLongLong(ctx, !!(flags & REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS));
     return REDISMODULE_OK;
 }
 

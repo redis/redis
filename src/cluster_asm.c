@@ -1834,7 +1834,7 @@ void clusterSyncSlotsCommand(client *c) {
             return;
         }
 
-        /* We do not start the import task if trim is disabled by module. */
+        /* We do not start the migrate task if trim is disabled by module. */
         int disabled_by_module = server.cluster_module_trim_disablers > 0;
         if (disabled_by_module) {
             addReplyError(c, "Trim is disabled by module");
