@@ -73,8 +73,11 @@ static inline unsigned char sdsType(sds s) {
 /* Returns a user data bit stored in the SDS header by sdsSetAuxBit. The bit
  * index is 0-4. Returns 0 or 1. Always returns 0 for SDS_TYPE_5. */
 static inline int sdsGetAuxBit(sds s, int bit) {
+    if (sdsType(s) == SDS_TYPE_5) 
+        return 0;
+    
     unsigned char flags = s[-1];
-    return sdsType(s) == SDS_TYPE_5 ? 0 : (flags >> (SDS_TYPE_BITS + bit) & 1U);
+    return flags & (1U << (SDS_TYPE_BITS + bit));
 }
 
 /* Stores a bit in an unused area in the SDS header, except for SDS_TYPE_5. The
@@ -85,14 +88,14 @@ static inline void sdsSetAuxBit(sds s, int bit, int value) {
     if (sdsType(s) == SDS_TYPE_5) return;
     unsigned char flags = s[-1];
     if (value) {
-        flags |= 1 << (SDS_TYPE_BITS + bit);
+        flags |= 1U << (SDS_TYPE_BITS + bit);
     } else {
-        flags &= ~(1 << (SDS_TYPE_BITS + bit));
+        flags &= ~(1U << (SDS_TYPE_BITS + bit));
     }
     s[-1] = (char)flags;
 }
 
-static inline size_t sdslen(sds s) {
+static inline size_t sdslen(const sds s) {
     switch (sdsType(s)) {
         case SDS_TYPE_5: return SDS_TYPE_5_LEN(s);
         case SDS_TYPE_8:

@@ -309,7 +309,7 @@ void *rdbLoadIntegerObject(rio *rdb, int enctype, int flags, size_t *lenptr, siz
         if (plainFlag) {
             p = zmalloc_usable(len, usable);
         } else {
-            serverAssert(sdsFlag);
+            debugServerAssert(sdsFlag);
             p = sdsnewlen(SDS_NOINIT,len);
             if (usable) *usable = sdsAllocSize(p);
         } 
@@ -384,7 +384,7 @@ ssize_t rdbSaveLzfStringObject(rio *rdb, unsigned char *s, size_t len) {
 void *rdbLoadLzfStringObject(rio *rdb, int flags, size_t *lenptr, size_t *usable) {
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
-    int robjFlag = (!(plainFlag || sdsFlag)); /* not plain/sds */
+    int robjFlag = !(plainFlag || sdsFlag); /* not plain/sds */
 
     uint64_t len, clen;
     unsigned char *c = NULL;
@@ -516,7 +516,7 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
     void *buf;
     int plainFlag = flags & RDB_LOAD_PLAIN;
     int sdsFlag = flags & RDB_LOAD_SDS;
-    int robjFlag = (!(plainFlag || sdsFlag)); /* not plain/sds */
+    int robjFlag = !(plainFlag || sdsFlag); /* not plain/sds */
 
     int isencoded;
     unsigned long long len;
@@ -557,7 +557,7 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
     if (plainFlag) {
         buf = ztrymalloc_usable(len, usable);
     } else {
-        serverAssert(sdsFlag);
+        debugServerAssert(sdsFlag);
         buf = sdstrynewlen(SDS_NOINIT,len);
         if (usable) *usable = sdsAllocSize(buf);
     }  
@@ -2201,7 +2201,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             /* Load raw strings - load field as SDS first */
             size_t usable;
             sds fieldSds;
-            if ((fieldSds = rdbGenericLoadStringObjectUsable(rdb,RDB_LOAD_SDS,NULL,&usable)) == NULL) {
+            if ((fieldSds = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                 decrRefCount(o);
                 if (dupSearchDict) dictRelease(dupSearchDict);
                 return NULL;
@@ -2278,7 +2278,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             /* Load encoded strings - load field as SDS first */
             size_t usable;
             sds fieldSds;
-            if ((fieldSds = rdbGenericLoadStringObjectUsable(rdb,RDB_LOAD_SDS,NULL,&usable)) == NULL) {
+            if ((fieldSds = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
                 decrRefCount(o);
                 return NULL;
             }
@@ -2384,7 +2384,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             /* Load field and value as SDS first */
             size_t usable;
-            sds fieldSds = rdbGenericLoadStringObjectUsable(rdb, RDB_LOAD_SDS, NULL, &usable);
+            sds fieldSds = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, NULL);
 
             if (fieldSds == NULL) {
                 serverLog(LL_WARNING, "failed reading hash field");

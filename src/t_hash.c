@@ -973,20 +973,18 @@ int hashTypeSet(redisDb *db, kvobj *o, sds field, sds value, int flags) {
         dictEntryLink bucket, link = dictFindLink(ht, field, &bucket);
         size_t *alloc_size = htGetMetadataSize(ht);
 
+        /* take ownership of value if requested */
+        uint32_t newEntryFlags = flags & HASH_SET_TAKE_VALUE;
+        flags &= ~HASH_SET_TAKE_VALUE;
+
         if (link == NULL) {
             /* Create entry and transfer value ownership if possible */
             size_t usable;
-            uint32_t newEntryFlags = (flags & HASH_SET_TAKE_VALUE); /* = ENTRY_TAKE_VALUE */
-            flags &= ~HASH_SET_TAKE_VALUE; 
             Entry *newEntry = entryCreate(field, value, newEntryFlags, &usable);
-            
+
             dictSetKeyAtLink(ht, newEntry, &bucket, 1);
             *alloc_size += usable;
         } else {
-            /* take ownership of value */
-            uint32_t newEntryFlags = flags & HASH_SET_TAKE_VALUE;
-            flags &= ~HASH_SET_TAKE_VALUE;
-            
             /* Existing field - update value in entry */
             Entry *oldEntry = dictGetKey(*link);
 

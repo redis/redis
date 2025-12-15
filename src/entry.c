@@ -31,7 +31,7 @@ enum {
     FIELD_SDS_AUX_BIT_ENTRY_HAS_VALUE_PTR = 1,
     FIELD_SDS_AUX_BIT_ENTRY_MAX
 };
-static_assert(FIELD_SDS_AUX_BIT_ENTRY_MAX < sizeof(char) - SDS_TYPE_BITS, 
+static_assert(FIELD_SDS_AUX_BIT_ENTRY_MAX + SDS_TYPE_BITS < sizeof(char) * CHAR_BIT, 
               "too many sds bits are used for entry metadata");
 
 /* Returns true if the entry's value is not embedded (stored by pointer). */
