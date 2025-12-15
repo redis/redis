@@ -177,9 +177,9 @@ struct hdr_histogram;
 /* Instantaneous metrics tracking. */
 #define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
-#define STATS_METRIC_NET_INPUT 1    /* Bytes read to network. */
+#define STATS_METRIC_NET_INPUT 1    /* Bytes read from network. */
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
-#define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read to network during replication. */
+#define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read from network during replication. */
 #define STATS_METRIC_NET_OUTPUT_REPLICATION 4   /* Bytes written to network during replication. */
 #define STATS_METRIC_EL_CYCLE 5     /* Number of eventloop cycled. */
 #define STATS_METRIC_EL_DURATION 6  /* Eventloop duration. */
