@@ -1636,11 +1636,7 @@ static int cliSwitchProto(void) {
     redisReply *reply;
     if (!config.resp3 || config.resp2) return REDIS_OK;
 
-    if (config.client_name) {
-        reply = redisCommand(context, "HELLO 3 SETNAME %s", config.client_name);
-    } else {
-        reply = redisCommand(context,"HELLO 3");
-    }
+    reply = redisCommand(context,"HELLO 3");
 
     if (reply == NULL) {
         fprintf(stderr, "\nI/O error\n");
@@ -1676,7 +1672,6 @@ static int cliSwitchProto(void) {
  * if we are in RESP2 mode. */
 static int cliSetName(void) {
     if (config.client_name == NULL) return REDIS_OK;
-    if (config.current_resp3) return REDIS_OK; // Already handled by HELLO
 
     redisReply *reply = redisCommand(context,"CLIENT SETNAME %s", config.client_name);
     if (reply == NULL) {
