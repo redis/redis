@@ -5415,7 +5415,7 @@ static int idmpDictKeyCompare(dictCmpCache *cache, const void *key1, const void 
     return memcmp((const char *)e1->iid, (const char *)e2->iid, e1->iid_len) == 0;
 }
 
-/* Dictionary type for IDMP entries - keys are idmpEntry pointers, no separate values */
+/* Dictionary type for IDMP entries - keys are idmpEntry pointers, values are NULL */
 dictType idmpDictType = {
     idmpDictHashFunction,       /* hash function */
     NULL,                       /* key dup */
@@ -5429,7 +5429,7 @@ dictType idmpDictType = {
     NULL,                       /* bucket changed */
     NULL,                       /* dict metadata bytes */
     NULL,                       /* userdata */
-    .no_value = 1,              /* no_value - we only store keys */
+    .no_value = 0,              /* Use regular dict entries with NULL values to support defrag */
     .keys_are_odd = 0,          /* keys are not odd */
     .force_full_rehash = 0,     /* no force full rehash */
     NULL,                       /* stored hash function */
