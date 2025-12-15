@@ -32,8 +32,6 @@
 
 static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX, "Must be equal");
 
-const KeyMetaSpec KEY_METADATA_EMPTY = { 0 };
-
 /* Flags for expireIfNeeded */
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
@@ -370,11 +368,15 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
 
 /* Read dbAddInternal() comment */
 kvobj *dbAdd(redisDb *db, robj *key, robj **valref) {
-    return dbAddInternal(db, key, valref, NULL, &KEY_METADATA_EMPTY);
+    KeyMetaSpec keyMetaEmpty; /* No metadata added */
+    keyMetaSpecInit(&keyMetaEmpty);
+    return dbAddInternal(db, key, valref, NULL, &keyMetaEmpty);
 }
 
 kvobj *dbAddByLink(redisDb *db, robj *key, robj **valref, dictEntryLink *link) {
-    return dbAddInternal(db, key, valref, link, &KEY_METADATA_EMPTY);
+    KeyMetaSpec keyMetaEmpty; /* No metadata added */
+    keyMetaSpecInit(&keyMetaEmpty);
+    return dbAddInternal(db, key, valref, link, &keyMetaEmpty);
 }
 
 /* Returns key's hash slot when cluster mode is enabled, or 0 when disabled.

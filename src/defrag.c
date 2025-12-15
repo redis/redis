@@ -277,59 +277,42 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
     return newhf;
 }
 
-/* Simple defrag for robj. For kvobj take into account preceding metadata */ 
-robj *activeDefragObjInner(robj* ob, int without_free) {
-    if (!(ob->iskvobj))
-        return activeDefragAlloc(ob);
-
-    void *alloc, *newalloc;
-    kvobj *kv = (kvobj *)ob;
-    size_t metaBytes = getNumMeta(kv->metabits) * sizeof(uint64_t);
-    alloc = kvobjGetAllocPtr(kv);
-    if (without_free)
-        newalloc = activeDefragAllocWithoutFree(alloc);
-    else
-        newalloc = activeDefragAlloc(alloc);
-    
-    if (!newalloc) return NULL;
-
-    kv = (kvobj *)((char *)newalloc + metaBytes);
-    return kv;
-}
-
-/* Defrag robj (deep defrag for strings. Shallow all others)
+/* Defrag helper for robj and/or string objects with expected refcount.
  *
- * In some cases, the caller needs to update a robj whose
+ * Like activeDefragStringOb, but it requires the caller to pass in the expected
+ * reference count. In some cases, the caller needs to update a robj whose
  * reference count is not 1, in these cases, the caller must explicitly pass
  * in the reference count, otherwise defragmentation will not be performed.
  * Note that the caller is responsible for updating any other references to the robj. */
-robj *activeDefragObj(robj* ob, int expected_refcount, int without_free) {
+robj *activeDefragStringObEx(robj* ob, int expected_refcount) {
     robj *ret = NULL;
     if (ob->refcount!=expected_refcount)
         return NULL;
 
-    /* If not string robj (Shallow defrag) */
-    if (ob->type != OBJ_STRING)
-        return activeDefragObjInner(ob, without_free);
+    /* try to defrag robj (only if not an EMBSTR type (handled below). */
+    if (ob->type!=OBJ_STRING || ob->encoding!=OBJ_ENCODING_EMBSTR) {
+        if ((ret = activeDefragAlloc(ob))) {
+            ob = ret;
+        }
+    }
 
-    /* Special handling for string robj */
-    if(ob->encoding==OBJ_ENCODING_RAW) {
-        if ((ret = activeDefragObjInner(ob, without_free))) { 
-            ob = ret; 
+    /* try to defrag string object */
+    if (ob->type == OBJ_STRING) {
+        if(ob->encoding==OBJ_ENCODING_RAW) {
+            sds newsds = activeDefragSds((sds)ob->ptr);
+            if (newsds) {
+                ob->ptr = newsds;
+            }
+        } else if (ob->encoding==OBJ_ENCODING_EMBSTR) {
+            /* The sds is embedded in the object allocation, calculate the
+             * offset and update the pointer in the new allocation. */
+            long ofs = (intptr_t)ob->ptr - (intptr_t)ob;
+            if ((ret = activeDefragAlloc(ob))) {
+                ret->ptr = (void*)((intptr_t)ret + ofs);
+            }
+        } else if (ob->encoding!=OBJ_ENCODING_INT) {
+            serverPanic("Unknown string encoding");
         }
-        sds newsds = activeDefragSds((sds)ob->ptr);
-        if (newsds) {
-            ob->ptr = newsds;
-        }
-    } else if (ob->encoding==OBJ_ENCODING_EMBSTR) {
-        /* The sds is embedded in the object allocation, calculate the
-         * offset and update the pointer in the new allocation. */
-        long ofs = (intptr_t)ob->ptr - (intptr_t)ob;
-        if ((ret = activeDefragObjInner(ob, without_free))) {
-            ret->ptr = (void*)((intptr_t)ret + ofs);
-        }
-    } else if (ob->encoding!=OBJ_ENCODING_INT) {
-        serverPanic("Unknown string encoding");
     }
     return ret;
 }
@@ -340,7 +323,7 @@ robj *activeDefragObj(robj* ob, int expected_refcount, int without_free) {
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 robj *activeDefragStringOb(robj* ob) {
-    return activeDefragObj(ob, 1, 0 /* free old one */);
+    return activeDefragStringObEx(ob, 1);
 }
 
 /* Defrag helper for lua scripts
@@ -962,6 +945,26 @@ void defragModule(defragKeysCtx *ctx, redisDb *db, kvobj *kv) {
         defragLater(ctx, kv);
 }
 
+/* For kvobj we need to take into account optional preceding metadata */ 
+robj *kvobjActiveDefrag(kvobj* kv, int without_free) {
+    void *alloc, *newalloc;
+    alloc = kvobjGetAllocPtr(kv);
+    size_t metaBytes = (char *)kv - (char *)alloc;
+    if (without_free)
+        newalloc = activeDefragAllocWithoutFree(alloc);
+    else
+        newalloc = activeDefragAlloc(alloc);
+    
+    if (!newalloc) return NULL;
+
+    kv = (kvobj *)((char *)newalloc + metaBytes);
+    return kv;
+}
+
+static inline void kvobjActiveDefragFree(kvobj* kv) {
+    activeDefragFree(kvobjGetAllocPtr(kv));
+}
+
 /* for each key we scan in the main dict, this function will attempt to defrag
  * all the various pointers it has. */
 void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
@@ -985,7 +988,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
      * defer defragmentation until processing db's subexpires. */
     if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
         /* If the dict doesn't have metadata, we directly defrag it. */
-        kvnew = activeDefragStringOb(ob);
+        kvnew = kvobjActiveDefrag(ob, 0);
     }
     if (kvnew) {
         kvstoreDictSetAtLink(db->keys, slot, kvnew, &link, 0);
@@ -1113,7 +1116,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
 
     /* Try to defrag the channel name. */
     serverAssert(channel->refcount == (int)dictSize(clients) + 1);
-    newchannel = activeDefragObj(channel, dictSize(clients) + 1, 0);
+    newchannel = activeDefragStringObEx(channel, dictSize(clients) + 1);
     if (newchannel) {
         kvstoreDictSetKey(pubsub_channels, ctx->kvstate.slot, (dictEntry*)de, newchannel);
 
@@ -1367,14 +1370,14 @@ void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
         serverAssert(exlink != NULL);
     }
 
-    if ((newkv = activeDefragObj(kv, 1, 1))) {
+    if ((newkv = kvobjActiveDefrag(kv, 1))) {
         /* Update its reference in the DB keys. */
         link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
         serverAssert(link != NULL);
         kvstoreDictSetAtLink(db->keys, slot, newkv, &link, 0);
         if (expire != -1)
             kvstoreDictSetAtLink(db->expires, slot, newkv, &exlink, 0);
-        activeDefragFree(kv);
+        kvobjActiveDefragFree(kv);
     }
     return newkv;
 }

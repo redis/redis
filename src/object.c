@@ -29,10 +29,12 @@ uint64_t *kvobjMetaRef(kvobj *kv, int metaId) {
 
     /* Expiry is always the first metadata */
     if (likely(metaId == 0)) return ((uint64_t *)kv) - 1;
-
+    
+    serverAssert(metaId<KEY_META_ID_MAX);
+    
     /* Count set bits with lower IDs to get the compacted slot index. */
-    uint32_t lower_mask = (1u << metaId) - 1u;
-    int metaSlot = __builtin_popcount(bits & lower_mask);
+    uint32_t lowerMask = (1u << metaId) - 1u;
+    int metaSlot = __builtin_popcount(bits & lowerMask);
     return ((uint64_t *)kv) - metaSlot - 1;
 }
 
@@ -95,6 +97,7 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, uint32_t keyMetaBits) {
     *data++ = sdsHdrSize(key_sds_type);
     sdsnewplacement(data, key_sds_size, key_sds_type, key, key_sds_len);
 
+    /* Reset each allocated metadata to its reset_value (such as Expiry=-1, etc) */
     keyMetaResetValues(kv);
 
     return kv;

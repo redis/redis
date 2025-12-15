@@ -20,6 +20,9 @@
 #define KM_CLASS_SPEC_SIZE    4    /* Size of 32-bit class spec in bytes */
 #define KM_EXPIRE_RESET_VALUE ((uint64_t)-1) /* Sentinel: no expiration */
 
+/* Cast const away only for initialization */
+#define KM_SET_CONST_CONF(conf)  (*((KeyMetaClassConf *) (&conf)))
+
 /* Character set for metadata class names (same as module types). */
 static const char *keyMetaCharSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                     "abcdefghijklmnopqrstuvwxyz"
@@ -35,8 +38,8 @@ typedef enum KeyMetaClassState {
 typedef struct KeyMetaClass {
     char name[5];                 /* 4-char name of the class */
     ModuleEntityId mEntity;       /* module key metadata name and ID. */
-    KeyMetaClassConf conf;        /* copy of configuration callbacks and options */
-    KeyMetaClassState state;
+    const KeyMetaClassConf conf;  /* copy of config */
+    KeyMetaClassState state;      /* FREE/INUSE/RELEASED */
     uint32_t classSpecEncoded;    /* See keyMetaClassEncode() */
 } KeyMetaClass;
 static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
@@ -158,11 +161,12 @@ static int keyMetaClassLookupByName(const char *name, int *alreayReleased) {
 /* Initialize server.keyMeta with defaults and reserve built-in classes. */
 void keyMetaInit(void) {
     memset(keyMetaClass, 0, sizeof(KeyMetaClass) * KEY_META_ID_MAX);
+    debugServerAssert(CLASS_STATE_FREE == 0);
 
     /* Slot 0 is EXPIRE, built-in and always active. */
     keyMetaClass[KEY_META_ID_EXPIRE].state = CLASS_STATE_INUSE;
-    keyMetaClass[KEY_META_ID_EXPIRE].conf.flags = 0; /* No special flags for EXPIRE. */
-    keyMetaClass[KEY_META_ID_EXPIRE].conf.reset_value = KM_EXPIRE_RESET_VALUE;
+    KM_SET_CONST_CONF(keyMetaClass[KEY_META_ID_EXPIRE].conf).flags = 0;
+    KM_SET_CONST_CONF(keyMetaClass[KEY_META_ID_EXPIRE].conf).reset_value = KM_EXPIRE_RESET_VALUE;
 }
 
 /* Prepare key metadata spec for copy of `srcKv` */
@@ -722,7 +726,7 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     pKeyMetaClass->mEntity.module = context;
     pKeyMetaClass->state = CLASS_STATE_INUSE;
     pKeyMetaClass->classSpecEncoded = classSpecEncoded;
-    pKeyMetaClass->conf = *conf; /* Copy config as is. */
+    KM_SET_CONST_CONF(pKeyMetaClass->conf) = *conf; /* Copy config as is. */
     return slot; /* Return handle (1..7). */
 }
 

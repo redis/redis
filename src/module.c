@@ -4411,6 +4411,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *   or when Redis needs to release per-key metadata during lifecycle operations.
  *   The module should free any external allocation referenced by `meta`
  *   if it uses the 8 bytes as a handle/pointer.
+ *   This callback may run in a background thread and is not protected by GIL.
  *
  * * **rdb_load**: A callback function pointer for RDB loading (optional).
  *   - Called during RDB loading when metadata for this class is encountered.
@@ -7437,7 +7438,7 @@ void *RM_ModuleTypeGetValue(RedisModuleKey *key) {
  * modules this cannot be recovered, but if the module declared capability
  * to handle errors, we'll raise a flag rather than exiting. */
 void moduleRDBLoadError(RedisModuleIO *io) {
-    if (io->mEntity->module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS) {
+    if (io->entity->module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS) {
         io->error = 1;
         return;
     }
@@ -7446,8 +7447,8 @@ void moduleRDBLoadError(RedisModuleIO *io) {
         "Read performed by module '%s' about type '%s' "
         "after reading '%llu' bytes of a value "
         "for key named: '%s'.",
-        io->mEntity->module->name,
-        io->mEntity->name,
+        io->entity->module->name,
+        io->entity->name,
         (unsigned long long)io->bytes,
         io->key? (char*)io->key->ptr: "(null)");
 }
@@ -7931,7 +7932,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
         serverLog(LL_WARNING,
             "Fatal: AOF method for module data type '%s' tried to "
             "emit unknown command '%s'",
-            io->mEntity->name, cmdname);
+            io->entity->name, cmdname);
         io->error = 1;
         errno = EINVAL;
         return;
@@ -7945,7 +7946,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
         serverLog(LL_WARNING,
             "Fatal: AOF method for module data type '%s' tried to "
             "call RedisModule_EmitAOF() with wrong format specifiers '%s'",
-            io->mEntity->name, fmt);
+            io->entity->name, fmt);
         io->error = 1;
         errno = EINVAL;
         return;
@@ -7972,7 +7973,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
     if (io->ctx) return io->ctx; /* Can't have more than one... */
     io->ctx = zmalloc(sizeof(RedisModuleCtx));
-    moduleCreateContext(io->ctx, io->mEntity->module, REDISMODULE_CTX_NONE);
+    moduleCreateContext(io->ctx, io->entity->module, REDISMODULE_CTX_NONE);
     return io->ctx;
 }
 
@@ -8061,7 +8062,7 @@ void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
 void RM_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    moduleLogRaw(io->mEntity->module, levelstr, fmt, ap);
+    moduleLogRaw(io->entity->module, levelstr, fmt, ap);
     va_end(ap);
 }
 

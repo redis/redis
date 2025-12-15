@@ -980,7 +980,7 @@ struct RedisModuleDefragCtx {
 struct RedisModuleIO {
     size_t bytes;       /* Bytes read / written so far. */
     rio *rio;           /* Rio stream. */
-    ModuleEntityId *mEntity; /* Module type or keymeta doing the operation. */
+    ModuleEntityId *entity; /* Module type or keymeta doing the operation. */
     int error;          /* True if error condition happened. */
     struct RedisModuleCtx *ctx; /* Optional context, see RM_GetContextFromIO()*/
     struct redisObject *key;    /* Optional name of key processed */
@@ -991,11 +991,11 @@ struct RedisModuleIO {
 
 /* Initialize an IO context. Note that the 'ver' field is populated
  * inside rdb.c according to the version of the value to load. */
-static inline void moduleInitIOContext(RedisModuleIO *io, ModuleEntityId *mEntity,
+static inline void moduleInitIOContext(RedisModuleIO *io, ModuleEntityId *entity,
                                        rio *rioptr, struct redisObject *keyptr, int db) 
 {
     io->rio = rioptr;
-    io->mEntity = mEntity;
+    io->entity = entity;
     io->bytes = 0;
     io->error = 0;
     io->key = keyptr;
