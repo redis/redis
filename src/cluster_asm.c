@@ -3195,7 +3195,6 @@ void trimslotsCommand(client *c) {
             }
         }
 
-        /* Trim the slots. */
         asmTrimSlots(slots);
     }
 
