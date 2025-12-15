@@ -1637,7 +1637,6 @@ static int cliSwitchProto(void) {
     if (!config.resp3 || config.resp2) return REDIS_OK;
 
     reply = redisCommand(context,"HELLO 3");
-
     if (reply == NULL) {
         fprintf(stderr, "\nI/O error\n");
         return REDIS_ERR;
@@ -3155,6 +3154,7 @@ static void usage(int err) {
 "                     This interval is also used in --scan and --stat per cycle.\n"
 "                     and in --bigkeys, --memkeys, --keystats, and --hotkeys per 100 cycles.\n"
 "  -n <db>            Database number.\n"
+"  --name <name>      Set the client name\n"
 "  -2                 Start session in RESP2 protocol mode.\n"
 "  -3                 Start session in RESP3 protocol mode.\n"
 "  -x                 Read last argument from STDIN (see example below).\n"
