@@ -3194,7 +3194,6 @@ void trimslotsCommand(client *c) {
                 }
             }
         }
-
         asmTrimSlots(slots);
     }
 

@@ -9405,18 +9405,20 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
 int RM_ClusterDisableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
     if (server.cluster_module_trim_disablers < INT_MAX) {
-        return ++server.cluster_module_trim_disablers;
+        server.cluster_module_trim_disablers++;
+        return REDISMODULE_OK;
     }
-    return -1;
+    return REDISMODULE_ERR;
 }
 
 /* Enable automatic slot trimming */
 int RM_ClusterEnableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
     if (server.cluster_module_trim_disablers > 0) {
-        return --server.cluster_module_trim_disablers;
+        server.cluster_module_trim_disablers--;
+        return REDISMODULE_OK;
     }
-    return -1;
+    return REDISMODULE_ERR;
 }
 
 /* Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
