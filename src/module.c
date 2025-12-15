@@ -9405,20 +9405,18 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
 int RM_ClusterDisableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
     if (server.cluster_module_trim_disablers < INT_MAX) {
-        server.cluster_module_trim_disablers++;
-        return REDISMODULE_OK;
+        return ++server.cluster_module_trim_disablers;
     }
-    return REDISMODULE_ERR;
+    return -1;
 }
 
 /* Enable automatic slot trimming */
 int RM_ClusterEnableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
     if (server.cluster_module_trim_disablers > 0) {
-        server.cluster_module_trim_disablers--;
-        return REDISMODULE_OK;
+        return --server.cluster_module_trim_disablers;
     }
-    return REDISMODULE_ERR;
+    return -1;
 }
 
 /* Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
@@ -11861,7 +11859,6 @@ static uint64_t moduleEventVersions[] = {
     REDISMODULE_KEYINFO_VERSION, /* REDISMODULE_EVENT_KEY */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_INFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION */
     REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION, /* REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM */
-    -1, /* REDISMODULE_EVENT_CLUSTER_UNOWNEDKEYS */
 };
 
 /* Register to be notified, via a callback, when the specified server event
@@ -12294,8 +12291,6 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_NEXT;
     case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM:
         return subevent < _REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_TRIM_NEXT;
-    case REDISMODULE_EVENT_CLUSTER_UNOWNEDKEYS:
-        return subevent < _REDISMODULE_SUBEVENT_CLUSTER_UNOWNEDKEYS_NEXT;
     default:
         break;
     }

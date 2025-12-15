@@ -844,25 +844,6 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
     return task;
 }
 
-/* This flag is used to avoid firing the event multiple times. */
-static int firedUnownedKeysDetected = 0;
-
-void asmUnownedKeysDetected(void) {
-    if (firedUnownedKeysDetected) return;
-    firedUnownedKeysDetected = 1;
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_UNOWNEDKEYS,
-                          REDISMODULE_SUBEVENT_CLUSTER_UNOWNEDKEYS_DETECTED,
-                          NULL);
-}
-
-void asmUnownedKeysResolved(void) {
-    if (!firedUnownedKeysDetected) return;
-    firedUnownedKeysDetected = 0;
-    moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_UNOWNEDKEYS,
-                          REDISMODULE_SUBEVENT_CLUSTER_UNOWNEDKEYS_RESOLVED,
-                          NULL);
-}
-
 /* CLUSTER MIGRATION IMPORT <start-slot end-slot [start-slot end-slot ...]>
  *
  * Sent by operator to the destination node to start the migration. */
@@ -1047,12 +1028,6 @@ void asmNotifyStateChange(asmTask *task, int event) {
     moduleFireServerEvent(REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION, module_event, &info);
     serverLog(LL_DEBUG, "Fire cluster asm module event, task %s: state=%s",
                         task->id, asmTaskStateToString(task->state));
-
-    if (event == ASM_EVENT_IMPORT_STARTED || event == ASM_EVENT_MIGRATE_COMPLETED) {
-        asmUnownedKeysDetected();
-    } else if (event == ASM_EVENT_IMPORT_COMPLETED) {
-        asmUnownedKeysResolved();
-    }
 
     if (clusterNodeIsMaster(getMyClusterNode())) {
         /* Notify the cluster impl only if it is a real active import task. */
@@ -3014,10 +2989,6 @@ void asmTrimJobProcessPending(void) {
         listDelNode(asmManager->pending_trim_jobs, ln);
         slotRangeArrayFree(slots);
     }
-
-    /* Background trim job is completed immediately, so fire the event if
-     * there is no active trim job. */
-    if (!asmIsTrimInProgress()) asmUnownedKeysResolved();
 }
 
 /* Trim keys in slots not owned by this node (if any). */
@@ -3046,9 +3017,6 @@ void asmTrimSlotsIfNotOwned(slotRangeArray *slots) {
               "Detected keys in slots that do not belong to this node. "
               "Scheduling trim for %zu keys in slots: %s", num_keys, str);
     sdsfree(str);
-
-    /* Detected unowned keys, fire the event. */
-    asmUnownedKeysDetected();
 
     asmTrimJobSchedule(trim_slots);
     slotRangeArrayFree(trim_slots);
@@ -3172,18 +3140,6 @@ void asmCancelTrimJobs(void) {
     listEmpty(asmManager->active_trim_jobs);
 }
 
-/* Called when the database is reset (cleared, reset, or replaced).
- * Cancels all trim jobs and notifies modules that unowned keys are resolved. */
-void asmHandleOnDbReset(void) {
-    if (!asmManager) return;
-
-    /* Previous trim jobs are not needed anymore since the database is reset. */
-    asmCancelTrimJobs();
-
-    /* The database is reset, we consider there is no unowned keys. */
-    asmUnownedKeysResolved();
-}
-
 /* It's used to trim slots after the migration is completed or import is failed.
  * TRIMSLOTS RANGES <numranges> <start-slot> <end-slot> ... */
 void trimslotsCommand(client *c) {
@@ -3238,17 +3194,9 @@ void trimslotsCommand(client *c) {
                 }
             }
         }
-        /* On migrating side, the replica is unaware of the slot migration, so it
-         * doesn't know when the migration is completed (start having unowned keys),
-         * We delay to fire the event until the TRIMSLOTS is propagated to the replica.
-         * Maybe optimize it in the future. */
-        asmUnownedKeysDetected();
 
         /* Trim the slots. */
         asmTrimSlots(slots);
-
-        /* Background trim job is completed immediately, so we need to check here. */
-        if (!asmIsTrimInProgress()) asmUnownedKeysResolved();
     }
 
     /* Command will not be propagated automatically since it does not modify
@@ -3476,9 +3424,6 @@ void asmActiveTrimCycle(void) {
          * continuously filter unowned keys from their replies. */
         if (listLength(asmManager->active_trim_jobs) != 0)
             asmActiveTrimStart();
-
-        /* Fire the event if there is no active trim job. */
-        if (!asmIsTrimInProgress()) asmUnownedKeysResolved();
     }
 }
 

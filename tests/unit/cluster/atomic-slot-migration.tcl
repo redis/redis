@@ -2350,17 +2350,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
                 fail "ASM import event not received"
             }
 
-            # On import side, there are slot migration and unownedkeys events
-            set import_asm_event_log [list \
-                "sub: cluster-slot-migration-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
-                "sub: cluster-unownedkeys-detected" \
-                "sub: cluster-slot-migration-import-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100,200-300" \
-                "sub: cluster-unownedkeys-resolved" \
-            ]
-            assert_equal [R 1 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 4 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 7 asm.get_cluster_asm_event_log] $import_asm_event_log
-
             # Verify the trim events
             if {$trim_method eq "active"} {
                 set trim_event_log [list \
@@ -2380,13 +2369,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             } else {
                 fail "ASM source trim event not received"
             }
-
-            # master has migrate events, replica only has unownedkeys and trim events
-            set migrate_asm_event_log [list "sub: cluster-unownedkeys-detected" {*}$trim_event_log]
-            lappend migrate_asm_event_log "sub: cluster-unownedkeys-resolved"
-            assert_equal [R 0 asm.get_cluster_asm_event_log] [concat $migrate_event_log $migrate_asm_event_log]
-            assert_equal [R 3 asm.get_cluster_asm_event_log] $migrate_asm_event_log
-            assert_equal [R 6 asm.get_cluster_asm_event_log] $migrate_asm_event_log
 
             # cleanup
             R 0 CLUSTER MIGRATION IMPORT 0 100 200 300
@@ -2430,11 +2412,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             assert_equal [R 3 asm.get_cluster_event_log] {}
             assert_equal [R 6 asm.get_cluster_event_log] {}
 
-            # ASM event logs don't have unownedkeys event on migrating side
-            assert_equal [R 0 asm.get_cluster_asm_event_log] $migrate_event_log
-            assert_equal [R 3 asm.get_cluster_asm_event_log] {}
-            assert_equal [R 6 asm.get_cluster_asm_event_log] {}
-
             # Verify the events on destination, both master and replica
             set import_event_log [list \
                 "sub: cluster-slot-migration-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
@@ -2467,19 +2444,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             } else {
                 fail "ASM destination trim event not received"
             }
-
-            # on importing side, there are slot migration, unownedkeys, trimslots events
-            set import_asm_event_log [list \
-                "sub: cluster-slot-migration-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-                "sub: cluster-unownedkeys-detected" \
-                "sub: cluster-slot-migration-import-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-            ]
-            set import_asm_event_log [concat $import_asm_event_log $trim_event_log]
-            lappend import_asm_event_log "sub: cluster-unownedkeys-resolved"
-
-            assert_equal [R 1 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 4 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 7 asm.get_cluster_asm_event_log] $import_asm_event_log
 
             # cleanup
             clear_module_event_log
@@ -2566,19 +2530,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
                 fail "ASM destination trim event not received"
             }
 
-            # on importing side, there are slot migration, unownedkeys, trimslots events
-            set import_asm_event_log [list \
-                "sub: cluster-slot-migration-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-                "sub: cluster-unownedkeys-detected" \
-                "sub: cluster-slot-migration-import-failed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-            ]
-            set import_asm_event_log [concat $import_asm_event_log $trim_event_log]
-            lappend import_asm_event_log "sub: cluster-unownedkeys-resolved"
-
-            assert_equal [R 1 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 4 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 7 asm.get_cluster_asm_event_log] $import_asm_event_log
-
             # cleanup
             failover_and_wait_for_done 1
             clear_module_event_log
@@ -2640,16 +2591,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             } else {
                 fail "ASM import event not received"
             }
-
-            set import_asm_event_log [list \
-                "sub: cluster-slot-migration-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-                "sub: cluster-unownedkeys-detected" \
-                "sub: cluster-slot-migration-import-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-                "sub: cluster-unownedkeys-resolved" \
-            ]
-            assert_equal [R 1 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 4 asm.get_cluster_asm_event_log] $import_asm_event_log
-            assert_equal [R 7 asm.get_cluster_asm_event_log] $import_asm_event_log
 
             R 0 CLUSTER MIGRATION IMPORT 0 100
             wait_for_asm_done
@@ -2728,17 +2669,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         # since ASM task is completed on node-1 before node-4 reconnects,
         # no trim event should be received on node-4
         assert_equal {} [R 4 asm.get_cluster_trim_event_log]
-
-        # node-4 fired import-started and unownedkeys-detected, then fully
-        # synced with master, unownedkeys-resolved should be fired first on
-        # empty db, then fire import-completed when loading asm-task-info from RDB.
-        set import_asm_event_log [list \
-            "sub: cluster-slot-migration-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-            "sub: cluster-unownedkeys-detected" \
-            "sub: cluster-unownedkeys-resolved" \
-            "sub: cluster-slot-migration-import-completed, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-        ]
-        assert_equal [R 4 asm.get_cluster_asm_event_log] $import_asm_event_log
 
         R 0 CLUSTER MIGRATION IMPORT 0 100
         wait_for_asm_done

@@ -14,15 +14,8 @@ int numClusterEvents = 0;
 const char *clusterTrimEventLog[MAX_EVENTS];
 int numClusterTrimEvents = 0;
 
-/* Log of cluster trim events. */
-const char *clusterAllAsmEventLog[MAX_EVENTS];
-int numClusterAllAsmEvents = 0;
-
 /* Log of last deleted key event. */
 const char *lastDeletedKeyLog = NULL;
-
-/* Flag to disable trim. */
-int disableTrimFlag = 0;
 
 int replicateModuleCommand = 0;   /* Enable or disable module command replication. */
 RedisModuleString *moduleCommandKeyName = NULL; /* Key name to replicate. */
@@ -241,25 +234,6 @@ static void testNonFatalScenarios(RedisModuleCtx *ctx, RedisModuleClusterSlotMig
     testReplicatingUnknownCommand(ctx);
 }
 
-int disableTrimCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-    disableTrimFlag = 1;
-    /* Only disable when MIGRATE_COMPLETED for simulating recommended usage. */
-    // RedisModule_ClusterDisableTrim(ctx)
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-    return REDISMODULE_OK;
-}
-
-int enableTrimCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-    disableTrimFlag = 0;
-    RedisModule_Assert(RedisModule_ClusterEnableTrim(ctx) == REDISMODULE_OK);
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
-    return REDISMODULE_OK;
-}
-
 int trimInProgressCmd(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -293,16 +267,7 @@ void clusterEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub,
         } else {
             /* Log the event. */
             if (numClusterEvents >= MAX_EVENTS) return;
-            if (numClusterAllAsmEvents >= MAX_EVENTS) return;
             clusterEventLog[numClusterEvents++] = clusterAsmInfoToString(info, sub);
-            clusterAllAsmEventLog[numClusterAllAsmEvents++] = clusterAsmInfoToString(info, sub);
-
-            if (sub == REDISMODULE_SUBEVENT_CLUSTER_SLOT_MIGRATION_MIGRATE_COMPLETED) {
-                /* If users ask to disable trim, we disable trim. */
-                if (disableTrimFlag) {
-                    RedisModule_Assert(RedisModule_ClusterDisableTrim(ctx) == REDISMODULE_OK);
-                }
-            }
         }
     }
 }
@@ -337,27 +302,8 @@ void clusterTrimEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t 
     if (e.id == REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION_TRIM) {
         /* Log the event. */
         if (numClusterTrimEvents >= MAX_EVENTS) return;
-        if (numClusterAllAsmEvents >= MAX_EVENTS) return;
         RedisModuleClusterSlotMigrationTrimInfo *info = data;
         clusterTrimEventLog[numClusterTrimEvents++] = clusterTrimInfoToString(info, sub);
-        clusterAllAsmEventLog[numClusterAllAsmEvents++] = clusterTrimInfoToString(info, sub);
-    }
-}
-
-void clusterUnownedKeysEventCallback(RedisModuleCtx *ctx, RedisModuleEvent e, uint64_t sub, void *data) {
-    REDISMODULE_NOT_USED(ctx);
-    REDISMODULE_NOT_USED(data);
-
-    RedisModule_Assert(RedisModule_IsSubEventSupported(e, sub));
-
-    if (numClusterAllAsmEvents >= MAX_EVENTS) return;
-
-    if (sub == REDISMODULE_SUBEVENT_CLUSTER_UNOWNEDKEYS_DETECTED) {
-        clusterAllAsmEventLog[numClusterAllAsmEvents++] = RedisModule_Strdup("sub: cluster-unownedkeys-detected");
-    } else if (sub == REDISMODULE_SUBEVENT_CLUSTER_UNOWNEDKEYS_RESOLVED) {
-        clusterAllAsmEventLog[numClusterAllAsmEvents++] = RedisModule_Strdup("sub: cluster-unownedkeys-resolved");
-    } else {
-        RedisModule_Assert(0);
     }
 }
 
@@ -377,7 +323,6 @@ static int keyspaceNotificationTrimmedCallback(RedisModuleCtx *ctx, int type, co
     snprintf(buf, sizeof(buf), "keyspace: key_trimmed, key: %s", key_str);
 
     clusterTrimEventLog[numClusterTrimEvents++] = RedisModule_Strdup(buf);
-    clusterAllAsmEventLog[numClusterAllAsmEvents++] = RedisModule_Strdup(buf);
     return REDISMODULE_OK;
 }
 
@@ -405,10 +350,6 @@ int clearEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         RedisModule_Free((void *)clusterTrimEventLog[i]);
     numClusterTrimEvents = 0;
 
-    for (int i = 0; i < numClusterAllAsmEvents; i++)
-        RedisModule_Free((void *)clusterAllAsmEventLog[i]);
-    numClusterAllAsmEvents = 0;
-
     RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
@@ -434,18 +375,6 @@ int getClusterTrimEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     RedisModule_ReplyWithArray(ctx, numClusterTrimEvents);
     for (int i = 0; i < numClusterTrimEvents; i++)
         RedisModule_ReplyWithStringBuffer(ctx, clusterTrimEventLog[i], strlen(clusterTrimEventLog[i]));
-    return REDISMODULE_OK;
-}
-
-/* Reply with the cluster asm event log. */
-int getclusterAllAsmEventLog(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(ctx);
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-
-    RedisModule_ReplyWithArray(ctx, numClusterAllAsmEvents);
-    for (int i = 0; i < numClusterAllAsmEvents; i++)
-        RedisModule_ReplyWithStringBuffer(ctx, clusterAllAsmEventLog[i], strlen(clusterAllAsmEventLog[i]));
     return REDISMODULE_OK;
 }
 
@@ -571,16 +500,7 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "asm.get_cluster_trim_event_log", getClusterTrimEventLog, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "asm.get_cluster_asm_event_log", getclusterAllAsmEventLog, "", 0, 0, 0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
     if (RedisModule_CreateCommand(ctx, "asm.keyless_cmd", keylessCmd, "write", 0, 0, 0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "asm.disable_trim", disableTrimCmd, "", 0, 0, 0) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "asm.enable_trim", enableTrimCmd, "", 0, 0, 0) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     if (RedisModule_CreateCommand(ctx, "asm.read_pending_trim_key", getPendingTrimKeyCmd, "readonly", 0, 0, 0) == REDISMODULE_ERR)
@@ -633,9 +553,6 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
         return REDISMODULE_ERR;
 
     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Key, keyEventCallback) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-     if (RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ClusterUnownedKeys, clusterUnownedKeysEventCallback) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
     return REDISMODULE_OK;

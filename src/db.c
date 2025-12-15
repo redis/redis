@@ -939,7 +939,7 @@ long long emptyData(int dbnum, int flags, void(callback)(dict*)) {
     }
 
     if (dbnum == -1 || dbnum == 0)
-        asmHandleOnDbReset();
+        asmCancelTrimJobs();
 
     /* Fire the flushdb modules event. */
     moduleFireServerEvent(REDISMODULE_EVENT_FLUSHDB,

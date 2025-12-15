@@ -45,7 +45,6 @@ void clusterMigrationCommand(client *c);
 void clusterSyncSlotsCommand(client *c);
 struct asmTask *asmLookupTaskBySlotRangeArray(struct slotRangeArray *slots);
 void asmCancelTrimJobs(void);
-void asmHandleOnDbReset(void);
 sds asmDumpActiveImportTask(void);
 int asmReplicaHandleMasterTask(sds task_info);
 void asmFinalizeMasterTask(void);
