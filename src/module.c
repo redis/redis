@@ -9411,9 +9411,8 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
  * Trimming uses a reference counter: every call to RM_ClusterDisableTrim
  * increments the counter, and every RM_ClusterEnableTrim call decrements it.
  * Trimming remains disabled as long as the counter is greater than zero.
- */
-
-/* Disable automatic slot trimming. */
+ *
+ * Disable automatic slot trimming. */
 int RM_ClusterDisableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
     if (server.cluster_module_trim_disablers < INT_MAX) {
@@ -9423,7 +9422,7 @@ int RM_ClusterDisableTrim(RedisModuleCtx *ctx) {
     return REDISMODULE_ERR;
 }
 
-/* Enable automatic slot trimming */
+/* Enable automatic slot trimming. See also comments on RM_ClusterDisableTrim. */
 int RM_ClusterEnableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
     if (server.cluster_module_trim_disablers > 0) {
