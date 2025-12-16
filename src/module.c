@@ -9401,6 +9401,18 @@ void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
 }
 
+/* RM_ClusterDisableTrim allows a module to temporarily prevent slot trimming
+ * after a slot migration. This is useful when the module has asynchronous
+ * operations that rely on keys in migrating slots, which would be trimmed.
+ *
+ * The module must call RM_ClusterEnableTrim once it has completed those
+ * operations to re-enable trimming.
+ *
+ * Trimming uses a reference counter: every call to RM_ClusterDisableTrim
+ * increments the counter, and every RM_ClusterEnableTrim call decrements it.
+ * Trimming remains disabled as long as the counter is greater than zero.
+ */
+
 /* Disable automatic slot trimming. */
 int RM_ClusterDisableTrim(RedisModuleCtx *ctx) {
     UNUSED(ctx);
