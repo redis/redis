@@ -2285,6 +2285,7 @@ void initServerConfig(void) {
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
+    server.cluster_module_trim_disablers = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);

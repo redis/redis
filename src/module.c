@@ -3940,6 +3940,8 @@ int RM_GetSelectedDb(RedisModuleCtx *ctx) {
  *
  *  * REDISMODULE_CTX_FLAGS_DEBUG_ENABLED: Debug commands are enabled for this
  *                                         context.
+ *  * REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS: Trim is in progress due to slot
+ *                                            migration.
  */
 int RM_GetContextFlags(RedisModuleCtx *ctx) {
     int flags = 0;
@@ -4036,6 +4038,9 @@ int RM_GetContextFlags(RedisModuleCtx *ctx) {
     if (server.enable_debug_cmd == PROTECTED_ACTION_ALLOWED_YES) {
         flags |= REDISMODULE_CTX_FLAGS_DEBUG_ENABLED;
     }
+
+    if (asmIsTrimInProgress())
+        flags |= REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS;
 
     return flags;
 }
@@ -4142,6 +4147,7 @@ RedisModuleKey *RM_OpenKey(RedisModuleCtx *ctx, robj *keyname, int mode) {
     flags |= (mode & REDISMODULE_OPEN_KEY_NOEXPIRE? LOOKUP_NOEXPIRE: 0);
     flags |= (mode & REDISMODULE_OPEN_KEY_NOEFFECTS? LOOKUP_NOEFFECTS: 0);
     flags |= (mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED ? (LOOKUP_ACCESS_EXPIRED) : 0);
+    flags |= (mode & REDISMODULE_OPEN_KEY_ACCESS_TRIMMED ? (LOOKUP_ACCESS_TRIMMED) : 0);
 
     if (mode & REDISMODULE_WRITE) {
         kv = lookupKeyWriteWithFlags(ctx->client->db,keyname, flags);
@@ -9385,10 +9391,42 @@ int RM_GetClusterNodeInfo(RedisModuleCtx *ctx, const char *id, char *ip, char *m
  *                   cluster, but without effect. */
 void RM_SetClusterFlags(RedisModuleCtx *ctx, uint64_t flags) {
     UNUSED(ctx);
+    server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
     if (flags & REDISMODULE_CLUSTER_FLAG_NO_FAILOVER)
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_FAILOVER;
     if (flags & REDISMODULE_CLUSTER_FLAG_NO_REDIRECTION)
         server.cluster_module_flags |= CLUSTER_MODULE_FLAG_NO_REDIRECTION;
+}
+
+/* RM_ClusterDisableTrim allows a module to temporarily prevent slot trimming
+ * after a slot migration. This is useful when the module has asynchronous
+ * operations that rely on keys in migrating slots, which would be trimmed.
+ *
+ * The module must call RM_ClusterEnableTrim once it has completed those
+ * operations to re-enable trimming.
+ *
+ * Trimming uses a reference counter: every call to RM_ClusterDisableTrim
+ * increments the counter, and every RM_ClusterEnableTrim call decrements it.
+ * Trimming remains disabled as long as the counter is greater than zero.
+ *
+ * Disable automatic slot trimming. */
+int RM_ClusterDisableTrim(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
+    if (server.cluster_module_trim_disablers < INT_MAX) {
+        server.cluster_module_trim_disablers++;
+        return REDISMODULE_OK;
+    }
+    return REDISMODULE_ERR;
+}
+
+/* Enable automatic slot trimming. See also comments on RM_ClusterDisableTrim. */
+int RM_ClusterEnableTrim(RedisModuleCtx *ctx) {
+    UNUSED(ctx);
+    if (server.cluster_module_trim_disablers > 0) {
+        server.cluster_module_trim_disablers--;
+        return REDISMODULE_OK;
+    }
+    return REDISMODULE_ERR;
 }
 
 /* Returns the cluster slot of a key, similar to the `CLUSTER KEYSLOT` command.
@@ -15083,6 +15121,8 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(SetDisconnectCallback);
     REGISTER_API(GetBlockedClientHandle);
     REGISTER_API(SetClusterFlags);
+    REGISTER_API(ClusterDisableTrim);
+    REGISTER_API(ClusterEnableTrim);
     REGISTER_API(ClusterKeySlot);
     REGISTER_API(ClusterKeySlotC);
     REGISTER_API(ClusterCanonicalKeyNameInSlot);
