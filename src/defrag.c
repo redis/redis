@@ -950,8 +950,7 @@ static void defragIdmpProducer(idmpProducer *producer) {
         idmpEntry *next = entry->next;
         idmpEntry *newentry = activeDefragAllocWithoutFree(entry);
         if (newentry) {
-            uint64_t hash = dictGetHash(producer->idmp_dict, entry);
-            dictEntry *de = dictFindByHashAndPtr(producer->idmp_dict, entry, hash);
+            dictEntry *de = dictFind(producer->idmp_dict, entry);
             serverAssert(de);
             dictSetKey(producer->idmp_dict, de, newentry);
             *prevnext = newentry;
