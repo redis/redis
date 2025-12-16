@@ -202,5 +202,6 @@ idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
 void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
 idmpProducer *idmpProducerCreate(size_t *alloc_size);
 void idmpProducerFree(idmpProducer *producer, size_t *alloc_size);
+void streamFreeIdmpProducerGeneric(void *producer, void *strm);
 
 #endif

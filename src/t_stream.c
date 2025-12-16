@@ -92,7 +92,7 @@ static void streamLpFreeGeneric(void *lp, void *strm) {
     lpFree(lp);
 }
 
-static void streamFreeIdmpProducerGeneric(void *producer, void *strm) {
+void streamFreeIdmpProducerGeneric(void *producer, void *strm) {
     stream *s = strm;
     idmpProducerFree((idmpProducer *)producer, &s->alloc_size);
 }

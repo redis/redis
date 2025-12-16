@@ -875,22 +875,20 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
         /* Load the producer ID (pid). */
         size_t pid_len;
         char *pid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &pid_len);
-        if (pid == NULL) {
-            return -1;
-        }
+        if (pid == NULL) goto cleanup;
 
         /* Load the number of entries for this producer. */
         uint64_t count = rdbLoadLen(rdb, NULL);
         if (count == RDB_LENERR) {
             sdsfree(pid);
-            return -1;
+            goto cleanup;
         }
 
         /* Create the producer. */
         idmpProducer *producer = idmpProducerCreate(&s->alloc_size);
         if (producer == NULL) {
             sdsfree(pid);
-            return -1;
+            goto cleanup;
         }
 
         /* Insert producer into rax tree. */
@@ -898,7 +896,7 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
         sdsfree(pid);
         if (!inserted) {
             idmpProducerFree(producer, &s->alloc_size);
-            return -1;
+            goto cleanup;
         }
 
         /* Load each entry for this producer. */
@@ -906,9 +904,7 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             /* Load the IID string. */
             size_t iid_len;
             char *iid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &iid_len);
-            if (iid == NULL) {
-                return -1;
-            }
+            if (iid == NULL) goto cleanup;
 
             /* Load the associated stream ID. */
             streamID id;
@@ -916,15 +912,13 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
             id.seq = rdbLoadLen(rdb, NULL);
             if (rioGetReadError(rdb)) {
                 sdsfree(iid);
-                return -1;
+                goto cleanup;
             }
 
             /* Create the idmpEntry. */
             idmpEntry *entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
             sdsfree(iid); /* idmpEntryCreate makes a copy */
-            if (entry == NULL) {
-                return -1;
-            }
+            if (entry == NULL) goto cleanup;
 
             /* Set the stream ID. */
             entry->id = id;
@@ -948,6 +942,15 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
         }
     }
     return 0;
+
+cleanup:
+    /* Clean up partially constructed producers tree on error.
+     * This prevents use-after-free when the stream is later freed. */
+    if (s->idmp_producers) {
+        raxFreeWithCbAndContext(s->idmp_producers, streamFreeIdmpProducerGeneric, s);
+        s->idmp_producers = NULL;
+    }
+    return -1;
 }
 
 /* Serialize the consumers of a stream consumer group into the RDB. Helper
