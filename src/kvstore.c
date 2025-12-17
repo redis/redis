@@ -1046,7 +1046,7 @@ int kvstoreTest(int argc, char **argv, int flags) {
     }
 
     TEST("kvstoreIterator creating and releasing without kvstoreIteratorNextDict()") {
-        kvstore *kvs = kvstoreCreate(&KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+        kvstore *kvs = kvstoreCreate(&KvstoreTestType, &KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
         kvstoreIterator kvs_iter;
         kvstoreIteratorInit(&kvs_iter, kvs);
         kvstoreIteratorReset(&kvs_iter);
