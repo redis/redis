@@ -892,26 +892,25 @@ start_server {
         r DEL mystream
         set origin_max_entries [config_get_set stream-node-max-entries 2]
 
-        # Create 4 entries in 2 nodes (2 entries per node)
+        # Create 5 entries in 3 nodes (2 entries per node)
         r XADD mystream 1-0 f v
         r XADD mystream 2-0 f v
         r XADD mystream 3-0 f v
         r XADD mystream 4-0 f v
+        r XADD mystream 5-0 f v
 
         # Create a consumer group and read all messages
         r XGROUP CREATE mystream mygroup 0
         r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
 
-        # Only acknowledge messages in the first node (1-0, 2-0)
-        r XACK mystream mygroup 1-0 2-0
+        # Acknowledge messages: 1-0, 2-0 (first node), and 4-0 (second node)
+        r XACK mystream mygroup 1-0 2-0 4-0
 
-        # Now with XTRIM MINID ~ 5-0 ACKED:
-        # - First node (1-0, 2-0): messages are acked, can be removed
-        # - Second node (3-0, 4-0): messages are NOT acked, cannot be removed
-        # The first node should be trimmed even in approx mode.
-        assert_equal 2 [r XTRIM mystream MINID ~ 5-0 ACKED]
+        # XTRIM MINID ~ 6-0 ACKED should remove:
+        # Total 3 entries removed (1-0, 2-0, 4-0), 2 unacked entries remain (3-0, 5-0)
+        assert_equal 3 [r XTRIM mystream MINID ~ 6-0 ACKED]
         assert_equal 2 [r XLEN mystream]
-        assert_equal {{3-0 {f v}} {4-0 {f v}}} [r XRANGE mystream - +]
+        assert_equal {{3-0 {f v}} {5-0 {f v}}} [r XRANGE mystream - +]
 
         r config set stream-node-max-entries $origin_max_entries
     }
