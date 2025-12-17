@@ -522,9 +522,11 @@ int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
     return fwTreeFindIndex(kvs->dict_sizes, target);
 }
 
-/* Wrapper for kvstoreFindDictIndexByKeyIndex to get the first non-empty dict index in the kvstore. */
+/* Get the first non-empty dict index in the kvstore. Returns -1 if kvstore is empty. */
 int kvstoreGetFirstNonEmptyDictIndex(kvstore *kvs) {
-    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
+    if (kvstoreSize(kvs) == 0)
+        return -1;
+    if (kvs->num_dicts == 1)
         return 0;
     return fwTreeFindFirstNonEmpty(kvs->dict_sizes);
 }
