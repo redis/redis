@@ -37,7 +37,7 @@ typedef enum KeyMetaClassState {
 /* Key metadata class */
 typedef struct KeyMetaClass {
     char name[5];                 /* 4-char name of the class */
-    ModuleEntityId mEntity;       /* module key metadata name and ID. */
+    ModuleEntityId entity;        /* module key metadata name and ID. */
     const KeyMetaClassConf conf;  /* copy of config */
     KeyMetaClassState state;      /* FREE/INUSE/RELEASED */
     uint32_t classSpecEncoded;    /* See keyMetaClassEncode() */
@@ -110,9 +110,10 @@ static uint64_t keyMetaClassEncode(const char *name, int metaver, uint64_t flags
  *
  * This is the reverse of the encoding done in keyMetaClassEncode().
  *
- * Returns 1 on success, 0 on error (invalid encoding).
+ * Cannot fail: all 32-bit values are valid (6-bit char mask ensures valid charset
+ * indices, and all 32 bits are consumed by design: 3 + 5 + 24 = 32).
  */
-int keyMetaClassDecode(uint32_t value, char *name, int *metaver, uint8_t *flags) {
+void keyMetaClassDecode(uint32_t value, char *name, int *metaver, uint8_t *flags) {
     debugServerAssert(name && metaver && flags);
 
     /* Extract flags (lowest 3 bits) */
@@ -126,16 +127,14 @@ int keyMetaClassDecode(uint32_t value, char *name, int *metaver, uint8_t *flags)
     /* Extract 4-char name (24 bits, 6 bits per char, big-endian) */
     for (int i = KM_NAME_LEN - 1; i >= 0; i--) {
         unsigned int pos = value & KM_CHAR_MASK;
-        if (pos >= KM_CHARSET_SIZE) return 0; /* Invalid character position */
+        debugServerAssert(pos < KM_CHARSET_SIZE); /* 6-bit value always < 64 */
         name[i] = keyMetaCharSet[pos];
         value >>= KM_ENC_CHAR_BITS;
     }
     name[KM_NAME_LEN] = '\0';
 
-    /* Verify no extra bits set */
-    if (value != 0) return 0;
-
-    return 1;
+    /* All 32 bits should be consumed (3 + 5 + 24 = 32) */
+    debugServerAssert(value == 0);
 }
 
 /* Return -1 if not found, 1..7 for slot if INUSE, alreadyReleased if found but released */
@@ -415,10 +414,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
         char name[5];
         int metaver;
         uint8_t flags;
-        if (keyMetaClassDecode(encClassSpec, name, &metaver, &flags) == 0) {
-            serverLog(LL_WARNING, "Corrupted metadata class spec: 0x%08x", encClassSpec);
-            return -1;
-        }
+        keyMetaClassDecode(encClassSpec, name, &metaver, &flags);
 
         /* Lookup class by name */
         int alreadyReleased = 0;
@@ -445,7 +441,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
 
         RedisModuleIO io;
         /* We don't have the key yet, so pass NULL for now */
-        moduleInitIOContext(&io, &pClass->mEntity, rdb, NULL, dbid);
+        moduleInitIOContext(&io, &pClass->entity, rdb, NULL, dbid);
 
         uint64_t meta = 0;
         int rc = pClass->conf.rdb_load(&io, &meta, metaver);
@@ -542,7 +538,7 @@ int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
 
                 /* Call module's rdb_save callback */
                 RedisModuleIO io;
-                moduleInitIOContext(&io, &pClass->mEntity, &payload_rio, key, dbid);
+                moduleInitIOContext(&io, &pClass->entity, &payload_rio, key, dbid);
                 pClass->conf.rdb_save(&io, kv, pMeta);
 
                 if (io.ctx) {
@@ -620,7 +616,7 @@ int keyMetaOnAof(rio *r, robj *key, kvobj *kv, int dbid) {
                 keyMetaClass[keyMetaId].conf.aof_rewrite) 
             {
                 RedisModuleIO io;
-                moduleInitIOContext(&io, &keyMetaClass[keyMetaId].mEntity, r, key, dbid);
+                moduleInitIOContext(&io, &keyMetaClass[keyMetaId].entity, r, key, dbid);
                 keyMetaClass[keyMetaId].conf.aof_rewrite(&io, kv, meta);
                 if (io.ctx) {
                     moduleFreeContext(io.ctx);
@@ -721,9 +717,9 @@ KeyMetaClassId keyMetaClassCreate(RedisModule *context, const char *name,
     pKeyMetaClass->name[KM_NAME_LEN] = '\0';
 
     /* Store 9-char full name with "META-" prefix */
-    memcpy(pKeyMetaClass->mEntity.name, fullname, KM_FULLNAME_LEN+1);
-    pKeyMetaClass->mEntity.id = entityId;
-    pKeyMetaClass->mEntity.module = context;
+    memcpy(pKeyMetaClass->entity.name, fullname, KM_FULLNAME_LEN+1);
+    pKeyMetaClass->entity.id = entityId;
+    pKeyMetaClass->entity.module = context;
     pKeyMetaClass->state = CLASS_STATE_INUSE;
     pKeyMetaClass->classSpecEncoded = classSpecEncoded;
     KM_SET_CONST_CONF(pKeyMetaClass->conf) = *conf; /* Copy config as is. */

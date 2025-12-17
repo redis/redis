@@ -241,8 +241,10 @@ void restoreCommand(client *c) {
     keyMetaSpecInit(&keymeta);
 
     /* Compute TTL early so we can add it to metadata spec in correct order */
-    if (ttl && !absttl) ttl+=commandTimeSnapshot();
-    if (ttl) keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
+    if (ttl) {
+        if (!absttl) ttl+=commandTimeSnapshot();
+        keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
+    }
 
     /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
     type = rdbLoadType(&payload);

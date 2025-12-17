@@ -879,7 +879,7 @@ typedef struct ModuleEntityId {
 /* The module type, which is referenced in each value of a given type, defines
  * the methods and links to the module exporting the type. */
 typedef struct RedisModuleType {
-    ModuleEntityId mEntity;  /* module data type name and ID. */
+    ModuleEntityId entity;  /* module data type name and ID. */
     moduleTypeLoadFunc rdb_load;
     moduleTypeSaveFunc rdb_save;
     moduleTypeRewriteFunc aof_rewrite;

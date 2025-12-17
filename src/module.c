@@ -7071,8 +7071,8 @@ moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_ca
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
-            if ((!ignore_case && memcmp(name,mt->mEntity.name,sizeof(mt->mEntity.name)) == 0)
-                || (ignore_case && !strcasecmp(name, mt->mEntity.name)))
+            if ((!ignore_case && memcmp(name,mt->entity.name,sizeof(mt->entity.name)) == 0)
+                || (ignore_case && !strcasecmp(name, mt->entity.name)))
             {
                 dictResetIterator(&di);
                 return mt;
@@ -7124,7 +7124,7 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
             moduleType *this_mt = ln->value;
             /* Compare only the 54 bit module identifier and not the
              * encoding version. */
-            if (this_mt->mEntity.id >> 10 == id >> 10) {
+            if (this_mt->entity.id >> 10 == id >> 10) {
                 mt = this_mt;
                 break;
             }
@@ -7158,8 +7158,8 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
 
 /* Return the name of the module that owns the specified moduleType. */
 const char *moduleTypeModuleName(moduleType *mt) {
-    if (!mt || !mt->mEntity.module) return NULL;
-    return mt->mEntity.module->name;
+    if (!mt || !mt->entity.module) return NULL;
+    return mt->entity.module->name;
 }
 
 /* Return the module name from a module command */
@@ -7357,8 +7357,8 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
-    mt->mEntity.id = id;
-    mt->mEntity.module = ctx->module;
+    mt->entity.id = id;
+    mt->entity.module = ctx->module;
     mt->rdb_load = tms->rdb_load;
     mt->rdb_save = tms->rdb_save;
     mt->aof_rewrite = tms->aof_rewrite;
@@ -7385,7 +7385,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     if (tms->version >= 5) {
         mt->aux_save2 = tms->v5.aux_save2;
     }
-    memcpy(mt->mEntity.name,name,sizeof(mt->mEntity.name));
+    memcpy(mt->entity.name,name,sizeof(mt->entity.name));
     listAddNodeTail(ctx->module->types,mt);
     return mt;
 }
@@ -7854,7 +7854,7 @@ void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const module
 
     rioInitWithBuffer(&payload, str->ptr);
     moduleType *mt_non_const = (moduleType *)mt; /*cast const away*/    
-    moduleInitIOContext(&io, &mt_non_const->mEntity, &payload, NULL, -1);
+    moduleInitIOContext(&io, &mt_non_const->entity, &payload, NULL, -1);
 
     /* All RM_Save*() calls always write a version 2 compatible format, so we
      * need to make sure we read the same.
@@ -7887,7 +7887,7 @@ RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, cons
 
     rioInitWithBuffer(&payload,sdsempty());
     moduleType *mt_non_const = (moduleType *)mt; /*cast const away*/
-    moduleInitIOContext(&io, &mt_non_const->mEntity, &payload, NULL, -1);
+    moduleInitIOContext(&io, &mt_non_const->entity, &payload, NULL, -1);
     mt->rdb_save(&io,data);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
