@@ -810,8 +810,11 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         /* If we cannot remove a whole element, and approx is true,
-         * stop here. */
-        if (approx) break;
+         * stop here. However, for non-KEEPREF strategies, if the node was
+         * eligible for removal but we couldn't remove it (because we need
+         * to check consumer group references), we should continue to process
+         * entries within this node. */
+        if (approx && !node_eligible_for_remove) break;
 
         /* Now we have to trim entries from within 'lp' */
         size_t oldsize = lpBytes(lp);
