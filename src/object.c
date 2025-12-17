@@ -110,6 +110,14 @@ void initObjectLRUOrLFU(robj *o) {
     return;
 }
 
+void updateObjectLRP(robj *o) {
+    if (o->refcount == OBJ_SHARED_REFCOUNT)
+        return;
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LRP) {
+        o->lru = LRU_CLOCK();
+    }
+}
+
 /* Set a special refcount in the object to make it "shared":
  * incrRefCount and decrRefCount() will test for this special refcount
  * and will not touch the object. This way it is free to access shared
