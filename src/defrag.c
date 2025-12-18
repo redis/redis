@@ -943,9 +943,8 @@ static void defragIdmpProducer(idmpProducer *producer) {
     if (newdict)
         producer->idmp_dict = newdict;
 
-    idmpEntry **prevnext = &producer->idmp_head;
+    idmpEntry *prev = NULL;
     idmpEntry *entry = producer->idmp_head;
-
     while (entry != NULL) {
         idmpEntry *next = entry->next;
         idmpEntry *newentry = activeDefragAllocWithoutFree(entry);
@@ -953,13 +952,16 @@ static void defragIdmpProducer(idmpProducer *producer) {
             dictEntry *de = dictFind(producer->idmp_dict, entry);
             serverAssert(de);
             dictSetKey(producer->idmp_dict, de, newentry);
-            *prevnext = newentry;
+            if (prev)
+                prev->next = newentry;
+            else
+                producer->idmp_head = newentry;
             if (producer->idmp_tail == entry)
                 producer->idmp_tail = newentry;
             activeDefragFree(entry);
             entry = newentry;
         }
-        prevnext = &entry->next;
+        prev = entry;
         entry = next;
     }
 }
