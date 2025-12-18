@@ -1215,7 +1215,7 @@ void asmImportTakeover(asmTask *task) {
 
     task->state = ASM_TAKEOVER;
     asmLogTaskEvent(task, ASM_EVENT_TAKEOVER);
-    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, NULL);
+    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, task->slots);
 }
 
 void asmCallbackOnFreeClient(client *c) {
@@ -1793,9 +1793,6 @@ static void asmStartImportTask(asmTask *task) {
         serverLog(LL_NOTICE, "Import task %s source node changed: slots=%s, "
                              "new_source=%.40s", task->id, slots_str, clusterNodeGetName(source));
     }
-
-    serverLog(LL_NOTICE, "Import task %s starting: src=%.40s, dest=%.40s, slots=%s",
-                         task->id, task->source, task->dest, slots_str);
     sdsfree(slots_str);
 
     task->state = ASM_CONNECTING;

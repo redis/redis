@@ -6536,14 +6536,14 @@ void clusterPromoteSelfToMaster(void) {
 }
 
 int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
-    UNUSED(arg);
     sds str = NULL;
 
     slotRangeArray *slots = asmTaskGetSlotRanges(task_id);
     if (slots) str = slotRangeArrayToString(slots);
+    else if (arg) str = slotRangeArrayToString(arg);
 
     serverLog(LL_VERBOSE, "Slot migration task %s received event %d for slots: %s",
-                          task_id, event, str);
+                          task_id, event, str ? str : "unknown");
 
     switch (event) {
         case ASM_EVENT_TAKEOVER:
