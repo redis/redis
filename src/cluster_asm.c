@@ -1006,6 +1006,42 @@ void clusterMigrationCommand(client *c) {
     }
 }
 
+/* Log a human-readable message for ASM task lifecycle events. */
+void asmLogTaskEvent(asmTask *task, int event) {
+    sds str = slotRangeArrayToString(task->slots);
+
+    switch (event) {
+        case ASM_EVENT_IMPORT_STARTED:
+            serverLog(LL_NOTICE, "Import task %s started for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_IMPORT_FAILED:
+            serverLog(LL_NOTICE, "Import task %s failed for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_TAKEOVER:
+            serverLog(LL_NOTICE, "Import task %s is ready to takeover slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_IMPORT_COMPLETED:
+            serverLog(LL_NOTICE, "Import task %s completed for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_MIGRATE_STARTED:
+            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_MIGRATE_FAILED:
+            serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_HANDOFF_PREP:
+            serverLog(LL_NOTICE, "Migrate task %s preparing to handoff for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_MIGRATE_COMPLETED:
+            serverLog(LL_NOTICE, "Migrate task %s completed for slots: %s", task->id, str);
+            break;
+        default:
+            break;
+    }
+
+    sdsfree(str);
+}
+
 /* Notify the state change to the module and the cluster implementation. */
 void asmNotifyStateChange(asmTask *task, int event) {
     RedisModuleClusterSlotMigrationInfo info = {
@@ -1031,8 +1067,10 @@ void asmNotifyStateChange(asmTask *task, int event) {
 
     if (clusterNodeIsMaster(getMyClusterNode())) {
         /* Notify the cluster impl only if it is a real active import task. */
-        if (task != asmManager->master_task)
+        if (task != asmManager->master_task) {
+            asmLogTaskEvent(task, event);
             clusterAsmOnEvent(task->id, event, task->slots);
+        }
         asmNotifyReplicasStateChange(task); /* Propagate state change to replicas */
     }
 }
@@ -1176,7 +1214,8 @@ void asmImportTakeover(asmTask *task) {
     task->main_channel_conn = NULL;
 
     task->state = ASM_TAKEOVER;
-    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, NULL);
+    asmLogTaskEvent(task, ASM_EVENT_TAKEOVER);
+    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, task->slots);
 }
 
 void asmCallbackOnFreeClient(client *c) {
@@ -1754,9 +1793,6 @@ static void asmStartImportTask(asmTask *task) {
         serverLog(LL_NOTICE, "Import task %s source node changed: slots=%s, "
                              "new_source=%.40s", task->id, slots_str, clusterNodeGetName(source));
     }
-
-    serverLog(LL_NOTICE, "Import task %s starting: src=%.40s, dest=%.40s, slots=%s",
-                         task->id, task->source, task->dest, slots_str);
     sdsfree(slots_str);
 
     task->state = ASM_CONNECTING;
@@ -2036,6 +2072,7 @@ void clusterSyncSlotsCommand(client *c) {
                                          task->source_offset - task->dest_offset,
                                          server.asm_handoff_max_lag_bytes);
                     task->state = ASM_HANDOFF_PREP;
+                    asmLogTaskEvent(task, ASM_EVENT_HANDOFF_PREP);
                     clusterAsmOnEvent(task->id, ASM_EVENT_HANDOFF_PREP, task->slots);
                 }
             }
