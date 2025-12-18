@@ -2007,6 +2007,48 @@ start_server {
         assert {$id1 ne $new_id1}
     }
 
+    test "CONFIG SET stream-idmp-duration and stream-idmp-maxsize validation" {
+        # Test maximum value rejection for duration (max: 86400)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 86401}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 100000}
+        
+        # Test maximum value rejection for maxsize (max: 10000)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 10001}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 50000}
+        
+        # Test minimum value rejection for duration (min: 0)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration -1}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration -100}
+        
+        # Test minimum value rejection for maxsize (min: 0)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize -1}
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize -100}
+        
+        # Test exact boundary values work correctly
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 86400]
+        assert_equal "86400" [lindex [r CONFIG GET stream-idmp-duration] 1]
+        
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 10000]
+        assert_equal "10000" [lindex [r CONFIG GET stream-idmp-maxsize] 1]
+        
+        # Test minimum boundary values work
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 0]
+        assert_equal "0" [lindex [r CONFIG GET stream-idmp-duration] 1]
+        
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 0]
+        assert_equal "0" [lindex [r CONFIG GET stream-idmp-maxsize] 1]
+        
+        # Test valid intermediate values
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 1]
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 100]
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 1]
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 100]
+        
+        # Reset to defaults
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 100]
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 100]
+    }
+
     test {XTRIM with MINID option} {
         r DEL mystream
         r XADD mystream 1-0 f v
