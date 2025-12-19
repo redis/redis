@@ -5042,16 +5042,18 @@ NULL
 void xidmpCommand(client *c) {
     char *opt = c->argv[1]->ptr;
     robj *key = c->argv[2];
-    
+
     /* Lookup the stream key */
-    kvobj *kv = lookupKeyReadOrReply(c, key, shared.nokeyerr);
-    if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
+    kvobj *kv = lookupKeyReadOrReply(c,key,shared.nokeyerr);
+    if (kv == NULL || checkType(c,kv,OBJ_STREAM)) return;
     stream *s = kv->ptr;
-    if (!strcasecmp(opt, "CFGGET")) {
+
+    /* Dispatch the different subcommands. */
+    if (!strcasecmp(opt,"CFGGET")) {
         /* XIDMP CFGGET <key> [DURATION] [MAXSIZE] */
         int get_duration = 0;
         int get_maxsize = 0;
-        
+
         /* If no parameters specified, return both */
         if (c->argc == 3) {
             get_duration = 1;
@@ -5060,94 +5062,91 @@ void xidmpCommand(client *c) {
             /* Parse which parameters to get */
             for (int i = 3; i < c->argc; i++) {
                 char *param = c->argv[i]->ptr;
-                if (!strcasecmp(param, "DURATION")) {
+                if (!strcasecmp(param,"DURATION")) {
                     get_duration = 1;
-                } else if (!strcasecmp(param, "MAXSIZE")) {
+                } else if (!strcasecmp(param,"MAXSIZE")) {
                     get_maxsize = 1;
                 } else {
-                    addReplyErrorFormat(c, "Unknown parameter '%s'", param);
+                    addReplyErrorFormat(c,"Unknown parameter '%s'",param);
                     return;
                 }
             }
         }
-        
+
         /* Build reply as a map */
         int num_fields = get_duration + get_maxsize;
-        addReplyMapLen(c, num_fields);
+        addReplyMapLen(c,num_fields);
         if (get_duration) {
-            addReplyBulkCString(c, "duration");
-            addReplyLongLong(c, s->idmp_duration);
+            addReplyBulkCString(c,"duration");
+            addReplyLongLong(c,s->idmp_duration);
         }
         if (get_maxsize) {
-            addReplyBulkCString(c, "maxsize");
-            addReplyLongLong(c, s->idmp_max_entries);
+            addReplyBulkCString(c,"maxsize");
+            addReplyLongLong(c,s->idmp_max_entries);
         }
-    } else if (!strcasecmp(opt, "CFGSET")) {
+    } else if (!strcasecmp(opt,"CFGSET")) {
         /* XIDMP CFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
         long long duration = -1;
         long long maxsize = -1;
-        int duration_set = 0;
-        int maxsize_set = 0;
-        
+
         /* Parse parameters */
         for (int i = 3; i < c->argc; i++) {
             int moreargs = c->argc - i - 1;
             char *param = c->argv[i]->ptr;
-            if (!strcasecmp(param, "DURATION") && moreargs) {
-                if (duration_set) {
-                    addReplyError(c, "DURATION specified multiple times");
+            if (!strcasecmp(param,"DURATION") && moreargs) {
+                if (duration != -1) {
+                    addReplyError(c,"DURATION specified multiple times");
                     return;
                 }
                 i++;
-                if (getLongLongFromObjectOrReply(c, c->argv[i], &duration, NULL) != C_OK)
+                if (getLongLongFromObjectOrReply(c,c->argv[i],&duration,NULL) != C_OK)
                     return;
-                if (duration < CONFIG_STREAM_IDMP_MIN_DURATION || 
+                if (duration < CONFIG_STREAM_IDMP_MIN_DURATION ||
                     duration > CONFIG_STREAM_IDMP_MAX_DURATION) {
-                    addReplyErrorFormat(c, "DURATION must be between %d and %d seconds",
-                        CONFIG_STREAM_IDMP_MIN_DURATION, CONFIG_STREAM_IDMP_MAX_DURATION);
+                    addReplyErrorFormat(c,"DURATION must be between %d and %d seconds",
+                        CONFIG_STREAM_IDMP_MIN_DURATION,CONFIG_STREAM_IDMP_MAX_DURATION);
                     return;
                 }
-                duration_set = 1;
-            } else if (!strcasecmp(param, "MAXSIZE") && moreargs) {
-                if (maxsize_set) {
-                    addReplyError(c, "MAXSIZE specified multiple times");
+            } else if (!strcasecmp(param,"MAXSIZE") && moreargs) {
+                if (maxsize != -1) {
+                    addReplyError(c,"MAXSIZE specified multiple times");
                     return;
                 }
                 i++;
-                if (getLongLongFromObjectOrReply(c, c->argv[i], &maxsize, NULL) != C_OK)
+                if (getLongLongFromObjectOrReply(c,c->argv[i],&maxsize,NULL) != C_OK)
                     return;
-                if (maxsize < CONFIG_STREAM_IDMP_MIN_MAXSIZE || 
+                if (maxsize < CONFIG_STREAM_IDMP_MIN_MAXSIZE ||
                     maxsize > CONFIG_STREAM_IDMP_MAX_MAXSIZE) {
-                    addReplyErrorFormat(c, "MAXSIZE must be between %d and %d entries",
-                        CONFIG_STREAM_IDMP_MIN_MAXSIZE, CONFIG_STREAM_IDMP_MAX_MAXSIZE);
+                    addReplyErrorFormat(c,"MAXSIZE must be between %d and %d entries",
+                        CONFIG_STREAM_IDMP_MIN_MAXSIZE,CONFIG_STREAM_IDMP_MAX_MAXSIZE);
                     return;
                 }
-                maxsize_set = 1;
             } else {
-                addReplyErrorObject(c, shared.syntaxerr);
+                addReplyErrorObject(c,shared.syntaxerr);
                 return;
             }
         }
-        
+
         /* At least one parameter must be specified */
-        if (!duration_set && !maxsize_set) {
-            addReplyError(c, "At least one parameter must be specified");
+        if (duration == -1 && maxsize == -1) {
+            addReplyError(c,"At least one parameter must be specified");
             return;
         }
+
         /* Update the stream configuration */
-        if (duration_set) {
+        if (duration != -1) {
             s->idmp_duration = duration;
             streamClearIdmpEntries(s);
         }
-        if (maxsize_set) {
+        if (maxsize != -1) {
             s->idmp_max_entries = maxsize;
             streamClearIdmpEntries(s);
         }
-        
+
         /* Mark the key as dirty for replication */
-        signalModifiedKey(c, c->db, key);
+        signalModifiedKey(c,c->db,key);
         server.dirty++;
-        addReply(c, shared.ok);
+        addReply(c,shared.ok);
     } else {
         addReplySubcommandSyntaxError(c);
     }
@@ -5590,7 +5589,7 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
  * by a previous XADD operation), this function does nothing, as the stream
  * is already registered for periodic cleanup. */
 static void trackStreamIdmpEntries(client *c, robj *key) {
-    if( dictAddRaw(c->db->stream_idmp_keys, key, NULL)) {
+    if (dictAddRaw(c->db->stream_idmp_keys, key, NULL)) {
         incrRefCount(key);
     }
 }
