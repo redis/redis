@@ -2016,11 +2016,13 @@ start_server {
         assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 10001}
         assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 50000}
         
-        # Test minimum value rejection for duration (min: 0)
+        # Test minimum value rejection for duration (min: 1)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 0}
         assert_error "*must be between*" {r CONFIG SET stream-idmp-duration -1}
         assert_error "*must be between*" {r CONFIG SET stream-idmp-duration -100}
         
-        # Test minimum value rejection for maxsize (min: 0)
+        # Test minimum value rejection for maxsize (min: 1)
+        assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize 0}
         assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize -1}
         assert_error "*must be between*" {r CONFIG SET stream-idmp-maxsize -100}
         
@@ -2031,17 +2033,15 @@ start_server {
         assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 10000]
         assert_equal "10000" [lindex [r CONFIG GET stream-idmp-maxsize] 1]
         
-        # Test minimum boundary values work
-        assert_equal "OK" [r CONFIG SET stream-idmp-duration 0]
-        assert_equal "0" [lindex [r CONFIG GET stream-idmp-duration] 1]
+        # Test minimum boundary values work (min: 1)
+        assert_equal "OK" [r CONFIG SET stream-idmp-duration 1]
+        assert_equal "1" [lindex [r CONFIG GET stream-idmp-duration] 1]
         
-        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 0]
-        assert_equal "0" [lindex [r CONFIG GET stream-idmp-maxsize] 1]
+        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 1]
+        assert_equal "1" [lindex [r CONFIG GET stream-idmp-maxsize] 1]
         
         # Test valid intermediate values
-        assert_equal "OK" [r CONFIG SET stream-idmp-duration 1]
         assert_equal "OK" [r CONFIG SET stream-idmp-duration 100]
-        assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 1]
         assert_equal "OK" [r CONFIG SET stream-idmp-maxsize 100]
         
         # Reset to defaults

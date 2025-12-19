@@ -2473,10 +2473,6 @@ void xaddCommand(client *c) {
         char *pid_str = parsed_args.idmp_pid->ptr;
         size_t pid_len = sdslen((sds)pid_str);
         producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
-        if (producer == NULL) {
-            addReplyError(c, "Failed to allocate IDMP producer");
-            return;
-        }
 
         /* Get IID string based on option */
         char *iid_str;
@@ -5105,8 +5101,10 @@ void xidmpCommand(client *c) {
                 i++;
                 if (getLongLongFromObjectOrReply(c, c->argv[i], &duration, NULL) != C_OK)
                     return;
-                if (duration < 1 || duration > 86400) {
-                    addReplyError(c, "DURATION must be between 1 and 86400 seconds");
+                if (duration < CONFIG_STREAM_IDMP_MIN_DURATION || 
+                    duration > CONFIG_STREAM_IDMP_MAX_DURATION) {
+                    addReplyErrorFormat(c, "DURATION must be between %d and %d seconds",
+                        CONFIG_STREAM_IDMP_MIN_DURATION, CONFIG_STREAM_IDMP_MAX_DURATION);
                     return;
                 }
                 duration_set = 1;
@@ -5118,8 +5116,10 @@ void xidmpCommand(client *c) {
                 i++;
                 if (getLongLongFromObjectOrReply(c, c->argv[i], &maxsize, NULL) != C_OK)
                     return;
-                if (maxsize < 1 || maxsize > 10000) {
-                    addReplyError(c, "MAXSIZE must be between 1 and 10000 entries");
+                if (maxsize < CONFIG_STREAM_IDMP_MIN_MAXSIZE || 
+                    maxsize > CONFIG_STREAM_IDMP_MAX_MAXSIZE) {
+                    addReplyErrorFormat(c, "MAXSIZE must be between %d and %d entries",
+                        CONFIG_STREAM_IDMP_MIN_MAXSIZE, CONFIG_STREAM_IDMP_MAX_MAXSIZE);
                     return;
                 }
                 maxsize_set = 1;

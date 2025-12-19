@@ -152,6 +152,12 @@ struct hdr_histogram;
 #define INCREMENTAL_REHASHING_THRESHOLD_US 1000
 #define CLIENTS_CRON_MIN_ITERATIONS 5
 
+/* Stream IDMP configuration limits */
+#define CONFIG_STREAM_IDMP_MIN_DURATION 1        /* Min IDMP duration in seconds. */
+#define CONFIG_STREAM_IDMP_MAX_DURATION 86400    /* Max IDMP duration in seconds (24 hours). */
+#define CONFIG_STREAM_IDMP_MIN_MAXSIZE 1         /* Min IDMP max entries. */
+#define CONFIG_STREAM_IDMP_MAX_MAXSIZE 10000     /* Max IDMP max entries. */
+
 /* Bucket sizes for client eviction pools. Each bucket stores clients with
  * memory usage of up to twice the size of the bucket below it. */
 #define CLIENT_MEM_USAGE_BUCKET_MIN_LOG 15 /* Bucket sizes start at up to 32KB (2^15) */

@@ -3338,11 +3338,23 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 decrRefCount(o);
                 return NULL;
             }
+            if (s->idmp_duration < CONFIG_STREAM_IDMP_MIN_DURATION || 
+                s->idmp_duration > CONFIG_STREAM_IDMP_MAX_DURATION) {
+                rdbReportCorruptRDB("Stream IDMP duration out of range");
+                decrRefCount(o);
+                return NULL;
+            }
 
             /* Load IDMP max entries. */
             s->idmp_max_entries = rdbLoadLen(rdb,NULL);
             if (rioGetReadError(rdb)) {
                 rdbReportReadError("Stream IDMP max entries loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+            if (s->idmp_max_entries < CONFIG_STREAM_IDMP_MIN_MAXSIZE || 
+                s->idmp_max_entries > CONFIG_STREAM_IDMP_MAX_MAXSIZE) {
+                rdbReportCorruptRDB("Stream IDMP max entries out of range");
                 decrRefCount(o);
                 return NULL;
             }
