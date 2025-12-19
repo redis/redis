@@ -49,8 +49,7 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 /* Forward declarations for IDMP functions (defined at end of file) */
 static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
-static idmpEntry *idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, idmpEntry **out_old_tail);
-static void idmpRollbackInsert(stream *s, idmpProducer *producer, idmpEntry *entry, idmpEntry *old_tail);
+static void idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, const streamID *id);
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, client *c);
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
@@ -2463,10 +2462,10 @@ void xaddCommand(client *c) {
     s = kv->ptr;
     size_t old_alloc = s->alloc_size;
 
-    /* IDMP: Check if IID already exists or prepare to insert */
+    /* IDMP: Check if IID already exists, save IID for later insertion */
     XXH128_hash_t hash;
-    idmpEntry *idmp_entry = NULL;
-    idmpEntry *old_idmp_tail = NULL;  /* Save tail before insertion for rollback */
+    char *iid_str = NULL;
+    size_t iid_len = 0;
     idmpProducer *producer = NULL;
     if (parsed_args.idmp_pid != NULL) {
         /* Get or create the producer for this pid */
@@ -2475,8 +2474,6 @@ void xaddCommand(client *c) {
         producer = idmpGetOrCreateProducer(s, pid_str, pid_len);
 
         /* Get IID string based on option */
-        char *iid_str;
-        size_t iid_len;
         if (parsed_args.idmp_auto) {
             /* Auto-generate IID by hashing field-value pairs */
             int64_t numfields = (c->argc - field_pos) / 2;
@@ -2497,19 +2494,12 @@ void xaddCommand(client *c) {
         if (idmpLookupAndReply(s, producer, iid_str, iid_len, c)) {
             return;
         }
-        
-        /* Insert entry into dict and linked list */
-        idmp_entry = idmpInsertEntry(s, producer, iid_str, iid_len, &old_idmp_tail);
     }
 
     /* Return ASAP if the stream has reached the last possible ID */
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
         addReplyError(c,"The stream has exhausted the last possible ID, "
                         "unable to add more items");
-        /* Clean up if we inserted a placeholder entry */
-        if (idmp_entry) {
-            idmpRollbackInsert(s, producer, idmp_entry, old_idmp_tail);
-        }
         return;
     }
 
@@ -2527,22 +2517,15 @@ void xaddCommand(client *c) {
             addReplyError(c,"Elements are too large to be stored");
         if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
-        /* Clean up if we inserted a placeholder entry */
-        if (idmp_entry) {
-            idmpRollbackInsert(s, producer, idmp_entry, old_idmp_tail);
-        }
         return;
     }
     sds replyid = createStreamIDString(&id);
     addReplyBulkCBuffer(c, replyid, sdslen(replyid));
 
-    /* IDMP: Update the entry's ID if we inserted it earlier */
-    if (idmp_entry) {
-        idmp_entry->id = id;
-        s->iids_added++;
+    /* IDMP: Insert the entry now that we have the actual ID */
+    if (parsed_args.idmp_pid != NULL) {
+        idmpInsertEntry(s, producer, iid_str, iid_len, &id);
         trackStreamIdmpEntries(c, c->argv[1]);
-        /* Remove oldest entry if exceeding max entries */
-        idmpEvictOldestEntry(s, producer);
     }
 
     notifyKeyspaceEvent(NOTIFY_STREAM,"xadd",c->argv[1],c->db->id);
@@ -5509,19 +5492,15 @@ static int idmpLookupAndReply(stream *s, idmpProducer *producer, const char *iid
     return 0;
 }
 
-/* Insert a new idmpEntry into the producer's dict and linked list.
- * Returns the new entry and sets *out_old_tail to the previous tail
- * (for potential rollback). */
-static idmpEntry *idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len,
-                                   idmpEntry **out_old_tail) {
-    /* Create entry with placeholder ID (will be updated after streamAppendItem) */
+/* Insert a new idmpEntry into the producer's dict and linked list with the given stream ID. */
+static void idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len,
+                             const streamID *id) {
+    /* Create entry with the actual stream ID */
     idmpEntry *new_entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
     new_entry->next = NULL;
+    new_entry->id = *id;
 
-    /* Save current tail before insertion for potential rollback */
-    *out_old_tail = producer->idmp_tail;
-
-    /* Insert into dict */
+    /* Insert into dict (should always succeed since we already checked with lookup) */
     serverAssert(dictAdd(producer->idmp_dict, new_entry, NULL) == DICT_OK);
     
     /* Add to linked list tail */
@@ -5531,21 +5510,11 @@ static idmpEntry *idmpInsertEntry(stream *s, idmpProducer *producer, const char 
         producer->idmp_tail->next = new_entry;
         producer->idmp_tail = new_entry;
     }
-    return new_entry;
-}
-
-/* Rollback an idmpEntry insertion from both dict and linked list, then free it. */
-static void idmpRollbackInsert(stream *s, idmpProducer *producer, idmpEntry *entry, idmpEntry *old_tail) {
-    /* Remove from dict */
-    dictDelete(producer->idmp_dict, entry);
-    /* Restore linked list to state before insertion */
-    if (old_tail == NULL) {
-        producer->idmp_head = producer->idmp_tail = NULL;
-    } else {
-        old_tail->next = NULL;
-        producer->idmp_tail = old_tail;
-    }
-    idmpEntryFree(entry, &s->alloc_size);
+    
+    s->iids_added++;
+    
+    /* Remove oldest entry if exceeding max entries */
+    idmpEvictOldestEntry(s, producer);
 }
 
 /* Get or create an idmpProducer for the given producer ID.
