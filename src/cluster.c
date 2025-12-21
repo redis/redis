@@ -1989,7 +1989,7 @@ slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     int start, end, count;
     slotRangeArray *slots;
 
-    /* Ensure there is at least one or more (start,end) slot range pairs. */
+    /* Ensure there is at least one (start,end) slot range pairs. */
     if (argc < 0 || pos < 0 || pos >= argc || (argc - pos) < 2 || ((argc - pos) % 2) != 0)
         return NULL;
 
