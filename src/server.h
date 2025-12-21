@@ -1624,6 +1624,9 @@ typedef struct zskiplistNode {
     struct zskiplistNode *backward;
     struct zskiplistLevel {
         struct zskiplistNode *forward;
+        /* Span is the number of elements between this node and the next node at this level.
+         * At level 0, span is always 1 (or 0 for the last node), so we repurpose it to store
+         * the node's height. This enables O(1) access to node height for rank calculations. */
         unsigned long span;
     } level[];
 } zskiplistNode;
