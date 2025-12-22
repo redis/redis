@@ -2801,6 +2801,7 @@ void xreadCommand(client *c) {
                                                     consumer->name);
             }
             consumer->seen_time = commandTimeSnapshot();
+            updateObjectLRP(o);
         } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
@@ -2846,7 +2847,10 @@ void xreadCommand(client *c) {
                                  consumer, flags, &spi, &propCount);
             if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),old_alloc,s->alloc_size);
-            if (propCount) server.dirty++;
+            if (propCount) {
+                server.dirty++;
+                updateObjectLRP(o);
+            }
         }
     }
 
@@ -3351,6 +3355,7 @@ NULL
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             addReply(c,shared.ok);
             server.dirty++;
+            updateObjectLRP(o);
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
                                 c->argv[2],c->db->id);
         } else {
@@ -3372,6 +3377,7 @@ NULL
         cg->entries_read = entries_read;
         addReply(c,shared.ok);
         server.dirty++;
+        updateObjectLRP(o);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
@@ -3382,6 +3388,7 @@ NULL
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             addReply(c,shared.cone);
             server.dirty++;
+            updateObjectLRP(o);
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
@@ -3393,6 +3400,7 @@ NULL
         old_alloc = s->alloc_size;
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
+        updateObjectLRP(o);
         if (server.memory_tracking_per_slot)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
         addReplyLongLong(c,created ? 1 : 0);
@@ -3408,6 +3416,7 @@ NULL
             if (server.memory_tracking_per_slot)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             server.dirty++;
+            updateObjectLRP(o);
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                                 c->argv[2],c->db->id);
         }
@@ -3489,6 +3498,7 @@ void xsetidCommand(client *c) {
         s->max_deleted_entry_id = max_xdel_id;
     addReply(c,shared.ok);
     server.dirty++;
+    updateObjectLRP(kv);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
 }
 
@@ -3546,6 +3556,7 @@ void xackCommand(client *c) {
             streamDestroyNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
+            updateObjectLRP(kv);
         }
     }
     if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
@@ -3601,7 +3612,7 @@ void xackdelCommand(client *c) {
     s = kv->ptr;
     size_t old_alloc = s->alloc_size;
     int first_entry = 0;
-    int deleted = 0;
+    int deleted = 0, changed = 0;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XACKDEL_NO_ID;
@@ -3620,6 +3631,7 @@ void xackdelCommand(client *c) {
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(s, nack, buf);
             server.dirty++;
+            changed++;
 
             int can_delete = 1;
             if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
@@ -3666,6 +3678,8 @@ void xackdelCommand(client *c) {
         signalModifiedKey(c,c->db,c->argv[1],kv);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
     }
+
+    if (changed) updateObjectLRP(kv);
 
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4134,6 +4148,7 @@ void xclaimCommand(client *c) {
     }
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
+    updateObjectLRP(o);
 cleanup:
     if (ids != static_ids) zfree(ids);
 }
@@ -4336,6 +4351,7 @@ void xautoclaimCommand(client *c) {
     zfree(deleted_ids);
 
     preventCommandPropagation(c);
+    updateObjectLRP(o);
 }
 
 /* XDEL <key> [<ID1> <ID2> ... <IDN>]
