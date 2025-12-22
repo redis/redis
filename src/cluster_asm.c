@@ -3326,7 +3326,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
     if (static_key) keyobj = createStringObject(keyobj->ptr, sdslen(keyobj->ptr));
 
     dbDelete(db, keyobj);
-    signalModifiedKey(NULL, db, keyobj);
+    signalModifiedKey(NULL, db, keyobj, NULL);
     /* The keys are not actually logically deleted from the database, just moved
      * to another node. The modules need to know that these keys are no longer
      * available locally, so just send the keyspace notification to the modules,
