@@ -3612,7 +3612,7 @@ void xackdelCommand(client *c) {
     s = kv->ptr;
     size_t old_alloc = s->alloc_size;
     int first_entry = 0;
-    int deleted = 0, changed = 0;
+    int deleted = 0, dirty = server.dirty;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XACKDEL_NO_ID;
@@ -3631,7 +3631,6 @@ void xackdelCommand(client *c) {
             raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
             streamDestroyNACK(s, nack, buf);
             server.dirty++;
-            changed++;
 
             int can_delete = 1;
             if (args.delete_strategy == DELETE_STRATEGY_ACKED) {
@@ -3679,7 +3678,7 @@ void xackdelCommand(client *c) {
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
     }
 
-    if (changed) updateObjectLRP(kv);
+    if (server.dirty > dirty) updateObjectLRP(kv);
 
 cleanup:
     if (ids != static_ids) zfree(ids);
