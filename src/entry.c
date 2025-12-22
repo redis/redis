@@ -11,7 +11,7 @@
 #include "entry.h"
 
 /* Aggregates parameters for entry layout and serialization.
- * Populated by setEntryWriteInfo() and consumed by isNeedNewAlloc() and entryWrite*(). */
+ * Populated by setEntryWriteInfo() and consumed by needsNewAlloc() and entryWrite*(). */
 typedef struct EntryWriteInfo {
     int isEmbdNewVal;          /* Whether value should be embedded */
     int embdFieldType;         /* SDS type for the field */
@@ -249,10 +249,10 @@ Entry *entryCreate(sds field, sds value, uint32_t flags, size_t *usable) {
 
 /* Helper: Check if we need to create a new entry allocation during update.
  * Returns true if a new allocation is needed, false if we can update in-place. */
-static inline int isNeedNewAlloc(Entry *e,
-                                 EntryWriteInfo *info,
-                                 int isUpdateValue,
-                                 int expiryAddRemove)
+static inline int needsNewAlloc(Entry *e,
+                                EntryWriteInfo *info,
+                                int isUpdateValue,
+                                int expiryAddRemove)
 {
     /* if we need to add/remove expiration metadata */
     if (expiryAddRemove)
@@ -333,7 +333,7 @@ Entry *entryUpdate(Entry *entry, sds value, uint32_t flags, ssize_t *usableDiff)
     Entry *newEntry;
     size_t newUsable;
 
-    if (isNeedNewAlloc(entry, &info, isUpdateVal, expiryAddRemove)) {
+    if (needsNewAlloc(entry, &info, isUpdateVal, expiryAddRemove)) {
         Entry *oldEntry = entry;
         /* If not updating value */
         if (value == NULL) {

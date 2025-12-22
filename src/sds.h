@@ -77,7 +77,7 @@ static inline int sdsGetAuxBit(sds s, int bit) {
         return 0;
     
     unsigned char flags = s[-1];
-    return flags & (1U << (SDS_TYPE_BITS + bit));
+    return (flags & (1U << (SDS_TYPE_BITS + bit))) != 0U;
 }
 
 /* Stores a bit in an unused area in the SDS header, except for SDS_TYPE_5. The
