@@ -1971,7 +1971,7 @@ void zremCommand(client *c) {
         }
 
         updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
-        signalModifiedKey(c,c->db,key);
+        signalModifiedKey(c, c->db, key);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);

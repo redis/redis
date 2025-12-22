@@ -801,7 +801,8 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, s
             updateSlotAllocSize(c->db, getKeySlot(key->ptr), oldsize, listTypeAllocSize(o));
         if (deleted) *deleted = 0;
     }
-    if (signal) signalModifiedKey(c, c->db, key);
+    if (signal)
+        signalModifiedKey(c, c->db, key);
     server.dirty += count;
 }
 
@@ -978,7 +979,7 @@ void ltrimCommand(client *c) {
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
     }
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
-    signalModifiedKey(c,c->db,c->argv[1]);
+    signalModifiedKey(c, c->db, c->argv[1]);
     server.dirty += (ltrim + rtrim);
     addReply(c,shared.ok);
 }
@@ -1150,7 +1151,7 @@ void lremCommand(client *c) {
         } else {
             listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,NULL);
         }
-        signalModifiedKey(c,c->db,c->argv[1]);
+        signalModifiedKey(c, c->db, c->argv[1]);
     }
 
     addReplyLongLong(c,removed);
