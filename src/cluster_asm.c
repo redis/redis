@@ -2875,15 +2875,18 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
             }
             ret = asmCreateImportTask(task_id, slots, &errsds) ? C_OK : C_ERR;
             break;
-        } case ASM_EVENT_CANCEL: {
+        }
+        case ASM_EVENT_CANCEL: {
             num_cancelled = clusterAsmCancel(task_id, "user request");
             if (arg) *((int *)arg) = num_cancelled;
             ret = C_OK;
             break;
-        } case ASM_EVENT_HANDOFF: {
+        }
+        case ASM_EVENT_HANDOFF: {
             ret = clusterAsmHandoff(task_id, &errsds);
             break;
-        } case ASM_EVENT_DONE: {
+        }
+        case ASM_EVENT_DONE: {
             ret = clusterAsmDone(task_id, &errsds);
             break;
         } default: {
