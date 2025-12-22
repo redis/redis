@@ -4174,7 +4174,7 @@ void genericZpopCommand(client *c, robj **keyv, int keyc, int where, int emitkey
         newlen = -1; 
     }
     updateKeysizesHist(c->db, getKeySlot(key->ptr), OBJ_ZSET, oldlen, newlen);
-    signalModifiedKey(c, c->db, key);
+    signalModifiedKey(c,c->db,key);
 
     if (c->cmd->proc == zmpopCommand) {
         /* Always replicate it as ZPOP[MIN|MAX] with COUNT option instead of ZMPOP. */
