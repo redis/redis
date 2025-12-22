@@ -2536,7 +2536,7 @@ void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
  * RM_SetModuleOptions().
 */
 int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
-    signalModifiedKey(ctx->client,ctx->client->db,keyname,NULL);
+    signalModifiedKey(ctx->client,ctx->client->db,keyname);
     return REDISMODULE_OK;
 }
 
@@ -4183,7 +4183,7 @@ int RM_GetOpenKeyModesAll(void) {
 static void moduleCloseKey(RedisModuleKey *key) {
     int signal = SHOULD_SIGNAL_MODIFIED_KEYS(key->ctx);
     if ((key->mode & REDISMODULE_WRITE) && signal)
-        signalModifiedKey(key->ctx->client,key->db,key->key,key->kv);
+        signalModifiedKey(key->ctx->client,key->db,key->key);
     if (key->kv) {
         if (key->iter) moduleFreeKeyIterator(key);
         switch (key->kv->type) {

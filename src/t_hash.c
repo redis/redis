@@ -816,7 +816,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         res = GETF_EXPIRED_HASH;
     }
     if (!(hfeFlags & HFE_LAZY_NO_SIGNAL))
-        signalModifiedKey(NULL, db, keyObj, NULL);
+        signalModifiedKey(NULL, db, keyObj);
     decrRefCount(keyObj);
     return res;
 }
@@ -1922,7 +1922,7 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
                 estoreAdd(db->subexpires, slot, o, info.nextExpireTime);
         }
 
-        signalModifiedKey(NULL, db, key, deleted ? NULL : o);
+        signalModifiedKey(NULL, db, key);
         decrRefCount(key);
     }
 
@@ -2089,7 +2089,7 @@ void hsetnxCommand(client *c) {
     hashTypeTryConversion(c->db, kv, c->argv, 2, 3);
     hashTypeSet(c->db, kv, c->argv[2]->ptr, c->argv[3]->ptr, HASH_SET_COPY);
     addReply(c, shared.cone);
-    signalModifiedKey(c,c->db,c->argv[1], kv);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     hlen = hashTypeLength(kv, 0);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, hlen - 1, hlen);
@@ -2126,7 +2126,7 @@ void hsetCommand(client *c) {
         /* HMSET */
         addReply(c, shared.ok);
     }
-    signalModifiedKey(c,c->db,c->argv[1],kv);
+    signalModifiedKey(c,c->db,c->argv[1]);
     unsigned long l = hashTypeLength(kv, 0);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l - created, l);
     if (server.memory_tracking_per_slot)
@@ -2430,7 +2430,7 @@ out:
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
     /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
     if (fields_set || expired) {
-        signalModifiedKey(c, c->db, c->argv[1], o);
+        signalModifiedKey(c, c->db, c->argv[1]);
         if (expired)
             notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
         if (fields_set) {
@@ -2499,7 +2499,7 @@ void hincrbyCommand(client *c) {
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
     addReplyLongLong(c,value);
-    signalModifiedKey(c,c->db,c->argv[1], o);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
     server.dirty++;
 }
@@ -2557,7 +2557,7 @@ void hincrbyfloatCommand(client *c) {
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
     addReplyBulkCBuffer(c,buf,len);
-    signalModifiedKey(c,c->db,c->argv[1],o);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
     server.dirty++;
 
@@ -2700,7 +2700,7 @@ void hgetdelCommand(client *c) {
 
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
-    signalModifiedKey(c, c->db, c->argv[1], o);
+    signalModifiedKey(c, c->db, c->argv[1]);
 
     if (expired)
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", c->argv[1], c->db->id);
@@ -2849,7 +2849,7 @@ void hgetexCommand(client *c) {
         return;
 
     server.dirty += deleted + updated;
-    signalModifiedKey(c, c->db, c->argv[1], o);
+    signalModifiedKey(c, c->db, c->argv[1]);
 
     /* This command will never be propagated as it is. It will be propagated as
      * HDELs when fields are lazily expired or deleted, if the new timestamp is
@@ -2941,7 +2941,7 @@ void hdelCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
     if (deleted) {
         int64_t newLen = -1; /* The value -1 indicates that the key is deleted. */
-        signalModifiedKey(c, c->db, c->argv[1], keyremoved ? NULL : o);
+        signalModifiedKey(c, c->db, c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
         if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);
@@ -3815,7 +3815,7 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
 
     if (deleted + updated > 0) {
         server.dirty += deleted + updated;
-        signalModifiedKey(c, c->db, keyArg, hashObj);
+        signalModifiedKey(c, c->db, keyArg);
         notifyKeyspaceEvent(NOTIFY_HASH, deleted ? "hdel" : "hexpire",
                             keyArg, c->db->id);
     }
@@ -4035,7 +4035,7 @@ void hpersistCommand(client *c) {
      * has been successfully deleted. */
     if (changed) {
         notifyKeyspaceEvent(NOTIFY_HASH, "hpersist", c->argv[1], c->db->id);
-        signalModifiedKey(c, c->db, c->argv[1], hashObj);
+        signalModifiedKey(c, c->db, c->argv[1]);
         server.dirty++;
     }
 }

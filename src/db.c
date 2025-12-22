@@ -274,8 +274,12 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
-            } else if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LRP)) {
-                /* LRP policy should NOT update timestamp on reads. */
+            } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LRP) {
+                /* LRP policy should ONLY update timestamp on writes. */
+                if (flags & LOOKUP_WRITE)
+                    val->lru = LRU_CLOCK();
+            } else {
+                /* LRU policy: update timestamp on all accesses. */
                 val->lru = LRU_CLOCK();
             }
         }
@@ -680,7 +684,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
     }
 
     if (!(flags & SETKEY_NO_SIGNAL))
-        signalModifiedKey(c,db,key,NULL);
+        signalModifiedKey(c,db,key);
 
     /* Update LRP timestamp when key is modified. */
     updateObjectLRP(*valref);
@@ -1023,8 +1027,7 @@ long long dbTotalServerKeyCount(void) {
 
 /* Note that the 'c' argument may be NULL if the key was modified out of
  * a context of a client. */
-void signalModifiedKey(client *c, redisDb *db, robj *key, robj *val) {
-    if (val) updateObjectLRP(val);
+void signalModifiedKey(client *c, redisDb *db, robj *key) {
     touchWatchedKey(db,key);
     trackingInvalidateKey(c,key,1);
 }
@@ -1247,7 +1250,7 @@ void delGenericCommand(client *c, int lazy) {
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
-            signalModifiedKey(c,c->db,c->argv[j],NULL);
+            signalModifiedKey(c,c->db,c->argv[j]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "del",c->argv[j],c->db->id);
             server.dirty++;
@@ -1347,7 +1350,7 @@ void delexCommand(client *c) {
 
     if (deleted) {
         rewriteClientCommandVector(c, 2, shared.del, key);
-        signalModifiedKey(c, c->db, key, NULL);
+        signalModifiedKey(c, c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
         server.dirty++;
     }
@@ -2064,8 +2067,8 @@ void renameGenericCommand(client *c, int nx) {
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
-    signalModifiedKey(c,c->db,c->argv[1],NULL);
-    signalModifiedKey(c,c->db,c->argv[2],o);
+    signalModifiedKey(c,c->db,c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
         c->argv[1],c->db->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
@@ -2157,8 +2160,8 @@ void moveCommand(client *c) {
     if (hashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
 
-    signalModifiedKey(c,src,c->argv[1],NULL);
-    signalModifiedKey(c,dst,c->argv[1],kv);
+    signalModifiedKey(c,src,c->argv[1]);
+    signalModifiedKey(c,dst,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "move_from",c->argv[1],src->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -2275,7 +2278,7 @@ void copyCommand(client *c) {
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
     /* OK! key copied */
-    signalModifiedKey(c,dst,c->argv[2],kvCopy);
+    signalModifiedKey(c,dst,c->argv[2]);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
 
     /* `delete` implies the destination key was overwritten */
@@ -2610,7 +2613,7 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, lo
     if (key_mem_freed) *key_mem_freed -= (long long) zmalloc_used_memory() - freeMemoryGetNotCountedMemory();
 
     notifyKeyspaceEvent(notify_type, notify_name,keyobj, db->id);
-    signalModifiedKey(NULL, db, keyobj, NULL);
+    signalModifiedKey(NULL, db, keyobj);
     propagateDeletion(db, keyobj, lazy_flag);
 
     if (notify_type == NOTIFY_EXPIRED)

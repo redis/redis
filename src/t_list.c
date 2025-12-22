@@ -513,7 +513,7 @@ void pushGenericCommand(client *c, int where, int xx) {
     addReplyLongLong(c, llen);
 
     char *event = (where == LIST_HEAD) ? "lpush" : "rpush";
-    signalModifiedKey(c,c->db,c->argv[1],lobj);
+    signalModifiedKey(c,c->db,c->argv[1]);
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen - (c->argc - 2), llen);
     if (server.memory_tracking_per_slot)
@@ -587,7 +587,7 @@ void linsertCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, listTypeAllocSize(subject));
 
     if (inserted) {
-        signalModifiedKey(c,c->db,c->argv[1],subject);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"linsert",
                             c->argv[1],c->db->id);
         server.dirty++;
@@ -659,7 +659,7 @@ void lsetCommand(client *c) {
          * above, so here we just need to try the conversion for shrinking. */
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
         addReply(c,shared.ok);
-        signalModifiedKey(c,c->db,c->argv[1],o);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_LIST,"lset",c->argv[1],c->db->id);
         server.dirty++;
     } else {
@@ -802,7 +802,7 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, s
         if (deleted) *deleted = 0;
     }
     if (signal)
-        signalModifiedKey(c, c->db, key, llen ? o : NULL);
+        signalModifiedKey(c, c->db, key);
     server.dirty += count;
 }
 
@@ -979,7 +979,7 @@ void ltrimCommand(client *c) {
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
     }
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
-    signalModifiedKey(c, c->db, c->argv[1], (llenNew > 0) ? o : NULL);
+    signalModifiedKey(c, c->db, c->argv[1]);
     server.dirty += (ltrim + rtrim);
     addReply(c,shared.ok);
 }
@@ -1151,7 +1151,7 @@ void lremCommand(client *c) {
         } else {
             listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,NULL);
         }
-        signalModifiedKey(c, c->db, c->argv[1], ll ? subject : NULL);
+        signalModifiedKey(c, c->db, c->argv[1]);
     }
 
     addReplyLongLong(c,removed);
@@ -1171,7 +1171,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
     listTypePush(dstobj,value,where);
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), oldsize, listTypeAllocSize(dstobj));
-    signalModifiedKey(c,c->db,dstkey,dstobj);
+    signalModifiedKey(c,c->db,dstkey);
 
     notifyKeyspaceEvent(NOTIFY_LIST,
                         where == LIST_HEAD ? "lpush" : "rpush",
