@@ -1461,6 +1461,18 @@ void replconfCommand(client *c) {
                 return;
             }
             c->main_ch_client_id = (uint64_t)client_id;
+            /* Inherit the rdb-no-compress request from the main channel. */
+            if (main_ch->slave_req & SLAVE_REQ_RDB_NO_COMPRESS)
+                c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
+        } else if (!strcasecmp(c->argv[j]->ptr, "rdb-no-compress")) {
+            long rdb_no_compress = 0;
+            if (getRangeLongFromObjectOrReply(c, c->argv[j + 1], 0, 1, &rdb_no_compress, NULL) != C_OK)
+                return;
+            if (rdb_no_compress == 1) {
+                c->slave_req |= SLAVE_REQ_RDB_NO_COMPRESS;
+            } else {
+                c->slave_req &= ~SLAVE_REQ_RDB_NO_COMPRESS;
+            }
         } else {
             addReplyErrorFormat(c,"Unrecognized REPLCONF option: %s",
                 (char*)c->argv[j]->ptr);
@@ -2047,12 +2059,12 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
 
 static int useDisklessLoad(void) {
     /* compute boolean decision to use diskless load */
-    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
+    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_ALWAYS || server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
 
     if (enabled) {
         /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
-        if (!moduleAllDatatypesHandleErrors()) {
+        if (server.repl_diskless_load != REPL_DISKLESS_LOAD_ALWAYS && !moduleAllDatatypesHandleErrors()) {
             serverLog(LL_NOTICE,
                 "Skipping diskless-load because there are modules that don't handle read errors.");
             enabled = 0;
@@ -2908,6 +2920,7 @@ void syncWithMaster(connection *conn) {
     char tmpfile[256], *err = NULL;
     int dfd = -1, maxtries = 5;
     int psync_result;
+    static int replconf_rdb_no_compress = 0;
 
     /* If this event fired after the user turned the instance into a master
      * with SLAVEOF NO ONE we must just return ASAP. */
@@ -3006,6 +3019,15 @@ void syncWithMaster(connection *conn) {
             if (err) goto write_error;
         }
 
+        /* If we are not going to save the RDB to disk, request that RDB
+         * compression be disabled, which speeds up RDB delivery. */
+        replconf_rdb_no_compress = 0;
+        if (useDisklessLoad()) {
+            replconf_rdb_no_compress = 1;
+            err = sendCommand(conn, "REPLCONF", "rdb-no-compress", "1", NULL);
+            if (err) goto write_error;
+        }
+
         /* Inform the master of our (slave) capabilities.
          *
          * EOF: supports EOF-style RDB transfer for diskless replication.
@@ -3056,7 +3078,7 @@ void syncWithMaster(connection *conn) {
     }
 
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY && !server.slave_announce_ip)
-        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+        server.repl_state = REPL_STATE_RECEIVE_COMP_REPLY;
 
     /* Receive REPLCONF ip-address reply. */
     if (server.repl_state == REPL_STATE_RECEIVE_IP_REPLY) {
@@ -3067,6 +3089,24 @@ void syncWithMaster(connection *conn) {
         if (err[0] == '-') {
             serverLog(LL_NOTICE,"(Non critical) Master does not understand "
                                 "REPLCONF ip-address: %s", err);
+        }
+        sdsfree(err);
+        server.repl_state = REPL_STATE_RECEIVE_COMP_REPLY;
+        return;
+    }
+
+    if (server.repl_state == REPL_STATE_RECEIVE_COMP_REPLY && !replconf_rdb_no_compress)
+        server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;
+
+    /* Receive REPLCONF rdb-no-compress reply. */
+    if (server.repl_state == REPL_STATE_RECEIVE_COMP_REPLY) {
+        err = receiveSynchronousResponse(conn);
+        if (err == NULL) goto no_response_error;
+        /* Ignore the error if any, not all the Redis versions support
+         * REPLCONF rdb-no-compress. */
+        if (err[0] == '-') {
+            serverLog(LL_NOTICE,"(Non critical) Master does not understand "
+                                "REPLCONF rdb-no-compress: %s", err);
         }
         sdsfree(err);
         server.repl_state = REPL_STATE_RECEIVE_CAPA_REPLY;

@@ -62,11 +62,14 @@ typedef long long ustime_t;
 #define REDISMODULE_OPEN_KEY_NOEFFECTS (1<<20)
 /* Allow access expired key that haven't deleted yet */
 #define REDISMODULE_OPEN_KEY_ACCESS_EXPIRED (1<<21)
+/* Allow access trimmed key that haven't deleted yet */
+#define REDISMODULE_OPEN_KEY_ACCESS_TRIMMED (1<<22)
+
 
 /* Mask of all REDISMODULE_OPEN_KEY_* values. Any new mode should be added to this list.
  * Should not be used directly by the module, use RM_GetOpenKeyModesAll instead.
  * Located here so when we will add new modes we will not forget to update it. */
-#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED
+#define _REDISMODULE_OPEN_KEY_ALL REDISMODULE_READ | REDISMODULE_WRITE | REDISMODULE_OPEN_KEY_NOTOUCH | REDISMODULE_OPEN_KEY_NONOTIFY | REDISMODULE_OPEN_KEY_NOSTATS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED | REDISMODULE_OPEN_KEY_ACCESS_TRIMMED
 
 /* List push and pop */
 #define REDISMODULE_LIST_HEAD 0
@@ -210,11 +213,13 @@ typedef struct RedisModuleStreamID {
 #define REDISMODULE_CTX_FLAGS_SERVER_STARTUP (1<<24)
 /* This context can call execute debug commands. */
 #define REDISMODULE_CTX_FLAGS_DEBUG_ENABLED (1<<25)
+/* Trim is in progress due to slot migration. */
+#define REDISMODULE_CTX_FLAGS_TRIM_IN_PROGRESS (1<<26)
 
 /* Next context flag, must be updated when adding new flags above!
 This flag should not be used directly by the module.
  * Use RedisModule_GetContextFlagsAll instead. */
-#define _REDISMODULE_CTX_FLAGS_NEXT (1<<26)
+#define _REDISMODULE_CTX_FLAGS_NEXT (1<<27)
 
 /* Keyspace changes notification classes. Every class is associated with a
  * character for configuration purposes.
@@ -1334,6 +1339,8 @@ REDISMODULE_API void (*RedisModule_GetRandomBytes)(unsigned char *dst, size_t le
 REDISMODULE_API void (*RedisModule_GetRandomHexChars)(char *dst, size_t len) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetDisconnectCallback)(RedisModuleBlockedClient *bc, RedisModuleDisconnectFunc callback) REDISMODULE_ATTR;
 REDISMODULE_API void (*RedisModule_SetClusterFlags)(RedisModuleCtx *ctx, uint64_t flags) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterDisableTrim)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ClusterEnableTrim)(RedisModuleCtx *ctx) REDISMODULE_ATTR;
 REDISMODULE_API unsigned int (*RedisModule_ClusterKeySlot)(RedisModuleString *key) REDISMODULE_ATTR;
 REDISMODULE_API unsigned int (*RedisModule_ClusterKeySlotC)(const char *keystr, size_t keylen) REDISMODULE_ATTR;
 REDISMODULE_API const char *(*RedisModule_ClusterCanonicalKeyNameInSlot)(unsigned int slot) REDISMODULE_ATTR;
@@ -1727,6 +1734,8 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(GetRandomBytes);
     REDISMODULE_GET_API(GetRandomHexChars);
     REDISMODULE_GET_API(SetClusterFlags);
+    REDISMODULE_GET_API(ClusterDisableTrim);
+    REDISMODULE_GET_API(ClusterEnableTrim);
     REDISMODULE_GET_API(ClusterKeySlot);
     REDISMODULE_GET_API(ClusterKeySlotC);
     REDISMODULE_GET_API(ClusterCanonicalKeyNameInSlot);

@@ -83,9 +83,7 @@ void freeStream(stream *s) {
         raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
-#ifdef REDIS_TEST
-    serverAssert(s->alloc_size == zmalloc_usable_size(s));
-#endif
+    debugServerAssert(s->alloc_size == zmalloc_usable_size(s));
     zfree(s);
 }
 
@@ -2184,7 +2182,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     raxStart(&ri,consumer->pel);
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     while(raxNext(&ri) && (!count || arraylen < count)) {
-        if (end && memcmp(ri.key,end,ri.key_len) > 0) break;
+        if (end && memcmp(ri.key,endkey,ri.key_len) > 0) break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
         if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,

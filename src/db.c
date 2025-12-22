@@ -35,12 +35,14 @@ static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX, "Must be equal");
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
 #define EXPIRE_ALLOW_ACCESS_EXPIRED 4
+#define EXPIRE_ALLOW_ACCESS_TRIMMED 8
 
 /* Return values for expireIfNeeded */
 typedef enum {
     KEY_VALID = 0, /* Could be volatile and not yet expired, non-volatile, or even non-existing key. */
     KEY_EXPIRED, /* Logically expired but not yet deleted. */
-    KEY_DELETED /* The key was deleted now. */
+    KEY_DELETED, /* The key was deleted now. */
+    KEY_TRIMMED  /* Logically trimmed but not yet deleted. */
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
@@ -77,7 +79,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
         return;
 
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
 
     if (oldLen > 0) {
@@ -127,11 +129,9 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 
 void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize) {
     debugServerAssert(server.memory_tracking_per_slot);
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
     if (!dictMeta) return;
-#ifdef REDIS_TEST
-    serverAssert(oldsize <= dictMeta->alloc_size);
-#endif
+    debugServerAssert(oldsize <= dictMeta->alloc_size);
     dictMeta->alloc_size -= oldsize;
     dictMeta->alloc_size += newsize;
 }
@@ -155,7 +155,8 @@ void dbgAssertKeysizesHist(redisDb *db) {
     }
     kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        volatile int64_t *keysizesHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
+        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+        volatile int64_t *keysizesHist = meta->keysizes_hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])
                 continue;
@@ -196,7 +197,7 @@ void dbgAssertAllocSizePerSlot(redisDb *db) {
 
     int num_slots = kvstoreNumDicts(db->keys);
     for (int slot = 0; slot < num_slots; slot++) {
-        kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, slot);
+        kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, slot, 0);
         size_t want = slot_sizes[slot];
         size_t have = dictMeta ? dictMeta->alloc_size : 0;
         if (have == want) continue;
@@ -257,6 +258,8 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
         if (flags & LOOKUP_ACCESS_EXPIRED)
             expire_flags |= EXPIRE_ALLOW_ACCESS_EXPIRED;
+        if (flags & LOOKUP_ACCESS_TRIMMED)
+            expire_flags |= EXPIRE_ALLOW_ACCESS_TRIMMED;
         if (expireIfNeeded(db, key, val, expire_flags) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
@@ -428,27 +431,16 @@ int getKeySlot(sds key) {
 }
 
 /* Return the slot of the key in the command.
- * GETSLOT_NOKEYS if no keys, GETSLOT_CROSSSLOT if cross slot, otherwise the slot number. */
+ * INVALID_CLUSTER_SLOT if no keys, CLUSTER_CROSSSLOT if cross slot, otherwise the slot number. */
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
-    int slot = GETSLOT_NOKEYS;
-    if (!cmd || !server.cluster_enabled) return slot;
+    if (!cmd || !server.cluster_enabled) return INVALID_CLUSTER_SLOT;
 
     /* Get the keys from the command */
     getKeysResult result = GETKEYS_RESULT_INIT;
-    int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
-    keyReference *keyindex = result.keys;
+    getKeysFromCommand(cmd, argv, argc, &result);
 
-    /* Get slot of each key and check if they are all the same */
-    for (int j = 0; j < numkeys; j++) {
-        robj *thiskey = argv[keyindex[j].pos];
-        int thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
-        if (slot == GETSLOT_NOKEYS) {
-            slot = thisslot;
-        } else if (slot != thisslot) {
-            slot = GETSLOT_CROSSSLOT; /* Mark as cross slot */
-            break;
-        }
-    }
+    /* Extract slot from the keys result. */
+    int slot = extractSlotFromKeysResult(argv, &result);
     getKeysFreeResult(&result);
     return slot;
 }
@@ -977,9 +969,10 @@ redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
         tempDb[i].id = i;
-        tempDb[i].keys = kvstoreCreate(&dbDictType, slot_count_bits,
-                                       flags | KVSTORE_ALLOC_META_KEYS_HIST);
-        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        tempDb[i].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits,
+                                       flags);
+        tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
+                                          slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     }
 
@@ -2728,7 +2721,9 @@ int confAllowsExpireDel(void) {
  *
  * The return value of the function is KEY_VALID if the key is still valid.
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
- * or returns KEY_DELETED if the key is expired and deleted.
+ * or returns KEY_DELETED if the key is expired and deleted. If the key is in a
+ * trim job due to slot migration, the function returns KEY_TRIMMED, unless
+ * EXPIRE_ALLOW_ACCESS_TRIMMED is set, in which case it returns KEY_VALID.
  *
  * You can optionally pass `kv` to save a lookup.
  */
@@ -2736,9 +2731,15 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
 
     /* NOTE: Keys in slots scheduled for trimming can still exist for a while.
-     * If a module touches one of these keys, we remove it right away and
-     * return KEY_DELETED. */
-    if (asmActiveTrimDelIfNeeded(db, key, kv)) return KEY_DELETED;
+     * We don't delete it here, return KEY_VALID if allowing access to trimmed
+     * keys, and return KEY_TRIMMED otherwise. */
+    sds key_name = key ? key->ptr : kvobjGetKey(kv);
+    if (asmIsKeyInTrimJob(key_name)) {
+        if (server.allow_access_trimmed || (flags & EXPIRE_ALLOW_ACCESS_TRIMMED))
+            return KEY_VALID;
+
+        return KEY_TRIMMED;
+    }
 
     if ((flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
@@ -3213,10 +3214,7 @@ int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc,
         }
     }
 
-    *slot = INVALID_CLUSTER_SLOT;
-    if (num_keys >= 0)
-        *slot = extractSlotFromKeysResult(argv, result);
-
+    *slot = extractSlotFromKeysResult(argv, result);
     return num_keys;
 }
 
