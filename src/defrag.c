@@ -284,7 +284,7 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
  * reference count is not 1, in these cases, the caller must explicitly pass
  * in the reference count, otherwise defragmentation will not be performed.
  * Note that the caller is responsible for updating any other references to the robj. */
-robj *activeDefragStringObEx(robj* ob, unsigned int expected_refcount) {
+robj *activeDefragStringObEx(robj* ob, unsigned long expected_refcount) {
     robj *ret = NULL;
     if (ob->refcount!=expected_refcount)
         return NULL;
