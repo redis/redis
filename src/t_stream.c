@@ -3355,9 +3355,9 @@ NULL
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             addReply(c,shared.ok);
             server.dirty++;
-            updateObjectLRP(o);
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
                                 c->argv[2],c->db->id);
+            updateObjectLRP(o);
         } else {
             addReplyError(c,"-BUSYGROUP Consumer Group name already exists");
         }
@@ -3377,8 +3377,8 @@ NULL
         cg->entries_read = entries_read;
         addReply(c,shared.ok);
         server.dirty++;
-        updateObjectLRP(o);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
+        updateObjectLRP(o);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             old_alloc = s->alloc_size;
@@ -3388,9 +3388,9 @@ NULL
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             addReply(c,shared.cone);
             server.dirty++;
-            updateObjectLRP(o);
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
+            updateObjectLRP(o);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
             signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
         } else {
@@ -3416,9 +3416,9 @@ NULL
             if (server.memory_tracking_per_slot)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             server.dirty++;
-            updateObjectLRP(o);
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                                 c->argv[2],c->db->id);
+            updateObjectLRP(o);
         }
         addReplyLongLong(c,pending);
     } else {
@@ -3498,8 +3498,8 @@ void xsetidCommand(client *c) {
         s->max_deleted_entry_id = max_xdel_id;
     addReply(c,shared.ok);
     server.dirty++;
-    updateObjectLRP(kv);
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
+    updateObjectLRP(kv);
 }
 
 /* XACK <key> <group> <id> <id> ... <id>
@@ -4582,7 +4582,7 @@ void xtrimCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c, c->db,c->argv[1],kv);
+        signalModifiedKey(c, c->db,c->argv[1], kv);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
