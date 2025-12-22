@@ -908,8 +908,7 @@ void pexpiretimeCommand(client *c) {
 
 /* PERSIST key */
 void persistCommand(client *c) {
-    kvobj *kv;
-    if ((kv = lookupKeyWrite(c->db,c->argv[1]))) {
+    if (lookupKeyWrite(c->db,c->argv[1])) {
         if (removeExpire(c->db,c->argv[1])) {
             signalModifiedKey(c,c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);

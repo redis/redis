@@ -1905,7 +1905,6 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
         robj *key = createStringObject(keystr, sdslen(keystr));
         notifyKeyspaceEvent(NOTIFY_HASH, "hexpired", key, db->id);
         int slot;
-        int deleted = 0;
 
         if (updateSubexpires) {
             slot = getKeySlot(keystr);
@@ -1916,7 +1915,6 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, db->id);
             dbDelete(db, key);
             noExpireLeftRes = 0;
-            deleted = 1;
         } else {
             if ((updateSubexpires) && (info.nextExpireTime != EB_EXPIRE_TIME_INVALID))
                 estoreAdd(db->subexpires, slot, o, info.nextExpireTime);
@@ -2941,7 +2939,7 @@ void hdelCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, hashTypeAllocSize(o));
     if (deleted) {
         int64_t newLen = -1; /* The value -1 indicates that the key is deleted. */
-        signalModifiedKey(c, c->db, c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_HASH,"hdel",c->argv[1],c->db->id);
         if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC, "del", c->argv[1], c->db->id);

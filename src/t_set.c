@@ -674,7 +674,7 @@ void sremCommand(client *c) {
     if (deleted) {
         int64_t newSize = oldSize - deleted;
 
-        signalModifiedKey(c, c->db, c->argv[1]);
+        signalModifiedKey(c,c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
         if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
@@ -741,7 +741,7 @@ void smoveCommand(client *c) {
         dbAdd(c->db, c->argv[2], &dstset);
     }
 
-    signalModifiedKey(c, c->db, c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty++;
 
     if (server.memory_tracking_per_slot)
@@ -1020,7 +1020,6 @@ void spopWithCountCommand(client *c) {
         if (server.memory_tracking_per_slot)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
-        set = newset;
     }
 
     /* Replicate/AOF the remaining elements as an SREM operation */
@@ -1081,15 +1080,13 @@ void spopCommand(client *c) {
     decrRefCount(ele);
 
     /* Delete the kv if it's empty */
-    int deleted = 0;
     if (setTypeSize(kv) == 0) {
-        deleted = 1;
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
     /* Set has been modified */
-    signalModifiedKey(c, c->db, c->argv[1]);
+    signalModifiedKey(c,c->db,c->argv[1]);
     server.dirty++;
 }
 
