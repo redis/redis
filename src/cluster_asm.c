@@ -2889,7 +2889,8 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
         case ASM_EVENT_DONE: {
             ret = clusterAsmDone(task_id, &errsds);
             break;
-        } default: {
+        }
+        default: {
             ret = C_ERR;
             errsds = sdscatprintf(sdsempty(), "Unknown operation: %d", event);
             break;
