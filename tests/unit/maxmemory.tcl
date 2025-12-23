@@ -402,11 +402,11 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
 # we wanna use many small commands, and we don't wanna wait long
 # so we need to use a pipeline (redis_deferring_client)
 # that may cause query buffer to fill and induce eviction, so we disable it
-# test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
+test_slave_buffers {slave buffer are counted correctly} 1000000 10 0 1
 
 # test that slave buffer don't induce eviction
 # test again with fewer (and bigger) commands without pipeline, but with eviction
-# test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
+test_slave_buffers "replica buffer don't induce eviction" 100000 100 1 0
 
 start_server {tags {"maxmemory external:skip"}} {
     test {Don't rehash if used memory exceeds maxmemory after rehash} {
