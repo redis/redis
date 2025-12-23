@@ -2850,7 +2850,7 @@ void xreadCommand(client *c) {
             if (propCount) server.dirty++;
         }
 
-        /* If stream was modified, update LRP but don't signal (no watch/tracking) */
+        /* If stream was modified, update LRM but don't signal (no watch/tracking) */
         if (server.dirty > dirty)
             keyModified(c,c->db,c->argv[streams_arg+i],o,0);
     }
@@ -3678,7 +3678,7 @@ void xackdelCommand(client *c) {
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
     } else if (server.dirty > dirty) {
-        /* Only ACK succeeded without deleting elements, just update LRP without signaling */
+        /* Only ACK succeeded without deleting elements, just update LRM without signaling */
         keyModified(c,c->db,c->argv[1],kv,0);
     }
 
@@ -4149,7 +4149,7 @@ void xclaimCommand(client *c) {
     }
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
-    /* Update LRP but don't signal (XREADGROUP doesn't trigger watch/tracking) */
+    /* Update LRM but don't signal (XREADGROUP doesn't trigger watch/tracking) */
     keyModified(c,c->db,c->argv[1],o,0);
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4353,7 +4353,7 @@ void xautoclaimCommand(client *c) {
     zfree(deleted_ids);
 
     preventCommandPropagation(c);
-    /* Update LRP but don't signal. */
+    /* Update LRM but don't signal. */
     keyModified(c,c->db,c->argv[1],o,0);
 }
 

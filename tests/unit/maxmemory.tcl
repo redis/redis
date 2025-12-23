@@ -163,7 +163,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
 start_server {tags {"maxmemory external:skip"}} {
 
     foreach policy {
-        allkeys-random allkeys-lru allkeys-lfu allkeys-lrp volatile-lru volatile-lfu volatile-random volatile-ttl volatile-lrp
+        allkeys-random allkeys-lru allkeys-lfu allkeys-lrm volatile-lru volatile-lfu volatile-random volatile-ttl volatile-lrm
     } {
         test "maxmemory - is the memory limit honoured? (policy $policy)" {
             # make sure to start with a blank instance
@@ -195,7 +195,7 @@ start_server {tags {"maxmemory external:skip"}} {
     }
 
     foreach policy {
-        allkeys-random allkeys-lru allkeys-lrp volatile-lru volatile-random volatile-ttl volatile-lrp
+        allkeys-random allkeys-lru allkeys-lrm volatile-lru volatile-random volatile-ttl volatile-lrm
     } {
         test "maxmemory - only allkeys-* should remove non-volatile keys ($policy)" {
             # make sure to start with a blank instance
@@ -237,7 +237,7 @@ start_server {tags {"maxmemory external:skip"}} {
     }
 
     foreach policy {
-        volatile-lru volatile-lfu volatile-random volatile-ttl volatile-lrp
+        volatile-lru volatile-lfu volatile-random volatile-ttl volatile-lrm
     } {
         test "maxmemory - policy $policy should only remove volatile keys." {
             # make sure to start with a blank instance
@@ -603,28 +603,28 @@ start_server {tags {"maxmemory" "external:skip"}} {
     }
 }
 
-# LRP eviction policy tests
+# LRM eviction policy tests
 start_server {tags {"maxmemory" "external:skip"}} {
-    test {Policy LRP: Basic write updates idle time} {
+    test {Policy LRM: Basic write updates idle time} {
         r flushdb
-        r config set maxmemory-policy allkeys-lrp
+        r config set maxmemory-policy allkeys-lrm
 
         r set foo a
         after 2000
 
-        # Read the key should NOT update LRP
+        # Read the key should NOT update LRM
         r get foo
         assert_morethan_equal [r object idletime foo] 1
 
-        # LRP should be updated (idletime should be smaller)
+        # LRM should be updated (idletime should be smaller)
         r set foo b
         assert_lessthan_equal [r object idletime foo] 2
     }
 
-    test {Policy LRP: Keys with only read operations should be removed first} {
+    test {Policy LRM: Keys with only read operations should be removed first} {
         r flushdb
         r config set maxmemory 0
-        r config set maxmemory-policy allkeys-lrp
+        r config set maxmemory-policy allkeys-lrm
         r config set maxmemory-samples 64 ;# Ensure eviction sampling can pick all keys
 
         # Create keys and populate them

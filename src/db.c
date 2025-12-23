@@ -54,10 +54,11 @@ void updateLFU(robj *val) {
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
 }
 
-void updateLRP(robj *o) {
+/* Update LRM when an object is modified. */
+void updateLRM(robj *o) {
     if (o->refcount == OBJ_SHARED_REFCOUNT)
         return;
-    if (server.maxmemory_policy & MAXMEMORY_FLAG_LRP) {
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LRM) {
         o->lru = LRU_CLOCK();
     }
 }
@@ -282,8 +283,8 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
-            } else if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LRP)) {
-                /* LRP policy should NOT update timestamp on reads. */
+            } else if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LRM)) {
+                /* LRM policy should NOT update timestamp on reads. */
                 val->lru = LRU_CLOCK();
             }
         }
@@ -687,7 +688,7 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         dbAddByLink(db, key, valref, link);
     }
 
-    /* Signal key modification and update LRP timestamp if needed */
+    /* Signal key modification and update LRM timestamp if needed */
     keyModified(c,db,key,*valref,!(flags & SETKEY_NO_SIGNAL));
 }
 
@@ -1029,7 +1030,7 @@ long long dbTotalServerKeyCount(void) {
 /* Note that the 'c' argument may be NULL if the key was modified out of
  * a context of a client. */
 void keyModified(client *c, redisDb *db, robj *key, robj *val, int signal) {
-    if (val) updateLRP(val);
+    if (val) updateLRM(val);
     if (signal) {
         touchWatchedKey(db,key);
         trackingInvalidateKey(c,key,1); 
@@ -2072,7 +2073,7 @@ void renameGenericCommand(client *c, int nx) {
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
     keyModified(c,c->db,c->argv[1],NULL,1);
-    keyModified(c,c->db,c->argv[2],NULL,1); /* LRP already updated by dbAddInternal */
+    keyModified(c,c->db,c->argv[2],NULL,1); /* LRM already updated by dbAddInternal */
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
         c->argv[1],c->db->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
@@ -2165,7 +2166,7 @@ void moveCommand(client *c) {
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
 
     keyModified(c,src,c->argv[1],NULL,1);
-    keyModified(c,dst,c->argv[1],NULL,1); /* LRP already updated by dbAddInternal */
+    keyModified(c,dst,c->argv[1],NULL,1); /* LRM already updated by dbAddInternal */
     notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "move_from",c->argv[1],src->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -2281,7 +2282,7 @@ void copyCommand(client *c) {
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
-    /* OK! key copied. Signal modification (LRP already updated by dbAddInternal) */
+    /* OK! key copied. Signal modification (LRM already updated by dbAddInternal) */
     keyModified(c,dst,c->argv[2],NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
 
