@@ -4148,7 +4148,6 @@ void xclaimCommand(client *c) {
     }
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
-    /* Update LRM but don't signal (XREADGROUP doesn't trigger watch/tracking) */
     keyModified(c,c->db,c->argv[1],o,0);
 cleanup:
     if (ids != static_ids) zfree(ids);
