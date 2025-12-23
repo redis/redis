@@ -2439,7 +2439,7 @@ void xaddCommand(client *c) {
     if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
 
-    signalModifiedKey(c,c->db,c->argv[1],kv);
+    keyModified(c,c->db,c->argv[1],kv,1);
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
@@ -2801,7 +2801,7 @@ void xreadCommand(client *c) {
                                                     consumer->name);
             }
             consumer->seen_time = commandTimeSnapshot();
-            updateObjectLRP(o);
+            keyModified(c,c->db,c->argv[streams_arg+i],o,0);
         } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
@@ -2849,7 +2849,7 @@ void xreadCommand(client *c) {
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),old_alloc,s->alloc_size);
             if (propCount) {
                 server.dirty++;
-                updateObjectLRP(o);
+                keyModified(c,c->db,c->argv[streams_arg+i],o,0);
             }
         }
     }
@@ -3341,7 +3341,7 @@ NULL
             o = createStreamObject();
             dbAdd(c->db, c->argv[2], &o);
             s = o->ptr;
-            signalModifiedKey(c,c->db,c->argv[2],o);
+            keyModified(c,c->db,c->argv[2],o,1);
         }
         
         if (entries_read != SCG_INVALID_ENTRIES_READ && (uint64_t)entries_read > s->entries_added) {
@@ -3357,7 +3357,7 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
                                 c->argv[2],c->db->id);
-            updateObjectLRP(o);
+            keyModified(c,c->db,c->argv[2],o,0);
         } else {
             addReplyError(c,"-BUSYGROUP Consumer Group name already exists");
         }
@@ -3378,7 +3378,7 @@ NULL
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
-        updateObjectLRP(o);
+        keyModified(c,c->db,c->argv[2],o,0);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             old_alloc = s->alloc_size;
@@ -3390,7 +3390,7 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
-            updateObjectLRP(o);
+            keyModified(c,c->db,c->argv[2],o,0);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
             signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
         } else {
@@ -3400,7 +3400,7 @@ NULL
         old_alloc = s->alloc_size;
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
-        updateObjectLRP(o);
+        keyModified(c,c->db,c->argv[2],o,0);
         if (server.memory_tracking_per_slot)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
         addReplyLongLong(c,created ? 1 : 0);
@@ -3418,7 +3418,7 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                                 c->argv[2],c->db->id);
-            updateObjectLRP(o);
+            keyModified(c,c->db,c->argv[2],o,0);
         }
         addReplyLongLong(c,pending);
     } else {
@@ -3499,7 +3499,7 @@ void xsetidCommand(client *c) {
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
-    updateObjectLRP(kv);
+    keyModified(c,c->db,c->argv[1],kv,0);
 }
 
 /* XACK <key> <group> <id> <id> ... <id>
@@ -3556,7 +3556,7 @@ void xackCommand(client *c) {
             streamDestroyNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
-            updateObjectLRP(kv);
+            keyModified(c,c->db,c->argv[1],kv,0);
         }
     }
     if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
@@ -3674,11 +3674,12 @@ void xackdelCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c,c->db,c->argv[1],kv);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
     }
 
-    if (server.dirty > dirty) updateObjectLRP(kv);
+    if (server.dirty > dirty) 
+        keyModified(c,c->db,c->argv[1],kv,0);
 
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -4147,7 +4148,7 @@ void xclaimCommand(client *c) {
     }
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
-    updateObjectLRP(o);
+    keyModified(c,c->db,c->argv[1],o,0);
 cleanup:
     if (ids != static_ids) zfree(ids);
 }
@@ -4350,7 +4351,7 @@ void xautoclaimCommand(client *c) {
     zfree(deleted_ids);
 
     preventCommandPropagation(c);
-    updateObjectLRP(o);
+    keyModified(c,c->db,c->argv[1],o,0);
 }
 
 /* XDEL <key> [<ID1> <ID2> ... <IDN>]
@@ -4410,7 +4411,7 @@ void xdelCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
-        signalModifiedKey(c,c->db,c->argv[1],kv);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -4514,7 +4515,7 @@ void xdelexCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c,c->db,c->argv[1],kv);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -4582,7 +4583,7 @@ void xtrimCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c, c->db,c->argv[1], kv);
+        keyModified(c, c->db,c->argv[1], kv, 1);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
