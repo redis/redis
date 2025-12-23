@@ -1027,13 +1027,21 @@ long long dbTotalServerKeyCount(void) {
  * Every time a DB is flushed the function signalFlushDb() is called.
  *----------------------------------------------------------------------------*/
 
-/* Note that the 'c' argument may be NULL if the key was modified out of
- * a context of a client. */
+/* Called when a key is modified to update LRM timestamp
+ * and optionally signal watchers/tracking clients.
+ *
+ * Arguments:
+ * - c: client (may be NULL if the key was modified out of a context of a client)
+ * - db: database containing the key
+ * - key: the key that was modified
+ * - val: the value object (if NULL, LRM won't be updated, e.g., for deleted keys)
+ * - signal: if true, trigger WATCH and client-side tracking invalidation
+ */
 void keyModified(client *c, redisDb *db, robj *key, robj *val, int signal) {
     if (val) updateLRM(val);
     if (signal) {
         touchWatchedKey(db,key);
-        trackingInvalidateKey(c,key,1); 
+        trackingInvalidateKey(c,key,1);
     }
 }
 
