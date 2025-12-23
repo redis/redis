@@ -184,6 +184,7 @@ slotRangeArray *slotRangeArrayDup(slotRangeArray *slots);
 void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end);
 sds slotRangeArrayToString(slotRangeArray *slots);
 slotRangeArray *slotRangeArrayFromString(sds data);
+void slotRangeArraySortAndMerge(slotRangeArray *slots);
 int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2);
 slotRangeArray *slotRangeArrayAppend(slotRangeArray *slots, int slot);
 int slotRangeArrayContains(slotRangeArray *slots, unsigned int slot);
@@ -193,7 +194,7 @@ slotRangeArrayIter *slotRangeArrayGetIterator(slotRangeArray *slots);
 int slotRangeArrayNext(slotRangeArrayIter *it);
 int slotRangeArrayGetCurrentSlot(slotRangeArrayIter *it);
 void slotRangeArrayIteratorFree(slotRangeArrayIter *it);
-int validateSlotRanges(slotRangeArray *slots, sds *err);
+int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err);
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos);
 
 unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command);

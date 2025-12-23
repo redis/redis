@@ -722,9 +722,7 @@ void dismissHashObject(robj *o, size_t size_hint) {
             dictIterator di;
             dictInitIterator(&di, d);
             while ((de = dictNext(&di)) != NULL) {
-                /* Only dismiss values memory since the field size
-                 * usually is small. */
-                dismissSds(dictGetVal(de));
+                entryDismissMemory((Entry *) dictGetKey(de));
             }
             dictResetIterator(&di);
         }

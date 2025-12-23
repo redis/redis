@@ -11583,21 +11583,25 @@ static void moduleScanKeyCallback(void *privdata, const dictEntry *de, dictEntry
     if (kv->type == OBJ_SET) {
         value = NULL;
     } else if (kv->type == OBJ_HASH) {
-        sds val = dictGetVal(de);
+        Entry *e = (Entry *) key;
 
         /* If field is expired and not indicated to access expired, then ignore */
         if ((!(data->key->mode & REDISMODULE_OPEN_KEY_ACCESS_EXPIRED)) &&
-            (hfieldIsExpired(key)))
+            (entryIsExpired(e)))
             return;
 
-        field = createStringObject(key, hfieldlen(key));
+        /* For hash, the value is stored in the entry (field), not in the dict entry */
+        sds fieldStr = entryGetField(e);
+        sds val = entryGetValue(e);
+
+        field = createStringObject(fieldStr, sdslen(fieldStr));
         value = createStringObject(val, sdslen(val));
     } else if (kv->type == OBJ_ZSET) {
         double *val = (double*)dictGetVal(de);
         value = createStringObjectFromLongDouble(*val, 0);
     }
 
-    /* if type is OBJ_HASH then key is of type hfield. Otherwise sds. */
+    /* if type is OBJ_HASH then key is of type entry*. Otherwise sds. */
     if (!field) field = createStringObject(key, sdslen(key));
 
     data->fn(data->key, field, value, data->user_data);

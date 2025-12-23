@@ -2582,26 +2582,27 @@ hnswCursor *hnsw_cursor_init(HNSW *index) {
 /* Free the cursor. Can be called both at the end of the iteration, when
  * hnsw_cursor_next() returned NULL, or before. */
 void hnsw_cursor_free(hnswCursor *cursor) {
-    if (pthread_rwlock_wrlock(&cursor->index->global_lock) != 0) {
+    HNSW *index = cursor->index;
+    if (pthread_rwlock_wrlock(&index->global_lock) != 0) {
         // No easy way to recover from that. We will leak memory.
         return;
     }
 
-    hnswCursor *x = cursor->index->cursors;
+    hnswCursor *x = index->cursors;
     hnswCursor *prev = NULL;
     while(x) {
         if (x == cursor) {
             if (prev)
                 prev->next = cursor->next;
             else
-                cursor->index->cursors = cursor->next;
+                index->cursors = cursor->next;
             hfree(cursor);
             break;
         }
         prev = x;
         x = x->next;
     }
-    pthread_rwlock_unlock(&cursor->index->global_lock);
+    pthread_rwlock_unlock(&index->global_lock);
 }
 
 /* Acquire a lock to use the cursor. Returns 1 if the lock was acquired
