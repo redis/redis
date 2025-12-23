@@ -1793,6 +1793,7 @@ void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end) {
 /* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
 sds slotRangeArrayToString(slotRangeArray *slots) {
     sds s = sdsempty();
+    if (slots == NULL || slots->num_ranges == 0) return s;
 
     for (int i = 0; i < slots->num_ranges; i++) {
         slotRange *sr = &slots->ranges[i];
