@@ -1991,8 +1991,10 @@ slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     slotRangeArray *slots;
 
     /* Ensure there is at least one (start,end) slot range pairs. */
-    if (argc < 0 || pos < 0 || pos >= argc || (argc - pos) < 2 || ((argc - pos) % 2) != 0)
+    if (argc < 0 || pos < 0 || pos >= argc || (argc - pos) < 2 || ((argc - pos) % 2) != 0) {
+        addReplyErrorArity(c);
         return NULL;
+    }
 
     count = (argc - pos) / 2;
     slots = slotRangeArrayCreate(count);
