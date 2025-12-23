@@ -396,7 +396,7 @@ typedef struct RedisModuleConfigIterator {
 #define REDISMODULE_ARGV_DRY_RUN (1<<10)
 #define REDISMODULE_ARGV_ALLOW_BLOCK (1<<11)
 
-/* Determine whether Redis should keyModified implicitly.
+/* Determine whether Redis should signal modified key implicitly.
  * In case 'ctx' has no 'module' member (and therefore no module->options),
  * we assume default behavior, that is, Redis signals.
  * (see RM_GetThreadSafeContext) */
@@ -2536,7 +2536,8 @@ void RM_SetModuleOptions(RedisModuleCtx *ctx, int options) {
  * RM_SetModuleOptions().
 */
 int RM_SignalModifiedKey(RedisModuleCtx *ctx, RedisModuleString *keyname) {
-    keyModified(ctx->client,ctx->client->db,keyname,NULL,1);
+    kvobj *kv = lookupKeyReadWithFlags(ctx->client->db, keyname, LOOKUP_NOTOUCH);
+    keyModified(ctx->client,ctx->client->db,keyname,kv,1);
     return REDISMODULE_OK;
 }
 
