@@ -1842,6 +1842,9 @@ struct redisServer {
     int config_hz;              /* Configured HZ value. May be different than
                                    the actual 'hz' field value if dynamic-hz
                                    is enabled. */
+    int rlimit_enabled;                   /*  0 또는 1 반환 */
+    long long rlimit_window_sec;  /*  윈도우 길이 */
+    long long rlimit_max_requests;  /* 윈도우 당 허용 요청 수 */
     mode_t umask;               /* The umask value of the process on startup */
     int hz;                     /* serverCron() calls frequency in hertz */
     int in_fork_child;          /* indication that this is a fork child */
@@ -2264,7 +2267,7 @@ struct redisServer {
     long long proto_max_bulk_len;   /* Protocol bulk length maximum size. */
     int oom_score_adj_values[CONFIG_OOM_COUNT];   /* Linux oom_score_adj configuration */
     int oom_score_adj;                            /* If true, oom_score_adj is managed */
-    int disable_thp;                              /* If true, disable THP by syscall */
+    int disable_thp;                              /* If true, disable THP by syscall */	
     /* Blocked clients */
     unsigned int blocked_clients;   /* # of clients executing a blocking cmd.*/
     unsigned int blocked_clients_by_type[BLOCKED_NUM];
@@ -2792,7 +2795,7 @@ typedef struct {
     robj *subject;
     int encoding;
     int ii; /* intset iterator */
-    dictIterator di;
+    dictIterator *di;
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
@@ -2807,7 +2810,7 @@ typedef struct {
     unsigned char *fptr, *vptr, *tptr;
     uint64_t expire_time; /* Only used with OBJ_ENCODING_LISTPACK_EX */
 
-    dictIterator di;
+    dictIterator *di;
     dictEntry *de;
 } hashTypeIterator;
 
@@ -3127,8 +3130,8 @@ void listTypePush(robj *subject, robj *value, int where);
 robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
 size_t listTypeAllocSize(const robj *o);
-void listTypeInitIterator(listTypeIterator *li, robj *subject, long index, unsigned char direction);
-void listTypeResetIterator(listTypeIterator *li);
+listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
+void listTypeReleaseIterator(listTypeIterator *li);
 void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, unsigned char direction);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
@@ -3582,8 +3585,8 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-void setTypeInitIterator(setTypeIterator *si, robj *subject);
-void setTypeResetIterator(setTypeIterator *si);
+setTypeIterator *setTypeInitIterator(robj *subject);
+void setTypeReleaseIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
@@ -3650,8 +3653,8 @@ int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashD
 int hashTypeDelete(robj *o, void *key, int isSdsField);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 size_t hashTypeAllocSize(const robj *o);
-void hashTypeInitIterator(hashTypeIterator *hi, robj *subject);
-void hashTypeResetIterator(hashTypeIterator *hi);
+hashTypeIterator *hashTypeInitIterator(robj *subject);
+void hashTypeReleaseIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields);
 void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
                                  unsigned char **vstr,

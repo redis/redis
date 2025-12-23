@@ -13,6 +13,7 @@
  */
 
 #include "server.h"
+#include "rate_limit.h"
 #include "monotonic.h"
 #include "cluster.h"
 #include "cluster_slot_stats.h"
@@ -2305,6 +2306,10 @@ void initServerConfig(void) {
                                       This value may be used before the server
                                       is initialized. */
     server.timezone = getTimeZone(); /* Initialized by tzset(). */
+
+    server.rlimit_enabled = 1;   /* 1이면 기능 on*/
+    server.rlimit_max_requests = 20;
+    server.rlimit_window_sec = 1;
     server.configfile = NULL;
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
@@ -4230,7 +4235,13 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
  * If C_OK is returned the client is still alive and valid and
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
-int processCommand(client *c) {
+int processCommand(client *c) { 
+/* === rate limit: too many requests protection === */
+    if (!clientRateLimitCheck(c, "processCommand")) {
+        addReplyError(c, "ERR too many requests");
+        return C_ERR;
+    }
+
     if (!scriptIsTimedout()) {
         /* Both EXEC and scripts call call() directly so there should be
          * no way in_exec or scriptIsRunning() is 1.
