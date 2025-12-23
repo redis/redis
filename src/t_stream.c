@@ -3677,10 +3677,10 @@ void xackdelCommand(client *c) {
         /* Propagate the write. */
         keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
-    }
-
-    if (server.dirty > dirty)
+    } else if (server.dirty > dirty) {
+        /* Only ACK succeeded without deleting elements, just update LRP without signaling */
         keyModified(c,c->db,c->argv[1],kv,0);
+    }
 
 cleanup:
     if (ids != static_ids) zfree(ids);

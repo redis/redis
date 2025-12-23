@@ -2072,7 +2072,7 @@ void renameGenericCommand(client *c, int nx) {
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
     keyModified(c,c->db,c->argv[1],NULL,1);
-    keyModified(c,c->db,c->argv[2],o,1);
+    keyModified(c,c->db,c->argv[2],NULL,1); /* LRP already updated by dbAddInternal */
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
         c->argv[1],c->db->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
@@ -2165,7 +2165,7 @@ void moveCommand(client *c) {
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
 
     keyModified(c,src,c->argv[1],NULL,1);
-    keyModified(c,dst,c->argv[1],kv,1);
+    keyModified(c,dst,c->argv[1],NULL,1); /* LRP already updated by dbAddInternal */
     notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "move_from",c->argv[1],src->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -2281,8 +2281,8 @@ void copyCommand(client *c) {
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
-    /* OK! key copied */
-    keyModified(c,dst,c->argv[2],kvCopy,1);
+    /* OK! key copied. Signal modification (LRP already updated by dbAddInternal) */
+    keyModified(c,dst,c->argv[2],NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
 
     /* `delete` implies the destination key was overwritten */
