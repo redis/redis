@@ -619,7 +619,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         # LRM should be updated (idletime should be smaller)
         r set foo b
         assert_lessthan_equal [r object idletime foo] 2
-    }
+    } {} {slow}
 
     test {LRM: RENAME updates destination key LRM} {
         r flushdb
@@ -627,7 +627,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         after 2000
         r rename src dst
         assert_lessthan [r object idletime dst] 1
-    }
+    } {} {slow}
 
     test {LRM: XREADGROUP updates stream LRM} {
         r flushdb
@@ -636,7 +636,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         after 2000
         r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
         assert_lessthan [r object idletime mystream] 1
-    }
+    } {} {slow}
 
     test {LRM: Keys with only read operations should be removed first} {
         r flushdb
