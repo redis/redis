@@ -149,7 +149,7 @@ int evictionPoolPopulate(redisDb *db, kvstore *samplekvs, struct evictionPoolEnt
         /* Calculate the idle time according to the policy. This is called
          * idle just because the code initially handled LRU, but is in fact
          * just a score where a higher score means better candidate. */
-        if (server.maxmemory_policy & MAXMEMORY_FLAG_LRU || server.maxmemory_policy & MAXMEMORY_FLAG_LRM) {
+        if (server.maxmemory_policy & (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LRM)) {
             idle = estimateObjectIdleTime(kv);
         } else if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
             /* When we use an LRU policy, we sort the keys by idle time
