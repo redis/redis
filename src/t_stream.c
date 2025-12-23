@@ -2737,7 +2737,6 @@ void xreadCommand(client *c) {
         int serve_history = 0; /* True for XREADGROUP with ID != ">". */
         streamConsumer *consumer = NULL; /* Unused if XREAD */
         streamPropInfo spi = {c->argv[streams_arg+i],groupname}; /* Unused if XREAD */
-        long long dirty = server.dirty; /* Save dirty count to detect modifications */
 
         /* Check if there are the conditions to serve the client
          * synchronously. */
@@ -2802,6 +2801,7 @@ void xreadCommand(client *c) {
                                                     consumer->name);
             }
             consumer->seen_time = commandTimeSnapshot();
+            keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
         } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
@@ -2847,12 +2847,11 @@ void xreadCommand(client *c) {
                                  consumer, flags, &spi, &propCount);
             if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),old_alloc,s->alloc_size);
-            if (propCount) server.dirty++;
+            if (propCount) {
+                server.dirty++;
+                keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
+            }
         }
-
-        /* If stream was modified, update LRM but don't signal (no watch/tracking) */
-        if (server.dirty > dirty)
-            keyModified(c,c->db,c->argv[streams_arg+i],o,0);
     }
 
      /* We replied synchronously! Set the top array len and return to caller. */

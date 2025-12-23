@@ -605,7 +605,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
 
 # LRM eviction policy tests
 start_server {tags {"maxmemory" "external:skip"}} {
-    test {Policy LRM: Basic write updates idle time} {
+    test {LRM: Basic write updates idle time} {
         r flushdb
         r config set maxmemory-policy allkeys-lrm
 
@@ -621,7 +621,24 @@ start_server {tags {"maxmemory" "external:skip"}} {
         assert_lessthan_equal [r object idletime foo] 2
     }
 
-    test {Policy LRM: Keys with only read operations should be removed first} {
+    test {LRM: RENAME updates destination key LRM} {
+        r flushdb
+        r set src value
+        after 2000
+        r rename src dst
+        assert_lessthan [r object idletime dst] 1
+    }
+
+    test {LRM: XREADGROUP updates stream LRM} {
+        r flushdb
+        r xadd mystream * field value
+        r xgroup create mystream mygroup 0
+        after 2000
+        r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
+        assert_lessthan [r object idletime mystream] 1
+    }
+
+    test {LRM: Keys with only read operations should be removed first} {
         r flushdb
         r config set maxmemory 0
         r config set maxmemory-policy allkeys-lrm
