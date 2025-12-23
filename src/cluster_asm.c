@@ -627,7 +627,6 @@ static asmTask *lookupAsmTaskBySlotRange(slotRange *req) {
 /* Validates the given slot ranges for a migration task:
  * - Ensures the current node is a master.
  * - Verifies all slots are in a STABLE state.
- * - Checks that slot ranges are well-formed and non-overlapping.
  * - Confirms all slots belong to a single source node.
  * - Confirms no ongoing import task that overlaps with the slot ranges.
  *
@@ -804,11 +803,11 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
      * initiated for them. */
     source = validateImportSlotRanges(slots, err, NULL);
     if (!source)
-        return NULL;
+        goto err;
 
     if (source == getMyClusterNode()) {
         *err = sdsnew("this node is already the owner of the slot range");
-        return NULL;
+        goto err;
     }
 
     /* Only support a single task at a time now. */
@@ -820,7 +819,7 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
             asmTaskCancel(current, "new import requested");
         } else {
             *err = sdsnew("another ASM task is already in progress");
-            return NULL;
+            goto err;
         }
     }
     /* There should be no task in progress. */
@@ -828,7 +827,7 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
 
     /* Create a slot migration task */
     asmTask *task = asmTaskCreate(task_id);
-    task->slots = slotRangeArrayDup(slots);
+    task->slots = slots;
     task->state = ASM_NONE;
     task->operation = ASM_IMPORT;
     task->source_node = source;
@@ -842,6 +841,10 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
     sdsfree(slots_str);
 
     return task;
+
+err:
+    slotRangeArrayFree(slots);
+    return NULL;
 }
 
 /* CLUSTER MIGRATION IMPORT <start-slot end-slot [start-slot end-slot ...]>
@@ -860,7 +863,6 @@ static void clusterMigrationCommandImport(client *c) {
 
     sds err = NULL;
     asmTask *task = asmCreateImportTask(NULL, slots, &err);
-    slotRangeArrayFree(slots);
     if (!task) {
         addReplyErrorSds(c, err);
         return;
@@ -1006,6 +1008,19 @@ void clusterMigrationCommand(client *c) {
     }
 }
 
+/* Return the number of keys in the specified slot ranges. */
+unsigned long long asmCountKeysInSlots(slotRangeArray *slots) {
+    if (!slots) return 0;
+
+    unsigned long long key_count = 0;
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+            key_count += kvstoreDictSize(server.db[0].keys, j);
+        }
+    }
+    return key_count;
+}
+
 /* Log a human-readable message for ASM task lifecycle events. */
 void asmLogTaskEvent(asmTask *task, int event) {
     sds str = slotRangeArrayToString(task->slots);
@@ -1021,10 +1036,12 @@ void asmLogTaskEvent(asmTask *task, int event) {
             serverLog(LL_NOTICE, "Import task %s is ready to takeover slots: %s", task->id, str);
             break;
         case ASM_EVENT_IMPORT_COMPLETED:
-            serverLog(LL_NOTICE, "Import task %s completed for slots: %s", task->id, str);
+            serverLog(LL_NOTICE, "Import task %s completed for slots: %s (imported %llu keys)",
+                      task->id, str, asmCountKeysInSlots(task->slots));
             break;
         case ASM_EVENT_MIGRATE_STARTED:
-            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s", task->id, str);
+            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s (keys at start: %llu)",
+                      task->id, str, asmCountKeysInSlots(task->slots));
             break;
         case ASM_EVENT_MIGRATE_FAILED:
             serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task->id, str);
@@ -1033,7 +1050,8 @@ void asmLogTaskEvent(asmTask *task, int event) {
             serverLog(LL_NOTICE, "Migrate task %s preparing to handoff for slots: %s", task->id, str);
             break;
         case ASM_EVENT_MIGRATE_COMPLETED:
-            serverLog(LL_NOTICE, "Migrate task %s completed for slots: %s", task->id, str);
+            serverLog(LL_NOTICE, "Migrate task %s completed for slots: %s (migrated %llu keys)",
+                      task->id, str, asmCountKeysInSlots(task->slots));
             break;
         default:
             break;
@@ -2847,24 +2865,36 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
     if (err) *err = NULL;
 
     switch (event) {
-        case ASM_EVENT_IMPORT_START:
-            ret = asmCreateImportTask(task_id, arg, &errsds) ? C_OK : C_ERR;
+        case ASM_EVENT_IMPORT_START: {
+            /* Validate the slot ranges. */
+            slotRangeArray *slots = slotRangeArrayDup(arg);
+            if (slotRangeArrayNormalizeAndValidate(slots, &errsds) != C_OK) {
+                slotRangeArrayFree(slots);
+                ret = C_ERR;
+                break;
+            }
+            ret = asmCreateImportTask(task_id, slots, &errsds) ? C_OK : C_ERR;
             break;
-        case ASM_EVENT_CANCEL:
+        }
+        case ASM_EVENT_CANCEL: {
             num_cancelled = clusterAsmCancel(task_id, "user request");
             if (arg) *((int *)arg) = num_cancelled;
             ret = C_OK;
             break;
-        case ASM_EVENT_HANDOFF:
+        }
+        case ASM_EVENT_HANDOFF: {
             ret = clusterAsmHandoff(task_id, &errsds);
             break;
-        case ASM_EVENT_DONE:
+        }
+        case ASM_EVENT_DONE: {
             ret = clusterAsmDone(task_id, &errsds);
             break;
-        default:
+        }
+        default: {
             ret = C_ERR;
             errsds = sdscatprintf(sdsempty(), "Unknown operation: %d", event);
             break;
+        }
     }
 
     if (ret != C_OK && errsds && err) {
@@ -3273,10 +3303,7 @@ void asmActiveTrimStart(void) {
     asmManager->active_trim_current_job_trimmed = 0;
 
     /* Count the number of keys to trim */
-    for (int i = 0; i < slots->num_ranges; i++)  {
-        for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++)
-            asmManager->active_trim_current_job_keys += kvstoreDictSize(server.db[0].keys, slot);
-    }        
+    asmManager->active_trim_current_job_keys += asmCountKeysInSlots(slots);
 
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,

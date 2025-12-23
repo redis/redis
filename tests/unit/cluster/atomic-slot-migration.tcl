@@ -511,6 +511,42 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         wait_for_asm_done
     }
 
+    test "Test IMPORT with unsorted and adjacent ranges" {
+        # Redis should sort and merge adjacent ranges
+        # Adjacent means: prev.end + 1 == next.start
+        # e.g. 7000-7001 7002-7003 7004-7005  =>  7000-7005
+
+        # Test with adjacent ranges
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 7000 7001 7002 7100]
+        wait_for_asm_done
+        # verify migration is successfully completed on both nodes
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+        # verify slot ranges are merged correctly
+        assert_equal "7000-7100" [migration_status 0 $task_id slots]
+        assert_equal "7000-7100" [migration_status 1 $task_id slots]
+
+        # Test with unsorted and adjacent ranges
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 7050 7051 7010 7049 7000 7005]
+        wait_for_asm_done
+        # verify migration is successfully completed on both nodes
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+        # verify slot ranges are merged correctly
+        assert_equal "7000-7005 7010-7051" [migration_status 0 $task_id slots]
+        assert_equal "7000-7005 7010-7051" [migration_status 1 $task_id slots]
+
+        # Another test with unsorted and adjacent ranges
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 7007 7007 7008 7009 7006 7006]
+        wait_for_asm_done
+        # verify migration is successfully completed on both nodes
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+        # verify slot ranges are merged correctly
+        assert_equal "7006-7009" [migration_status 0 $task_id slots]
+        assert_equal "7006-7009" [migration_status 1 $task_id slots]
+    }
+
     test "Simple slot migration with write load" {
         # Perform slot migration while traffic is on and verify data consistency.
         # Trimming is disabled on source nodes so, we can compare the dbs after
