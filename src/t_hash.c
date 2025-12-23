@@ -815,8 +815,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         dbDelete(db,keyObj);
         res = GETF_EXPIRED_HASH;
     }
-    if (!(hfeFlags & HFE_LAZY_NO_SIGNAL))
-        keyModified(NULL, db, keyObj, NULL, 1);
+    keyModified(NULL, db, keyObj, NULL, !(hfeFlags & HFE_LAZY_NO_SIGNAL));
     decrRefCount(keyObj);
     return res;
 }
