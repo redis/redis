@@ -571,11 +571,8 @@ void *rdbGenericLoadStringObjectUsable(rio *rdb, int flags, size_t *lenptr, size
     if (len && rioRead(rdb,buf,len) == 0) {
         if (plainFlag)
             zfree(buf);
-        else if (sdsFlag) {
+        else
             sdsfree(buf);
-        } else { /* hfldFlag */
-            entryFree(buf, NULL);
-        }
         return NULL;
     }
     return buf;
