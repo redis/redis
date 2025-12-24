@@ -358,8 +358,7 @@ int prepareClientToWrite(client *c) {
  * -------------------------------------------------------------------------- */
 
 static int tryAddPayload(char *buf, size_t *used, size_t size, uint8_t type, const void *payload, size_t len) {
-    size_t available = size - *used;
-    if (sizeof(payloadHeader) + len > available) return 0;
+    if (*used + sizeof(payloadHeader) + len > size) return 0;
 
     /* Start a new payload chunk */
     payloadHeader *header = (payloadHeader *)(buf + *used);
