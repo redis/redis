@@ -534,7 +534,7 @@ SetExRes hashTypeSetExpiryListpack(HashTypeSetEx *ex, sds field,
      * If replica, continue like the field is valid */
     if (unlikely(checkAlreadyExpired(expireAt))) {
         propagateHashFieldDeletion(ex->db, ex->key->ptr, field, sdslen(field));
-        hashTypeDelete(ex->hashObj, field, 1);
+        hashTypeDelete(ex->hashObj, field);
         server.stat_expired_subkeys++;
         return HSETEX_DELETED;
     }
@@ -761,7 +761,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
     /* delete the field and propagate the deletion */
     if (server.memory_tracking_per_slot && !(hfeFlags & HFE_LAZY_NO_UPDATE_ALLOCSIZES))
         oldsize = hashTypeAllocSize(o);
-    serverAssert(hashTypeDelete(o, field, 1) == 1);
+    serverAssert(hashTypeDelete(o, field) == 1);
     if (server.memory_tracking_per_slot && !(hfeFlags & HFE_LAZY_NO_UPDATE_ALLOCSIZES))
         updateSlotAllocSize(db, getKeySlot(key), oldsize, hashTypeAllocSize(o));
     propagateHashFieldDeletion(db, key, field, sdslen(field));
@@ -1109,7 +1109,7 @@ SetExRes hashTypeSetExpiryHT(HashTypeSetEx *exInfo, sds field, uint64_t expireAt
     if (unlikely(checkAlreadyExpired(expireAt))) {
         /* replicas should not initiate deletion of fields */
         propagateHashFieldDeletion(exInfo->db, exInfo->key->ptr, field, sdslen(field));
-        hashTypeDelete(exInfo->hashObj, field, 1);
+        hashTypeDelete(exInfo->hashObj, field);
         server.stat_expired_subkeys++;
         return HSETEX_DELETED;
     }
@@ -1253,8 +1253,8 @@ void hashTypeSetExDone(HashTypeSetEx *ex) {
 /* Delete an element from a hash.
  *
  * Return 1 on deleted and 0 on not found.
- * isSdsField - 1 if the field is sds, 0 if it is entry* */
-int hashTypeDelete(robj *o, void *field, int isSdsField) {
+ * field - sds field name to delete */
+int hashTypeDelete(robj *o, void *field) {
     int deleted = 0;
     int fieldLen = sdslen((sds)field);
 
@@ -1287,12 +1287,9 @@ int hashTypeDelete(robj *o, void *field, int isSdsField) {
         }
     } else if (o->encoding == OBJ_ENCODING_HT) {
         /* dictDelete() will call dictEntryDestructor() */
-        dictUseStoredKeyApi((dict*)o->ptr, isSdsField ? 0 : 1);
         if (dictDelete((dict*)o->ptr, field) == C_OK) {
             deleted = 1;
         }
-        dictUseStoredKeyApi((dict*)o->ptr, 0);
-
     } else {
         serverPanic("Unknown hash encoding");
     }
@@ -1640,9 +1637,7 @@ void hashTypeConvertListpack(robj *o, int enc) {
         size_t usable, *alloc_size = htGetMetadataSize(dict);
         while (hashTypeNext(&hi, 0) != C_ERR) {
             Entry *entry = hashTypeCurrentObjectNewEntry(&hi, &usable);
-            dictUseStoredKeyApi(dict, 1);
             ret = dictAdd(dict, entry, NULL);
-            dictUseStoredKeyApi(dict, 0);
             if (ret != DICT_OK) {
                 entryFree(entry, NULL); /* Needed for gcc ASAN */
                 hashTypeResetIterator(&hi);  /* Needed for gcc ASAN */
@@ -1695,9 +1690,7 @@ void hashTypeConvertListpackEx(redisDb *db, robj *o, int enc) {
         while (hashTypeNext(&hi, 0) != C_ERR) {
             /* Create entry with both field and value */
             Entry *entry = hashTypeCurrentObjectNewEntry(&hi, &usable);
-            dictUseStoredKeyApi(dict, 1);
             ret = dictAdd(dict, entry, NULL);
-            dictUseStoredKeyApi(dict, 0);
             if (ret != DICT_OK) {
                 entryFree(entry, NULL); /* Needed for gcc ASAN */
                 hashTypeResetIterator(&hi);  /* Needed for gcc ASAN */
@@ -1816,9 +1809,7 @@ robj *hashTypeDup(kvobj *o, uint64_t *minHashExpire) {
             sdsfree(newFieldSds); /* (Only value ownership transferred to entry) */
 
             /* Add entry to new hash object. */
-            dictUseStoredKeyApi(d, 1);
             dictAdd(d, newEntry, NULL);  /* no_value=1, so value is NULL */
-            dictUseStoredKeyApi(d, 0);
             *alloc_size += usable;
         }
         hashTypeResetIterator(&hi);
@@ -2727,7 +2718,7 @@ void hgetdelCommand(client *c) {
         /* Try to delete only if it's found and not expired lazily. */
         if (res == GETF_OK) {
             deleted++;
-            serverAssert(hashTypeDelete(o, c->argv[i]->ptr, 1) == 1);
+            serverAssert(hashTypeDelete(o, c->argv[i]->ptr) == 1);
         }
     }
 
@@ -2932,7 +2923,7 @@ void hdelCommand(client *c) {
     int isHFE = hashTypeIsFieldsWithExpire(o);
 
     for (j = 2; j < c->argc; j++) {
-        if (hashTypeDelete(o,c->argv[j]->ptr,1)) {
+        if (hashTypeDelete(o,c->argv[j]->ptr)) {
             deleted++;
             if (hashTypeLength(o, 0) == 0) {
                 if (server.memory_tracking_per_slot)
@@ -3507,7 +3498,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     unsigned long l = hashTypeLength(expCtx->hashObj, 0);
     updateKeysizesHist(expCtx->db, getKeySlot(key), OBJ_HASH, l, l - 1);
 
-    serverAssert(hashTypeDelete(expCtx->hashObj, field, 0) == 1);
+    serverAssert(hashTypeDelete(expCtx->hashObj, field) == 1);
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(expCtx->db, getKeySlot(key), oldsize, hashTypeAllocSize(kv));
     server.stat_expired_subkeys++;

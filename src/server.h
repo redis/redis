@@ -3645,7 +3645,7 @@ static inline size_t *htGetMetadataSize(dict *d) {
 void hashTypeConvert(redisDb *db, robj *o, int enc);
 void hashTypeTryConversion(redisDb *db, kvobj *kv, robj **argv, int start, int end);
 int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashDeleted);
-int hashTypeDelete(robj *o, void *key, int isSdsField);
+int hashTypeDelete(robj *o, void *key);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
 size_t hashTypeAllocSize(const robj *o);
 void hashTypeInitIterator(hashTypeIterator *hi, robj *subject);

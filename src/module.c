@@ -5451,7 +5451,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         if (value == REDISMODULE_HASH_DELETE) {
             if (server.memory_tracking_per_slot)
                 oldsize = hashTypeAllocSize(key->kv);
-            count += hashTypeDelete(key->kv, field->ptr, 1);
+            count += hashTypeDelete(key->kv, field->ptr);
             if (server.memory_tracking_per_slot)
                 updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), oldsize, hashTypeAllocSize(key->kv));
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
