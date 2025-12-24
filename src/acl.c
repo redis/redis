@@ -802,7 +802,7 @@ sds ACLDescribeSelectorCommandRules(aclSelector *selector) {
     {
         serverLog(LL_WARNING,
             "CRITICAL ERROR: User ACLs don't match final bitmap: '%s'",
-            rules);
+            logRedactCstr(rules));
         serverPanic("No bitmap match in ACLDescribeSelectorCommandRules()");
     }
     ACLFreeSelector(fake_selector);
@@ -1181,7 +1181,7 @@ int ACLSetSelector(aclSelector *selector, const char* op, size_t oplen) {
                 /* Add the first-arg to the list of valid ones. */
                 serverLog(LL_WARNING, "Deprecation warning: Allowing a first arg of an otherwise "
                                       "blocked command is a misuse of ACL and may get disabled "
-                                      "in the future (offender: +%s)", op+1);
+                                      "in the future (offender: +%s)", logRedactCstr(op+1));
                 ACLAddAllowedFirstArg(selector,cmd->id,sub);
             }
             ACLUpdateCommandRules(selector,op+1,1);
@@ -2247,7 +2247,7 @@ int ACLLoadConfiguredUsers(void) {
                 const char *errmsg = ACLSetUserStringError();
                 serverLog(LL_WARNING,"Error loading ACL rule '%s' for "
                                      "the user named '%s': %s",
-                          aclrules[j],aclrules[0],errmsg);
+                          logRedactCstr(aclrules[j]),logRedactCstr(aclrules[0]),errmsg);
                 return C_ERR;
             }
         }
@@ -2258,7 +2258,7 @@ int ACLLoadConfiguredUsers(void) {
             serverLog(LL_NOTICE, "The user '%s' is disabled (there is no "
                                  "'on' modifier in the user description). Make "
                                  "sure this is not a configuration error.",
-                      aclrules[0]);
+                      logRedactCstr(aclrules[0]));
         }
     }
     return C_OK;
