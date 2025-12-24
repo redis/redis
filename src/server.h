@@ -1075,7 +1075,7 @@ struct redisObject {
 };
 
 /* Ensure refcount field size matches OBJ_REFCOUNT_BITS */
-static_assert(sizeof(((struct redisObject *)0)->refcount) * 8 == OBJ_REFCOUNT_BITS, "refcount size mismatch");
+static_assert(sizeof(((struct redisObject *)NULL)->refcount) * CHAR_BIT == OBJ_REFCOUNT_BITS, "refcount size mismatch");
 
 /* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
@@ -1104,7 +1104,7 @@ typedef enum {
     BULK_STR_REF     /* bulk string references */
 } payloadType;
 
-/* Encoded reply buffers consist from chunks
+/* Encoded reply buffers consist of chunks
  * Each chunk contains header followed by payload
  * The packed attribute is specified because buffer is accessed at arbitrary offsets,
  * so no benefit in data structure padding and applying packed saves the space in the buffer  */

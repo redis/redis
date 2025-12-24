@@ -607,7 +607,7 @@ void decrRefCount(robj *o) {
             o->type, o->encoding, refcount);
     }
 
-    atomicDecr(o->refcount, 1);
+    refcount = atomicDecr(o->refcount, 1);
     if (refcount == 1) {
         if (o->ptr != NULL) {
             switch(o->type) {
