@@ -1150,6 +1150,8 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
         while((clientde = dictNext(&di)) != NULL) {
             client *c = dictGetKey(clientde);
             dict *client_channels = ctx->getPubSubChannels(c);
+            /* Assume the dict key and keyId are the same */
+            debugServerAssert(client_channels->type->getKeyId == NULL);
             uint64_t hash = dictGetHash(client_channels, newchannel);
             dictEntry *pubsub_channel = dictFindByHashAndPtr(client_channels, channel, hash);
             serverAssert(pubsub_channel);

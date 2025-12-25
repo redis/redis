@@ -889,9 +889,7 @@ void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link,
 
 dictEntry *kvstoreDictAddRaw(kvstore *kvs, int didx, void *key, dictEntry **existing) {
     dict *d = createDictIfNeeded(kvs, didx);
-    dictUseStoredKeyApi(d, 1);
     dictEntry *ret = dictAddRaw(d, key, existing);
-    dictUseStoredKeyApi(d, 0);
     if (ret)
         cumulativeKeyCountAdd(kvs, didx, 1);
     return ret;
