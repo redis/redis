@@ -580,7 +580,7 @@ void freeStreamObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
+    if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
         o->refcount++;
     } else {
         if (o->refcount == OBJ_SHARED_REFCOUNT) {
