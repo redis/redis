@@ -587,6 +587,8 @@ void incrRefCount(robj *o) {
             /* Nothing to do: this refcount is immutable. */
         } else if (o->refcount == OBJ_STATIC_REFCOUNT) {
             serverPanic("You tried to retain an object allocated in the stack");
+        } else {
+            serverPanic("You tried to retain an object with maximum refcount");
         }
     }
 }
