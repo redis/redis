@@ -197,7 +197,7 @@ Redis provides a variety of data types, processing engines, and capabilities to 
 
 ## Cloud hosted Redis
 
-Fully-managed Redis with more data structures and real-time performance at scale.
+Fully-managed Redis with real-time performance at scale.
 
 [**Redis Cloud**](https://redis.io/cloud/)
 
