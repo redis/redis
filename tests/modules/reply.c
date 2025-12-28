@@ -82,6 +82,19 @@ int rw_array(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_OK;
 }
 
+int rw_simplestring_array(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+    if (argc < 2) return RedisModule_WrongArity(ctx);
+
+    RedisModule_ReplyWithArray(ctx, argc - 1);
+    for (int i = 1; i < argc; ++i) {
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(argv[i], &len);
+        RedisModule_ReplyWithSimpleString(ctx, str);
+    }
+
+    return REDISMODULE_OK;
+}
+
 int rw_map(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     if (argc != 2) return RedisModule_WrongArity(ctx);
 
@@ -192,6 +205,8 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx,"rw.longdouble",rw_longdouble,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.array",rw_array,"",0,0,0) != REDISMODULE_OK)
+        return REDISMODULE_ERR;
+    if (RedisModule_CreateCommand(ctx,"rw.simplestring_array",rw_simplestring_array,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
     if (RedisModule_CreateCommand(ctx,"rw.map",rw_map,"",0,0,0) != REDISMODULE_OK)
         return REDISMODULE_ERR;
