@@ -2761,7 +2761,9 @@ void ldbEval(lua_State *lua, sds *argv, int argc) {
     sdsfree(code);
     sdsfree(expr);
     if (lua_pcall(lua,0,1,0)) {
-        ldbLog(sdscatfmt(sdsempty(),"<error> %s",lua_tostring(lua,-1)));
+        const char *err = lua_tostring(lua,-1);
+        ldbLog(sdscatfmt(sdsempty(),"<error> %s",
+            err ? err : "(error object is not a string)"));
         lua_pop(lua,1);
         return;
     }
