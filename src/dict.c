@@ -95,7 +95,7 @@ static inline keyCmpFunc dictGetCmpFunc(dict *d) {
 }
 
 static inline uint64_t dictHashKey(dict *d, const void *keyId) {
-        return d->type->hashFunction(keyId);
+    return d->type->hashFunction(keyId);
 }
 
 static const void *dictGetKeyId(dict *d, const void *key) {
