@@ -21,6 +21,7 @@
 #include "fmtargs.h"
 #include "cluster_asm.h"
 #include "memory_prefetch.h"
+#include "connection.h"
 #include <sys/socket.h>
 #include <sys/uio.h>
 #include <math.h>
@@ -47,14 +48,6 @@ __thread int thread_reusable_qb_used = 0; /* Avoid multiple clients using reusab
  * the client output buffer size. */
 size_t sdsZmallocSize(sds s) {
     void *sh = sdsAllocPtr(s);
-    return zmalloc_size(sh);
-}
-
-/* Return the size consumed from the allocator, for the specified hfield with
- * metadata (mstr), including internal fragmentation. This function is used in
- * order to compute the client output buffer size. */
-size_t hfieldZmallocSize(hfield s) {
-    void *sh = hfieldGetAllocPtr(s);
     return zmalloc_size(sh);
 }
 
@@ -1528,6 +1521,22 @@ void clientAcceptHandler(connection *conn) {
             freeClientAsync(c);
             return;
         }
+    }
+
+    /* Auto-authenticate from cert_user field if set */
+    sds username = connGetPeerUsername(conn);
+    if (username != NULL) {
+        user *u = ACLGetUserByName(username, sdslen(username));
+        if (u && !(u->flags & USER_FLAG_DISABLED)) {
+            c->user = u;
+            c->authenticated = 1;
+            moduleNotifyUserChanged(c);
+            serverLog(LL_VERBOSE, "TLS: Auto-authenticated client as %s",
+                      server.hide_user_data_from_log ? "*redacted*" : u->name);
+        } else {
+            addACLLogEntry(c, ACL_INVALID_TLS_CERT_AUTH, ACL_LOG_CTX_TOPLEVEL, 0, username, NULL);
+        }
+        sdsfree(username);
     }
 
     server.stat_numconnections++;

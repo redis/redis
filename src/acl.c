@@ -2,6 +2,9 @@
  * Copyright (c) 2018-Present, Redis Ltd.
  * All rights reserved.
  *
+ * Copyright (c) 2024-present, Valkey contributors.
+ * All rights reserved.
+ *
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
@@ -2647,6 +2650,8 @@ void ACLUpdateInfoMetrics(int reason){
         server.acl_info.invalid_key_accesses++;
     } else if (reason == ACL_DENIED_CHANNEL) {
         server.acl_info.invalid_channel_accesses++;
+    } else if (reason == ACL_INVALID_TLS_CERT_AUTH) {
+        server.acl_info.acl_access_denied_tls_cert++;
     } else {
         serverPanic("Unknown ACL_DENIED encoding");
     }
@@ -3091,6 +3096,7 @@ void aclCommand(client *c) {
             case ACL_DENIED_KEY: reasonstr="key"; break;
             case ACL_DENIED_CHANNEL: reasonstr="channel"; break;
             case ACL_DENIED_AUTH: reasonstr="auth"; break;
+            case ACL_INVALID_TLS_CERT_AUTH: reasonstr = "tls-cert"; break;
             default: reasonstr="unknown";
             }
             addReplyBulkCString(c,reasonstr);

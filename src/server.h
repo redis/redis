@@ -47,7 +47,7 @@ typedef long long ustime_t; /* microsecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
-#include "mstr.h"    /* Immutable strings with optional metadata attached */
+#include "entry.h"   /* Entry objects (field-value pairs with optional expiration) */
 #include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */
 #include "kvstore.h" /* Slot-based hash table */
@@ -177,9 +177,9 @@ struct hdr_histogram;
 /* Instantaneous metrics tracking. */
 #define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
-#define STATS_METRIC_NET_INPUT 1    /* Bytes read to network. */
+#define STATS_METRIC_NET_INPUT 1    /* Bytes read from network. */
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
-#define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read to network during replication. */
+#define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read from network during replication. */
 #define STATS_METRIC_NET_OUTPUT_REPLICATION 4   /* Bytes written to network during replication. */
 #define STATS_METRIC_EL_CYCLE 5     /* Number of eventloop cycled. */
 #define STATS_METRIC_EL_DURATION 6  /* Eventloop duration. */
@@ -640,11 +640,16 @@ typedef enum {
 #define REPL_DISKLESS_LOAD_DISABLED 0
 #define REPL_DISKLESS_LOAD_WHEN_DB_EMPTY 1
 #define REPL_DISKLESS_LOAD_SWAPDB 2
+#define REPL_DISKLESS_LOAD_ALWAYS 3
 
 /* TLS Client Authentication */
 #define TLS_CLIENT_AUTH_NO 0
 #define TLS_CLIENT_AUTH_YES 1
 #define TLS_CLIENT_AUTH_OPTIONAL 2
+
+/* TLS Client Certfiicate Authentication */
+#define TLS_CLIENT_FIELD_OFF 0
+#define TLS_CLIENT_FIELD_CN 1
 
 /* Sanitize dump payload */
 #define SANITIZE_DUMP_NO 0
@@ -1601,6 +1606,7 @@ typedef struct aclInfo {
     long long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
     long long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
     long long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
+    long long acl_access_denied_tls_cert; /* TLS clients with cert not matching any existing user. */
 } aclInfo;
 
 struct saveparam {
@@ -1803,6 +1809,7 @@ typedef struct redisTLSContextConfig {
     char *client_cert_file;         /* Certificate to use as a client; if none, use cert_file */
     char *client_key_file;          /* Private key filename for client_cert_file */
     char *client_key_file_pass;     /* Optional password for client_key_file */
+    int client_auth_user;           /* Field to be used for automatic TLS authentication based on client TLS certificate */
     char *dh_params_file;
     char *ca_cert_file;
     char *ca_cert_dir;
@@ -2377,6 +2384,7 @@ struct redisServer {
                                       to set in order to suppress certain
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
+    int cluster_module_trim_disablers; /* Number of module requests to disable trimming */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flocked. */
@@ -2852,9 +2860,8 @@ typedef struct {
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
 
-/* Hash-field data type (of t_hash.c) */
-typedef mstr hfield;
-extern  mstrKind mstrFieldKind;
+/* Hash-field data type (of t_hash.c) - now using entry directly
+ * Note: entry* is used directly instead of a typedef for clarity */
 
 /*-----------------------------------------------------------------------------
  * Extern declarations
@@ -2870,8 +2877,8 @@ extern dictType zsetDictType;
 extern dictType dbDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
-extern dictType mstrHashDictType;
-extern dictType mstrHashDictTypeWithHFE;
+extern dictType entryHashDictType;
+extern dictType entryHashDictTypeWithHFE;
 extern dictType stringSetDictType;
 extern dictType externalStringType;
 extern dictType sdsHashDictType;
@@ -3048,7 +3055,6 @@ void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);
 size_t sdsZmallocSize(sds s);
-size_t hfieldZmallocSize(hfield s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
 void *dupClientReplyValue(void *o);
@@ -3388,6 +3394,7 @@ void ACLInit(void);
 #define ACL_DENIED_KEY 2
 #define ACL_DENIED_AUTH 3 /* Only used for ACL LOG entries. */
 #define ACL_DENIED_CHANNEL 4 /* Only used for pub/sub commands */
+#define ACL_INVALID_TLS_CERT_AUTH 5 /* Only used for TLS Auto-authentication */
 
 /* Context values for addACLLogEntry(). */
 #define ACL_LOG_CTX_TOPLEVEL 0
@@ -3699,7 +3706,7 @@ void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, char **str,
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
                            unsigned int *vlen, long long *vll, uint64_t *expireTime);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi, size_t *usable);
+Entry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable);
 int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
 int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
@@ -3714,16 +3721,6 @@ void initDictExpireMetadata(robj *o);
 struct listpackEx *listpackExCreate(void);
 void listpackExAddNew(robj *o, char *field, size_t flen,
                       char *value, size_t vlen, uint64_t expireAt);
-
-/* Hash-Field data type (of t_hash.c) */
-hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta, size_t *usable);
-hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta, size_t *usable);
-int hfieldIsExpireAttached(hfield field);
-int hfieldIsExpired(hfield field);
-uint64_t hfieldGetExpireTime(hfield field);
-static inline void hfieldFree(hfield field, size_t *usable) { mstrFree(&mstrFieldKind, field, usable); }
-static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
-static inline size_t hfieldlen(hfield field) { return mstrlen(field);}
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -3868,6 +3865,7 @@ int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
 #define LOOKUP_WRITE (1<<3)          /* Delete expired keys even in replicas. */
 #define LOOKUP_NOEXPIRE (1<<4)       /* Avoid deleting lazy expired keys. */
 #define LOOKUP_ACCESS_EXPIRED (1<<5) /* Allow lookup to expired key. */
+#define LOOKUP_ACCESS_TRIMMED (1<<6) /* Allow lookup to key in slots being trimmed. */
 #define LOOKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
 
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
@@ -4066,7 +4064,6 @@ uint64_t dictPtrHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
 size_t dictSdsKeyLen(dict *d, const void *key);
 int dictSdsKeyCompare(dictCmpCache *cache, const void *key1, const void *key2);
-int dictSdsMstrKeyCompare(dictCmpCache *cache, const void *sdsLookup, const void *mstrStored);
 int dictSdsKeyCaseCompare(dictCmpCache *cache, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
 void dictListDestructor(dict *d, void *val);

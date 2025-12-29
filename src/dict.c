@@ -916,8 +916,13 @@ void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
     dictEntry **de = *link;
     if (entryIsKey(*de)) {
         /* `de` opt-out to be actually a key. Replace key but keep the lsb flags */
-        int mask = ((uintptr_t) *de) & ENTRY_PTR_MASK;
-        *de = encodeMaskedPtr(addedKey, mask);
+        if (d->type->keys_are_odd) {
+            /* For odd keys, just assign directly - LSB is already set */
+            debugAssert(((uintptr_t)addedKey & ENTRY_PTR_IS_ODD_KEY));
+            *de = addedKey;
+        } else {
+            *de = encodeMaskedPtr(addedKey, ENTRY_PTR_IS_EVEN_KEY);
+        }
     } else {
         /* either dictEntry or dictEntryNoValue */
         (*de)->key = addedKey;
@@ -1378,7 +1383,7 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions
     while (bucketref && *bucketref) {
         dictEntry *de = *bucketref, *newde = NULL;
         void *newkey = defragkey ? defragkey(dictGetKey(de)) : NULL;
-        void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
+        
         if (entryIsKey(de)) {
             if (newkey) *bucketref = newkey;
         } else if (d->type->no_value) {
@@ -1389,6 +1394,7 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions
             }
             if (newkey) entry->key = newkey;
         } else {
+            void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
             assert(entryIsNormal(de));
             newde = defragalloc(de);
             if (newde) de = newde;

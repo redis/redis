@@ -1731,14 +1731,18 @@ void replySlotsFlushAndFree(client *c, slotRangeArray *slots) {
     slotRangeArrayFree(slots);
 }
 
-/* Checks that slot ranges are well-formed and non-overlapping. */
-int validateSlotRanges(slotRangeArray *slots, sds *err) {
+/* Normalizes (sorts and merges adjacent ranges), checks that slot ranges are
+ * well-formed and non-overlapping. */
+int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err) {
     unsigned char used_slots[CLUSTER_SLOTS] = {0};
 
     if (slots->num_ranges <= 0 || slots->num_ranges >= CLUSTER_SLOTS) {
         *err = sdscatprintf(sdsempty(), "invalid number of slot ranges: %d", slots->num_ranges);
         return C_ERR;
     }
+
+    /* Sort and merge adjacent slot ranges. */
+    slotRangeArraySortAndMerge(slots);
 
     for (int i = 0; i < slots->num_ranges; i++) {
         if (slots->ranges[i].start >= CLUSTER_SLOTS ||
@@ -1789,6 +1793,7 @@ void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end) {
 /* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
 sds slotRangeArrayToString(slotRangeArray *slots) {
     sds s = sdsempty();
+    if (slots == NULL || slots->num_ranges == 0) return s;
 
     for (int i = 0; i < slots->num_ranges; i++) {
         slotRange *sr = &slots->ranges[i];
@@ -1826,7 +1831,7 @@ slotRangeArray *slotRangeArrayFromString(sds data) {
 
     /* Validate all ranges */
     sds err_msg = NULL;
-    if (validateSlotRanges(slots, &err_msg) != C_OK) {
+    if (slotRangeArrayNormalizeAndValidate(slots, &err_msg) != C_OK) {
         if (err_msg) sdsfree(err_msg);
         goto err;
     }
@@ -1847,13 +1852,32 @@ static int compareSlotRange(const void *a, const void *b) {
     return 0;
 }
 
+/* Sort slot ranges by start slot and merge adjacent ranges.
+ * Adjacent means: prev.end + 1 == next.start.
+ * e.g. 1000-2000 2001-3000 0-100  =>  0-100 1000-3000
+ *
+ * Note: Overlapping ranges are not merged.*/
+void slotRangeArraySortAndMerge(slotRangeArray *slots) {
+    if (!slots || slots->num_ranges <= 1) return;
+
+    qsort(slots->ranges, slots->num_ranges, sizeof(slotRange), compareSlotRange);
+
+    int idx = 0;
+    for (int i = 1; i < slots->num_ranges; i++) {
+        if (slots->ranges[idx].end + 1 == slots->ranges[i].start)
+            slots->ranges[idx].end = slots->ranges[i].end;
+        else
+            slots->ranges[++idx] = slots->ranges[i];
+    }
+    slots->num_ranges = idx + 1;
+}
+
 /* Compare two slot range arrays, return 1 if equal, 0 otherwise */
 int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2) {
-    if (slots1->num_ranges != slots2->num_ranges) return 0;
+    slotRangeArraySortAndMerge(slots1);
+    slotRangeArraySortAndMerge(slots2);
 
-    /* Sort slot ranges first */
-    qsort(slots1->ranges, slots1->num_ranges, sizeof(slotRange), compareSlotRange);
-    qsort(slots2->ranges, slots2->num_ranges, sizeof(slotRange), compareSlotRange);
+    if (slots1->num_ranges != slots2->num_ranges) return 0;
 
     for (int i = 0; i < slots1->num_ranges; i++) {
         if (slots1->ranges[i].start != slots2->ranges[i].start ||
@@ -1959,13 +1983,18 @@ void slotRangeArrayIteratorFree(slotRangeArrayIter *it) {
     zfree(it);
 }
 
-/* Parse slot ranges from the command arguments. Returns NULL on error. */
+/* Parse slot range pairs from argv starting at `pos`.
+ * `argc` is the argument count, `pos` is the first slot argument index.
+ * Returns a slotRangeArray or NULL on error. */
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     int start, end, count;
     slotRangeArray *slots;
 
-    serverAssert(pos <= argc);
-    serverAssert((argc - pos) % 2 == 0);
+    /* Ensure there is at least one (start,end) slot range pairs. */
+    if (argc < 0 || pos < 0 || pos >= argc || (argc - pos) < 2 || ((argc - pos) % 2) != 0) {
+        addReplyErrorArity(c);
+        return NULL;
+    }
 
     count = (argc - pos) / 2;
     slots = slotRangeArrayCreate(count);
@@ -1983,7 +2012,7 @@ slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     }
 
     sds err = NULL;
-    if (validateSlotRanges(slots, &err) != C_OK) {
+    if (slotRangeArrayNormalizeAndValidate(slots, &err) != C_OK) {
         addReplyErrorSds(c, err);
         slotRangeArrayFree(slots);
         return NULL;

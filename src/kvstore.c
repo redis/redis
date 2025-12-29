@@ -522,9 +522,11 @@ int kvstoreFindDictIndexByKeyIndex(kvstore *kvs, unsigned long target) {
     return fwTreeFindIndex(kvs->dict_sizes, target);
 }
 
-/* Wrapper for kvstoreFindDictIndexByKeyIndex to get the first non-empty dict index in the kvstore. */
+/* Get the first non-empty dict index in the kvstore. Returns -1 if kvstore is empty. */
 int kvstoreGetFirstNonEmptyDictIndex(kvstore *kvs) {
-    if (kvs->num_dicts == 1 || kvstoreSize(kvs) == 0)
+    if (kvstoreSize(kvs) == 0)
+        return -1;
+    if (kvs->num_dicts == 1)
         return 0;
     return fwTreeFindFirstNonEmpty(kvs->dict_sizes);
 }
@@ -596,7 +598,8 @@ void kvstoreIteratorReset(kvstoreIterator *kvs_it) {
     dictIterator *iter = &kvs_it->di;
     dictResetIterator(iter);
     /* In the safe iterator context, we may delete entries. */
-    freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
+    if (kvs_it->didx != -1)
+        freeDictIfNeeded(kvs_it->kvs, kvs_it->didx);
 }
 
 /* Returns next dictionary from the iterator, or NULL if iteration is complete.
@@ -1040,6 +1043,14 @@ int kvstoreTest(int argc, char **argv, int flags) {
         assert(kvstoreSize(kvs1) == 16);
         assert(kvstoreDictSize(kvs2, didx) == 16);
         assert(kvstoreSize(kvs2) == 16);
+    }
+
+    TEST("kvstoreIterator creating and releasing without kvstoreIteratorNextDict()") {
+        kvstore *kvs = kvstoreCreate(&KvstoreTestType, &KvstoreDictNovalTestType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+        kvstoreIterator kvs_iter;
+        kvstoreIteratorInit(&kvs_iter, kvs);
+        kvstoreIteratorReset(&kvs_iter);
+        kvstoreRelease(kvs);
     }
 
     TEST("kvstoreIterator case 1: removing all keys does not delete the empty dict") {

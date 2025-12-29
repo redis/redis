@@ -2059,12 +2059,12 @@ void replicationCreateMasterClient(connection *conn, int dbid) {
 
 static int useDisklessLoad(void) {
     /* compute boolean decision to use diskless load */
-    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
+    int enabled = server.repl_diskless_load == REPL_DISKLESS_LOAD_ALWAYS || server.repl_diskless_load == REPL_DISKLESS_LOAD_SWAPDB ||
            (server.repl_diskless_load == REPL_DISKLESS_LOAD_WHEN_DB_EMPTY && dbTotalServerKeyCount()==0);
 
     if (enabled) {
         /* Check all modules handle read errors, otherwise it's not safe to use diskless load. */
-        if (!moduleAllDatatypesHandleErrors()) {
+        if (server.repl_diskless_load != REPL_DISKLESS_LOAD_ALWAYS && !moduleAllDatatypesHandleErrors()) {
             serverLog(LL_NOTICE,
                 "Skipping diskless-load because there are modules that don't handle read errors.");
             enabled = 0;

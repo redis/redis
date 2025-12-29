@@ -373,18 +373,6 @@ int dictSdsKeyCompare(dictCmpCache *cache, const void *key1,
     return memcmp(key1, key2, l1) == 0;
 }
 
-int dictSdsMstrKeyCompare(dictCmpCache *cache, const void *sdsLookup, const void *mstrStored)
-{
-    int l1,l2;
-    UNUSED(cache);
-
-    l1 = sdslen((sds)sdsLookup);
-    l2 = hfieldlen((hfield)mstrStored);
-    if (l1 != l2) return 0;
-    return memcmp(sdsLookup, mstrStored, l1) == 0;
-}
-
-
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
 int dictSdsKeyCaseCompare(dictCmpCache *cache, const void *key1,
@@ -2353,6 +2341,7 @@ void initServerConfig(void) {
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
+    server.cluster_module_trim_disablers = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
@@ -3042,6 +3031,7 @@ void initServer(void) {
     server.acl_info.invalid_key_accesses  = 0;
     server.acl_info.user_auth_failures = 0;
     server.acl_info.invalid_channel_accesses = 0;
+    server.acl_info.acl_access_denied_tls_cert = 0;
 
     /* Initialize the shared pending command pool. */
     server.cmd_pool.size = 0;
@@ -5923,14 +5913,16 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
 /* Writes the ACL metrics to the info */
 sds genRedisInfoStringACLStats(sds info) {
     info = sdscatprintf(info,
-         "acl_access_denied_auth:%lld\r\n"
-         "acl_access_denied_cmd:%lld\r\n"
-         "acl_access_denied_key:%lld\r\n"
-         "acl_access_denied_channel:%lld\r\n",
-         server.acl_info.user_auth_failures,
-         server.acl_info.invalid_cmd_accesses,
-         server.acl_info.invalid_key_accesses,
-         server.acl_info.invalid_channel_accesses);
+	     "acl_access_denied_auth:%lld\r\n"
+	     "acl_access_denied_cmd:%lld\r\n"
+	     "acl_access_denied_key:%lld\r\n"
+	     "acl_access_denied_channel:%lld\r\n"
+	     "acl_access_denied_tls_cert:%lld\r\n",
+	     server.acl_info.user_auth_failures,
+	     server.acl_info.invalid_cmd_accesses,
+	     server.acl_info.invalid_key_accesses,
+	     server.acl_info.invalid_channel_accesses,
+	     server.acl_info.acl_access_denied_tls_cert);
     return info;
 }
 

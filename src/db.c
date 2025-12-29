@@ -35,12 +35,14 @@ static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX, "Must be equal");
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
 #define EXPIRE_ALLOW_ACCESS_EXPIRED 4
+#define EXPIRE_ALLOW_ACCESS_TRIMMED 8
 
 /* Return values for expireIfNeeded */
 typedef enum {
     KEY_VALID = 0, /* Could be volatile and not yet expired, non-volatile, or even non-existing key. */
     KEY_EXPIRED, /* Logically expired but not yet deleted. */
-    KEY_DELETED /* The key was deleted now. */
+    KEY_DELETED, /* The key was deleted now. */
+    KEY_TRIMMED  /* Logically trimmed but not yet deleted. */
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
@@ -256,6 +258,8 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
         if (flags & LOOKUP_ACCESS_EXPIRED)
             expire_flags |= EXPIRE_ALLOW_ACCESS_EXPIRED;
+        if (flags & LOOKUP_ACCESS_TRIMMED)
+            expire_flags |= EXPIRE_ALLOW_ACCESS_TRIMMED;
         if (expireIfNeeded(db, key, val, expire_flags) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
@@ -1458,7 +1462,6 @@ typedef struct {
     sds pattern;  /* pattern string, NULL means no pattern */
     long sampled; /* cumulative number of keys sampled */
     int no_values; /* set to 1 means to return keys only */
-    size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
     sds typename; /* typename string, NULL means no type filter */
     redisDb *db;  /* database reference for expiration checks */
 } scanData;
@@ -1482,6 +1485,7 @@ int objectTypeCompare(robj *o, long long target) {
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
+    Entry *hashEntry = NULL;
     scanData *data = (scanData *)privdata;
     list *keys = data->keys;
     robj *o = data->o;
@@ -1497,13 +1501,16 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     if (!o) { /* If scanning keyspace */
         kv = dictGetKV(de);
         keyStr = kvobjGetKey(kv);
+    } else if (o->type == OBJ_HASH) {
+        hashEntry = dictGetKey(de);
+        keyStr = entryGetField(hashEntry);
     } else {
         keyStr = dictGetKey(de);
     }
     
     /* Filter element if it does not match the pattern. */
     if (data->pattern) {
-        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, data->strlen(keyStr), 0)) {
+        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, sdslen(keyStr), 0)) {
             return;
         }
     }
@@ -1531,10 +1538,10 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         key = keyStr;
     } else if (o->type == OBJ_HASH) {
         key = keyStr;
-        val = dictGetVal(de);
+        val = entryGetValue(hashEntry);
 
         /* If field is expired, then ignore */
-        if (hfieldIsExpired(key))
+        if (entryIsExpired(hashEntry))
             return;
 
     } else if (o->type == OBJ_ZSET) {
@@ -1619,7 +1626,6 @@ static int scanShouldSkipDict(dict *d, int didx) {
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
-    int isKeysHfield = 0;
     int i, j;
     listNode *node;
     long count = 10;
@@ -1700,7 +1706,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
-        isKeysHfield = 1;
         ht = o->ptr;
     } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
@@ -1748,7 +1753,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .pattern = use_pattern ? pat : NULL,
             .sampled = 0,
             .no_values = no_values,
-            .strlen = (isKeysHfield) ? hfieldlen : sdslen,
             .typename = typename,
             .db = c->db,
         };
@@ -1913,14 +1917,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    unsigned long long idx = 0;
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         void *key = listNodeValue(node);
-        /* For HSCAN, list will contain keys value pairs unless no_values arg
-         * was given. We should call mstrlen for the keys only. */
-        int hfieldkey = isKeysHfield && (no_values || (idx++ % 2 == 0));
-        addReplyBulkCBuffer(c, key, hfieldkey ? mstrlen(key) : sdslen(key));
+        addReplyBulkCBuffer(c, key, sdslen(key));
         listDelNode(keys, node);
     }
 
@@ -2721,7 +2721,9 @@ int confAllowsExpireDel(void) {
  *
  * The return value of the function is KEY_VALID if the key is still valid.
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
- * or returns KEY_DELETED if the key is expired and deleted.
+ * or returns KEY_DELETED if the key is expired and deleted. If the key is in a
+ * trim job due to slot migration, the function returns KEY_TRIMMED, unless
+ * EXPIRE_ALLOW_ACCESS_TRIMMED is set, in which case it returns KEY_VALID.
  *
  * You can optionally pass `kv` to save a lookup.
  */
@@ -2729,9 +2731,15 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
 
     /* NOTE: Keys in slots scheduled for trimming can still exist for a while.
-     * If a module touches one of these keys, we remove it right away and
-     * return KEY_DELETED. */
-    if (asmActiveTrimDelIfNeeded(db, key, kv)) return KEY_DELETED;
+     * We don't delete it here, return KEY_VALID if allowing access to trimmed
+     * keys, and return KEY_TRIMMED otherwise. */
+    sds key_name = key ? key->ptr : kvobjGetKey(kv);
+    if (asmIsKeyInTrimJob(key_name)) {
+        if (server.allow_access_trimmed || (flags & EXPIRE_ALLOW_ACCESS_TRIMMED))
+            return KEY_VALID;
+
+        return KEY_TRIMMED;
+    }
 
     if ((flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
