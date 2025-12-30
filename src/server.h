@@ -4356,7 +4356,7 @@ sds getVersion(void);
 void debugPauseProcess(void);
 
 /* Log redaction helpers: return "*redacted*" when hide-user-data-from-log is on. */
-static inline const char *logRedactCstr(const char *s) {return server.hide_user_data_from_log ? "*redacted*" : (s ? s : "(null)");}
+static inline const char *redactLogCstr(const char *s) {return server.hide_user_data_from_log ? "*redacted*" : (s ? s : "(null)");}
 
 /* Use macro for checking log level to avoid evaluating arguments in cases log
  * should be ignored due to low level. */
