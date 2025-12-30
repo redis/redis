@@ -34,6 +34,11 @@
 #include "lstate.h"
 #include "ltable.h"
 
+#include <assert.h>
+#ifdef getline
+#undef getline
+#endif
+#include <stdio.h>
 
 /*
 ** max size of array part is 2^MAXBITS
@@ -532,25 +537,47 @@ TValue *luaH_setstr (lua_State *L, Table *t, TString *key) {
 static int unbound_search (Table *t, unsigned int j) {
   unsigned int i = j;  /* i is zero or a present index */
   j++;
+  /* j must now be strictly greater than i unless wraparound occurred */
+  assert(j > i);
+
   /* find `i' and `j' such that i is present and j is not */
   while (!ttisnil(luaH_getnum(t, j))) {
     i = j;
+
+    /* doubling must not overflow unsigned arithmetic */
+    assert(j <= UINT_MAX / 2 && "unbound_search: j overflow before doubling");
     j *= 2;
-    if (j > cast(unsigned int, MAX_INT)) {  /* overflow? */
-      /* table was built with bad purposes: resort to linear search */
+
+    if (j > cast(unsigned int, MAX_INT)) {  /* overflow fallback */
       i = 1;
       while (!ttisnil(luaH_getnum(t, i))) i++;
       return i - 1;
     }
+
+    if (j > (1U << 30)) {
+      fprintf(stdout,
+        "[lua table length] large index detected: j=%u sizearray=%d\n",
+        j, t->sizearray);
+    }
   }
-  /* now do a binary search between them */
+
+  /* invariant before binary search */
+  assert(!ttisnil(luaH_getnum(t, i)));
+  assert(ttisnil(luaH_getnum(t, j)));
+
+  /* binary search between i (present) and j (absent) */
   while (j - i > 1) {
-    unsigned int m = (i+j)/2;
+    assert(i < j);
+    unsigned int m = (i + j) / 2;
+    assert(m > i && m < j && "unbound_search: midpoint out of bounds");
+
     if (ttisnil(luaH_getnum(t, m))) j = m;
     else i = m;
   }
+
   return i;
 }
+
 
 
 /*
@@ -563,16 +590,24 @@ int luaH_getn (Table *t) {
     /* there is a boundary in the array part: (binary) search for it */
     unsigned int i = 0;
     while (j - i > 1) {
-      unsigned int m = (i+j)/2;
+      unsigned int m = (i + j) / 2;
       if (ttisnil(&t->array[m - 1])) j = m;
       else i = m;
     }
     return i;
   }
   /* else must find a boundary in hash part */
-  else if (t->node == dummynode)  /* hash part is empty? */
-    return j;  /* that is easy... */
-  else return unbound_search(t, j);
+  else if (t->node == dummynode) {
+    return j;  /* hash part is empty */
+  }
+  else {
+    if (j > (1U << 30)) {
+      fprintf(stdout,
+        "[lua table length] entering unbound_search with j=%u\n",
+        j);
+    }
+    return unbound_search(t, j);
+  }
 }
 
 
