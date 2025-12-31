@@ -485,7 +485,7 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEnt
      * during the hash expiry ebuckets defragmentation phase. */
     if (entryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
         if ((newEntry = activeDefragEntry(entry)))
-            dictSetKey(d, (dictEntry *)de, newEntry);
+            dictSetKeyAtLink(d, newEntry, &plink, 0);
     }
 }
 
