@@ -484,8 +484,10 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEnt
      * Fields with TTL are skipped here and will be defragmented later
      * during the hash expiry ebuckets defragmentation phase. */
     if (entryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
-        if ((newEntry = activeDefragEntry(entry)))
+        if ((newEntry = activeDefragEntry(entry))) {
+            /* Hash dicts use no_value=1, so we must use dictSetKeyAtLink */ 
             dictSetKeyAtLink(d, newEntry, &plink, 0);
+        }
     }
 }
 
