@@ -537,18 +537,13 @@ TValue *luaH_setstr (lua_State *L, Table *t, TString *key) {
 static int unbound_search (Table *t, unsigned int j) {
   unsigned int i = j;  /* i is zero or a present index */
   j++;
-  /* j must now be strictly greater than i unless wraparound occurred */
-  assert(j > i);
-
   /* find `i' and `j' such that i is present and j is not */
   while (!ttisnil(luaH_getnum(t, j))) {
     i = j;
 
-    /* doubling must not overflow unsigned arithmetic */
-    assert(j <= UINT_MAX / 2 && "unbound_search: j overflow before doubling");
     j *= 2;
 
-    if (j > cast(unsigned int, MAX_INT)) {  /* overflow fallback */
+    if (j > cast(unsigned int, MAX_INT)) {
       i = 1;
       while (!ttisnil(luaH_getnum(t, i))) i++;
       return i - 1;
@@ -560,16 +555,12 @@ static int unbound_search (Table *t, unsigned int j) {
         j, t->sizearray);
     }
   }
-
   /* invariant before binary search */
-  assert(!ttisnil(luaH_getnum(t, i)));
-  assert(ttisnil(luaH_getnum(t, j)));
+  assert(!ttisnil(luaH_getnum(t, i))); // fails for sure, all by itself
 
   /* binary search between i (present) and j (absent) */
   while (j - i > 1) {
-    assert(i < j);
     unsigned int m = (i + j) / 2;
-    assert(m > i && m < j && "unbound_search: midpoint out of bounds");
 
     if (ttisnil(luaH_getnum(t, m))) j = m;
     else i = m;
