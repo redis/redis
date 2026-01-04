@@ -245,20 +245,25 @@ sds activeDefragSds(sds sdsptr) {
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 Entry *activeDefragEntry(Entry *entry) {
-    /* Defrag the value if it's not embedded */
-    sds *valuePtr = entryGetValuePtrRef(entry);
-    if (valuePtr) {
-        sds new_value = activeDefragSds(*valuePtr);
-        if (new_value) *valuePtr = new_value;
-    }
+    Entry *ret = NULL;
+
+    /* First, defrag the entry allocation itself */
     void *ptr = entryGetAllocPtr(entry);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
         size_t offset = (char*)entry - (char*)ptr;
         entry = (Entry *)((char*)newptr + offset);
-        return entry;
+        ret = entry;
     }
-    return NULL;
+
+    /* Then defrag the value if it's not embedded (using the potentially new entry) */
+    sds *valuePtr = entryGetValuePtrRef(entry);
+    if (valuePtr) {
+        sds new_value = activeDefragSds(*valuePtr);
+        if (new_value) *valuePtr = new_value;
+    }
+
+    return ret;
 }
 
 /* Defrag helper for hfield strings and update the reference in the dict.
