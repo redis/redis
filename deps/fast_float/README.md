@@ -1,21 +1,27 @@
-README for fast_float v6.1.4
+fast_float_strtod - C Implementation
+====================================
 
-----------------------------------------------
+This is a pure C implementation of fast string to double conversion,
+originally based on the fast_float C++ library[1].
 
-We're using the fast_float library[1] in our (compiled-in)
-floating-point fast_float_strtod implementation for faster and more
-portable parsing of 64 decimal strings.
+The implementation was converted to C to remove the C++ dependency from
+Redis. Only the functionality needed by Redis is implemented:
 
-The single file fast_float.h is an amalgamation of the entire library,
-which can be (re)generated with the amalgamate.py script (from the
-fast_float repository) via the command
+- Parsing of decimal floating-point strings
+- Support for leading plus sign (+)
+- Support for inf/infinity and nan special values
+- Scientific notation (e/E exponent)
 
-```
-git clone https://github.com/fastfloat/fast_float
-cd fast_float
-git checkout v6.1.4
-python3 ./script/amalgamate.py --license=MIT \
-  > $REDIS_SRC/deps/fast_float/fast_float.h
-```
+The algorithm uses:
+1. Fast path (Clinger's algorithm) for numbers that can be exactly
+   represented: mantissa <= 2^53 and exponent in [-22, 22]
+2. Fallback to standard strtod() for complex cases to ensure
+   correctly-rounded results
+
+Original fast_float library:
+  https://github.com/fastfloat/fast_float
+  by Daniel Lemire and João Paulo Magalhaes
+
+License: MIT (see fast_float_strtod.c for full license text)
 
 [1]: https://github.com/fastfloat/fast_float
