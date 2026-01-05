@@ -884,6 +884,61 @@ start_server {
         assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 1] == 0}
         assert {[r XTRIM mystream MAXLEN ~ 0 LIMIT 2] == 2}
     }
+
+    test {XTRIM with approx and ACKED deletes entries correctly} {
+        # This test verifies that when using approx trim (~) with ACKED strategy,
+        # if the first node cannot be removed (has unacked messages), we should
+        # continue to check subsequent nodes that might be eligible for removal.
+        r DEL mystream
+        set origin_max_entries [config_get_set stream-node-max-entries 2]
+
+        # Create 5 entries in 3 nodes (2 entries per node)
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XADD mystream 4-0 f v
+        r XADD mystream 5-0 f v
+
+        # Create a consumer group and read all messages
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+
+        # Acknowledge messages: 1-0, 2-0 (first node), and 4-0 (second node)
+        r XACK mystream mygroup 1-0 2-0 4-0
+
+        # XTRIM MINID ~ 6-0 ACKED should remove:
+        # Total 3 entries removed (1-0, 2-0, 4-0), 2 unacked entries remain (3-0, 5-0)
+        assert_equal 3 [r XTRIM mystream MINID ~ 6-0 ACKED]
+        assert_equal 2 [r XLEN mystream]
+        assert_equal {{3-0 {f v}} {5-0 {f v}}} [r XRANGE mystream - +]
+
+        r config set stream-node-max-entries $origin_max_entries
+    }
+
+    test {XTRIM with approx and DELREF deletes entries correctly} {
+        # Similar test but with DELREF strategy
+        r DEL mystream
+        set origin_max_entries [config_get_set stream-node-max-entries 2]
+
+        # Create 4 entries in 2 nodes
+        r XADD mystream 1-0 f v
+        r XADD mystream 2-0 f v
+        r XADD mystream 3-0 f v
+        r XADD mystream 4-0 f v
+
+        # Create a consumer group and read all messages
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+
+        # With XTRIM MINID ~ 5-0 DELREF, all eligible nodes should be trimmed
+        # and PEL entries should be cleaned up
+        assert_equal 4 [r XTRIM mystream MINID ~ 5-0 DELREF]
+        assert_equal 0 [r XLEN mystream]
+        # PEL should be empty after DELREF
+        assert_equal {0 {} {} {}} [r XPENDING mystream mygroup]
+
+        r config set stream-node-max-entries $origin_max_entries
+    }
 }
 
 start_server {tags {"stream needs:debug"} overrides {appendonly yes}} {
