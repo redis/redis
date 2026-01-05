@@ -702,7 +702,9 @@ typedef struct {
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
     int delete_strategy; /* DELETE_STRATEGY_* */
     int approx_trim; /* If 1 only delete whole radix tree nodes, so
-                      * the trim argument is not applied verbatim. */
+                      * the trim argument is not applied verbatim.
+                      * Note: This flag is ignored when delete_strategy is non-KEEPREF.
+                      * Individual entries may still be processed for consumer groups. */
     long long limit; /* Maximum amount of entries to trim. If 0, no limitation
                       * on the amount of trimming work is enforced. */
     /* TRIM_STRATEGY_MAXLEN options */
@@ -810,8 +812,11 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         /* If we cannot remove a whole element, and approx is true,
-         * stop here. */
-        if (approx) break;
+         * stop here. However, for non-KEEPREF strategies, if the node was
+         * eligible for removal but we couldn't remove it (because we need
+         * to check consumer group references), we should continue to process
+         * entries within this node. */
+        if (approx && delete_strategy == DELETE_STRATEGY_KEEPREF) break;
 
         /* Now we have to trim entries from within 'lp' */
         size_t oldsize = lpBytes(lp);
