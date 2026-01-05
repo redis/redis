@@ -1130,6 +1130,8 @@ static int streamParseAddOrTrimArgsOrReply(client *c, streamAddTrimArgs *args, i
             if (streamParseStrictIDOrReply(c,c->argv[i],&args->id,0,&args->seq_given) != C_OK)
                 return -1;
 
+            /* mustObeyClient is needed because IDMP can only be used with * (auto-generated IDs),
+             * but when we replicate the message we replace the * with the actual StreamID. */
             if (args->idmp_pid && opt[0] != '*' && !mustObeyClient(c)) {
                 addReplyError(c,"syntax error, IDMP/IDMPAUTO can be used only with auto-generated IDs");
                 return -1;
@@ -5433,13 +5435,10 @@ void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (alloc_size) *alloc_size -= usable;
 }
 
-/* Create a new idmpProducer with an empty dict and linked list.
- * Returns NULL on allocation failure. */
+/* Create a new idmpProducer with an empty dict and linked list. */
 idmpProducer *idmpProducerCreate(size_t *alloc_size) {
     size_t usable;
     idmpProducer *producer = zmalloc_usable(sizeof(idmpProducer), &usable);
-    if (producer == NULL) return NULL;
-
     producer->idmp_dict = dictCreate(&idmpDictType);
     producer->idmp_head = NULL;
     producer->idmp_tail = NULL;
@@ -5523,7 +5522,6 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
     /* Create the producers rax tree if it doesn't exist */
     if (s->idmp_producers == NULL) {
         s->idmp_producers = raxNew();
-        if (s->idmp_producers == NULL) return NULL;
     }
 
     /* Look up the producer */
@@ -5532,14 +5530,8 @@ static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t 
     if (!found) {
         /* Create a new producer */
         producer = idmpProducerCreate(&s->alloc_size);
-        if (producer == NULL) return NULL;
-
-        /* Insert into the rax tree */
-        int inserted = raxInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL);
-        if (!inserted) {
-            idmpProducerFree(producer, &s->alloc_size);
-            return NULL;
-        }
+        /* Insert into the rax tree - must succeed since we checked it doesn't exist */
+        serverAssert(raxInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL));
     }
 
     return producer;
@@ -5739,4 +5731,3 @@ static void idmpEvictOldestEntry(stream *s, idmpProducer *producer) {
     dictDelete(producer->idmp_dict, oldest);
     idmpEntryFree(oldest, &s->alloc_size);
 }
-
