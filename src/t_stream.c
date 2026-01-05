@@ -5410,7 +5410,8 @@ dictType idmpDictType = {
 };
 
 /* Create a new idmpEntry with the given IID string.
- * The entry and IID are allocated together using flexible array member. */
+ * The entry and IID are allocated together using flexible array member.
+ * alloc_size must not be NULL and will be updated with the allocation size. */
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) {
     size_t usable;
     idmpEntry *entry = zmalloc_usable(sizeof(idmpEntry) + iid_len, &usable);
@@ -5419,23 +5420,23 @@ idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size) 
     entry->iid_len = iid_len;
     memcpy(entry->iid, iid, iid_len);
     
-    if (alloc_size) {
-        *alloc_size += usable;
-    }
+    *alloc_size += usable;
     
     return entry;
 }
 
-/* Free an idmpEntry (iid is embedded via flexible array member). */
+/* Free an idmpEntry (iid is embedded via flexible array member).
+ * alloc_size must not be NULL and will be updated with the freed size. */
 void idmpEntryFree(idmpEntry *entry, size_t *alloc_size) {
     if (entry == NULL) return;
     
     size_t usable;
     zfree_usable(entry, &usable);
-    if (alloc_size) *alloc_size -= usable;
+    *alloc_size -= usable;
 }
 
-/* Create a new idmpProducer with an empty dict and linked list. */
+/* Create a new idmpProducer with an empty dict and linked list.
+ * alloc_size must not be NULL and will be updated with the allocation size. */
 idmpProducer *idmpProducerCreate(size_t *alloc_size) {
     size_t usable;
     idmpProducer *producer = zmalloc_usable(sizeof(idmpProducer), &usable);
@@ -5443,14 +5444,13 @@ idmpProducer *idmpProducerCreate(size_t *alloc_size) {
     producer->idmp_head = NULL;
     producer->idmp_tail = NULL;
 
-    if (alloc_size) {
-        *alloc_size += usable;
-    }
+    *alloc_size += usable;
 
     return producer;
 }
 
-/* Free an idmpProducer including its dict and all linked list entries. */
+/* Free an idmpProducer including its dict and all linked list entries.
+ * alloc_size must not be NULL and will be updated with the freed size. */
 void idmpProducerFree(idmpProducer *producer, size_t *alloc_size) {
     if (producer == NULL) return;
 
@@ -5468,7 +5468,7 @@ void idmpProducerFree(idmpProducer *producer, size_t *alloc_size) {
 
     size_t usable;
     zfree_usable(producer, &usable);
-    if (alloc_size) *alloc_size -= usable;
+    *alloc_size -= usable;
 }
 
 /* Check if an IID already exists in the producer's idmp_dict.
