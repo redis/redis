@@ -816,7 +816,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
          * eligible for removal but we couldn't remove it (because we need
          * to check consumer group references), we should continue to process
          * entries within this node. */
-        if (approx && !node_eligible_for_remove) break;
+        if (approx && delete_strategy == DELETE_STRATEGY_KEEPREF) break;
 
         /* Now we have to trim entries from within 'lp' */
         size_t oldsize = lpBytes(lp);
