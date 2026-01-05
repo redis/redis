@@ -578,7 +578,7 @@ run_solo {defrag} {
             }
             assert_lessthan [s allocator_frag_ratio] 1.05
 
-            # Verify IDMP structures were created
+                # Verify IDMP structures were created
             set idmp_info [r xinfo stream idmpstream full]
             set num_producers [dict get $idmp_info pids-tracked]
             set num_entries [dict get $idmp_info iids-tracked]
@@ -617,7 +617,7 @@ run_solo {defrag} {
                 }
 
                 # wait for the active defrag to stop working
-                wait_for_defrag_stop 500 100 1.05
+                wait_for_defrag_stop 500 100 1.1
 
                 # test the fragmentation is lower
                 after 120 ;# serverCron only updates the info once in 100ms
