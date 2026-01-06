@@ -234,12 +234,24 @@ run_solo {defrag} {
             # Populate memory with interleaving script-key pattern of same size
             set dummy_script "--[string repeat x 400]\nreturn "
             set rd [redis_deferring_client]
+            # Send commands in batches and read responses to avoid TCP deadlock.
+            # Without interleaving reads, TCP congestion control can throttle
+            # the connection when buffers fill, causing the test to hang.
+            set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 set val "$dummy_script[format "%06d" $j]"
                 $rd script load $val
                 $rd set k$j $val
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read ; # Discard script load replies
+                        $rd read ; # Discard set replies
+                    }
+                }
             }
-            for {set j 0} {$j < $n} {incr j} {
+            # Read remaining responses
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} {
                 $rd read ; # Discard script load replies
                 $rd read ; # Discard set replies
             }
@@ -253,8 +265,17 @@ run_solo {defrag} {
             assert_lessthan [s allocator_frag_ratio] 1.05
 
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            # Use same batching pattern to avoid TCP deadlock
+            for {set j 0} {$j < $n} {incr j} {
+                $rd del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd read }
             if {$type eq "cluster"} {
                 $rd config resetstat
                 $rd read ; # Discard config resetstat reply
@@ -489,8 +510,18 @@ run_solo {defrag} {
             assert_lessthan [s allocator_frag_ratio] 1.05
 
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            # Use batching to avoid TCP deadlock
+            set batch_size 1000
+            for {set j 0} {$j < $n} {incr j} {
+                $rd del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd read }
             if {$type eq "cluster"} {
                 $rd config resetstat
                 $rd read ; # Discard config resetstat reply
