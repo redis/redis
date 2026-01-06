@@ -5,12 +5,17 @@ class Q8Vectorization(TestCase):
         return "Q8 quantization: verify vectorized vs scalar paths produce consistent results"
 
     def test(self):
-        # Test with different dimensions to exercise different code paths:
+        # Test with different dimensions to exercise different code paths and boundaries:
         # - dim=16: Scalar path (< 32)
-        # - dim=64: AVX2 path if available (>= 32, < 64 for AVX512)
-        # - dim=128: AVX512 path if available (>= 64)
+        # - dim=31: Largest scalar-only dimension (boundary)
+        # - dim=32: Smallest AVX2 dimension, no remainder (boundary)
+        # - dim=33: AVX2 with 1-element remainder
+        # - dim=63: AVX2 with 31-element remainder (largest AVX2-only)
+        # - dim=64: Smallest AVX512 dimension, no remainder (boundary)
+        # - dim=65: AVX512 with 1-element remainder
+        # - dim=128: AVX512 path with no remainder
         
-        test_dims = [16, 64, 128]
+        test_dims = [16, 31, 32, 33, 63, 64, 65, 128]
         
         for dim in test_dims:
             # Add two very similar vectors, one different
