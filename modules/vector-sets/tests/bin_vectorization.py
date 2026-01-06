@@ -6,11 +6,14 @@ class BinVectorization(TestCase):
 
     def test(self):
         # Test with different dimensions to exercise different code paths:
+        # - dim=1: Edge case for minimal valid dimension (scalar path)
+        # - dim=64: Exact alignment boundary, one uint64_t word (scalar path)
         # - dim=128: Scalar path (< 256)
         # - dim=384: AVX2 path if available (>= 256, < 512)
         # - dim=768: AVX512 path if available (>= 512)
+        # Note: dim=0 is not tested as it's invalid input (division by zero)
         
-        test_dims = [128, 384, 768]
+        test_dims = [1, 64, 128, 384, 768]
         
         for dim in test_dims:
             # Add two very similar vectors, one different
