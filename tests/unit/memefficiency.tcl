@@ -327,16 +327,25 @@ run_solo {defrag} {
             r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
 
             # create big keys with 10k items
+            # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
+            set batch_size 1000
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
                 $rd zadd bigzset $j [concat "asdfasdfasdf" $j]
                 $rd sadd bigset [concat "asdfasdfasdf" $j]
                 $rd xadd bigstream * item 1 value a
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < [expr {$batch_size * 5}]} {incr i} {
+                        $rd read
+                    }
+                }
             }
-            for {set j 0} {$j < 50000} {incr j} {
-                $rd read ; # Discard replies
+            # Read remaining replies
+            set remaining [expr {(10000 % $batch_size) * 5}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
             }
 
             # create some small items (effective in cluster-enabled)
@@ -555,6 +564,7 @@ run_solo {defrag} {
             r config set hash-max-listpack-entries 10
 
             # Populate memory with interleaving hash field of same size
+            # Interleave reads to avoid TCP deadlock
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
@@ -565,9 +575,7 @@ run_solo {defrag} {
                     $rd hexpire k$i 9999999 FIELDS 1 $dummy_field$j
                 }
                 $rd expire h$i 9999999 ;# Ensure expire is updated after kvobj reallocation
-            }
-            
-            for {set i 0} {$i < $n} {incr i} {
+                # Read replies for this iteration to avoid TCP deadlock
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd read ; # Discard hset replies
                     $rd read ; # Discard hexpire replies
