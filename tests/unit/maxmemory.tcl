@@ -163,7 +163,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
 start_server {tags {"maxmemory external:skip"}} {
 
     foreach policy {
-        allkeys-random allkeys-lru allkeys-lfu volatile-lru volatile-lfu volatile-random volatile-ttl
+        allkeys-random allkeys-lru allkeys-lfu allkeys-lrm volatile-lru volatile-lfu volatile-random volatile-ttl volatile-lrm
     } {
         test "maxmemory - is the memory limit honoured? (policy $policy)" {
             # make sure to start with a blank instance
@@ -195,7 +195,7 @@ start_server {tags {"maxmemory external:skip"}} {
     }
 
     foreach policy {
-        allkeys-random allkeys-lru volatile-lru volatile-random volatile-ttl
+        allkeys-random allkeys-lru allkeys-lrm volatile-lru volatile-random volatile-ttl volatile-lrm
     } {
         test "maxmemory - only allkeys-* should remove non-volatile keys ($policy)" {
             # make sure to start with a blank instance
@@ -237,7 +237,7 @@ start_server {tags {"maxmemory external:skip"}} {
     }
 
     foreach policy {
-        volatile-lru volatile-lfu volatile-random volatile-ttl
+        volatile-lru volatile-lfu volatile-random volatile-ttl volatile-lrm
     } {
         test "maxmemory - policy $policy should only remove volatile keys." {
             # make sure to start with a blank instance
@@ -600,5 +600,94 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r del foo 
         r set foo a
         assert {[r object freq foo] == 5}
+    }
+}
+
+# LRM eviction policy tests
+start_server {tags {"maxmemory" "external:skip"}} {
+    test {LRM: Basic write updates idle time} {
+        r flushdb
+        r config set maxmemory-policy allkeys-lrm
+
+        r set foo a
+        after 2000
+
+        # Read the key should NOT update LRM
+        r get foo
+        assert_morethan_equal [r object idletime foo] 1
+
+        # LRM should be updated (idletime should be smaller)
+        r set foo b
+        assert_lessthan_equal [r object idletime foo] 1
+    } {} {slow}
+
+    test {LRM: RENAME updates destination key LRM} {
+        r flushdb
+        r set src value
+        after 2000
+        r rename src dst
+        assert_lessthan [r object idletime dst] 1
+    } {} {slow}
+
+    test {LRM: XREADGROUP updates stream LRM} {
+        r flushdb
+        r xadd mystream * field value
+        r xgroup create mystream mygroup 0
+        after 2000
+        r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
+        assert_lessthan [r object idletime mystream] 1
+    } {} {slow}
+
+    test {LRM: Keys with only read operations should be removed first} {
+        r flushdb
+        r config set maxmemory 0
+        r config set maxmemory-policy allkeys-lrm
+        r config set maxmemory-samples 64 ;# Ensure eviction sampling can pick all keys
+
+        # Create keys and populate them
+        # We'll create two groups of keys:
+        # - read-only keys: will only be read after creation
+        # - write keys: will be continuously written to
+        for {set j 0} {$j < 25} {incr j} {
+            r set "read:$j" [string repeat x 20000]
+            r set "write:$j" [string repeat x 20000]
+        }
+
+        after 1000
+
+        # Perform read and write operations on keys
+        for {set j 0} {$j < 25} {incr j} {
+            r get "read:$j"
+            r set "write:$j" [string repeat y 20000]
+        }
+
+        # Set memory limit to force eviction
+        set used [s used_memory]
+        set limit [expr {$used - 200*1024}]
+        r config set maxmemory $limit
+
+        # Add more keys to trigger eviction
+        for {set j 0} {$j < 10} {incr j} {
+            r set "trigger:$j" [string repeat z 20000]
+        }
+
+        # Count how many keys from each group survived
+        set read_survived 0
+        set write_survived 0
+        for {set j 0} {$j < 25} {incr j} {
+            if {[r exists "read:$j"]} {
+                incr read_survived
+            }
+            if {[r exists "write:$j"]} {
+                incr write_survived
+            }
+        }
+
+        # If read-only keys haven't been fully evicted, write keys must not be evicted at all. */
+        if {$read_survived > 0} {
+            assert {$write_survived == 25}
+        } else {
+            assert {$write_survived > $read_survived}
+        }
     }
 }

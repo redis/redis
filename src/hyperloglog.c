@@ -1655,7 +1655,7 @@ void pfaddCommand(client *c) {
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);
         server.dirty += updated;
     }
@@ -1750,7 +1750,7 @@ void pfcountCommand(client *c) {
             /* This is considered a read-only command even if the cached value
              * may be modified and given that the HLL is a Redis string
              * we need to propagate the change. */
-            signalModifiedKey(c,c->db,c->argv[1]);
+            keyModified(c,c->db,c->argv[1],o,1);
             server.dirty++;
         }
         addReplyLongLong(c,card);
@@ -1836,7 +1836,7 @@ void pfmergeCommand(client *c) {
 
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
-    signalModifiedKey(c,c->db,c->argv[1]);
+    keyModified(c,c->db,c->argv[1],kv,1);
     /* We generate a PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
     notifyKeyspaceEvent(NOTIFY_STRING,"pfadd",c->argv[1],c->db->id);

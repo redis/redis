@@ -51,6 +51,7 @@ typedef struct streamIterator {
     uint64_t end_seq;
     raxIterator ri;         /* Rax iterator. */
     unsigned char *lp;      /* Current listpack. */
+    unsigned char *lp_last_ele; /* Previous listpack element position for corruption detection. */
     unsigned char *lp_ele;  /* Current listpack cursor. */
     unsigned char *lp_flags; /* Current entry flags pointer. */
     /* Buffers used to hold the string of lpGet() when the element is

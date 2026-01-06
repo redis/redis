@@ -20,6 +20,7 @@ This document serves as both a quick start guide to Redis and a detailed resourc
   - [Using Redis with redis-cli](#using-redis-with-redis-cli)
   - [Using Redis with Redis Insight](#using-redis-with-redis-insight)
 - [Redis data types, processing engines, and capabilities](#redis-data-types-processing-engines-and-capabilities)
+- [Cloud hosted Redis](#cloud-hosted-redis)
 - [Community](#community)
 - [Build Redis from source](#build-redis-from-source)
   - [Build and run Redis with all data structures - Ubuntu 20.04 (Focal)](#build-and-run-redis-with-all-data-structures---ubuntu-2004-focal)
@@ -193,6 +194,12 @@ Redis provides a variety of data types, processing engines, and capabilities to 
 - [**Stream**:](https://redis.io/docs/latest/develop/data-types/streams/) An append-only log with random access capabilities and complex consumption strategies such as consumer groups. Used for event sourcing, sensor monitoring, and notifications.
 - [**Transaction:**](https://redis.io/docs/latest/develop/interact/transactions/) Allows the execution of a group of commands in a single step. A request sent by another client will never be served in the middle of the execution of a transaction. This guarantees that the commands are executed as a single isolated operation.
 - [**Programmability:**](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/) Upload and execute Lua scripts on the server. Scripts can employ programmatic control structures and use most of the commands while executing to access the database. Because scripts are executed on the server, reading and writing data from scripts is very efficient.
+
+## Cloud hosted Redis
+
+Fully-managed Redis with real-time performance at scale.
+
+[**Redis Cloud**](https://redis.io/cloud/)
 
 ## Community
 

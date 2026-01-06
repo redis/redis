@@ -257,7 +257,7 @@ void restoreCommand(client *c) {
         if (deleted) {
             robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
             rewriteClientCommandVector(c, 2, aux, key);
-            signalModifiedKey(c,c->db,key);
+            keyModified(c,c->db,key,NULL,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
@@ -287,7 +287,7 @@ void restoreCommand(client *c) {
         }
     }
     objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
-    signalModifiedKey(c,c->db,key);
+    keyModified(c,c->db,key,NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
 
     /* If we deleted a key that means REPLACE parameter was passed and the
@@ -660,7 +660,7 @@ void migrateCommand(client *c) {
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
                 dbDelete(c->db,keyArray[j]);
-                signalModifiedKey(c,c->db,keyArray[j]);
+                keyModified(c,c->db,keyArray[j],NULL,1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArray[j],c->db->id);
                 server.dirty++;
 
@@ -1681,7 +1681,7 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
 
-        signalModifiedKey(NULL, &server.db[0], key);
+        keyModified(NULL, &server.db[0], key, NULL, 1);
         if (by_command) {
             /* Keys are deleted by a command (trimslots), we need to notify the
              * keyspace event. Though, we don't need to propagate the DEL
