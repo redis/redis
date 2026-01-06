@@ -618,7 +618,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
 
         # LRM should be updated (idletime should be smaller)
         r set foo b
-        assert_lessthan_equal [r object idletime foo] 2
+        assert_lessthan_equal [r object idletime foo] 1
     } {} {slow}
 
     test {LRM: RENAME updates destination key LRM} {
