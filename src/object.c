@@ -610,9 +610,9 @@ void decrRefCount(robj *o) {
             o->type, o->encoding, refcount);
     }
 
-    uint32_t old_atomic_val = atomicDecr(robj_atomic_flags_refcount(o), 1);
-    refcount = OBJ_GET_REFCOUNT(old_atomic_val);
-    if (refcount == 1) {
+    atomicDecrGetWithSync(robj_atomic_flags_refcount(o), atomic_val, 1);
+    refcount = OBJ_GET_REFCOUNT(atomic_val);
+    if (refcount == 0) {
         if (o->ptr != NULL) {
             switch(o->type) {
             case OBJ_STRING: freeStringObject(o); break;
