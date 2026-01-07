@@ -2600,7 +2600,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
         }
         }
     }
-    
+
     foreach with_rdb {"with" "without"} {
         test "Test cluster module notifications when replica restart $with_rdb RDB during importing" {
             clear_module_event_log
@@ -2780,8 +2780,7 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             fail "Trim did not complete"
         }
 
-        # Verify the trim events on destination (partially imported keys are trimmed)
-        # NOTE: only slot 0 has data, so only slot 0 is trimmed
+        # verify the trim events, use active trim since module is subscribed to trimmed event
         set trim_event_log [list \
             "sub: cluster-slot-migration-trim-started, slots:0-0" \
             "keyspace: key_trimmed, key: $slot0_key" \
