@@ -24,9 +24,12 @@ proc test_memory_efficiency {range} {
         incr written [string length $key]
         incr written [string length $val]
         incr written 2 ;# A separator is the minimum to store key-value data.
-    }
-    for {set j 0} {$j < 10000} {incr j} {
-        $rd read ; # Discard replies
+
+        if {($j + 1) % 500 == 0} {
+            for {set i 0} {$i < 500} {incr i} {
+                $rd read ; # Discard replies
+            }
+        }
     }
 
     set current_mem [s used_memory]
@@ -230,12 +233,24 @@ run_solo {defrag} {
             # Populate memory with interleaving script-key pattern of same size
             set dummy_script "--[string repeat x 400]\nreturn "
             set rd [redis_deferring_client]
+            # Send commands in batches and read responses to avoid TCP deadlock.
+            # Without interleaving reads, TCP congestion control can throttle
+            # the connection when buffers fill, causing the test to hang.
+            set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 set val "$dummy_script[format "%06d" $j]"
                 $rd script load $val
                 $rd set k$j $val
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read ; # Discard script load replies
+                        $rd read ; # Discard set replies
+                    }
+                }
             }
-            for {set j 0} {$j < $n} {incr j} {
+            # Read remaining responses
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} {
                 $rd read ; # Discard script load replies
                 $rd read ; # Discard set replies
             }
@@ -249,8 +264,17 @@ run_solo {defrag} {
             assert_lessthan [s allocator_frag_ratio] 1.05
 
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            # Use same batching pattern to avoid TCP deadlock
+            for {set j 0} {$j < $n} {incr j} {
+                $rd del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd read }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -319,16 +343,25 @@ run_solo {defrag} {
             r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
 
             # create big keys with 10k items
+            # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
+            set batch_size 1000
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
                 $rd zadd bigzset $j [concat "asdfasdfasdf" $j]
                 $rd sadd bigset [concat "asdfasdfasdf" $j]
                 $rd xadd bigstream * item 1 value a
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < [expr {$batch_size * 5}]} {incr i} {
+                        $rd read
+                    }
+                }
             }
-            for {set j 0} {$j < 50000} {incr j} {
-                $rd read ; # Discard replies
+            # Read remaining replies
+            set remaining [expr {(10000 % $batch_size) * 5}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
             }
 
             # create some small items (effective in cluster-enabled)
@@ -472,8 +505,18 @@ run_solo {defrag} {
             assert_lessthan [s allocator_frag_ratio] 1.05
 
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            # Use batching to avoid TCP deadlock
+            set batch_size 1000
+            for {set j 0} {$j < $n} {incr j} {
+                $rd del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd read }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -543,6 +586,7 @@ run_solo {defrag} {
             r config set hash-max-listpack-entries 10
 
             # Populate memory with interleaving hash field of same size
+            # Interleave reads to avoid TCP deadlock
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
@@ -552,9 +596,7 @@ run_solo {defrag} {
                     $rd set "k$i$j" $dummy_field
                 }
                 $rd expire h$i 9999999 ;# Ensure expire is updated after kvobj reallocation
-            }
-            
-            for {set i 0} {$i < $n} {incr i} {
+                # Read replies for this iteration to avoid TCP deadlock
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd read ; # Discard hset replies
                     $rd read ; # Discard hexpire replies
@@ -765,7 +807,7 @@ run_solo {defrag} {
                 $rd lpush biglist2 $val
 
                 incr count
-                discard_replies_every $rd $count 10000 20000
+                discard_replies_every $rd $count 1000 2000
             }
 
             # create some fragmentation
