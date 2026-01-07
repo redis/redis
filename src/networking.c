@@ -1203,7 +1203,7 @@ static int isCopyAvoidPreferred(client *c, robj *obj, size_t len) {
     int type = getClientType(c);
     if (type != CLIENT_TYPE_NORMAL && type != CLIENT_TYPE_PUBSUB) return 0;
 
-    if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount == OBJ_STATIC_REFCOUNT) return 0;
+    if (obj->encoding != OBJ_ENCODING_RAW || robj_refcount(obj) == OBJ_STATIC_REFCOUNT) return 0;
 
     /* Copy avoidance is preferred for any string size starting certain number of I/O threads  */
     if (server.io_threads_num >= COPY_AVOID_MIN_IO_THREADS) return 1;
@@ -5393,7 +5393,7 @@ static void reclaimPendingCommand(client *c, pendingCommand *pcmd) {
              * decrease the reference count to release our reference to it. */
             for (int j = 0; j < pcmd->argc; j++) {
                 robj *o = pcmd->argv[j];
-                if (o && o->refcount > 1) {
+                if (o && robj_refcount(o) > 1) {
                     decrRefCount(o);
                     pcmd->argv[j] = NULL;
                 }

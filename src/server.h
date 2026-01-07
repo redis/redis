@@ -1073,8 +1073,7 @@ struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
-                            * LFU data (least significant 8 bits frequency
-                            * and most significant 16 bits access time). */
+                            * LFU data (least significant 16 bits access time). */
 
     union {
         redisAtomic uint32_t atomic_flags_refcount;
@@ -1084,11 +1083,18 @@ struct redisObject {
             unsigned expirable : 1; /* 1 if this key has expiration time attached.
                                      * If set, then this object is of type kvobj */
             unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
-        };
-    };
+        } fields;
+    } u;
 
     void *ptr;
 };
+
+/* C99 compatibility: Access macros for redisObject union fields.
+ * These macros allow transparent access to the union members. */
+#define robj_atomic_flags_refcount(o) ((o)->u.atomic_flags_refcount)
+#define robj_refcount(o) ((o)->u.fields.refcount)
+#define robj_expirable(o) ((o)->u.fields.expirable)
+#define robj_iskvobj(o) ((o)->u.fields.iskvobj)
 
 /* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
@@ -1100,11 +1106,11 @@ char *getObjectTypeName(robj*);
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
-    _var.refcount = OBJ_STATIC_REFCOUNT; \
+    _var.u.fields.refcount = OBJ_STATIC_REFCOUNT; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
-    _var.expirable = 0; \
-    _var.iskvobj = 0; \
+    _var.u.fields.expirable = 0; \
+    _var.u.fields.iskvobj = 0; \
     _var.ptr = _ptr; \
 } while(0)
 

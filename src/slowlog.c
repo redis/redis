@@ -52,7 +52,7 @@ slowlogEntry *slowlogCreateEntry(client *c, robj **argv, int argc, long long dur
                     (unsigned long)
                     sdslen(argv[j]->ptr) - SLOWLOG_ENTRY_MAX_STRING);
                 se->argv[j] = createObject(OBJ_STRING,s);
-            } else if (argv[j]->refcount == OBJ_SHARED_REFCOUNT) {
+            } else if (robj_refcount(argv[j]) == OBJ_SHARED_REFCOUNT) {
                 se->argv[j] = argv[j];
             } else {
                 /* Here we need to duplicate the string objects composing the

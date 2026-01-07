@@ -187,7 +187,7 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
      * possible. This rarely happens, however sometimes the implementation
      * of parts of the Redis core may call incrRefCount() to protect
      * objects, and then call dbDelete(). */
-    if (free_effort > LAZYFREE_THRESHOLD && obj->refcount == 1) {
+    if (free_effort > LAZYFREE_THRESHOLD && robj_refcount(obj) == 1) {
         atomicIncr(lazyfree_objects,1);
         bioCreateLazyFreeJob(lazyfreeFreeObject,1,obj);
     } else {

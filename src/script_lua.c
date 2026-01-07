@@ -858,7 +858,7 @@ void freeLuaRedisArgv(robj **argv, int argc, int argv_len) {
          * The object must be small, SDS-encoded, and with refcount = 1
          * (we must be the only owner) for us to cache it. */
         if (j < LUA_CMD_OBJCACHE_SIZE &&
-            o->refcount == 1 &&
+            robj_refcount(o) == 1 &&
             (o->encoding == OBJ_ENCODING_RAW ||
              o->encoding == OBJ_ENCODING_EMBSTR) &&
             sdslen(o->ptr) <= LUA_CMD_OBJCACHE_MAX_LEN)

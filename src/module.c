@@ -955,7 +955,7 @@ void RedisModuleCommandDispatcher(client *c) {
     for (int i = 0; i < c->argc; i++) {
         /* Only do the work if the module took ownership of the object:
          * in that case the refcount is no longer 1. */
-        if (c->argv[i]->refcount > 1)
+        if (robj_refcount(c->argv[i]) > 1)
             trimStringObjectIfNeeded(c->argv[i], 0);
     }
 }
@@ -2862,7 +2862,7 @@ void RM_RetainString(RedisModuleCtx *ctx, RedisModuleString *str) {
  * This API is not thread safe, access to these retained strings (if they originated
  * from a client command arguments) must be done with GIL locked. */
 RedisModuleString* RM_HoldString(RedisModuleCtx *ctx, RedisModuleString *str) {
-    if (str->refcount == OBJ_STATIC_REFCOUNT) {
+    if (robj_refcount(str) == OBJ_STATIC_REFCOUNT) {
         return RM_CreateStringFromString(ctx, str);
     }
 
@@ -2976,7 +2976,7 @@ int RM_StringCompare(const RedisModuleString *a, const RedisModuleString *b) {
 /* Return the (possibly modified in encoding) input 'str' object if
  * the string is unshared, otherwise NULL is returned. */
 RedisModuleString *moduleAssertUnsharedString(RedisModuleString *str) {
-    if (str->refcount != 1) {
+    if (robj_refcount(str) != 1) {
         serverLog(LL_WARNING,
             "Module attempted to use an in-place string modify operation "
             "with a string referenced multiple times. Please check the code "
@@ -6351,7 +6351,7 @@ robj **moduleCreateArgvFromUserFormat(const char *cmdname, const char *fmt, int 
             argv[argc++] = createStringObject(cstr,strlen(cstr));
         } else if (*p == 's') {
             robj *obj = va_arg(ap,void*);
-            if (obj->refcount == OBJ_STATIC_REFCOUNT)
+            if (robj_refcount(obj) == OBJ_STATIC_REFCOUNT)
                 obj = createStringObject(obj->ptr,sdslen(obj->ptr));
             else
                 incrRefCount(obj);

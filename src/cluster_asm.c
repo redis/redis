@@ -3412,7 +3412,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
         debugDelay(asmManager->debug_active_trim_delay);
 
     /* The key needs to be converted from static to heap before deletion. */
-    int static_key = keyobj->refcount == OBJ_STATIC_REFCOUNT;
+    int static_key = robj_refcount(keyobj) == OBJ_STATIC_REFCOUNT;
     if (static_key) keyobj = createStringObject(keyobj->ptr, sdslen(keyobj->ptr));
 
     dbDelete(db, keyobj);

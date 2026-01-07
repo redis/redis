@@ -536,8 +536,8 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     if (server.memory_tracking_per_slot)
         oldsize = kvobjAllocSize(old);
 
-    if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
-        (val->refcount == 1 && val->encoding != OBJ_ENCODING_EMBSTR)) {
+    if ((robj_refcount(old) == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
+        (robj_refcount(val) == 1 && val->encoding != OBJ_ENCODING_EMBSTR)) {
         /* Keep old object in the database. Just swap it's ptr, type and
          * encoding with the content of val. */
         robj tmp = *old;
@@ -853,7 +853,7 @@ kvobj *dbUnshareStringValue(redisDb *db, robj *key, kvobj *kv) {
  * which can be used if we already have one, thus saving the dbFind call. */
 kvobj *dbUnshareStringValueByLink(redisDb *db, robj *key, kvobj *o, dictEntryLink link) {
     serverAssert(o->type == OBJ_STRING);
-    if (o->refcount != 1 || o->encoding != OBJ_ENCODING_RAW) {
+    if (robj_refcount(o) != 1 || o->encoding != OBJ_ENCODING_RAW) {
         robj *decoded = getDecodedObject(o);
         o = createRawStringObject(decoded->ptr, sdslen(decoded->ptr));
         decrRefCount(decoded);
@@ -2575,7 +2575,7 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, lo
     char *notify_name = notify_type == NOTIFY_EXPIRED ? "expired" : "evicted";
 
     /* The key needs to be converted from static to heap before deleted */
-    int static_key = keyobj->refcount == OBJ_STATIC_REFCOUNT;
+    int static_key = robj_refcount(keyobj) == OBJ_STATIC_REFCOUNT;
     if (static_key) {
         keyobj = createStringObject(keyobj->ptr, sdslen(keyobj->ptr));
     }
