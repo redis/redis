@@ -5150,7 +5150,7 @@ void xidmpCommand(client *c) {
         }
 
         /* Mark the key as dirty for replication */
-        signalModifiedKey(c,c->db,key);
+        keyModified(c,c->db,key,kv,1);
         server.dirty++;
         addReply(c,shared.ok);
     } else {
@@ -5425,8 +5425,7 @@ dictType idmpDictType = {
     .no_value = 0,              /* Use regular dict entries with NULL values to support defrag */
     .keys_are_odd = 0,          /* keys are not odd */
     .force_full_rehash = 0,     /* no force full rehash */
-    NULL,                       /* stored hash function */
-    NULL,                       /* stored key compare */
+    NULL,                       /* key from stored key */
     NULL,                       /* on dict release */
 };
 
