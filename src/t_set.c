@@ -638,7 +638,7 @@ void saddCommand(client *c) {
     if (added) {
         unsigned long size = setTypeSize(set);
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size - added, size);
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],set,1);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[1],c->db->id);
     }
     server.dirty += added;
@@ -674,7 +674,7 @@ void sremCommand(client *c) {
     if (deleted) {
         int64_t newSize = oldSize - deleted;
 
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c, c->db, c->argv[1], keyremoved ? NULL : set, 1);
         notifyKeyspaceEvent(NOTIFY_SET,"srem",c->argv[1],c->db->id);
         if (keyremoved) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],
@@ -741,7 +741,7 @@ void smoveCommand(client *c) {
         dbAdd(c->db, c->argv[2], &dstset);
     }
 
-    signalModifiedKey(c,c->db,c->argv[1]);
+    keyModified(c, c->db, c->argv[1], (srcNewLen > 0) ? srcset : NULL, 1);
     server.dirty++;
 
     if (server.memory_tracking_per_slot)
@@ -751,7 +751,7 @@ void smoveCommand(client *c) {
         unsigned long dstLen = setTypeSize(dstset);
         updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_SET, dstLen - 1, dstLen);
         server.dirty++;
-        signalModifiedKey(c,c->db,c->argv[2]);
+        keyModified(c,c->db,c->argv[2],dstset,1);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }
     if (server.memory_tracking_per_slot)
@@ -858,7 +858,7 @@ void spopWithCountCommand(client *c) {
         /* Propagate this command as a DEL or UNLINK operation */
         robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
         rewriteClientCommandVector(c, 2, aux, c->argv[1]);
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],NULL,1);
         return;
     }
 
@@ -1020,6 +1020,7 @@ void spopWithCountCommand(client *c) {
         if (server.memory_tracking_per_slot)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
+        set = newset;
     }
 
     /* Replicate/AOF the remaining elements as an SREM operation */
@@ -1037,7 +1038,7 @@ void spopWithCountCommand(client *c) {
      * we propagated the command as a set of SREMs operations using
      * the alsoPropagate() API. */
     preventCommandPropagation(c);
-    signalModifiedKey(c,c->db,c->argv[1]);
+    keyModified(c,c->db,c->argv[1],set,1);
 }
 
 void spopCommand(client *c) {
@@ -1080,13 +1081,15 @@ void spopCommand(client *c) {
     decrRefCount(ele);
 
     /* Delete the kv if it's empty */
+    int deleted = 0;
     if (setTypeSize(kv) == 0) {
+        deleted = 1;
         dbDelete(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
     }
 
     /* Set has been modified */
-    signalModifiedKey(c,c->db,c->argv[1]);
+    keyModified(c, c->db, c->argv[1], deleted ? NULL : kv, 1);
     server.dirty++;
 }
 
@@ -1408,7 +1411,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
         zfree(sets);
         if (dstkey) {
             if (dbDelete(c->db,dstkey)) {
-                signalModifiedKey(c,c->db,dstkey);
+                keyModified(c,c->db,dstkey,NULL,1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
                 server.dirty++;
             }
@@ -1534,7 +1537,7 @@ void sinterGenericCommand(client *c, robj **setkeys,
             addReply(c,shared.czero);
             if (dbDelete(c->db,dstkey)) {
                 server.dirty++;
-                signalModifiedKey(c,c->db,dstkey);
+                keyModified(c,c->db,dstkey,NULL,1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
             }
             decrRefCount(dstset);
@@ -1815,7 +1818,7 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             addReply(c,shared.czero);
             if (dbDelete(c->db,dstkey)) {
                 server.dirty++;
-                signalModifiedKey(c,c->db,dstkey);
+                keyModified(c,c->db,dstkey,NULL,1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",dstkey,c->db->id);
             }
             decrRefCount(dstset);

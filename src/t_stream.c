@@ -727,7 +727,9 @@ typedef struct {
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
     int delete_strategy; /* DELETE_STRATEGY_* */
     int approx_trim; /* If 1 only delete whole radix tree nodes, so
-                      * the trim argument is not applied verbatim. */
+                      * the trim argument is not applied verbatim.
+                      * Note: This flag is ignored when delete_strategy is non-KEEPREF.
+                      * Individual entries may still be processed for consumer groups. */
     long long limit; /* Maximum amount of entries to trim. If 0, no limitation
                       * on the amount of trimming work is enforced. */
     /* TRIM_STRATEGY_MAXLEN options */
@@ -835,8 +837,11 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         /* If we cannot remove a whole element, and approx is true,
-         * stop here. */
-        if (approx) break;
+         * stop here. However, for non-KEEPREF strategies, if the node was
+         * eligible for removal but we couldn't remove it (because we need
+         * to check consumer group references), we should continue to process
+         * entries within this node. */
+        if (approx && delete_strategy == DELETE_STRATEGY_KEEPREF) break;
 
         /* Now we have to trim entries from within 'lp' */
         size_t oldsize = lpBytes(lp);
@@ -1311,6 +1316,7 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
     }
     si->stream = s;
     si->lp = NULL;     /* There is no current listpack right now. */
+    si->lp_last_ele = NULL;
     si->lp_ele = NULL; /* Current listpack cursor. */
     si->rev = rev;     /* Direction, if non-zero reversed, from end to start. */
     si->skip_tombstones = 1;    /* By default tombstones aren't emitted. */
@@ -1321,9 +1327,12 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
  * signal the iteration terminated. */
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
     while(1) { /* Will stop when element > stop_key or end of radix tree. */
-        /* Tracks the boundary of the previous entry during reverse iteration.
-         * This ensures the iterator does not move beyond the current entry when stepping backwards. */
-        unsigned char *rev_entry_boundary = NULL;
+        /* Record the previous lp_ele position to detect data corruption
+         * that might cause the iterator to move backwards unexpectedly. */
+        if (si->lp_ele && si->lp_last_ele)
+            serverAssert(si->rev ? si->lp_ele < si->lp_last_ele : si->lp_ele > si->lp_last_ele);
+        si->lp_last_ele = si->lp_ele;
+
         /* If the current listpack is set to NULL, this is the start of the
          * iteration or the previous listpack was completely iterated.
          * Go to the next node. */
@@ -1362,7 +1371,6 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
              * one. */
             int64_t lp_count = lpGetInteger(si->lp_ele);
             while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
-            rev_entry_boundary = si->lp_ele; /* Remember entry boundary. */
             /* Seek lp-count of prev entry. */
             si->lp_ele = lpPrev(si->lp,si->lp_ele);
         }
@@ -1409,11 +1417,6 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             } else {
                 *numfields = lpGetInteger(si->lp_ele);
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
-            }
-            if (si->rev) {
-                /* Verify that current position hasn't reached the next entry
-                 * boundary during reverse iteration. */
-                serverAssert(!rev_entry_boundary || si->lp_ele < rev_entry_boundary);
             }
             serverAssert(*numfields>=0);
 
@@ -2254,7 +2257,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     raxStart(&ri,consumer->pel);
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     while(raxNext(&ri) && (!count || arraylen < count)) {
-        if (end && memcmp(ri.key,end,ri.key_len) > 0) break;
+        if (end && memcmp(ri.key,endkey,ri.key_len) > 0) break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
         if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
@@ -2551,7 +2554,7 @@ void xaddCommand(client *c) {
     if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
         updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
 
-    signalModifiedKey(c,c->db,c->argv[1]);
+    keyModified(c,c->db,c->argv[1],kv,1);
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
@@ -2913,6 +2916,7 @@ void xreadCommand(client *c) {
                                                     consumer->name);
             }
             consumer->seen_time = commandTimeSnapshot();
+            keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
         } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
@@ -2958,7 +2962,10 @@ void xreadCommand(client *c) {
                                  consumer, flags, &spi, &propCount);
             if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
                 updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),old_alloc,s->alloc_size);
-            if (propCount) server.dirty++;
+            if (propCount) {
+                server.dirty++;
+                keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
+            }
         }
     }
 
@@ -3449,7 +3456,7 @@ NULL
             o = createStreamObject();
             dbAdd(c->db, c->argv[2], &o);
             s = o->ptr;
-            signalModifiedKey(c,c->db,c->argv[2]);
+            keyModified(c,c->db,c->argv[2],o,1);
         }
         
         if (entries_read != SCG_INVALID_ENTRIES_READ && (uint64_t)entries_read > s->entries_added) {
@@ -3465,6 +3472,7 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
                                 c->argv[2],c->db->id);
+            keyModified(c,c->db,c->argv[2],o,0);
         } else {
             addReplyError(c,"-BUSYGROUP Consumer Group name already exists");
         }
@@ -3485,6 +3493,7 @@ NULL
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
+        keyModified(c,c->db,c->argv[2],o,0);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
             old_alloc = s->alloc_size;
@@ -3496,6 +3505,7 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
+            keyModified(c,c->db,c->argv[2],o,0);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
             signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
         } else {
@@ -3505,6 +3515,7 @@ NULL
         old_alloc = s->alloc_size;
         streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
+        keyModified(c,c->db,c->argv[2],o,0);
         if (server.memory_tracking_per_slot)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
         addReplyLongLong(c,created ? 1 : 0);
@@ -3522,6 +3533,7 @@ NULL
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                                 c->argv[2],c->db->id);
+            keyModified(c,c->db,c->argv[2],o,0);
         }
         addReplyLongLong(c,pending);
     } else {
@@ -3602,6 +3614,7 @@ void xsetidCommand(client *c) {
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
+    keyModified(c,c->db,c->argv[1],kv,0);
 }
 
 /* XACK <key> <group> <id> <id> ... <id>
@@ -3658,6 +3671,7 @@ void xackCommand(client *c) {
             streamDestroyNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
+            keyModified(c,c->db,c->argv[1],kv,0);
         }
     }
     if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
@@ -3713,7 +3727,7 @@ void xackdelCommand(client *c) {
     s = kv->ptr;
     size_t old_alloc = s->alloc_size;
     int first_entry = 0;
-    int deleted = 0;
+    int deleted = 0, dirty = server.dirty;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XACKDEL_NO_ID;
@@ -3775,8 +3789,11 @@ void xackdelCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
+    } else if (server.dirty > dirty) {
+        /* Only ACK succeeded without deleting elements, just update LRM without signaling */
+        keyModified(c,c->db,c->argv[1],kv,0);
     }
 
 cleanup:
@@ -4246,6 +4263,7 @@ void xclaimCommand(client *c) {
     }
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
+    keyModified(c,c->db,c->argv[1],o,0);
 cleanup:
     if (ids != static_ids) zfree(ids);
 }
@@ -4448,6 +4466,8 @@ void xautoclaimCommand(client *c) {
     zfree(deleted_ids);
 
     preventCommandPropagation(c);
+    /* Update LRM but don't signal. */
+    keyModified(c,c->db,c->argv[1],o,0);
 }
 
 /* XDEL <key> [<ID1> <ID2> ... <IDN>]
@@ -4507,7 +4527,7 @@ void xdelCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -4611,7 +4631,7 @@ void xdelexCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -4679,7 +4699,7 @@ void xtrimCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c, c->db,c->argv[1]);
+        keyModified(c, c->db,c->argv[1], kv, 1);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);

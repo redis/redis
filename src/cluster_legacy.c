@@ -6536,22 +6536,17 @@ void clusterPromoteSelfToMaster(void) {
 }
 
 int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
-    UNUSED(arg);
     sds str = NULL;
 
     slotRangeArray *slots = asmTaskGetSlotRanges(task_id);
     if (slots) str = slotRangeArrayToString(slots);
+    else if (arg) str = slotRangeArrayToString(arg);
+
+    serverLog(LL_VERBOSE, "Slot migration task %s received event %d for slots: %s",
+                          task_id, event, str ? str : "unknown");
 
     switch (event) {
-        case ASM_EVENT_IMPORT_STARTED:
-            serverLog(LL_NOTICE, "Import task %s started for slots: %s", task_id, str);
-            break;
-        case ASM_EVENT_IMPORT_FAILED:
-            serverLog(LL_NOTICE, "Import task %s failed for slots: %s", task_id, str);
-            break;
         case ASM_EVENT_TAKEOVER:
-            serverLog(LL_NOTICE, "Import task %s is ready to takeover slots: %s", task_id, str);
-
             for (int i = 0; i < slots->num_ranges; i++) {
                 slotRange *sr = &slots->ranges[i];
                 for (int j = sr->start; j <= sr->end; j++) {
@@ -6565,25 +6560,16 @@ int clusterAsmOnEvent(const char *task_id, int event, void *arg) {
             clusterDoBeforeSleep(CLUSTER_TODO_BROADCAST_PONG);
             clusterAsmProcess(task_id, ASM_EVENT_DONE, NULL, NULL);
             break;
-        case ASM_EVENT_IMPORT_COMPLETED:
-            serverLog(LL_NOTICE, "Import task %s completed for slots: %s", task_id, str);
-            break;
-        case ASM_EVENT_MIGRATE_STARTED:
-            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s", task_id, str);
-            break;
         case ASM_EVENT_MIGRATE_FAILED:
-            serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task_id, str);
             unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
             break;
         case ASM_EVENT_HANDOFF_PREP:
-            serverLog(LL_NOTICE, "Migrate task %s preparing to handoff for slots: %s", task_id, str);
             pauseActions(PAUSE_DURING_SLOT_HANDOFF,
                          LLONG_MAX,
                          PAUSE_ACTIONS_CLIENT_WRITE_SET);
             clusterAsmProcess(task_id, ASM_EVENT_HANDOFF, NULL, NULL);
             break;
         case ASM_EVENT_MIGRATE_COMPLETED:
-            serverLog(LL_NOTICE, "Migrate task %s completed for slots: %s", task_id, str);
             unpauseActions(PAUSE_DURING_SLOT_HANDOFF);
             break;
         default:

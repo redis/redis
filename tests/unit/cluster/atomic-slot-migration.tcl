@@ -197,6 +197,19 @@ proc setup_slot_migration_with_delay {src_node dst_node start_slot end_slot {key
     return $task_id
 }
 
+# Helper function to clear module internal event logs
+proc clear_module_event_log {} {
+    for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
+        R $i asm.clear_event_log
+    }
+}
+
+proc reset_default_trim_method {} {
+    for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
+        R $i debug asm-trim-method default
+    }
+}
+
 start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 60000 cluster-allow-replica-migration no}} {
     foreach trim_method {"active" "bg"} {
         test "Simple slot migration (trim method: $trim_method)" {
@@ -496,6 +509,42 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
         # revert the migration
         R 1 CLUSTER MIGRATION IMPORT 7000 8000
         wait_for_asm_done
+    }
+
+    test "Test IMPORT with unsorted and adjacent ranges" {
+        # Redis should sort and merge adjacent ranges
+        # Adjacent means: prev.end + 1 == next.start
+        # e.g. 7000-7001 7002-7003 7004-7005  =>  7000-7005
+
+        # Test with adjacent ranges
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 7000 7001 7002 7100]
+        wait_for_asm_done
+        # verify migration is successfully completed on both nodes
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+        # verify slot ranges are merged correctly
+        assert_equal "7000-7100" [migration_status 0 $task_id slots]
+        assert_equal "7000-7100" [migration_status 1 $task_id slots]
+
+        # Test with unsorted and adjacent ranges
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 7050 7051 7010 7049 7000 7005]
+        wait_for_asm_done
+        # verify migration is successfully completed on both nodes
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+        # verify slot ranges are merged correctly
+        assert_equal "7000-7005 7010-7051" [migration_status 0 $task_id slots]
+        assert_equal "7000-7005 7010-7051" [migration_status 1 $task_id slots]
+
+        # Another test with unsorted and adjacent ranges
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 7007 7007 7008 7009 7006 7006]
+        wait_for_asm_done
+        # verify migration is successfully completed on both nodes
+        assert_equal "completed" [migration_status 0 $task_id state]
+        assert_equal "completed" [migration_status 1 $task_id state]
+        # verify slot ranges are merged correctly
+        assert_equal "7006-7009" [migration_status 0 $task_id slots]
+        assert_equal "7006-7009" [migration_status 1 $task_id slots]
     }
 
     test "Simple slot migration with write load" {
@@ -1658,7 +1707,7 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 
         # Trigger a failover with force to simulate unreachable master and
         # verify unowned keys are trimmed once replica becomes master.
-        failover_and_wait_for_done 4
+        failover_and_wait_for_done 4 force
         wait_for_log_messages -4 {"*Detected keys in slots that do not belong*Scheduling trim*"} $loglines 1000 10
         wait_for_condition 1000 10 {
             [R 1 dbsize] == 0 &&
@@ -2223,19 +2272,6 @@ start_cluster 3 3 {tags {external:skip cluster} overrides {cluster-node-timeout 
 set testmodule [file normalize tests/modules/atomicslotmigration.so]
 
 start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list loadmodule $testmodule cluster-node-timeout 60000 cluster-allow-replica-migration no]] {
-    # Helper function to clear module internal event logs
-    proc clear_module_event_log {} {
-        for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
-            R $i asm.clear_event_log
-        }
-    }
-
-    proc reset_default_trim_method {} {
-        for {set i 0} {$i < $::cluster_master_nodes + $::cluster_replica_nodes} {incr i} {
-            R $i debug asm-trim-method default
-        }
-    }
-
     test "Module api sanity" {
         R 0 asm.sanity ;# on master
         R 3 asm.sanity ;# on replica
@@ -2535,17 +2571,17 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             # NOTE: only slot 0 has data, so only slot 0 is trimmed
             if {$trim_method eq "active"} {
                 set trim_event_log [list \
-                    "sub: cluster-slot-migration-trim-started, slots:0-0" \
+                    "sub: cluster-slot-migration-trim-started, slots:0-100" \
                     "keyspace: key_trimmed, key: $key" \
-                    "sub: cluster-slot-migration-trim-completed, slots:0-0" \
+                    "sub: cluster-slot-migration-trim-completed, slots:0-100" \
                 ]
             } else {
                 set trim_event_log [list \
-                    "sub: cluster-slot-migration-trim-background, slots:0-0" \
+                    "sub: cluster-slot-migration-trim-background, slots:0-100" \
                 ]
             }
             wait_for_condition 500 20 {
-                [list [lindex [R 1 asm.get_cluster_trim_event_log] 1]] eq $trim_event_log &&
+                [R 1 asm.get_cluster_trim_event_log] eq $trim_event_log &&
                 [R 4 asm.get_cluster_trim_event_log] eq $trim_event_log &&
                 [R 7 asm.get_cluster_trim_event_log] eq $trim_event_log
             } else {
@@ -2822,10 +2858,8 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             fail "migrate failed"
         }
 
-        # Try to read the key from the slot being trimmed. It will lazily trim the key.
-        set num_trimmed [CI 0 cluster_slot_migration_active_trim_current_job_trimmed]
+        # We cannot open the key since it is in a slot being trimmed
         assert_equal {} [R 0 asm.get $key]
-        assert_equal [expr $num_trimmed + 1] [CI 0 cluster_slot_migration_active_trim_current_job_trimmed]
 
         # cleanup
         R 0 debug asm-trim-method default
@@ -2875,6 +2909,7 @@ start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list 
         # restart server and verify aof is loaded
         restart_server 0 yes no yes nosave
         assert {[scan [regexp -inline {aof_current_size:([\d]*)} [R 0 info persistence]] aof_current_size=%d] > 0}
+        wait_for_cluster_state "ok"
 
         # verify TRIMSLOTS in AOF is executed synchronously
         assert_equal 0 [CI 0 cluster_slot_migration_stats_active_trim_completed]
@@ -2884,6 +2919,76 @@ start_cluster 2 0 [list tags {external:skip cluster modules} config_lines [list 
         R 0 CLUSTER MIGRATION IMPORT 0 0
         wait_for_asm_done
         assert_equal 2000 [R 0 dbsize]
+        R 0 flushall
+        R 1 flushall
+        clear_module_event_log
+
+    }
+
+    test "Test trim is disabled when module requests it" {
+        R 0 asm.disable_trim
+
+        set slot0_key [slot_key 0 mykey]
+        R 0 set $slot0_key "value"
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not complete"
+        }
+        # since we disable trim, the key should still exist on source,
+        # we can read it with REDISMODULE_OPEN_KEY_ACCESS_TRIMMED flag
+        assert_equal "value" [R 0 asm.read_pending_trim_key $slot0_key]
+        assert_equal 1 [R 0 asm.trim_in_progress]
+
+        # enable trim and verify the key is trimmed
+        R 0 asm.enable_trim
+        wait_for_condition 1000 10 {
+            [R 0 asm.read_pending_trim_key $slot0_key] eq "" &&
+            [R 0 asm.trim_in_progress] == 0
+        } else {
+            fail "Trim did not complete"
+        }
+        wait_for_asm_done
+        R 0 CLUSTER MIGRATION IMPORT 0 0
+        wait_for_asm_done
+        clear_module_event_log
+    }
+
+    test "Can not start new asm task when trim is not allowed" {
+        # start a migration task, wait it completed but not allow to trim slots
+        R 0 asm.disable_trim
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 0 0]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not complete"
+        }
+        # Can not start new migrating task since trim is disabled
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 1 1]
+        wait_for_condition 1000 10 {
+            [string match {*fail*} [migration_status 1 $task_id state]] &&
+            [string match {*Trim is disabled by module*} [migration_status 1 $task_id last_error]]
+        } else {
+            fail "ASM task did not fail"
+        }
+        R 0 asm.enable_trim
+        wait_for_asm_done
+
+        # start a migration task, wait it completed but not allow to trim slots
+        R 0 asm.disable_trim
+        set task_id [R 1 CLUSTER MIGRATION IMPORT 2 2]
+        wait_for_condition 1000 10 {
+            [string match {*completed*} [migration_status 0 $task_id state]]
+        } else {
+            fail "ASM task did not complete"
+        }
+        set logline [count_log_lines 0]
+        # Can not start new importing task since trim is disabled
+        set task_id [R 0 CLUSTER MIGRATION IMPORT 0 1]
+        wait_for_log_messages 0 {"*Can not start import task*trim is disabled by module*"} $logline 1000 10
+        R 0 asm.enable_trim
+        wait_for_asm_done
     }
 }
 
