@@ -58,7 +58,7 @@ void updateLFU(robj *val) {
 
 /* Update LRM when an object is modified. */
 void updateLRM(robj *o) {
-    if (o->refcount == OBJ_SHARED_REFCOUNT)
+    if (robj_refcount(o) == OBJ_SHARED_REFCOUNT)
         return;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LRM) {
         o->lru = LRU_CLOCK();
