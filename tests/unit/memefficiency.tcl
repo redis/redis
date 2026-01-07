@@ -37,6 +37,14 @@ start_server {tags {"memefficiency external:skip"}} {
 }
 
 run_solo {defrag} {
+    proc discard_replies_every {rd count frequency discard_num} {
+        if {$count % $frequency == 0} {
+            for {set k 0} {$k < $discard_num} {incr k} {
+                $rd read ; # Discard replies
+            }
+        }
+    }
+
 start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save ""}} {
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag" {
@@ -177,12 +185,24 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             # Populate memory with interleaving script-key pattern of same size
             set dummy_script "--[string repeat x 400]\nreturn "
             set rd [redis_deferring_client]
+            # Send commands in batches and read responses to avoid TCP deadlock.
+            # Without interleaving reads, TCP congestion control can throttle
+            # the connection when buffers fill, causing the test to hang.
+            set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 set val "$dummy_script[format "%06d" $j]"
                 $rd script load $val
                 $rd set k$j $val
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read ; # Discard script load replies
+                        $rd read ; # Discard set replies
+                    }
+                }
             }
-            for {set j 0} {$j < $n} {incr j} {
+            # Read remaining responses
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} {
                 $rd read ; # Discard script load replies
                 $rd read ; # Discard set replies
             }
@@ -196,8 +216,17 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             assert_lessthan [s allocator_frag_ratio] 1.05
             
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            # Use same batching pattern to avoid TCP deadlock
+            for {set j 0} {$j < $n} {incr j} {
+                $rd del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd read }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -265,16 +294,25 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
 
             # create big keys with 10k items
+            # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
+            set batch_size 1000
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
                 $rd zadd bigzset $j [concat "asdfasdfasdf" $j]
                 $rd sadd bigset [concat "asdfasdfasdf" $j]
                 $rd xadd bigstream * item 1 value a
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < [expr {$batch_size * 5}]} {incr i} {
+                        $rd read
+                    }
+                }
             }
-            for {set j 0} {$j < 50000} {incr j} {
-                $rd read ; # Discard replies
+            # Read remaining replies
+            set remaining [expr {(10000 % $batch_size) * 5}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
             }
 
             set expected_frag 1.7
@@ -406,14 +444,15 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
             # add a mass of list nodes to two lists (allocations are interlaced)
             set val [string repeat A 500] ;# 1 item of 500 bytes puts us in the 640 bytes bin, which has 32 regs, so high potential for fragmentation
             set elements 100000
+            set count 0
             for {set j 0} {$j < $elements} {incr j} {
                 $rd lpush biglist1 $val
                 $rd lpush biglist2 $val
+
+                incr count
+                discard_replies_every $rd $count 1000 2000
             }
-            for {set j 0} {$j < $elements} {incr j} {
-                $rd read ; # Discard replies
-                $rd read ; # Discard replies
-            }
+
 
             # create some fragmentation
             r del biglist2
@@ -517,11 +556,12 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                 # add a mass of keys with 600 bytes values, fill the bin of 640 bytes which has 32 regs per slab.
                 set rd [redis_deferring_client]
                 set keys 640000
+                set count 0
                 for {set j 0} {$j < $keys} {incr j} {
                     $rd setrange $j 600 x
-                }
-                for {set j 0} {$j < $keys} {incr j} {
-                    $rd read ; # Discard replies
+
+                    incr count
+                    discard_replies_every $rd $count 10000 10000
                 }
 
                 # create some fragmentation of 50%
@@ -530,9 +570,8 @@ start_server {tags {"defrag external:skip"} overrides {appendonly yes auto-aof-r
                     $rd del $j
                     incr sent
                     incr j 1
-                }
-                for {set j 0} {$j < $sent} {incr j} {
-                    $rd read ; # Discard replies
+
+                    discard_replies_every $rd $sent 10000 10000
                 }
 
                 # create higher fragmentation in the first slab
@@ -607,13 +646,13 @@ start_cluster 1 0 {tags {"defrag external:skip"} overrides {appendonly yes auto-
 
             # create big keys with 10k items
             set rd [redis_deferring_client]
+            set count 0
             for {set j 0} {$j < 100000} {incr j} {
                 $rd set $j a
                 $rd expire $j 99999
-            }
-            for {set j 0} {$j < 100000} {incr j} {
-                $rd read ; # Discard replies
-                $rd read ; # Discard replies
+
+                incr count
+                discard_replies_every $rd $count 1000 2000
             }
 
             catch {r config set activedefrag yes} e
