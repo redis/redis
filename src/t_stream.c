@@ -5118,7 +5118,8 @@ void xidmpCommand(client *c) {
             return;
         }
 
-        /* Update the stream configuration */
+        /* Update the stream configuration. When we set DURATION or maxsize,
+         * we clear all existing producer IDMP maps for the stream. */
         if (duration != -1) {
             s->idmp_duration = duration;
             streamClearIdmpEntries(s);
@@ -5649,7 +5650,10 @@ void handleExpiredIdmpEntries(void) {
  * (field1, value1, field2, value2, ...) and 'numfields' indicating the number
  * of pairs (not the array length). Each field-value pair is hashed using
  * streaming XXH3_128bits, and the resulting pair hashes are XORed together
- * to produce a final 128-bit hash. Returns a zero hash {0, 0} on error. */
+ * to produce a final 128-bit hash. Returns a zero hash {0, 0} on error.
+ *
+ * XXH128 is a non-cryptographic hash function: fast and well-distributed, but
+ * does NOT prevent intentional collision attacks. */
 static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
     XXH128_hash_t hash_result = {0, 0};
     XXH3_state_t* state = XXH3_createState();
