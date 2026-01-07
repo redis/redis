@@ -148,6 +148,36 @@ start_server {overrides {save {900 1}} tags {"modules external:skip"}} {
         $rd_trk close
     }
 
+    test {RM_SignalModifiedKey - tracking invalidation} {
+        set rd_trk [redis_client]
+        $rd_trk HELLO 3
+        $rd_trk CLIENT TRACKING on
+        r SET mykey{t} abc
+
+        # Track the key by reading it
+        $rd_trk GET mykey{t}
+
+        # # Modify the key using module command that calls RM_SignalModifiedKey
+        r test.signalmodifiedkey mykey{t}
+
+        # # Should receive invalidation message
+        assert_equal {invalidate mykey{t}} [$rd_trk read]
+        assert_equal "PONG" [$rd_trk ping]
+        $rd_trk close
+    }
+
+    test {RM_SignalModifiedKey - update LRM timestamp} {
+        set old_policy [config_get_set maxmemory-policy allkeys-lrm]
+        r SET mykey{t} abc
+        after 2000
+        assert_morethan_equal [r object idletime mykey{t}] 1
+
+        # LRM should be updated.
+        r test.signalmodifiedkey mykey{t}
+        assert_lessthan [r object idletime mykey{t}] 2
+        r config set maxmemory-policy $old_policy
+    } {OK} {slow}
+
     test {publish to self inside rm_call} {
         r hello 3
         r subscribe foo

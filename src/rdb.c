@@ -2234,9 +2234,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 !lpSafeToAdd(o->ptr, entryFieldLen(entry) + sdslen(entryGetValue(entry))))
             {
                 hashTypeConvert(NULL, o, OBJ_ENCODING_HT);
-                dictUseStoredKeyApi((dict *)o->ptr, 1);
                 ret = dictAdd((dict*)o->ptr, entry, NULL);  /* no_value=1 */
-                dictUseStoredKeyApi((dict *)o->ptr, 0);
                 if (ret == DICT_ERR) {
                     rdbReportCorruptRDB("Duplicate hash fields detected");
                     if (dupSearchDict) dictRelease(dupSearchDict);
@@ -2292,9 +2290,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
 
             /* Add entry to hash table */
             dict *d = o->ptr;
-            dictUseStoredKeyApi(d, 1);
             ret = dictAdd(d, entry, NULL);  /* no_value=1 */
-            dictUseStoredKeyApi(d, 0);
             if (ret == DICT_ERR) {
                 rdbReportCorruptRDB("Duplicate hash fields detected");
                 entryFree(entry, NULL);
@@ -2456,9 +2452,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             if (o->encoding == OBJ_ENCODING_HT) {
                 /* Add entry to hash table */
                 dict *d = o->ptr;
-                dictUseStoredKeyApi(d, 1);
                 int ret = dictAdd(d, entry, NULL);  /* no_value=1 */
-                dictUseStoredKeyApi(d, 0);
 
                 /* Attach expiry to the hash field and register in hash private HFE DS */
                 if ((ret != DICT_ERR) && expireAt) {

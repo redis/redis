@@ -40,9 +40,11 @@ configEnum maxmemory_policy_enum[] = {
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
     {"volatile-random",MAXMEMORY_VOLATILE_RANDOM},
     {"volatile-ttl",MAXMEMORY_VOLATILE_TTL},
+    {"volatile-lrm",MAXMEMORY_VOLATILE_LRM},
     {"allkeys-lru",MAXMEMORY_ALLKEYS_LRU},
     {"allkeys-lfu",MAXMEMORY_ALLKEYS_LFU},
     {"allkeys-random",MAXMEMORY_ALLKEYS_RANDOM},
+    {"allkeys-lrm",MAXMEMORY_ALLKEYS_LRM},
     {"noeviction",MAXMEMORY_NO_EVICTION},
     {NULL, 0}
 };

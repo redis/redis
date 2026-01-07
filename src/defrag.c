@@ -245,20 +245,25 @@ sds activeDefragSds(sds sdsptr) {
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
 Entry *activeDefragEntry(Entry *entry) {
-    /* Defrag the value if it's not embedded */
-    sds *valuePtr = entryGetValuePtrRef(entry);
-    if (valuePtr) {
-        sds new_value = activeDefragSds(*valuePtr);
-        if (new_value) *valuePtr = new_value;
-    }
+    Entry *ret = NULL;
+
+    /* First, defrag the entry allocation itself */
     void *ptr = entryGetAllocPtr(entry);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
         size_t offset = (char*)entry - (char*)ptr;
         entry = (Entry *)((char*)newptr + offset);
-        return entry;
+        ret = entry;
     }
-    return NULL;
+
+    /* Then defrag the value if it's not embedded (using the potentially new entry) */
+    sds *valuePtr = entryGetValuePtrRef(entry);
+    if (valuePtr) {
+        sds new_value = activeDefragSds(*valuePtr);
+        if (new_value) *valuePtr = new_value;
+    }
+
+    return ret;
 }
 
 /* Defrag helper for hfield strings and update the reference in the dict.
@@ -272,10 +277,8 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
 
     /* Before the key is released, obtain the link to
      * ensure we can safely access and update the key. */
-    dictUseStoredKeyApi(d, 1);
     link = dictFindLink(d, ptr, NULL);
     serverAssert(link);
-    dictUseStoredKeyApi(d, 0);
 
     Entry *newEntry = activeDefragEntry(ptr);
     if (newEntry)
@@ -476,7 +479,6 @@ void activeDefragLuaScriptDictCallback(void *privdata, const dictEntry *de, dict
 }
 
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
-    UNUSED(plink);
     dict *d = privdata;
     Entry *newEntry = NULL, *entry = dictGetKey(de);
 
@@ -484,8 +486,10 @@ void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEnt
      * Fields with TTL are skipped here and will be defragmented later
      * during the hash expiry ebuckets defragmentation phase. */
     if (entryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
-        if ((newEntry = activeDefragEntry(entry)))
-            dictSetKey(d, (dictEntry *)de, newEntry);
+        if ((newEntry = activeDefragEntry(entry))) {
+            /* Hash dicts use no_value=1, so we must use dictSetKeyAtLink */
+            dictSetKeyAtLink(d, newEntry, &plink, 0);
+        }
     }
 }
 

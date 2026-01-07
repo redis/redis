@@ -76,7 +76,7 @@ static void dictSetNext(dictEntry *de, dictEntry *next);
 static int dictDefaultCompare(dictCmpCache *cache, const void *key1, const void *key2);
 static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLink *bucket);
 dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existing);
-static dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link);
+static dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link);
 
 /* -------------------------- unused  --------------------------- */
 void dictSetSignedIntegerVal(dictEntry *de, int64_t val);
@@ -89,18 +89,13 @@ int64_t dictIncrSignedIntegerVal(dictEntry *de, int64_t val);
 
 typedef int (*keyCmpFunc)(dictCmpCache *cache, const void *key1, const void *key2);
 static inline keyCmpFunc dictGetCmpFunc(dict *d) {
-    if (d->useStoredKeyApi && d->type->storedKeyCompare)
-        return d->type->storedKeyCompare;
     if (d->type->keyCompare)
         return d->type->keyCompare;
     return dictDefaultCompare;
 }
 
-static inline uint64_t dictHashKey(dict *d, const void *key, int isStoredKey) {
-    if (isStoredKey && d->type->storedHashFunction)
-        return d->type->storedHashFunction(key);
-    else
-        return d->type->hashFunction(key);
+static const void *dictStoredKey2Key(dict *d, const void *key __stored_key) {
+    return (d->type->keyFromStoredKey) ? d->type->keyFromStoredKey(key) : key;
 }
 
 /* -------------------------- hash functions -------------------------------- */
@@ -118,7 +113,7 @@ uint64_t siphash(const uint8_t *in, const size_t inlen, const uint8_t *k);
 uint64_t siphash_nocase(const uint8_t *in, const size_t inlen, const uint8_t *k);
 
 uint64_t dictGenHashFunction(const void *key, size_t len) {
-    return siphash(key,len,dict_hash_function_seed);
+    return siphash(key, len, dict_hash_function_seed);
 }
 
 uint64_t dictGenCaseHashFunction(const unsigned char *buf, size_t len) {
@@ -150,7 +145,7 @@ static inline int entryIsNormal(const dictEntry *de) {
 }
 
 /* Creates an entry without a value field. */
-static inline dictEntry *createEntryNoValue(void *key, dictEntry *next) {
+static inline dictEntry *createEntryNoValue(void *key __stored_key, dictEntry *next) {
     dictEntryNoValue *entry = zmalloc(sizeof(*entry));
     entry->key = key;
     entry->next = next;
@@ -222,7 +217,6 @@ int _dictInit(dict *d, dictType *type)
     d->rehashidx = -1;
     d->pauserehash = 0;
     d->pauseAutoResize = 0;
-    d->useStoredKeyApi = 0;
     return DICT_OK;
 }
 
@@ -333,10 +327,11 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
     dictEntry *nextde;
     while (de) {
         nextde = dictGetNext(de);
-        void *key = dictGetKey(de);
+        void *storedKey = dictGetKey(de);
         /* Get the index in the new hash table */
         if (d->ht_size_exp[1] > d->ht_size_exp[0]) {
-            h = dictHashKey(d, key, 1) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
+            const void *key = dictStoredKey2Key(d, storedKey);
+            h = dictGetHash(d, key) & DICTHT_SIZE_MASK(d->ht_size_exp[1]);
         } else {
             /* We're shrinking the table. The tables sizes are powers of
              * two, so we simply mask the bucket index in the larger table
@@ -351,13 +346,13 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
                 if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
                 
                 if (d->type->keys_are_odd)
-                    de = key; /* ENTRY_PTR_IS_ODD_KEY trivially set by the odd key. */
+                    de = storedKey; /* ENTRY_PTR_IS_ODD_KEY trivially set by the odd key. */
                 else
-                    de = encodeMaskedPtr(key, ENTRY_PTR_IS_EVEN_KEY);
+                    de = encodeMaskedPtr(storedKey, ENTRY_PTR_IS_EVEN_KEY);
                 
             } else if (entryIsKey(de)) {
                 /* We don't have an allocated entry but we need one. */
-                de = createEntryNoValue(key, d->ht_table[1][h]);
+                de = createEntryNoValue(storedKey, d->ht_table[1][h]);
             } else {
                 dictSetNext(de, d->ht_table[1][h]);
             }
@@ -486,7 +481,7 @@ int _dictBucketRehash(dict *d, uint64_t idx) {
 }
 
 /* Add an element to the target hash table */
-int dictAdd(dict *d, void *key, void *val)
+int dictAdd(dict *d, void *key __stored_key, void *val)
 {
     dictEntry *entry = dictAddRaw(d,key,NULL);
 
@@ -519,10 +514,10 @@ int dictCompareKeys(dict *d, const void *key1, const void *key2) {
  *
  * If key was added, the hash entry is returned to be manipulated by the caller.
  */
-dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
+dictEntry *dictAddRaw(dict *d, void *key __stored_key, dictEntry **existing)
 {
     /* Get the position for the new key or NULL if the key already exists. */
-    void *position = dictFindLinkForInsert(d, key, existing);
+    void *position = dictFindLinkForInsert(d, dictStoredKey2Key(d, key), existing);
     if (!position) return NULL;
 
     /* Dup the key if necessary. */
@@ -535,7 +530,7 @@ dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing)
  * call to dictFindLinkForInsert(). This is a low level function which allows
  * splitting dictAddRaw in two parts. Normally, dictAddRaw or dictAdd should be
  * used instead. It assumes that dictExpandIfNeeded() was called before. */
-dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link) {
+dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink link) {
     dictEntryLink bucket = link; /* It's a bucket, but the API hides that. */
     dictEntry *entry;
     /* If rehashing is ongoing, we insert in table 1, otherwise in table 0.
@@ -580,7 +575,7 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key, dictEntryLink link) {
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
  * operation. */
-int dictReplace(dict *d, void *key, void *val)
+int dictReplace(dict *d, void *key __stored_key, void *val)
 {
     dictEntry *entry, *existing;
 
@@ -611,7 +606,7 @@ int dictReplace(dict *d, void *key, void *val)
  * existing key is returned.)
  *
  * See dictAddRaw() for more information. */
-dictEntry *dictAddOrFind(dict *d, void *key) {
+dictEntry *dictAddOrFind(dict *d, void *key __stored_key) {
     dictEntry *entry, *existing;
     entry = dictAddRaw(d,key,&existing);
     return entry ? entry : existing;
@@ -629,7 +624,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     /* dict is empty */
     if (dictSize(d) == 0) return NULL;
 
-    h = dictHashKey(d, key, d->useStoredKeyApi);
+    h = dictGetHash(d, key);
     idx = h & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
 
     /* Rehash the hash table if needed */
@@ -643,7 +638,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
         he = d->ht_table[table][idx];
         prevHe = NULL;
         while(he) {
-            void *he_key = dictGetKey(he);
+            const void *he_key = dictStoredKey2Key(d, dictGetKey(he));
             if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
@@ -772,7 +767,7 @@ static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLin
         if (dictSize(d) == 0) return NULL; 
     }
 
-    const uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
+    const uint64_t hash = dictGetHash(d, key);
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
     keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
@@ -790,7 +785,7 @@ static dictEntryLink dictFindLinkInternal(dict *d, const void *key, dictEntryLin
         link = &(d->ht_table[table][idx]);
         if (bucket) *bucket = link;
         while(link && *link) {
-            void *visitedKey = dictGetKey(*link);
+            const void *visitedKey = dictStoredKey2Key(d, dictGetKey(*link));
 
             /* Prefetch the next entry to improve cache efficiency */
             redis_prefetch_read(dictGetNext(*link));
@@ -880,7 +875,7 @@ dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket) {
  * newItem: 1 = Add a key with a new dictEntry.
  *          0 = Set a key to an existing dictEntry. 
  */
-void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
+void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int newItem) {
     dictEntryLink dummy = NULL;
     if (link == NULL) link = &dummy;
     void *addedKey = (d->type->keyDup) ? d->type->keyDup(d, key) : key;
@@ -895,9 +890,7 @@ void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem) {
         if (snap[0] != d->ht_size_exp[0] || snap[1] != d->ht_size_exp[1] || *link == NULL) {
             dictEntryLink bucket;
             /* Bypass dictFindLink() to search bucket even if dict is empty!!! */
-            dictUseStoredKeyApi(d, 1);
-            *link = dictFindLinkInternal(d, key, &bucket);
-            dictUseStoredKeyApi(d, 0);
+            *link = dictFindLinkInternal(d, dictStoredKey2Key(d, key), &bucket);
             assert(bucket != NULL);
             assert(*link == NULL);
             *link = bucket; /* On newItem the link should be the bucket */
@@ -959,7 +952,7 @@ dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index)
     if (dictSize(d) == 0) return NULL; /* dict is empty */
     if (dictIsRehashing(d)) _dictRehashStep(d);
 
-    h = dictHashKey(d, key, d->useStoredKeyApi);    
+    h = dictGetHash(d, key);    
     keyCmpFunc cmpFunc = dictGetCmpFunc(d);
 
     for (table = 0; table <= 1; table++) {
@@ -967,7 +960,7 @@ dictEntryLink dictTwoPhaseUnlinkFind(dict *d, const void *key, int *table_index)
         if (table == 0 && (long)idx < d->rehashidx) continue;
         dictEntry **ref = &d->ht_table[table][idx];
         while (ref && *ref) {
-            void *de_key = dictGetKey(*ref);
+            const void *de_key = dictStoredKey2Key(d, dictGetKey(*ref));
             if (key == de_key || cmpFunc(&cmpCache, key, de_key)) {
                 *table_index = table;
                 dictPauseRehashing(d);
@@ -993,7 +986,7 @@ void dictTwoPhaseUnlinkFree(dict *d, dictEntryLink plink, int table_index) {
     dictResumeRehashing(d);
 }
 
-void dictSetKey(dict *d, dictEntry* de, void *key) {
+void dictSetKey(dict *d, dictEntry* de, void *key __stored_key) {
     assert(!d->type->no_value);
     if (d->type->keyDup)
         de->key = d->type->keyDup(d, key);
@@ -1747,7 +1740,7 @@ dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existi
     unsigned long idx, table;
     dictCmpCache cmpCache = {0};
     dictEntry *he;
-    uint64_t hash = dictHashKey(d, key, d->useStoredKeyApi);
+    uint64_t hash = dictGetHash(d, key);
     if (existing) *existing = NULL;
     idx = hash & DICTHT_SIZE_MASK(d->ht_size_exp[0]);
 
@@ -1764,7 +1757,7 @@ dictEntryLink dictFindLinkForInsert(dict *d, const void *key, dictEntry **existi
         /* Search if this slot does not already contain the given key */
         he = d->ht_table[table][idx];
         while(he) {
-            void *he_key = dictGetKey(he);
+            const void *he_key = dictStoredKey2Key(d, dictGetKey(he));            
             if (key == he_key || cmpFunc(&cmpCache, key, he_key)) {
                 if (existing) *existing = he;
                 return NULL;
@@ -1802,8 +1795,9 @@ void dictSetResizeEnabled(dictResizeEnable enable) {
     dict_can_resize = enable;
 }
 
+/* Compiler inlines this for internal calls within dict.c (verified with -O3). */
 uint64_t dictGetHash(dict *d, const void *key) {
-    return dictHashKey(d, key, d->useStoredKeyApi);
+    return d->type->hashFunction(key);
 }
 
 /* Provides the old and new ht size for a given dictionary during rehashing. This method
