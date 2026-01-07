@@ -2309,13 +2309,13 @@ static payloadHeader *processSentDataInEncodedBuffer(char *start_ptr, char *end_
             /* BULK_STR_REF - release object references */
             bulkStrRef *str_ref = (bulkStrRef *)(ptr + sizeof(payloadHeader));
 
-            size_t wrire_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
-            if (*remaining < (ssize_t)(wrire_len - *sentlen)) {
+            size_t writen_len = str_ref->prefix_cnt + sdslen(str_ref->obj->ptr) + 2;
+            if (*remaining < (ssize_t)(writen_len - *sentlen)) {
                 *sentlen += *remaining;
                 *remaining = 0;
                 return head;
             }
-            *remaining -= (wrire_len - *sentlen);
+            *remaining -= (writen_len - *sentlen);
             decrRefCount(str_ref->obj);
             str_ref->obj = NULL; /* Mark as released to prevent double free */
             *sentlen = 0;
