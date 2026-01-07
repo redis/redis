@@ -545,12 +545,17 @@ proc stop_bg_complex_data {handle} {
 # to which Redis instance to write the keys.
 proc populate {num {prefix key:} {size 3} {idx 0}} {
     set rd [redis_deferring_client $idx]
+    set batch_size 1000
     for {set j 0} {$j < $num} {incr j} {
         $rd set $prefix$j [string repeat A $size]
+        if {($j + 1) % $batch_size == 0} {
+            for {set i 0} {$i < $batch_size} {incr i} {
+                $rd read
+            }
+        }
     }
-    for {set j 0} {$j < $num} {incr j} {
-        $rd read
-    }
+    set remaining [expr {$num % $batch_size}]
+    for {set j 0} {$j < $remaining} {incr j} { $rd read }
     $rd close
 }
 
