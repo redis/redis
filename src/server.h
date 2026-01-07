@@ -1060,10 +1060,14 @@ struct RedisModuleDigest {
 #define LRU_CLOCK_MAX ((1<<LRU_BITS)-1) /* Max value of obj->lru */
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
-#define OBJ_REFCOUNT_BITS 16
+#define OBJ_REFCOUNT_BITS 30
+#define OBJ_REFCOUNT_MASK ((1U << OBJ_REFCOUNT_BITS) - 1) /* Mask to extract refcount. */
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
+
+/* Extract refcount from atomic_flags_refcount. */
+#define OBJ_GET_REFCOUNT(atomic_val) ((atomic_val) & OBJ_REFCOUNT_MASK)
 
 struct redisObject {
     unsigned type:4;
@@ -1071,16 +1075,20 @@ struct redisObject {
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
-    unsigned expirable : 1; /* 1 if this key has expiration time attached.
-                             * If set, then this object is of type kvobj */
-    unsigned extra : 14;
-    redisAtomic unsigned short refcount;
+
+    union {
+        redisAtomic uint32_t atomic_flags_refcount;
+        struct {
+            unsigned refcount : OBJ_REFCOUNT_BITS; /* Placed at the lowest bits
+                                                    * for efficient atomic operations */
+            unsigned expirable : 1; /* 1 if this key has expiration time attached.
+                                     * If set, then this object is of type kvobj */
+            unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
+        };
+    };
+
     void *ptr;
 };
-
-/* Ensure refcount field size matches OBJ_REFCOUNT_BITS */
-static_assert(sizeof(((struct redisObject *)NULL)->refcount) * CHAR_BIT == OBJ_REFCOUNT_BITS, "refcount size mismatch");
 
 /* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,

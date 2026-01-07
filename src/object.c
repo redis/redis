@@ -580,11 +580,12 @@ void freeStreamObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    unsigned short refcount;
-    atomicGet(o->refcount, refcount);
+    uint32_t atomic_val;
+    atomicGet(o->atomic_flags_refcount, atomic_val);
+    unsigned int refcount = OBJ_GET_REFCOUNT(atomic_val);
 
     if (refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
-        atomicIncr(o->refcount, 1);
+        atomicIncr(o->atomic_flags_refcount, 1);
     } else {
         if (refcount == OBJ_SHARED_REFCOUNT) {
             /* Nothing to do: this refcount is immutable. */
@@ -597,8 +598,9 @@ void incrRefCount(robj *o) {
 }
 
 void decrRefCount(robj *o) {
-    unsigned short refcount;
-    atomicGet(o->refcount, refcount);
+    uint32_t atomic_val;
+    atomicGet(o->atomic_flags_refcount, atomic_val);
+    unsigned int refcount = OBJ_GET_REFCOUNT(atomic_val);
 
     if (refcount == OBJ_SHARED_REFCOUNT)
         return; /* Nothing to do: this refcount is immutable. */
@@ -608,7 +610,8 @@ void decrRefCount(robj *o) {
             o->type, o->encoding, refcount);
     }
 
-    refcount = atomicDecr(o->refcount, 1);
+    uint32_t old_atomic_val = atomicDecr(o->atomic_flags_refcount, 1);
+    refcount = OBJ_GET_REFCOUNT(old_atomic_val);
     if (refcount == 1) {
         if (o->ptr != NULL) {
             switch(o->type) {
