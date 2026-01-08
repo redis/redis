@@ -2568,7 +2568,8 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             }
 
             # Verify the trim events on destination (partially imported keys are trimmed)
-            # NOTE: only slot 0 has data, so only slot 0 is trimmed
+            # NOTE: after failover, the new master will initiate the slot trimming,
+            # and only slot 0 has data, so only slot 0 is trimmed
             if {$trim_method eq "active"} {
                 set trim_event_log [list \
                     "sub: cluster-slot-migration-trim-started, slots:0-0" \

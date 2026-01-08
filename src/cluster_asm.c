@@ -3032,9 +3032,11 @@ void asmTrimJobProcessPending(void) {
         return;
     }
 
-    /* If this node is a replica, it should not initiate slot trimming actively. */
+    /* If this node is a replica, it should not initiate slot trimming actively.
+     * Cancel the trim job and unblock the master if it is blocked. */
     if (clusterNodeIsSlave(getMyClusterNode())) {
         asmCancelPendingTrimJobs();
+        asmUnblockMasterAfterTrim();
         return;
     }
 
@@ -3104,7 +3106,8 @@ void asmTrimSlotsIfNotOwned(slotRangeArray *slots) {
     slotRangeArrayFree(trim_slots);
 }
 
-/* Handle the master task when it is no longer used, trim unowned slots if necessary. */
+/* Handle the master task when it is no longer used, trim unowned slots if necessary.
+ * This function is called when the replica is just promoted to master. */
 void asmFinalizeMasterTask(void) {
     if (!server.cluster_enabled) return;
 
@@ -3128,10 +3131,11 @@ void asmFinalizeMasterTask(void) {
             asmTrimSlotsIfNotOwned(task->slots);
         }
     } else if (task->operation == ASM_MIGRATE) {
-        /* For migrate tasks, attempt to trim slots if necessary. The previous master
-         * may not have initiated slot trimming before the failover occurred.
-         * And the ownership of the slots is not changed if migration is failed, so
-         * we don't need to trim the slots if it is failed. */
+        /* For migrate tasks, attempt to trim slots if necessary. After ASM completed,
+         * the previous master may not have initiated slot trimming before the failover
+         * occurred. In that case, we need to initiate slot trimming here.
+         * However, if ASM failed, slot ownership did not change, so no slot trimming
+         * is needed. */
         if (clusterNodeIsMaster(getMyClusterNode()) && task->state != ASM_FAILED) {
             asmTrimSlotsIfNotOwned(task->slots);
         }
@@ -3216,7 +3220,7 @@ int asmReplicaHandleMasterTask(sds task_info) {
 /* Cancel all pending trim jobs. */
 void asmCancelPendingTrimJobs(void) {
     if (!asmManager) return;
-    /* Cancel pending trim jobs */
+
     listIter li;
     listNode *ln;
     listRewind(asmManager->pending_trim_jobs, &li);
