@@ -648,7 +648,11 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r xgroup create mystream mygroup 0
         after 2000
         r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
-        assert_lessthan [r object idletime mystream] 1
+
+        # OBJECT IDLETIME = estimateObjectIdleTime(kv) / 1000 (converts ms to seconds)
+        # If 1000-1999ms elapsed between LRM update and this check, it returns 1 second.
+        # Using <= allows for this timing variance while still verifying LRM was updated.
+        assert_lessthan_equal [r object idletime mystream] 1
     } {} {slow}
 
     test {LRM: Keys with only read operations should be removed first} {
