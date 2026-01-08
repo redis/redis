@@ -649,9 +649,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         after 2000
         r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
 
-        # OBJECT IDLETIME = estimateObjectIdleTime(kv) / 1000 (converts ms to seconds)
-        # If 1000-1999ms elapsed between LRM update and this check, it returns 1 second.
-        # Using <= allows for this timing variance while still verifying LRM was updated.
+        # LRM should be updated (idletime should be smaller)
         assert_lessthan_equal [r object idletime mystream] 1
     } {} {slow}
 
