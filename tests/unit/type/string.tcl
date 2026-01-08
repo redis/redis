@@ -311,7 +311,7 @@ start_server {tags {"string"}} {
     test {MSETEX - error cases} {
         assert_error {*wrong number of arguments*} {r msetex}
         assert_error {*invalid numkeys value*} {r msetex key1 val1 ex 10}
-        assert_error {*wrong number of key-value pairs*} {r msetex 2 key1 val1 key2}
+        assert_error {*wrong number of key-value pairs*} {r msetex 2 key1{t} val1 key2{t}}
         assert_error {*syntax error*} {r msetex 1 key1 val1 invalid_flag}
     }
 
