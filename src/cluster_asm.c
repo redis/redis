@@ -139,6 +139,7 @@ static void asmSyncBufferReadFromConn(connection *conn);
 static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
+void asmCancelPendingTrimJobs(void);
 void asmTriggerActiveTrim(slotRangeArray *slots);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
@@ -473,9 +474,6 @@ err:
 void asmNotifyReplicasStateChange(struct asmTask *task) {
     if (!server.cluster_enabled || !clusterNodeIsMaster(getMyClusterNode())) return;
 
-    /* Do not propagate migrate task to replicas, as replicas never migrate data. */
-    if (task->operation == ASM_MIGRATE) return;
-
     /* Create command arguments for CLUSTER SYNCSLOTS CONF ASM-TASK */
     robj *argv[5];
     argv[0] = createStringObject("CLUSTER", 7);
@@ -509,7 +507,6 @@ sds asmDumpActiveImportTask(void) {
     /* For master, dump the first active task. */
     if (!asmManager || listLength(asmManager->tasks) == 0) return NULL;
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
-    if (task->operation == ASM_MIGRATE) return NULL;
     if (task->state == ASM_NONE || task->state == ASM_FAILED ||
         task->state == ASM_COMPLETED) return NULL;
 
@@ -3021,17 +3018,9 @@ void asmTrimSlots(slotRangeArray *slots) {
 
 /* Schedule a trim job for the specified slot ranges. The job will be
  * deferred and handled later in asmBeforeSleep(). We delay the trim jobs to
- * asmBeforeSleep() to ensure it only runs when there is no write pause.
- * Attempting to process it during a write pause could trigger an assertion
- * in propagateNow(), as propagation is not allowed during a write pause. */
+ * asmBeforeSleep() to ensure it only runs when there is no write pause. */
 void asmTrimJobSchedule(slotRangeArray *slots) {
     listAddNodeTail(asmManager->pending_trim_jobs, slotRangeArrayDup(slots));
-
-    /* If we call this function from beforeSleep, or cluster gossip message
-     * handlers instead of normal command handlers, we can try to process the
-     * trim job immediately. */
-    if (server.execution_nesting == 0)
-        asmTrimJobProcessPending();
 }
 
 /* Process any pending trim jobs. */
@@ -3040,6 +3029,14 @@ void asmTrimJobProcessPending(void) {
     if (listLength(asmManager->pending_trim_jobs) == 0 ||
         asmManager->debug_trim_method == ASM_DEBUG_TRIM_NONE)
     {
+        return;
+    }
+
+    /* If this node is a replica, it should not initiate slot trimming actively.
+     * Cancel the trim job and unblock the master if it is blocked. */
+    if (clusterNodeIsSlave(getMyClusterNode())) {
+        asmCancelPendingTrimJobs();
+        asmUnblockMasterAfterTrim();
         return;
     }
 
@@ -3109,32 +3106,42 @@ void asmTrimSlotsIfNotOwned(slotRangeArray *slots) {
     slotRangeArrayFree(trim_slots);
 }
 
-/* Handle the master task when it is no longer used. And trim unowned
- * slots when the task is failed and this node is master. */
+/* Handle the master task when it is no longer used, trim unowned slots if necessary.
+ * This function is called when the replica is just promoted to master. */
 void asmFinalizeMasterTask(void) {
     if (!server.cluster_enabled) return;
 
     asmTask *task = asmManager->master_task;
     if (task == NULL) return;
-    serverAssert(task->operation == ASM_IMPORT);
 
-    sds slots_str = slotRangeArrayToString(task->slots);
-    serverLog(LL_WARNING, "Import task %s from old master failed: slots=%s",
-                           task->id, slots_str);
-    sdsfree(slots_str);
+    if (task->operation == ASM_IMPORT) {
+        /* Check if there is an ASM task that master did not finish. */
+        if (task->state != ASM_COMPLETED && task->state != ASM_FAILED) {
+            sds slots_str = slotRangeArrayToString(task->slots);
+            serverLog(LL_WARNING, "Import task %s from old master failed: slots=%s",
+                                task->id, slots_str);
+            sdsfree(slots_str);
+            /* Mark the task as failed and notify the replicas. */
+            task->state = ASM_FAILED;
+            asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
+        }
 
-    /* Check if there is an ASM task that master did not finish. */
-    if (task->state != ASM_COMPLETED && task->state != ASM_FAILED) {
-        /* Mark the task as failed and notify the replicas. */
-        task->state = ASM_FAILED;
-        asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
+        /* Trim the slots if the import task is failed. */
+        if (clusterNodeIsMaster(getMyClusterNode()) && task->state == ASM_FAILED) {
+            asmTrimSlotsIfNotOwned(task->slots);
+        }
+    } else if (task->operation == ASM_MIGRATE) {
+        /* For migrate tasks, attempt to trim slots if necessary. After ASM completed,
+         * the previous master may not have initiated slot trimming before the failover
+         * occurred. In that case, we need to initiate slot trimming here.
+         * However, if ASM failed, slot ownership did not change, so no slot trimming
+         * is needed. */
+        if (clusterNodeIsMaster(getMyClusterNode()) && task->state != ASM_FAILED) {
+            asmTrimSlotsIfNotOwned(task->slots);
+        }
     }
 
-    /* Trim the slots if the import task is failed. */
-    if (clusterNodeIsMaster(getMyClusterNode()) && task->state == ASM_FAILED)
-        asmTrimSlotsIfNotOwned(task->slots);
-
-    /* Clear the master task since it is not the master anymore. */
+    /* Clear the master task since it is not a replica anymore. */
     asmTaskFree(asmManager->master_task);
     asmManager->master_task = NULL;
 }
@@ -3142,6 +3149,13 @@ void asmFinalizeMasterTask(void) {
 /* The replicas handle the master import ASM task information. */
 int asmReplicaHandleMasterTask(sds task_info) {
     if (!server.cluster_enabled || !clusterNodeIsSlave(getMyClusterNode())) return C_ERR;
+
+    /* If the master task is migrating, just clear it when receiving a new task info,
+     * even the task info is empty since it means the master finished the task. */
+    if (asmManager->master_task && asmManager->master_task->operation == ASM_MIGRATE) {
+        asmTaskFree(asmManager->master_task);
+        asmManager->master_task = NULL;
+    }
 
     /* If the master task is empty, it means the master finished the task, the
      * replica should check the slot ownership to decide to raise completed or
@@ -3174,9 +3188,12 @@ int asmReplicaHandleMasterTask(sds task_info) {
 
     asmTask *task = asmTaskDeserialize(task_info);
     if (!task) return C_ERR;
-    if (task->operation != ASM_IMPORT) {
-        asmTaskFree(task);
-        return C_ERR;
+
+    /* For migrate task, replica just keeps the task info, doesn't notify any event. */
+    if (task->operation == ASM_MIGRATE) {
+        if (asmManager->master_task) asmTaskFree(asmManager->master_task);
+        asmManager->master_task = task;
+        return C_OK;
     }
 
     int notify_event = 0;
@@ -3200,6 +3217,23 @@ int asmReplicaHandleMasterTask(sds task_info) {
     return C_OK;
 }
 
+/* Cancel all pending trim jobs. */
+void asmCancelPendingTrimJobs(void) {
+    if (!asmManager) return;
+
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->pending_trim_jobs, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        slotRangeArray *slots = listNodeValue(ln);
+        listDelNode(asmManager->pending_trim_jobs, ln);
+        sds str = slotRangeArrayToString(slots);
+        serverLog(LL_NOTICE, "Cancelling the pending trim job for slots: %s", str);
+        sdsfree(str);
+        slotRangeArrayFree(slots);
+    }
+}
+
 /* Cancel all pending and active trim jobs. */
 void asmCancelTrimJobs(void) {
     if (!asmManager) return;
@@ -3208,14 +3242,7 @@ void asmCancelTrimJobs(void) {
     asmUnblockMasterAfterTrim();
 
     /* Cancel pending trim jobs */
-    listIter li;
-    listNode *ln;
-    listRewind(asmManager->pending_trim_jobs, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        listDelNode(asmManager->pending_trim_jobs, ln);
-        slotRangeArrayFree(slots);
-    }
+    asmCancelPendingTrimJobs();
 
     /* Cancel active trim jobs */
     if (listLength(asmManager->active_trim_jobs) == 0)
