@@ -29,7 +29,7 @@ class Q8Vectorization(TestCase):
             vec1 = [1.0] * dim       # All max positive
             vec2 = [0.99] * dim      # Similar to vec1
             vec3 = [-1.0] * dim      # All max negative (opposite direction)
-            vec4 = [1.0, -1.0] * (dim // 2)  # Alternating extreme values
+            vec4 = [1.0 if i % 2 == 0 else -1.0 for i in range(dim)]  # Alternating extreme values
             
             # Add vectors with Q8 quantization
             self.redis.execute_command('VADD', key, 'VALUES', dim, 
