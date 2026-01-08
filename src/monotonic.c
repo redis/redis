@@ -92,18 +92,55 @@ static void monotonicInit_x86linux(void) {
 }
 #endif
 
+/* Enable hardware clock by default on ARM AArch64.
+ *
+ * This is safe because:
+ *
+ * 1. Architectural guarantee:
+ *    Per the Arm Architecture Reference Manual for Armv8-A,
+ *    the ARM Generic Timer is mandatory for all implementations
+ *    that support the AArch64 execution state. This includes the
+ *    system counter and the CNTVCT_EL0 and CNTFRQ_EL0 registers
+ *    (see "The Generic Timer in AArch64 state").
+ *
+ * 2. Runtime validation:
+ *    If cntfrq_hz() returns 0, a warning is printed and hardware
+ *    clock initialization is skipped (see monotonicInit_aarch64).
+ *
+ * 3. Automatic fallback:
+ *    If hardware clock initialization fails, monotonicInit()
+ *    falls back to POSIX clock_gettime() (see line 224).
+ *
+ * Using the hardware counter instead of gettimeofday() for command
+ * latency measurement provides a significant performance improvement
+ * on ARM AArch64 systems.
+ *
+ * To disable the hardware clock on ARM and force use of the POSIX clock,
+ * build with:
+ *   CFLAGS="-DDISABLE_PROCESSOR_CLOCK"
+ */
+#if defined(__aarch64__) && !defined(DISABLE_PROCESSOR_CLOCK)
+#define USE_AARCH64_PROCESSOR_CLOCK 1
+#else
+#define USE_AARCH64_PROCESSOR_CLOCK 0
+#endif
 
-#if defined(USE_PROCESSOR_CLOCK) && defined(__aarch64__)
+#if USE_AARCH64_PROCESSOR_CLOCK
 static long mono_ticksPerMicrosecond = 0;
 
-/* Read the clock value.  */
+/* Read the clock value.
+ * CNTVCT_EL0 is a system counter register, that provides the monotonic
+ * timestamp as a 64-bit count value. */
 static inline uint64_t __cntvct(void) {
     uint64_t virtual_timer_value;
     __asm__ volatile("mrs %0, cntvct_el0" : "=r"(virtual_timer_value));
     return virtual_timer_value;
 }
 
-/* Read the Count-timer Frequency.  */
+/* Read the Count-timer Frequency.
+ * CNTFRQ_EL0 is a system counter register that provides the frequency (in Hz)
+ * needed to convert ticks to microseconds. Together with CNTVCT_EL0, this enables
+ * high-performance monotonic time measurement without system calls. */
 static inline uint32_t cntfrq_hz(void) {
     uint64_t virtual_freq_value;
     __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(virtual_freq_value));
@@ -213,7 +250,7 @@ const char * monotonicInit(void) {
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif
 
-    #if defined(USE_PROCESSOR_CLOCK) && defined(__aarch64__)
+    #if USE_AARCH64_PROCESSOR_CLOCK
     if (getMonotonicUs == NULL) monotonicInit_aarch64();
     #endif
 
