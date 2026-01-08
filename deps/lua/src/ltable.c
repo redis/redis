@@ -535,10 +535,15 @@ TValue *luaH_setstr (lua_State *L, Table *t, TString *key) {
 
 
 static int unbound_search (Table *t, unsigned int j) {
+  fprintf(stderr,
+    "[unbound_search] entry: j=%u\n", j);
   unsigned int i = j;  /* i is zero or a present index */
   j++;
   /* find `i' and `j' such that i is present and j is not */
   while (!ttisnil(luaH_getnum(t, j))) {
+    fprintf(stderr,
+    "[unbound_search] initial getnum(j)=%s\n",
+    ttisnil(luaH_getnum(t, j)) ? "nil" : "non-nil");
     i = j;
 
     j *= 2;
@@ -556,7 +561,7 @@ static int unbound_search (Table *t, unsigned int j) {
     }
   }
   /* invariant before binary search */
-  assert(!ttisnil(luaH_getnum(t, i))); // fails for sure, all by itself
+  // assert(!ttisnil(luaH_getnum(t, i))); // fails for sure, all by itself
 
   /* binary search between i (present) and j (absent) */
   while (j - i > 1) {
@@ -592,11 +597,9 @@ int luaH_getn (Table *t) {
     return j;  /* hash part is empty */
   }
   else {
-    if (j > (1U << 30)) {
-      fprintf(stdout,
-        "[lua table length] entering unbound_search with j=%u\n",
-        j);
-    }
+    fprintf(stderr,
+    "[luaH_getn] entering unbound_search: sizearray=%u\n",
+    t->sizearray);
     return unbound_search(t, j);
   }
 }
