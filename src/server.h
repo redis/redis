@@ -1083,6 +1083,10 @@ struct redisObject {
         struct {
             unsigned refcount : OBJ_REFCOUNT_BITS; /* Placed at the lowest bits
                                                     * for efficient atomic operations */
+
+            /* The following bits must be set at creation time and never
+             * modified afterwards. Modifying these bits non-atomically
+             * while IO threads are updating refcount could result in UB. */
             unsigned expirable : 1; /* 1 if this key has expiration time attached.
                                      * If set, then this object is of type kvobj */
             unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
