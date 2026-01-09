@@ -1097,7 +1097,12 @@ struct redisObject {
 
 /* Access macros for redisObject fields using bitwise operations. */
 #define robj_atomic_flags_refcount(o) ((o)->atomic_flags_refcount)
-#define robj_refcount(o) ((o)->atomic_flags_refcount & OBJ_REFCOUNT_MASK)
+
+static inline unsigned int robj_refcount(const robj *o) {
+    uint32_t val;
+    atomicGet(o->atomic_flags_refcount, val);
+    return OBJ_GET_REFCOUNT(val);
+}
 #define robj_expirable(o) (((o)->atomic_flags_refcount >> OBJ_EXPIRABLE_BIT) & 1)
 #define robj_iskvobj(o) (((o)->atomic_flags_refcount >> OBJ_ISKVOBJ_BIT) & 1)
 #define robj_set_refcount(o, val) \
