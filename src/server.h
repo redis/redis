@@ -1137,8 +1137,8 @@ typedef enum {
  * The packed attribute is specified because buffer is accessed at arbitrary offsets,
  * so no benefit in data structure padding and applying packed saves the space in the buffer  */
 typedef struct __attribute__((__packed__)) payloadHeader {
-    uint8_t payload_type; /* one of payloadType */
     size_t payload_len;   /* payload length in a reply buffer */
+    uint8_t payload_type; /* one of payloadType */
 } payloadHeader;
 
 /* To avoid copy of whole string in reply buffer
