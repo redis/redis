@@ -9,6 +9,7 @@ proc get_reply_buffer_size {cname} {
 }
 
 start_server {tags {"replybufsize"}} {
+
     test {verify reply buffer limits} {
         # In order to reduce test time we can set the peak reset time very low
         r debug replybuffer peak-reset-time 100
