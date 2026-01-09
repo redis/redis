@@ -811,12 +811,11 @@ static void linenoiseEditMoveWordLeft(struct linenoiseState *l) {
 static void linenoiseEditMoveWordRight(struct linenoiseState *l) {
     if (l->pos == l->len) return;
     /* Move cursor to the right over any delimiters */
-    while (l->pos < l->len &&  isWordChar(l->buf[l->pos])) l->pos++;
+    while (l->pos < l->len && isWordChar(l->buf[l->pos])) l->pos++;
     /* Then continue moving over a word */
     while (l->pos < l->len && !isWordChar(l->buf[l->pos])) l->pos++;
     refreshLine(l);
 }
-
 
 /* Move cursor to the start of the line. */
 void linenoiseEditMoveHome(struct linenoiseState *l) {
@@ -1075,14 +1074,32 @@ static int linenoiseEdit(int stdin_fd, int stdout_fd, char *buf, size_t buflen, 
                         }
                     }
 
+                    /* The exact key mapping behavior depends on your keyboard/terminal setup.
+                     * For example, in MacOS terminal you can go to the profile keyboard setting
+                     * to see or configure the current mapping.
+                     *
+                     * Take action `[1;5C` as an illustration:
+                     * [ indicates a CSI (Control Sequence Introducer), telling the terminal
+                     *    "What follows is a control command, not text"
+                     * 1 is how many units to move (default is 1 if omitted)
+                     * ; is the separator between parameters
+                     * 5 is the modifier mask for Ctrl. Other possible values include 1 (no modifier),
+                     *     2 (Shift), 3 (Alt), 4 (Shift + Alt), 6 (Shift + Ctrl), 7 (Alt + Ctrl), etc.
+                     * C is the cursor right command. Other commands include A (cursor up), B (cursor
+                     *     down), D (cursor left).
+                     */
+
+                    /* This branch is usually triggered by pressing Alt/Ctrl + ← */
                     if (strstr(seqBuffer, "1;5D") || strstr(seqBuffer, "5D")) {
                         linenoiseEditMoveWordLeft(&l);
                         break;
                     }
+                    /* Usually Alt/Ctrl + → */
                     if (strstr(seqBuffer, "1;5C") || strstr(seqBuffer, "5C")) {
                         linenoiseEditMoveWordRight(&l);
                         break;
                     }
+                    /* Usually the `delete` key */
                     if (strstr(seqBuffer, "3~")) {
                         linenoiseEditDelete(&l);
                         break;
