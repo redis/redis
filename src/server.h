@@ -1140,6 +1140,7 @@ typedef struct __attribute__((__packed__)) payloadHeader {
     size_t payload_len;   /* payload length in a reply buffer */
     uint8_t payload_type; /* one of payloadType */
 } payloadHeader;
+static_assert(offsetof(payloadHeader, payload_len) == 0, "payload_len must be at offset 0 to avoid unaligned access");
 
 /* To avoid copy of whole string in reply buffer
  * we store pointers to object and string itself */
