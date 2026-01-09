@@ -5051,7 +5051,7 @@ void xcfgsetCommand(client *c) {
     robj *key = c->argv[1];
 
     /* Lookup the stream key */
-    kvobj *kv = lookupKeyReadOrReply(c,key,shared.nokeyerr);
+    kvobj *kv = lookupKeyWriteOrReply(c,key,shared.nokeyerr);
     if (kv == NULL || checkType(c,kv,OBJ_STREAM)) return;
     stream *s = kv->ptr;
 
@@ -5103,20 +5103,29 @@ void xcfgsetCommand(client *c) {
         return;
     }
 
-    /* Update the stream configuration. When we set DURATION or maxsize,
-     * we clear all existing producer IDMP maps for the stream. */
-    if (duration != -1) {
+    /* Track if we made any changes */
+    int changed = 0;
+
+    /* Update the stream configuration. When we set DURATION or MAXSIZE to a
+     * different value, we clear all existing producer IDMP maps for the stream.
+     * If the value is the same, we don't clear to allow multiple publishers
+     * to call this before starting to publish without clearing each time. */
+    if (duration != -1 && s->idmp_duration != (uint64_t)duration) {
         s->idmp_duration = duration;
         streamClearIdmpEntries(s);
+        changed = 1;
     }
-    if (maxsize != -1) {
+    if (maxsize != -1 && s->idmp_max_entries != (uint64_t)maxsize) {
         s->idmp_max_entries = maxsize;
         streamClearIdmpEntries(s);
+        changed = 1;
     }
 
-    /* Mark the key as dirty for replication */
-    keyModified(c,c->db,key,kv,1);
-    server.dirty++;
+    /* Mark the key as dirty for replication only if we changed something */
+    if (changed) {
+        keyModified(c,c->db,key,kv,1);
+        server.dirty++;
+    }
     addReply(c,shared.ok);
 }
 
