@@ -1078,30 +1078,34 @@ struct redisObject {
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
                             * LFU data (least significant 16 bits access time). */
 
-    union {
-        redisAtomic uint32_t atomic_flags_refcount;
-        struct {
-            unsigned refcount : OBJ_REFCOUNT_BITS; /* Placed at the lowest bits
-                                                    * for efficient atomic operations */
-
-            /* The following bits must be set at creation time and never
-             * modified afterwards. Modifying these bits non-atomically
-             * while IO threads are updating refcount could result in UB. */
-            unsigned expirable : 1; /* 1 if this key has expiration time attached.
-                                     * If set, then this object is of type kvobj */
-            unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
-        } fields;
-    } u;
+    /* Bit layout for atomic_flags_refcount (32 bits total):
+     *   bit 31     (1 bit):   iskvobj   - 1 if this struct serves as a kvobj base
+     *   bit 30     (1 bit):   expirable - 1 if this key has expiration time attached
+     *   bits 0-29  (30 bits): refcount
+     *
+     * The flags (expirable, iskvobj) must be set at creation time and never
+     * modified afterwards. Modifying these bits non-atomically while IO threads
+     * are updating refcount could result in UB. */
+    redisAtomic uint32_t atomic_flags_refcount;
 
     void *ptr;
 };
 
-/* C99 compatibility: Access macros for redisObject union fields.
- * These macros allow transparent access to the union members. */
-#define robj_atomic_flags_refcount(o) ((o)->u.atomic_flags_refcount)
-#define robj_refcount(o) ((o)->u.fields.refcount)
-#define robj_expirable(o) ((o)->u.fields.expirable)
-#define robj_iskvobj(o) ((o)->u.fields.iskvobj)
+/* Bit positions for flags in atomic_flags_refcount. */
+#define OBJ_EXPIRABLE_BIT 30
+#define OBJ_ISKVOBJ_BIT 31
+
+/* Access macros for redisObject fields using bitwise operations. */
+#define robj_atomic_flags_refcount(o) ((o)->atomic_flags_refcount)
+#define robj_refcount(o) ((o)->atomic_flags_refcount & OBJ_REFCOUNT_MASK)
+#define robj_expirable(o) (((o)->atomic_flags_refcount >> OBJ_EXPIRABLE_BIT) & 1)
+#define robj_iskvobj(o) (((o)->atomic_flags_refcount >> OBJ_ISKVOBJ_BIT) & 1)
+#define robj_set_refcount(o, val) \
+    ((o)->atomic_flags_refcount = ((o)->atomic_flags_refcount & ~OBJ_REFCOUNT_MASK) | ((val) & OBJ_REFCOUNT_MASK))
+#define robj_set_expirable(o) \
+    ((o)->atomic_flags_refcount |= (1U << OBJ_EXPIRABLE_BIT))
+#define robj_set_iskvobj(o) \
+    ((o)->atomic_flags_refcount |= (1U << OBJ_ISKVOBJ_BIT))
 
 /* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
@@ -1113,11 +1117,9 @@ char *getObjectTypeName(robj*);
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
-    _var.u.fields.refcount = OBJ_STATIC_REFCOUNT; \
+    _var.atomic_flags_refcount = OBJ_STATIC_REFCOUNT; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
-    _var.u.fields.expirable = 0; \
-    _var.u.fields.iskvobj = 0; \
     _var.ptr = _ptr; \
 } while(0)
 

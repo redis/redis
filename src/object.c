@@ -58,16 +58,17 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire) {
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
-    robj_refcount(o) = 1;
     o->lru = 0;
-    robj_iskvobj(o) = 1;
+    o->atomic_flags_refcount = 0;
+    robj_set_refcount(o, 1);
+    robj_set_iskvobj(o);
 
     /* If extra space allows, pre-allocate anyway expiration */
     if ((!hasExpire) && (bufsize >= min_size + sizeof(long long))) {
         hasExpire = 1;
         min_size += sizeof(long long);
     }
-    robj_expirable(o) = hasExpire;
+    if (hasExpire) robj_set_expirable(o);
 
     /* The memory after the struct where we embedded data. */
     char *data = (void *)(o + 1);
@@ -90,10 +91,9 @@ robj *createObject(int type, void *ptr) {
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
-    robj_refcount(o) = 1;
+    o->atomic_flags_refcount = 0;
+    robj_set_refcount(o, 1);
     o->lru = 0;
-    robj_iskvobj(o) = 0;
-    robj_expirable(o) = 0;
     return o;
 }
 
@@ -123,7 +123,7 @@ void initObjectLRUOrLFU(robj *o) {
  */
 robj *makeObjectShared(robj *o) {
     serverAssert(robj_refcount(o) == 1);
-    robj_refcount(o) = OBJ_SHARED_REFCOUNT;
+    robj_set_refcount(o, OBJ_SHARED_REFCOUNT);
     return o;
 }
 
@@ -165,15 +165,16 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     robj *o = zmalloc_usable(min_size, &bufsize);
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
-    robj_refcount(o) = 1;
     o->lru = 0;
-    robj_expirable(o) = (hasExpire != 0);
-    robj_iskvobj(o) = 1;
+    o->atomic_flags_refcount = 0;
+    robj_set_refcount(o, 1);
+    if (hasExpire != 0) robj_set_expirable(o);
+    robj_set_iskvobj(o);
 
     /* If the allocation has enough space for an expire field, add it even if we
      * don't need it now. Then we don't need to realloc if it's needed later. */
     if (!robj_expirable(o) && bufsize >= min_size + sizeof(long long)) {
-        robj_expirable(o) = 1;
+        robj_set_expirable(o);
         min_size += sizeof(long long);
     }
 
@@ -216,10 +217,9 @@ robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     robj *o = zmalloc_usable(sizeof(robj) + val_sds_size, &bufsize);
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
-    robj_refcount(o) = 1;
+    o->atomic_flags_refcount = 0;
+    robj_set_refcount(o, 1);
     o->lru = 0;
-    robj_expirable(o) = 0;
-    robj_iskvobj(o) = 0;
 
     /* The memory after the struct where we embedded data. */
     char *data = (char *)(o + 1);
