@@ -4741,7 +4741,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
         }
     }
 
-    addReplyMapLen(c,full ? 13 : 14);
+    addReplyMapLen(c,full ? 15 : 16);
     addReplyBulkCString(c,"length");
     addReplyLongLong(c,s->length);
     addReplyBulkCString(c,"radix-tree-keys");
@@ -4756,6 +4756,10 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyLongLong(c,s->entries_added);
     addReplyBulkCString(c,"recorded-first-entry-id");
     addReplyStreamID(c,&s->first_id);
+    addReplyBulkCString(c,"idmp-duration");
+    addReplyLongLong(c,s->idmp_duration);
+    addReplyBulkCString(c,"idmp-maxsize");
+    addReplyLongLong(c,s->idmp_max_entries);
     addReplyBulkCString(c,"pids-tracked");
     addReplyLongLong(c, s->idmp_producers ? raxSize(s->idmp_producers) : 0);
     addReplyBulkCString(c,"iids-tracked");

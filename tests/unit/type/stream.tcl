@@ -1947,6 +1947,49 @@ start_server {
         assert_equal 5 [dict get $reply iids-added]
     }
 
+    test {XINFO STREAM returns idmp-duration and idmp-maxsize fields} {
+        r DEL mystream
+        
+        # Create stream with default IDMP config
+        r XADD mystream IDMP p1 "req-1" * field "value1"
+        
+        # Verify default values
+        set reply [r XINFO STREAM mystream]
+        assert [dict exists $reply idmp-duration]
+        assert [dict exists $reply idmp-maxsize]
+        
+        # Get default values from server config
+        set default_duration [lindex [r CONFIG GET stream-idmp-duration] 1]
+        set default_maxsize [lindex [r CONFIG GET stream-idmp-maxsize] 1]
+        
+        assert_equal $default_duration [dict get $reply idmp-duration]
+        assert_equal $default_maxsize [dict get $reply idmp-maxsize]
+        
+        # Change IDMP config
+        r XIDMP CFGSET mystream DURATION 300 MAXSIZE 50
+        
+        set reply [r XINFO STREAM mystream]
+        assert_equal 300 [dict get $reply idmp-duration]
+        assert_equal 50 [dict get $reply idmp-maxsize]
+        
+        # Also verify FULL mode returns the same fields
+        set reply_full [r XINFO STREAM mystream FULL]
+        assert_equal 300 [dict get $reply_full idmp-duration]
+        assert_equal 50 [dict get $reply_full idmp-maxsize]
+        
+        # Change only DURATION
+        r XIDMP CFGSET mystream DURATION 600
+        set reply [r XINFO STREAM mystream]
+        assert_equal 600 [dict get $reply idmp-duration]
+        assert_equal 50 [dict get $reply idmp-maxsize]
+        
+        # Change only MAXSIZE
+        r XIDMP CFGSET mystream MAXSIZE 100
+        set reply [r XINFO STREAM mystream]
+        assert_equal 600 [dict get $reply idmp-duration]
+        assert_equal 100 [dict get $reply idmp-maxsize]
+    }
+
     test {XIDMP CFGSET MAXSIZE wraparound keeps last 8 entries} {
         r DEL mystream
         
