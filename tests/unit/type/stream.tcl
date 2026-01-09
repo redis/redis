@@ -668,7 +668,7 @@ start_server {
         
         # Create stream and set global MAXSIZE
         r XADD mystream IDMP p1 "init" * field "init"
-        r XIDMP CFGSET mystream MAXSIZE 3 DURATION 60
+        r XCFGSET mystream MAXSIZE 3 DURATION 60
         
         # Add entries for producer p1 (will have 3: init, req-1, req-2, then req-3 evicts init)
         set p1_id1 [r XADD mystream IDMP p1 "req-1" * field "p1-v1"]
@@ -1231,7 +1231,7 @@ start_server {
     test {XIDMP entries expire after DURATION seconds} {
         r DEL mystream
         r XADD mystream IDMP p1 "req-1" * field "value1"
-        r XIDMP CFGSET mystream DURATION 1
+        r XCFGSET mystream DURATION 1
         
         # Immediate duplicate should be detected
         set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
@@ -1251,7 +1251,7 @@ start_server {
         
         # First add an entry to create the stream, then set config
         r XADD mystream IDMP p1 "init" * field "init"
-        r XIDMP CFGSET mystream MAXSIZE 3 DURATION 60
+        r XCFGSET mystream MAXSIZE 3 DURATION 60
         
         # Add 3 unique entries
         set id1 [r XADD mystream IDMP p1 "req-1" * field "v1"]
@@ -1277,42 +1277,42 @@ start_server {
         assert_equal 6 [r XLEN mystream]
     }
 
-    test {XIDMP CFGSET set DURATION successfully} {
+    test {XCFGSET set DURATION successfully} {
         r DEL mystream
         
         # Create stream with IDMP entry
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set DURATION to 5s
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 5]
+        assert_equal "OK" [r XCFGSET mystream DURATION 5]
         
         # Verify DURATION was set
         set reply [r XINFO STREAM mystream]
         assert_equal 5 [dict get $reply idmp-duration]
     }
 
-    test {XIDMP CFGSET set MAXSIZE successfully} {
+    test {XCFGSET set MAXSIZE successfully} {
         r DEL mystream
         
         # Create stream with IDMP entry
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set MAXSIZE to 5000
-        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 5000]
+        assert_equal "OK" [r XCFGSET mystream MAXSIZE 5000]
         
         # Verify MAXSIZE was set
         set reply [r XINFO STREAM mystream]
         assert_equal 5000 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGSET set both DURATION and MAXSIZE} {
+    test {XCFGSET set both DURATION and MAXSIZE} {
         r DEL mystream
         
         # Create stream with IDMP entry
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set both DURATION and MAXSIZE
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
+        assert_equal "OK" [r XCFGSET mystream DURATION 3 MAXSIZE 10000]
         
         # Verify both were set
         set reply [r XINFO STREAM mystream]
@@ -1327,7 +1327,7 @@ start_server {
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set both DURATION and MAXSIZE
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
+        assert_equal "OK" [r XCFGSET mystream DURATION 3 MAXSIZE 10000]
         
         # Verify both were set
         set reply [r XINFO STREAM mystream]
@@ -1347,145 +1347,145 @@ start_server {
         assert_equal 100 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGSET error on non-existent stream} {
+    test {XCFGSET error on non-existent stream} {
         r DEL mystream
         
         # Attempt to set config on non-existent stream
-        assert_error "*no such key*" {r XIDMP CFGSET mystream DURATION 5}
+        assert_error "*no such key*" {r XCFGSET mystream DURATION 5}
     }
 
-    test {XIDMP CFGSET DURATION maximum value validation} {
+    test {XCFGSET DURATION maximum value validation} {
         r DEL mystream
         
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set DURATION to maximum allowed (86400 seconds = 24 hours)
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 86400]
+        assert_equal "OK" [r XCFGSET mystream DURATION 86400]
         
         # Verify it was set
         set reply [r XINFO STREAM mystream]
         assert_equal 86400 [dict get $reply idmp-duration]
         
         # Attempt to set DURATION above maximum
-        assert_error "*ERR DURATION must be*" {r XIDMP CFGSET mystream DURATION 86401}
+        assert_error "*ERR DURATION must be*" {r XCFGSET mystream DURATION 86401}
         
         # Verify DURATION wasn't changed
         set reply [r XINFO STREAM mystream]
         assert_equal 86400 [dict get $reply idmp-duration]
     }
 
-    test {XIDMP CFGSET DURATION minimum value validation} {
+    test {XCFGSET DURATION minimum value validation} {
         r DEL mystream
         
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Attempt to set DURATION to 0
-        assert_error "*ERR DURATION must be between*" {r XIDMP CFGSET mystream DURATION 0}
+        assert_error "*ERR DURATION must be between*" {r XCFGSET mystream DURATION 0}
         
         # Attempt to set DURATION to negative value
-        assert_error "*ERR DURATION must be between*" {r XIDMP CFGSET mystream DURATION -100}
+        assert_error "*ERR DURATION must be between*" {r XCFGSET mystream DURATION -100}
         
         # Set DURATION to minimum valid value (1 second)
-        assert_equal "OK" [r XIDMP CFGSET mystream DURATION 1]
+        assert_equal "OK" [r XCFGSET mystream DURATION 1]
         
         # Verify it was set
         set reply [r XINFO STREAM mystream]
         assert_equal 1 [dict get $reply idmp-duration]
     }
 
-    test {XIDMP CFGSET MAXSIZE maximum value validation} {
+    test {XCFGSET MAXSIZE maximum value validation} {
         r DEL mystream
         
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Set MAXSIZE to maximum allowed (10000)
-        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 10000]
+        assert_equal "OK" [r XCFGSET mystream MAXSIZE 10000]
         
         # Verify it was set
         set reply [r XINFO STREAM mystream]
         assert_equal 10000 [dict get $reply idmp-maxsize]
         
         # Attempt to set MAXSIZE above maximum
-        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 10001}
+        assert_error "*ERR MAXSIZE must be between*" {r XCFGSET mystream MAXSIZE 10001}
         
         # Verify MAXSIZE wasn't changed
         set reply [r XINFO STREAM mystream]
         assert_equal 10000 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGSET MAXSIZE minimum value validation} {
+    test {XCFGSET MAXSIZE minimum value validation} {
         r DEL mystream
         
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Attempt to set MAXSIZE to 0
-        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 0}
+        assert_error "*ERR MAXSIZE must be between*" {r XCFGSET mystream MAXSIZE 0}
         
         # Attempt to set MAXSIZE to negative value
-        assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE -50}
+        assert_error "*ERR MAXSIZE must be between*" {r XCFGSET mystream MAXSIZE -50}
         
         # Set MAXSIZE to minimum valid value (1)
-        assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 1]
+        assert_equal "OK" [r XCFGSET mystream MAXSIZE 1]
         
         # Verify it was set
         set reply [r XINFO STREAM mystream]
         assert_equal 1 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGSET invalid syntax} {
+    test {XCFGSET invalid syntax} {
         r DEL mystream
         
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Attempt CFGSET with invalid syntax
-        assert_error "*ERR At least one parameter*" {r XIDMP CFGSET mystream}
-        assert_error "*syntax*" {r XIDMP CFGSET mystream DURATION}
-        assert_error "*syntax*" {r XIDMP CFGSET mystream MAXSIZE}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION A}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION AAA}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION *}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION -}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION +}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION 120-5}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION 3.14}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION 000000000}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION DURATION}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION DURATION DURATION}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE A}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE AAA}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE *}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE -}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE +}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE 120-5}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE 3.14}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE 000000000}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE MAXSIZE}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE MAXSIZE MAXSIZE}
+        assert_error "*ERR At least one parameter*" {r XCFGSET mystream}
+        assert_error "*syntax*" {r XCFGSET mystream DURATION}
+        assert_error "*syntax*" {r XCFGSET mystream MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION A}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION AAA}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION *}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION -}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION +}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION 120-5}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION 3.14}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION 000000000}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION DURATION}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION DURATION DURATION}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE A}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE AAA}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE *}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE -}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE +}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE 120-5}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE 3.14}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE 000000000}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE MAXSIZE MAXSIZE}
 
-        assert_error "*syntax*" {r XIDMP CFGSET mystream INVALID}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION INVALID MAXSIZE}
-        assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream MAXSIZE INVALID DURATION}
+        assert_error "*syntax*" {r XCFGSET mystream INVALID}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream DURATION INVALID MAXSIZE}
+        assert_error "*ERR value is not an integer*" {r XCFGSET mystream MAXSIZE INVALID DURATION}
     }
 
-    test {XIDMP CFGSET multiple configuration changes} {
+    test {XCFGSET multiple configuration changes} {
         r DEL mystream
         
         # Create stream with IDMP
         r XADD mystream IDMP p1 "req-1" * field "value"
         
         # Change DURATION multiple times
-        r XIDMP CFGSET mystream DURATION 1
-        r XIDMP CFGSET mystream DURATION 2
-        r XIDMP CFGSET mystream DURATION 3
+        r XCFGSET mystream DURATION 1
+        r XCFGSET mystream DURATION 2
+        r XCFGSET mystream DURATION 3
         
         # Change MAXSIZE
-        r XIDMP CFGSET mystream MAXSIZE 100
-        r XIDMP CFGSET mystream MAXSIZE 200
+        r XCFGSET mystream MAXSIZE 100
+        r XCFGSET mystream MAXSIZE 200
         
         # Verify latest values
         set reply [r XINFO STREAM mystream]
@@ -1493,12 +1493,12 @@ start_server {
         assert_equal 200 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGSET configuration persists in RDB} {
+    test {XCFGSET configuration persists in RDB} {
         r DEL mystream
         
         # Create stream and set configuration
         r XADD mystream IDMP p1 "req-1" * field "value"
-        r XIDMP CFGSET mystream DURATION 75 MAXSIZE 7500
+        r XCFGSET mystream DURATION 75 MAXSIZE 7500
         
         # Save and restart
         r SAVE
@@ -1512,7 +1512,7 @@ start_server {
         assert_equal 7500 [dict get $reply idmp-maxsize]
     } {} {external:skip}
 
-    test {XIDMP CFGSET configuration in AOF} {
+    test {XCFGSET configuration in AOF} {
         r DEL mystream
         r config set appendonly yes
         
@@ -1521,7 +1521,7 @@ start_server {
 
         # Create stream and set configuration
         r XADD mystream IDMP p1 "req-1" * field "value"
-        r XIDMP CFGSET mystream DURATION 45 MAXSIZE 4500
+        r XCFGSET mystream DURATION 45 MAXSIZE 4500
         
         # Force AOF rewrite
         r BGREWRITEAOF
@@ -1538,7 +1538,7 @@ start_server {
         assert_equal "OK" [r config set appendonly no]
     } {} {external:skip needs:debug}
 
-    test {XIDMP CFGSET changing DURATION clears all iids history} {
+    test {XCFGSET changing DURATION clears all iids history} {
         r DEL mystream
         
         # Create stream and add entries with IDMP
@@ -1550,7 +1550,7 @@ start_server {
         assert_equal $id1 $dup_id
         
         # Change DURATION - should clear iids history
-        r XIDMP CFGSET mystream DURATION 5
+        r XCFGSET mystream DURATION 5
         
         # Now req-1 should create a new entry (history was cleared)
         set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
@@ -1560,7 +1560,7 @@ start_server {
         assert_equal 3 [r XLEN mystream]
     }
 
-    test {XIDMP CFGSET changing MAXSIZE clears all iids history} {
+    test {XCFGSET changing MAXSIZE clears all iids history} {
         r DEL mystream
         
         # Create stream and add entries with IDMP
@@ -1572,7 +1572,7 @@ start_server {
         assert_equal $id2 $dup_id
         
         # Change MAXSIZE - should clear iids history
-        r XIDMP CFGSET mystream MAXSIZE 5000
+        r XCFGSET mystream MAXSIZE 5000
         
         # Now req-2 should create a new entry (history was cleared)
         set new_id2 [r XADD mystream IDMP p1 "req-2" * field "new2"]
@@ -1582,14 +1582,14 @@ start_server {
         assert_equal 3 [r XLEN mystream]
     }
 
-    test {XIDMP CFGSET history cleared then new deduplication works} {
+    test {XCFGSET history cleared then new deduplication works} {
         r DEL mystream
         
         # Create stream and add entries
         set id1 [r XADD mystream IDMP p1 "req-1" * field "value1"]
         
         # Change configuration to clear history
-        r XIDMP CFGSET mystream DURATION 6
+        r XCFGSET mystream DURATION 6
         
         # Add new entry with same iid
         set new_id1 [r XADD mystream IDMP p1 "req-1" * field "new1"]
@@ -1603,7 +1603,7 @@ start_server {
         assert_equal 2 [r XLEN mystream]
     }
 
-    test {XIDMP CFGSET history cleared preserves stream entries} {
+    test {XCFGSET history cleared preserves stream entries} {
         r DEL mystream
         
         # Create stream with entries
@@ -1615,7 +1615,7 @@ start_server {
         assert_equal 2 [llength $entries]
         
         # Change configuration to clear iids history
-        r XIDMP CFGSET mystream DURATION 7
+        r XCFGSET mystream DURATION 7
         
         # Stream entries should still exist unchanged
         set entries_after [r XRANGE mystream - +]
@@ -1670,7 +1670,7 @@ start_server {
         
         # Set small MAXSIZE to trigger eviction
         r XADD mystream IDMP p1 "init" * field "init"
-        r XIDMP CFGSET mystream MAXSIZE 3
+        r XCFGSET mystream MAXSIZE 3
         
         # Add 3 more entries (total 4, but MAXSIZE=3 so oldest evicted)
         r XADD mystream IDMP p1 "req-1" * field "v1"
@@ -1737,7 +1737,7 @@ start_server {
         
         # Add initial entry and configure MAXSIZE
         r XADD mystream IDMP p1 "init" * field "init"
-        r XIDMP CFGSET mystream MAXSIZE 3
+        r XCFGSET mystream MAXSIZE 3
         # Note: CFGSET clears IID history, so "init" is no longer tracked
         
         # Add entries and create some duplicates
@@ -1814,7 +1814,7 @@ start_server {
         assert_equal 2 [dict get $reply iids-duplicates]
         
         # CFGSET clears IID history
-        r XIDMP CFGSET mystream DURATION 60
+        r XCFGSET mystream DURATION 60
         
         set reply [r XINFO STREAM mystream]
         # iids-tracked should be 0 after history cleared
@@ -1840,7 +1840,7 @@ start_server {
         r XADD mystream IDMP p1 "req-3" * field "v3"
         
         # Set small MAXSIZE to cause eviction
-        r XIDMP CFGSET mystream MAXSIZE 2
+        r XCFGSET mystream MAXSIZE 2
         
         # Add more to trigger eviction (iids-tracked will be 2, but iids-added=5)
         r XADD mystream IDMP p1 "req-4" * field "v4"
@@ -1950,7 +1950,7 @@ start_server {
         assert_equal $default_maxsize [dict get $reply idmp-maxsize]
         
         # Change IDMP config
-        r XIDMP CFGSET mystream DURATION 300 MAXSIZE 50
+        r XCFGSET mystream DURATION 300 MAXSIZE 50
         
         set reply [r XINFO STREAM mystream]
         assert_equal 300 [dict get $reply idmp-duration]
@@ -1962,24 +1962,24 @@ start_server {
         assert_equal 50 [dict get $reply_full idmp-maxsize]
         
         # Change only DURATION
-        r XIDMP CFGSET mystream DURATION 600
+        r XCFGSET mystream DURATION 600
         set reply [r XINFO STREAM mystream]
         assert_equal 600 [dict get $reply idmp-duration]
         assert_equal 50 [dict get $reply idmp-maxsize]
         
         # Change only MAXSIZE
-        r XIDMP CFGSET mystream MAXSIZE 100
+        r XCFGSET mystream MAXSIZE 100
         set reply [r XINFO STREAM mystream]
         assert_equal 600 [dict get $reply idmp-duration]
         assert_equal 100 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGSET MAXSIZE wraparound keeps last 8 entries} {
+    test {XCFGSET MAXSIZE wraparound keeps last 8 entries} {
         r DEL mystream
         
         # Create stream and set MAXSIZE to 8
         r XADD mystream IDMP p1 "init" * field "init"
-        r XIDMP CFGSET mystream MAXSIZE 8 DURATION 60
+        r XCFGSET mystream MAXSIZE 8 DURATION 60
         
         # Add 100 unique entries and store their IDs in a list
         set id_list {}
@@ -2007,7 +2007,7 @@ start_server {
         assert_equal 193 [r XLEN mystream]
     }
 
-    test {XIDMP CFGSET clears all producer histories} {
+    test {XCFGSET clears all producer histories} {
         r DEL mystream
         
         # Add entries with multiple producers
@@ -2020,7 +2020,7 @@ start_server {
         assert_equal 3 [dict get $reply iids-tracked]
         
         # CFGSET clears all histories
-        r XIDMP CFGSET mystream DURATION 60
+        r XCFGSET mystream DURATION 60
         
         set reply [r XINFO STREAM mystream]
         # pids-tracked should be 0 after clearing

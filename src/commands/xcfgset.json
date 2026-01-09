@@ -1,12 +1,11 @@
 {
-    "CFGSET": {
+    "XCFGSET": {
         "summary": "Sets the IDMP configuration parameters for a stream.",
         "complexity": "O(1)",
         "group": "stream",
         "since": "8.6.0",
-        "arity": -3,
-        "container": "XIDMP",
-        "function": "xidmpCommand",
+        "arity": -2,
+        "function": "xcfgsetCommand",
         "command_flags": [
             "WRITE",
             "FAST"
@@ -25,7 +24,7 @@
                 ],
                 "begin_search": {
                     "index": {
-                        "pos": 2
+                        "pos": 1
                     }
                 },
                 "find_keys": {
@@ -78,4 +77,3 @@
         ]
     }
 }
-

@@ -10010,6 +10010,44 @@ struct COMMAND_ARG XAUTOCLAIM_Args[] = {
 {MAKE_ARG("justid",ARG_TYPE_PURE_TOKEN,-1,"JUSTID",NULL,NULL,CMD_ARG_OPTIONAL,0,NULL)},
 };
 
+/********** XCFGSET ********************/
+
+#ifndef SKIP_CMD_HISTORY_TABLE
+/* XCFGSET history */
+#define XCFGSET_History NULL
+#endif
+
+#ifndef SKIP_CMD_TIPS_TABLE
+/* XCFGSET tips */
+#define XCFGSET_Tips NULL
+#endif
+
+#ifndef SKIP_CMD_KEY_SPECS_TABLE
+/* XCFGSET key specs */
+keySpec XCFGSET_Keyspecs[1] = {
+{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={1},KSPEC_FK_RANGE,.fk.range={0,1,0}}
+};
+#endif
+
+/* XCFGSET duration_block argument table */
+struct COMMAND_ARG XCFGSET_duration_block_Subargs[] = {
+{MAKE_ARG("duration-token",ARG_TYPE_PURE_TOKEN,-1,"DURATION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("duration",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XCFGSET maxsize_block argument table */
+struct COMMAND_ARG XCFGSET_maxsize_block_Subargs[] = {
+{MAKE_ARG("maxsize-token",ARG_TYPE_PURE_TOKEN,-1,"MAXSIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("maxsize",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+};
+
+/* XCFGSET argument table */
+struct COMMAND_ARG XCFGSET_Args[] = {
+{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
+{MAKE_ARG("duration-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_duration_block_Subargs},
+{MAKE_ARG("maxsize-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_maxsize_block_Subargs},
+};
+
 /********** XCLAIM ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10301,67 +10339,6 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #ifndef SKIP_CMD_KEY_SPECS_TABLE
 /* XGROUP key specs */
 #define XGROUP_Keyspecs NULL
-#endif
-
-/********** XIDMP CFGSET ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* XIDMP CFGSET history */
-#define XIDMP_CFGSET_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* XIDMP CFGSET tips */
-#define XIDMP_CFGSET_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* XIDMP CFGSET key specs */
-keySpec XIDMP_CFGSET_Keyspecs[1] = {
-{NULL,CMD_KEY_RW|CMD_KEY_UPDATE,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
-};
-#endif
-
-/* XIDMP CFGSET duration_block argument table */
-struct COMMAND_ARG XIDMP_CFGSET_duration_block_Subargs[] = {
-{MAKE_ARG("duration-token",ARG_TYPE_PURE_TOKEN,-1,"DURATION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("duration",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* XIDMP CFGSET maxsize_block argument table */
-struct COMMAND_ARG XIDMP_CFGSET_maxsize_block_Subargs[] = {
-{MAKE_ARG("maxsize-token",ARG_TYPE_PURE_TOKEN,-1,"MAXSIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("maxsize",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* XIDMP CFGSET argument table */
-struct COMMAND_ARG XIDMP_CFGSET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("duration-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XIDMP_CFGSET_duration_block_Subargs},
-{MAKE_ARG("maxsize-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XIDMP_CFGSET_maxsize_block_Subargs},
-};
-
-/* XIDMP command table */
-struct COMMAND_STRUCT XIDMP_Subcommands[] = {
-{MAKE_CMD("cfgset","Sets the IDMP configuration parameters for a stream.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_CFGSET_History,0,XIDMP_CFGSET_Tips,0,xidmpCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XIDMP_CFGSET_Keyspecs,1,NULL,3),.args=XIDMP_CFGSET_Args},
-{0}
-};
-
-/********** XIDMP ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* XIDMP history */
-#define XIDMP_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* XIDMP tips */
-#define XIDMP_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* XIDMP key specs */
-#define XIDMP_Keyspecs NULL
 #endif
 
 /********** XINFO CONSUMERS ********************/
@@ -11818,11 +11795,11 @@ struct COMMAND_STRUCT redisCommandTable[] = {
 {MAKE_CMD("xackdel","Acknowledges and deletes one or multiple messages for a stream consumer group.","O(1) for each message ID processed.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XACKDEL_History,0,XACKDEL_Tips,0,xackdelCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XACKDEL_Keyspecs,1,NULL,4),.args=XACKDEL_Args},
 {MAKE_CMD("xadd","Appends a new message to a stream. Creates the key if it doesn't exist.","O(1) when adding a new entry, O(N) when trimming where N being the number of entries evicted.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XADD_History,3,XADD_Tips,1,xaddCommand,-5,CMD_WRITE|CMD_DENYOOM|CMD_FAST,ACL_CATEGORY_STREAM,XADD_Keyspecs,1,NULL,7),.args=XADD_Args},
 {MAKE_CMD("xautoclaim","Changes, or acquires, ownership of messages in a consumer group, as if the messages were delivered to as consumer group member.","O(1) if COUNT is small.","6.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XAUTOCLAIM_History,1,XAUTOCLAIM_Tips,1,xautoclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XAUTOCLAIM_Keyspecs,1,NULL,7),.args=XAUTOCLAIM_Args},
+{MAKE_CMD("xcfgset","Sets the IDMP configuration parameters for a stream.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XCFGSET_History,0,XCFGSET_Tips,0,xcfgsetCommand,-2,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XCFGSET_Keyspecs,1,NULL,3),.args=XCFGSET_Args},
 {MAKE_CMD("xclaim","Changes, or acquires, ownership of a message in a consumer group, as if the message was delivered a consumer group member.","O(log N) with N being the number of messages in the PEL of the consumer group.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XCLAIM_History,0,XCLAIM_Tips,1,xclaimCommand,-6,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XCLAIM_Keyspecs,1,NULL,11),.args=XCLAIM_Args},
 {MAKE_CMD("xdel","Returns the number of messages after removing them from a stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDEL_History,0,XDEL_Tips,0,xdelCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDEL_Keyspecs,1,NULL,2),.args=XDEL_Args},
 {MAKE_CMD("xdelex","Deletes one or multiple entries from the stream.","O(1) for each single item to delete in the stream, regardless of the stream size.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XDELEX_History,0,XDELEX_Tips,0,xdelexCommand,-5,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XDELEX_Keyspecs,1,NULL,3),.args=XDELEX_Args},
 {MAKE_CMD("xgroup","A container for consumer groups commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XGROUP_History,0,XGROUP_Tips,0,NULL,-2,0,0,XGROUP_Keyspecs,0,NULL,0),.subcommands=XGROUP_Subcommands},
-{MAKE_CMD("xidmp","A container for stream IDMP (Idempotent Message Producer) configuration commands.","Depends on subcommand.","8.2.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_History,0,XIDMP_Tips,0,NULL,-2,0,0,XIDMP_Keyspecs,0,NULL,0),.subcommands=XIDMP_Subcommands},
 {MAKE_CMD("xinfo","A container for stream introspection commands.","Depends on subcommand.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_History,0,XINFO_Tips,0,NULL,-2,0,0,XINFO_Keyspecs,0,NULL,0),.subcommands=XINFO_Subcommands},
 {MAKE_CMD("xlen","Return the number of messages in a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XLEN_History,0,XLEN_Tips,0,xlenCommand,2,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XLEN_Keyspecs,1,NULL,1),.args=XLEN_Args},
 {MAKE_CMD("xpending","Returns the information and entries from a stream consumer group's pending entries list.","O(N) with N being the number of elements returned, so asking for a small fixed number of entries per call is O(1). O(M), where M is the total number of entries scanned when used with the IDLE filter. When the command returns just the summary and the list of consumers is small, it runs in O(1) time; otherwise, an additional O(N) time for iterating every consumer.","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XPENDING_History,1,XPENDING_Tips,1,xpendingCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XPENDING_Keyspecs,1,NULL,3),.args=XPENDING_Args},
