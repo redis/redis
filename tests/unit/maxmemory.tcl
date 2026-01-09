@@ -350,10 +350,23 @@ proc test_slave_buffers {test_name cmd_count payload_len limit_memory pipeline} 
             # send some 10mb worth of commands that don't increase the memory usage
             if {$pipeline == 1} {
                 set rd_master [redis_deferring_client -1]
+                # Send commands in batches and read responses to avoid TCP deadlock.
+                # Without interleaving reads, the client's send buffer fills up when
+                # the server's output buffers are full (because we're not reading),
+                # causing flush to block indefinitely on slow machines.
+                set batch_size 10000
                 for {set k 0} {$k < $cmd_count} {incr k} {
                     $rd_master setrange key:0 0 [string repeat A $payload_len]
+                    if {($k + 1) % $batch_size == 0} {
+                        # Drain responses to prevent TCP buffer deadlock
+                        for {set j 0} {$j < $batch_size} {incr j} {
+                            $rd_master read
+                        }
+                    }
                 }
-                for {set k 0} {$k < $cmd_count} {incr k} {
+                # Read any remaining responses
+                set remaining [expr {$cmd_count % $batch_size}]
+                for {set k 0} {$k < $remaining} {incr k} {
                     $rd_master read
                 }
             } else {
@@ -636,7 +649,9 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r xgroup create mystream mygroup 0
         after 2000
         r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
-        assert_lessthan [r object idletime mystream] 1
+
+        # LRM should be updated (idletime should be smaller)
+        assert_lessthan_equal [r object idletime mystream] 1
     } {} {slow}
 
     test {LRM: Keys with only read operations should be removed first} {

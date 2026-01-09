@@ -886,12 +886,12 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
                 if (can_delete) {
                     /* Mark the entry as deleted. */
-                    intptr_t delta = p - lp;
+                    intptr_t delta = p ? (p - lp) : 0; /* p may be NULL if this was the last entry */
                     flags |= STREAM_ITEM_FLAG_DELETED;
                     lp = lpReplaceInteger(lp, &pcopy, flags);
                     deleted_from_lp++;
                     s->length--;
-                    p = lp + delta;
+                    if (p) p = lp + delta;
                 }
             }
         }
