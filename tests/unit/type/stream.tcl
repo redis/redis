@@ -1287,9 +1287,8 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 5]
         
         # Verify DURATION was set
-        set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal "duration" [lindex $config 0]
-        assert_equal 5 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 5 [dict get $reply idmp-duration]
     }
 
     test {XIDMP CFGSET set MAXSIZE successfully} {
@@ -1302,9 +1301,8 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 5000]
         
         # Verify MAXSIZE was set
-        set config [r XIDMP CFGGET mystream MAXSIZE]
-        assert_equal "maxsize" [lindex $config 0]
-        assert_equal 5000 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 5000 [dict get $reply idmp-maxsize]
     }
 
     test {XIDMP CFGSET set both DURATION and MAXSIZE} {
@@ -1317,14 +1315,12 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
         
         # Verify both were set
-        set config [r XIDMP CFGGET mystream DURATION MAXSIZE]
-        assert_equal "duration" [lindex $config 0]
-        assert_equal 3 [lindex $config 1]
-        assert_equal "maxsize" [lindex $config 2]
-        assert_equal 10000 [lindex $config 3]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply idmp-duration]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGGET get all parameters} {
+    test {XINFO STREAM shows IDMP configuration parameters} {
         r DEL mystream
         
         # Create stream with IDMP entry
@@ -1334,25 +1330,21 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 3 MAXSIZE 10000]
         
         # Verify both were set
-        set config [r XIDMP CFGGET mystream]
-        assert_equal "duration" [lindex $config 0]
-        assert_equal 3 [lindex $config 1]
-        assert_equal "maxsize" [lindex $config 2]
-        assert_equal 10000 [lindex $config 3]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply idmp-duration]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
     }
 
-    test {XIDMP CFGGET get default parameters} {
+    test {XINFO STREAM shows default IDMP parameters} {
         r DEL mystream
         
         # Create stream with IDMP entry
         r XADD mystream IDMP p1 "req-1" * field "value"
         
-        # Verify both were set
-        set config [r XIDMP CFGGET mystream]
-        assert_equal "duration" [lindex $config 0]
-        assert_equal 100 [lindex $config 1]
-        assert_equal "maxsize" [lindex $config 2]
-        assert_equal 100 [lindex $config 3]
+        # Verify default parameters
+        set reply [r XINFO STREAM mystream]
+        assert_equal 100 [dict get $reply idmp-duration]
+        assert_equal 100 [dict get $reply idmp-maxsize]
     }
 
     test {XIDMP CFGSET error on non-existent stream} {
@@ -1372,15 +1364,15 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 86400]
         
         # Verify it was set
-        set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal 86400 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 86400 [dict get $reply idmp-duration]
         
         # Attempt to set DURATION above maximum
         assert_error "*ERR DURATION must be*" {r XIDMP CFGSET mystream DURATION 86401}
         
         # Verify DURATION wasn't changed
-        set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal 86400 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 86400 [dict get $reply idmp-duration]
     }
 
     test {XIDMP CFGSET DURATION minimum value validation} {
@@ -1399,8 +1391,8 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream DURATION 1]
         
         # Verify it was set
-        set config [r XIDMP CFGGET mystream DURATION]
-        assert_equal 1 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply idmp-duration]
     }
 
     test {XIDMP CFGSET MAXSIZE maximum value validation} {
@@ -1413,15 +1405,15 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 10000]
         
         # Verify it was set
-        set config [r XIDMP CFGGET mystream MAXSIZE]
-        assert_equal 10000 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
         
         # Attempt to set MAXSIZE above maximum
         assert_error "*ERR MAXSIZE must be between*" {r XIDMP CFGSET mystream MAXSIZE 10001}
         
         # Verify MAXSIZE wasn't changed
-        set config [r XIDMP CFGGET mystream MAXSIZE]
-        assert_equal 10000 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 10000 [dict get $reply idmp-maxsize]
     }
 
     test {XIDMP CFGSET MAXSIZE minimum value validation} {
@@ -1440,8 +1432,8 @@ start_server {
         assert_equal "OK" [r XIDMP CFGSET mystream MAXSIZE 1]
         
         # Verify it was set
-        set config [r XIDMP CFGGET mystream MAXSIZE]
-        assert_equal 1 [lindex $config 1]
+        set reply [r XINFO STREAM mystream]
+        assert_equal 1 [dict get $reply idmp-maxsize]
     }
 
     test {XIDMP CFGSET invalid syntax} {
@@ -1454,7 +1446,6 @@ start_server {
         assert_error "*ERR At least one parameter*" {r XIDMP CFGSET mystream}
         assert_error "*syntax*" {r XIDMP CFGSET mystream DURATION}
         assert_error "*syntax*" {r XIDMP CFGSET mystream MAXSIZE}
-        assert_error "*" {r XIDMP CFGGET mystream INVALID}
         assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION A}
         assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION AAA}
         assert_error "*ERR value is not an integer*" {r XIDMP CFGSET mystream DURATION *}
@@ -1497,12 +1488,9 @@ start_server {
         r XIDMP CFGSET mystream MAXSIZE 200
         
         # Verify latest values
-        set config [r XIDMP CFGGET mystream]
-        
-        # Parse config
-        array set cfg $config
-        assert_equal 3 $cfg(duration)
-        assert_equal 200 $cfg(maxsize)
+        set reply [r XINFO STREAM mystream]
+        assert_equal 3 [dict get $reply idmp-duration]
+        assert_equal 200 [dict get $reply idmp-maxsize]
     }
 
     test {XIDMP CFGSET configuration persists in RDB} {
@@ -1519,11 +1507,9 @@ start_server {
         restart_server 0 true false
         
         # Verify configuration persisted
-        set config [r XIDMP CFGGET mystream]
-        array set cfg $config
-        
-        assert_equal 75 $cfg(duration)
-        assert_equal 7500 $cfg(maxsize)
+        set reply [r XINFO STREAM mystream]
+        assert_equal 75 [dict get $reply idmp-duration]
+        assert_equal 7500 [dict get $reply idmp-maxsize]
     } {} {external:skip}
 
     test {XIDMP CFGSET configuration in AOF} {
@@ -1545,11 +1531,9 @@ start_server {
         r DEBUG RELOAD
         
         # Verify configuration
-        set config [r XIDMP CFGGET mystream]
-        array set cfg $config
-        
-        assert_equal 45 $cfg(duration)
-        assert_equal 4500 $cfg(maxsize)
+        set reply [r XINFO STREAM mystream]
+        assert_equal 45 [dict get $reply idmp-duration]
+        assert_equal 4500 [dict get $reply idmp-maxsize]
         
         assert_equal "OK" [r config set appendonly no]
     } {} {external:skip needs:debug}

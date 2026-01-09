@@ -10303,37 +10303,6 @@ struct COMMAND_STRUCT XGROUP_Subcommands[] = {
 #define XGROUP_Keyspecs NULL
 #endif
 
-/********** XIDMP CFGGET ********************/
-
-#ifndef SKIP_CMD_HISTORY_TABLE
-/* XIDMP CFGGET history */
-#define XIDMP_CFGGET_History NULL
-#endif
-
-#ifndef SKIP_CMD_TIPS_TABLE
-/* XIDMP CFGGET tips */
-#define XIDMP_CFGGET_Tips NULL
-#endif
-
-#ifndef SKIP_CMD_KEY_SPECS_TABLE
-/* XIDMP CFGGET key specs */
-keySpec XIDMP_CFGGET_Keyspecs[1] = {
-{NULL,CMD_KEY_RO|CMD_KEY_ACCESS,KSPEC_BS_INDEX,.bs.index={2},KSPEC_FK_RANGE,.fk.range={0,1,0}}
-};
-#endif
-
-/* XIDMP CFGGET parameter argument table */
-struct COMMAND_ARG XIDMP_CFGGET_parameter_Subargs[] = {
-{MAKE_ARG("duration",ARG_TYPE_PURE_TOKEN,-1,"DURATION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("maxsize",ARG_TYPE_PURE_TOKEN,-1,"MAXSIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
-};
-
-/* XIDMP CFGGET argument table */
-struct COMMAND_ARG XIDMP_CFGGET_Args[] = {
-{MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("parameter",ARG_TYPE_ONEOF,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL|CMD_ARG_MULTIPLE,2,NULL),.subargs=XIDMP_CFGGET_parameter_Subargs},
-};
-
 /********** XIDMP CFGSET ********************/
 
 #ifndef SKIP_CMD_HISTORY_TABLE
@@ -10374,7 +10343,6 @@ struct COMMAND_ARG XIDMP_CFGSET_Args[] = {
 
 /* XIDMP command table */
 struct COMMAND_STRUCT XIDMP_Subcommands[] = {
-{MAKE_CMD("cfgget","Returns the IDMP configuration parameters for a stream.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_CFGGET_History,0,XIDMP_CFGGET_Tips,0,xidmpCommand,-3,CMD_READONLY|CMD_FAST,ACL_CATEGORY_STREAM,XIDMP_CFGGET_Keyspecs,1,NULL,2),.args=XIDMP_CFGGET_Args},
 {MAKE_CMD("cfgset","Sets the IDMP configuration parameters for a stream.","O(1)","8.6.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XIDMP_CFGSET_History,0,XIDMP_CFGSET_Tips,0,xidmpCommand,-3,CMD_WRITE|CMD_FAST,ACL_CATEGORY_STREAM,XIDMP_CFGSET_Keyspecs,1,NULL,3),.args=XIDMP_CFGSET_Args},
 {0}
 };

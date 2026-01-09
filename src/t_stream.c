@@ -5046,8 +5046,7 @@ NULL
     }
 }
 
-/* XIDMP CFGGET <key> [DURATION] [MAXSIZE]
- * XIDMP CFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
+/* XIDMP CFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
 void xidmpCommand(client *c) {
     char *opt = c->argv[1]->ptr;
     robj *key = c->argv[2];
@@ -5058,42 +5057,7 @@ void xidmpCommand(client *c) {
     stream *s = kv->ptr;
 
     /* Dispatch the different subcommands. */
-    if (!strcasecmp(opt,"CFGGET")) {
-        /* XIDMP CFGGET <key> [DURATION] [MAXSIZE] */
-        int get_duration = 0;
-        int get_maxsize = 0;
-
-        /* If no parameters specified, return both */
-        if (c->argc == 3) {
-            get_duration = 1;
-            get_maxsize = 1;
-        } else {
-            /* Parse which parameters to get */
-            for (int i = 3; i < c->argc; i++) {
-                char *param = c->argv[i]->ptr;
-                if (!strcasecmp(param,"DURATION")) {
-                    get_duration = 1;
-                } else if (!strcasecmp(param,"MAXSIZE")) {
-                    get_maxsize = 1;
-                } else {
-                    addReplyErrorFormat(c,"Unknown parameter '%s'",param);
-                    return;
-                }
-            }
-        }
-
-        /* Build reply as a map */
-        int num_fields = get_duration + get_maxsize;
-        addReplyMapLen(c,num_fields);
-        if (get_duration) {
-            addReplyBulkCString(c,"duration");
-            addReplyLongLong(c,s->idmp_duration);
-        }
-        if (get_maxsize) {
-            addReplyBulkCString(c,"maxsize");
-            addReplyLongLong(c,s->idmp_max_entries);
-        }
-    } else if (!strcasecmp(opt,"CFGSET")) {
+    if (!strcasecmp(opt,"CFGSET")) {
         /* XIDMP CFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
         long long duration = -1;
         long long maxsize = -1;
