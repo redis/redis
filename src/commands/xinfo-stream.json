@@ -21,11 +21,7 @@
             ],
             [
                 "8.6.0",
-                "Added the `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."
-            ],
-            [
-                "8.6.1",
-                "Added the `idmp-duration` and `idmp-maxsize` fields for IDMP configuration."
+                "Added the `idmp-duration`, `idmp-maxsize`, `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."
             ]
         ],
         "function": "xinfoCommand",

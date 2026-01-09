@@ -10476,8 +10476,7 @@ commandHistory XINFO_STREAM_History[] = {
 {"6.0.0","Added the `FULL` modifier."},
 {"7.0.0","Added the `max-deleted-entry-id`, `entries-added`, `recorded-first-entry-id`, `entries-read` and `lag` fields"},
 {"7.2.0","Added the `active-time` field, and changed the meaning of `seen-time`."},
-{"8.6.0","Added the `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."},
-{"8.6.1","Added the `idmp-duration` and `idmp-maxsize` fields for IDMP configuration."},
+{"8.6.0","Added the `idmp-duration`, `idmp-maxsize`, `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."},
 };
 #endif
 
@@ -10510,7 +10509,7 @@ struct COMMAND_STRUCT XINFO_Subcommands[] = {
 {MAKE_CMD("consumers","Returns a list of the consumers in a consumer group.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_CONSUMERS_History,1,XINFO_CONSUMERS_Tips,1,xinfoCommand,4,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_CONSUMERS_Keyspecs,1,NULL,2),.args=XINFO_CONSUMERS_Args},
 {MAKE_CMD("groups","Returns a list of the consumer groups of a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_GROUPS_History,1,XINFO_GROUPS_Tips,0,xinfoCommand,3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_GROUPS_Keyspecs,1,NULL,1),.args=XINFO_GROUPS_Args},
 {MAKE_CMD("help","Returns helpful text about the different subcommands.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_HELP_History,0,XINFO_HELP_Tips,0,xinfoCommand,2,CMD_LOADING|CMD_STALE,ACL_CATEGORY_STREAM,XINFO_HELP_Keyspecs,0,NULL,0)},
-{MAKE_CMD("stream","Returns information about a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_STREAM_History,5,XINFO_STREAM_Tips,0,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_STREAM_Keyspecs,1,NULL,2),.args=XINFO_STREAM_Args},
+{MAKE_CMD("stream","Returns information about a stream.","O(1)","5.0.0",CMD_DOC_NONE,NULL,NULL,"stream",COMMAND_GROUP_STREAM,XINFO_STREAM_History,4,XINFO_STREAM_Tips,0,xinfoCommand,-3,CMD_READONLY,ACL_CATEGORY_STREAM,XINFO_STREAM_Keyspecs,1,NULL,2),.args=XINFO_STREAM_Args},
 {0}
 };
 
