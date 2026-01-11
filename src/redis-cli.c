@@ -10243,40 +10243,46 @@ static int displayKeyStatsSizeDist(struct hdr_histogram *keysize_histogram) {
     struct hdr_iter iter;
     int64_t last_displayed_cumulative_count = 0;
 
-    hdr_iter_percentile_init(&iter, keysize_histogram, 1);
-
     line_count += cleanPrintfln("Key size Percentile Total keys");
     line_count += cleanPrintfln("-------- ---------- -----------");
 
-    while (hdr_iter_next(&iter)) {
-        /* Skip repeat in hdr_histogram cumulative_count, and set the last line
-         * to 100% when total_count is reached. For instance:
-         * 140.68K    99.9969%        50013
-         * 140.68K    99.9977%        50013
-         *   2.04G    99.9985%        50014
-         *   2.04G   100.0000%        50014
-         * Will display:
-         * 140.68K    99.9969%        50013
-         *   2.04G   100.0000%        50014                                   */
+    if (keysize_histogram->total_count > 0) {
+        hdr_iter_percentile_init(&iter, keysize_histogram, 1);
+        while (hdr_iter_next(&iter)) {
+            /* Skip repeat in hdr_histogram cumulative_count, and set the last line
+             * to 100% when total_count is reached. For instance:
+             * 140.68K    99.9969%        50013
+             * 140.68K    99.9977%        50013
+             *   2.04G    99.9985%        50014
+             *   2.04G   100.0000%        50014
+             * Will display:
+             * 140.68K    99.9969%        50013
+             *   2.04G   100.0000%        50014                                   */
 
-        if (iter.cumulative_count != last_displayed_cumulative_count) {
-            if (iter.cumulative_count == iter.h->total_count) {
-                percentile = 100;
-            } else {
-                percentile = iter.specifics.percentiles.percentile;
+            if (iter.cumulative_count != last_displayed_cumulative_count) {
+                if (iter.cumulative_count == iter.h->total_count) {
+                    percentile = 100;
+                } else {
+                    percentile = iter.specifics.percentiles.percentile;
+                }
+
+                line_count += cleanPrintfln("%8s %9.4f%% %11lld",
+                    bytesToHuman(size, sizeof(size), iter.highest_equivalent_value),
+                    percentile,
+                    iter.cumulative_count);
+
+                last_displayed_cumulative_count = iter.cumulative_count;
             }
-
-            line_count += cleanPrintfln("%8s %9.4f%% %11lld",
-                bytesToHuman(size, sizeof(size), iter.highest_equivalent_value),
-                percentile,
-                iter.cumulative_count);
-
-            last_displayed_cumulative_count = iter.cumulative_count;
         }
     }
 
-    bytesToHuman(mean, sizeof(mean),hdr_mean(keysize_histogram));
-    bytesToHuman(stddev, sizeof(stddev),hdr_stddev(keysize_histogram));
+    if (keysize_histogram->total_count > 0) {
+        bytesToHuman(mean, sizeof(mean),hdr_mean(keysize_histogram));
+        bytesToHuman(stddev, sizeof(stddev),hdr_stddev(keysize_histogram));
+    } else {
+        bytesToHuman(mean, sizeof(mean), 0);
+        bytesToHuman(stddev, sizeof(stddev), 0);
+    }
     line_count += cleanPrintfln("Note: 0.01%% size precision, Mean: %s, StdDeviation: %s", mean, stddev);
 
     return line_count;
