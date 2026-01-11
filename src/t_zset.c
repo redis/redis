@@ -566,22 +566,27 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
     return 0;
 }
 
-/* Find the rank for a skiplist node by walking upward from the node to the end.
+/* Find the rank for a skiplist node by walking forward from the node to the end.
  * This avoids expensive string comparisons during traversal. The algorithm:
- * 1. Start at the node's top level
- * 2. Walk forward at the top level of each node, summing spans
- * 3. Calculate rank as (list_length - sum_of_spans)
+ * 1. Start at the given node's top level
+ * 2. Walk forward to the tail, jumping at each node's top level
+ * 3. Sum the spans to get distance from node to end
+ * 4. Calculate rank as (list_length - distance_to_end)
  * Time complexity: O(log N) on average, same as traditional approach but faster
  * due to avoiding string comparisons. */
 unsigned long zslGetRankByNode(zskiplist *zsl, zskiplistNode *x) {
-    int level = zslGetNodeLevel(x) - 1;
-    unsigned long rank = zslGetNodeSpanAtLevel(x, level);
-    while (x->level[zslGetNodeLevel(x) - 1].forward) {
-        x = x->level[zslGetNodeLevel(x) - 1].forward;
-        rank += zslGetNodeSpanAtLevel(x, zslGetNodeLevel(x) - 1);
+    unsigned long distance_to_end = 0;
+    int level;
+    
+    /* Walk forward from x to the end, using top level of each node for fast jumps */
+    while (x) {
+        level = zslGetNodeLevel(x) - 1;
+        distance_to_end += zslGetNodeSpanAtLevel(x, level);
+        x = x->level[level].forward;
     }
-    rank = zsl->length - rank;
-    return rank;
+    
+    /* Rank = total nodes - nodes after this one */
+    return zsl->length - distance_to_end;
 }
 
 /* Finds an element by its rank from start node. The rank argument needs to be 1-based. */
