@@ -5063,8 +5063,8 @@ int zsetInitScoreRange(RedisModuleKey *key, double min, double max, int minex, i
     } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = key->kv->ptr;
         zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslNthInRange(zsl,zrs,0) :
-                                      zslNthInRange(zsl,zrs,-1);
+        key->u.zset.current = first ? zslNthInRange(zsl, zrs, 0, NULL) :
+                                      zslNthInRange(zsl, zrs, -1, NULL);
     } else {
         serverPanic("Unsupported zset encoding");
     }
@@ -5127,8 +5127,8 @@ int zsetInitLexRange(RedisModuleKey *key, RedisModuleString *min, RedisModuleStr
     } else if (key->kv->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = key->kv->ptr;
         zskiplist *zsl = zs->zsl;
-        key->u.zset.current = first ? zslNthInLexRange(zsl,zlrs,0) :
-                                      zslNthInLexRange(zsl,zlrs,-1);
+        key->u.zset.current = first ? zslNthInLexRange(zsl,zlrs,0,NULL) :
+                                      zslNthInLexRange(zsl,zlrs,-1,NULL);
     } else {
         serverPanic("Unsupported zset encoding");
     }
