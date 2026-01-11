@@ -45,6 +45,8 @@
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 
+//#define DBG_VERIFY_ZSL_ON_DEL 1  /* (+REDIS_TEST) To verify zsl struct on every del */
+
 /*-----------------------------------------------------------------------------
  * Skiplist implementation of the low level API
  *----------------------------------------------------------------------------*/
@@ -155,6 +157,131 @@ void zslFree(zskiplist *zsl) {
 /* Return cached total memory used (in bytes) */
 size_t zslAllocSize(const zskiplist *zsl) { return zsl->alloc_size; }
 
+/* Verify the entire skiplist structure for debugging purposes:
+ * - Header node has correct structure
+ * - Level is correct (highest non-NULL level)
+ * - Forward and backward pointers are correct
+ * - Scores are in sorted order (with lexicographic tie-breaking)
+ * - Node levels stored in level[0].span are correct
+ * - Span values across all levels sum to zsl->length
+ * - Length matches actual node count
+ * - Tail pointer is correct
+ *
+ * Panics with detailed error message if any invariant is violated. */
+static void zslDebugVerifyStruct(zskiplist *zsl) {
+#if (!DBG_VERIFY_ZSL_ON_DEL || !REDIS_TEST)
+    UNUSED(zsl);
+#else
+    zskiplistNode *x;
+    unsigned long length = 0;
+    int i;
+
+    /* Verify header node */
+    serverAssert(zsl->header != NULL);
+    serverAssert(zsl->header->ele == NULL);
+    serverAssert(zsl->header->backward == NULL);
+
+    /* Verify level is in valid range */
+    serverAssert(zsl->level >= 1 && zsl->level <= ZSKIPLIST_MAXLEVEL);
+
+    /* Verify that all levels >= zsl->level in header are NULL */
+    for (i = zsl->level; i < ZSKIPLIST_MAXLEVEL; i++) {
+        serverAssert(zsl->header->level[i].forward == NULL);
+        serverAssert(zsl->header->level[i].span == 0);
+    }
+
+    /* Verify that level zsl->level-1 has at least one node (if list is not empty) */
+    if (zsl->length > 0) {
+        serverAssert(zsl->header->level[zsl->level-1].forward != NULL);
+    }
+
+    /* Single pass: verify forward/backward pointers, scores, node levels, and accumulate spans */
+    x = zsl->header->level[0].forward;
+    zskiplistNode *prev = NULL;
+
+    while (x) {
+        length++;
+
+        /* Verify backward pointer */
+        serverAssert(x->backward == prev);
+
+        /* Verify node has valid element */
+        serverAssert(x->ele != NULL);
+
+        /* Verify node level is in valid range */
+        unsigned long node_level = zslGetNodeLevel(x);
+        serverAssert(node_level >= 1 && node_level <= ZSKIPLIST_MAXLEVEL);
+
+        /* Verify score ordering */
+        if (x->level[0].forward) {
+            zskiplistNode *next = x->level[0].forward;
+            serverAssert(next->score > x->score ||
+                       (next->score == x->score && sdscmp(next->ele, x->ele) > 0));
+        }
+
+        /* Verify spans are correct for all levels this node participates in.
+         * Note: level 0 doesn't store span (it stores node level), so start from level 1.
+         *
+         * Span semantics:
+         * - If forward != NULL: span represents distance to next node at this level (must be > 0)
+         * - If forward == NULL: span represents number of nodes after this node at level 0
+         *   (needed for zslGetRankByNode optimization) */
+        for (i = 1; i < (int)node_level; i++) {
+            if (x->level[i].forward) {
+                /* Verify span is positive when there's a next node */
+                serverAssert(x->level[i].span > 0);
+            } else {
+                /* When forward is NULL, span should equal the number of nodes after this node.
+                 * We can verify this by counting remaining nodes at level 0. */
+                unsigned long nodes_after = 0;
+                zskiplistNode *temp = x->level[0].forward;
+                while (temp) {
+                    nodes_after++;
+                    temp = temp->level[0].forward;
+                }
+                serverAssert(x->level[i].span == nodes_after);
+            }
+        }
+
+        prev = x;
+        x = x->level[0].forward;
+    }
+
+    /* Verify length matches actual count */
+    serverAssert(length == zsl->length);
+
+    /* Verify tail pointer */
+    if (zsl->length == 0) {
+        serverAssert(zsl->tail == NULL);
+    } else {
+        serverAssert(zsl->tail == prev);
+        serverAssert(zsl->tail->level[0].forward == NULL);
+    }
+
+    /* Verify that the sum of spans at each level is consistent.
+     * At each level, we traverse from header following forward pointers and sum all spans.
+     * The sum should equal the rank of the last node at that level.
+     * If the last node at a level is the tail, the sum should equal zsl->length. */
+    for (i = 1; i < zsl->level; i++) {
+        unsigned long span_sum = 0;
+        zskiplistNode *last_at_level = zsl->header;
+        x = zsl->header;
+        while (x->level[i].forward) {
+            span_sum += x->level[i].span;
+            x = x->level[i].forward;
+            last_at_level = x;
+        }
+        /* If the last node at this level is the tail, span sum should equal length */
+        if (last_at_level == zsl->tail) {
+            serverAssert(span_sum == zsl->length);
+        } else {
+            /* Otherwise, span sum should be less than length */
+            serverAssert(span_sum < zsl->length);
+        }
+    }
+#endif
+}
+
 /* Returns a random level for the new skiplist node we are going to create.
  * The return value of this function is between 1 and ZSKIPLIST_MAXLEVEL
  * (both inclusive), with a powerlaw-alike distribution where higher
@@ -263,6 +390,8 @@ static void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **upda
 int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
+
+    zslDebugVerifyStruct(zsl);
 
     x = zsl->header;
     for (i = zsl->level-1; i >= 0; i--) {
