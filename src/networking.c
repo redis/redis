@@ -172,6 +172,9 @@ client *createClient(connection *conn) {
     c->original_argv = NULL;
     c->deferred_objects = NULL;
     c->deferred_objects_num = 0;
+    c->io_deferred_objects = NULL;
+    c->io_deferred_objects_num = 0;
+    c->io_deferred_objects_size = 0;
     c->cmd = c->lastcmd = c->realcmd = c->lookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
@@ -240,9 +243,6 @@ client *createClient(connection *conn) {
     c->commands_processed = 0;
     c->task = NULL;
     c->node_id = NULL;
-    c->io_deferred_free_objs = NULL;
-    c->io_deferred_free_objs_num = 0;
-    c->io_deferred_free_objs_size = 0;
     return c;
 }
 
@@ -1678,32 +1678,39 @@ void freeClientDeferredObjects(client *c, int free_array) {
     }
 }
 
-#define IO_DEFERRED_FREE_OBJS_INIT_SIZE 8
-
 /* Queue an robj to be freed by the main thread when client returns from IO thread.
  * This is used in IO thread write path to avoid refcount race conditions. */
+#define IO_DEFERRED_OBJECTS_INIT_SIZE 8
 void ioDeferFreeRobj(client *c, robj *obj) {
-    if (c->io_deferred_free_objs_num >= c->io_deferred_free_objs_size) {
-        int new_size = c->io_deferred_free_objs_size == 0
-            ? IO_DEFERRED_FREE_OBJS_INIT_SIZE
-            : c->io_deferred_free_objs_size * 2;
-        c->io_deferred_free_objs = zrealloc(c->io_deferred_free_objs, new_size * sizeof(robj *));
-        c->io_deferred_free_objs_size = new_size;
+    if (c->io_deferred_objects_num >= c->io_deferred_objects_size) {
+        int new_size = !c->io_deferred_objects_size ?
+            IO_DEFERRED_OBJECTS_INIT_SIZE : c->io_deferred_objects_size * 2;
+        c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
+        c->io_deferred_objects_size = new_size;
     }
-    c->io_deferred_free_objs[c->io_deferred_free_objs_num++] = obj;
+    c->io_deferred_objects[c->io_deferred_objects_num++] = obj;
 }
 
 /* Free all objects queued by IO thread for deferred freeing.
  * Called by main thread when client returns from IO thread. */
 void freeIODeferredObjects(client *c) {
-    for (int i = 0; i < c->io_deferred_free_objs_num; i++) {
-        robj *obj = c->io_deferred_free_objs[i];
+    for (int i = 0; i < c->io_deferred_objects_num; i++) {
+        robj *obj = c->io_deferred_objects[i];
         if (obj->refcount == 1)
             tryDeferFreeClientObject(c, DEFERRED_OBJECT_TYPE_ROBJ, obj);
         else
             decrRefCount(obj);
     }
-    c->io_deferred_free_objs_num = 0;
+
+    /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
+    if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
+        c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
+    {
+        int new_size = c->io_deferred_objects_size / 2;
+        c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
+        c->io_deferred_objects_size = new_size;
+    }
+    c->io_deferred_objects_num = 0;
 }
 
 void freeClientOriginalArgv(client *c) {
@@ -1938,7 +1945,7 @@ static void resetReusableQueryBuf(client *c) {
 }
 
 /* Release references to string objects inside an encoded buffer.
- * If running in IO thread, defer the free to main thread via io_deferred_free_objs. */
+ * If running in IO thread, defer the free to main thread via io_deferred_objects. */
 static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
     int in_io_thread = (c && c->running_tid != IOTHREAD_MAIN_THREAD_ID);
     char *ptr = buf;
@@ -2166,7 +2173,7 @@ void freeClient(client *c) {
     if (c->lib_name) decrRefCount(c->lib_name);
     if (c->lib_ver) decrRefCount(c->lib_ver);
     freeIODeferredObjects(c);
-    zfree(c->io_deferred_free_objs);
+    zfree(c->io_deferred_objects);
     serverAssert(c->all_argv_len_sum == 0);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
@@ -2343,7 +2350,7 @@ static void processEncodedBufferForWrite(ReplyIOV *reply_iov, char *start_ptr, c
 
 /* Process sent data in the encoded buffer.
  * Returns pointer to the current payload header being processed, or NULL if all data is processed.
- * If running in IO thread, defer the free to main thread via io_deferred_free_objs. */
+ * If running in IO thread, defer the free to main thread via io_deferred_objects. */
 static payloadHeader *processSentDataInEncodedBuffer(client *c, char *start_ptr, char *end_ptr,
                                                      size_t *sentlen, ssize_t *remaining)
 {

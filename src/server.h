@@ -1448,6 +1448,9 @@ typedef struct client {
     pendingCommand *current_pending_cmd;
     deferredObject *deferred_objects; /* Array of deferred objects to free. */
     int deferred_objects_num;   /* Number of deferred objects to free. */
+    robj **io_deferred_objects;    /* Objects to be freed by main thread, queued by IO thread */
+    int io_deferred_objects_num;   /* Number of objects in io_deferred_objects */
+    int io_deferred_objects_size;  /* Allocated size of io_deferred_objects */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     struct redisCommand *lookedcmd; /* Command looked up in lookahead. */
     struct redisCommand *realcmd; /* The original command that was executed by the client,
@@ -1576,9 +1579,6 @@ typedef struct client {
     unsigned long long commands_processed; /* Total count of commands this client executed. */
     struct asmTask *task;       /* Atomic slot migration task */
     char *node_id;              /* Node ID to connect to for atomic slot migration */
-    robj **io_deferred_free_objs;    /* Objects to be freed by main thread, queued by IO thread */
-    int io_deferred_free_objs_num;   /* Number of objects in io_deferred_free_objs */
-    int io_deferred_free_objs_size;  /* Allocated size of io_deferred_free_objs */
 } client;
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
