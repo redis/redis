@@ -422,6 +422,8 @@ void debugCommand(client *c) {
 "    Like HTSTATS but for the hash table stored at <key>'s value.",
 "KEYSIZES-HIST-ASSERT <0|1>",
 "    Enable/disable keysizes histogram assertion after each command.",
+"ALLOCSIZES-HIST-ASSERT <0|1>",
+"    Enable/disable allocsizes histogram assertion after each command.",
 "LOADAOF",
 "    Flush the AOF buffers on disk and reload the AOF in memory.",
 "REPLICATE <string>",
@@ -552,6 +554,12 @@ NULL
         if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
             return;
         server.dbg_assert_keysizes = (flag != 0);
+        addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZES-HIST-ASSERT") && c->argc == 3) {
+        long long flag;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
+            return;
+        server.dbg_assert_allocsizes = (flag != 0);
         addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
         long long flag;

@@ -1152,11 +1152,13 @@ typedef struct redisDb {
 /* maximum number of bins of keysizes histogram */
 #define MAX_KEYSIZES_BINS 60
 #define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
+
 typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
 
 /* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
 typedef struct {
     keysizesHist keysizes_hist;
+    keysizesHist allocsizes_hist;
 } kvstoreMetadata;
 
 /* Like kvstoreMetadata, this one per dict */
@@ -2415,6 +2417,7 @@ struct redisServer {
     /* Local environment */
     char *locale_collate;
     int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
+    int dbg_assert_allocsizes;     /* Assert allocsizes histogram after each command */
     int dbg_assert_alloc_per_slot; /* Assert per-slot alloc_size after each command */
 };
 
@@ -3801,9 +3804,11 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
 
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
-void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize);
+void updateSlotAllocSize(redisDb *db, int didx, uint32_t type, int64_t oldsize, int64_t newsize);
+void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t type, int64_t oldLen, int64_t newLen);
 void dbgAssertKeysizesHist(redisDb *db);
 void dbgAssertAllocSizePerSlot(redisDb *db);
+void dbgAssertAllocsizesHist(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);

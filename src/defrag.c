@@ -1077,7 +1077,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
         serverPanic("Unknown object type");
     }
     if (server.memory_tracking_per_slot)
-        updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(ob));
+        updateSlotAllocSize(db, slot, ob->type, oldsize, kvobjAllocSize(ob));
 }
 
 /* Defrag scan callback for the main db dictionary. */
@@ -1224,7 +1224,7 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
             oldsize = kvobjAllocSize(kv);
         int timeout = (defragLaterItem(kv, &defrag_keys_ctx->defrag_later_cursor, endtime, defrag_keys_ctx->dbid) == 1);
         if (server.memory_tracking_per_slot && kv)
-            updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kv));
+            updateSlotAllocSize(db, slot, kv->type, oldsize, kvobjAllocSize(kv));
         if (key_defragged != server.stat_active_defrag_hits) {
             server.stat_active_defrag_key_hits++;
         } else {

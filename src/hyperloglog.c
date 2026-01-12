@@ -1631,7 +1631,7 @@ void pfaddCommand(client *c) {
     }
     oldlen = stringObjectLen(kv);
     if (server.memory_tracking_per_slot)
-        oldsize = stringObjectAllocSize(kv);
+        oldsize = kvobjAllocSize(kv);
 
     /* Perform the low level ADD operation for every element. */
     for (j = 2; j < c->argc; j++) {
@@ -1644,7 +1644,7 @@ void pfaddCommand(client *c) {
         case -1:
             addReplyError(c,invalid_hll_err);
             if (server.memory_tracking_per_slot)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldsize, kvobjAllocSize(kv));
             return;
         }
     }
@@ -1652,7 +1652,7 @@ void pfaddCommand(client *c) {
     hdr = kv->ptr;
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldlen, stringObjectLen(kv));
     if (server.memory_tracking_per_slot)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldsize, kvobjAllocSize(kv));
     if (updated) {
         HLL_INVALIDATE_CACHE(hdr);
         keyModified(c,c->db,c->argv[1],kv,1);
@@ -1806,7 +1806,7 @@ void pfmergeCommand(client *c) {
 
     uint64_t oldLen = stringObjectLen(kv);
     if (server.memory_tracking_per_slot)
-        oldsize = stringObjectAllocSize(kv);
+        oldsize = kvobjAllocSize(kv);
 
     /* Convert the destination object to dense representation if at least
      * one of the inputs was dense. */
@@ -1835,7 +1835,7 @@ void pfmergeCommand(client *c) {
     HLL_INVALIDATE_CACHE(hdr);
 
     if (server.memory_tracking_per_slot)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, stringObjectAllocSize(kv));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldsize, kvobjAllocSize(kv));
     keyModified(c,c->db,c->argv[1],kv,1);
     /* We generate a PFADD event for PFMERGE for semantical simplicity
      * since in theory this is a mass-add of elements. */
@@ -1999,7 +1999,7 @@ void pfdebugCommand(client *c) {
     o = dbUnshareStringValue(c->db,c->argv[2],o);
     hdr = o->ptr;
     if (server.memory_tracking_per_slot)
-        oldsize = stringObjectAllocSize(o);
+        oldsize = kvobjAllocSize(o);
 
     /* PFDEBUG GETREG <key> */
     if (!strcasecmp(cmd,"getreg")) {
@@ -2013,7 +2013,7 @@ void pfdebugCommand(client *c) {
             }
             updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
             if (server.memory_tracking_per_slot)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldsize, kvobjAllocSize(o));
             server.dirty++; /* Force propagation on encoding change. */
         }
 
@@ -2082,7 +2082,7 @@ void pfdebugCommand(client *c) {
             }
             updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldlen, stringObjectLen(o));
             if (server.memory_tracking_per_slot)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), oldsize, stringObjectAllocSize(o));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), OBJ_STRING, oldsize, kvobjAllocSize(o));
             conv = 1;
             server.dirty++; /* Force propagation on encoding change. */
         }
