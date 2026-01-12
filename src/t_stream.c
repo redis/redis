@@ -49,8 +49,8 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 /* Forward declarations for IDMP functions (defined at end of file) */
 static void trackStreamIdmpEntries(client *c, robj *key);
 static void streamClearIdmpEntries(stream *s);
-static void idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, const streamID *id);
-static int idmpLookupAndReply(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, client *c);
+static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id);
+static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
 static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
@@ -2435,7 +2435,7 @@ void streamRewriteTrimArgument(client *c, stream *s, int trim_strategy, int idx)
     decrRefCount(arg);
 }
 
-/* XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [IDMPAUTO | IDMP iid] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] <ID or *> [field value] [field value] ... */
+/* XADD key [NOMKSTREAM] [KEEPREF | DELREF | ACKED] [IDMPAUTO pid | IDMP pid iid] [(MAXLEN [~|=] <count> | MINID [~|=] <id>) [LIMIT <entries>]] <ID or *> [field value] [field value] ... */
 void xaddCommand(client *c) {
     /* Parse options. */
     streamAddTrimArgs parsed_args;
@@ -2472,6 +2472,8 @@ void xaddCommand(client *c) {
     char *iid_str = NULL;
     size_t iid_len = 0;
     idmpProducer *producer = NULL;
+    idmpEntry *entry = NULL;
+    
     if (parsed_args.idmp_pid != NULL) {
         /* Get or create the producer for this pid */
         char *pid_str = parsed_args.idmp_pid->ptr;
@@ -2495,8 +2497,13 @@ void xaddCommand(client *c) {
             iid_len = sdslen((sds)iid_str);
         }
         
+        /* Create entry for lookup and potential insertion */
+        entry = idmpEntryCreate(iid_str, iid_len, &s->alloc_size);
+        
         /* Check if IID already exists and reply if found */
-        if (idmpLookupAndReply(s, producer, iid_str, iid_len, c)) {
+        if (idmpLookupAndReply(s, producer, entry, c)) {
+            /* IID already exists, free the entry and return */
+            idmpEntryFree(entry, &s->alloc_size);
             return;
         }
     }
@@ -2505,6 +2512,7 @@ void xaddCommand(client *c) {
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
         addReplyError(c,"The stream has exhausted the last possible ID, "
                         "unable to add more items");
+        idmpEntryFree(entry, &s->alloc_size);
         return;
     }
 
@@ -2522,6 +2530,7 @@ void xaddCommand(client *c) {
             addReplyError(c,"Elements are too large to be stored");
         if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
             updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
+        idmpEntryFree(entry, &s->alloc_size);
         return;
     }
     sds replyid = createStreamIDString(&id);
@@ -2529,7 +2538,7 @@ void xaddCommand(client *c) {
 
     /* IDMP: Insert the entry now that we have the actual ID */
     if (parsed_args.idmp_pid != NULL) {
-        idmpInsertEntry(s, producer, iid_str, iid_len, &id);
+        idmpInsertEntry(s, producer, entry, &id);
         trackStreamIdmpEntries(c, c->argv[1]);
     }
 
@@ -5464,14 +5473,12 @@ void idmpProducerFree(idmpProducer *producer, size_t *alloc_size) {
 
 /* Check if an IID already exists in the producer's idmp_dict.
  * If found, sends the existing stream ID as a reply and returns 1.
- * Returns 0 if the IID was not found. */
-static int idmpLookupAndReply(stream *s, idmpProducer *producer, const char *iid, size_t iid_len, client *c) {
-    /* Allocate lookup entry on stack with embedded iid using alloca */
-    idmpEntry *lookup_entry = alloca(sizeof(idmpEntry) + iid_len);
-    lookup_entry->iid_len = iid_len;
-    memcpy(lookup_entry->iid, iid, iid_len);
-    
-    dictEntry *de = dictFind(producer->idmp_dict, lookup_entry);
+ * Returns 0 if the IID was not found.
+ * 
+ * The 'entry' parameter should be an idmpEntry with the IID already set
+ * (iid and iid_len fields must be initialized). */
+static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c) {
+    dictEntry *de = dictFind(producer->idmp_dict, entry);
     if (de != NULL) {
         /* IID already exists, return the existing stream ID */
         idmpEntry *existing = (idmpEntry *)dictGetKey(de);
@@ -5482,23 +5489,21 @@ static int idmpLookupAndReply(stream *s, idmpProducer *producer, const char *iid
     return 0;
 }
 
-/* Insert a new idmpEntry into the producer's dict and linked list with the given stream ID. */
-static void idmpInsertEntry(stream *s, idmpProducer *producer, const char *iid, size_t iid_len,
-                             const streamID *id) {
-    /* Create entry with the actual stream ID */
-    idmpEntry *new_entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
-    new_entry->next = NULL;
-    new_entry->id = *id;
+/* Insert an idmpEntry into the producer's dict and linked list with the given stream ID. */
+static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id) {
+    /* Set the stream ID and initialize next pointer */
+    entry->next = NULL;
+    entry->id = *id;
 
     /* Insert into dict (should always succeed since we already checked with lookup) */
-    serverAssert(dictAdd(producer->idmp_dict, new_entry, NULL) == DICT_OK);
+    serverAssert(dictAdd(producer->idmp_dict, entry, NULL) == DICT_OK);
     
     /* Add to linked list tail */
     if (producer->idmp_tail == NULL) {
-        producer->idmp_head = producer->idmp_tail = new_entry;
+        producer->idmp_head = producer->idmp_tail = entry;
     } else {
-        producer->idmp_tail->next = new_entry;
-        producer->idmp_tail = new_entry;
+        producer->idmp_tail->next = entry;
+        producer->idmp_tail = entry;
     }
     
     s->iids_added++;
