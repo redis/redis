@@ -1693,7 +1693,7 @@ void ioDeferFreeRobj(client *c, robj *obj) {
 
 /* Free all objects queued by IO thread for deferred freeing.
  * Called by main thread when client returns from IO thread. */
-void freeIODeferredObjects(client *c) {
+void freeClientIODeferredObjects(client *c) {
     for (int i = 0; i < c->io_deferred_objects_num; i++) {
         robj *obj = c->io_deferred_objects[i];
         if (obj->refcount == 1)
@@ -2089,6 +2089,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
+    freeClientIODeferredObjects(c);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
@@ -2172,7 +2173,6 @@ void freeClient(client *c) {
     if (c->name) decrRefCount(c->name);
     if (c->lib_name) decrRefCount(c->lib_name);
     if (c->lib_ver) decrRefCount(c->lib_ver);
-    freeIODeferredObjects(c);
     zfree(c->io_deferred_objects);
     serverAssert(c->all_argv_len_sum == 0);
     sdsfree(c->peerid);
