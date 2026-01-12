@@ -2845,7 +2845,6 @@ void moduleDefragEnd(void);
 void *moduleGetHandleByName(char *modulename);
 int moduleIsModuleCommand(void *module_handle, struct redisCommand *cmd);
 int moduleHasSubscribersForKeyspaceEvent(int type);
-uint64_t moduleTypeEncodeId(const char *name, int encver);
 
 /* pcmd */
 void initPendingCommand(pendingCommand *pcmd);
