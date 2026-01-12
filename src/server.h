@@ -1078,7 +1078,6 @@ struct redisObject {
     unsigned expirable : 1; /* 1 if this key has expiration time attached.
                              * If set, then this object is of type kvobj */
     unsigned refcount : OBJ_REFCOUNT_BITS;
-
     void *ptr;
 };
 
@@ -1093,10 +1092,10 @@ char *getObjectTypeName(robj*);
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
     _var.refcount = OBJ_STATIC_REFCOUNT; \
-    _var.iskvobj = 0; \
-    _var.expirable = 0; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
+    _var.expirable = 0; \
+    _var.iskvobj = 0; \
     _var.ptr = _ptr; \
 } while(0)
 

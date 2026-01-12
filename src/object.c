@@ -58,17 +58,16 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire) {
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
+    o->refcount = 1;
     o->lru = 0;
     o->iskvobj = 1;
-    o->expirable = 0;
-    o->refcount = 1;
 
     /* If extra space allows, pre-allocate anyway expiration */
     if ((!hasExpire) && (bufsize >= min_size + sizeof(long long))) {
         hasExpire = 1;
         min_size += sizeof(long long);
     }
-    if (hasExpire) o->expirable = 1;
+    o->expirable = hasExpire;
 
     /* The memory after the struct where we embedded data. */
     char *data = (void *)(o + 1);
@@ -91,10 +90,10 @@ robj *createObject(int type, void *ptr) {
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
-    o->iskvobj = 0;
-    o->expirable = 0;
     o->refcount = 1;
     o->lru = 0;
+    o->iskvobj = 0;
+    o->expirable = 0;
     return o;
 }
 
@@ -166,10 +165,10 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     robj *o = zmalloc_usable(min_size, &bufsize);
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
-    o->lru = 0;
-    o->iskvobj = 1;
-    o->expirable = (hasExpire != 0);
     o->refcount = 1;
+    o->lru = 0;
+    o->expirable = (hasExpire != 0);
+    o->iskvobj = 1;
 
     /* If the allocation has enough space for an expire field, add it even if we
      * don't need it now. Then we don't need to realloc if it's needed later. */
@@ -211,16 +210,16 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
 robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
-
+    
     /* Allocate object memory */
     size_t bufsize = 0;
     robj *o = zmalloc_usable(sizeof(robj) + val_sds_size, &bufsize);
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
-    o->iskvobj = 0;
-    o->expirable = 0;
     o->refcount = 1;
     o->lru = 0;
+    o->expirable = 0;
+    o->iskvobj = 0;
 
     /* The memory after the struct where we embedded data. */
     char *data = (char *)(o + 1);
@@ -581,12 +580,17 @@ void freeStreamObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
+    if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
         o->refcount++;
-    } else if (o->refcount == OBJ_STATIC_REFCOUNT) {
-        serverPanic("You tried to retain an object allocated in the stack");
+    } else {
+        if (o->refcount == OBJ_SHARED_REFCOUNT) {
+            /* Nothing to do: this refcount is immutable. */
+        } else if (o->refcount == OBJ_STATIC_REFCOUNT) {
+            serverPanic("You tried to retain an object allocated in the stack");
+        } else {
+            serverPanic("You tried to retain an object with maximum refcount");
+        }
     }
-    /* OBJ_SHARED_REFCOUNT: Nothing to do, this refcount is immutable. */
 }
 
 void decrRefCount(robj *o) {
@@ -594,10 +598,11 @@ void decrRefCount(robj *o) {
         return; /* Nothing to do: this refcount is immutable. */
 
     if (unlikely(o->refcount <= 0)) {
-        serverPanic("decrRefCount against refcount <= 0");
+        serverPanic("illegal decrRefCount for object with: type %u, encoding %u, refcount %d",
+            o->type, o->encoding, o->refcount);
     }
 
-    if (--o->refcount == 0) {
+    if (--(o->refcount) == 0) {
         if (o->ptr != NULL) {
             switch(o->type) {
             case OBJ_STRING: freeStringObject(o); break;
