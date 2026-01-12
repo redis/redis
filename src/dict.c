@@ -166,6 +166,7 @@ static inline void *decodeMaskedPtr(const dictEntry *de) {
  * For even keys, we need to tag it with ENTRY_PTR_IS_EVEN_KEY. */
 static inline dictEntry *encodeEntryKey(dict *d, void *key) {
     if (d->type->keys_are_odd) {
+        debugAssert(((uintptr_t)key & ENTRY_PTR_IS_ODD_KEY) == ENTRY_PTR_IS_ODD_KEY);
         return key;
     } else {
         return encodeMaskedPtr(key, ENTRY_PTR_IS_EVEN_KEY);
