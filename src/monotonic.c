@@ -18,7 +18,13 @@ static char monotonic_info_string[32];
  * generally safe on modern systems, this link provides additional information
  * about use of the x86 TSC: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage
  *
- * To use the processor clock, either uncomment this line, or build with
+ * On ARM aarch64 systems, the hardware clock is enabled by default because the
+ * ARM Generic Timer is architecturally guaranteed to be available and monotonic
+ * on all ARMv8-A processors (see the “The Generic Timer in AArch64 state”
+ * section of the Arm Architecture Reference Manual for Armv8-A).
+ *
+ * To use the processor clock on other architectures, either uncomment this line,
+ * or build with
  *   CFLAGS="-DUSE_PROCESSOR_CLOCK"
 #define USE_PROCESSOR_CLOCK
  */
@@ -92,40 +98,7 @@ static void monotonicInit_x86linux(void) {
 }
 #endif
 
-/* Enable hardware clock by default on ARM AArch64.
- *
- * This is safe because:
- *
- * 1. Architectural guarantee:
- *    Per the Arm Architecture Reference Manual for Armv8-A,
- *    the ARM Generic Timer is mandatory for all implementations
- *    that support the AArch64 execution state. This includes the
- *    system counter and the CNTVCT_EL0 and CNTFRQ_EL0 registers
- *    (see "The Generic Timer in AArch64 state").
- *
- * 2. Runtime validation:
- *    If cntfrq_hz() returns 0, a warning is printed and hardware
- *    clock initialization is skipped (see monotonicInit_aarch64).
- *
- * 3. Automatic fallback:
- *    If hardware clock initialization fails, monotonicInit()
- *    falls back to POSIX clock_gettime() (see line 224).
- *
- * Using the hardware counter instead of gettimeofday() for command
- * latency measurement provides a significant performance improvement
- * on ARM AArch64 systems.
- *
- * To disable the hardware clock on ARM and force use of the POSIX clock,
- * build with:
- *   CFLAGS="-DDISABLE_PROCESSOR_CLOCK"
- */
-#if defined(__aarch64__) && !defined(DISABLE_PROCESSOR_CLOCK)
-#define USE_AARCH64_PROCESSOR_CLOCK 1
-#else
-#define USE_AARCH64_PROCESSOR_CLOCK 0
-#endif
-
-#if USE_AARCH64_PROCESSOR_CLOCK
+#if defined(__aarch64__)
 static long mono_ticksPerMicrosecond = 0;
 
 /* Read the clock value.
@@ -250,7 +223,7 @@ const char * monotonicInit(void) {
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif
 
-    #if USE_AARCH64_PROCESSOR_CLOCK
+    #if defined(__aarch64__)
     if (getMonotonicUs == NULL) monotonicInit_aarch64();
     #endif
 

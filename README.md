@@ -890,12 +890,6 @@ To build with support for the processor's internal instruction clock on other ar
 make CFLAGS="-DUSE_PROCESSOR_CLOCK"
 ```
 
-To explicitly disable use of the hardware clock (including on ARM aarch64 systems), build with:
-
-```sh
-make CFLAGS="-DDISABLE_PROCESSOR_CLOCK"
-```
-
 ### Verbose build
 
 Redis will build with a user-friendly colorized output by default.
