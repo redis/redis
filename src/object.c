@@ -694,10 +694,11 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         /* We iterate all nodes only when average member size is bigger than a
          * page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / zsl->length >= server.page_size) {
-            zskiplistNode *zn = zsl->tail;
+            zskiplistNode *zn = zsl->header->level[0].forward;
             while (zn != NULL) {
-                dismissSds(zn->ele);
-                zn = zn->backward;
+                zskiplistNode *next = zn->level[0].forward;
+                dismissMemory(zn, 0);
+                zn = next;
             }
         }
 
