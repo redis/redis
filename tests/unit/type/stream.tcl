@@ -2171,7 +2171,7 @@ start_server {
         assert {$id1 ne $new_id1}
     }
 
-    test "CONFIG SET stream-idmp-duration and stream-idmp-maxsize validation" {
+    test {CONFIG SET stream-idmp-duration and stream-idmp-maxsize validation} {
         # Test maximum value rejection for duration (max: 86400)
         assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 86401}
         assert_error "*must be between*" {r CONFIG SET stream-idmp-duration 100000}
