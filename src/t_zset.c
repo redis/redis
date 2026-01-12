@@ -45,7 +45,9 @@
 #include "intset.h"  /* Compact integer set structure */
 #include <math.h>
 
-//#define DBG_VERIFY_ZSL_ON_DEL 1  /* (+REDIS_TEST) To verify zsl struct on every del */
+#if 0
+#define DBG_VERIFY_ZSL_ON_DEL 1 /* Enable to verify zsl structure on every zslDelete() */
+#endif
 
 /*-----------------------------------------------------------------------------
  * Skiplist implementation of the low level API
@@ -169,7 +171,7 @@ size_t zslAllocSize(const zskiplist *zsl) { return zsl->alloc_size; }
  *
  * Panics with detailed error message if any invariant is violated. */
 static void zslDebugVerifyStruct(zskiplist *zsl) {
-#if (!DBG_VERIFY_ZSL_ON_DEL || !REDIS_TEST)
+#if (!DBG_VERIFY_ZSL_ON_DEL)
     UNUSED(zsl);
 #else
     zskiplistNode *x;
