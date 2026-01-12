@@ -8757,23 +8757,23 @@ static void vsetRecallMode(void) {
     double recall_thresholds[] = {0, 50, 60, 70, 80, 85, 90, 95, 99, 100};
     int num_thresholds = sizeof(recall_thresholds) / sizeof(recall_thresholds[0]);
     for (int i = 0; i < num_thresholds; i++) {
-	double target_recall = recall_thresholds[i];
-	/* Convert target recall to histogram value. */
-	int64_t target_value = (int64_t)(target_recall * 100.0) + 1;
+        double target_recall = recall_thresholds[i];
+        /* Convert target recall to histogram value. */
+        int64_t target_value = (int64_t)(target_recall * 100.0) + 1;
 
-	/* Find what percentile this value is at. */
-	double percentile = 0.0;
-	for (double p = 0.0; p <= 100.0; p += 0.1) {
-	    int64_t value_at_p = hdr_value_at_percentile(recall_histogram, p);
-	    if (value_at_p >= target_value) {
-		percentile = p;
-		break;
-	    }
-	}
+        /* Find what percentile this value is at. */
+        double percentile = 0.0;
+        for (double p = 0.0; p <= 100.0; p += 0.1) {
+            int64_t value_at_p = hdr_value_at_percentile(recall_histogram, p);
+            if (value_at_p >= target_value) {
+            percentile = p;
+            break;
+            }
+        }
 
-	/* Percentage achieving AT LEAST this recall is (100 - percentile) */
-	double pct_achieving = 100.0 - percentile;
-	printf("%6.1f%%     %10.2f%%\n", target_recall, pct_achieving);
+        /* Percentage achieving AT LEAST this recall is (100 - percentile) */
+        double pct_achieving = 100.0 - percentile;
+        printf("%6.1f%%     %10.2f%%\n", target_recall, pct_achieving);
     }
 
     hdr_close(recall_histogram);
