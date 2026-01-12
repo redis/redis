@@ -3186,7 +3186,7 @@ version,tls_usage);
 "                     Default time interval is 1 sec. Change it using -i.\n"
 "  --vset-recall <key> Enable VSIM recall test mode for the specified key\n"
 "                     (that must be a vector set). Random vectors are created\n"
-"                     mixing componets from other elements. A VSIM is then\n"
+"                     mixing components from other elements. A VSIM is then\n"
 "                     executed and checked against ground truth.\n"
 "  --vset-recall-count <count> How many top elements to fetch per query.\n"
 "  --vset-recall-ef <ef> HSNW EF (search effort) to use. Default 500.\n"
