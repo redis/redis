@@ -468,11 +468,11 @@ int dictEncObjKeyCompare(dictCmpCache *cache, const void *key1, const void *key2
      * good reasons, because it would incrRefCount() the object, which
      * is invalid. So we check to make sure dictFind() works with static
      * objects as well. */
-    if (robj_refcount(o1) != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
-    if (robj_refcount(o2) != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
+    if (o1->refcount != OBJ_STATIC_REFCOUNT) o1 = getDecodedObject(o1);
+    if (o2->refcount != OBJ_STATIC_REFCOUNT) o2 = getDecodedObject(o2);
     cmp = dictSdsKeyCompare(cache,o1->ptr,o2->ptr);
-    if (robj_refcount(o1) != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
-    if (robj_refcount(o2) != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
+    if (o1->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o1);
+    if (o2->refcount != OBJ_STATIC_REFCOUNT) decrRefCount(o2);
     return cmp;
 }
 
@@ -2869,6 +2869,7 @@ void initServer(void) {
     server.monitors = listCreate();
     server.clients_pending_write = listCreate();
     server.clients_pending_read = listCreate();
+    server.clients_with_pending_ref_reply = listCreate();
     server.clients_timeout_table = raxNew();
     server.replication_allowed = 1;
     server.slaveseldb = -1; /* Force to emit the first SELECT command. */

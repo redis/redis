@@ -685,7 +685,7 @@ NULL
             "Value at:%p refcount:%d "
             "encoding:%s serializedlength:%zu "
             "lru:%d lru_seconds_idle:%llu%s",
-            (void*)kv, robj_refcount(kv),
+            (void*)kv, kv->refcount,
             strenc, rdbSavedObjectLen(kv, c->argv[2], c->db->id),
             kv->lru, estimateObjectIdleTime(kv)/1000, extra);
     } else if (!strcasecmp(c->argv[1]->ptr,"sdslen") && c->argc == 3) {
@@ -1250,14 +1250,14 @@ void _serverAssertPrintClientInfo(const client *c) {
             arg = buf;
         }
         serverLog(LL_WARNING,"client->argv[%d] = \"%s\" (refcount: %d)",
-            j, arg, robj_refcount(c->argv[j]));
+            j, arg, c->argv[j]->refcount);
     }
 }
 
 void serverLogObjectDebugInfo(const robj *o) {
     serverLog(LL_WARNING,"Object type: %u", o->type);
     serverLog(LL_WARNING,"Object encoding: %u", o->encoding);
-    serverLog(LL_WARNING,"Object refcount: %d", robj_refcount(o));
+    serverLog(LL_WARNING,"Object refcount: %d", o->refcount);
 #if UNSAFE_CRASH_REPORT
     /* This code is now disabled. o->ptr may be unreliable to print. in some
      * cases a ziplist could have already been freed by realloc, but not yet

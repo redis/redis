@@ -59,22 +59,22 @@ kvobj *kvobjCreate(int type, const sds key, void *ptr, int hasExpire) {
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
     o->lru = 0;
-    o->atomic_flags_refcount = 0;
-    robj_set_refcount(o, 1);
-    robj_set_iskvobj(o);
+    o->iskvobj = 1;
+    o->expirable = 0;
+    o->refcount = 1;
 
     /* If extra space allows, pre-allocate anyway expiration */
     if ((!hasExpire) && (bufsize >= min_size + sizeof(long long))) {
         hasExpire = 1;
         min_size += sizeof(long long);
     }
-    if (hasExpire) robj_set_expirable(o);
+    if (hasExpire) o->expirable = 1;
 
     /* The memory after the struct where we embedded data. */
     char *data = (void *)(o + 1);
 
     /* Set the expire field. */
-    if (robj_expirable(o)) {
+    if (o->expirable) {
         *(long long *)data = -1;
         data += sizeof(long long);
     }
@@ -91,14 +91,15 @@ robj *createObject(int type, void *ptr) {
     o->type = type;
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
-    o->atomic_flags_refcount = 0;
-    robj_set_refcount(o, 1);
+    o->iskvobj = 0;
+    o->expirable = 0;
+    o->refcount = 1;
     o->lru = 0;
     return o;
 }
 
 void initObjectLRUOrLFU(robj *o) {
-    if (robj_refcount(o) == OBJ_SHARED_REFCOUNT)
+    if (o->refcount == OBJ_SHARED_REFCOUNT)
         return;
     /* Set the LRU to the current lruclock (seconds resolution), or
      * alternatively the LFU counter. */
@@ -122,8 +123,8 @@ void initObjectLRUOrLFU(robj *o) {
  *
  */
 robj *makeObjectShared(robj *o) {
-    serverAssert(robj_refcount(o) == 1);
-    robj_set_refcount(o, OBJ_SHARED_REFCOUNT);
+    serverAssert(o->refcount == 1);
+    o->refcount = OBJ_SHARED_REFCOUNT;
     return o;
 }
 
@@ -166,15 +167,14 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
     o->lru = 0;
-    o->atomic_flags_refcount = 0;
-    robj_set_refcount(o, 1);
-    if (hasExpire != 0) robj_set_expirable(o);
-    robj_set_iskvobj(o);
+    o->iskvobj = 1;
+    o->expirable = (hasExpire != 0);
+    o->refcount = 1;
 
     /* If the allocation has enough space for an expire field, add it even if we
      * don't need it now. Then we don't need to realloc if it's needed later. */
-    if (!robj_expirable(o) && bufsize >= min_size + sizeof(long long)) {
-        robj_set_expirable(o);
+    if (!o->expirable && bufsize >= min_size + sizeof(long long)) {
+        o->expirable = 1;
         min_size += sizeof(long long);
     }
 
@@ -182,7 +182,7 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
     char *data = (char *)(o + 1);
 
     /* Set the expire field. */
-    if (robj_expirable(o)) {
+    if (o->expirable) {
         *(long long *)data = -1;
         data += sizeof(long long);
     }
@@ -211,14 +211,15 @@ static kvobj *kvobjCreateEmbedString(const char *val_ptr, size_t val_len,
 robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
     /* Calculate size for embedded value (always SDS_TYPE_8) */
     size_t val_sds_size = sdsReqSize(val_len, SDS_TYPE_8);
-    
+
     /* Allocate object memory */
     size_t bufsize = 0;
     robj *o = zmalloc_usable(sizeof(robj) + val_sds_size, &bufsize);
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
-    o->atomic_flags_refcount = 0;
-    robj_set_refcount(o, 1);
+    o->iskvobj = 0;
+    o->expirable = 0;
+    o->refcount = 1;
     o->lru = 0;
 
     /* The memory after the struct where we embedded data. */
@@ -233,11 +234,11 @@ robj *createEmbeddedStringObject(const char *val_ptr, size_t val_len) {
 
 sds kvobjGetKey(const kvobj *kv) {
     unsigned char *data = (void *)(kv + 1);
-    if (robj_expirable(kv)) {
+    if (kv->expirable) {
         /* Skip expire field */
         data += sizeof(long long);
     }
-    if (robj_iskvobj(kv)) {
+    if (kv->iskvobj) {
         uint8_t hdr_size = *(uint8_t *)data;
         data += 1 + hdr_size;
         return (sds)data;
@@ -247,7 +248,7 @@ sds kvobjGetKey(const kvobj *kv) {
 
 long long kvobjGetExpire(const kvobj *kv) {
     unsigned char *data = (void *)(kv + 1);
-    if (robj_expirable(kv)) {
+    if (kv->expirable) {
         return *(long long *)data;
     } else {
         return -1;
@@ -258,7 +259,7 @@ long long kvobjGetExpire(const kvobj *kv) {
  * the old object's reference counter is decremented and possibly freed. Use the
  * returned object instead of 'val' after calling this function. */
 kvobj *kvobjSetExpire(kvobj *kv, long long expire) {
-    if (!robj_expirable(kv)) {
+    if (!kv->expirable) {
         /* Nothing to do if kv not expirable and expire is -1 */
         if (expire == -1)
             return kv;
@@ -299,7 +300,7 @@ kvobj *kvobjSet(sds key, robj *val, int hasExpire) {
 
     /* Create a new object with embedded key. Reuse ptr if possible. */
     void *valptr;
-    if (robj_refcount(val) == 1) {
+    if (val->refcount == 1) {
         /* Reuse the ptr. There are no other references to val. */
         valptr = val->ptr;
         val->ptr = NULL;
@@ -580,39 +581,23 @@ void freeStreamObject(robj *o) {
 }
 
 void incrRefCount(robj *o) {
-    uint32_t atomic_val;
-    atomicGet(robj_atomic_flags_refcount(o), atomic_val);
-    unsigned int refcount = OBJ_GET_REFCOUNT(atomic_val);
-
-    if (refcount < OBJ_FIRST_SPECIAL_REFCOUNT - 1) {
-        atomicIncr(robj_atomic_flags_refcount(o), 1);
-    } else {
-        if (refcount == OBJ_SHARED_REFCOUNT) {
-            /* Nothing to do: this refcount is immutable. */
-        } else if (refcount == OBJ_STATIC_REFCOUNT) {
-            serverPanic("You tried to retain an object allocated in the stack");
-        } else {
-            serverPanic("You tried to retain an object with maximum refcount");
-        }
+    if (o->refcount < OBJ_FIRST_SPECIAL_REFCOUNT) {
+        o->refcount++;
+    } else if (o->refcount == OBJ_STATIC_REFCOUNT) {
+        serverPanic("You tried to retain an object allocated in the stack");
     }
+    /* OBJ_SHARED_REFCOUNT: Nothing to do, this refcount is immutable. */
 }
 
 void decrRefCount(robj *o) {
-    uint32_t atomic_val;
-    atomicGet(robj_atomic_flags_refcount(o), atomic_val);
-    unsigned int refcount = OBJ_GET_REFCOUNT(atomic_val);
-
-    if (refcount == OBJ_SHARED_REFCOUNT)
+    if (o->refcount == OBJ_SHARED_REFCOUNT)
         return; /* Nothing to do: this refcount is immutable. */
 
-    if (unlikely(refcount <= 0)) {
-        serverPanic("illegal decrRefCount for object with: type %u, encoding %u, refcount %d",
-            o->type, o->encoding, refcount);
+    if (unlikely(o->refcount <= 0)) {
+        serverPanic("decrRefCount against refcount <= 0");
     }
 
-    atomicDecrGetWithSync(robj_atomic_flags_refcount(o), atomic_val, 1);
-    refcount = OBJ_GET_REFCOUNT(atomic_val);
-    if (refcount == 0) {
+    if (--o->refcount == 0) {
         if (o->ptr != NULL) {
             switch(o->type) {
             case OBJ_STRING: freeStringObject(o); break;
@@ -792,7 +777,7 @@ void dismissObject(robj *o, size_t size_hint) {
     /* Currently we use zmadvise_dontneed only when we use jemalloc with Linux.
      * so we avoid these pointless loops when they're not going to do anything. */
 #if defined(USE_JEMALLOC) && defined(__linux__)
-    if (robj_refcount(o) != 1) return;
+    if (o->refcount != 1) return;
     switch(o->type) {
         case OBJ_STRING: dismissStringObject(o); break;
         case OBJ_LIST: dismissListObject(o, size_hint); break;
@@ -868,7 +853,7 @@ robj *tryObjectEncodingEx(robj *o, int try_trim) {
     /* It's not safe to encode shared objects: shared objects can be shared
      * everywhere in the "object space" of Redis and may end in places where
      * they are not handled. We handle them only as values in the keyspace. */
-     if (robj_refcount(o) > 1) return o;
+     if (o->refcount > 1) return o;
 
     /* Check if we can represent this string as a long integer.
      * Note that we are sure that a string larger than 20 chars is not
@@ -1230,9 +1215,9 @@ size_t kvobjComputeSize(robj *key, kvobj *o, size_t sample_size, int dbid) {
 
 size_t kvobjAllocSize(kvobj *o) {
     /* All kv-objects has at least kvobj header and embedded key */
-    serverAssert(robj_iskvobj(o));
+    serverAssert(o->iskvobj);
     size_t asize = sizeof(kvobj);
-    if (robj_expirable(o)) asize += sizeof(long long);
+    if (o->expirable) asize += sizeof(long long);
     /* Add embedded key size */
     asize += 1; /* embedded key header size */
     asize += sdsAllocSize(kvobjGetKey(o));
@@ -1599,7 +1584,7 @@ NULL
     } else if (!strcasecmp(c->argv[1]->ptr,"refcount") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;
-        addReplyLongLong(c, robj_refcount(kv));
+        addReplyLongLong(c, kv->refcount);
     } else if (!strcasecmp(c->argv[1]->ptr,"encoding") && c->argc == 3) {
         if ((kv = kvobjCommandLookupOrReply(c, c->argv[2], shared.null[c->resp]))
                 == NULL) return;

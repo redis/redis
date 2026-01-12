@@ -295,7 +295,7 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
  * Note that the caller is responsible for updating any other references to the robj. */
 robj *activeDefragStringObEx(robj* ob, unsigned int expected_refcount) {
     robj *ret = NULL;
-    if (robj_refcount(ob)!=expected_refcount)
+    if (ob->refcount!=expected_refcount)
         return NULL;
 
     /* try to defrag robj (only if not an EMBSTR type (handled below). */
@@ -1142,7 +1142,7 @@ void defragPubsubScanCallback(void *privdata, const dictEntry *de, dictEntryLink
     dict *newclients, *clients = dictGetVal(de);
 
     /* Try to defrag the channel name. */
-    serverAssert(robj_refcount(channel) == dictSize(clients) + 1);
+    serverAssert(channel->refcount == dictSize(clients) + 1);
     newchannel = activeDefragStringObEx(channel, dictSize(clients) + 1);
     if (newchannel) {
         kvstoreDictSetKey(pubsub_channels, ctx->kvstate.slot, (dictEntry*)de, newchannel);

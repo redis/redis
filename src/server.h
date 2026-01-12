@@ -1064,53 +1064,23 @@ struct RedisModuleDigest {
 #define LRU_CLOCK_RESOLUTION 1000 /* LRU clock resolution in ms */
 
 #define OBJ_REFCOUNT_BITS 30
-#define OBJ_REFCOUNT_MASK ((1U << OBJ_REFCOUNT_BITS) - 1) /* Mask to extract refcount. */
 #define OBJ_SHARED_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 1) /* Global object never destroyed. */
 #define OBJ_STATIC_REFCOUNT ((1 << OBJ_REFCOUNT_BITS) - 2) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
-
-/* Extract refcount from atomic_flags_refcount. */
-#define OBJ_GET_REFCOUNT(atomic_val) ((atomic_val) & OBJ_REFCOUNT_MASK)
 
 struct redisObject {
     unsigned type:4;
     unsigned encoding:4;
     unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
-                            * LFU data (least significant 16 bits access time). */
-
-    /* Bit layout for atomic_flags_refcount (32 bits total):
-     *   bit 31     (1 bit):   iskvobj   - 1 if this struct serves as a kvobj base
-     *   bit 30     (1 bit):   expirable - 1 if this key has expiration time attached
-     *   bits 0-29  (30 bits): refcount
-     *
-     * The flags (expirable, iskvobj) must be set at creation time and never
-     * modified afterwards. Modifying these bits non-atomically while IO threads
-     * are updating refcount could result in UB. */
-    redisAtomic uint32_t atomic_flags_refcount;
+                            * LFU data (least significant 8 bits frequency
+                            * and most significant 16 bits access time). */
+    unsigned iskvobj : 1;   /* 1 if this struct serves as a kvobj base */
+    unsigned expirable : 1; /* 1 if this key has expiration time attached.
+                             * If set, then this object is of type kvobj */
+    unsigned refcount : OBJ_REFCOUNT_BITS;
 
     void *ptr;
 };
-
-/* Bit positions for flags in atomic_flags_refcount. */
-#define OBJ_EXPIRABLE_BIT 30
-#define OBJ_ISKVOBJ_BIT 31
-
-/* Access macros for redisObject fields using bitwise operations. */
-#define robj_atomic_flags_refcount(o) ((o)->atomic_flags_refcount)
-
-static inline unsigned int robj_refcount(const robj *o) {
-    uint32_t val;
-    atomicGet(o->atomic_flags_refcount, val);
-    return OBJ_GET_REFCOUNT(val);
-}
-#define robj_expirable(o) (((o)->atomic_flags_refcount >> OBJ_EXPIRABLE_BIT) & 1)
-#define robj_iskvobj(o) (((o)->atomic_flags_refcount >> OBJ_ISKVOBJ_BIT) & 1)
-#define robj_set_refcount(o, val) \
-    ((o)->atomic_flags_refcount = ((o)->atomic_flags_refcount & ~OBJ_REFCOUNT_MASK) | ((val) & OBJ_REFCOUNT_MASK))
-#define robj_set_expirable(o) \
-    ((o)->atomic_flags_refcount |= (1U << OBJ_EXPIRABLE_BIT))
-#define robj_set_iskvobj(o) \
-    ((o)->atomic_flags_refcount |= (1U << OBJ_ISKVOBJ_BIT))
 
 /* The string name for an object's type as listed above
  * Native types are checked against the OBJ_STRING, OBJ_LIST, OBJ_* defines,
@@ -1122,7 +1092,9 @@ char *getObjectTypeName(robj*);
  * we'll update it when the structure is changed, to avoid bugs like
  * bug #85 introduced exactly in this way. */
 #define initStaticStringObject(_var,_ptr) do { \
-    _var.atomic_flags_refcount = OBJ_STATIC_REFCOUNT; \
+    _var.refcount = OBJ_STATIC_REFCOUNT; \
+    _var.iskvobj = 0; \
+    _var.expirable = 0; \
     _var.type = OBJ_STRING; \
     _var.encoding = OBJ_ENCODING_RAW; \
     _var.ptr = _ptr; \
@@ -1582,6 +1554,8 @@ typedef struct client {
 
     /* list node in clients_pending_write list */
     listNode clients_pending_write_node;
+    /* list node in clients_with_pending_ref_reply list */
+    listNode *pending_ref_reply_node;
     /* Statistics and metrics */
     size_t net_input_bytes_curr_cmd; /* Total network input bytes read for the
                                       * execution of this client's current command. */
@@ -1603,6 +1577,9 @@ typedef struct client {
     unsigned long long commands_processed; /* Total count of commands this client executed. */
     struct asmTask *task;       /* Atomic slot migration task */
     char *node_id;              /* Node ID to connect to for atomic slot migration */
+    robj **io_deferred_free_objs;    /* Objects to be freed by main thread, queued by IO thread */
+    int io_deferred_free_objs_num;   /* Number of objects in io_deferred_free_objs */
+    int io_deferred_free_objs_size;  /* Allocated size of io_deferred_free_objs */
 } client;
 
 typedef struct __attribute__((aligned(CACHE_LINE_SIZE))) {
@@ -1975,6 +1952,7 @@ struct redisServer {
     list *clients_to_close;     /* Clients to close asynchronously */
     list *clients_pending_write; /* There is to write or install handler. */
     list *clients_pending_read;  /* Client has pending read socket buffers. */
+    list *clients_with_pending_ref_reply; /* Clients with referenced reply objects. */
     list *slaves, *monitors;    /* List of slaves and MONITORs */
     client *current_client;     /* The client that triggered the command execution (External or AOF). */
     client *executing_client;   /* The client executing the current command (possibly script or module). */
@@ -3031,6 +3009,8 @@ void freeClientArgv(client *c);
 void freeClientPendingCommands(client *c, int num_pcmds_to_free);
 void tryDeferFreeClientObject(client *c, int type, void *ptr);
 void freeClientDeferredObjects(client *c, int free_array);
+void ioDeferFreeRobj(client *c, robj *obj);
+void freeIODeferredObjects(client *c);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);

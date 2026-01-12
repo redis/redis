@@ -11,7 +11,6 @@
  * atomicSet(var,value)  -- Set the atomic counter value
  * atomicGetWithSync(var,value)  -- 'atomicGet' with inter-thread synchronization
  * atomicSetWithSync(var,value)  -- 'atomicSet' with inter-thread synchronization
- * atomicDecrGetWithSync(var,dstvar,count) -- 'atomicDecr' and get new value with inter-thread synchronization
  * 
  * Atomic operations on flags. 
  * Flag type can be int, long, long long or their unsigned counterparts.
@@ -111,9 +110,6 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     atomic_store_explicit(&var,value,memory_order_seq_cst)
-#define atomicDecrGetWithSync(var,dstvar,count) do { \
-    dstvar = atomic_fetch_sub_explicit(&var,(count),memory_order_seq_cst) - (count); \
-} while(0)
 #define atomicFlagGetSet(var,oldvalue_var) \
     oldvalue_var = atomic_exchange_explicit(&var,1,memory_order_relaxed)
 #define REDIS_ATOMIC_API "c11-builtin"
@@ -139,9 +135,6 @@
 } while(0)
 #define atomicSetWithSync(var,value) \
     __atomic_store_n(&var,value,__ATOMIC_SEQ_CST)
-#define atomicDecrGetWithSync(var,dstvar,count) do { \
-    dstvar = __atomic_sub_fetch(&var,(count),__ATOMIC_SEQ_CST); \
-} while(0)
 #define atomicFlagGetSet(var,oldvalue_var) \
     oldvalue_var = __atomic_exchange_n(&var,1,__ATOMIC_RELAXED)
 #define REDIS_ATOMIC_API "atomic-builtin"
@@ -170,11 +163,6 @@
 #define atomicSetWithSync(var,value) do { \
     ANNOTATE_HAPPENS_BEFORE(&var);  \
     while(!__sync_bool_compare_and_swap(&var,var,value,__sync_synchronize)); \
-} while(0)
-#define atomicDecrGetWithSync(var,dstvar,count) do { \
-    ANNOTATE_HAPPENS_BEFORE(&var); \
-    dstvar = __sync_sub_and_fetch(&var,(count),__sync_synchronize); \
-    ANNOTATE_HAPPENS_AFTER(&var); \
 } while(0)
 #define atomicFlagGetSet(var,oldvalue_var) \
     oldvalue_var = __sync_val_compare_and_swap(&var,0,1)
