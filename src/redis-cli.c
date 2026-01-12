@@ -8766,8 +8766,8 @@ static void vsetRecallMode(void) {
         for (double p = 0.0; p <= 100.0; p += 0.1) {
             int64_t value_at_p = hdr_value_at_percentile(recall_histogram, p);
             if (value_at_p >= target_value) {
-            percentile = p;
-            break;
+                percentile = p;
+                break;
             }
         }
 
