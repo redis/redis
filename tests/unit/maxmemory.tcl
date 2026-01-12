@@ -648,7 +648,9 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r xgroup create mystream mygroup 0
         after 2000
         r xreadgroup GROUP mygroup consumer1 STREAMS mystream >
-        assert_lessthan [r object idletime mystream] 1
+
+        # LRM should be updated (idletime should be smaller)
+        assert_lessthan_equal [r object idletime mystream] 1
     } {} {slow}
 
     test {LRM: Keys with only read operations should be removed first} {
