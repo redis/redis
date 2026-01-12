@@ -721,18 +721,18 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
  * Time complexity: O(log N) on average, same as traditional approach but faster
  * due to avoiding string comparisons. */
 unsigned long zslGetRankByNode(zskiplist *zsl, zskiplistNode *x) {
-    unsigned long distance_to_end = 0;
+    unsigned long distanceToEnd = 0;
     int level;
     
     /* Walk forward from x to the end, using top level of each node for fast jumps */
     while (x) {
         level = zslGetNodeLevel(x) - 1;
-        distance_to_end += zslGetNodeSpanAtLevel(x, level);
+        distanceToEnd += zslGetNodeSpanAtLevel(x, level);
         x = x->level[level].forward;
     }
     
     /* Rank = total nodes - nodes after this one */
-    return zsl->length - distance_to_end;
+    return zsl->length - distanceToEnd;
 }
 
 /* Finds an element by its rank from start node. The rank argument needs to be 1-based. */
