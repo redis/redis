@@ -2083,6 +2083,8 @@ struct redisServer {
     int cluster_compatibility_sample_ratio; /* Sampling ratio for cluster mode incompatible commands. */
     int lazyexpire_nested_arbitrary_keys; /* If disabled, avoid lazy-expire from commands that touch arbitrary keys (SCAN/RANDOMKEY) within transactions */
 
+    int rewrite_ignore_module_loading; /* Don't rewrite loadmodule in config file. */
+
     /* AOF persistence */
     int aof_enabled;                /* AOF configuration */
     int aof_state;                  /* AOF_(ON|OFF|WAIT_REWRITE) */

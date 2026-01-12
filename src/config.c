@@ -1571,6 +1571,11 @@ void rewriteConfigBindOption(standardConfig *config, const char *name, struct re
 
 /* Rewrite the loadmodule option. */
 void rewriteConfigLoadmoduleOption(struct rewriteConfigState *state) {
+    if (server.rewrite_ignore_module_loading) {
+        rewriteConfigMarkAsProcessed(state,"loadmodule");
+        return;
+    }
+
     sds line;
     dictIterator di;
     dictEntry *de;
@@ -3092,6 +3097,7 @@ standardConfig static_configs[] = {
     createBoolConfig("stop-writes-on-bgsave-error", NULL, MODIFIABLE_CONFIG, server.stop_writes_on_bgsave_err, 1, NULL, NULL),
     createBoolConfig("set-proc-title", NULL, IMMUTABLE_CONFIG, server.set_proc_title, 1, NULL, NULL), /* Should setproctitle be used? */
     createBoolConfig("dynamic-hz", NULL, MODIFIABLE_CONFIG, server.dynamic_hz, 1, NULL, NULL), /* Adapt hz to # of clients.*/
+    createBoolConfig("rewrite-ignore-module-loading", NULL, MODIFIABLE_CONFIG, server.rewrite_ignore_module_loading, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-eviction", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_eviction, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-expire", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_expire, 0, NULL, NULL),
     createBoolConfig("lazyfree-lazy-server-del", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, server.lazyfree_lazy_server_del, 0, NULL, NULL),
