@@ -878,15 +878,10 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
         idmpProducer *producer = idmpProducerCreate(&s->alloc_size);
 
         /* Insert producer into rax tree. */
-        void *old = NULL;
-        int inserted = raxInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, &old);
+        int inserted = raxTryInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL);
         sdsfree(pid);
         if (!inserted) {
-            /* Element already exists. Free the old producer that was overwritten,
-             * then cleanup will free the new producer. */
-            if (old != NULL) {
-                idmpProducerFree((idmpProducer *)old, &s->alloc_size);
-            }
+            idmpProducerFree(producer, &s->alloc_size);
             goto cleanup;
         }
 
