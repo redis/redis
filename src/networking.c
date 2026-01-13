@@ -1696,10 +1696,7 @@ void ioDeferFreeRobj(client *c, robj *obj) {
 void freeClientIODeferredObjects(client *c) {
     for (int i = 0; i < c->io_deferred_objects_num; i++) {
         robj *obj = c->io_deferred_objects[i];
-        if (obj->refcount == 1)
-            tryDeferFreeClientObject(c, DEFERRED_OBJECT_TYPE_ROBJ, obj);
-        else
-            decrRefCount(obj);
+        decrRefCount(obj);
     }
 
     /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
