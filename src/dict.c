@@ -161,6 +161,18 @@ static inline void *decodeMaskedPtr(const dictEntry *de) {
     return (void *)((uintptr_t)(void *)de & ~ENTRY_PTR_MASK);
 }
 
+/* Encode a key pointer for storage in a no_value dict bucket.
+ * For odd keys (like SDS strings), the key can be stored directly.
+ * For even keys, we need to tag it with ENTRY_PTR_IS_EVEN_KEY. */
+static inline dictEntry *encodeEntryKey(dict *d, void *key) {
+    if (d->type->keys_are_odd) {
+        debugAssert(((uintptr_t)key & ENTRY_PTR_IS_ODD_KEY) == ENTRY_PTR_IS_ODD_KEY);
+        return key;
+    } else {
+        return encodeMaskedPtr(key, ENTRY_PTR_IS_EVEN_KEY);
+    }
+}
+
 /* Decodes the pointer to an entry without value, when you know it is an entry
  * without value. Hint: Use entryIsNoValue to check. */
 static inline dictEntryNoValue *decodeEntryNoValue(const dictEntry *de) {
@@ -345,10 +357,7 @@ static void rehashEntriesInBucketAtIndex(dict *d, uint64_t idx) {
                  * previously allocated, free its memory. */                
                 if (!entryIsKey(de)) zfree(decodeMaskedPtr(de));
                 
-                if (d->type->keys_are_odd)
-                    de = storedKey; /* ENTRY_PTR_IS_ODD_KEY trivially set by the odd key. */
-                else
-                    de = encodeMaskedPtr(storedKey, ENTRY_PTR_IS_EVEN_KEY);
+                de = encodeEntryKey(d, storedKey);
                 
             } else if (entryIsKey(de)) {
                 /* We don't have an allocated entry but we need one. */
@@ -543,13 +552,8 @@ dictEntry *dictInsertKeyAtLink(dict *d, void *key __stored_key, dictEntryLink li
             /* We can store the key directly in the destination bucket without 
              * allocating dictEntry.
              */
-            if (d->type->keys_are_odd) {
-                entry = key;
-                assert(entryIsKey(entry));
-                /* The flag ENTRY_PTR_IS_ODD_KEY (=0x1) is already aligned with LSB bit  */
-            } else {
-                entry = encodeMaskedPtr(key, ENTRY_PTR_IS_EVEN_KEY);
-            }
+            entry = encodeEntryKey(d, key);
+            assert(entryIsKey(entry));
         } else {
             /* Allocate an entry without value. */
             entry = createEntryNoValue(key, *bucket);
@@ -909,13 +913,7 @@ void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int 
     dictEntry **de = *link;
     if (entryIsKey(*de)) {
         /* `de` opt-out to be actually a key. Replace key but keep the lsb flags */
-        if (d->type->keys_are_odd) {
-            /* For odd keys, just assign directly - LSB is already set */
-            debugAssert(((uintptr_t)addedKey & ENTRY_PTR_IS_ODD_KEY));
-            *de = addedKey;
-        } else {
-            *de = encodeMaskedPtr(addedKey, ENTRY_PTR_IS_EVEN_KEY);
-        }
+        *de = encodeEntryKey(d, addedKey);
     } else {
         /* either dictEntry or dictEntryNoValue */
         (*de)->key = addedKey;
@@ -1376,16 +1374,18 @@ static void dictDefragBucket(dict *d, dictEntry **bucketref, dictDefragFunctions
     while (bucketref && *bucketref) {
         dictEntry *de = *bucketref, *newde = NULL;
         void *newkey = defragkey ? defragkey(dictGetKey(de)) : NULL;
-        
-        if (entryIsKey(de)) {
-            if (newkey) *bucketref = newkey;
-        } else if (d->type->no_value) {
-            dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
-            if ((newentry = defragalloc(entry))) {
-                newde = (dictEntry *) newentry;
-                entry = newentry;
+
+        if (d->type->no_value) {
+            if (entryIsKey(de)) {
+                if (newkey) *bucketref = encodeEntryKey(d, newkey);
+            } else {
+                dictEntryNoValue *entry = decodeEntryNoValue(de), *newentry;
+                if ((newentry = defragalloc(entry))) {
+                    newde = (dictEntry *) newentry;
+                    entry = newentry;
+                }
+                if (newkey) entry->key = newkey;
             }
-            if (newkey) entry->key = newkey;
         } else {
             void *newval = defragval ? defragval(dictGetVal(de)) : NULL;
             assert(entryIsNormal(de));

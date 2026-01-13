@@ -721,10 +721,6 @@ During Vector Sets testing, we discovered that often clients introduce considera
 
 Switching from `VALUES` to `FP32` as a method for transmitting vectors may easily provide 10-20x speedups.
 
-# Known bugs
-
-* Replication code is pretty much untested, and very vanilla (replicating the commands verbatim).
-
 # Implementation details
 
 Vector sets are based on the `hnsw.c` implementation of the HNSW data structure with extensions for speed and functionality.

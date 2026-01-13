@@ -18,7 +18,13 @@ static char monotonic_info_string[32];
  * generally safe on modern systems, this link provides additional information
  * about use of the x86 TSC: http://oliveryang.net/2015/09/pitfalls-of-TSC-usage
  *
- * To use the processor clock, either uncomment this line, or build with
+ * On ARM aarch64 systems, the hardware clock is enabled by default because the
+ * ARM Generic Timer is architecturally guaranteed to be available and monotonic
+ * on all ARMv8-A processors (see the “The Generic Timer in AArch64 state”
+ * section of the Arm Architecture Reference Manual for Armv8-A).
+ *
+ * To use the processor clock on other architectures, either uncomment this line,
+ * or build with
  *   CFLAGS="-DUSE_PROCESSOR_CLOCK"
 #define USE_PROCESSOR_CLOCK
  */
@@ -92,18 +98,22 @@ static void monotonicInit_x86linux(void) {
 }
 #endif
 
-
-#if defined(USE_PROCESSOR_CLOCK) && defined(__aarch64__)
+#if defined(__aarch64__)
 static long mono_ticksPerMicrosecond = 0;
 
-/* Read the clock value.  */
+/* Read the clock value.
+ * CNTVCT_EL0 is a system counter register, that provides the monotonic
+ * timestamp as a 64-bit count value. */
 static inline uint64_t __cntvct(void) {
     uint64_t virtual_timer_value;
     __asm__ volatile("mrs %0, cntvct_el0" : "=r"(virtual_timer_value));
     return virtual_timer_value;
 }
 
-/* Read the Count-timer Frequency.  */
+/* Read the Count-timer Frequency.
+ * CNTFRQ_EL0 is a system counter register that provides the frequency (in Hz)
+ * needed to convert ticks to microseconds. Together with CNTVCT_EL0, this enables
+ * high-performance monotonic time measurement without system calls. */
 static inline uint32_t cntfrq_hz(void) {
     uint64_t virtual_freq_value;
     __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(virtual_freq_value));
@@ -213,7 +223,7 @@ const char * monotonicInit(void) {
     if (getMonotonicUs == NULL) monotonicInit_x86linux();
     #endif
 
-    #if defined(USE_PROCESSOR_CLOCK) && defined(__aarch64__)
+    #if defined(__aarch64__)
     if (getMonotonicUs == NULL) monotonicInit_aarch64();
     #endif
 
