@@ -33,6 +33,9 @@
  * will return NULL. */
 #define STREAM_LISTPACK_MAX_SIZE (1<<30)
 
+/* Merge if node is less than half full (by entries). */
+#define STREAM_NODE_MERGE_SPARSITY_DIVISOR 2
+
 void streamFreeCGGeneric(void *cg, void *s);
 void streamFreeNACK(stream *s, streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer);
@@ -726,6 +729,388 @@ typedef struct {
 #define DELETE_STRATEGY_DELREF 2    /* Delete from pending entries list */
 #define DELETE_STRATEGY_ACKED 3     /* Only delete messages that are acknowledged */
 
+/* Check if two listpack nodes have identical master entries (field names and
+ * order), making them safe to merge without field reconciliation.
+ * Returns 1 if masters match, 0 otherwise. */
+static int streamListpackMasterMatch(unsigned char *lp1, unsigned char *lp2) {
+    unsigned char *p1 = lpFirst(lp1);
+    unsigned char *p2 = lpFirst(lp2);
+    unsigned int slen1, slen2;
+    long long lval1, lval2;
+    unsigned char *sval1, *sval2;
+
+    /* Skip count and deleted count in both listpacks. */
+    p1 = lpNext(lp1, p1); p1 = lpNext(lp1, p1);
+    p2 = lpNext(lp2, p2); p2 = lpNext(lp2, p2);
+
+    /* Get and compare field count. */
+    int64_t fields1 = lpGetInteger(p1);
+    int64_t fields2 = lpGetInteger(p2);
+    if (fields1 != fields2) return 0;
+    p1 = lpNext(lp1, p1);
+    p2 = lpNext(lp2, p2);
+
+    /* Compare each field name. */
+    for (int64_t i = 0; i < fields1; i++) {
+        sval1 = lpGetValue(p1, &slen1, &lval1);
+        sval2 = lpGetValue(p2, &slen2, &lval2);
+
+        /* Check if one is string and the other integer. */
+        if ((sval1 == NULL) != (sval2 == NULL)) return 0;
+
+        if (sval1) { /* Both are strings, compare them. */
+            if (slen1 != slen2 || memcmp(sval1, sval2, slen1) != 0) return 0;
+        } else { /* Both are integers, compare them. */
+            if (lval1 != lval2) return 0;
+        }
+
+        p1 = lpNext(lp1, p1);
+        p2 = lpNext(lp2, p2);
+    }
+
+    /* If we reached the end, the masters match. Also check the zero
+     * terminators match (always zero). */
+    if (lpGetInteger(p1) != 0 || lpGetInteger(p2) != 0) return 0;
+
+    return 1;
+}
+
+/* Merge the listpack 'lp2' into 'lp1'. Both listpacks must have identical
+ * master entries. 'lp1' is reallocated as needed to hold the merged data.
+ * The master IDs 'id1' and 'id2' are required to recalculate entry ID deltas.
+ * Returns the new pointer for 'lp1'. (Aborts on OOM per Redis convention).
+ * The caller is responsible for freeing 'lp2' and removing it from the rax.
+ *
+ * This function works by iterating over 'lp2' and appending each entry to 'lp1',
+ * recalculating the ID deltas and lp-count fields as it goes. Finally, it
+ * updates the stream-specific header (entry count, deleted count) in 'lp1'. */
+static unsigned char *streamListpackMerge(unsigned char *lp1, unsigned char *lp2, streamID *id1, streamID *id2) {
+    /* 1. Get counts from both nodes. */
+    unsigned char *p1_header = lpFirst(lp1);
+    int64_t count1 = lpGetInteger(p1_header);
+    p1_header = lpNext(lp1, p1_header);
+    p1_header = lpNext(lp1, p1_header); /* Skip deleted count, now at master fields count */
+
+    unsigned char *p2 = lpFirst(lp2);
+    p2 = lpNext(lp2, p2); /* Skip count */
+    p2 = lpNext(lp2, p2); /* Skip deleted count, now at master fields count */
+
+    int64_t master_fields_count = lpGetInteger(p1_header); /* Both are same */
+
+    /* 2. Skip master entry in lp2 to find start of data. */
+    p2 = lpNext(lp2, p2); /* Skip master fields count */
+    for (int64_t i = 0; i < master_fields_count; i++) {
+        p2 = lpNext(lp2, p2); /* Skip master field */
+    }
+    p2 = lpNext(lp2, p2); /* Skip zero terminator. */
+    /* 'p2' now points to the flags of the first data entry in lp2 */
+
+    /* 3. Append entries from lp2 to lp1, recalculating ID deltas and lp-count.
+     * We skip tombstones (deleted entries) since lp1 is already compacted,
+     * and we want the merged result to be fully compacted as well.
+     * We must use lpAppend* functions which take the base lp1 pointer,
+     * as they may reallocate it and return a new base pointer. */
+    int64_t copied = 0; /* Count of entries actually copied from lp2 */
+    while (p2) {
+        int64_t flags = lpGetInteger(p2);
+        int is_tombstone = flags & STREAM_ITEM_FLAG_DELETED;
+        p2 = lpNext(lp2, p2); /* Seek ms-diff. */
+
+        int64_t ms_diff_orig = lpGetInteger(p2);
+        p2 = lpNext(lp2, p2); /* Seek seq-diff. */
+        int64_t seq_diff_orig = lpGetInteger(p2);
+        p2 = lpNext(lp2, p2); /* Seek num-fields or value-1 */
+
+        int64_t num_fields;
+        if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
+            num_fields = master_fields_count;
+        } else {
+            num_fields = lpGetInteger(p2);
+            p2 = lpNext(lp2, p2); /* Seek first field. */
+        }
+
+        int64_t fields_to_process = (flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
+                                     num_fields : num_fields * 2;
+
+        if (is_tombstone) {
+            /* Skip this deleted entry's fields and lp-count. */
+            for (int64_t i = 0; i < fields_to_process; i++) {
+                p2 = lpNext(lp2, p2);
+            }
+            p2 = lpNext(lp2, p2); /* Skip lp-count */
+            continue;
+        }
+
+        /* Recalculate deltas relative to lp1's master ID */
+        streamID abs_id;
+        abs_id.ms = id2->ms + ms_diff_orig;
+        abs_id.seq = id2->seq + seq_diff_orig;
+
+        int64_t new_ms_diff = abs_id.ms - id1->ms;
+        int64_t new_seq_diff = abs_id.seq - id1->seq;
+
+        /* Append the fixed part of the entry */
+        lp1 = lpAppendInteger(lp1, flags);
+        lp1 = lpAppendInteger(lp1, new_ms_diff);
+        lp1 = lpAppendInteger(lp1, new_seq_diff);
+
+        int64_t lp_count = 3; /* flags, ms-diff, seq-diff */
+
+        if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
+            lp_count += num_fields;
+        } else {
+            lp1 = lpAppendInteger(lp1, num_fields);
+            lp_count += (num_fields * 2) + 1;
+        }
+
+        /* Append all fields and/or values */
+        for (int64_t i = 0; i < fields_to_process; i++) {
+            unsigned char *sval;
+            unsigned int slen;
+            long long lval;
+            sval = lpGetValue(p2, &slen, &lval);
+            if (sval) {
+                lp1 = lpAppend(lp1, sval, slen);
+            } else {
+                lp1 = lpAppendInteger(lp1, lval);
+            }
+            p2 = lpNext(lp2, p2);
+        }
+
+        /* Append the *new* lp-count */
+        lp1 = lpAppendInteger(lp1, lp_count);
+
+        /* Advance p2 past the old lp-count field to the next entry's flags */
+        p2 = lpNext(lp2, p2);
+        copied++;
+    }
+
+    /* 4. Update lp1's stream header with final counts.
+     * Since lp1 is already compacted (0 deleted) and we skipped tombstones
+     * from lp2, the result has 0 deleted entries. */
+    p1_header = lpFirst(lp1);
+    lp1 = lpReplaceInteger(lp1, &p1_header, count1 + copied);
+    p1_header = lpNext(lp1, p1_header);
+    lp1 = lpReplaceInteger(lp1, &p1_header, 0); /* No deleted entries */
+
+    /* 5. Shrink lp1 to its new final size. */
+    lp1 = lpShrinkToFit(lp1);
+    return lp1;
+}
+
+/* This is a helper function for streamTrim() and streamIteratorRemoveEntry()
+ * that rebuilds the listpack 'lp' to remove entries marked as deleted.
+ * The function updates the rax node with the new listpack.
+ * If the compaction did occur, it returns the new listpack pointer, otherwise
+ * the original pointer is returned (so the caller can tell).
+ *
+ * When nodes become sparse after compaction, this function attempts to merge
+ * with the next node if:
+ * 1. They have identical master entries.
+ * 2. The combined size is within limits.
+ * 3. The next node is NOT the last node in the stream (it does not make
+ *    much sense to merge into the last node: it is target of new entries and
+ *    must remain "partial" by design).
+ *
+ * If a merge occurs, this function modifies the radix tree structure
+ * (removing the next node). It repairs the provided iterator 'ri' so
+ * the caller can safely continue iterating.
+ *
+ * The function updates s->alloc_size to reflect the memory changes.
+ *
+ * The caller is responsible for freeing the old listpack 'lp' ONLY
+ * if the returned pointer is different from 'lp'. */
+static unsigned char *streamListpackCompaction(stream *s, raxIterator *ri, unsigned char *lp, int64_t entries, int64_t marked_deleted) {
+    /* We only compact if there are deleted entries, and the ratio
+     * of deleted entries is high enough. */
+    if (marked_deleted == 0 ||           /* No deleted entries at all. */
+        marked_deleted < entries)        /* Less than 50% deleted. */
+        return lp; /* No compaction needed. */
+
+    size_t old_lp_size = lpBytes(lp);
+
+    /* We pre-allocate half the old listpack size, this makes
+     * sense as we compact only if at least 50% of entries are deleted.
+     * However at the end we resize the allocation calling lpShrinkToFit() */
+    unsigned char *new_lp = lpNew(old_lp_size/2);
+    unsigned char *p = lpFirst(lp);
+    unsigned char *sval;
+    unsigned int slen;
+    long long lval;
+
+    /* 1. Write new header. */
+    new_lp = lpAppendInteger(new_lp, entries); /* New live entry count. */
+    new_lp = lpAppendInteger(new_lp, 0);       /* New deleted entry count. */
+
+    /* 2. Copy master entry. */
+    p = lpNext(lp, p); /* Skip old count. */
+    p = lpNext(lp, p); /* Skip old deleted. */
+    int64_t master_fields_count = lpGetInteger(p);
+    new_lp = lpAppendInteger(new_lp, master_fields_count); /* num-fields */
+    p = lpNext(lp, p);
+    for (int64_t i = 0; i < master_fields_count; i++) {
+        sval = lpGetValue(p, &slen, &lval);
+        if (sval)
+            new_lp = lpAppend(new_lp, sval, slen);
+        else
+            new_lp = lpAppendInteger(new_lp, lval);
+        p = lpNext(lp, p);
+    }
+    new_lp = lpAppendInteger(new_lp, 0); /* Master entry zero terminator. */
+    p = lpNext(lp, p); /* Skip old zero terminator. */
+
+    /* 3. Copy not-deleted stream entries. */
+    while(p) {
+        int64_t flags = lpGetInteger(p);
+        int copy = !(flags & STREAM_ITEM_FLAG_DELETED);
+
+        if (copy) new_lp = lpAppendInteger(new_lp, flags);
+        p = lpNext(lp, p); /* Seek ms-diff. */
+
+        int64_t ms_diff = lpGetInteger(p);
+        if (copy) new_lp = lpAppendInteger(new_lp, ms_diff);
+        p = lpNext(lp, p); /* Seek seq-diff. */
+
+        int64_t seq_diff = lpGetInteger(p);
+        if (copy) new_lp = lpAppendInteger(new_lp, seq_diff);
+        p = lpNext(lp, p); /* Seek num-fields or (if SAMEFIELDS) first value. */
+
+        int64_t num_fields;
+        int64_t lp_count = 3; /* flags, ms-diff, seq-diff */
+
+        /* Check how many fields we got. */
+        if (flags & STREAM_ITEM_FLAG_SAMEFIELDS) {
+            num_fields = master_fields_count;
+            lp_count += num_fields; /* We just have N values. */
+        } else {
+            num_fields = lpGetInteger(p);
+            if (copy) new_lp = lpAppendInteger(new_lp, num_fields);
+            p = lpNext(lp, p); /* Seek first field. */
+            lp_count += (num_fields * 2) + 1; /* We have N field names,
+                                                 N values,
+                                                 1 num-fields integer. */
+        }
+
+        int64_t fields_to_process = (flags & STREAM_ITEM_FLAG_SAMEFIELDS) ?
+                                     num_fields : num_fields * 2;
+
+        for (int64_t i = 0; i < fields_to_process; i++) {
+            sval = lpGetValue(p, &slen, &lval);
+            if (copy) {
+                if (sval)
+                    new_lp = lpAppend(new_lp, sval, slen);
+                else
+                    new_lp = lpAppendInteger(new_lp, lval);
+            }
+            p = lpNext(lp, p);
+        }
+
+        /* Now p points to the lp-count field of the old entry. */
+        if (copy) new_lp = lpAppendInteger(new_lp, lp_count);
+        p = lpNext(lp, p); /* Go to the next stream entry's flags. */
+    }
+
+    /* 4. Resize the allocation. */
+    new_lp = lpShrinkToFit(new_lp);
+
+    /* 5. Try to merge with next node if sparse. */
+    int merged = 0;
+
+    if (server.stream_node_max_entries > 0 &&
+        entries < (server.stream_node_max_entries / STREAM_NODE_MERGE_SPARSITY_DIVISOR))
+    {
+        /* Safe Peek: Use a fresh iterator to check the next node.
+         * We seek strictly greater (">") to find the neighbor. */
+        raxIterator ri_next;
+        raxStart(&ri_next, s->rax);
+        raxSeek(&ri_next, ">", ri->key, ri->key_len);
+
+        if (raxNext(&ri_next)) { /* Found a neighbor node */
+            /* Check if this neighbor is the Last Node (Tail).
+             * We do not merge into the tail to avoid contention with XADD. */
+            int is_last_node = 0;
+            raxIterator ri_tail_check;
+            raxStart(&ri_tail_check, s->rax);
+            raxSeek(&ri_tail_check, ">", ri_next.key, ri_next.key_len);
+            if (!raxNext(&ri_tail_check)) is_last_node = 1;
+            raxStop(&ri_tail_check);
+
+            if (!is_last_node) {
+                unsigned char *next_lp = ri_next.data;
+                unsigned char *next_p = lpFirst(next_lp);
+                int64_t next_entries = lpGetInteger(next_p);
+
+                /* Size checks */
+                size_t combined_bytes_est = lpBytes(new_lp) + lpBytes(next_lp);
+                int64_t combined_entries = entries + next_entries;
+
+                int size_ok = (server.stream_node_max_bytes == 0) ||
+                              (combined_bytes_est < server.stream_node_max_bytes);
+
+                /* Hard limit check */
+                if (combined_bytes_est > STREAM_LISTPACK_MAX_SIZE) size_ok = 0;
+
+                int entries_ok = (server.stream_node_max_entries == 0) ||
+                                 (combined_entries < server.stream_node_max_entries);
+
+                /* Master field compatibility check */
+                if (size_ok && entries_ok && streamListpackMasterMatch(new_lp, next_lp))
+                {
+                    streamID id1, id2;
+                    streamDecodeID(ri->key, &id1);
+                    streamDecodeID(ri_next.key, &id2);
+
+                    /* Save next_lp size BEFORE merge - the merge function
+                     * reallocates and consumes both listpacks. */
+                    size_t next_lp_size = lpBytes(next_lp);
+
+                    /* Perform the merge. Note: new_lp is reallocated inside
+                     * streamListpackMerge, so the original pointer becomes invalid.
+                     * The function returns the new pointer (merged_lp). */
+                    unsigned char *merged_lp = streamListpackMerge(new_lp, next_lp, &id1, &id2);
+
+                    /* Update alloc_size: subtract old sizes, add merged size.
+                     * old_lp_size is the original lp (tracked in alloc_size).
+                     * next_lp is the neighbor being merged and freed.
+                     * Note: new_lp was never added to alloc_size - it's an
+                     * intermediate compacted copy that we're now merging. */
+                    s->alloc_size -= old_lp_size;  /* original lp being replaced */
+                    s->alloc_size -= next_lp_size; /* next_lp is consumed */
+                    s->alloc_size += lpBytes(merged_lp);
+
+                    /* 5a. Update Rax: Remove the neighbor node. */
+                    raxRemove(s->rax, ri_next.key, ri_next.key_len, NULL);
+                    lpFree(next_lp); /* Free the consumed listpack */
+                    /* Note: Don't free new_lp - it was reallocated by merge
+                     * and is now part of merged_lp's allocation. */
+
+                    /* 5b. Update Rax: Set the merged node at current key. */
+                    new_lp = merged_lp;
+                    raxSetData(ri->node, new_lp);
+
+                    /* 5c. Repair the Main Iterator ('ri').
+                     * removing a node invalidates the iterator stack.
+                     * re-seeking rebuilds it. */
+                    raxSeek(ri, ">=", ri->key, ri->key_len);
+
+                    merged = 1;
+                }
+            }
+        }
+        raxStop(&ri_next);
+    }
+
+    /* 6. Update alloc_size and radix tree if no merge happened. */
+    if (!merged) {
+        s->alloc_size -= old_lp_size;
+        s->alloc_size += lpBytes(new_lp);
+        raxSetData(ri->node, new_lp);
+    }
+
+    /* Note: It's up to the caller to free the old 'lp'. */
+    return new_lp;
+}
+
 /* Trim the stream 's' according to args->trim_strategy, and return the
  * number of elements removed from the stream. The 'approx' option, if non-zero,
  * specifies that the trimming must be performed in a approximated way in
@@ -914,19 +1299,29 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         int64_t marked_deleted = lpGetInteger(p);
         lp = lpReplaceInteger(lp,&p,marked_deleted+deleted_from_lp);
         p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
-        s->alloc_size -= oldsize;
-        s->alloc_size += lpBytes(lp);
 
-        /* Here we should perform garbage collection in case at this point
-         * there are too many entries deleted inside the listpack. */
+        /* Perform garbage collection if needed. */
         entries -= deleted_from_lp;
         marked_deleted += deleted_from_lp;
-        if (entries + marked_deleted > 10 && marked_deleted > entries/2) {
-            /* TODO: perform a garbage collection. */
-        }
 
-        /* Update the node with the new pointer. */
-        raxSetData(ri.node,lp);
+        size_t newsize = lpBytes(lp);
+        s->alloc_size += newsize - oldsize;
+
+        /* Perform garbage collection if needed. */
+        unsigned char *new_lp = streamListpackCompaction(s, &ri, lp, entries,
+                                                         marked_deleted);
+
+        /* If no compaction occurred (new_lp == lp), we still need to update
+         * the rax node since lpReplaceInteger() may have reallocated the
+         * listpack. If compaction occurred, the compaction function already
+         * updated the rax and adjusted alloc_size, so we just free the
+         * old listpack. */
+        if (new_lp == lp) {
+            raxSetData(ri.node, lp);
+        } else {
+            lpFree(lp);
+            lp = new_lp;
+        }
 
         /* If the node is eligible for removal but we couldn't remove it due to delete strategy
          * constraints (we need to check each entry individually), continue to the next node
@@ -1456,16 +1851,30 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         raxRemove(s->rax,si->ri.key,si->ri.key_len,NULL);
     } else {
         /* In the base case we alter the counters of valid/deleted entries. */
-        lp = lpReplaceInteger(lp,&p,aux-1);
+        int64_t entries = aux-1;
+        lp = lpReplaceInteger(lp,&p,entries);
         p = lpNext(lp,p); /* Seek deleted field. */
-        aux = lpGetInteger(p);
-        lp = lpReplaceInteger(lp,&p,aux+1);
-        s->alloc_size -= oldsize;
-        s->alloc_size += lpBytes(lp);
+        int64_t marked_deleted = lpGetInteger(p);
+        lp = lpReplaceInteger(lp,&p,marked_deleted+1);
 
-        /* Update the listpack with the new pointer. */
-        if (si->lp != lp)
-            raxInsert(s->rax,si->ri.key,si->ri.key_len,lp,NULL);
+        size_t newsize = lpBytes(lp);
+        s->alloc_size += newsize - oldsize;
+
+        /* Perform garbage collection if needed. */
+        unsigned char *new_lp =
+            streamListpackCompaction(s, &si->ri, lp, entries, marked_deleted+1);
+
+        /* If no compaction occurred (new_lp == lp), we still need to update
+         * the rax node since lpReplaceInteger() may have reallocated the
+         * listpack. If compaction occurred, the compaction function already
+         * updated the rax and adjusted alloc_size, so we just free the
+         * old listpack. */
+        if (new_lp == lp) {
+            if (si->lp != lp)
+                raxInsert(s->rax,si->ri.key,si->ri.key_len,lp,NULL);
+        } else {
+            lpFree(lp);
+        }
     }
 
     /* Update the number of entries counter. */
@@ -1482,9 +1891,6 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     }
     streamIteratorStop(si);
     streamIteratorStart(si,s,&start,&end,si->rev);
-
-    /* TODO: perform a garbage collection here if the ratio between
-     * deleted and valid goes over a certain limit. */
 }
 
 /* Stop the stream iterator. The only cleanup we need is to free the rax
