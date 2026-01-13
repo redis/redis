@@ -1060,7 +1060,7 @@ static unsigned char *streamListpackCompaction(stream *s, raxIterator *ri, unsig
                 if (combined_bytes_est > STREAM_LISTPACK_MAX_SIZE) size_ok = 0;
 
                 int entries_ok = (server.stream_node_max_entries == 0) ||
-                                 (combined_entries < server.stream_node_max_entries);
+                                 (combined_entries <= server.stream_node_max_entries);
 
                 /* Master field compatibility check */
                 if (size_ok && entries_ok && streamListpackMasterMatch(new_lp, next_lp))
