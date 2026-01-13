@@ -671,6 +671,183 @@ start_server {tags {"stream"}} {
 
         r config set stream-node-max-entries 100
     }
+
+    test {Merge - Tombstones from neighbor node are skipped during merge} {
+        r DEL mystream
+        r config set stream-node-max-entries 100
+
+        # Create 3 nodes with 100 entries each
+        set ids1 {}
+        for {set i 0} {$i < 100} {incr i} {
+            lappend ids1 [r XADD mystream * f $i]
+        }
+        set ids2 {}
+        for {set i 0} {$i < 100} {incr i} {
+            lappend ids2 [r XADD mystream * f [expr {100 + $i}]]
+        }
+        set ids3 {}
+        for {set i 0} {$i < 100} {incr i} {
+            lappend ids3 [r XADD mystream * f [expr {200 + $i}]]
+        }
+
+        assert {[stream_node_count mystream] >= 3}
+
+        # Delete 40% from node 2 - this is < 50%, so NO GC happens.
+        # Node 2 now has 60 live entries + 40 tombstones.
+        for {set i 0} {$i < 40} {incr i} {
+            r XDEL mystream [lindex $ids2 $i]
+        }
+
+        # Delete 90% from node 1 - this triggers GC on node 1.
+        # After GC, node 1 has 10 live entries.
+        # Merge check: 10 + 60 = 70 < 100, so merge should happen.
+        # The key test: tombstones from node 2 must be SKIPPED during merge.
+        # If tombstones were copied, merged node would have 10 + 60 + 40 = 110 entries.
+        for {set i 10} {$i < 100} {incr i} {
+            r XDEL mystream [lindex $ids1 $i]
+        }
+
+        # Verify merge happened (should go from 3 nodes to 2)
+        assert {[stream_node_count mystream] == 2}
+
+        # Verify stream length: 10 + 60 + 100 = 170
+        assert_equal [stream_len mystream] 170
+
+        # Verify all remaining entries are accessible and correct
+        set remaining [r XRANGE mystream - +]
+        assert_equal [llength $remaining] 170
+
+        # Verify first 10 entries (from node 1)
+        for {set i 0} {$i < 10} {incr i} {
+            assert_equal [lindex $remaining $i 1] [list f $i]
+        }
+
+        # Verify next 60 entries (from node 2, indices 40-99)
+        for {set i 0} {$i < 60} {incr i} {
+            set expected_val [expr {100 + 40 + $i}]
+            assert_equal [lindex $remaining [expr {10 + $i}] 1] [list f $expected_val]
+        }
+
+        # Verify last 100 entries (from node 3)
+        for {set i 0} {$i < 100} {incr i} {
+            set expected_val [expr {200 + $i}]
+            assert_equal [lindex $remaining [expr {70 + $i}] 1] [list f $expected_val]
+        }
+
+        r config set stream-node-max-entries 100
+    }
+
+    test {GC and Merge - Multiple fields per entry} {
+        r DEL mystream
+        r config set stream-node-max-entries 50
+
+        # Create entries with multiple fields (tests SAMEFIELDS handling)
+        set ids1 {}
+        for {set i 0} {$i < 50} {incr i} {
+            lappend ids1 [r XADD mystream * name user$i age $i city city$i]
+        }
+        set ids2 {}
+        for {set i 0} {$i < 50} {incr i} {
+            lappend ids2 [r XADD mystream * name user[expr {50+$i}] age [expr {50+$i}] city city[expr {50+$i}]]
+        }
+        set ids3 {}
+        for {set i 0} {$i < 50} {incr i} {
+            lappend ids3 [r XADD mystream * name user[expr {100+$i}] age [expr {100+$i}] city city[expr {100+$i}]]
+        }
+
+        assert {[stream_node_count mystream] >= 3}
+
+        # Make node 2 sparse (keep 10 entries)
+        for {set i 10} {$i < 50} {incr i} {
+            r XDEL mystream [lindex $ids2 $i]
+        }
+
+        # Make node 1 sparse to trigger GC + merge
+        for {set i 5} {$i < 50} {incr i} {
+            r XDEL mystream [lindex $ids1 $i]
+        }
+
+        # Verify merge happened
+        assert {[stream_node_count mystream] < 3}
+
+        # Verify stream length: 5 + 10 + 50 = 65
+        assert_equal [stream_len mystream] 65
+
+        # Verify all entries have correct multi-field data
+        set remaining [r XRANGE mystream - +]
+        assert_equal [llength $remaining] 65
+
+        # Check first 5 entries (from node 1)
+        for {set i 0} {$i < 5} {incr i} {
+            set entry [lindex $remaining $i 1]
+            assert_equal $entry [list name user$i age $i city city$i]
+        }
+
+        # Check next 10 entries (from node 2, indices 50-59)
+        for {set i 0} {$i < 10} {incr i} {
+            set idx [expr {50 + $i}]
+            set entry [lindex $remaining [expr {5 + $i}] 1]
+            assert_equal $entry [list name user$idx age $idx city city$idx]
+        }
+
+        # Check last 50 entries (from node 3)
+        for {set i 0} {$i < 50} {incr i} {
+            set idx [expr {100 + $i}]
+            set entry [lindex $remaining [expr {15 + $i}] 1]
+            assert_equal $entry [list name user$idx age $idx city city$idx]
+        }
+
+        r config set stream-node-max-entries 100
+    }
+
+    test {GC and Merge - Memory usage consistency} {
+        r DEL mystream
+        r config set stream-node-max-entries 100
+
+        # Create 3 nodes
+        set ids1 {}
+        for {set i 0} {$i < 100} {incr i} {
+            lappend ids1 [r XADD mystream * field value$i]
+        }
+        set ids2 {}
+        for {set i 0} {$i < 100} {incr i} {
+            lappend ids2 [r XADD mystream * field value[expr {100+$i}]]
+        }
+        set ids3 {}
+        for {set i 0} {$i < 100} {incr i} {
+            lappend ids3 [r XADD mystream * field value[expr {200+$i}]]
+        }
+
+        set mem_before [r MEMORY USAGE mystream]
+
+        # Make node 2 sparse
+        for {set i 10} {$i < 100} {incr i} {
+            r XDEL mystream [lindex $ids2 $i]
+        }
+
+        # Make node 1 sparse to trigger GC + merge
+        for {set i 5} {$i < 100} {incr i} {
+            r XDEL mystream [lindex $ids1 $i]
+        }
+
+        set mem_after [r MEMORY USAGE mystream]
+
+        # Memory should decrease after deletions and compaction
+        assert {$mem_after < $mem_before}
+
+        # Verify stream is still functional
+        assert_equal [stream_len mystream] 115
+
+        # Memory should be reasonable (not zero, not negative internally)
+        assert {$mem_after > 0}
+
+        # Verify XINFO STREAM works (uses alloc_size internally)
+        set info [r XINFO STREAM mystream]
+        assert {[dict exists $info length]}
+        assert_equal [dict get $info length] 115
+
+        r config set stream-node-max-entries 100
+    }
 }
 
 # Tests that require DEBUG commands
