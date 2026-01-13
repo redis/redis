@@ -30,10 +30,11 @@ uint64_t *kvobjMetaRef(kvobj *kv, int metaId) {
     /* Expiry is always the first metadata */
     if (likely(metaId == 0)) return ((uint64_t *)kv) - 1;
     
-    serverAssert(metaId<KEY_META_ID_MAX);
+    uint32_t maskId = 1u << metaId;
+    serverAssert(bits & maskId);
     
     /* Count set bits with lower IDs to get the compacted slot index. */
-    uint32_t lowerMask = (1u << metaId) - 1u;
+    uint32_t lowerMask = maskId - 1u;
     int metaSlot = __builtin_popcount(bits & lowerMask);
     return ((uint64_t *)kv) - metaSlot - 1;
 }

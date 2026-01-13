@@ -2168,7 +2168,6 @@ void renamenxCommand(client *c) {
 void moveCommand(client *c) {
     redisDb *src, *dst;
     int srcid, dbid;
-    long long expire;
     uint64_t hashExpireTime = EB_EXPIRE_TIME_INVALID;
 
     if (server.cluster_enabled) {
@@ -2206,7 +2205,6 @@ void moveCommand(client *c) {
         addReply(c,shared.czero);
         return;
     }
-    expire = kvobjGetExpire(kv);
 
     /* Return zero if the key already exists in the target DB */
     dictEntryLink dstBucket;
@@ -2232,9 +2230,6 @@ void moveCommand(client *c) {
     dbDelete(src,c->argv[1]);    /* ref counter = 2->1 */
 
     dbAddInternal(dst, c->argv[1], &kv, &dstBucket, &keymeta);
-    
-    if (expire != -1)
-        kv = setExpireByLink(c, dst, c->argv[1]->ptr, expire, dstBucket);
 
     /* If object of type hash with expiration on fields. Taken care to add the
      * hash to subexpires of `dst` only after dbDelete(). */

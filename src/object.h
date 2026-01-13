@@ -147,6 +147,7 @@ robj *tryObjectEncodingEx(robj *o, int try_trim);
 size_t getObjectLength(robj *o);
 robj *getDecodedObject(robj *o);
 size_t stringObjectLen(robj *o);
+size_t stringObjectAllocSize(const robj *o);
 robj *createStringObjectFromLongLong(long long value);
 robj *createStringObjectFromLongLongForValue(long long value);
 robj *createStringObjectFromLongLongWithSds(long long value);
@@ -177,10 +178,8 @@ int compareStringObjects(const robj *a, const robj *b);
 int collateStringObjects(const robj *a, const robj *b);
 int equalStringObjects(robj *a, robj *b);
 void trimStringObjectIfNeeded(robj *o, int trim_small_values);
+size_t kvobjAllocSize(kvobj *o);
 
-void dismissSds(sds s);
-struct redisMemOverhead *getMemoryOverheadData(void);
-void freeMemoryOverheadData(struct redisMemOverhead *mh);
 int objectSetLRUOrLFU(robj *val, long long lfu_freq, long long lru_idle,
                       long long lru_clock, int lru_multiplier);
 void objectCommand(struct client *c);
