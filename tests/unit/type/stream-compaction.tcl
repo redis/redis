@@ -848,6 +848,124 @@ start_server {tags {"stream"}} {
 
         r config set stream-node-max-entries 100
     }
+
+    test {GC with XTRIM ACKED - merge disabled, Node 2 entries processed} {
+        # Regression test for: merging during XTRIM with ACKED could skip
+        # processing entries from the merged node.
+        #
+        # Setup: 3 nodes where Node 1 becomes sparse after ACKED deletions,
+        # Node 2 is small enough to merge (if allowed), Node 3 exists so
+        # Node 2 is not the last node.
+        #
+        # Bug scenario (if merge were allowed):
+        # 1. Node 1 eligible for removal (all entries < MINID)
+        # 2. ACKED: process entries, delete acked ones, keep unacked
+        # 3. GC triggers, Node 1 sparse (5 entries), would merge with Node 2 (15 entries)
+        # 4. "if (node_eligible_for_remove) continue" -> skip to Node 3
+        # 5. Node 2's acked entries < MINID never get deleted!
+        #
+        # With fix: merge disabled, Node 2 processed normally.
+        r DEL mystream
+        r config set stream-node-max-entries 100
+
+        # Create 3 nodes: 100 + 15 + 100 = 215 entries
+        # Node 1: entries 1-100 (all < MINID 200-0)
+        for {set i 1} {$i <= 100} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+        # Node 2: entries 101-115 (all < MINID 200-0) - small so merge would fit
+        for {set i 101} {$i <= 115} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+        # Node 3: entries 201-300 (all >= MINID 200-0)
+        for {set i 201} {$i <= 300} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+
+        set initial_nodes [stream_node_count mystream]
+        assert {$initial_nodes == 3}
+
+        # Create consumer group and read all entries
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+
+        # ACK entries 1-95 in Node 1 (leave 5 unacked: 96-100)
+        # ACK entries 101-110 in Node 2 (leave 5 unacked: 111-115)
+        for {set i 1} {$i <= 95} {incr i} {
+            r XACK mystream mygroup $i-0
+        }
+        for {set i 101} {$i <= 110} {incr i} {
+            r XACK mystream mygroup $i-0
+        }
+
+        # XTRIM MINID 200-0 ACKED:
+        # - Node 1: 95 acked entries deleted, 5 unacked remain (96-100)
+        #   GC triggers (95/100 > 50%), Node 1 becomes sparse (5 entries)
+        #   Merge check: 5 + 15 = 20 < 100, masters match -> would merge!
+        # - Node 2: 10 acked entries (101-110) should be deleted
+        #   If bug existed: Node 2 merged, entries 101-110 never processed
+        # - Node 3: entries >= MINID, not touched
+        set deleted [r XTRIM mystream MINID 200-0 ACKED]
+
+        # Should delete: 95 (Node 1 acked) + 10 (Node 2 acked) = 105
+        assert_equal $deleted 105
+
+        # Remaining: 5 (Node 1 unacked: 96-100) + 5 (Node 2 unacked: 111-115) + 100 (Node 3) = 110
+        assert_equal [r XLEN mystream] 110
+
+        # Verify Node 2's acked entries (101-110) were actually deleted
+        set node2_acked [r XRANGE mystream 101-0 110-0]
+        assert_equal [llength $node2_acked] 0
+
+        # Verify Node 2's unacked entries (111-115) still exist
+        set node2_unacked [r XRANGE mystream 111-0 115-0]
+        assert_equal [llength $node2_unacked] 5
+
+        r config set stream-node-max-entries 100
+    }
+
+    test {GC with XTRIM DELREF - merge disabled, all eligible entries deleted} {
+        # Similar regression test with DELREF strategy.
+        # DELREF deletes entries and removes PEL references.
+        r DEL mystream
+        r config set stream-node-max-entries 100
+
+        # Create 3 nodes
+        for {set i 1} {$i <= 100} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+        for {set i 101} {$i <= 115} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+        for {set i 201} {$i <= 300} {incr i} {
+            r XADD mystream $i-0 f v
+        }
+
+        assert_equal [stream_node_count mystream] 3
+
+        # Create consumer group and read all
+        r XGROUP CREATE mystream mygroup 0
+        r XREADGROUP GROUP mygroup consumer1 STREAMS mystream >
+
+        # XTRIM MINID 200-0 DELREF: delete all entries < 200-0
+        set deleted [r XTRIM mystream MINID 200-0 DELREF]
+
+        # Should delete all 115 entries from Node 1 and Node 2
+        assert_equal $deleted 115
+
+        # Only Node 3 entries remain (201-300)
+        assert_equal [r XLEN mystream] 100
+
+        # Verify entries 101-115 (Node 2) were deleted
+        set node2_entries [r XRANGE mystream 101-0 199-0]
+        assert_equal [llength $node2_entries] 0
+
+        # Verify PEL only has Node 3 entries
+        set pending [r XPENDING mystream mygroup]
+        assert_equal [lindex $pending 0] 100
+
+        r config set stream-node-max-entries 100
+    }
 }
 
 # Tests that require DEBUG commands

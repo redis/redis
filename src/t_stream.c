@@ -905,7 +905,7 @@ static unsigned char *streamListpackMerge(unsigned char *lp1, unsigned char *lp2
  * the original pointer is returned (so the caller can tell).
  *
  * When nodes become sparse after compaction, this function attempts to merge
- * with the next node if:
+ * with the next node if 'allow_merge' is true and:
  * 1. They have identical master entries. You may ask yourself: why this is
  *    needed? Because otherwise we would expand the "right" node entries to
  *    their full-size version of fields+values.
@@ -913,6 +913,12 @@ static unsigned char *streamListpackMerge(unsigned char *lp1, unsigned char *lp2
  * 3. The next node is NOT the last node in the stream (it does not make
  *    much sense to merge into the last node: it is target of new entries and
  *    must remain "partial" by design).
+ *
+ * The 'allow_merge' flag should be set to 0 when called from streamTrim()
+ * with delete strategies that require per-entry validation (DELREF/ACKED).
+ * In those cases, merging could absorb entries from the next node that
+ * haven't been checked against the trim criteria, causing the trim to
+ * skip entries that should have been processed.
  *
  * If a merge occurs, this function modifies the radix tree structure
  * (removing the next node). It repairs the provided iterator 'ri' so
@@ -922,7 +928,7 @@ static unsigned char *streamListpackMerge(unsigned char *lp1, unsigned char *lp2
  *
  * The caller is responsible for freeing the old listpack 'lp' ONLY
  * if the returned pointer is different from 'lp'. */
-static unsigned char *streamListpackCompaction(stream *s, raxIterator *ri, unsigned char *lp, int64_t entries, int64_t marked_deleted) {
+static unsigned char *streamListpackCompaction(stream *s, raxIterator *ri, unsigned char *lp, int64_t entries, int64_t marked_deleted, int allow_merge) {
     /* We only compact if there are deleted entries, and the ratio
      * of deleted entries is high enough. */
     if (marked_deleted == 0 ||           /* No deleted entries at all. */
@@ -1015,10 +1021,11 @@ static unsigned char *streamListpackCompaction(stream *s, raxIterator *ri, unsig
     /* 4. Resize the allocation. */
     new_lp = lpShrinkToFit(new_lp);
 
-    /* 5. Try to merge with next node if sparse. */
+    /* 5. Try to merge with next node if sparse and merging is allowed. */
     int merged = 0;
 
-    if (server.stream_node_max_entries > 0 &&
+    if (allow_merge &&
+        server.stream_node_max_entries > 0 &&
         entries < (server.stream_node_max_entries / STREAM_NODE_MERGE_SPARSITY_DIVISOR))
     {
         /* Safe Peek: Use a fresh iterator to check the next node.
@@ -1309,9 +1316,14 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         size_t newsize = lpBytes(lp);
         s->alloc_size += newsize - oldsize;
 
-        /* Perform garbage collection if needed. */
+        /* Perform garbage collection if needed. Merging is only allowed with
+         * KEEPREF strategy; other strategies (DELREF/ACKED) require per-entry
+         * validation, and merging would absorb unchecked entries from the
+         * next node. */
+        int allow_merge = (delete_strategy == DELETE_STRATEGY_KEEPREF);
         unsigned char *new_lp = streamListpackCompaction(s, &ri, lp, entries,
-                                                         marked_deleted);
+                                                         marked_deleted,
+                                                         allow_merge);
 
         /* If no compaction occurred (new_lp == lp), we still need to update
          * the rax node since lpReplaceInteger() may have reallocated the
@@ -1862,9 +1874,10 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         size_t newsize = lpBytes(lp);
         s->alloc_size += newsize - oldsize;
 
-        /* Perform garbage collection if needed. */
+        /* Perform garbage collection if needed. Merging is always allowed
+         * here since XDEL processes one entry at a time without trim criteria. */
         unsigned char *new_lp =
-            streamListpackCompaction(s, &si->ri, lp, entries, marked_deleted+1);
+            streamListpackCompaction(s, &si->ri, lp, entries, marked_deleted+1, 1);
 
         /* If no compaction occurred (new_lp == lp), we still need to update
          * the rax node since lpReplaceInteger() may have reallocated the
