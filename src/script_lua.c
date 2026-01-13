@@ -135,7 +135,7 @@ static void redisProtocolToLuaType_Double(void *ctx, double d, const char *proto
 static void redisProtocolToLuaType_BigNumber(void *ctx, const char *str, size_t len, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_VerbatimString(void *ctx, const char *format, const char *str, size_t len, const char *proto, size_t proto_len);
 static void redisProtocolToLuaType_Attribute(struct ReplyParser *parser, void *ctx, size_t len, const char *proto);
-static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua);
+static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua, int level);
 
 /*
  * Save the give pointer on Lua registry, used to save the Lua context and
@@ -579,7 +579,8 @@ int luaError(lua_State *lua) {
 
 /* Reply to client 'c' converting the top element in the Lua stack to a
  * Redis reply. As a side effect the element is consumed from the stack.  */
-static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua) {
+#define MAX_STACK_DEPTH (LUA_MINSTACK/2)
+static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua, int level) {
     int t = lua_type(lua,-1);
 
     if (!lua_checkstack(lua, 4)) {
@@ -589,6 +590,13 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
          * require push 4 elements to the Lua stack.*/
         addReplyError(c, "reached lua stack limit");
         lua_pop(lua,1); /* pop the element from the stack */
+        return;
+    }
+
+    if (level++ == MAX_STACK_DEPTH) {
+        // This case is for preventing server crashes when the C stack limit is reached first
+        addReplyError(c, "max recursion level reached");
+        lua_pop(lua,1);
         return;
     }
 
@@ -708,8 +716,8 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
             while (lua_next(lua,-2)) {
                 /* Stack now: table, key, value */
                 lua_pushvalue(lua,-2);        /* Dup key before consuming. */
-                luaReplyToRedisReply(c, script_client, lua); /* Return key. */
-                luaReplyToRedisReply(c, script_client, lua); /* Return value. */
+                luaReplyToRedisReply(c, script_client, lua, level); /* Return key. */
+                luaReplyToRedisReply(c, script_client, lua, level); /* Return value. */
                 /* Stack now: table, key. */
                 maplen++;
             }
@@ -732,7 +740,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
                 /* Stack now: table, key, true */
                 lua_pop(lua,1);               /* Discard the boolean value. */
                 lua_pushvalue(lua,-1);        /* Dup key before consuming. */
-                luaReplyToRedisReply(c, script_client, lua); /* Return key. */
+                luaReplyToRedisReply(c, script_client, lua, level); /* Return key. */
                 /* Stack now: table, key. */
                 setlen++;
             }
@@ -754,7 +762,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
                 lua_pop(lua,1);
                 break;
             }
-            luaReplyToRedisReply(c, script_client, lua);
+            luaReplyToRedisReply(c, script_client, lua, level);
             mbulklen++;
         }
         setDeferredArrayLen(c,replylen,mbulklen);
@@ -1734,7 +1742,7 @@ void luaCallFunction(scriptRunCtx* run_ctx, lua_State *lua, robj** keys, size_t 
     } else {
         /* On success convert the Lua return value into Redis protocol, and
          * send it to * the client. */
-        luaReplyToRedisReply(c, run_ctx->c, lua); /* Convert and consume the reply. */
+        luaReplyToRedisReply(c, run_ctx->c, lua, 0); /* Convert and consume the reply. */
     }
 
     /* Perform some cleanup that we need to do both on error and success. */
