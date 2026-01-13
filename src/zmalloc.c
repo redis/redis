@@ -81,14 +81,18 @@ void je_free_with_usize(void *ptr, size_t *usize);
 
 #define MAX_THREADS 16 /* Keep it a power of 2 so we can use '&' instead of '%'. */
 #define THREAD_MASK (MAX_THREADS - 1)
+#define PEAK_CHECK_THRESHOLD (1024 * 100) /* 100KB */
 
 typedef struct used_memory_entry {
     redisAtomic long long used_memory;
-    char padding[CACHE_LINE_SIZE - sizeof(long long)];
+    long long last_peak_check;
+    char padding[CACHE_LINE_SIZE - sizeof(long long) - sizeof(long long)];
 } used_memory_entry;
 
 static __attribute__((aligned(CACHE_LINE_SIZE))) used_memory_entry used_memory[MAX_THREADS];
 static redisAtomic size_t num_active_threads = 0;
+static redisAtomic size_t zmalloc_peak = 0;
+static redisAtomic time_t zmalloc_peak_time = 0;
 static __thread long my_thread_index = -1;
 
 static inline void init_my_thread_index(void) {
@@ -101,6 +105,29 @@ static inline void init_my_thread_index(void) {
 static void update_zmalloc_stat_alloc(long long num) {
     init_my_thread_index();
     atomicIncr(used_memory[my_thread_index].used_memory, num);
+
+    long long used;
+    atomicGet(used_memory[my_thread_index].used_memory, used);
+    if (unlikely(used - used_memory[my_thread_index].last_peak_check > PEAK_CHECK_THRESHOLD)) {
+        size_t current_mem = zmalloc_used_memory();
+        size_t peak;
+        atomicGet(zmalloc_peak, peak);
+        if (current_mem > peak) {
+            /* Use CAS to update the peak memory atomically.
+             * If CAS fails, it means another thread updated it, so we can retry or just ignore
+             * since the other thread's value is likely higher or equal.
+             * Here we just try once for simplicity and performance. */
+            size_t expected = peak;
+            while (current_mem > expected && !atomic_compare_exchange_weak_explicit(&zmalloc_peak, &expected, current_mem, memory_order_relaxed, memory_order_relaxed)) {
+                 /* If CAS fails, expected is updated to the current value of zmalloc_peak.
+                  * We continue the loop to check if we still have a higher value. */
+            }
+            if (current_mem > expected) {
+                atomicSet(zmalloc_peak_time, time(NULL));
+            }
+        }
+        used_memory[my_thread_index].last_peak_check = used;
+    }
 }
 
 static void update_zmalloc_stat_free(long long num) {
@@ -183,7 +210,7 @@ void *zmalloc_usable(size_t size, size_t *usable) {
     void *ptr = ztrymalloc_usable_internal(size, &usable_size);
     if (!ptr) zmalloc_oom_handler(size);
 #ifdef HAVE_MALLOC_SIZE
-    ptr = extend_to_usable(ptr, usable_size);
+    if (ptr) ptr = extend_to_usable(ptr, usable_size);
 #endif
     if (usable) *usable = usable_size;
     return ptr;
@@ -536,6 +563,18 @@ size_t zmalloc_used_memory(void) {
         total_mem += thread_used_mem;
     }
     return total_mem;
+}
+
+size_t zmalloc_get_peak_memory(void) {
+    size_t peak;
+    atomicGet(zmalloc_peak, peak);
+    return peak;
+}
+
+time_t zmalloc_get_peak_memory_time(void) {
+    time_t t;
+    atomicGet(zmalloc_peak_time, t);
+    return t;
 }
 
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t)) {
