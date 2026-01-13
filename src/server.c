@@ -4146,8 +4146,12 @@ int commandCheckExistence(client *c, sds *err) {
         sds cmd = sdsnew((char *)c->argv[0]->ptr);
         sdstoupper(cmd);
         *err = sdsnew(NULL);
-        *err = sdscatprintf(*err, "unknown subcommand '%.128s'. Try %s HELP.",
-                            (char *)c->argv[1]->ptr, cmd);
+        if (c->argc >= 2) {
+            *err = sdscatprintf(*err, "unknown subcommand '%.128s'. Try %s HELP.",
+                                (char *)c->argv[1]->ptr, cmd);
+        } else {
+            *err = sdscatprintf(*err, "unknown command '%.128s'", cmd);
+        }
         sdsfree(cmd);
     } else {
         sds args = sdsempty();
