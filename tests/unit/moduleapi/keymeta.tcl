@@ -22,7 +22,7 @@
 # - EMBEDDED STRINGS vs. REGULAR OBJECTS
 #   - Short strings and numbers are embedded into kvobj
 #   - The rest are kept as distinct objects
-# - LAZYFREE (TBD) 
+# - LAZYFREE
 # ============================================================================
 
 set testmodule [file normalize tests/modules/test_keymeta.so]
@@ -93,7 +93,7 @@ proc verifyKeyMeta {keyname operation numClasses hasExpiry classesSpec} {
 
 proc flushallAndVerifyCleanup {} {
     r flushall
-    # Verify all metadata is cleaned up properly    
+    # Verify all metadata is cleaned up properly
     assert_equal [r keymeta.active] 0
 }
 
@@ -143,10 +143,10 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
                         flushallAndVerifyCleanup
                     }
                 }
-                
+
                 test "KEYMETA - copy key-hash with $numClasses classes, $expiryStr" {
                     r select 0
-                    r del h1 h2                    
+                    r del h1 h2
                     r HSET h1 field1 "value1" field2 "value2"
                     r hexpire h1 10000 FIELDS 1 field1
                     setupKeyMeta h1 $numClasses $expiryBefore $expiryAfter
@@ -154,11 +154,11 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
                     r copy h1 h2
                     # Verify:
                     verifyKeyMeta h2 "copy" $numClasses $hasExpiry classesSpec
-                    assert_range [r httl h1 FIELDS 1 field1] 9999 10000                  
+                    assert_range [r httl h1 FIELDS 1 field1] 9999 10000
                     assert_range [r httl h2 FIELDS 1 field1] 9999 10000
-                    flushallAndVerifyCleanup                      
+                    flushallAndVerifyCleanup
                 }
-    
+
                 # Test RENAME operation
                 test "KEYMETA - rename key-string with $numClasses classes, $expiryStr" {
                     foreach value { 3 "value1" [string repeat "ABCD" 1000]} {
@@ -176,24 +176,24 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
                         flushallAndVerifyCleanup
                     }
                 }
-                
+
                 test "KEYMETA - rename key-hash with $numClasses classes, $expiryStr" {
                     r select 0
                     r del h1 h2
                     r HSET h1 field1 "value1" field2 "value2"
                     r hexpire h1 10000 FIELDS 1 field1
-                    setupKeyMeta h1 $numClasses $expiryBefore $expiryAfter                    
+                    setupKeyMeta h1 $numClasses $expiryBefore $expiryAfter
                     # Rename:
-                    r rename h1 h2                    
+                    r rename h1 h2
                     # Verify:
-                    assert_equal [r exists h1] 0                    
+                    assert_equal [r exists h1] 0
                     assert_range [r httl h2 FIELDS 1 field1] 9999 10000
                     verifyKeyMeta h2 "rename" $numClasses $hasExpiry classesSpec
                     flushallAndVerifyCleanup
                 }
-                
-                
-    
+
+
+
                 # Test MOVE operation
                 test "KEYMETA - move key-string with $numClasses classes, $expiryStr" {
                     foreach value { 3 "value1" [string repeat "ABCD" 1000]} {
@@ -215,11 +215,11 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
                         flushallAndVerifyCleanup
                     }
                 }
-                                
+
                 test "KEYMETA - move key-hash with $numClasses classes, $expiryStr" {
                     r select 9
                     r del h1
-                    r select 0                    
+                    r select 0
                     r del h1
                     r HSET h1 field1 "value1" field2 "value2"
                     r hexpire h1 10000 FIELDS 1 field1
@@ -232,11 +232,11 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
                     verifyKeyMeta h1 "move" $numClasses $hasExpiry classesSpec
                     r select 0
                     flushallAndVerifyCleanup
-                }                
+                }
             }
         }
     }
-    
+
     test "KEYMETA - Verify active metadata count on copy" {
         for {set cid 1} {$cid < 7} {incr cid} {
             set numAlloc 0
@@ -255,7 +255,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
             assert_equal [r keymeta.active] 0
         }
     }
-    
+
     test "KEYMETA - Verify active metadata count on rename" {
         for {set cid 1} {$cid <= 7} {incr cid} {
             set numAlloc 0
@@ -296,7 +296,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
             assert_equal [r keymeta.active] 0
         }
     }
-    
+
     test "KEYMETA - Verify metadta cleanup on lazyfree" {
         r config set lazyfree-lazy-user-del yes
         # Class 2 has UNLINKFREE flag, so it should call unlink callback when lazyfree is enabled
@@ -320,7 +320,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
         }
         r config set lazyfree-lazy-user-del no
     } {OK} {needs:config-resetstat}
-    
+
     test "KEYMETA - Verify metadata cleanup on expire" {
         # Class 2 has UNLINKFREE flag, so it should call unlink callback when lazyfree is enabled
         # Class 1 does not have UNLINKFREE flag, so it should only call free callback
@@ -624,34 +624,34 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
                     r keymeta.unregister [cname $cid]
                     assert_equal $classes($cid) [r keymeta.register [cname $cid] 1 $classesSpec($cid)]
                 }
-    
+
                 # Create key with metadata classes
                 r set key1 "value1"
                 for {set i 1} {$i <= $numClasses} {incr i} {
                     r keymeta.set [cname $i] key1 "meta${i}_value"
                 }
-                
+
                 if {$withTTL} { r expire key1 10000 }
-    
+
                 # Verify all metadata before DUMP
                 for {set i 1} {$i <= $numClasses} {incr i} {
                     assert_equal [r keymeta.get [cname $i] key1] "meta${i}_value"
                 }
-    
+
                 # DUMP the key
                 set encoded [r dump key1]
-    
+
                 # Delete and RESTORE
                 r del key1
                 r restore key1 [expr {$withTTL ? 10000 : 0}] $encoded
-    
+
                 # Verify all metadata was restored
                 assert_equal [r get key1] "value1"
                 for {set i 1} {$i <= $numClasses} {incr i} {
                     assert_equal [r keymeta.get [cname $i] key1] "meta${i}_value"
                 }
                 if {$withTTL} { assert_range [r pttl key1] 9000 10000 }
-    
+
                 flushallAndVerifyCleanup
             }
         }
@@ -682,11 +682,11 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
         r restore key1 0 $encoded2 replace
         assert_equal [r get key1] "value2"
         assert_equal [r keymeta.get [cname 1] key1] "meta1_new"
-        
+
         flushallAndVerifyCleanup
     }
-    
-    
+
+
     # Test all combinations except the error case (ALLOW_IGNORE=0, RDBLOAD=0, RDBSAVE=1)
     foreach RDBLOAD {0 1} {
         foreach RDBSAVE {0 1} {
@@ -756,3 +756,105 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
         flushallAndVerifyCleanup
     }
 }
+
+test {RDB: Load with different module registration order preserves metadata correctly} {
+    # This test verifies out-of-order metadata attachment during RDB load.
+    # When modules register in different order at load time vs save time,
+    # metadata values should still be correctly associated with their classes.
+    start_server {tags {"modules" "external:skip" "cluster:skip"}} {
+        r module load $testmodule
+
+        # Helper function to generate class names (needed in inner scope)
+        proc cname {id} { return "CLS$id" }
+
+        # Register classes in order: 1, 2, 3
+        set spec1 "KEEPONCOPY:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+        set spec2 "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+        set spec3 "KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+
+        set class1 [r keymeta.register [cname 1] 1 $spec1]
+        set class2 [r keymeta.register [cname 2] 1 $spec2]
+        set class3 [r keymeta.register [cname 3] 1 $spec3]
+
+        # Verify class IDs match registration order
+        assert_equal $class1 1 "Class 1 registered first, gets ID 1"
+        assert_equal $class2 2 "Class 2 registered second, gets ID 2"
+        assert_equal $class3 3 "Class 3 registered third, gets ID 3"
+
+        # OUTER SERVER: Create RDB with classes registered in order 1,2,3
+        r flushall
+        r set mykey "myvalue"
+        r keymeta.set [cname 1] mykey "metadata_for_class1"
+        r keymeta.set [cname 2] mykey "metadata_for_class2"
+        r keymeta.set [cname 3] mykey "metadata_for_class3"
+
+        # Verify metadata before save
+        assert_equal [r keymeta.get [cname 1] mykey] "metadata_for_class1"
+        assert_equal [r keymeta.get [cname 2] mykey] "metadata_for_class2"
+        assert_equal [r keymeta.get [cname 3] mykey] "metadata_for_class3"
+
+        r save
+
+        # Get RDB file path & Copy RDB to a temp location with unique name
+        set rdb_dir [lindex [r config get dir] 1]
+        set rdb_file [lindex [r config get dbfilename] 1]
+        set rdb_path [file join $rdb_dir $rdb_file]
+        set temp_rdb [file join $rdb_dir "temp_metadata_outoforder_[pid].rdb"]
+        file copy -force $rdb_path $temp_rdb
+
+        # INNER SERVER: Start new server, register classes in DIFFERENT order, then load RDB
+        start_server [list overrides [list dir $rdb_dir]] {
+            r module load $testmodule
+
+            # Helper function to generate class names (needed in inner scope)
+            proc cname {id} { return "CLS$id" }
+
+            # Register classes in DIFFERENT order: 3, 1, 2
+            # This simulates a server where modules load in different order
+            set spec1 "KEEPONCOPY:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+            set spec2 "KEEPONRENAME:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+            set spec3 "KEEPONMOVE:ALLOWIGNORE:RDBLOAD:RDBSAVE"
+
+            set class3 [r keymeta.register [cname 3] 1 $spec3]
+            set class1 [r keymeta.register [cname 1] 1 $spec1]
+            set class2 [r keymeta.register [cname 2] 1 $spec2]
+
+            # Verify class IDs are assigned by REGISTRATION ORDER, not name
+            # We registered in order 3,1,2, so the runtime IDs are:
+            # - class3 (name "CLS3") gets ID 1 (first registered)
+            # - class1 (name "CLS1") gets ID 2 (second registered)
+            # - class2 (name "CLS2") gets ID 3 (third registered)
+            # This is DIFFERENT from outer server which registered in order 1,2,3
+            assert_equal $class3 1 "Class 3 registered first, gets ID 1"
+            assert_equal $class1 2 "Class 1 registered second, gets ID 2"
+            assert_equal $class2 3 "Class 2 registered third, gets ID 3"
+
+            # Copy the saved RDB to this server's dbfilename
+            set inner_rdb_file [lindex [r config get dbfilename] 1]
+            set inner_rdb_path [file join $rdb_dir $inner_rdb_file]
+            file copy -force $temp_rdb $inner_rdb_path
+
+            # NOW load the RDB (AFTER registration in different order)
+            # Use 'nosave' to reload from the copied RDB without saving current state first
+            r debug reload nosave
+
+            # Verify the key exists
+            assert_equal [r exists mykey] 1 "Key should exist after RDB load"
+            assert_equal [r get mykey] "myvalue" "Key value should be preserved"
+
+            # Verify metadata values are correctly associated with their classes
+            # WITHOUT metadata would be swapped because:
+            # - At SAVE time (outer): classes registered in order 1,2,3
+            # - At LOAD time (inner): classes registered in order 3,1,2
+            # - RDB contains metadata in saved order, but keyMetaClassLookupByName
+            #   maps them back to correct classes by NAME, not by registration order
+            assert_equal [r keymeta.get [cname 1] mykey] "metadata_for_class1"
+            assert_equal [r keymeta.get [cname 2] mykey] "metadata_for_class2"
+            assert_equal [r keymeta.get [cname 3] mykey] "metadata_for_class3"
+        }
+
+        # Cleanup temp file
+        file delete $temp_rdb
+
+    }
+} {} {external:skip needs:save}

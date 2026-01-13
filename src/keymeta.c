@@ -46,6 +46,10 @@ typedef struct KeyMetaClass {
 } KeyMetaClass;
 static KeyMetaClass keyMetaClass[KEY_META_ID_MAX];
 
+/* Add metadata to keymeta spec, handling out-of-order metaid */
+static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
+
+
 /* Encode 64b For module entity encode. Encode 32b class spec for RDB. 
  *
  * Takes a 4-character name (e.g., "KMT1"), version (0-31), and flags, validates 
@@ -426,8 +430,8 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
             int rc = rdbLoadSkipMetaIfAllowed(rdb, name, flags);
             if (rc == -1) return -1;
             continue;
-        } 
-        
+        }
+
         /* Verify version matches */
         KeyMetaClass *pClass = &keyMetaClass[classId];
         debugServerAssert(pClass->state == CLASS_STATE_INUSE);
@@ -437,7 +441,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
             /* No rdb_load callback - check ALLOW_IGNORE flag */
             int rc = rdbLoadSkipMetaIfAllowed(rdb, name, flags);
             if (rc == -1) return -1;
-            continue;            
+            continue;
         }
 
         RedisModuleIO io;
@@ -467,8 +471,9 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
          *   0: Ignore/skip metadata (not an error)
          *  -1: Error - abort RDB load */
         if (rc == 1) {
-            /* Attach metadata. Cannot overflow since loop is bounded by numClasses <= KEY_META_MAX_NUM_MODULES */
-            keyMetaSpecAdd(kms, classId, meta);
+            /* Add metadata, handling out-of-order classIds that may occur when
+             * modules register in different order at load time vs save time */
+            keyMetaSpecAddUnordered(kms, classId, meta);
         } else if (rc == 0) {
             /* Ignore/skip - don't attach metadata, continue loading */
         } else if (rc == -1) {
@@ -485,6 +490,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
             return -1;
         }
     }
+
     return 0; /* Success */
 }
 
@@ -826,6 +832,40 @@ void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
     keymeta->numMeta++;
     /* populated in reverse order */
     keymeta->meta[KEY_META_ID_MAX - keymeta->numMeta] = metaval;
+}
+
+/* Add metadata to keymeta spec, handling out-of-order metaid addition.
+ * This is useful when metadata may arrive in different order than class IDs
+ * (e.g., RDB load with different module registration order).
+ * The function maintains the sorted order of the reverse-populated array. */
+static void keyMetaSpecAddUnordered(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
+    debugServerAssert(metaid >= 0 && metaid < KEY_META_ID_MAX);
+    debugServerAssert((keymeta->metabits & (1 << metaid)) == 0); /* Not already added */
+
+    /* The meta array is populated in reverse order from the end backward. smallest 
+     * metaid is at the end. Iterate through array slots upward, but find metaids 
+     * by scanning downward (highest to lowest) to match the reverse-order layout. */
+    int startIdx = KEY_META_ID_MAX - keymeta->numMeta;
+    uint16_t tmpBits = keymeta->metabits;
+    int slot = startIdx;
+
+    while (tmpBits) {
+        /* Find highest metaid in tmpBits (scanning downward from highest bit) */
+        int id = 31 - __builtin_clz((unsigned)tmpBits);
+
+        /* break if we found the slot for the new metaid */
+        if (id < metaid) break;
+
+        /* This id is bigger, shift it down */
+        keymeta->meta[slot - 1] = keymeta->meta[slot];
+        tmpBits &= ~(1 << id);
+        slot++;
+    }
+
+    /* Insert new metaid at position slot - 1 */
+    keymeta->meta[slot - 1] = metaval;
+    keymeta->metabits |= 1 << metaid;
+    keymeta->numMeta++;
 }
 
 /* Blindly reset modules metadata values to reset_value */
