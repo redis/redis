@@ -2685,4 +2685,16 @@ start_server {tags {"scripting"}} {
             r eval "error({})" 0
         }
     }
+
+    test {EVAL - recursion protection in reply conversion} {        
+        assert_error {*max recursion level reached*} {
+            r eval {
+                local t = {}
+                for i=1,50000 do
+                    t = {t}
+                end
+                return t
+            } 0
+        }
+    }
 }

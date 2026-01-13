@@ -579,7 +579,7 @@ int luaError(lua_State *lua) {
 
 /* Reply to client 'c' converting the top element in the Lua stack to a
  * Redis reply. As a side effect the element is consumed from the stack.  */
-#define MAX_STACK_DEPTH (LUA_MINSTACK/2)
+#define MAX_STACK_DEPTH 500
 static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lua, int level) {
     int t = lua_type(lua,-1);
 
@@ -594,7 +594,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
     }
 
     if (level++ == MAX_STACK_DEPTH) {
-        // This case is for preventing server crashes when the C stack limit is reached first
+        /* This case is for preventing server crashes when the C stack limit is reached first */
         addReplyError(c, "max recursion level reached");
         lua_pop(lua,1);
         return;
