@@ -907,7 +907,7 @@ static unsigned char *streamListpackMerge(unsigned char *lp1, unsigned char *lp2
  * When nodes become sparse after compaction, this function attempts to merge
  * with the next node if:
  * 1. They have identical master entries. You may ask yourself: why this is
- *    needed? Because otherwise we would expand the "right" node entires to
+ *    needed? Because otherwise we would expand the "right" node entries to
  *    their full-size version of fields+values.
  * 2. The combined size is within limits.
  * 3. The next node is NOT the last node in the stream (it does not make
