@@ -612,7 +612,7 @@ void decrRefCount(robj *o) {
     if (--(o->refcount) == 0) {
         void *alloc = o;
         
-         if (o->iskvobj) {
+        if (o->iskvobj) {
             /* eval real allocation pointer */
             alloc = kvobjGetAllocPtr(o);
             /* if kvobj has metadata attached. */

@@ -5113,7 +5113,7 @@ int moduleZsetAddFlagsFromCoreFlags(int flags) {
  *
  *     REDISMODULE_ZADD_XX: Element must already exist. Do nothing otherwise.
  *     REDISMODULE_ZADD_NX: Element must not exist. Do nothing otherwise.
- *     REDISMODULE_ZADD_GT: If element exists, new score must be greater than the current score.
+ *     REDISMODULE_ZADD_GT: If element exists, new score must be greater than the current score. 
  *                          Do nothing otherwise. Can optionally be combined with XX.
  *     REDISMODULE_ZADD_LT: If element exists, new score must be less than the current score.
  *                          Do nothing otherwise. Can optionally be combined with XX.
@@ -5758,12 +5758,12 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  * expecting a RedisModuleString pointer to pointer, the function just
  * reports if the field exists or not and expects an integer pointer
  * as the second element of each pair.
- *
+ * 
  * REDISMODULE_HASH_EXPIRE_TIME: retrieves the expiration time of a field in the hash.
  * The function expects a `mstime_t` pointer as the second element of each pair.
- * If the field does not exist or has no expiration, the value is set to
+ * If the field does not exist or has no expiration, the value is set to 
  * `REDISMODULE_NO_EXPIRE`. This flag must not be used with `REDISMODULE_HASH_EXISTS`.
- *
+ * 
  * Example of REDISMODULE_HASH_CFIELDS:
  *
  *      RedisModuleString *username, *hashedpass;
@@ -5776,9 +5776,9 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
  *
  * Example of REDISMODULE_HASH_EXPIRE_TIME:
  *
- *      mstime_t hpExpireTime;
+ *      mstime_t hpExpireTime; 
  *      RedisModule_HashGet(mykey,REDISMODULE_HASH_EXPIRE_TIME,"hp",&hpExpireTime,NULL);
- *
+ *      
  * The function returns REDISMODULE_OK on success and REDISMODULE_ERR if
  * the key is not a hash value.
  *
@@ -5796,8 +5796,8 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
         hfeFlags = HFE_LAZY_ACCESS_EXPIRED; /* allow read also expired fields */
 
     /* Verify flag HASH_EXISTS is not set together with HASH_EXPIRE_TIME */
-    if ((flags & REDISMODULE_HASH_EXISTS) && (flags & REDISMODULE_HASH_EXPIRE_TIME))
-        return REDISMODULE_ERR;
+    if ((flags & REDISMODULE_HASH_EXISTS) && (flags & REDISMODULE_HASH_EXPIRE_TIME))    
+        return REDISMODULE_ERR;        
 
     va_start(ap, flags);
     while(1) {
@@ -5822,7 +5822,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
                 *existsptr = 0;
             }
         } else if (flags & REDISMODULE_HASH_EXPIRE_TIME) {
-            mstime_t *expireptr = va_arg(ap,mstime_t*);
+            mstime_t *expireptr = va_arg(ap,mstime_t*);            
             *expireptr = REDISMODULE_NO_EXPIRE;
             if (key->kv) {
                 uint64_t expireTime = 0;
@@ -5859,7 +5859,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
 
 /**
  * Retrieves the minimum expiration time of fields in a hash.
- *
+ * 
  * Return:
  *   - The minimum expiration time (in milliseconds) of the hash fields if at
  *     least one field has an expiration set.
@@ -5869,7 +5869,7 @@ int RM_HashGet(RedisModuleKey *key, int flags, ...) {
 mstime_t RM_HashFieldMinExpire(RedisModuleKey *key) {
     if ((!key->kv) || (key->kv->type != OBJ_HASH))
         return REDISMODULE_NO_EXPIRE;
-
+    
     mstime_t min = hashTypeGetMinExpire(key->kv, 1);
     return (min == EB_EXPIRE_TIME_INVALID) ? REDISMODULE_NO_EXPIRE : min;
 }
@@ -7287,7 +7287,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
     } else {
         newval = mt->copy(fromkey, tokey, mv->value);
     }
-
+     
     if (!newval) {
         addReplyError(c, "module key failed to copy");
         return NULL;
@@ -7337,7 +7337,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *             .unlink = myType_UnlinkCallBack,
  *             .copy = myType_CopyCallback,
  *             .defrag = myType_DefragCallback
- *
+ * 
  *             // Enhanced optional fields
  *             .mem_usage2 = myType_MemUsageCallBack2,
  *             .free_effort2 = myType_FreeEffortCallBack2,
@@ -7356,11 +7356,11 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *   Similar to aux_save, returns REDISMODULE_OK on success, and ERR otherwise.
  * * **free_effort**: A callback function pointer that used to determine whether the module's
  *   memory needs to be lazy reclaimed. The module should return the complexity involved by
- *   freeing the value. for example: how many pointers are gonna be freed. Note that if it
+ *   freeing the value. for example: how many pointers are gonna be freed. Note that if it 
  *   returns 0, we'll always do an async free.
- * * **unlink**: A callback function pointer that used to notifies the module that the key has
- *   been removed from the DB by redis, and may soon be freed by a background thread. Note that
- *   it won't be called on FLUSHALL/FLUSHDB (both sync and async), and the module can use the
+ * * **unlink**: A callback function pointer that used to notifies the module that the key has 
+ *   been removed from the DB by redis, and may soon be freed by a background thread. Note that 
+ *   it won't be called on FLUSHALL/FLUSHDB (both sync and async), and the module can use the 
  *   RedisModuleEvent_FlushDB to hook into that.
  * * **copy**: A callback function pointer that is used to make a copy of the specified key.
  *   The module is expected to perform a deep copy of the specified value and return it.
@@ -7368,7 +7368,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  *   A NULL return value is considered an error and the copy operation fails.
  *   Note: if the target key exists and is being overwritten, the copy callback will be
  *   called first, followed by a free callback to the value that is being replaced.
- *
+ * 
  * * **defrag**: A callback function pointer that is used to request the module to defrag
  *   a key. The module should then iterate pointers and call the relevant RM_Defrag*()
  *   functions to defragment pointers or complex types. The module should continue
@@ -7396,7 +7396,7 @@ robj *moduleTypeDupOrReply(client *c, robj *fromkey, robj *tokey, int todb, robj
  * * **aux_save2**: Similar to `aux_save`, but with small semantic change, if the module
  *   saves nothing on this callback then no data about this aux field will be written to the
  *   RDB and it will be possible to load the RDB even if the module is not loaded.
- *
+ * 
  * Note: the module name "AAAAAAAAA" is reserved and produces an error, it
  * happens to be pretty lame as well.
  *
@@ -7968,7 +7968,7 @@ void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const module
 }
 
 /* Similar to RM_LoadDataTypeFromStringEncver, original version of the API, kept
- * for backward compatibility.
+ * for backward compatibility. 
  */
 void *RM_LoadDataTypeFromString(const RedisModuleString *str, const moduleType *mt) {
     return RM_LoadDataTypeFromStringEncver(str, mt, 0);
@@ -8917,7 +8917,7 @@ int moduleBlockedClientMayTimeout(client *c) {
 /* Called when our client timed out. After this function unblockClient()
  * is called, and it will invalidate the blocked client. So this function
  * does not need to do any cleanup. Eventually the module will call the
- * API to unblock the client and the memory will be released.
+ * API to unblock the client and the memory will be released. 
  *
  * This function should only be called from the main thread, we must handle the unblocking
  * of the client synchronously. This ensures that we can reply to the client before
@@ -10415,13 +10415,13 @@ int RM_ACLCheckCommandPermissions(RedisModuleUser *user, RedisModuleString **arg
  * keyspec for logical operations. These flags are documented in RedisModule_SetCommandInfo as
  * the REDISMODULE_CMD_KEY_ACCESS, REDISMODULE_CMD_KEY_UPDATE, REDISMODULE_CMD_KEY_INSERT,
  * and REDISMODULE_CMD_KEY_DELETE flags.
- *
+ * 
  * If no flags are supplied, the user is still required to have some access to the key for
  * this command to return successfully.
  *
  * If the user is able to access the key then REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to one of the following values:
- *
+ * 
  * * EINVAL: The provided flags are invalid.
  * * EACCESS: The user does not have permission to access the key.
  */
@@ -10445,18 +10445,18 @@ int RM_ACLCheckKeyPermissions(RedisModuleUser *user, RedisModuleString *key, int
     return REDISMODULE_OK;
 }
 
-/* Check if the user can access keys matching the given key prefix according to the ACLs
- * attached to the user and the flags representing key access. The flags are the same that
- * are used in the keyspec for logical operations. These flags are documented in
- * RedisModule_SetCommandInfo as the REDISMODULE_CMD_KEY_ACCESS,
+/* Check if the user can access keys matching the given key prefix according to the ACLs 
+ * attached to the user and the flags representing key access. The flags are the same that 
+ * are used in the keyspec for logical operations. These flags are documented in 
+ * RedisModule_SetCommandInfo as the REDISMODULE_CMD_KEY_ACCESS, 
  * REDISMODULE_CMD_KEY_UPDATE, REDISMODULE_CMD_KEY_INSERT, and REDISMODULE_CMD_KEY_DELETE flags.
- *
- * If no flags are supplied, the user is still required to have some access to keys matching
+ * 
+ * If no flags are supplied, the user is still required to have some access to keys matching 
  * the prefix for this command to return successfully.
  *
  * If the user is able to access keys matching the prefix, then REDISMODULE_OK is returned.
  * Otherwise, REDISMODULE_ERR is returned and errno is set to one of the following values:
- *
+ * 
  * * EINVAL: The provided flags are invalid.
  * * EACCES: The user does not have permission to access keys matching the prefix.
  */
@@ -10490,9 +10490,9 @@ int RM_ACLCheckKeyPrefixPermissions(RedisModuleUser *user, RedisModuleString *pr
  *
  * If the user is able to access the pubsub channel then REDISMODULE_OK is returned, otherwise
  * REDISMODULE_ERR is returned and errno is set to one of the following values:
- *
+ * 
  * * EINVAL: The provided flags are invalid.
- * * EACCESS: The user does not have permission to access the pubsub channel.
+ * * EACCESS: The user does not have permission to access the pubsub channel. 
  */
 int RM_ACLCheckChannelPermissions(RedisModuleUser *user, RedisModuleString *ch, int flags) {
     const int allow_mask = (REDISMODULE_CMD_CHANNEL_PUBLISH
@@ -10650,15 +10650,15 @@ int RM_DeauthenticateAndCloseClient(RedisModuleCtx *ctx, uint64_t client_id) {
     return REDISMODULE_OK;
 }
 
-/* Redact the client command argument specified at the given position. Redacted arguments
+/* Redact the client command argument specified at the given position. Redacted arguments 
  * are obfuscated in user facing commands such as SLOWLOG or MONITOR, as well as
  * never being written to server logs. This command may be called multiple times on the
  * same position.
- *
- * Note that the command name, position 0, can not be redacted.
- *
- * Returns REDISMODULE_OK if the argument was redacted and REDISMODULE_ERR if there
- * was an invalid parameter passed in or the position is outside the client
+ * 
+ * Note that the command name, position 0, can not be redacted. 
+ * 
+ * Returns REDISMODULE_OK if the argument was redacted and REDISMODULE_ERR if there 
+ * was an invalid parameter passed in or the position is outside the client 
  * argument range. */
 int RM_RedactClientCommandArgument(RedisModuleCtx *ctx, int pos) {
     if (!ctx || !ctx->client || pos <= 0 || ctx->client->argc <= pos) {
@@ -12338,7 +12338,7 @@ static uint64_t moduleEventVersions[] = {
  *         int32_t dbnum_second;   // Swap Db second dbnum
  *
  * * RedisModuleEvent_ReplBackup
- *
+ * 
  *     WARNING: Replication Backup events are deprecated since Redis 7.0 and are never fired.
  *     See RedisModuleEvent_ReplAsyncLoad for understanding how Async Replication Loading events
  *     are now triggered when repl-diskless-load is set to swapdb.
@@ -12353,7 +12353,7 @@ static uint64_t moduleEventVersions[] = {
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_CREATE`
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_RESTORE`
  *     * `REDISMODULE_SUBEVENT_REPL_BACKUP_DISCARD`
- *
+ * 
  * * RedisModuleEvent_ReplAsyncLoad
  *
  *     Called when repl-diskless-load config is set to swapdb and a replication with a master of same
@@ -12395,7 +12395,7 @@ static uint64_t moduleEventVersions[] = {
  *     structure with the following fields:
  *
  *         const char **config_names; // An array of C string pointers containing the
- *                                    // name of each modified configuration item
+ *                                    // name of each modified configuration item 
  *         uint32_t num_changes;      // The number of elements in the config_names array
  *
  * * RedisModule_Event_Key
@@ -12549,7 +12549,7 @@ int RM_IsSubEventSupported(RedisModuleEvent event, int64_t subevent) {
     case REDISMODULE_EVENT_EVENTLOOP:
         return subevent < _REDISMODULE_SUBEVENT_EVENTLOOP_NEXT;
     case REDISMODULE_EVENT_CONFIG:
-        return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT;
+        return subevent < _REDISMODULE_SUBEVENT_CONFIG_NEXT; 
     case REDISMODULE_EVENT_KEY:
         return subevent < _REDISMODULE_SUBEVENT_KEY_NEXT;
     case REDISMODULE_EVENT_CLUSTER_SLOT_MIGRATION:
@@ -12731,7 +12731,7 @@ void moduleNotifyKeyUnlink(robj *key, kvobj *kv, int dbid, int flags) {
     server.allow_access_trimmed--;
 }
 
-/* Return the free_effort of the module, it will automatically choose to call
+/* Return the free_effort of the module, it will automatically choose to call 
  * `free_effort` or `free_effort2`, and the default return value is 1.
  * value of 0 means very high effort (always asynchronous freeing). */
 size_t moduleGetFreeEffort(robj *key, robj *val, int dbid) {
@@ -12744,12 +12744,12 @@ size_t moduleGetFreeEffort(robj *key, robj *val, int dbid) {
         effort = mt->free_effort2(&ctx,mv->value);
     } else if (mt->free_effort != NULL) {
         effort = mt->free_effort(key,mv->value);
-    }
+    }  
 
     return effort;
 }
 
-/* Return the memory usage of the module, it will automatically choose to call
+/* Return the memory usage of the module, it will automatically choose to call 
  * `mem_usage` or `mem_usage2`, and the default return value is 0. */
 size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid) {
     moduleValue *mv = val->ptr;
@@ -12761,7 +12761,7 @@ size_t moduleGetMemUsage(robj *key, robj *val, size_t sample_size, int dbid) {
         size = mt->mem_usage2(&ctx, mv->value, sample_size);
     } else if (mt->mem_usage != NULL) {
         size = mt->mem_usage(mv->value);
-    }
+    } 
 
     return size;
 }
@@ -13232,7 +13232,7 @@ int moduleOnLoad(int (*onload)(void *, void **, int), const char *path, void *ha
 /* Unload the module registered with the specified name. On success
  * C_OK is returned, otherwise C_ERR is returned and errmsg is set
  * with an appropriate message.
- * Only forcefully unload this module, passing forced_unload != 0,
+ * Only forcefully unload this module, passing forced_unload != 0, 
  * if it is certain that it has not yet been in use (e.g., immediate
  * unload on failed load). */
 int moduleUnload(sds name, const char **errmsg, int forced_unload) {
@@ -13415,7 +13415,7 @@ sds genModulesInfoString(sds info) {
 /* --------------------------------------------------------------------------
  * Module Configurations API internals
  * -------------------------------------------------------------------------- */
-
+	 
 /* Check if the configuration name is already registered */
 int isModuleConfigNameRegistered(RedisModule *module, const char *name) {
     listNode *match = listSearchKey(module->module_configs, (void *) name);
@@ -13469,11 +13469,11 @@ int moduleVerifyResourceName(const char *name) {
     return REDISMODULE_OK;
 }
 
-/* Verify unprefixed name config might be a single "<name>" or in the form
- * "<name>|<alias>". Unlike moduleVerifyResourceName(), unprefixed name config
- * allows a single dot in the name or alias.
- *
- * delim - Updates to point to "|" if it exists, NULL otherwise.
+/* Verify unprefixed name config might be a single "<name>" or in the form 
+ * "<name>|<alias>". Unlike moduleVerifyResourceName(), unprefixed name config 
+ * allows a single dot in the name or alias. 
+ * 
+ * delim - Updates to point to "|" if it exists, NULL otherwise. 
  */
 int moduleVerifyUnprefixedName(const char *nameAlias, const char **delim) {
     if (nameAlias[0] == '\0')
@@ -13484,7 +13484,7 @@ int moduleVerifyUnprefixedName(const char *nameAlias, const char **delim) {
 
     for (size_t i = 0; nameAlias[i] != '\0'; i++) {
         char ch = nameAlias[i];
-
+        
         if (((*delim) == NULL) && (ch == '|')) {
             /* Handle single separator between name and alias */
             if (!lname) {
@@ -13499,7 +13499,7 @@ int moduleVerifyUnprefixedName(const char *nameAlias, const char **delim) {
             ++lname;
         } else if (ch == '.') {
             /* Allow only one dot per section (name or alias) */
-            if (++dot_count > 1) {
+            if (++dot_count > 1) { 
                 serverLog(LL_WARNING, "Invalid character sequence in Module configuration name or alias: %s", nameAlias);
                 return REDISMODULE_ERR;
             }
@@ -13508,7 +13508,7 @@ int moduleVerifyUnprefixedName(const char *nameAlias, const char **delim) {
             return REDISMODULE_ERR;
         }
     }
-
+    
     if (!lname) {
         serverLog(LL_WARNING, "Module configuration name or alias is empty : %s", nameAlias);
         return REDISMODULE_ERR;
@@ -13517,7 +13517,7 @@ int moduleVerifyUnprefixedName(const char *nameAlias, const char **delim) {
     return REDISMODULE_OK;
 }
 
-/* This is a series of set functions for each type that act as dispatchers for
+/* This is a series of set functions for each type that act as dispatchers for 
  * config.c to call module set callbacks. */
 #define CONFIG_ERR_SIZE 256
 static char configerr[CONFIG_ERR_SIZE];
@@ -13529,8 +13529,8 @@ static void propagateErrorString(RedisModuleString *err_in, const char **err) {
     }
 }
 
-/* If configuration was originally registered with indication to prefix the name,
- * return the name without the prefix by skipping prefix "<MODULE-NAME>.".
+/* If configuration was originally registered with indication to prefix the name, 
+ * return the name without the prefix by skipping prefix "<MODULE-NAME>.". 
  * Otherwise, return the stored name as is. */
 static char *getRegisteredConfigName(ModuleConfig *config) {
     if (config->unprefixedFlag)
@@ -13538,7 +13538,7 @@ static char *getRegisteredConfigName(ModuleConfig *config) {
 
     /* For prefixed configuration, find the '.' indicating the end of the prefix */
     char *endOfPrefix = strchr(config->name, '.');
-    serverAssert(endOfPrefix != NULL);
+    serverAssert(endOfPrefix != NULL);    
     return endOfPrefix + 1;
 }
 
@@ -13554,7 +13554,7 @@ int setModuleBoolConfig(ModuleConfig *config, int val, const char **err) {
 int setModuleStringConfig(ModuleConfig *config, sds strval, const char **err) {
     RedisModuleString *error = NULL;
     RedisModuleString *new = createStringObject(strval, sdslen(strval));
-
+    
     char *rname = getRegisteredConfigName(config);
     int return_code = config->set_fn.set_string(rname, new, config->privdata, &error);
     propagateErrorString(error, err);
@@ -13577,7 +13577,7 @@ int setModuleNumericConfig(ModuleConfig *config, long long val, const char **err
     return return_code == REDISMODULE_OK ? 1 : 0;
 }
 
-/* This is a series of get functions for each type that act as dispatchers for
+/* This is a series of get functions for each type that act as dispatchers for 
  * config.c to call module set callbacks. */
 int getModuleBoolConfig(ModuleConfig *module_config) {
     char *rname = getRegisteredConfigName(module_config);
@@ -13716,19 +13716,19 @@ int moduleConfigApplyConfig(list *module_configs, const char **err, const char *
  * -------------------------------------------------------------------------- */
 
 /* Resolve config name and create a module config object */
-ModuleConfig *createModuleConfig(const char *name, RedisModuleConfigApplyFunc apply_fn,
-                                 void *privdata, RedisModule *module, unsigned int flags)
+ModuleConfig *createModuleConfig(const char *name, RedisModuleConfigApplyFunc apply_fn, 
+                                 void *privdata, RedisModule *module, unsigned int flags) 
 {
     sds cname, alias = NULL;
 
     /* Determine the configuration name:
      * - If the unprefixed flag is set, the "<MODULE-NAME>." prefix is omitted.
      * - An optional alias can be specified using "<NAME>|<ALIAS>".
-     *
+     * 
      * Examples:
      *   - Unprefixed: "bf.initial_size" or "bf-initial-size|bf.initial_size".
      *   - Prefixed:   "initial_size" becomes "<MODULE-NAME>.initial_size".
-     */
+     */    
     if (flags & REDISMODULE_CONFIG_UNPREFIXED) {
         const char *delim = strchr(name, '|');
         cname = sdsnew(name);
@@ -13740,7 +13740,7 @@ ModuleConfig *createModuleConfig(const char *name, RedisModuleConfigApplyFunc ap
         /* Add the module name prefix */
         cname = sdscatfmt(sdsempty(), "%s.%s", module->name, name);
     }
-
+    
     ModuleConfig *new_config = zmalloc(sizeof(ModuleConfig));
     new_config->unprefixedFlag = flags & REDISMODULE_CONFIG_UNPREFIXED;
     new_config->name = cname;
@@ -13752,7 +13752,7 @@ ModuleConfig *createModuleConfig(const char *name, RedisModuleConfigApplyFunc ap
 }
 
 /* Verify the configuration name and check for duplicates.
- *
+ * 
  * - If the configuration is flagged as unprefixed, it checks for duplicate
  *   names and optional aliases in the format <NAME>|<ALIAS>.
  * - If the configuration is prefixed, it ensures the name is unique with
@@ -13767,22 +13767,22 @@ int moduleConfigValidityCheck(RedisModule *module, const char *name, unsigned in
         errno = EINVAL;
         return REDISMODULE_ERR;
     }
-
-    int isdup = 0;
+    
+    int isdup = 0;    
     if (flags & REDISMODULE_CONFIG_UNPREFIXED) {
         const char *delim = NULL; /* Pointer to the '|' delimiter in <NAME>|<ALIAS> */
         if (moduleVerifyUnprefixedName(name, &delim)){
             errno = EINVAL;
             return REDISMODULE_ERR;
         }
-
-        if (delim) {
+        
+        if (delim) { 
             /* Temporary split the "<NAME>|<ALIAS>" for the check */
             int count;
             sds *ar = sdssplitlen(name, strlen(name), "|", 1, &count);
             serverAssert(count == 2); /* Already validated */
-            isdup = configExists(ar[0]) ||
-                    configExists(ar[1]) ||
+            isdup = configExists(ar[0]) || 
+                    configExists(ar[1]) || 
                     (sdscmp(ar[0], ar[1]) == 0);
             sdsfreesplitres(ar, count);
         } else {
@@ -13800,7 +13800,7 @@ int moduleConfigValidityCheck(RedisModule *module, const char *name, unsigned in
         isdup = configExists(fullname);
         sdsfree(fullname);
     }
-
+    
     if (isdup) {
         serverLog(LL_WARNING, "Configuration by the name: %s already registered", name);
         errno = EALREADY;
@@ -13911,19 +13911,19 @@ int RM_RegisterStringConfig(RedisModuleCtx *ctx, const char *name, const char *d
     if (moduleConfigValidityCheck(module, name, flags, NUMERIC_CONFIG)) {
         return REDISMODULE_ERR;
     }
-
+    
     ModuleConfig *mc = createModuleConfig(name, applyfn, privdata, module, flags);
     mc->get_fn.get_string = getfn;
     mc->set_fn.set_string = setfn;
     listAddNodeTail(module->module_configs, mc);
     unsigned int cflags = maskModuleConfigFlags(flags);
-    addModuleStringConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL,
+    addModuleStringConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL, 
                           cflags, mc, default_val ? sdsnew(default_val) : NULL);
     return REDISMODULE_OK;
 }
 
-/* Create a bool config that server clients can interact with via the
- * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See
+/* Create a bool config that server clients can interact with via the 
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
  * RedisModule_RegisterStringConfig for detailed information about configs. */
 int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val, unsigned int flags, RedisModuleConfigGetBoolFunc getfn, RedisModuleConfigSetBoolFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
@@ -13935,15 +13935,15 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
     mc->set_fn.set_bool = setfn;
     listAddNodeTail(module->module_configs, mc);
     unsigned int cflags = maskModuleConfigFlags(flags);
-    addModuleBoolConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL,
+    addModuleBoolConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL, 
                         cflags, mc, default_val);
     return REDISMODULE_OK;
 }
 
-/*
- * Create an enum config that server clients can interact with via the
- * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands.
- * Enum configs are a set of string tokens to corresponding integer values, where
+/* 
+ * Create an enum config that server clients can interact with via the 
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. 
+ * Enum configs are a set of string tokens to corresponding integer values, where 
  * the string value is exposed to Redis clients but the value passed Redis and the
  * module is the integer value. These values are defined in enum_values, an array
  * of null-terminated c strings, and int_vals, an array of enum values who has an
@@ -13956,7 +13956,7 @@ int RM_RegisterBoolConfig(RedisModuleCtx *ctx, const char *name, int default_val
  *      int getEnumConfigCommand(const char *name, void *privdata) {
  *          return enum_val;
  *      }
- *
+ *       
  *      int setEnumConfigCommand(const char *name, int val, void *privdata, const char **err) {
  *          enum_val = val;
  *          return REDISMODULE_OK;
@@ -13987,14 +13987,14 @@ int RM_RegisterEnumConfig(RedisModuleCtx *ctx, const char *name, int default_val
     listAddNodeTail(module->module_configs, mc);
 
     unsigned int cflags = maskModuleConfigFlags(flags) | maskModuleEnumConfigFlags(flags);
-    addModuleEnumConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL,
+    addModuleEnumConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL, 
                         cflags, mc, default_val, enum_vals, num_enum_vals);
     return REDISMODULE_OK;
 }
 
 /*
- * Create an integer config that server clients can interact with via the
- * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See
+ * Create an integer config that server clients can interact with via the 
+ * `CONFIG SET`, `CONFIG GET`, and `CONFIG REWRITE` commands. See 
  * RedisModule_RegisterStringConfig for detailed information about configs. */
 int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long default_val, unsigned int flags, long long min, long long max, RedisModuleConfigGetNumericFunc getfn, RedisModuleConfigSetNumericFunc setfn, RedisModuleConfigApplyFunc applyfn, void *privdata) {
     RedisModule *module = ctx->module;
@@ -14008,7 +14008,7 @@ int RM_RegisterNumericConfig(RedisModuleCtx *ctx, const char *name, long long de
     unsigned int numeric_flags = maskModuleNumericConfigFlags(flags);
 
     unsigned int cflags = maskModuleConfigFlags(flags);
-    addModuleNumericConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL,
+    addModuleNumericConfig(sdsdup(mc->name), (mc->alias) ? sdsdup(mc->alias) : NULL, 
                            cflags, mc, default_val, numeric_flags, min, max);
     return REDISMODULE_OK;
 }
@@ -14516,7 +14516,7 @@ NULL
             argc = c->argc - 3;
             argv = &c->argv[3];
         }
-        /* If this is a loadex command we want to populate server.module_configs_queue with
+        /* If this is a loadex command we want to populate server.module_configs_queue with 
          * sds NAME VALUE pairs. We also want to increment argv to just after ARGS, if supplied. */
         if (parseLoadexArguments((RedisModuleString ***) &argv, &argc) == REDISMODULE_OK &&
             moduleLoad(c->argv[2]->ptr, (void **)argv, argc, 1) == C_OK)
@@ -14921,8 +14921,8 @@ void *RM_DefragAlloc(RedisModuleDefragCtx *ctx, void *ptr) {
  * owner. For such usecase RM_DefragAlloc is enough. But on some usecases the user
  * might want to replace a pointer with multiple owners in different keys.
  * In such case, an in place replacement can not work because the other key still
- * keep a pointer to the old value.
- *
+ * keep a pointer to the old value. 
+ * 
  * RM_DefragAllocRaw and RM_DefragFreeRaw allows to control when the memory
  * for defrag purposes will be allocated and when it will be freed,
  * allow to support more complex defrag usecases. */
@@ -14932,7 +14932,7 @@ void *RM_DefragAllocRaw(RedisModuleDefragCtx *ctx, size_t size) {
 }
 
 /* Free memory for defrag purposes
- *
+ * 
  * See RM_DefragAllocRaw for more information. */
 void RM_DefragFreeRaw(RedisModuleDefragCtx *ctx, void *ptr) {
     UNUSED(ctx);
@@ -15106,7 +15106,7 @@ int moduleDefragValue(robj *key, robj *value, int dbid) {
 
 /* Call registered module API defrag start functions */
 void moduleDefragStart(void) {
-    dictForEach(modules, struct RedisModule, module,
+    dictForEach(modules, struct RedisModule, module, 
         if (module->defrag_start_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_start_cb(&defrag_ctx);
@@ -15116,7 +15116,7 @@ void moduleDefragStart(void) {
 
 /* Call registered module API defrag end functions */
 void moduleDefragEnd(void) {
-    dictForEach(modules, struct RedisModule, module,
+    dictForEach(modules, struct RedisModule, module, 
         if (module->defrag_end_cb) {
             RedisModuleDefragCtx defrag_ctx = INIT_MODULE_DEFRAG_CTX(0, NULL, NULL, -1);
             module->defrag_end_cb(&defrag_ctx);
@@ -15174,7 +15174,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplySetMapLength);
     REGISTER_API(ReplySetSetLength);
     REGISTER_API(ReleaseKeyMetaClass);
-
     REGISTER_API(ReplySetAttributeLength);
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithEmptyString);
@@ -15184,7 +15183,6 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(CreateKeyMetaClass);
     REGISTER_API(SetKeyMeta);
     REGISTER_API(GetKeyMeta);
-
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithBool);

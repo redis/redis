@@ -34,6 +34,8 @@ typedef enum KeyMetaClassState {
     CLASS_STATE_RELEASED = 2,
 } KeyMetaClassState;
 
+static_assert(CLASS_STATE_FREE == 0, "CLASS_STATE_FREE must be 0 for memset initialization");
+
 /* Key metadata class */
 typedef struct KeyMetaClass {
     char name[5];                 /* 4-char name of the class */
@@ -138,8 +140,8 @@ void keyMetaClassDecode(uint32_t value, char *name, int *metaver, uint8_t *flags
 }
 
 /* Return -1 if not found, 1..7 for slot if INUSE, alreadyReleased if found but released */
-static int keyMetaClassLookupByName(const char *name, int *alreayReleased) {
-    *alreayReleased = 0;
+static int keyMetaClassLookupByName(const char *name, int *alreadyReleased) {
+    *alreadyReleased = 0;
     if (!name) return -1;
 
     for (int i = KEY_META_ID_MODULE_FIRST; i <= KEY_META_ID_MODULE_LAST; i++) {
@@ -150,7 +152,7 @@ static int keyMetaClassLookupByName(const char *name, int *alreayReleased) {
         if (keyMetaClass[i].state == CLASS_STATE_INUSE)
             return i;
         if (keyMetaClass[i].state == CLASS_STATE_RELEASED) {
-            *alreayReleased = 1;
+            *alreadyReleased = 1;
             return i;
         }
     }
@@ -160,7 +162,6 @@ static int keyMetaClassLookupByName(const char *name, int *alreayReleased) {
 /* Initialize server.keyMeta with defaults and reserve built-in classes. */
 void keyMetaInit(void) {
     memset(keyMetaClass, 0, sizeof(KeyMetaClass) * KEY_META_ID_MAX);
-    debugServerAssert(CLASS_STATE_FREE == 0);
 
     /* Slot 0 is EXPIRE, built-in and always active. */
     keyMetaClass[KEY_META_ID_EXPIRE].state = CLASS_STATE_INUSE;
@@ -829,12 +830,17 @@ void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval) {
 
 /* Blindly reset modules metadata values to reset_value */
 void keyMetaResetModuleValues(kvobj *kv) {
-    /* Precondition: */
+    /* Precondition: only called for module metadata (bits 1-7) */
     debugServerAssert(kv->metabits & KEY_META_MASK_MODULES);
 
+    /* Skip expire slot (bit 0) if present, start directly at module metadata */
     uint64_t *pMeta = ((uint64_t *)kv) - 1;
-    uint32_t mbits = kv->metabits;
-    int keyMetaId = 0;
+    if (kv->metabits & KEY_META_MASK_EXPIRE)
+        pMeta--;
+
+    /* Process only module metadata bits (1-7) */
+    uint32_t mbits = kv->metabits >> KEY_META_ID_MODULE_FIRST;
+    int keyMetaId = KEY_META_ID_MODULE_FIRST;
     do {
         if (mbits & 1)
             *pMeta-- = keyMetaClass[keyMetaId].conf.reset_value;
