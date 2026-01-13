@@ -10029,23 +10029,23 @@ keySpec XCFGSET_Keyspecs[1] = {
 };
 #endif
 
-/* XCFGSET duration_block argument table */
-struct COMMAND_ARG XCFGSET_duration_block_Subargs[] = {
-{MAKE_ARG("duration-token",ARG_TYPE_PURE_TOKEN,-1,"DURATION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+/* XCFGSET idmp_duration_block argument table */
+struct COMMAND_ARG XCFGSET_idmp_duration_block_Subargs[] = {
+{MAKE_ARG("idmp-duration-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP-DURATION",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("duration",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
-/* XCFGSET maxsize_block argument table */
-struct COMMAND_ARG XCFGSET_maxsize_block_Subargs[] = {
-{MAKE_ARG("maxsize-token",ARG_TYPE_PURE_TOKEN,-1,"MAXSIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
+/* XCFGSET idmp_maxsize_block argument table */
+struct COMMAND_ARG XCFGSET_idmp_maxsize_block_Subargs[] = {
+{MAKE_ARG("idmp-maxsize-token",ARG_TYPE_PURE_TOKEN,-1,"IDMP-MAXSIZE",NULL,NULL,CMD_ARG_NONE,0,NULL)},
 {MAKE_ARG("maxsize",ARG_TYPE_INTEGER,-1,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
 };
 
 /* XCFGSET argument table */
 struct COMMAND_ARG XCFGSET_Args[] = {
 {MAKE_ARG("key",ARG_TYPE_KEY,0,NULL,NULL,NULL,CMD_ARG_NONE,0,NULL)},
-{MAKE_ARG("duration-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_duration_block_Subargs},
-{MAKE_ARG("maxsize-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_maxsize_block_Subargs},
+{MAKE_ARG("idmp-duration-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_idmp_duration_block_Subargs},
+{MAKE_ARG("idmp-maxsize-block",ARG_TYPE_BLOCK,-1,NULL,NULL,NULL,CMD_ARG_OPTIONAL,2,NULL),.subargs=XCFGSET_idmp_maxsize_block_Subargs},
 };
 
 /********** XCLAIM ********************/

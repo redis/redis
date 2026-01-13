@@ -43,14 +43,14 @@
                 "key_spec_index": 0
             },
             {
-                "name": "duration-block",
+                "name": "idmp-duration-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "duration-token",
+                        "name": "idmp-duration-token",
                         "type": "pure-token",
-                        "token": "DURATION"
+                        "token": "IDMP-DURATION"
                     },
                     {
                         "name": "duration",
@@ -59,14 +59,14 @@
                 ]
             },
             {
-                "name": "maxsize-block",
+                "name": "idmp-maxsize-block",
                 "type": "block",
                 "optional": true,
                 "arguments": [
                     {
-                        "name": "maxsize-token",
+                        "name": "idmp-maxsize-token",
                         "type": "pure-token",
-                        "token": "MAXSIZE"
+                        "token": "IDMP-MAXSIZE"
                     },
                     {
                         "name": "maxsize",

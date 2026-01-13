@@ -5055,7 +5055,7 @@ NULL
     }
 }
 
-/* XCFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
+/* XCFGSET <key> [IDMP-DURATION <duration>] [IDMP-MAXSIZE <maxsize>] */
 void xcfgsetCommand(client *c) {
     robj *key = c->argv[1];
 
@@ -5064,7 +5064,7 @@ void xcfgsetCommand(client *c) {
     if (kv == NULL || checkType(c,kv,OBJ_STREAM)) return;
     stream *s = kv->ptr;
 
-    /* XCFGSET <key> [DURATION <duration>] [MAXSIZE <maxsize>] */
+    /* XCFGSET <key> [IDMP-DURATION <duration>] [IDMP-MAXSIZE <maxsize>] */
     long long duration = -1;
     long long maxsize = -1;
 
@@ -5072,9 +5072,9 @@ void xcfgsetCommand(client *c) {
     for (int i = 2; i < c->argc; i++) {
         int moreargs = c->argc - i - 1;
         char *param = c->argv[i]->ptr;
-        if (!strcasecmp(param,"DURATION") && moreargs) {
+        if (!strcasecmp(param,"IDMP-DURATION") && moreargs) {
             if (duration != -1) {
-                addReplyError(c,"DURATION specified multiple times");
+                addReplyError(c,"IDMP-DURATION specified multiple times");
                 return;
             }
             i++;
@@ -5082,13 +5082,13 @@ void xcfgsetCommand(client *c) {
                 return;
             if (duration < CONFIG_STREAM_IDMP_MIN_DURATION ||
                 duration > CONFIG_STREAM_IDMP_MAX_DURATION) {
-                addReplyErrorFormat(c,"DURATION must be between %d and %d seconds",
+                addReplyErrorFormat(c,"IDMP-DURATION must be between %d and %d seconds",
                     CONFIG_STREAM_IDMP_MIN_DURATION,CONFIG_STREAM_IDMP_MAX_DURATION);
                 return;
             }
-        } else if (!strcasecmp(param,"MAXSIZE") && moreargs) {
+        } else if (!strcasecmp(param,"IDMP-MAXSIZE") && moreargs) {
             if (maxsize != -1) {
-                addReplyError(c,"MAXSIZE specified multiple times");
+                addReplyError(c,"IDMP-MAXSIZE specified multiple times");
                 return;
             }
             i++;
@@ -5096,7 +5096,7 @@ void xcfgsetCommand(client *c) {
                 return;
             if (maxsize < CONFIG_STREAM_IDMP_MIN_MAXSIZE ||
                 maxsize > CONFIG_STREAM_IDMP_MAX_MAXSIZE) {
-                addReplyErrorFormat(c,"MAXSIZE must be between %d and %d entries",
+                addReplyErrorFormat(c,"IDMP-MAXSIZE must be between %d and %d entries",
                     CONFIG_STREAM_IDMP_MIN_MAXSIZE,CONFIG_STREAM_IDMP_MAX_MAXSIZE);
                 return;
             }
@@ -5115,7 +5115,7 @@ void xcfgsetCommand(client *c) {
     /* Track if we made any changes */
     int changed = 0;
 
-    /* Update the stream configuration. When we set DURATION or MAXSIZE to a
+    /* Update the stream configuration. When we set IDMP-DURATION or IDMP-MAXSIZE to a
      * different value, we clear all existing producer IDMP maps for the stream.
      * If the value is the same, we don't clear to allow multiple publishers
      * to call this before starting to publish without clearing each time. */

@@ -595,7 +595,7 @@ run_solo {defrag} {
 
             # Create the stream first and configure IDMP limits
             r xadd idmpstream * dummy value
-            r xcfgset idmpstream maxsize 10000 ;# Allow 10000 entries per producer
+            r xcfgset idmpstream idmp-maxsize 10000 ;# Allow 10000 entries per producer
 
             # Populate memory with interleaving IDMP stream-key pattern of same size
             set dummy_iid "[string repeat x 400]"
