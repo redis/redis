@@ -1,4 +1,5 @@
-/*
+/* cluster_asm.h -- Atomic slot migration implementation for cluster
+ *
  * Copyright (c) 2025-Present, Redis Ltd.
  * All rights reserved.
  *
@@ -50,7 +51,7 @@ void asmFinalizeMasterTask(void);
 int asmIsTrimInProgress(void);
 int asmGetTrimmingSlotForCommand(struct redisCommand *cmd, robj **argv, int argc);
 void asmActiveTrimCycle(void);
-int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv);
+int asmIsKeyInTrimJob(sds keyname);
 int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, int argc);
 #endif
 

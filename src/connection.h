@@ -92,6 +92,9 @@ typedef struct ConnectionType {
 
     /* TLS specified methods */
     sds (*get_peer_cert)(struct connection *conn);
+
+    /* Get peer username based on connection type */
+    sds (*get_peer_username)(connection *conn);
 } ConnectionType;
 
 struct connection {
@@ -382,6 +385,14 @@ static inline sds connGetPeerCert(connection *conn) {
         return conn->type->get_peer_cert(conn);
     }
 
+    return NULL;
+}
+
+/* Get Peer username based on connection type */
+static inline sds connGetPeerUsername(connection *conn) {
+    if (conn->type && conn->type->get_peer_username) {
+        return conn->type->get_peer_username(conn);
+    }
     return NULL;
 }
 

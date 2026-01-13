@@ -135,7 +135,7 @@ proc test_psync {descr duration backlog_size backlog_ttl delay cond mdl sdl reco
 
 tags {"external:skip"} {
 foreach mdl {no yes} {
-    foreach sdl {disabled swapdb} {
+    foreach sdl {disabled swapdb flushdb} {
         foreach rdbchannel {yes no} {
             if {$rdbchannel == "yes" && $mdl == "no"} {
                 # rdbchannel replication requires repl-diskless-sync enabled

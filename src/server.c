@@ -313,45 +313,34 @@ size_t dictSdsKeyLen(dict *d, const void *key) {
     return sdslen((sds)key);
 }
 
-static uint64_t dictHashKV(const void *kv) {
+static const void *kvGetKey(const void *kv) {
     sds sdsKey = kvobjGetKey((kvobj *) kv);
-    return dictGenHashFunction(sdsKey, sdslen(sdsKey));
+    return sdsKey;
 }
 
-int dictCompareKV(dictCmpCache *cache, const void *kv1, const void *kv2) {
-    /* Use caching to avoid compute key&len for each comparison on given lookup */
-    if (cache->useCache == 0) {
-        cache->useCache = 1;
-        cache->data[0].p = kvobjGetKey((kvobj *) kv1);
-        cache->data[1].sz = sdslen((sds) cache->data[0].p); 
-    }
-        
-    sds key1 = cache->data[0].p;
-    sds key2 = kvobjGetKey((kvobj *) kv2);
-    int l1 = (int) cache->data[1].sz; 
-    int l2 = sdslen((sds)key2);
-    if (l1 != l2) return 0;
-    return memcmp(key1, key2, l1) == 0;
-}
-
-int dictSdsCompareKV(dictCmpCache *cache, const void *sdsLookup, const void *kv)
+int dictSdsCompareKV(dictCmpCache *cache, const void *sdsKey1, const void *sdsKey2)
 {
     /* is first cmp call of a new lookup */
     if (cache->useCache == 0) {
         cache->useCache = 1;
-        cache->data[0].sz = sdslen((sds) sdsLookup);
+        cache->data[0].sz = sdslen((sds) sdsKey1);
     }
 
-    sds key2 = kvobjGetKey((kvobj *)kv);
     size_t l1 = cache->data[0].sz;
-    size_t l2 = sdslen((sds)key2);
+    size_t l2 = sdslen((sds)sdsKey2);
     if (l1 != l2) return 0;
-    return memcmp(sdsLookup, key2, l1) == 0;
+    return memcmp(sdsKey1, sdsKey2, l1) == 0;
 }
 
 static void dictDestructorKV(dict *d, void *kv) {
     UNUSED(d);
     if (kv == NULL) return;
+    if (server.memory_tracking_per_slot) {
+        kvstoreDictMetadata *meta = (kvstoreDictMetadata *)dictMetadata(d);
+        size_t alloc_size = kvobjAllocSize(kv);
+        debugServerAssert(alloc_size <= meta->alloc_size);
+        meta->alloc_size -= alloc_size;
+    }
     decrRefCount(kv);
 }
 
@@ -366,18 +355,6 @@ int dictSdsKeyCompare(dictCmpCache *cache, const void *key1,
     if (l1 != l2) return 0;
     return memcmp(key1, key2, l1) == 0;
 }
-
-int dictSdsMstrKeyCompare(dictCmpCache *cache, const void *sdsLookup, const void *mstrStored)
-{
-    int l1,l2;
-    UNUSED(cache);
-
-    l1 = sdslen((sds)sdsLookup);
-    l2 = hfieldlen((hfield)mstrStored);
-    if (l1 != l2) return 0;
-    return memcmp(sdsLookup, mstrStored, l1) == 0;
-}
-
 
 /* A case insensitive version used for the command lookup table and other
  * places where case insensitive non binary-safe comparison is needed. */
@@ -399,6 +376,16 @@ void dictSdsDestructor(dict *d, void *val)
 {
     UNUSED(d);
     sdsfree(val);
+}
+
+void setSdsDestructor(dict *d, void *val) {
+    *htGetMetadataSize(d) -= sdsAllocSize(val);
+    sdsfree(val);
+}
+
+size_t setDictMetadataBytes(dict *d) {
+    UNUSED(d);
+    return sizeof(size_t);
 }
 
 void *dictSdsDup(dict *d, const void *key) {
@@ -505,6 +492,48 @@ uint64_t dictEncObjHash(const void *key) {
     }
 }
 
+static size_t kvstoreMetadataBytes(kvstore *kvs) {
+    UNUSED(kvs);
+    return sizeof(kvstoreMetadata);
+}
+
+static size_t kvstoreDictMetaBytes(dict *d) {
+    UNUSED(d);
+    return sizeof(kvstoreDictMetadata);
+}
+
+static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
+    kvstoreDictMetadata *meta = kvstoreGetDictMeta(kvs, didx, 0);
+    debugServerAssert(meta->alloc_size == 0);
+    /* Free if not in cluster */
+    if (!server.cluster_enabled) return 1;
+
+    if (server.cluster_slot_stats_enabled &&
+        (meta->cpu_usec || meta->network_bytes_in || meta->network_bytes_out) &&
+        clusterIsMySlot(didx))
+    {
+        /* Don't free if we have stats for this slot */
+        return 0;
+    }
+
+    /* Otherwise, we can free */
+    return 1;
+}
+
+static void kvstoreOnEmpty(kvstore *kvs) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(kvs);
+    memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
+}
+
+static void kvstoreOnDictEmpty(kvstore *kvs, int didx) {
+    kvstoreDictMetadata *meta = kvstoreGetDictMeta(kvs, didx, 0);
+#ifdef DEBUG_ASSERTIONS
+    dictEmpty(kvstoreGetDict(kvs, didx), NULL);
+#endif
+    debugServerAssert(meta->alloc_size == 0);
+    memset(&meta->keysizes_hist, 0, sizeof(meta->keysizes_hist));
+}
+
 /* Return 1 if currently we allow dict to expand. Dict may allocate huge
  * memory to contain hash buckets when dict expands, that may lead redis
  * rejects user's requests or evicts some keys, we can stop dict to expand
@@ -552,11 +581,12 @@ dictType setDictType = {
     NULL,                      /* key dup */
     NULL,                      /* val dup */
     dictSdsKeyCompare,         /* key compare */
-    dictSdsDestructor,         /* key destructor */
+    setSdsDestructor,          /* key destructor */
     NULL,                      /* val destructor */
     NULL,                      /* allow to expand */
     .no_value = 1,             /* no values in this dict */
-    .keys_are_odd = 1          /* an SDS string is always an odd pointer */
+    .keys_are_odd = 1,         /* an SDS string is always an odd pointer */
+    .dictMetadataBytes = setDictMetadataBytes,
 };
 
 /* Sorted sets hash (note: a skiplist is used in addition to the hash table) */
@@ -581,8 +611,7 @@ dictType dbDictType = {
     dictResizeAllowed,      /* allow to resize */
     .no_value = 1,          /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,      /* simple kvobj (robj) struct */
-    .storedHashFunction = dictHashKV,  /* stored hash function */
-    .storedKeyCompare = dictCompareKV, /* stored key compare */
+    .keyFromStoredKey = kvGetKey,    /* get key from stored-key */
 };
 
 /* Db->expires */
@@ -596,8 +625,7 @@ dictType dbExpiresDictType = {
     dictResizeAllowed,          /* allow to resize */
     .no_value = 1,              /* keys and values are unified (kvobj) */
     .keys_are_odd = 0,          /* simple kvobj (robj) struct */
-    .storedHashFunction = dictHashKV,  /* stored hash function */
-    .storedKeyCompare = dictCompareKV, /* stored key compare */
+    .keyFromStoredKey = kvGetKey,   /* get key from stored-key */
 };
 
 /* Command table. sds string -> command struct pointer. */
@@ -726,6 +754,22 @@ dictType clientDictType = {
     dictClientKeyCompare,       /* key compare */
     .no_value = 1,              /* no values in this dict */
     .keys_are_odd = 0           /* a client pointer is not an odd pointer */            
+};
+
+kvstoreType kvstoreBaseType = {
+    NULL, /* kvstore metadata size */
+    NULL, /* dict metadata size */
+    NULL, /* can free dict */
+    NULL, /* on kvstore empty */
+    NULL, /* on dict empty */
+};
+
+kvstoreType kvstoreExType = {
+    kvstoreMetadataBytes, /* kvstore metadata size */
+    kvstoreDictMetaBytes, /* dict metadata size */
+    kvstoreCanFreeDict,   /* can free dict */
+    kvstoreOnEmpty,       /* on kvstore empty */
+    kvstoreOnDictEmpty,   /* on dict empty */
 };
 
 /* This function is called once a background process of some kind terminates,
@@ -1642,7 +1686,10 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Run the Redis Cluster cron. */
     run_with_period(100) {
-        if (server.cluster_enabled) clusterCron();
+        if (server.cluster_enabled) {
+            clusterCron();
+            asmCron();
+        }
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
@@ -1823,7 +1870,10 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * may change the state of Redis Cluster (from ok to fail or vice versa),
      * so it's a good idea to call it before serving the unblocked clients
      * later in this function, must be done before blockedBeforeSleep. */
-    if (server.cluster_enabled) clusterBeforeSleep();
+    if (server.cluster_enabled) {
+        clusterBeforeSleep();
+        asmBeforeSleep();
+    }
 
     /* Handle blocked clients.
      * must be done before flushAppendOnlyFile, in case of appendfsync=always,
@@ -2228,6 +2278,7 @@ void initServerConfig(void) {
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.dbg_assert_keysizes = 0; /* Disabled by default */
+    server.dbg_assert_alloc_per_slot = 0; /* Disabled by default */
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
         server.bindaddr[j] = zstrdup(default_bindaddr[j]);
@@ -2266,6 +2317,7 @@ void initServerConfig(void) {
     server.shutdown_flags = 0;
     server.shutdown_mstime = 0;
     server.cluster_module_flags = CLUSTER_MODULE_FLAG_NONE;
+    server.cluster_module_trim_disablers = 0;
     server.migrate_cached_sockets = dictCreate(&migrateCacheDictType);
     server.next_client_id = 1; /* Client IDs, start from 1 .*/
     server.page_size = sysconf(_SC_PAGESIZE);
@@ -2751,6 +2803,7 @@ void resetServerStats(void) {
     server.stat_aof_rewrites = 0;
     server.stat_rdb_saves = 0;
     server.stat_aofrw_consecutive_failures = 0;
+    server.stat_rdb_consecutive_failures = 0;
     atomicSet(server.stat_net_input_bytes, 0);
     atomicSet(server.stat_net_output_bytes, 0);
     atomicSet(server.stat_net_repl_input_bytes, 0);
@@ -2833,6 +2886,11 @@ void initServer(void) {
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
     server.client_mem_usage_buckets = NULL;
+    /* Enable per slot memory accounting only if cluster-slot-stats-enabled is
+     * enabled on startup and disregard future configuration changes.
+     * The reason behind this behavior is we want to avoid situation where we
+     * would need to catch up or iterate over all slots and kvobjs. */
+    server.memory_tracking_per_slot = clusterSlotStatsEnabled();
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
@@ -2862,8 +2920,8 @@ void initServer(void) {
         flags |= KVSTORE_FREE_EMPTY_DICTS;
     }
     for (j = 0; j < server.dbnum; j++) {
-        server.db[j].keys = kvstoreCreate(&dbDictType, slot_count_bits, flags | KVSTORE_ALLOC_META_KEYS_HIST);
-        server.db[j].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        server.db[j].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits, flags);
+        server.db[j].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType, slot_count_bits, flags);
         server.db[j].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
         server.db[j].expires_cursor = 0;
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
@@ -2878,9 +2936,13 @@ void initServer(void) {
     /* Note that server.pubsub_channels was chosen to be a kvstore (with only one dict, which
      * seems odd) just to make the code cleaner by making it be the same type as server.pubsubshard_channels
      * (which has to be kvstore), see pubsubtype.serverPubSubChannels */
-    server.pubsub_channels = kvstoreCreate(&objToDictDictType, 0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
+    server.pubsub_channels = kvstoreCreate(
+        &kvstoreBaseType, &objToDictDictType,
+        0, KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     server.pubsub_patterns = dictCreate(&objToDictDictType);
-    server.pubsubshard_channels = kvstoreCreate(&objToDictDictType, slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
+    server.pubsubshard_channels = kvstoreCreate(
+        &kvstoreBaseType, &objToDictDictType,
+        slot_count_bits, KVSTORE_ALLOCATE_DICTS_ON_DEMAND | KVSTORE_FREE_EMPTY_DICTS);
     server.pubsub_clients = 0;
     server.watching_clients = 0;
     server.cronloops = 0;
@@ -2944,6 +3006,7 @@ void initServer(void) {
     server.acl_info.invalid_key_accesses  = 0;
     server.acl_info.user_auth_failures = 0;
     server.acl_info.invalid_channel_accesses = 0;
+    server.acl_info.acl_access_denied_tls_cert = 0;
 
     /* Initialize the shared pending command pool. */
     server.cmd_pool.size = 0;
@@ -4018,6 +4081,10 @@ void afterCommand(client *c) {
     /* Assert keysizes histogram if enabled */
     if (unlikely(server.dbg_assert_keysizes))
         dbgAssertKeysizesHist(c->db);
+
+    /* Assert per-slot alloc_size if enabled */
+    if (unlikely(server.dbg_assert_alloc_per_slot))
+        dbgAssertAllocSizePerSlot(c->db);
 }
 
 /* Check if c->cmd exists, fills `err` with details in case it doesn't.
@@ -4116,10 +4183,11 @@ void preprocessCommand(client *c, pendingCommand *pcmd) {
         /* We skip the checks below since We expect the command to be rejected in this case */
         return;
     } else if (num_keys > 0) {
-        /* If the command has keys but the slot is invalid, it means
-         * there is a cross-slot case. */
-        if (pcmd->slot == INVALID_CLUSTER_SLOT)
+        /* Handle cross-slot keys: mark error and reset slot. */
+        if (pcmd->slot == CLUSTER_CROSSSLOT) {
             pcmd->read_error = CLIENT_READ_CROSS_SLOT;
+            pcmd->slot = INVALID_CLUSTER_SLOT;
+        }
     }
     pcmd->flags |= PENDING_CMD_KEYS_RESULT_VALID;
 }
@@ -4796,6 +4864,7 @@ int finishShutdown(void) {
          * The temp rdb file fd may won't be closed when redis exits quickly,
          * but OS will close this fd when process exits. */
         rdbRemoveTempFile(server.child_pid, 0);
+        resetChildState();
     }
 
     /* Kill module child if there is one. */
@@ -5819,14 +5888,16 @@ sds genRedisInfoStringCommandStats(sds info, dict *commands) {
 /* Writes the ACL metrics to the info */
 sds genRedisInfoStringACLStats(sds info) {
     info = sdscatprintf(info,
-         "acl_access_denied_auth:%lld\r\n"
-         "acl_access_denied_cmd:%lld\r\n"
-         "acl_access_denied_key:%lld\r\n"
-         "acl_access_denied_channel:%lld\r\n",
-         server.acl_info.user_auth_failures,
-         server.acl_info.invalid_cmd_accesses,
-         server.acl_info.invalid_key_accesses,
-         server.acl_info.invalid_channel_accesses);
+	     "acl_access_denied_auth:%lld\r\n"
+	     "acl_access_denied_cmd:%lld\r\n"
+	     "acl_access_denied_key:%lld\r\n"
+	     "acl_access_denied_channel:%lld\r\n"
+	     "acl_access_denied_tls_cert:%lld\r\n",
+	     server.acl_info.user_auth_failures,
+	     server.acl_info.invalid_cmd_accesses,
+	     server.acl_info.invalid_key_accesses,
+	     server.acl_info.invalid_channel_accesses,
+	     server.acl_info.acl_access_denied_tls_cert);
     return info;
 }
 
@@ -6160,6 +6231,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             "rdb_current_bgsave_time_sec:%jd\r\n", (intmax_t)((server.child_type != CHILD_TYPE_RDB) ?
                                                               -1 : time(NULL)-server.rdb_save_time_start),
             "rdb_saves:%lld\r\n", server.stat_rdb_saves,
+            "rdb_saves_consecutive_failures:%lld\r\n", server.stat_rdb_consecutive_failures,
             "rdb_last_cow_size:%zu\r\n", server.stat_rdb_cow_bytes,
             "rdb_last_load_keys_expired:%lld\r\n", server.rdb_last_load_keys_expired,
             "rdb_last_load_keys_loaded:%lld\r\n", server.rdb_last_load_keys_loaded,
@@ -6601,7 +6673,8 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 continue;
             
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                int64_t *kvstoreHist = kvstoreGetMetadata(server.db[dbnum].keys)->keysizes_hist[type];
+                kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
+                int64_t *kvstoreHist = meta->keysizes_hist[type];
                 char buf[10000];
                 int cnt = 0, buflen = 0;
 
@@ -7415,6 +7488,7 @@ struct redisTest {
     {"estore", estoreTest},
     {"ebuckets", ebucketsTest},
     {"bitmap", bitopsTest},
+    {"rax", raxTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
@@ -7706,7 +7780,8 @@ int main(int argc, char **argv) {
     redisAsciiArt();
     checkTcpBacklogSettings();
     if (server.cluster_enabled) {
-        server.cluster_slot_stats = zmalloc(CLUSTER_SLOTS*sizeof(clusterSlotStat));
+        /* clusterCommonInit() initializes slot-stats required by clusterInit() */
+        clusterCommonInit();
         clusterInit();
     }
     if (!server.sentinel_mode) {

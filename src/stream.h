@@ -20,6 +20,7 @@ typedef struct stream {
     streamID first_id;      /* The first non-tombstone entry, zero if empty. */
     streamID max_deleted_entry_id;  /* The maximal ID that was deleted. */
     uint64_t entries_added; /* All time count of elements added. */
+    size_t alloc_size;      /* Total allocated memory (in bytes) by this stream. */
     rax *cgroups;           /* Consumer groups dictionary: name -> streamCG */
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
@@ -43,8 +44,14 @@ typedef struct streamIterator {
     int skip_tombstones;    /* True if not emitting tombstone entries. */
     uint64_t start_key[2];  /* Start key as 128 bit big endian. */
     uint64_t end_key[2];    /* End key as 128 bit big endian. */
+    /* Decoded native-endian fields for fast numeric comparison */
+    uint64_t start_ms;
+    uint64_t start_seq;
+    uint64_t end_ms;
+    uint64_t end_seq;
     raxIterator ri;         /* Rax iterator. */
     unsigned char *lp;      /* Current listpack. */
+    unsigned char *lp_last_ele; /* Previous listpack element position for corruption detection. */
     unsigned char *lp_ele;  /* Current listpack cursor. */
     unsigned char *lp_flags; /* Current entry flags pointer. */
     /* Buffers used to hold the string of lpGet() when the element is
@@ -139,12 +146,12 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current);
 void streamIteratorStop(streamIterator *si);
 streamCG *streamLookupCG(stream *s, sds groupname);
 streamConsumer *streamLookupConsumer(streamCG *cg, sds name);
-streamConsumer *streamCreateConsumer(streamCG *cg, sds name, robj *key, int dbid, int flags);
+streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *key, int dbid, int flags);
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read);
-streamNACK *streamCreateNACK(streamConsumer *consumer);
+streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
-void streamFreeNACK(streamNACK *na);
+void streamFreeNACK(stream *s, streamNACK *na);
 int streamIncrID(streamID *id);
 int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);

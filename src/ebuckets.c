@@ -543,7 +543,7 @@ static rax *ebConvertListToRax(eItem listHead, EbucketsType *type) {
     /* Use min expire-time for the first segment in rax */
     unsigned char raxKey[EB_KEY_SIZE];
     bucketKey2RaxKey(bucketKey, raxKey);
-    rax *rax = raxNewWithMetadata(sizeof(uint64_t));
+    rax *rax = raxNewWithMetadata(sizeof(uint64_t), NULL);
     *ebRaxNumItems(rax) = EB_LIST_MAX_ITEMS;
     raxInsert(rax, raxKey, EB_KEY_SIZE, firstSegHdr, NULL);
     return rax;

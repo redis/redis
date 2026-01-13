@@ -377,7 +377,7 @@ start_server {tags {"timeout external:skip"}} {
 }
 
 test {Pending command pool expansion and shrinking} {
-    start_server {overrides {loglevel debug} tags {external:skip}} {
+    start_server {overrides {loglevel debug io-threads 1} tags {external:skip}} {
         set rd1 [redis_deferring_client]
         set rd2 [redis_deferring_client]
         

@@ -24,7 +24,6 @@ struct _fenwickTree {
 
 /* Create a new Fenwick tree with 2^sizeBits elements (all initialized to 0) */
 fenwickTree *fwTreeCreate(int sizeBits) {
-
     fenwickTree *ft = zmalloc(sizeof(fenwickTree));
     ft->size_bits = sizeBits;
     ft->size = 1 << sizeBits;

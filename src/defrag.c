@@ -239,20 +239,31 @@ sds activeDefragSds(sds sdsptr) {
     return NULL;
 }
 
-/* Defrag helper for hfield strings
+/* Defrag helper for hfield (entry) strings
  *
  * returns NULL in case the allocation wasn't moved.
  * when it returns a non-null value, the old pointer was already released
  * and should NOT be accessed. */
-hfield activeDefragHfield(hfield hf) {
-    void *ptr = hfieldGetAllocPtr(hf);
+Entry *activeDefragEntry(Entry *entry) {
+    Entry *ret = NULL;
+
+    /* First, defrag the entry allocation itself */
+    void *ptr = entryGetAllocPtr(entry);
     void *newptr = activeDefragAlloc(ptr);
     if (newptr) {
-        size_t offset = hf - (char*)ptr;
-        hf = (char*)newptr + offset;
-        return hf;
+        size_t offset = (char*)entry - (char*)ptr;
+        entry = (Entry *)((char*)newptr + offset);
+        ret = entry;
     }
-    return NULL;
+
+    /* Then defrag the value if it's not embedded (using the potentially new entry) */
+    sds *valuePtr = entryGetValuePtrRef(entry);
+    if (valuePtr) {
+        sds new_value = activeDefragSds(*valuePtr);
+        if (new_value) *valuePtr = new_value;
+    }
+
+    return ret;
 }
 
 /* Defrag helper for hfield strings and update the reference in the dict.
@@ -266,15 +277,13 @@ void *activeDefragHfieldAndUpdateRef(void *ptr, void *privdata) {
 
     /* Before the key is released, obtain the link to
      * ensure we can safely access and update the key. */
-    dictUseStoredKeyApi(d, 1);
     link = dictFindLink(d, ptr, NULL);
     serverAssert(link);
-    dictUseStoredKeyApi(d, 0);
 
-    hfield newhf = activeDefragHfield(ptr);
-    if (newhf)
-        dictSetKeyAtLink(d, newhf, &link, 0);
-    return newhf;
+    Entry *newEntry = activeDefragEntry(ptr);
+    if (newEntry)
+        dictSetKeyAtLink(d, newEntry, &link, 0);
+    return newEntry;
 }
 
 /* Defrag helper for robj and/or string objects with expected refcount.
@@ -470,16 +479,17 @@ void activeDefragLuaScriptDictCallback(void *privdata, const dictEntry *de, dict
 }
 
 void activeDefragHfieldDictCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
-    UNUSED(plink);
     dict *d = privdata;
-    hfield newhf = NULL, hf = dictGetKey(de);
+    Entry *newEntry = NULL, *entry = dictGetKey(de);
 
     /* If the hfield does not have TTL, we directly defrag it.
      * Fields with TTL are skipped here and will be defragmented later
      * during the hash expiry ebuckets defragmentation phase. */
-    if (hfieldGetExpireTime(hf) == EB_EXPIRE_TIME_INVALID) {
-        if ((newhf = activeDefragHfield(hf)))
-            dictSetKey(d, (dictEntry *)de, newhf);
+    if (entryGetExpiry(entry) == EB_EXPIRE_TIME_INVALID) {
+        if ((newEntry = activeDefragEntry(entry))) {
+            /* Hash dicts use no_value=1, so we must use dictSetKeyAtLink */
+            dictSetKeyAtLink(d, newEntry, &plink, 0);
+        }
     }
 }
 
@@ -503,13 +513,13 @@ void activeDefragSdsDict(dict* d, int val_type) {
     } while (cursor != 0);
 }
 
-/* Defrag a dict with hfield key and sds value. */
+/* Defrag a dict with hfield key (no separate value - value is part of entry). */
 void activeDefragHfieldDict(dict *d) {
     unsigned long cursor = 0;
     dictDefragFunctions defragfns = {
-        .defragAlloc = activeDefragAlloc,
+        .defragAlloc = activeDefragAlloc, /* Only defrag dictEntry */
         .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
-        .defragVal = (dictDefragAllocFunction *)activeDefragSds
+        .defragVal = NULL  /* No separate value - value is part of the entry (hfield). */
     };
     do {
         cursor = dictScanDefrag(d, cursor, activeDefragHfieldDictCallback,
@@ -519,7 +529,7 @@ void activeDefragHfieldDict(dict *d) {
     /* Continue with defragmentation of hash fields that have with TTL.
      * During the dictionary defragmentaion above, we skipped fields with TTL,
      * Now we continue to defrag those fields by using the expiry buckets. */
-    if (d->type == &mstrHashDictTypeWithHFE) {
+    if (d->type == &entryHashDictTypeWithHFE) {
         cursor = 0;
         ebDefragFunctions eb_defragfns = {
             .defragAlloc = activeDefragAlloc,
@@ -672,7 +682,7 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
         dictDefragFunctions defragfns = {
             .defragAlloc = activeDefragAlloc,
             .defragKey = NULL, /* Will be defragmented in activeDefragHfieldDictCallback. */
-            .defragVal = (dictDefragAllocFunction *)activeDefragSds
+            .defragVal = NULL  /* value stored along with key as part of Entry */
         };
         *cursor = dictScanDefrag(d, *cursor, activeDefragHfieldDictCallback, &defragfns, d);
 
@@ -682,7 +692,7 @@ void scanLaterHash(robj *ob, unsigned long *cursor) {
 
     /* Defrag ebuckets and TTL fields. */
     if (defrag_phase == HASH_DEFRAG_EBUCKETS) {
-        if (d->type == &mstrHashDictTypeWithHFE) {
+        if (d->type == &entryHashDictTypeWithHFE) {
             ebDefragFunctions eb_defragfns = {
                 .defragAlloc = activeDefragAlloc,
                 .defragItem = activeDefragHfieldAndUpdateRef
@@ -885,9 +895,16 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
     return newnack;
 }
 
+typedef struct {
+    stream *s;
+    streamCG *cg;
+} StreamConsumerContext;
+
 void* defragStreamConsumer(raxIterator *ri, void *privdata) {
+    StreamConsumerContext *ctx = privdata;
+    stream *s = ctx->s;
+    streamCG *cg = ctx->cg;
     streamConsumer *c = ri->data;
-    streamCG *cg = privdata;
     void *newc = activeDefragAlloc(c);
     if (newc) {
         c = newc;
@@ -896,6 +913,8 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
     if (newsds)
         c->name = newsds;
     if (c->pel) {
+        /* Update pel back-pointer to new stream */
+        c->pel->alloc_size = &s->alloc_size;
         PendingEntryContext pel_ctx = {cg, c};
         defragRadixTree(&c->pel, 0, defragStreamConsumerPendingEntry, &pel_ctx);
     }
@@ -903,14 +922,26 @@ void* defragStreamConsumer(raxIterator *ri, void *privdata) {
 }
 
 void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
+    stream *s = privdata;
     streamCG *newcg, *cg = ri->data;
-    UNUSED(privdata);
     if ((newcg = activeDefragAlloc(cg)))
         cg = newcg;
-    if (cg->consumers)
-        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, cg);
-    if (cg->pel)
+    if (cg->pel) {
+        /* Update pel back-pointer to new stream */
+        cg->pel->alloc_size = &s->alloc_size;
         defragRadixTree(&cg->pel, 0, NULL, NULL);
+    }
+    if (cg->pel_by_time) {
+        /* Update pel_by_time back-pointer to new stream */
+        cg->pel_by_time->alloc_size = &s->alloc_size;
+        defragRadixTree(&cg->pel_by_time, 0, NULL, NULL);
+    }
+    if (cg->consumers) {
+        /* Update consumers back-pointer to new stream */
+        cg->consumers->alloc_size = &s->alloc_size;
+        StreamConsumerContext consumer_ctx = {s, cg};
+        defragRadixTree(&cg->consumers, 0, defragStreamConsumer, &consumer_ctx);
+    }
     return cg;
 }
 
@@ -922,6 +953,8 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     if ((news = activeDefragAlloc(s)))
         ob->ptr = s = news;
 
+    /* Update rax back-pointer to new stream */
+    s->rax->alloc_size = &s->alloc_size;
     if (raxSize(s->rax) > server.active_defrag_max_scan_fields) {
         rax *newrax = activeDefragAlloc(s->rax);
         if (newrax)
@@ -930,8 +963,16 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     } else
         defragRadixTree(&s->rax, 1, NULL, NULL);
 
-    if (s->cgroups)
-        defragRadixTree(&s->cgroups, 0, defragStreamConsumerGroup, NULL);
+    if (s->cgroups) {
+        /* Update cgroups back-pointer to new stream */
+        s->cgroups->alloc_size = &s->alloc_size;
+        defragRadixTree(&s->cgroups, 0, defragStreamConsumerGroup, s);
+    }
+
+    if (s->cgroups_ref) {
+        /* Update cgroups_ref back-pointer to new stream */
+        s->cgroups_ref->alloc_size = &s->alloc_size;
+    }
 }
 
 /* Defrag a module key. This is either done immediately or scheduled
@@ -998,10 +1039,14 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     UNUSED(link);
     dictEntryLink exlink = NULL;
     kvobj *kvnew = NULL, *ob = dictGetKV(de);
+    size_t oldsize = 0;
     redisDb *db = &server.db[ctx->dbid];
     int slot = ctx->kvstate.slot;
     unsigned char *newzl;
-    
+
+    if (server.memory_tracking_per_slot)
+        oldsize = kvobjAllocSize(ob);
+
     long long expire = kvobjGetExpire(ob);
     /* We can't search in db->expires for that KV after we've released
      * the pointer it holds, since it won't be able to do the string
@@ -1082,6 +1127,8 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     } else {
         serverPanic("Unknown object type");
     }
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(ob));
 }
 
 /* Defrag scan callback for the main db dictionary. */
@@ -1209,6 +1256,9 @@ static int defragIsRunning(void) {
 /* A kvstoreHelperPreContinueFn */
 static doneStatus defragLaterStep(void *ctx, monotime endtime) {
     defragKeysCtx *defrag_keys_ctx = ctx;
+    redisDb *db = &server.db[defrag_keys_ctx->dbid];
+    int slot = defrag_keys_ctx->kvstate.slot;
+    size_t oldsize = 0;
 
     unsigned int iterations = 0;
     unsigned long long prev_defragged = server.stat_active_defrag_hits;
@@ -1221,7 +1271,11 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
         kvobj *kv = de ? dictGetKV(de) : NULL;
 
         long long key_defragged = server.stat_active_defrag_hits;
+        if (server.memory_tracking_per_slot && kv)
+            oldsize = kvobjAllocSize(kv);
         int timeout = (defragLaterItem(kv, &defrag_keys_ctx->defrag_later_cursor, endtime, defrag_keys_ctx->dbid) == 1);
+        if (server.memory_tracking_per_slot && kv)
+            updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kv));
         if (key_defragged != server.stat_active_defrag_hits) {
             server.stat_active_defrag_key_hits++;
         } else {

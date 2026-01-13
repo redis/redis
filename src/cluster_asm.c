@@ -1,4 +1,5 @@
-/*
+/* cluster_asm.c -- Atomic slot migration implementation for cluster
+ *
  * Copyright (c) 2025-Present, Redis Ltd.
  * All rights reserved.
  *
@@ -10,7 +11,6 @@
 #include "server.h"
 #include "cluster.h"
 #include "functions.h"
-#include "cluster_legacy.h"
 #include "cluster_asm.h"
 #include "cluster_slot_stats.h"
 
@@ -64,8 +64,8 @@ struct asmManager {
     asmTask *master_task;               /* The task that is currently active on the master */
 
     /* Fail point injection for debugging */
-    int debug_failed_channel;     /* Channel where the task failed */
-    int debug_failed_state;       /* State where the task failed */
+    int debug_fail_channel;       /* Channel where the task will fail */
+    int debug_fail_state;         /* State where the task will fail */
     int debug_trim_method;        /* Method to trim the buffer */
     int debug_active_trim_delay;  /* Sleep before trimming each key */
 
@@ -131,7 +131,7 @@ ConnectionType *connTypeOfReplication(void);
 int startBgsaveForReplication(int mincapa, int req);
 void createReplicationBacklogIfNeeded(void);
 /* cluster.c */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid);
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum);
 /* cluster_asm.c */
 static void asmStartImportTask(asmTask *task);
 static void asmTaskCancel(asmTask *task, const char *reason);
@@ -139,6 +139,7 @@ static void asmSyncBufferReadFromConn(connection *conn);
 static void propagateTrimSlots(slotRangeArray *slots);
 void asmTrimJobSchedule(slotRangeArray *slots);
 void asmTrimJobProcessPending(void);
+void asmCancelPendingTrimJobs(void);
 void asmTriggerActiveTrim(slotRangeArray *slots);
 void asmActiveTrimEnd(void);
 int asmIsAnyTrimJobOverlaps(slotRangeArray *slots);
@@ -152,8 +153,8 @@ void asmInit(void) {
     asmManager->pending_trim_jobs = listCreate();
     asmManager->sync_buffer_peak = 0;
     asmManager->master_task = NULL;
-    asmManager->debug_failed_channel = 0;
-    asmManager->debug_failed_state = 0;
+    asmManager->debug_fail_channel = -1;
+    asmManager->debug_fail_state = -1;
     asmManager->debug_trim_method = ASM_DEBUG_TRIM_DEFAULT;
     asmManager->debug_active_trim_delay = 0;
     asmManager->active_trim_jobs = listCreate();
@@ -213,13 +214,13 @@ const char *asmChannelToString(int channel) {
     }
 }
 
-int asmDebugSetFailPoint(char * channel, char *state) {
+int asmDebugSetFailPoint(char *channel, char *state) {
     if (!asmManager) {
         serverLog(LL_WARNING, "ASM manager is not initialized");
         return C_ERR;
     }
-    asmManager->debug_failed_channel = 0;
-    asmManager->debug_failed_state = 0;
+    asmManager->debug_fail_channel = -1;
+    asmManager->debug_fail_state = -1;
     if (!channel && !state) return C_ERR;
     if (sdslen(channel) == 0 && sdslen(state) == 0) {
         serverLog(LL_WARNING, "ASM fail point is cleared");
@@ -228,19 +229,19 @@ int asmDebugSetFailPoint(char * channel, char *state) {
 
     for (int i = ASM_IMPORT_MAIN_CHANNEL; i <= ASM_MIGRATE_RDB_CHANNEL; i++) {
         if (!strcasecmp(channel, asmChannelToString(i))) {
-            asmManager->debug_failed_channel = i;
+            asmManager->debug_fail_channel = i;
             break;
         }
     }
-    if (asmManager->debug_failed_channel == 0) return C_ERR;
+    if (asmManager->debug_fail_channel == -1) return C_ERR;
 
     for (int i = ASM_NONE; i <= ASM_RDBCHANNEL_TRANSFER; i++) {
         if (!strcasecmp(state, asmTaskStateToString(i))) {
-            asmManager->debug_failed_state = i;
+            asmManager->debug_fail_state = i;
             break;
         }
     }
-    if (asmManager->debug_failed_state == 0) return C_ERR;
+    if (asmManager->debug_fail_state == -1) return C_ERR;
 
     serverLog(LL_NOTICE, "ASM fail point set: channel=%s, state=%s", channel, state);
     return C_OK;
@@ -272,7 +273,7 @@ int asmDebugSetTrimMethod(const char *method, int active_trim_delay) {
 
 int asmDebugIsFailPointActive(int channel, int state) {
     if (!asmManager) return 0; /* ASM manager not initialized */
-    if (asmManager->debug_failed_channel == channel && asmManager->debug_failed_state == state) {
+    if (asmManager->debug_fail_channel == channel && asmManager->debug_fail_state == state) {
         serverLog(LL_NOTICE, "ASM fail point active: channel=%s, state=%s",
                   asmChannelToString(channel), asmTaskStateToString(state));
         return 1;
@@ -473,9 +474,6 @@ err:
 void asmNotifyReplicasStateChange(struct asmTask *task) {
     if (!server.cluster_enabled || !clusterNodeIsMaster(getMyClusterNode())) return;
 
-    /* Do not propagate migrate task to replicas, as replicas never migrate data. */
-    if (task->operation == ASM_MIGRATE) return;
-
     /* Create command arguments for CLUSTER SYNCSLOTS CONF ASM-TASK */
     robj *argv[5];
     argv[0] = createStringObject("CLUSTER", 7);
@@ -509,7 +507,6 @@ sds asmDumpActiveImportTask(void) {
     /* For master, dump the first active task. */
     if (!asmManager || listLength(asmManager->tasks) == 0) return NULL;
     asmTask *task = listNodeValue(listFirst(asmManager->tasks));
-    if (task->operation == ASM_MIGRATE) return NULL;
     if (task->state == ASM_NONE || task->state == ASM_FAILED ||
         task->state == ASM_COMPLETED) return NULL;
 
@@ -627,7 +624,6 @@ static asmTask *lookupAsmTaskBySlotRange(slotRange *req) {
 /* Validates the given slot ranges for a migration task:
  * - Ensures the current node is a master.
  * - Verifies all slots are in a STABLE state.
- * - Checks that slot ranges are well-formed and non-overlapping.
  * - Confirms all slots belong to a single source node.
  * - Confirms no ongoing import task that overlaps with the slot ranges.
  *
@@ -762,12 +758,12 @@ void asmFeedMigrationClient(robj **argv, int argc) {
      *
      * NOTICE: if some keyless commands should be propagated to the destination,
      * we should identify them here and send. */
-    if (slot == GETSLOT_NOKEYS) return;
+    if (slot == INVALID_CLUSTER_SLOT) return;
 
     /* Generally we reject cross-slot commands before executing, but module may
      * replicate this kind of command, so we check again. To guarantee data
      * consistency, we cancel the task if we encounter a cross-slot command. */
-    if (slot == GETSLOT_CROSSSLOT) {
+    if (slot == CLUSTER_CROSSSLOT) {
         /* We cannot cancel the task directly here, since it may lead to a recursive
          * call: asmTaskCancel() --> moduleFireServerEvent() --> moduleFreeContext()
          * --> postExecutionUnitOperations() --> propagateNow(). Even worse, this
@@ -804,11 +800,11 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
      * initiated for them. */
     source = validateImportSlotRanges(slots, err, NULL);
     if (!source)
-        return NULL;
+        goto err;
 
     if (source == getMyClusterNode()) {
         *err = sdsnew("this node is already the owner of the slot range");
-        return NULL;
+        goto err;
     }
 
     /* Only support a single task at a time now. */
@@ -820,7 +816,7 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
             asmTaskCancel(current, "new import requested");
         } else {
             *err = sdsnew("another ASM task is already in progress");
-            return NULL;
+            goto err;
         }
     }
     /* There should be no task in progress. */
@@ -828,11 +824,11 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
 
     /* Create a slot migration task */
     asmTask *task = asmTaskCreate(task_id);
-    task->slots = slotRangeArrayDup(slots);
+    task->slots = slots;
     task->state = ASM_NONE;
     task->operation = ASM_IMPORT;
     task->source_node = source;
-    memcpy(task->source, source->name, CLUSTER_NAMELEN);
+    memcpy(task->source, clusterNodeGetName(source), CLUSTER_NAMELEN);
     memcpy(task->dest, getMyClusterId(), CLUSTER_NAMELEN);
 
     listAddNodeTail(asmManager->tasks, task);
@@ -842,6 +838,10 @@ asmTask *asmCreateImportTask(const char *task_id, slotRangeArray *slots, sds *er
     sdsfree(slots_str);
 
     return task;
+
+err:
+    slotRangeArrayFree(slots);
+    return NULL;
 }
 
 /* CLUSTER MIGRATION IMPORT <start-slot end-slot [start-slot end-slot ...]>
@@ -860,7 +860,6 @@ static void clusterMigrationCommandImport(client *c) {
 
     sds err = NULL;
     asmTask *task = asmCreateImportTask(NULL, slots, &err);
-    slotRangeArrayFree(slots);
     if (!task) {
         addReplyErrorSds(c, err);
         return;
@@ -1006,6 +1005,58 @@ void clusterMigrationCommand(client *c) {
     }
 }
 
+/* Return the number of keys in the specified slot ranges. */
+unsigned long long asmCountKeysInSlots(slotRangeArray *slots) {
+    if (!slots) return 0;
+
+    unsigned long long key_count = 0;
+    for (int i = 0; i < slots->num_ranges; i++) {
+        for (int j = slots->ranges[i].start; j <= slots->ranges[i].end; j++) {
+            key_count += kvstoreDictSize(server.db[0].keys, j);
+        }
+    }
+    return key_count;
+}
+
+/* Log a human-readable message for ASM task lifecycle events. */
+void asmLogTaskEvent(asmTask *task, int event) {
+    sds str = slotRangeArrayToString(task->slots);
+
+    switch (event) {
+        case ASM_EVENT_IMPORT_STARTED:
+            serverLog(LL_NOTICE, "Import task %s started for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_IMPORT_FAILED:
+            serverLog(LL_NOTICE, "Import task %s failed for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_TAKEOVER:
+            serverLog(LL_NOTICE, "Import task %s is ready to takeover slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_IMPORT_COMPLETED:
+            serverLog(LL_NOTICE, "Import task %s completed for slots: %s (imported %llu keys)",
+                      task->id, str, asmCountKeysInSlots(task->slots));
+            break;
+        case ASM_EVENT_MIGRATE_STARTED:
+            serverLog(LL_NOTICE, "Migrate task %s started for slots: %s (keys at start: %llu)",
+                      task->id, str, asmCountKeysInSlots(task->slots));
+            break;
+        case ASM_EVENT_MIGRATE_FAILED:
+            serverLog(LL_NOTICE, "Migrate task %s failed for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_HANDOFF_PREP:
+            serverLog(LL_NOTICE, "Migrate task %s preparing to handoff for slots: %s", task->id, str);
+            break;
+        case ASM_EVENT_MIGRATE_COMPLETED:
+            serverLog(LL_NOTICE, "Migrate task %s completed for slots: %s (migrated %llu keys)",
+                      task->id, str, asmCountKeysInSlots(task->slots));
+            break;
+        default:
+            break;
+    }
+
+    sdsfree(str);
+}
+
 /* Notify the state change to the module and the cluster implementation. */
 void asmNotifyStateChange(asmTask *task, int event) {
     RedisModuleClusterSlotMigrationInfo info = {
@@ -1031,8 +1082,10 @@ void asmNotifyStateChange(asmTask *task, int event) {
 
     if (clusterNodeIsMaster(getMyClusterNode())) {
         /* Notify the cluster impl only if it is a real active import task. */
-        if (task != asmManager->master_task)
+        if (task != asmManager->master_task) {
+            asmLogTaskEvent(task, event);
             clusterAsmOnEvent(task->id, event, task->slots);
+        }
         asmNotifyReplicasStateChange(task); /* Propagate state change to replicas */
     }
 }
@@ -1176,7 +1229,8 @@ void asmImportTakeover(asmTask *task) {
     task->main_channel_conn = NULL;
 
     task->state = ASM_TAKEOVER;
-    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, NULL);
+    asmLogTaskEvent(task, ASM_EVENT_TAKEOVER);
+    clusterAsmOnEvent(task->id, ASM_EVENT_TAKEOVER, task->slots);
 }
 
 void asmCallbackOnFreeClient(client *c) {
@@ -1493,7 +1547,18 @@ void asmSyncWithSource(connection *conn) {
             err = NULL;
             task->state = ASM_INIT_RDBCHANNEL;
             serverLog(LL_NOTICE,
-                "Source node replied to RDBCHANNELSYNCSLOTS, syncslots can continue...");
+                "Source node replied to SYNCSLOTS SYNC, syncslots can continue...");
+        } else if (!strncmp(err, "-NOTREADY", strlen("-NOTREADY"))) {
+            /* The source-side cluster is temporarily not ready to start a
+             * migration and replied -NOTREADY. We could fail this attempt and
+             * let the import task start another attempt later but that could
+             * trigger unnecessary cleanup in the cluster implementation.
+             * Instead, we'll retry sending SYNCSLOTS later in asmCron(). */
+            sdsfree(err);
+            task->state = ASM_SEND_SYNCSLOTS;
+            serverLog(LL_NOTICE,
+                "Source node replied to SYNCSLOTS SYNC with -NOTREADY, will retry later...");
+            return;
         } else {
             task_error_msg = sdscatprintf(sdsempty(),
                 "Error reply to CLUSTER SYNCSLOTS SYNC from the source: %s", err);
@@ -1694,15 +1759,20 @@ static void asmStartImportTask(asmTask *task) {
     /* Notify the cluster implementation to prepare for the import task. */
     int impl_ret = clusterAsmOnEvent(task->id, ASM_EVENT_IMPORT_PREP, task->slots);
 
+    /* We do not start the import task if trim is disabled by module. */
+    int disabled_by_module = server.cluster_module_trim_disablers > 0;
+
     static int start_blocked_logged = 0;
     /* Cannot start import task since pause action is performed. Otherwise, we
      * will break the promise that no writes are performed during the pause. */
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
         isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         trim_in_progress ||
-        impl_ret != C_OK)
+        impl_ret != C_OK ||
+        disabled_by_module)
     {
-        const char *reason = impl_ret != C_OK ? "cluster is not ready" :
+        const char *reason = disabled_by_module ? "trim is disabled by module" :
+                             impl_ret != C_OK ? "cluster is not ready" :
                              trim_in_progress ? "trim in progress for some of the slots" :
                                                 "server paused";
         if (start_blocked_logged == 0) {
@@ -1734,13 +1804,10 @@ static void asmStartImportTask(asmTask *task) {
     /* Change the source node if needed. */
     if (source != task->source_node) {
         task->source_node = source;
-        memcpy(task->source, source->name, CLUSTER_NAMELEN);
+        memcpy(task->source, clusterNodeGetName(source), CLUSTER_NAMELEN);
         serverLog(LL_NOTICE, "Import task %s source node changed: slots=%s, "
-                             "new_source=%.40s", task->id, slots_str, source->name);
+                             "new_source=%.40s", task->id, slots_str, clusterNodeGetName(source));
     }
-
-    serverLog(LL_NOTICE, "Import task %s starting: src=%.40s, dest=%.40s, slots=%s",
-                         task->id, task->source, task->dest, slots_str);
     sdsfree(slots_str);
 
     task->state = ASM_CONNECTING;
@@ -1811,10 +1878,30 @@ void clusterSyncSlotsCommand(client *c) {
             return;
         }
 
+        /* Verify the destination node is known and is a master. */
+        if (c->node_id) {
+            clusterNode *dest = clusterLookupNode(c->node_id, CLUSTER_NAMELEN);
+            if (dest == NULL || !clusterNodeIsMaster(dest)) {
+                addReplyErrorFormat(c, "Destination node %.40s is not a master", c->node_id);
+                slotRangeArrayFree(slots);
+                return;
+            }
+        }
+
         sds task_id = c->argv[3]->ptr;
         /* Notify the cluster implementation to prepare for the migrate task. */
-        if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK) {
-            addReplyError(c, "Cluster is not ready right now, please retry later");
+        if (clusterAsmOnEvent(task_id, ASM_EVENT_MIGRATE_PREP, slots) != C_OK ||
+            asmDebugIsFailPointActive(ASM_MIGRATE_MAIN_CHANNEL, ASM_NONE))
+        {
+            addReplyError(c, "-NOTREADY Cluster is not ready to migrate slots");
+            slotRangeArrayFree(slots);
+            return;
+        }
+
+        /* We do not start the migrate task if trim is disabled by module. */
+        int disabled_by_module = server.cluster_module_trim_disablers > 0;
+        if (disabled_by_module) {
+            addReplyError(c, "Trim is disabled by module");
             slotRangeArrayFree(slots);
             return;
         }
@@ -2000,6 +2087,7 @@ void clusterSyncSlotsCommand(client *c) {
                                          task->source_offset - task->dest_offset,
                                          server.asm_handoff_max_lag_bytes);
                     task->state = ASM_HANDOFF_PREP;
+                    asmLogTaskEvent(task, ASM_EVENT_HANDOFF_PREP);
                     clusterAsmOnEvent(task->id, ASM_EVENT_HANDOFF_PREP, task->slots);
                 }
             }
@@ -2104,7 +2192,7 @@ static int slotSnapshotSaveKeyValuePair(rio *rdb, kvobj *o, int dbid) {
 
         /* Create the DUMP encoded representation. */
         rio payload;
-        createDumpPayload(&payload, o, &key, dbid);
+        createDumpPayload(&payload, o, &key, dbid, 1);
         sds buf = payload.io.buffer.ptr;
         if (rioWriteBulkString(rdb, buf, sdslen(buf)) == 0) {
             sdsfree(payload.io.buffer.ptr);
@@ -2169,7 +2257,7 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
     serverAssert(req & SLAVE_REQ_SLOTS_SNAPSHOT);
 
     dictEntry *de;
-    kvstoreDictIterator *kvs_di = NULL;
+    kvstoreDictIterator kvs_di;
 
     if (unlikely(asmDebugIsFailPointActive(ASM_MIGRATE_RDB_CHANNEL, ASM_SEND_BULK_AND_STREAM)))
         rioAbort(rdb); /* Simulate a failure */
@@ -2217,9 +2305,9 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
             /* Iterate all keys in the slot range */
             for (int k = sr->start; k <= sr->end; k++) {
                 int send_slot_info = 0;
-                kvs_di = kvstoreGetDictIterator(server.db->keys, k);
 
-                while ((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+                kvstoreInitDictIterator(&kvs_di, server.db->keys, k);
+                while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
                     /* Send slot info before the first key in the slot */
                     if (!send_slot_info) {
                         /* Format slot info */
@@ -2230,28 +2318,27 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
                         serverAssert(len > 0 && len < (int)sizeof(buf));
 
                         /* Send slot info */
-                        if (rioWriteBulkCount(rdb, '*', 5) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "CLUSTER", 7) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "SYNCSLOTS", 9) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "CONF", 4) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, "SLOT-INFO", 9) == 0) goto werr;
-                        if (rioWriteBulkString(rdb, buf, len) == 0) goto werr;
+                        if (rioWriteBulkCount(rdb, '*', 5) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "CLUSTER", 7) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "SYNCSLOTS", 9) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "CONF", 4) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, "SLOT-INFO", 9) == 0) goto werr2;
+                        if (rioWriteBulkString(rdb, buf, len) == 0) goto werr2;
                         send_slot_info = 1;
                     }
 
                     /* Save a key-value pair */
                     kvobj *o = dictGetKV(de);
-                    if (slotSnapshotSaveKeyValuePair(rdb, o, db->id) == C_ERR) goto werr;
+                    if (slotSnapshotSaveKeyValuePair(rdb, o, db->id) == C_ERR) goto werr2;
 
                     /* Delay return if required (for testing) */
                     if (unlikely(server.rdb_key_save_delay)) {
                         /* Send buffer to the destination ASAP. */
-                        if (rioFlush(rdb) == 0) goto werr;
+                        if (rioFlush(rdb) == 0) goto werr2;
                         debugDelay(server.rdb_key_save_delay);
                     }
                 }
-                kvstoreReleaseDictIterator(kvs_di);
-                kvs_di = NULL;
+                kvstoreResetDictIterator(&kvs_di);
             }
         }
     }
@@ -2263,8 +2350,9 @@ int slotSnapshotSaveRio(int req, rio *rdb, int *error) {
     if (rioWriteBulkString(rdb, "SNAPSHOT-EOF", 12) == 0) goto werr;
     return C_OK;
 
+werr2:
+    kvstoreResetDictIterator(&kvs_di);
 werr:
-    if (kvs_di) kvstoreReleaseDictIterator(kvs_di);
     if (error) *error = errno;
     return C_ERR;
 }
@@ -2526,6 +2614,13 @@ void asmCron(void) {
             serverAssert(c->task == task);
             if (server.unixtime - c->lastinteraction > server.repl_timeout)
                 asmTaskSetFailed(task, "RDB channel - Connection timeout");
+        } else if (task->state == ASM_SEND_SYNCSLOTS) {
+            /* Rare case: the source node replied to SYNCSLOTS with -NOTREADY
+             * because it wasn't ready to start a migration. We'll retry
+             * SYNCSLOTS every second instead of failing the attempt which could
+             * trigger unnecessary cleanup in the cluster implementation. */
+            if (asm_cron_runs % 10 == 0)
+                asmSyncWithSource(task->main_channel_conn);
         }
     } else if (task->operation == ASM_MIGRATE) {
         if (task->state == ASM_SEND_STREAM) {
@@ -2767,24 +2862,36 @@ int clusterAsmProcess(const char *task_id, int event, void *arg, char **err) {
     if (err) *err = NULL;
 
     switch (event) {
-        case ASM_EVENT_IMPORT_START:
-            ret = asmCreateImportTask(task_id, arg, &errsds) ? C_OK : C_ERR;
+        case ASM_EVENT_IMPORT_START: {
+            /* Validate the slot ranges. */
+            slotRangeArray *slots = slotRangeArrayDup(arg);
+            if (slotRangeArrayNormalizeAndValidate(slots, &errsds) != C_OK) {
+                slotRangeArrayFree(slots);
+                ret = C_ERR;
+                break;
+            }
+            ret = asmCreateImportTask(task_id, slots, &errsds) ? C_OK : C_ERR;
             break;
-        case ASM_EVENT_CANCEL:
+        }
+        case ASM_EVENT_CANCEL: {
             num_cancelled = clusterAsmCancel(task_id, "user request");
             if (arg) *((int *)arg) = num_cancelled;
             ret = C_OK;
             break;
-        case ASM_EVENT_HANDOFF:
+        }
+        case ASM_EVENT_HANDOFF: {
             ret = clusterAsmHandoff(task_id, &errsds);
             break;
-        case ASM_EVENT_DONE:
+        }
+        case ASM_EVENT_DONE: {
             ret = clusterAsmDone(task_id, &errsds);
             break;
-        default:
+        }
+        default: {
             ret = C_ERR;
             errsds = sdscatprintf(sdsempty(), "Unknown operation: %d", event);
             break;
+        }
     }
 
     if (ret != C_OK && errsds && err) {
@@ -2854,10 +2961,10 @@ void asmTriggerBackgroundTrim(slotRangeArray *slots) {
 
     /* Create temp kvstores and estore, move relevant slot dicts/ebuckets into them,
      * and delete them in BIO thread asynchronously. */
-    kvstore *keys = kvstoreCreate(&dbDictType,
+    kvstore *keys = kvstoreCreate(&kvstoreBaseType, &dbDictType,
                                   CLUSTER_SLOT_MASK_BITS,
                                   KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
-    kvstore *expires = kvstoreCreate(&dbExpiresDictType,
+    kvstore *expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
                                      CLUSTER_SLOT_MASK_BITS,
                                      KVSTORE_ALLOCATE_DICTS_ON_DEMAND);
     estore *subexpires = estoreCreate(&subexpiresBucketsType, CLUSTER_SLOT_MASK_BITS);
@@ -2911,9 +3018,7 @@ void asmTrimSlots(slotRangeArray *slots) {
 
 /* Schedule a trim job for the specified slot ranges. The job will be
  * deferred and handled later in asmBeforeSleep(). We delay the trim jobs to
- * asmBeforeSleep() to ensure it only runs when there is no write pause.
- * Attempting to process it during a write pause could trigger an assertion
- * in propagateNow(), as propagation is not allowed during a write pause. */
+ * asmBeforeSleep() to ensure it only runs when there is no write pause. */
 void asmTrimJobSchedule(slotRangeArray *slots) {
     listAddNodeTail(asmManager->pending_trim_jobs, slotRangeArrayDup(slots));
 }
@@ -2927,17 +3032,32 @@ void asmTrimJobProcessPending(void) {
         return;
     }
 
+    /* If this node is a replica, it should not initiate slot trimming actively.
+     * Cancel the trim job and unblock the master if it is blocked. */
+    if (clusterNodeIsSlave(getMyClusterNode())) {
+        asmCancelPendingTrimJobs();
+        asmUnblockMasterAfterTrim();
+        return;
+    }
+
     /* Determine if we can start the trim job:
      * - require client writes not paused (so key deletions are allowed)
-     * - require replicas not paused (so TRIMSLOTS can be propagated). */
+     * - require replicas not paused (so TRIMSLOTS can be propagated).
+     * - require trim is not disabled via RedisModule_ClusterDisableTrim().
+     */
     static int logged = 0;
+    int disabled_by_module = server.cluster_module_trim_disablers > 0;
+
     if (isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
         isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
-        isPausedActions(PAUSE_ACTION_REPLICA))
+        isPausedActions(PAUSE_ACTION_REPLICA) ||
+        disabled_by_module)
     {
         if (logged == 0) {
             logged = 1;
-            serverLog(LL_NOTICE, "Trim job will start after the write pause is lifted.");
+            const char *reason = disabled_by_module ? "trim is disabled by module" :
+                                                      "pause action is in effect";
+            serverLog(LL_NOTICE, "Trim job is deferred since %s.", reason);
         }
         return;
     }
@@ -2986,32 +3106,42 @@ void asmTrimSlotsIfNotOwned(slotRangeArray *slots) {
     slotRangeArrayFree(trim_slots);
 }
 
-/* Handle the master task when it is no longer used. And trim unowned
- * slots when the task is failed and this node is master. */
+/* Handle the master task when it is no longer used, trim unowned slots if necessary.
+ * This function is called when the replica is just promoted to master. */
 void asmFinalizeMasterTask(void) {
     if (!server.cluster_enabled) return;
 
     asmTask *task = asmManager->master_task;
     if (task == NULL) return;
-    serverAssert(task->operation == ASM_IMPORT);
 
-    sds slots_str = slotRangeArrayToString(task->slots);
-    serverLog(LL_WARNING, "Import task %s from old master failed: slots=%s",
-                           task->id, slots_str);
-    sdsfree(slots_str);
+    if (task->operation == ASM_IMPORT) {
+        /* Check if there is an ASM task that master did not finish. */
+        if (task->state != ASM_COMPLETED && task->state != ASM_FAILED) {
+            sds slots_str = slotRangeArrayToString(task->slots);
+            serverLog(LL_WARNING, "Import task %s from old master failed: slots=%s",
+                                task->id, slots_str);
+            sdsfree(slots_str);
+            /* Mark the task as failed and notify the replicas. */
+            task->state = ASM_FAILED;
+            asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
+        }
 
-    /* Check if there is an ASM task that master did not finish. */
-    if (task->state != ASM_COMPLETED && task->state != ASM_FAILED) {
-        /* Mark the task as failed and notify the replicas. */
-        task->state = ASM_FAILED;
-        asmNotifyStateChange(task, ASM_EVENT_IMPORT_FAILED);
+        /* Trim the slots if the import task is failed. */
+        if (clusterNodeIsMaster(getMyClusterNode()) && task->state == ASM_FAILED) {
+            asmTrimSlotsIfNotOwned(task->slots);
+        }
+    } else if (task->operation == ASM_MIGRATE) {
+        /* For migrate tasks, attempt to trim slots if necessary. After ASM completed,
+         * the previous master may not have initiated slot trimming before the failover
+         * occurred. In that case, we need to initiate slot trimming here.
+         * However, if ASM failed, slot ownership did not change, so no slot trimming
+         * is needed. */
+        if (clusterNodeIsMaster(getMyClusterNode()) && task->state != ASM_FAILED) {
+            asmTrimSlotsIfNotOwned(task->slots);
+        }
     }
 
-    /* Trim the slots if the import task is failed. */
-    if (clusterNodeIsMaster(getMyClusterNode()) && task->state == ASM_FAILED)
-        asmTrimSlotsIfNotOwned(task->slots);
-
-    /* Clear the master task since it is not the master anymore. */
+    /* Clear the master task since it is not a replica anymore. */
     asmTaskFree(asmManager->master_task);
     asmManager->master_task = NULL;
 }
@@ -3019,6 +3149,13 @@ void asmFinalizeMasterTask(void) {
 /* The replicas handle the master import ASM task information. */
 int asmReplicaHandleMasterTask(sds task_info) {
     if (!server.cluster_enabled || !clusterNodeIsSlave(getMyClusterNode())) return C_ERR;
+
+    /* If the master task is migrating, just clear it when receiving a new task info,
+     * even the task info is empty since it means the master finished the task. */
+    if (asmManager->master_task && asmManager->master_task->operation == ASM_MIGRATE) {
+        asmTaskFree(asmManager->master_task);
+        asmManager->master_task = NULL;
+    }
 
     /* If the master task is empty, it means the master finished the task, the
      * replica should check the slot ownership to decide to raise completed or
@@ -3051,9 +3188,12 @@ int asmReplicaHandleMasterTask(sds task_info) {
 
     asmTask *task = asmTaskDeserialize(task_info);
     if (!task) return C_ERR;
-    if (task->operation != ASM_IMPORT) {
-        asmTaskFree(task);
-        return C_ERR;
+
+    /* For migrate task, replica just keeps the task info, doesn't notify any event. */
+    if (task->operation == ASM_MIGRATE) {
+        if (asmManager->master_task) asmTaskFree(asmManager->master_task);
+        asmManager->master_task = task;
+        return C_OK;
     }
 
     int notify_event = 0;
@@ -3077,6 +3217,23 @@ int asmReplicaHandleMasterTask(sds task_info) {
     return C_OK;
 }
 
+/* Cancel all pending trim jobs. */
+void asmCancelPendingTrimJobs(void) {
+    if (!asmManager) return;
+
+    listIter li;
+    listNode *ln;
+    listRewind(asmManager->pending_trim_jobs, &li);
+    while ((ln = listNext(&li)) != NULL) {
+        slotRangeArray *slots = listNodeValue(ln);
+        listDelNode(asmManager->pending_trim_jobs, ln);
+        sds str = slotRangeArrayToString(slots);
+        serverLog(LL_NOTICE, "Cancelling the pending trim job for slots: %s", str);
+        sdsfree(str);
+        slotRangeArrayFree(slots);
+    }
+}
+
 /* Cancel all pending and active trim jobs. */
 void asmCancelTrimJobs(void) {
     if (!asmManager) return;
@@ -3085,14 +3242,7 @@ void asmCancelTrimJobs(void) {
     asmUnblockMasterAfterTrim();
 
     /* Cancel pending trim jobs */
-    listIter li;
-    listNode *ln;
-    listRewind(asmManager->pending_trim_jobs, &li);
-    while ((ln = listNext(&li)) != NULL) {
-        slotRangeArray *slots = listNodeValue(ln);
-        listDelNode(asmManager->pending_trim_jobs, ln);
-        slotRangeArrayFree(slots);
-    }
+    asmCancelPendingTrimJobs();
 
     /* Cancel active trim jobs */
     if (listLength(asmManager->active_trim_jobs) == 0)
@@ -3180,10 +3330,7 @@ void asmActiveTrimStart(void) {
     asmManager->active_trim_current_job_trimmed = 0;
 
     /* Count the number of keys to trim */
-    for (int i = 0; i < slots->num_ranges; i++)  {
-        for (int slot = slots->ranges[i].start; slot <= slots->ranges[i].end; slot++)
-            asmManager->active_trim_current_job_keys += kvstoreDictSize(server.db[0].keys, slot);
-    }        
+    asmManager->active_trim_current_job_keys += asmCountKeysInSlots(slots);
 
     RedisModuleClusterSlotMigrationTrimInfoV1 fsi = {
             REDISMODULE_CLUSTER_SLOT_MIGRATION_TRIMINFO_VERSION,
@@ -3296,7 +3443,7 @@ void asmActiveTrimDeleteKey(redisDb *db, robj *keyobj) {
     if (static_key) keyobj = createStringObject(keyobj->ptr, sdslen(keyobj->ptr));
 
     dbDelete(db, keyobj);
-    signalModifiedKey(NULL, db, keyobj);
+    keyModified(NULL, db, keyobj, NULL, 1);
     /* The keys are not actually logically deleted from the database, just moved
      * to another node. The modules need to know that these keys are no longer
      * available locally, so just send the keyspace notification to the modules,
@@ -3315,18 +3462,23 @@ void asmActiveTrimCycle(void) {
         return;
     }
 
-    /* Verify client pause is not in effect so we can delete keys. */
+    /* Verify client pause is not in effect and trim is not disabled by module,
+     * so we can delete keys. */
     static int blocked = 0;
+    int disabled_by_module = server.cluster_module_trim_disablers > 0;
     if (isPausedActions(PAUSE_ACTION_CLIENT_ALL) ||
-        isPausedActions(PAUSE_ACTION_CLIENT_WRITE))
+        isPausedActions(PAUSE_ACTION_CLIENT_WRITE) ||
+        disabled_by_module)
     {
         if (blocked == 0)  {
             blocked = 1;
-            serverLog(LL_NOTICE, "Active trim cycle will continue after the write pause is lifted.");
+            const char *reason = disabled_by_module ? "trim is disabled by module" :
+                                                       "pause action is in effect";
+            serverLog(LL_NOTICE, "Active trim cycle is blocked since %s.", reason);
         }
         return;
     }
-    if (blocked) serverLog(LL_NOTICE, "Active trim cycle is resumed after the write pause is lifted.");
+    if (blocked) serverLog(LL_NOTICE, "Active trim cycle is unblocked.");
     blocked = 0;
 
     /* This works in a similar way to activeExpireCycle, in the sense that
@@ -3345,8 +3497,9 @@ void asmActiveTrimCycle(void) {
 
     while (!time_exceeded && slot != -1) {
         dictEntry *de;
-        kvstoreDictIterator *kvs_di = kvstoreGetDictSafeIterator(server.db[0].keys, slot);
-        while ((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+        kvstoreDictIterator kvs_di;
+        kvstoreInitDictSafeIterator(&kvs_di, server.db[0].keys, slot);
+        while ((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
             kvobj *kv = dictGetKV(de);
             sds sdskey = kvobjGetKey(kv);
 
@@ -3364,7 +3517,7 @@ void asmActiveTrimCycle(void) {
                 break;
             }
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
         if (!time_exceeded) slot = slotRangeArrayNext(asmManager->active_trim_it);
     }
 
@@ -3383,28 +3536,10 @@ void asmActiveTrimCycle(void) {
     }
 }
 
-/* Trim a specific key if trimming is pending or in progress for its slot.
- * Return 1 if the key was trimmed */
-int asmActiveTrimDelIfNeeded(redisDb *db, robj *key, kvobj *kv) {
-    /* Check if trimming is in progress. */
-    if (server.allow_access_trimmed ||
-        !asmIsTrimInProgress())
-    {
+/* Check if the key in a trim job. */
+int asmIsKeyInTrimJob(sds keyname) {
+    if (!asmIsTrimInProgress() || !isSlotInTrimJob(getKeySlot(keyname)))
         return 0;
-    }
-
-    /* Check if the slot is in a trim job. */
-    sds keyname = key ? key->ptr : kvobjGetKey(kv);
-    if (!isSlotInTrimJob(getKeySlot(keyname)))
-        return 0;
-
-    if (key) {
-        asmActiveTrimDeleteKey(db, key);
-    } else {
-        robj *tmpkey = createStringObject(keyname, sdslen(keyname));
-        asmActiveTrimDeleteKey(db, tmpkey);
-        decrRefCount(tmpkey);
-    }
     return 1;
 }
 
@@ -3444,14 +3579,14 @@ int asmModulePropagateBeforeSlotSnapshot(struct redisCommand *cmd, robj **argv, 
 
     /* Crossslot commands are not allowed */
     int slot = getSlotFromCommand(cmd, argv, argc);
-    if (slot == GETSLOT_CROSSSLOT) {
+    if (slot == CLUSTER_CROSSSLOT) {
         errno = ENOTSUP;
         return C_ERR;
     }
 
     /* Allow no-keys commands or if keys are in the slot range. */
     slotRange sr = {slot, slot};
-    if (slot != GETSLOT_NOKEYS && !slotRangeArrayOverlaps(task->slots, &sr)) {
+    if (slot != INVALID_CLUSTER_SLOT && !slotRangeArrayOverlaps(task->slots, &sr)) {
         errno = ERANGE;
         return C_ERR;
     }

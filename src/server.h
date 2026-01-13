@@ -48,7 +48,7 @@ typedef long long ustime_t; /* microsecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
 #include "sds.h"     /* Dynamic safe strings */
-#include "mstr.h"    /* Immutable strings with optional metadata attached */
+#include "entry.h"   /* Entry objects (field-value pairs with optional expiration) */
 #include "ebuckets.h" /* expiry data structure */
 #include "dict.h"    /* Hash tables */
 #include "kvstore.h" /* Slot-based hash table */
@@ -170,9 +170,9 @@ struct hdr_histogram;
 /* Instantaneous metrics tracking. */
 #define STATS_METRIC_SAMPLES 16     /* Number of samples per metric. */
 #define STATS_METRIC_COMMAND 0      /* Number of commands executed. */
-#define STATS_METRIC_NET_INPUT 1    /* Bytes read to network. */
+#define STATS_METRIC_NET_INPUT 1    /* Bytes read from network. */
 #define STATS_METRIC_NET_OUTPUT 2   /* Bytes written to network. */
-#define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read to network during replication. */
+#define STATS_METRIC_NET_INPUT_REPLICATION 3   /* Bytes read from network during replication. */
 #define STATS_METRIC_NET_OUTPUT_REPLICATION 4   /* Bytes written to network during replication. */
 #define STATS_METRIC_EL_CYCLE 5     /* Number of eventloop cycled. */
 #define STATS_METRIC_EL_DURATION 6  /* Eventloop duration. */
@@ -285,11 +285,12 @@ extern int configOOMScoreAdjValuesDefaults[CONFIG_OOM_COUNT];
  * distinctly deletion, overwrite or read-only would be marked as RW. */
 #define CMD_KEY_RO (1ULL<<0)     /* Read-Only - Reads the value of the key, but
                                   * doesn't necessarily returns it. */
-#define CMD_KEY_RW (1ULL<<1)     /* Read-Write - Modifies the data stored in the
-                                  * value of the key or its metadata. */
+#define CMD_KEY_RW (1ULL<<1)     /* Read-Write - Reads and modifies/deletes
+                                  * the data stored in the value of the key or
+                                  * its metadata. */
 #define CMD_KEY_OW (1ULL<<2)     /* Overwrite - Overwrites the data stored in
                                   * the value of the key. */
-#define CMD_KEY_RM (1ULL<<3)     /* Deletes the key. */
+#define CMD_KEY_RM (1ULL<<3)     /* Deletes the key without reading it's value. */
 /* The following refer to user data inside the value of the key, not the metadata
  * like LRU, type, cardinality. It refers to the logical operation on the user's
  * data (actual input strings / TTL), being used / returned / copied / changed,
@@ -508,6 +509,7 @@ typedef enum {
     REPL_STATE_RECEIVE_AUTH_REPLY,  /* Wait for AUTH reply */
     REPL_STATE_RECEIVE_PORT_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_IP_REPLY,    /* Wait for REPLCONF reply */
+    REPL_STATE_RECEIVE_COMP_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_RECEIVE_CAPA_REPLY,  /* Wait for REPLCONF reply */
     REPL_STATE_SEND_PSYNC,          /* Send PSYNC */
     REPL_STATE_RECEIVE_PSYNC_REPLY, /* Wait for PSYNC reply */
@@ -573,6 +575,7 @@ typedef enum {
 #define SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS (1 << 1) /* Exclude functions from RDB */
 #define SLAVE_REQ_SLOTS_SNAPSHOT        (1 << 2) /* Only slots snapshot is required */
 #define SLAVE_REQ_RDB_CHANNEL           (1 << 3) /* Use rdb channel replication, transfer RDB background */
+#define SLAVE_REQ_RDB_NO_COMPRESS       (1 << 4) /* Don't enable RDB compression */
 /* Mask of all bits in the slave requirements bitfield that represent non-standard (filtered) RDB requirements */
 #define SLAVE_REQ_RDB_MASK (SLAVE_REQ_RDB_EXCLUDE_DATA | SLAVE_REQ_RDB_EXCLUDE_FUNCTIONS | SLAVE_REQ_SLOTS_SNAPSHOT)
 
@@ -625,11 +628,16 @@ typedef enum {
 #define REPL_DISKLESS_LOAD_DISABLED 0
 #define REPL_DISKLESS_LOAD_WHEN_DB_EMPTY 1
 #define REPL_DISKLESS_LOAD_SWAPDB 2
+#define REPL_DISKLESS_LOAD_ALWAYS 3
 
 /* TLS Client Authentication */
 #define TLS_CLIENT_AUTH_NO 0
 #define TLS_CLIENT_AUTH_YES 1
 #define TLS_CLIENT_AUTH_OPTIONAL 2
+
+/* TLS Client Certfiicate Authentication */
+#define TLS_CLIENT_FIELD_OFF 0
+#define TLS_CLIENT_FIELD_CN 1
 
 /* Sanitize dump payload */
 #define SANITIZE_DUMP_NO 0
@@ -657,8 +665,9 @@ typedef enum {
 #define MAXMEMORY_FLAG_LRU (1<<0)
 #define MAXMEMORY_FLAG_LFU (1<<1)
 #define MAXMEMORY_FLAG_ALLKEYS (1<<2)
+#define MAXMEMORY_FLAG_LRM (1<<3)
 #define MAXMEMORY_FLAG_NO_SHARED_INTEGERS \
-    (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU)
+    (MAXMEMORY_FLAG_LRU|MAXMEMORY_FLAG_LFU|MAXMEMORY_FLAG_LRM)
 
 #define MAXMEMORY_VOLATILE_LRU ((0<<8)|MAXMEMORY_FLAG_LRU)
 #define MAXMEMORY_VOLATILE_LFU ((1<<8)|MAXMEMORY_FLAG_LFU)
@@ -668,6 +677,8 @@ typedef enum {
 #define MAXMEMORY_ALLKEYS_LFU ((5<<8)|MAXMEMORY_FLAG_LFU|MAXMEMORY_FLAG_ALLKEYS)
 #define MAXMEMORY_ALLKEYS_RANDOM ((6<<8)|MAXMEMORY_FLAG_ALLKEYS)
 #define MAXMEMORY_NO_EVICTION (7<<8)
+#define MAXMEMORY_VOLATILE_LRM ((8<<8)|MAXMEMORY_FLAG_LRM)
+#define MAXMEMORY_ALLKEYS_LRM ((9<<8)|MAXMEMORY_FLAG_LRM|MAXMEMORY_FLAG_ALLKEYS)
 
 /* Units */
 #define UNIT_SECONDS 0
@@ -843,7 +854,6 @@ struct RedisModuleCtx;
 struct moduleLoadQueueEntry;
 struct RedisModuleCommand;
 struct clusterState;
-struct clusterSlotStat;
 struct slotRangeArray;
 
 /* Each module type implementation should export a set of methods in order
@@ -1097,6 +1107,26 @@ typedef struct redisDb {
     long long avg_ttl;          /* Average TTL, just for stats */
     unsigned long expires_cursor; /* Cursor of the active expire cycle. */
 } redisDb;
+
+/* maximum number of bins of keysizes histogram */
+#define MAX_KEYSIZES_BINS 60
+#define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
+typedef int64_t keysizesHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
+
+/* Metadata structure used for kvstores with type `kvstoreExType`, managed outside kvstore */
+typedef struct {
+    keysizesHist keysizes_hist;
+} kvstoreMetadata;
+
+/* Like kvstoreMetadata, this one per dict */
+typedef struct {
+    kvstoreDictMetaBase base;   /* must be first in struct ! */
+    size_t alloc_size;          /* Total memory used (in bytes) by this slot */
+    uint64_t cpu_usec;          /* CPU time (in microseconds) spent on given slot */
+    uint64_t network_bytes_in;  /* Network ingress (in bytes) received for given slot */
+    uint64_t network_bytes_out; /* Network egress (in bytes) sent for given slot */
+    keysizesHist keysizes_hist;
+} kvstoreDictMetadata;
 
 /* forward declaration for functions ctx */
 typedef struct functionsLibCtx functionsLibCtx;
@@ -1501,6 +1531,7 @@ typedef struct aclInfo {
     long long invalid_cmd_accesses; /* Invalid command accesses that user doesn't have permission to */
     long long invalid_key_accesses; /* Invalid key accesses that user doesn't have permission to */
     long long invalid_channel_accesses; /* Invalid channel accesses that user doesn't have permission to */
+    long long acl_access_denied_tls_cert; /* TLS clients with cert not matching any existing user. */
 } aclInfo;
 
 struct saveparam {
@@ -1560,6 +1591,9 @@ typedef struct zskiplistNode {
     struct zskiplistNode *backward;
     struct zskiplistLevel {
         struct zskiplistNode *forward;
+        /* Span is the number of elements between this node and the next node at this level.
+         * At level 0, span is always 1 (or 0 for the last node), so we repurpose it to store
+         * the node's level. This enables O(1) access to node level for rank calculations. */
         unsigned long span;
     } level[];
 } zskiplistNode;
@@ -1568,6 +1602,7 @@ typedef struct zskiplist {
     struct zskiplistNode *header, *tail;
     unsigned long length;
     int level;
+    size_t alloc_size;
 } zskiplist;
 
 typedef struct zset {
@@ -1702,6 +1737,7 @@ typedef struct redisTLSContextConfig {
     char *client_cert_file;         /* Certificate to use as a client; if none, use cert_file */
     char *client_key_file;          /* Private key filename for client_cert_file */
     char *client_key_file_pass;     /* Optional password for client_key_file */
+    int client_auth_user;           /* Field to be used for automatic TLS authentication based on client TLS certificate */
     char *dh_params_file;
     char *ca_cert_file;
     char *ca_cert_dir;
@@ -1907,6 +1943,7 @@ struct redisServer {
     long long stat_aof_rewrites;    /* number of aof file rewrites performed */
     long long stat_aofrw_consecutive_failures; /* The number of consecutive failures of aofrw */
     long long stat_rdb_saves;       /* number of rdb saves performed */
+    long long stat_rdb_consecutive_failures; /* The number of consecutive failures of rdb saves */
     long long stat_fork_time;       /* Time needed to perform latest fork() */
     double stat_fork_rate;          /* Fork rate in GB/sec. */
     long long stat_total_forks;     /* Total count of fork. */
@@ -1999,6 +2036,7 @@ struct redisServer {
     int latency_tracking_enabled;   /* 1 if extended latency tracking is enabled, 0 otherwise. */
     double *latency_tracking_info_percentiles; /* Extended latency tracking info output percentile list configuration. */
     int latency_tracking_info_percentiles_len;
+    int memory_tracking_per_slot;   /* Account used memory per slot */
     unsigned int max_new_tls_conns_per_cycle; /* The maximum number of tls connections that will be accepted during each invocation of the event loop. */
     unsigned int max_new_conns_per_cycle; /* The maximum number of tcp connections that will be accepted during each invocation of the event loop. */
     int cluster_compatibility_sample_ratio; /* Sampling ratio for cluster mode incompatible commands. */
@@ -2036,8 +2074,7 @@ struct redisServer {
     int aof_last_write_status;      /* C_OK or C_ERR */
     int aof_last_write_errno;       /* Valid if aof write/fsync status is ERR */
     int aof_load_truncated;         /* Don't stop on unexpected AOF EOF. */
-    int aof_load_broken;            /* Don't stop on bad fmt. */
-    off_t aof_load_broken_max_size; /* The max size of broken AOF tail than can be ignored. */
+    off_t aof_load_corrupt_tail_max_size; /* The max size of broken AOF tail than can be ignored. */
     int aof_use_rdb_preamble;       /* Specify base AOF to use RDB encoding on AOF rewrites. */
     redisAtomic int aof_bio_fsync_status; /* Status of AOF fsync in bio job. */
     redisAtomic int aof_bio_fsync_errno;  /* Errno of AOF fsync in bio job. */
@@ -2257,7 +2294,6 @@ struct redisServer {
     long long asm_sync_buffer_drain_timeout; /* Timeout in milliseconds for sync buffer to drain during ASM. */
     int asm_max_archived_tasks; /* Maximum number of archived ASM tasks to keep in memory. */
     struct clusterState *cluster;  /* State of the cluster */
-    struct clusterSlotStat *cluster_slot_stats; /* Struct used for storing slot statistics, for all slots owned by the current shard. */
     int cluster_migration_barrier; /* Cluster replicas migration barrier. */
     int cluster_allow_replica_migration; /* Automatic replica migrations to orphaned masters and from empty masters */
     int cluster_slave_validity_factor; /* Slave max data age for failover. */
@@ -2276,6 +2312,7 @@ struct redisServer {
                                       to set in order to suppress certain
                                       native Redis Cluster features. Check the
                                       REDISMODULE_CLUSTER_FLAG_*. */
+    int cluster_module_trim_disablers; /* Number of module requests to disable trimming */
     int cluster_allow_reads_when_down; /* Are reads allowed when the cluster
                                         is down? */
     int cluster_config_file_lock_fd;   /* cluster config fd, will be flocked. */
@@ -2288,6 +2325,7 @@ struct redisServer {
     mstime_t busy_reply_threshold;  /* Script / module timeout in milliseconds */
     int pre_command_oom_state;         /* OOM before command (script?) was started */
     int script_disable_deny_script;    /* Allow running commands marked "noscript" inside a script. */
+    int lua_enable_deprecated_api;     /* Config to enable deprecated api */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;
@@ -2336,6 +2374,7 @@ struct redisServer {
     /* Local environment */
     char *locale_collate;
     int dbg_assert_keysizes;       /* Assert keysizes histogram after each command */
+    int dbg_assert_alloc_per_slot; /* Assert per-slot alloc_size after each command */
 };
 
 /* we use 6 so that all getKeyResult fits a cacheline */
@@ -2363,7 +2402,7 @@ typedef struct {
 enum {
     PENDING_CMD_FLAG_INCOMPLETE = 1 << 0,     /* Command parsing is incomplete, still waiting for more data */
     PENDING_CMD_FLAG_PREPROCESSED = 1 << 1,   /* This command has passed pre-processing */
-    PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,     /* Command's keys_result is valid and cached */
+    PENDING_CMD_KEYS_RESULT_VALID = 1 << 2,   /* Command's keys_result is valid and cached */
 };
 
 /* Parser state and parse result of a command from a client's input buffer. */
@@ -2724,7 +2763,7 @@ typedef struct {
     robj *subject;
     int encoding;
     int ii; /* intset iterator */
-    dictIterator *di;
+    dictIterator di;
     unsigned char *lpi; /* listpack iterator */
 } setTypeIterator;
 
@@ -2739,7 +2778,7 @@ typedef struct {
     unsigned char *fptr, *vptr, *tptr;
     uint64_t expire_time; /* Only used with OBJ_ENCODING_LISTPACK_EX */
 
-    dictIterator *di;
+    dictIterator di;
     dictEntry *de;
 } hashTypeIterator;
 
@@ -2748,9 +2787,8 @@ typedef struct {
 #define OBJ_HASH_KEY 1
 #define OBJ_HASH_VALUE 2
 
-/* Hash-field data type (of t_hash.c) */
-typedef mstr hfield;
-extern  mstrKind mstrFieldKind;
+/* Hash-field data type (of t_hash.c) - now using entry directly
+ * Note: entry* is used directly instead of a typedef for clarity */
 
 /*-----------------------------------------------------------------------------
  * Extern declarations
@@ -2766,8 +2804,8 @@ extern dictType zsetDictType;
 extern dictType dbDictType;
 extern double R_Zero, R_PosInf, R_NegInf, R_Nan;
 extern dictType hashDictType;
-extern dictType mstrHashDictType;
-extern dictType mstrHashDictTypeWithHFE;
+extern dictType entryHashDictType;
+extern dictType entryHashDictTypeWithHFE;
 extern dictType stringSetDictType;
 extern dictType externalStringType;
 extern dictType sdsHashDictType;
@@ -2777,6 +2815,8 @@ extern dictType dbExpiresDictType;
 extern dictType modulesDictType;
 extern dictType sdsReplyDictType;
 extern dictType keylistDictType;
+extern kvstoreType kvstoreBaseType;
+extern kvstoreType kvstoreExType;
 extern dict *modules;
 
 extern EbucketsType subexpiresBucketsType;  /* global expires */
@@ -2942,7 +2982,6 @@ void copyReplicaOutputBuffer(client *dst, client *src);
 void addListRangeReply(client *c, robj *o, long start, long end, int reverse);
 void deferredAfterErrorReply(client *c, list *errors);
 size_t sdsZmallocSize(sds s);
-size_t hfieldZmallocSize(hfield s);
 size_t getStringObjectSdsUsedMemory(robj *o);
 void freeClientReplyValue(void *o);
 void *dupClientReplyValue(void *o);
@@ -3056,8 +3095,9 @@ int checkPrefixCollisionsOrReply(client *c, robj **prefix, size_t numprefix);
 void listTypePush(robj *subject, robj *value, int where);
 robj *listTypePop(robj *subject, int where);
 unsigned long listTypeLength(const robj *subject);
-listTypeIterator *listTypeInitIterator(robj *subject, long index, unsigned char direction);
-void listTypeReleaseIterator(listTypeIterator *li);
+size_t listTypeAllocSize(const robj *o);
+void listTypeInitIterator(listTypeIterator *li, robj *subject, long index, unsigned char direction);
+void listTypeResetIterator(listTypeIterator *li);
 void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, unsigned char direction);
 int listTypeNext(listTypeIterator *li, listTypeEntry *entry);
 robj *listTypeGet(listTypeEntry *entry);
@@ -3070,7 +3110,7 @@ void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry);
 robj *listTypeDup(robj *o);
 void listTypeDelRange(robj *o, long start, long stop);
 void popGenericCommand(client *c, int where);
-void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, int signal, int *deleted);
+void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, size_t oldsize, int signal, int *deleted);
 typedef enum {
     LIST_CONV_AUTO,
     LIST_CONV_GROWING,
@@ -3219,6 +3259,7 @@ void ACLInit(void);
 #define ACL_DENIED_KEY 2
 #define ACL_DENIED_AUTH 3 /* Only used for ACL LOG entries. */
 #define ACL_DENIED_CHANNEL 4 /* Only used for pub/sub commands */
+#define ACL_INVALID_TLS_CERT_AUTH 5 /* Only used for TLS Auto-authentication */
 
 /* Context values for addACLLogEntry(). */
 #define ACL_LOG_CTX_TOPLEVEL 0
@@ -3304,6 +3345,7 @@ typedef struct {
 
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
+size_t zslAllocSize(const zskiplist *zsl);
 zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele);
 unsigned char *zzlInsert(unsigned char *zl, sds ele, double score);
 int zslDelete(zskiplist *zsl, double score, sds ele, zskiplistNode **node);
@@ -3314,6 +3356,7 @@ void zzlPrev(unsigned char *zl, unsigned char **eptr, unsigned char **sptr);
 unsigned char *zzlFirstInRange(unsigned char *zl, zrangespec *range);
 unsigned char *zzlLastInRange(unsigned char *zl, zrangespec *range);
 unsigned long zsetLength(const robj *zobj);
+size_t zsetAllocSize(const robj *o);
 void zsetConvert(robj *zobj, int encoding);
 void zsetConvertToListpackIfNeeded(robj *zobj, size_t maxelelen, size_t totelelen);
 int zsetScore(robj *zobj, sds member, double *score);
@@ -3445,12 +3488,13 @@ int setTypeRemove(robj *subject, sds value);
 int setTypeRemoveAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
 int setTypeIsMember(robj *subject, sds value);
 int setTypeIsMemberAux(robj *set, char *str, size_t len, int64_t llval, int str_is_sds);
-setTypeIterator *setTypeInitIterator(robj *subject);
-void setTypeReleaseIterator(setTypeIterator *si);
+void setTypeInitIterator(setTypeIterator *si, robj *subject);
+void setTypeResetIterator(setTypeIterator *si);
 int setTypeNext(setTypeIterator *si, char **str, size_t *len, int64_t *llele);
 sds setTypeNextObject(setTypeIterator *si);
 int setTypeRandomElement(robj *setobj, char **str, size_t *len, int64_t *llele);
 unsigned long setTypeSize(const robj *subject);
+size_t setTypeAllocSize(const robj *o);
 void setTypeConvert(robj *subject, int enc);
 int setTypeConvertAndExpand(robj *setobj, int enc, unsigned long cap, int panic);
 robj *setTypeDup(robj *o);
@@ -3467,15 +3511,27 @@ typedef struct listpackEx {
 } listpackEx;
 
 /* Each dict of hash object that has fields with time-Expiration will have the
- * following metadata attached to dict header */
-typedef struct dictExpireMetadata {
+ * following metadata attached to dict header.
+ * Note that alloc_size field must be first because hash objects without expre
+ * already use sizeof(size_t) bytes of metadata for memory accounting. */
+typedef struct htMetadataEx {
+    size_t alloc_size;       /* Total memory used for keys and values */
     ExpireMeta expireMeta;   /* embedded ExpireMeta in dict.
                                 To be used in order to register the hash in the
                                 subexpires DB with next minimum hash-field to expire.
                                 TTL value might be inaccurate up-to few seconds due
                                 to optimization consideration. */
     ebuckets hfe;            /* DS of Hash Fields Expiration, associated to each hash */
-} dictExpireMetadata;
+} htMetadataEx;
+
+/* hash metadata helpers */
+static inline htMetadataEx *htGetMetadataEx(dict *d) {
+    return (htMetadataEx *)dictMetadata(d);
+}
+
+static inline size_t *htGetMetadataSize(dict *d) {
+    return (size_t *)dictMetadata(d);
+}
 
 /* Hash data type */
 #define HASH_SET_TAKE_FIELD (1<<0)
@@ -3492,14 +3548,16 @@ typedef struct dictExpireMetadata {
                                              * may expire and only one signal is desired. */
 #define HFE_LAZY_ACCESS_EXPIRED      (1<<4) /* Avoid lazy expire and allow access to expired fields */
 #define HFE_LAZY_NO_UPDATE_KEYSIZES  (1<<5) /* If field lazy deleted, avoid updating keysizes histogram */
+#define HFE_LAZY_NO_UPDATE_ALLOCSIZES (1<<6) /* If field lazy deleted, avoid updating slot allocation sizes */
 
 void hashTypeConvert(redisDb *db, robj *o, int enc);
 void hashTypeTryConversion(redisDb *db, kvobj *kv, robj **argv, int start, int end);
 int hashTypeExists(redisDb *db, kvobj *kv, sds field, int hfeFlags, int *isHashDeleted);
-int hashTypeDelete(robj *o, void *key, int isSdsField);
+int hashTypeDelete(robj *o, void *key);
 unsigned long hashTypeLength(const robj *o, int subtractExpiredFields);
-hashTypeIterator *hashTypeInitIterator(robj *subject);
-void hashTypeReleaseIterator(hashTypeIterator *hi);
+size_t hashTypeAllocSize(const robj *o);
+void hashTypeInitIterator(hashTypeIterator *hi, robj *subject);
+void hashTypeResetIterator(hashTypeIterator *hi);
 int hashTypeNext(hashTypeIterator *hi, int skipExpiredFields);
 void hashTypeCurrentFromListpack(hashTypeIterator *hi, int what,
                                  unsigned char **vstr,
@@ -3511,7 +3569,7 @@ void hashTypeCurrentFromHashTable(hashTypeIterator *hi, int what, char **str,
 void hashTypeCurrentObject(hashTypeIterator *hi, int what, unsigned char **vstr,
                            unsigned int *vlen, long long *vll, uint64_t *expireTime);
 sds hashTypeCurrentObjectNewSds(hashTypeIterator *hi, int what);
-hfield hashTypeCurrentObjectNewHfield(hashTypeIterator *hi);
+Entry *hashTypeCurrentObjectNewEntry(hashTypeIterator *hi, size_t *usable);
 int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
 int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
@@ -3526,16 +3584,6 @@ void initDictExpireMetadata(robj *o);
 struct listpackEx *listpackExCreate(void);
 void listpackExAddNew(robj *o, char *field, size_t flen,
                       char *value, size_t vlen, uint64_t expireAt);
-
-/* Hash-Field data type (of t_hash.c) */
-hfield hfieldNew(const void *field, size_t fieldlen, int withExpireMeta);
-hfield hfieldTryNew(const void *field, size_t fieldlen, int withExpireMeta);
-int hfieldIsExpireAttached(hfield field);
-int hfieldIsExpired(hfield field);
-uint64_t hfieldGetExpireTime(hfield field);
-static inline void hfieldFree(hfield field) { mstrFree(&mstrFieldKind, field); }
-static inline void *hfieldGetAllocPtr(hfield field) { return mstrGetAllocPtr(&mstrFieldKind, field); }
-static inline size_t hfieldlen(hfield field) { return mstrlen(field);}
 
 /* Pub / Sub */
 int pubsubUnsubscribeAllChannels(client *c, int notify);
@@ -3610,6 +3658,7 @@ sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
 void initServerClientMemUsageBuckets(void);
 void freeServerClientMemUsageBuckets(void);
+static inline int clusterSlotStatsEnabled(void) { return server.cluster_enabled && server.cluster_slot_stats_enabled; }
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
@@ -3647,7 +3696,9 @@ int moduleSetNumericConfig(client *c, sds name, long long val, const char **err)
 
 /* db.c -- Keyspace access API */
 void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen);
+void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize);
 void dbgAssertKeysizesHist(redisDb *db);
+void dbgAssertAllocSizePerSlot(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
@@ -3676,6 +3727,7 @@ kvobj *kvobjCommandLookupOrReply(client *c, robj *key, robj *reply);
 #define LOOKUP_WRITE (1<<3)          /* Delete expired keys even in replicas. */
 #define LOOKUP_NOEXPIRE (1<<4)       /* Avoid deleting lazy expired keys. */
 #define LOOKUP_ACCESS_EXPIRED (1<<5) /* Allow lookup to expired key. */
+#define LOOKUP_ACCESS_TRIMMED (1<<6) /* Allow lookup to key in slots being trimmed. */
 #define LOOKUP_NOEFFECTS (LOOKUP_NONOTIFY | LOOKUP_NOSTATS | LOOKUP_NOTOUCH | LOOKUP_NOEXPIRE) /* Avoid any effects from fetching the key */
 
 static inline kvobj *dictGetKV(const dictEntry *de) {return (kvobj *) dictGetKey(de);}
@@ -3718,7 +3770,7 @@ void discardTempDb(redisDb *tempDb);
 
 
 int selectDb(client *c, int id);
-void signalModifiedKey(client *c, redisDb *db, robj *key);
+void keyModified(client *c, redisDb *db, robj *key, robj *val, int signal);
 void signalFlushedDb(int dbid, int async, struct slotRangeArray *slots);
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor);
 int parseScanCursorOrReply(client *c, robj *o, unsigned long long *cursor);
@@ -3739,9 +3791,6 @@ void freeReplicationBacklogRefMemAsync(list *blocks, rax *index);
 int getKeysFromCommandWithSpecs(struct redisCommand *cmd, robj **argv, int argc, int search_flags, getKeysResult *result);
 keyReference *getKeysPrepareResult(getKeysResult *result, int numkeys);
 int getKeysFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
-
-#define GETSLOT_NOKEYS     (-1)
-#define GETSLOT_CROSSSLOT  (-2)
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc);
 int doesCommandHaveKeys(struct redisCommand *cmd);
 int getChannelsFromCommand(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
@@ -3763,6 +3812,7 @@ int blmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult
 int zmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bzmpopGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
+int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 int bitfieldGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result);
 
 unsigned short crc16(const char *buf, int len);
@@ -3876,7 +3926,6 @@ uint64_t dictPtrHash(const void *key);
 uint64_t dictSdsCaseHash(const void *key);
 size_t dictSdsKeyLen(dict *d, const void *key);
 int dictSdsKeyCompare(dictCmpCache *cache, const void *key1, const void *key2);
-int dictSdsMstrKeyCompare(dictCmpCache *cache, const void *sdsLookup, const void *mstrStored);
 int dictSdsKeyCaseCompare(dictCmpCache *cache, const void *key1, const void *key2);
 void dictSdsDestructor(dict *d, void *val);
 void dictListDestructor(dict *d, void *val);
@@ -3891,6 +3940,7 @@ char *redisBuildIdString(void);
 
 /* XXH3 hash of a string as hex string */
 sds stringDigest(robj *o);
+int validateHexDigest(client *c, const sds digest);
 
 /* Commands prototypes */
 void authCommand(client *c);
@@ -4002,6 +4052,7 @@ void roleCommand(client *c);
 void debugCommand(client *c);
 void msetCommand(client *c);
 void msetnxCommand(client *c);
+void msetexCommand(client *c);
 void zaddCommand(client *c);
 void zincrbyCommand(client *c);
 void zrangeCommand(client *c);
@@ -4208,6 +4259,11 @@ void makeThreadKillable(void);
 void swapMainDbWithTempDb(redisDb *tempDb);
 sds getVersion(void);
 void debugPauseProcess(void);
+
+/* Log redaction helpers: return "*redacted*" when hide-user-data-from-log is on. */
+static inline const char *redactLogCstr(const char *s) {
+    return server.hide_user_data_from_log ? "*redacted*" : (s ? s : "(null)");
+}
 
 /* Use macro for checking log level to avoid evaluating arguments in cases log
  * should be ignored due to low level. */

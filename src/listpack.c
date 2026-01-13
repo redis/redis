@@ -232,11 +232,6 @@ void lpFree(unsigned char *lp) {
     lp_free(lp);
 }
 
-/* Generic version of lpFree. */
-void lpFreeGeneric(void *lp) {
-    lp_free((unsigned char *)lp);
-}
-
 /* Shrink the memory to fit. */
 unsigned char* lpShrinkToFit(unsigned char *lp) {
     size_t size = lpGetTotalBytes(lp);
@@ -1757,7 +1752,7 @@ static int uintCompare(const void *a, const void *b) {
     return (*(unsigned int *) a - *(unsigned int *) b);
 }
 
-/* Helper method to store a string into from val or lval into dest */
+/* Helper method to store a string from val or lval into dest */
 static inline void lpSaveValue(unsigned char *val, unsigned int len, int64_t lval, listpackEntry *dest) {
     dest->sval = val;
     dest->slen = len;

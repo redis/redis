@@ -51,6 +51,7 @@ void luaRegisterGlobalProtectionFunction(lua_State *lua);
 void luaSetErrorMetatable(lua_State *lua);
 void luaSetAllowListProtection(lua_State *lua);
 void luaSetTableProtectionRecursively(lua_State *lua);
+void luaSetTableProtectionForBasicTypes(lua_State *lua);
 void luaRegisterLogFunction(lua_State* lua);
 void luaRegisterVersion(lua_State* lua);
 void luaPushErrorBuff(lua_State *lua, sds err_buff);

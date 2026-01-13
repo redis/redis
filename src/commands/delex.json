@@ -6,6 +6,7 @@
         "since": "8.4.0",
         "arity": -2,
         "function": "delexCommand",
+        "get_keys_function": "delexGetKeys",
         "command_flags": [
             "WRITE",
             "FAST"
@@ -16,8 +17,9 @@
         "key_specs": [
             {
                 "flags": [
-                    "RM",
-                    "DELETE"
+                    "RW",
+                    "DELETE",
+                    "VARIABLE_FLAGS"
                 ],
                 "begin_search": {
                     "index": {

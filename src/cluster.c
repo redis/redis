@@ -85,9 +85,9 @@ ConnectionType *connTypeOfCluster(void) {
 
 /* Generates a DUMP-format representation of the object 'o', adding it to the
  * io stream pointed by 'rio'. This function can't fail. */
-void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
+void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_checksum) {
     unsigned char buf[2];
-    uint64_t crc;
+    uint64_t crc = 0;
 
     /* Serialize the object in an RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
@@ -111,10 +111,14 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid) {
     buf[1] = (RDB_VERSION >> 8) & 0xff;
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,buf,2);
 
-    /* CRC64 */
-    crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
-                sdslen(payload->io.buffer.ptr));
-    memrev64ifbe(&crc);
+    /* If crc checksum is disabled, crc is set to 0 and no checksum validation
+     * will be performed on RESTORE. */
+    if (!skip_checksum) {
+        /* CRC64 */
+        crc = crc64(0,(unsigned char*)payload->io.buffer.ptr,
+                    sdslen(payload->io.buffer.ptr));
+        memrev64ifbe(&crc);
+    }
     payload->io.buffer.ptr = sdscatlen(payload->io.buffer.ptr,&crc,8);
 }
 
@@ -142,10 +146,15 @@ int verifyDumpPayload(unsigned char *p, size_t len, uint16_t *rdbver_ptr) {
     if (server.skip_checksum_validation)
         return C_OK;
 
+    uint64_t crc_payload;
+    memcpy(&crc_payload, footer+2, 8);
+    if (crc_payload == 0) /* No checksum. */
+        return C_OK;
+
     /* Verify CRC64 */
     crc = crc64(0,p,len-8);
     memrev64ifbe(&crc);
-    return (memcmp(&crc,footer+2,8) == 0) ? C_OK : C_ERR;
+    return crc == crc_payload ? C_OK : C_ERR;
 }
 
 /* DUMP keyname
@@ -162,7 +171,7 @@ void dumpCommand(client *c) {
     }
 
     /* Create the DUMP encoded representation. */
-    createDumpPayload(&payload,o,c->argv[1],c->db->id);
+    createDumpPayload(&payload,o,c->argv[1],c->db->id,0);
 
     /* Transfer to the client */
     addReplyBulkSds(c,payload.io.buffer.ptr);
@@ -269,7 +278,7 @@ void restoreCommand(client *c) {
         if (deleted) {
             robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
             rewriteClientCommandVector(c, 2, aux, key);
-            signalModifiedKey(c,c->db,key);
+            keyModified(c,c->db,key,NULL,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
@@ -299,7 +308,7 @@ void restoreCommand(client *c) {
         }
     }
     objectSetLRUOrLFU(kv, lfu_freq, lru_idle, lru_clock, 1000);
-    signalModifiedKey(c,c->db,key);
+    keyModified(c,c->db,key,NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"restore",key,c->db->id);
 
     /* If we deleted a key that means REPLACE parameter was passed and the
@@ -591,7 +600,7 @@ void migrateCommand(client *c) {
 
         /* Emit the payload argument, that is the serialized object using
          * the DUMP format. */
-        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid);
+        createDumpPayload(&payload,kvArray[j],keyArray[j],dbid,0);
         serverAssertWithInfo(c,NULL,
                              rioWriteBulkString(&cmd,payload.io.buffer.ptr,
                                                 sdslen(payload.io.buffer.ptr)));
@@ -672,7 +681,7 @@ void migrateCommand(client *c) {
             if (!copy) {
                 /* No COPY option: remove the local key, signal the change. */
                 dbDelete(c->db,keyArray[j]);
-                signalModifiedKey(c,c->db,keyArray[j]);
+                keyModified(c,c->db,keyArray[j],NULL,1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC,"del",keyArray[j],c->db->id);
                 server.dirty++;
 
@@ -1066,16 +1075,16 @@ void clusterCommand(client *c) {
         unsigned int keys_in_slot = countKeysInSlot(slot);
         unsigned int numkeys = maxkeys > keys_in_slot ? keys_in_slot : maxkeys;
         addReplyArrayLen(c,numkeys);
-        kvstoreDictIterator *kvs_di = NULL;
+        kvstoreDictIterator kvs_di;
         dictEntry *de = NULL;
-        kvs_di = kvstoreGetDictIterator(server.db->keys, slot);
+        kvstoreInitDictIterator(&kvs_di, server.db->keys, slot);
         for (unsigned int i = 0; i < numkeys; i++) {
-            de = kvstoreDictIteratorNext(kvs_di);
+            de = kvstoreDictIteratorNext(&kvs_di);
             serverAssert(de != NULL);
             sds sdskey = kvobjGetKey(dictGetKV(de));
             addReplyBulkCBuffer(c, sdskey, sdslen(sdskey));
         }
-        kvstoreReleaseDictIterator(kvs_di);
+        kvstoreResetDictIterator(&kvs_di);
     } else if ((!strcasecmp(c->argv[1]->ptr,"slaves") ||
                 !strcasecmp(c->argv[1]->ptr,"replicas")) && c->argc == 3) {
         /* CLUSTER SLAVES <NODE ID> */
@@ -1101,6 +1110,10 @@ void clusterCommand(client *c) {
             addReplyBulkCString(c,ni);
             sdsfree(ni);
         }
+    } else if (!strcasecmp(c->argv[1]->ptr, "migration")) {
+        clusterMigrationCommand(c);
+    } else if (!strcasecmp(c->argv[1]->ptr,"syncslots") && c->argc >= 3) {
+        clusterSyncSlotsCommand(c);
     } else if(!clusterCommandSpecial(c)) {
         addReplySubcommandSyntaxError(c);
         return;
@@ -1108,15 +1121,13 @@ void clusterCommand(client *c) {
 }
 
 /* Extract slot number from keys in a keys_result structure and return to caller.
- * Returns INVALID_CLUSTER_SLOT if keys belong to different slots (cross-slot error),
- * or if there are no keys.
- */
+ * Returns:
+ *   - The slot number if all keys belong to the same slot
+ *   - INVALID_CLUSTER_SLOT if there are no keys or cluster is disabled
+ *   - CLUSTER_CROSSSLOT if keys belong to different slots (cross-slot error) */
 int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
-    if (keys_result->numkeys == 0)
+    if (keys_result->numkeys == 0 || !server.cluster_enabled)
         return INVALID_CLUSTER_SLOT;
-
-    if (!server.cluster_enabled)
-        return 0;
 
     int first_slot = INVALID_CLUSTER_SLOT;
     for (int j = 0; j < keys_result->numkeys; j++) {
@@ -1126,7 +1137,7 @@ int extractSlotFromKeysResult(robj **argv, getKeysResult *keys_result) {
         if (first_slot == INVALID_CLUSTER_SLOT)
             first_slot = this_slot;
         else if (first_slot != this_slot) {
-            return INVALID_CLUSTER_SLOT;
+            return CLUSTER_CROSSSLOT;
         }
     }
     return first_slot;
@@ -1682,16 +1693,16 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
     if (!kvstoreDictSize(server.db->keys, (int) hashslot))
         return 0;
 
-    kvstoreDictIterator *kvs_di = NULL;
+    kvstoreDictIterator kvs_di;
     dictEntry *de = NULL;
-    kvs_di = kvstoreGetDictSafeIterator(server.db->keys, (int) hashslot);
-    while((de = kvstoreDictIteratorNext(kvs_di)) != NULL) {
+    kvstoreInitDictSafeIterator(&kvs_di, server.db->keys, (int) hashslot);
+    while((de = kvstoreDictIteratorNext(&kvs_di)) != NULL) {
         enterExecutionUnit(1, 0);
         sds sdskey = kvobjGetKey(dictGetKV(de));
         robj *key = createStringObject(sdskey, sdslen(sdskey));
         dbDelete(&server.db[0], key);
 
-        signalModifiedKey(NULL, &server.db[0], key);
+        keyModified(NULL, &server.db[0], key, NULL, 1);
         if (by_command) {
             /* Keys are deleted by a command (trimslots), we need to notify the
              * keyspace event. Though, we don't need to propagate the DEL
@@ -1712,7 +1723,7 @@ unsigned int clusterDelKeysInSlot(unsigned int hashslot, int by_command) {
         j++;
         server.dirty++;
     }
-    kvstoreReleaseDictIterator(kvs_di);
+    kvstoreResetDictIterator(&kvs_di);
     return j;
 }
 
@@ -1741,14 +1752,18 @@ void replySlotsFlushAndFree(client *c, slotRangeArray *slots) {
     slotRangeArrayFree(slots);
 }
 
-/* Checks that slot ranges are well-formed and non-overlapping. */
-int validateSlotRanges(slotRangeArray *slots, sds *err) {
+/* Normalizes (sorts and merges adjacent ranges), checks that slot ranges are
+ * well-formed and non-overlapping. */
+int slotRangeArrayNormalizeAndValidate(slotRangeArray *slots, sds *err) {
     unsigned char used_slots[CLUSTER_SLOTS] = {0};
 
     if (slots->num_ranges <= 0 || slots->num_ranges >= CLUSTER_SLOTS) {
         *err = sdscatprintf(sdsempty(), "invalid number of slot ranges: %d", slots->num_ranges);
         return C_ERR;
     }
+
+    /* Sort and merge adjacent slot ranges. */
+    slotRangeArraySortAndMerge(slots);
 
     for (int i = 0; i < slots->num_ranges; i++) {
         if (slots->ranges[i].start >= CLUSTER_SLOTS ||
@@ -1799,6 +1814,7 @@ void slotRangeArraySet(slotRangeArray *slots, int idx, int start, int end) {
 /* Create a slot range string in the format of: "1000-2000 3000-4000 ..." */
 sds slotRangeArrayToString(slotRangeArray *slots) {
     sds s = sdsempty();
+    if (slots == NULL || slots->num_ranges == 0) return s;
 
     for (int i = 0; i < slots->num_ranges; i++) {
         slotRange *sr = &slots->ranges[i];
@@ -1836,7 +1852,7 @@ slotRangeArray *slotRangeArrayFromString(sds data) {
 
     /* Validate all ranges */
     sds err_msg = NULL;
-    if (validateSlotRanges(slots, &err_msg) != C_OK) {
+    if (slotRangeArrayNormalizeAndValidate(slots, &err_msg) != C_OK) {
         if (err_msg) sdsfree(err_msg);
         goto err;
     }
@@ -1857,13 +1873,32 @@ static int compareSlotRange(const void *a, const void *b) {
     return 0;
 }
 
+/* Sort slot ranges by start slot and merge adjacent ranges.
+ * Adjacent means: prev.end + 1 == next.start.
+ * e.g. 1000-2000 2001-3000 0-100  =>  0-100 1000-3000
+ *
+ * Note: Overlapping ranges are not merged.*/
+void slotRangeArraySortAndMerge(slotRangeArray *slots) {
+    if (!slots || slots->num_ranges <= 1) return;
+
+    qsort(slots->ranges, slots->num_ranges, sizeof(slotRange), compareSlotRange);
+
+    int idx = 0;
+    for (int i = 1; i < slots->num_ranges; i++) {
+        if (slots->ranges[idx].end + 1 == slots->ranges[i].start)
+            slots->ranges[idx].end = slots->ranges[i].end;
+        else
+            slots->ranges[++idx] = slots->ranges[i];
+    }
+    slots->num_ranges = idx + 1;
+}
+
 /* Compare two slot range arrays, return 1 if equal, 0 otherwise */
 int slotRangeArrayIsEqual(slotRangeArray *slots1, slotRangeArray *slots2) {
-    if (slots1->num_ranges != slots2->num_ranges) return 0;
+    slotRangeArraySortAndMerge(slots1);
+    slotRangeArraySortAndMerge(slots2);
 
-    /* Sort slot ranges first */
-    qsort(slots1->ranges, slots1->num_ranges, sizeof(slotRange), compareSlotRange);
-    qsort(slots2->ranges, slots2->num_ranges, sizeof(slotRange), compareSlotRange);
+    if (slots1->num_ranges != slots2->num_ranges) return 0;
 
     for (int i = 0; i < slots1->num_ranges; i++) {
         if (slots1->ranges[i].start != slots2->ranges[i].start ||
@@ -1969,13 +2004,18 @@ void slotRangeArrayIteratorFree(slotRangeArrayIter *it) {
     zfree(it);
 }
 
-/* Parse slot ranges from the command arguments. Returns NULL on error. */
+/* Parse slot range pairs from argv starting at `pos`.
+ * `argc` is the argument count, `pos` is the first slot argument index.
+ * Returns a slotRangeArray or NULL on error. */
 slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     int start, end, count;
     slotRangeArray *slots;
 
-    serverAssert(pos <= argc);
-    serverAssert((argc - pos) % 2 == 0);
+    /* Ensure there is at least one (start,end) slot range pairs. */
+    if (argc < 0 || pos < 0 || pos >= argc || (argc - pos) < 2 || ((argc - pos) % 2) != 0) {
+        addReplyErrorArity(c);
+        return NULL;
+    }
 
     count = (argc - pos) / 2;
     slots = slotRangeArrayCreate(count);
@@ -1993,7 +2033,7 @@ slotRangeArray *parseSlotRangesOrReply(client *c, int argc, int pos) {
     }
 
     sds err = NULL;
-    if (validateSlotRanges(slots, &err) != C_OK) {
+    if (slotRangeArrayNormalizeAndValidate(slots, &err) != C_OK) {
         addReplyErrorSds(c, err);
         slotRangeArrayFree(slots);
         return NULL;
@@ -2138,4 +2178,84 @@ void resetClusterStats(void) {
     if (!server.cluster_enabled) return;
 
     clusterSlotStatResetAll();
+}
+
+/* This function is called at server startup in order to initialize cluster data
+ * structures that are shared between the different cluster implementations. */
+void clusterCommonInit(void) {
+    resetClusterStats();
+    asmInit();
+}
+
+/* This function is called after the node startup in order to check if there
+ * are any slots that we have keys for, but are not assigned to us. If so,
+ * we delete the keys. */
+void clusterDeleteKeysInUnownedSlots(void) {
+    if (clusterNodeIsSlave(getMyClusterNode())) return;
+
+    /* Check that all the slots we have keys for are assigned to us. Otherwise,
+     * delete the keys. */
+    for (int i = 0; i < CLUSTER_SLOTS; i++) {
+        /* Skip if: no keys in the slot, it's our slot, or we are importing it. */
+        if (!countKeysInSlot(i) ||
+            clusterIsMySlot(i) ||
+            getImportingSlotSource(i))
+        {
+            continue;
+        }
+
+        serverLog(LL_NOTICE, "I have keys for slot %d, but the slot is "
+                             "assigned to another node. "
+                             "Deleting keys in the slot.", i);
+        /* With atomic slot migration, it is safe to drop keys from slots
+         * that are not owned. This will not result in data loss under the
+         * legacy slot migration approach either, since the importing state
+         * has already been persisted in node.conf. */
+        clusterDelKeysInSlot(i, 0);
+    }
+}
+
+
+/* This function is called after the node startup in order to verify that data
+ * loaded from disk is in agreement with the cluster configuration:
+ *
+ * 1) If we find keys about hash slots we have no responsibility for, the
+ *    following happens:
+ *    A) If no other node is in charge according to the current cluster
+ *       configuration, we add these slots to our node.
+ *    B) If according to our config other nodes are already in charge for
+ *       this slots, we set the slots as IMPORTING from our point of view
+ *       in order to justify we have those slots, and in order to make
+ *       redis-cli aware of the issue, so that it can try to fix it.
+ * 2) If we find data in a DB different than DB0 we return C_ERR to
+ *    signal the caller it should quit the server with an error message
+ *    or take other actions.
+ *
+ * The function always returns C_OK even if it will try to correct
+ * the error described in "1". However if data is found in DB different
+ * from DB0, C_ERR is returned.
+ *
+ * The function also uses the logging facility in order to warn the user
+ * about desynchronizations between the data we have in memory and the
+ * cluster configuration. */
+int verifyClusterConfigWithData(void) {
+    /* Return ASAP if a module disabled cluster redirections. In that case
+     * every master can store keys about every possible hash slot. */
+    if (server.cluster_module_flags & CLUSTER_MODULE_FLAG_NO_REDIRECTION)
+        return C_OK;
+
+    /* If this node is a slave, don't perform the check at all as we
+     * completely depend on the replication stream. */
+    if (clusterNodeIsSlave(getMyClusterNode())) return C_OK;
+
+    /* Make sure we only have keys in DB0. */
+    for (int i = 1; i < server.dbnum; i++) {
+        if (kvstoreSize(server.db[i].keys)) return C_ERR;
+    }
+
+    /* Take over slots that we have keys for, but are assigned to no one. */
+    clusterClaimUnassignedSlots();
+    /* Delete keys in unowned slots */
+    clusterDeleteKeysInUnownedSlots();
+    return C_OK;
 }

@@ -100,12 +100,13 @@ __attribute__((alloc_size(2),noinline)) void *ztryrealloc(void *ptr, size_t size
 void zfree(void *ptr);
 void *zmalloc_usable(size_t size, size_t *usable);
 void *zcalloc_usable(size_t size, size_t *usable);
-void *zrealloc_usable(void *ptr, size_t size, size_t *usable);
+void *zrealloc_usable(void *ptr, size_t size, size_t *usable, size_t *old_usable);
 void *ztrymalloc_usable(size_t size, size_t *usable);
 void *ztrycalloc_usable(size_t size, size_t *usable);
-void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable);
+void *ztryrealloc_usable(void *ptr, size_t size, size_t *usable, size_t *old_usable);
 void zfree_usable(void *ptr, size_t *usable);
 __attribute__((malloc)) char *zstrdup(const char *s);
+__attribute__((malloc)) char *zstrdup_usable(const char *s, size_t *usable);
 size_t zmalloc_used_memory(void);
 void zmalloc_set_oom_handler(void (*oom_handler)(size_t));
 size_t zmalloc_get_rss(void);

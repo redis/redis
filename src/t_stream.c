@@ -33,8 +33,8 @@
  * will return NULL. */
 #define STREAM_LISTPACK_MAX_SIZE (1<<30)
 
-void streamFreeCGGeneric(void *cg);
-void streamFreeNACK(streamNACK *na);
+void streamFreeCGGeneric(void *cg, void *s);
+void streamFreeNACK(stream *s, streamNACK *na);
 size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start, streamID *end, size_t count, streamCG *group, streamConsumer *consumer);
 int streamParseStrictIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq, int *seq_given);
 int streamParseIDOrReply(client *c, robj *o, streamID *id, uint64_t missing_seq);
@@ -50,8 +50,10 @@ void trackStreamClaimTimeouts(client *c, robj **keys, int numkeys, uint64_t expi
 
 /* Create a new stream data structure. */
 stream *streamNew(void) {
-    stream *s = zmalloc(sizeof(*s));
-    s->rax = raxNew();
+    size_t usable;
+    stream *s = zmalloc_usable(sizeof(*s), &usable);
+    s->alloc_size = usable;
+    s->rax = raxNewWithMetadata(0, &s->alloc_size);
     s->length = 0;
     s->first_id.ms = 0;
     s->first_id.seq = 0;
@@ -68,13 +70,20 @@ stream *streamNew(void) {
     return s;
 }
 
+static void streamLpFreeGeneric(void *lp, void *strm) {
+    stream *s = strm;
+    s->alloc_size -= lpBytes(lp);
+    lpFree(lp);
+}
+
 /* Free a stream, including the listpacks stored inside the radix tree. */
 void freeStream(stream *s) {
-    raxFreeWithCallback(s->rax, lpFreeGeneric);
+    raxFreeWithCbAndContext(s->rax, streamLpFreeGeneric, s);
     if (s->cgroups)
-        raxFreeWithCallback(s->cgroups, streamFreeCGGeneric);
+        raxFreeWithCbAndContext(s->cgroups, streamFreeCGGeneric, s);
     if (s->cgroups_ref)
         raxFreeWithCallback(s->cgroups_ref, listReleaseGeneric);
+    debugServerAssert(s->alloc_size == zmalloc_usable_size(s));
     zfree(s);
 }
 
@@ -164,19 +173,19 @@ robj *streamDup(robj *o) {
     new_s = sobj->ptr;
 
     raxIterator ri;
-    uint64_t rax_key[2];
     raxStart(&ri, s->rax);
     raxSeek(&ri, "^", NULL, 0);
     size_t lp_bytes = 0;      /* Total bytes in the listpack. */
     unsigned char *lp = NULL; /* listpack pointer. */
     /* Get a reference to the listpack node. */
     while (raxNext(&ri)) {
+        serverAssert(ri.key_len == sizeof(streamID));
         lp = ri.data;
         lp_bytes = lpBytes(lp);
         unsigned char *new_lp = zmalloc(lp_bytes);
+        new_s->alloc_size += lp_bytes;
         memcpy(new_lp, lp, lp_bytes);
-        memcpy(rax_key, ri.key, sizeof(rax_key));
-        raxInsert(new_s->rax, (unsigned char *)&rax_key, sizeof(rax_key),
+        raxInsert(new_s->rax, ri.key, ri.key_len,
                   new_lp, NULL);
     }
     new_s->length = s->length;
@@ -206,7 +215,7 @@ robj *streamDup(robj *o) {
         raxSeek(&ri_cg_pel,"^",NULL,0);
         while(raxNext(&ri_cg_pel)){
             streamNACK *nack = ri_cg_pel.data;
-            streamNACK *new_nack = streamCreateNACK(NULL);
+            streamNACK *new_nack = streamCreateNACK(new_s, NULL);
             new_nack->delivery_time = nack->delivery_time;
             new_nack->delivery_count = nack->delivery_count;
             new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, ri_cg_pel.key);
@@ -225,9 +234,12 @@ robj *streamDup(robj *o) {
         while (raxNext(&ri_consumers)) {
             streamConsumer *consumer = ri_consumers.data;
             streamConsumer *new_consumer;
-            new_consumer = zmalloc(sizeof(*new_consumer));
+            size_t usable;
+            new_consumer = zmalloc_usable(sizeof(*new_consumer), &usable);
+            new_s->alloc_size += usable;
             new_consumer->name = sdsdup(consumer->name);
-            new_consumer->pel = raxNew();
+            new_s->alloc_size += sdsAllocSize(new_consumer->name);
+            new_consumer->pel = raxNewWithMetadata(0, &new_s->alloc_size);
             raxInsert(new_cg->consumers,(unsigned char *)new_consumer->name,
                         sdslen(new_consumer->name), new_consumer, NULL);
             new_consumer->seen_time = consumer->seen_time;
@@ -544,8 +556,10 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         if (new_node) {
             /* Shrink extra pre-allocated memory */
             lp = lpShrinkToFit(lp);
+            s->alloc_size -= lp_bytes;
+            s->alloc_size += lpBytes(lp);
             if (ri.data != lp)
-                raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+                raxSetData(ri.node, lp);
             lp = NULL;
         }
     }
@@ -573,6 +587,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
             lp = lpAppend(lp,(unsigned char*)field,sdslen(field));
         }
         lp = lpAppendInteger(lp,0); /* Master entry zero terminator. */
+        s->alloc_size += lpBytes(lp);
         raxInsert(s->rax,(unsigned char*)&rax_key,sizeof(rax_key),lp,NULL);
         /* The first entry we insert, has obviously the same fields of the
          * master entry. */
@@ -587,7 +602,10 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
 
         /* Update count and skip the deleted fields. */
         int64_t count = lpGetInteger(lp_ele);
+        size_t oldsize = lpBytes(lp);
         lp = lpReplaceInteger(lp,&lp_ele,count+1);
+        s->alloc_size -= oldsize;
+        s->alloc_size += lpBytes(lp);
         lp_ele = lpNext(lp,lp_ele); /* seek deleted. */
         lp_ele = lpNext(lp,lp_ele); /* seek master entry num fields. */
 
@@ -635,6 +653,7 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
      * in reverse order: we can just start from the end of the listpack, read
      * the entry, and jump back N times to seek the "flags" field to read
      * the stream full entry. */
+    size_t oldsize = lpBytes(lp);
     lp = lpAppendInteger(lp,flags);
     lp = lpAppendInteger(lp,id.ms - master_id.ms);
     lp = lpAppendInteger(lp,id.seq - master_id.seq);
@@ -655,6 +674,8 @@ int streamAppendItem(stream *s, robj **argv, int64_t numfields, streamID *added_
         lp_count += numfields+1;
     }
     lp = lpAppendInteger(lp,lp_count);
+    s->alloc_size -= oldsize;
+    s->alloc_size += lpBytes(lp);
 
     /* Insert back into the tree in order to update the listpack pointer. */
     if (ri.data != lp)
@@ -679,7 +700,9 @@ typedef struct {
     int trim_strategy_arg_idx; /* Index of the count in MAXLEN/MINID, for rewriting. */
     int delete_strategy; /* DELETE_STRATEGY_* */
     int approx_trim; /* If 1 only delete whole radix tree nodes, so
-                      * the trim argument is not applied verbatim. */
+                      * the trim argument is not applied verbatim.
+                      * Note: This flag is ignored when delete_strategy is non-KEEPREF.
+                      * Individual entries may still be processed for consumer groups. */
     long long limit; /* Maximum amount of entries to trim. If 0, no limitation
                       * on the amount of trimming work is enforced. */
     /* TRIM_STRATEGY_MAXLEN options */
@@ -777,6 +800,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         if (remove_node) {
+            s->alloc_size -= lpBytes(lp);
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
@@ -786,10 +810,14 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         }
 
         /* If we cannot remove a whole element, and approx is true,
-         * stop here. */
-        if (approx) break;
+         * stop here. However, for non-KEEPREF strategies, if the node was
+         * eligible for removal but we couldn't remove it (because we need
+         * to check consumer group references), we should continue to process
+         * entries within this node. */
+        if (approx && delete_strategy == DELETE_STRATEGY_KEEPREF) break;
 
         /* Now we have to trim entries from within 'lp' */
+        size_t oldsize = lpBytes(lp);
         int64_t deleted_from_lp = 0;
 
         p = lpNext(lp, p); /* Skip deleted field. */
@@ -858,12 +886,12 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
 
                 if (can_delete) {
                     /* Mark the entry as deleted. */
-                    intptr_t delta = p - lp;
+                    intptr_t delta = p ? (p - lp) : 0; /* p may be NULL if this was the last entry */
                     flags |= STREAM_ITEM_FLAG_DELETED;
                     lp = lpReplaceInteger(lp, &pcopy, flags);
                     deleted_from_lp++;
                     s->length--;
-                    p = lp + delta;
+                    if (p) p = lp + delta;
                 }
             }
         }
@@ -872,6 +900,7 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
          * due to delete strategy constraints, and now we've processed and deleted all entries
          * in the node, we can finally remove the entire node. */
         if (node_eligible_for_remove && deleted_from_lp == entries) {
+            s->alloc_size -= oldsize;
             lpFree(lp);
             raxRemove(s->rax,ri.key,ri.key_len,NULL);
             raxSeek(&ri,">=",ri.key,ri.key_len);
@@ -885,6 +914,8 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
         int64_t marked_deleted = lpGetInteger(p);
         lp = lpReplaceInteger(lp,&p,marked_deleted+deleted_from_lp);
         p = lpNext(lp,p); /* Skip num-of-fields in the master entry. */
+        s->alloc_size -= oldsize;
+        s->alloc_size += lpBytes(lp);
 
         /* Here we should perform garbage collection in case at this point
          * there are too many entries deleted inside the listpack. */
@@ -894,8 +925,8 @@ int64_t streamTrim(stream *s, streamAddTrimArgs *args) {
             /* TODO: perform a garbage collection. */
         }
 
-        /* Update the listpack with the new pointer. */
-        raxInsert(s->rax,ri.key,ri.key_len,lp,NULL);
+        /* Update the node with the new pointer. */
+        raxSetData(ri.node,lp);
 
         /* If the node is eligible for removal but we couldn't remove it due to delete strategy
          * constraints (we need to check each entry individually), continue to the next node
@@ -1185,6 +1216,13 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
         si->end_key[1] = UINT64_MAX;
     }
 
+    /* Decode the big-endian keys into native 64-bit integers
+     * for faster comparisons during iteration. */
+    si->start_ms  = htonu64(si->start_key[0]);
+    si->start_seq = htonu64(si->start_key[1]);
+    si->end_ms    = htonu64(si->end_key[0]);
+    si->end_seq   = htonu64(si->end_key[1]);
+
     /* Seek the correct node in the radix tree. */
     raxStart(&si->ri,s->rax);
     if (!rev) {
@@ -1206,6 +1244,7 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
     }
     si->stream = s;
     si->lp = NULL;     /* There is no current listpack right now. */
+    si->lp_last_ele = NULL;
     si->lp_ele = NULL; /* Current listpack cursor. */
     si->rev = rev;     /* Direction, if non-zero reversed, from end to start. */
     si->skip_tombstones = 1;    /* By default tombstones aren't emitted. */
@@ -1216,9 +1255,12 @@ void streamIteratorStart(streamIterator *si, stream *s, streamID *start, streamI
  * signal the iteration terminated. */
 int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
     while(1) { /* Will stop when element > stop_key or end of radix tree. */
-        /* Tracks the boundary of the previous entry during reverse iteration.
-         * This ensures the iterator does not move beyond the current entry when stepping backwards. */
-        unsigned char *rev_entry_boundary = NULL;
+        /* Record the previous lp_ele position to detect data corruption
+         * that might cause the iterator to move backwards unexpectedly. */
+        if (si->lp_ele && si->lp_last_ele)
+            serverAssert(si->rev ? si->lp_ele < si->lp_last_ele : si->lp_ele > si->lp_last_ele);
+        si->lp_last_ele = si->lp_ele;
+
         /* If the current listpack is set to NULL, this is the start of the
          * iteration or the previous listpack was completely iterated.
          * Go to the next node. */
@@ -1257,7 +1299,6 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
              * one. */
             int64_t lp_count = lpGetInteger(si->lp_ele);
             while(lp_count--) si->lp_ele = lpPrev(si->lp,si->lp_ele);
-            rev_entry_boundary = si->lp_ele; /* Remember entry boundary. */
             /* Seek lp-count of prev entry. */
             si->lp_ele = lpPrev(si->lp,si->lp_ele);
         }
@@ -1296,8 +1337,6 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
             si->lp_ele = lpNext(si->lp,si->lp_ele);
             id->seq += lpGetInteger(si->lp_ele);
             si->lp_ele = lpNext(si->lp,si->lp_ele);
-            unsigned char buf[sizeof(streamID)];
-            streamEncodeID(buf,id);
 
             /* The number of entries is here or not depending on the
              * flags. */
@@ -1307,20 +1346,17 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                 *numfields = lpGetInteger(si->lp_ele);
                 si->lp_ele = lpNext(si->lp,si->lp_ele);
             }
-            if (si->rev) {
-                /* Verify that current position hasn't reached the next entry
-                 * boundary during reverse iteration. */
-                serverAssert(!rev_entry_boundary || si->lp_ele < rev_entry_boundary);
-            }
             serverAssert(*numfields>=0);
 
             /* If current >= start, and the entry is not marked as
              * deleted or tombstones are included, emit it. */
             if (!si->rev) {
-                if (memcmp(buf,si->start_key,sizeof(streamID)) >= 0 &&
+                if ((id->ms > si->start_ms ||
+                    (id->ms == si->start_ms && id->seq >= si->start_seq)) &&
                     (!si->skip_tombstones || !(flags & STREAM_ITEM_FLAG_DELETED)))
                 {
-                    if (memcmp(buf,si->end_key,sizeof(streamID)) > 0)
+                    if (id->ms > si->end_ms ||
+                        (id->ms == si->end_ms && id->seq > si->end_seq))
                         return 0; /* We are already out of range. */
                     si->entry_flags = flags;
                     if (flags & STREAM_ITEM_FLAG_SAMEFIELDS)
@@ -1328,10 +1364,12 @@ int streamIteratorGetID(streamIterator *si, streamID *id, int64_t *numfields) {
                     return 1; /* Valid item returned. */
                 }
             } else {
-                if (memcmp(buf,si->end_key,sizeof(streamID)) <= 0 &&
+                if ((id->ms < si->end_ms ||
+                    (id->ms == si->end_ms && id->seq <= si->end_seq)) &&
                     (!si->skip_tombstones || !(flags & STREAM_ITEM_FLAG_DELETED)))
                 {
-                    if (memcmp(buf,si->start_key,sizeof(streamID)) < 0)
+                    if (id->ms < si->start_ms ||
+                        (id->ms == si->start_ms && id->seq < si->start_seq))
                         return 0; /* We are already out of range. */
                     si->entry_flags = flags;
                     if (flags & STREAM_ITEM_FLAG_SAMEFIELDS)
@@ -1392,7 +1430,9 @@ void streamIteratorGetField(streamIterator *si, unsigned char **fieldptr, unsign
  * automatically re-seek to the next entry, so the caller should continue
  * with GetID(). */
 void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
+    stream *s = si->stream;
     unsigned char *lp = si->lp;
+    size_t oldsize = lpBytes(lp);
     int64_t aux;
 
     /* We do not really delete the entry here. Instead we mark it as
@@ -1411,22 +1451,25 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
     if (aux == 1) {
         /* If this is the last element in the listpack, we can remove the whole
          * node. */
+        s->alloc_size -= oldsize;
         lpFree(lp);
-        raxRemove(si->stream->rax,si->ri.key,si->ri.key_len,NULL);
+        raxRemove(s->rax,si->ri.key,si->ri.key_len,NULL);
     } else {
         /* In the base case we alter the counters of valid/deleted entries. */
         lp = lpReplaceInteger(lp,&p,aux-1);
         p = lpNext(lp,p); /* Seek deleted field. */
         aux = lpGetInteger(p);
         lp = lpReplaceInteger(lp,&p,aux+1);
+        s->alloc_size -= oldsize;
+        s->alloc_size += lpBytes(lp);
 
         /* Update the listpack with the new pointer. */
         if (si->lp != lp)
-            raxInsert(si->stream->rax,si->ri.key,si->ri.key_len,lp,NULL);
+            raxInsert(s->rax,si->ri.key,si->ri.key_len,lp,NULL);
     }
 
     /* Update the number of entries counter. */
-    si->stream->length--;
+    s->length--;
 
     /* Re-seek the iterator to fix the now messed up state. */
     streamID start, end;
@@ -1438,7 +1481,7 @@ void streamIteratorRemoveEntry(streamIterator *si, streamID *current) {
         streamDecodeID(si->end_key,&end);
     }
     streamIteratorStop(si);
-    streamIteratorStart(si,si->stream,&start,&end,si->rev);
+    streamIteratorStart(si,s,&start,&end,si->rev);
 
     /* TODO: perform a garbage collection here if the ratio between
      * deleted and valid goes over a certain limit. */
@@ -1675,10 +1718,10 @@ long long streamEstimateDistanceFromFirstEverEntry(stream *s, streamID *id) {
     return SCG_INVALID_ENTRIES_READ;
 }
 
-/* As a result of an explicit XCLAIM or XREADGROUP command, new entries
- * are created in the pending list of the stream and consumers. We need
- * to propagate this changes in the form of XCLAIM commands. */
-void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupname, robj *id, streamNACK *nack) {
+/* Copy-free version of streamPropagateXCLAIM that expects pre-created robj* arguments.
+ * This is useful when propagating multiple XCLAIMs in a loop to avoid repeated
+ * object creation/destruction overhead. */
+static inline void streamPropagateXCLAIMCopyFree(int dbid, robj *key, robj *group_last_id, robj *groupname, robj *id, robj *consumername, robj *delivery_time, robj *delivery_count) {
     /* We need to generate an XCLAIM that will work in a idempotent fashion:
      *
      * XCLAIM <key> <group> <consumer> 0 <id> TIME <milliseconds-unix-time>
@@ -1690,24 +1733,36 @@ void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupnam
     argv[0] = shared.xclaim;
     argv[1] = key;
     argv[2] = groupname;
-    argv[3] = createStringObject(nack->consumer->name,sdslen(nack->consumer->name));
+    argv[3] = consumername;
     argv[4] = shared.integers[0];
     argv[5] = id;
     argv[6] = shared.time;
-    argv[7] = createStringObjectFromLongLong(nack->delivery_time);
+    argv[7] = delivery_time;
     argv[8] = shared.retrycount;
-    argv[9] = createStringObjectFromLongLong(nack->delivery_count);
+    argv[9] = delivery_count;
     argv[10] = shared.force;
     argv[11] = shared.justid;
     argv[12] = shared.lastid;
-    argv[13] = createObjectFromStreamID(&group->last_id);
+    argv[13] = group_last_id;
 
-    alsoPropagate(c->db->id,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+    alsoPropagate(dbid,argv,14,PROPAGATE_AOF|PROPAGATE_REPL);
+}
 
-    decrRefCount(argv[3]);
-    decrRefCount(argv[7]);
-    decrRefCount(argv[9]);
-    decrRefCount(argv[13]);
+/* As a result of an explicit XCLAIM or XREADGROUP command, new entries
+ * are created in the pending list of the stream and consumers. We need
+ * to propagate this changes in the form of XCLAIM commands. */
+static inline void streamPropagateXCLAIM(client *c, robj *key, streamCG *group, robj *groupname, robj *id, streamNACK *nack) {
+    robj *consumername = createStringObject(nack->consumer->name,sdslen(nack->consumer->name));
+    robj *delivery_time = createStringObjectFromLongLong(nack->delivery_time);
+    robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
+    robj *group_last_id = createObjectFromStreamID(&group->last_id);
+
+    streamPropagateXCLAIMCopyFree(c->db->id, key, group_last_id, groupname, id, consumername, delivery_time, delivery_count);
+
+    decrRefCount(consumername);
+    decrRefCount(delivery_time);
+    decrRefCount(delivery_count);
+    decrRefCount(group_last_id);
 }
 
 /* We need this when we want to propagate the new last-id of a consumer group
@@ -1821,7 +1876,17 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     streamID id;
     int propagate_last_id = 0;
     int noack = flags & STREAM_RWR_NOACK;
-
+    const int db_id = c->db->id;
+    const mstime_t cmd_time_snapshot = commandTimeSnapshot();
+    /* to be used in case of stream propagation */
+    robj *consumername = NULL;
+    robj *delivery_time = NULL;
+    robj *group_last_id = NULL;
+    if (spi && consumer) {
+        consumername = createStringObject(consumer->name,sdslen(consumer->name));
+        delivery_time = createStringObjectFromLongLong(cmd_time_snapshot);
+        group_last_id = createObjectFromStreamID(&group->last_id);
+    }
     if (propCount) *propCount = 0;
 
     if (group && min_idle_time != -1) {
@@ -1849,7 +1914,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
         while (raxNext(&ri)) {
             pelTimeKey pelKey;
             decodePelTimeKey(ri.key, &pelKey);
-            uint64_t idle = commandTimeSnapshot() - pelKey.delivery_time;
+            uint64_t idle = cmd_time_snapshot - pelKey.delivery_time;
             if (idle < (uint64_t)min_idle_time)
                 break;
 
@@ -1890,8 +1955,9 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             if (streamIteratorGetID(&si,&pel_id,&numfields)) {
                 /* Emit a four elements array: ID, array of field-value pairs,
                  * idle time and delivery count. */
+                robj *idarg = createObjectFromStreamID(&pel_id);
                 addReplyArrayLen(c,4);
-                addReplyStreamID(c,&pel_id);
+                addReplyBulk(c,idarg);
                 addReplyArrayLen(c,numfields*2);
 
                 /* Emit the field-value pairs. */
@@ -1903,9 +1969,9 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                     addReplyBulkCBuffer(c,value,value_len);
                 }
 
-                uint64_t idle = commandTimeSnapshot() - pelKey->delivery_time;
-                addReplyBulkLongLong(c, idle);
-                addReplyBulkLongLong(c, delivery_count);
+                uint64_t idle = cmd_time_snapshot - pelKey->delivery_time;
+                addReplyLongLong(c, idle);
+                addReplyLongLong(c, delivery_count);
 
                 /* Remove the NACK from old consumer and time-based PEL. */
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
@@ -1913,21 +1979,21 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
                 /* Transfer NACK to new consumer with updated metadata. */
                 nack->consumer = consumer;
-                nack->delivery_time = commandTimeSnapshot();
+                nack->delivery_time = cmd_time_snapshot;
                 nack->delivery_count++;
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &pel_id);
 
-                consumer->active_time = commandTimeSnapshot();
+                consumer->active_time = cmd_time_snapshot;
 
                 /* Propagate as XCLAIM. */
                 if (spi) {
-                    robj *idarg = createObjectFromStreamID(&pel_id);
-                    streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
-                    decrRefCount(idarg);
+                    robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
+                    streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
+                    decrRefCount(delivery_count);
                     if (propCount) (*propCount)++;
                 }
-
+                decrRefCount(idarg);
                 arraylen++;
             }
             streamIteratorStop(&si);   
@@ -1940,6 +2006,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
      * the history of messages delivered to it and not yet confirmed
      * as delivered. */
     if (group && (flags & STREAM_RWR_HISTORY)) {
+        if (spi && consumer) {
+            decrRefCount(delivery_time);
+            decrRefCount(consumername);
+            decrRefCount(group_last_id);
+        }
         return streamReplyWithRangeFromConsumerPEL(c,s,start,end,count,
                                                    group, consumer);
     }
@@ -1947,6 +2018,11 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     /* Stop here if client only wants claimed entries or count is satisfied. */
     if ((group && (flags & STREAM_RWR_CLAIMED)) || (count && count == arraylen)) {
         if (arraylen_ptr) setDeferredArrayLen(c,arraylen_ptr,arraylen);
+        if (spi && consumer) {
+            decrRefCount(delivery_time);
+            decrRefCount(consumername);
+            decrRefCount(group_last_id);
+        }
         return arraylen;
     }
 
@@ -1985,7 +2061,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * the ID, the second is an array of field-value pairs. */
             addReplyArrayLen(c,2);
         }
-        addReplyStreamID(c,&id);
+        robj *idarg = createObjectFromStreamID(&id);
+        addReplyBulk(c,idarg);
         addReplyArrayLen(c,numfields*2);
 
         /* Emit the field-value pairs. */
@@ -1999,8 +2076,8 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
         if (min_idle_time != -1) {
             /* For new entries idle time and delivery count is 0. */
-            addReplyBulkLongLong(c, 0);
-            addReplyBulkLongLong(c, 0);
+            addReplyLongLong(c, 0);
+            addReplyLongLong(c, 0);
         }
 
         /* If a group is passed, we need to create an entry in the
@@ -2019,7 +2096,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             /* Try to add a new NACK. Most of the time this will work and
              * will not require extra lookups. We'll fix the problem later
              * if we find that there is already an entry for this ID. */
-            streamNACK *nack = streamCreateNACK(consumer);
+            streamNACK *nack = streamCreateNACK(s, consumer);
             int group_inserted =
                 raxTryInsert(group->pel,buf,sizeof(buf),nack,NULL);
             int consumer_inserted =
@@ -2029,7 +2106,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
              * in that case reassign the entry to the new consumer,
              * or update it if the consumer is the same as before. */
             if (group_inserted == 0) {
-                streamFreeNACK(nack);
+                streamFreeNACK(s,nack);
                 void *result;
                 int found = raxFind(group->pel,buf,sizeof(buf),&result);
                 serverAssert(found);
@@ -2039,7 +2116,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
                 /* Update the consumer and NACK metadata. */
                 nack->consumer = consumer;
-                nack->delivery_time = commandTimeSnapshot();
+                nack->delivery_time = cmd_time_snapshot;
                 nack->delivery_count = 1;
                 /* Add the entry in the new consumer local PEL. */
                 raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
@@ -2052,19 +2129,25 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             /* We have new NACK or updated existing one. */
             raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &id);
 
-            consumer->active_time = commandTimeSnapshot();
+            consumer->active_time = cmd_time_snapshot;
 
             /* Propagate as XCLAIM. */
             if (spi) {
-                robj *idarg = createObjectFromStreamID(&id);
-                streamPropagateXCLAIM(c,spi->keyname,group,spi->groupname,idarg,nack);
-                decrRefCount(idarg);
+                robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
+                streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
+                decrRefCount(delivery_count);
                 if (propCount) (*propCount)++;
             }
         }
-
+        decrRefCount(idarg);
         arraylen++;
         if (count && count == arraylen) break;
+    }
+
+    if (spi && consumer) {
+        decrRefCount(delivery_time);
+        decrRefCount(consumername);
+        decrRefCount(group_last_id);
     }
 
     if (spi && propagate_last_id) {
@@ -2102,7 +2185,7 @@ size_t streamReplyWithRangeFromConsumerPEL(client *c, stream *s, streamID *start
     raxStart(&ri,consumer->pel);
     raxSeek(&ri,">=",startkey,sizeof(startkey));
     while(raxNext(&ri) && (!count || arraylen < count)) {
-        if (end && memcmp(ri.key,end,ri.key_len) > 0) break;
+        if (end && memcmp(ri.key,endkey,ri.key_len) > 0) break;
         streamID thisid;
         streamDecodeID(ri.key,&thisid);
         if (streamReplyWithRange(c,s,&thisid,&thisid,1,0,-1,NULL,NULL,
@@ -2310,6 +2393,7 @@ void xaddCommand(client *c) {
     stream *s;
     if ((kv = streamTypeLookupWriteOrCreate(c,c->argv[1],parsed_args.no_mkstream)) == NULL) return;
     s = kv->ptr;
+    size_t old_alloc = s->alloc_size;
 
     /* Return ASAP if the stream has reached the last possible ID */
     if (s->last_id.ms == UINT64_MAX && s->last_id.seq == UINT64_MAX) {
@@ -2330,6 +2414,8 @@ void xaddCommand(client *c) {
                             "the target stream top item");
         else
             addReplyError(c,"Elements are too large to be stored");
+        if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         return;
     }
     sds replyid = createStreamIDString(&id);
@@ -2340,9 +2426,8 @@ void xaddCommand(client *c) {
 
     /* Trim if needed. */
     if (parsed_args.trim_strategy != TRIM_STRATEGY_NONE) {
-        if (streamTrim(s, &parsed_args)) {
+        if (streamTrim(s, &parsed_args))
             notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
-        }
         if (parsed_args.approx_trim) {
             /* In case our trimming was limited (by LIMIT or by ~) we must
              * re-write the relevant trim argument to make sure there will be
@@ -2354,7 +2439,10 @@ void xaddCommand(client *c) {
         }
     }
 
-    signalModifiedKey(c,c->db,c->argv[1]);
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
+
+    keyModified(c,c->db,c->argv[1],kv,1);
 
     /* Let's rewrite the ID argument with the one actually generated for
      * AOF/replication propagation. */
@@ -2386,6 +2474,7 @@ void xrangeGenericCommand(client *c, int rev) {
     robj *startarg = rev ? c->argv[3] : c->argv[2];
     robj *endarg = rev ? c->argv[2] : c->argv[3];
     int startex = 0, endex = 0;
+    size_t old_alloc;
     
     /* Parse start and end IDs. */
     if (streamParseIntervalIDOrReply(c,startarg,&startid,&startex,0) != C_OK)
@@ -2427,7 +2516,10 @@ void xrangeGenericCommand(client *c, int rev) {
         addReplyNullArray(c);
     } else {
         if (count == -1) count = 0;
+        old_alloc = s->alloc_size;
         streamReplyWithRange(c,s,&startid,&endid,count,rev,-1,NULL,NULL,0,NULL,NULL);
+        if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
     }
 }
 
@@ -2471,6 +2563,7 @@ void xreadCommand(client *c) {
     int xreadgroup = sdslen(c->argv[0]->ptr) == 10; /* XREAD or XREADGROUP? */
     robj *groupname = NULL;
     robj *consumername = NULL;
+    size_t old_alloc;
 
     /* Parse arguments. */
     for (int i = 1; i < c->argc; i++) {
@@ -2699,15 +2792,19 @@ void xreadCommand(client *c) {
             }
             consumer = streamLookupConsumer(groups[i],consumername->ptr);
             if (consumer == NULL) {
-                consumer = streamCreateConsumer(groups[i],consumername->ptr,
+                old_alloc = s->alloc_size;
+                consumer = streamCreateConsumer(s,groups[i],consumername->ptr,
                                                 c->argv[streams_arg+i],
                                                 c->db->id,SCC_DEFAULT);
+                if (server.memory_tracking_per_slot)
+                    updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),old_alloc,s->alloc_size);
                 if (noack)
                     streamPropagateConsumerCreation(c,spi.keyname,
                                                     spi.groupname,
                                                     consumer->name);
             }
             consumer->seen_time = commandTimeSnapshot();
+            keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
         } else if (s->length) {
             /* For consumers without a group, we serve synchronously if we can
              * actually provide at least one item from the stream. */
@@ -2747,10 +2844,16 @@ void xreadCommand(client *c) {
             unsigned long propCount = 0;
             if (noack) flags |= STREAM_RWR_NOACK;
             if (serve_history) flags |= STREAM_RWR_HISTORY;
+            old_alloc = s->alloc_size;
             streamReplyWithRange(c,s,&start,NULL,count,0, min_idle_time,
                                  groups ? groups[i] : NULL,
                                  consumer, flags, &spi, &propCount);
-            if (propCount) server.dirty++;
+            if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+                updateSlotAllocSize(c->db,getKeySlot(c->argv[streams_arg+i]->ptr),old_alloc,s->alloc_size);
+            if (propCount) {
+                server.dirty++;
+                keyModified(c,c->db,c->argv[streams_arg+i],o,0); /* only update LRM */
+            }
         }
     }
 
@@ -2840,7 +2943,7 @@ listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key) {
     list *cglist;
 
     if (!s->cgroups_ref)
-        s->cgroups_ref = raxNew();
+        s->cgroups_ref = raxNewWithMetadata(0, &s->alloc_size);
     
     /* Try to find the list for this stream ID, create it if it doesn't exist */
     if (!raxFind(s->cgroups_ref, key, sizeof(streamID), (void**)&cglist)) {
@@ -2896,7 +2999,7 @@ void streamCleanupEntryCGroupRefs(stream *s, streamID *id) {
         raxRemove(nack->consumer->pel, buf, sizeof(buf), NULL);
         /* Since we're removing all references from the cgroups_ref, we can directly
          * free the NACK without unlinking it from the cgroups_ref. */
-        streamFreeNACK(nack);
+        streamFreeNACK(s, nack);
     }
 
     raxRemove(s->cgroups_ref, buf, sizeof(streamID), NULL);
@@ -2944,8 +3047,10 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
 /* Create a NACK entry setting the delivery count to 1 and the delivery
  * time to the current time. The NACK consumer will be set to the one
  * specified as argument of the function. */
-streamNACK *streamCreateNACK(streamConsumer *consumer) {
-    streamNACK *nack = zmalloc(sizeof(*nack));
+streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer) {
+    size_t usable;
+    streamNACK *nack = zmalloc_usable(sizeof(*nack), &usable);
+    s->alloc_size += usable;
     nack->delivery_time = commandTimeSnapshot();
     nack->delivery_count = 1;
     nack->consumer = consumer;
@@ -2954,20 +3059,24 @@ streamNACK *streamCreateNACK(streamConsumer *consumer) {
 }
 
 /* Free a NACK entry. */
-void streamFreeNACK(streamNACK *na) {
-    zfree(na);
+void streamFreeNACK(stream *s, streamNACK *na) {
+    size_t usable;
+    zfree_usable(na, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Free a NACK entry and remove its reference from the cgroups_ref.
  * This ensures proper cleanup of the consumer group list associated with the message ID. */
 void streamDestroyNACK(stream *s, streamNACK *na, unsigned char *key) {
+    size_t usable;
     streamUnlinkEntryFromCGroupRef(s, na, key);
-    zfree(na);
+    zfree_usable(na, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Generic version of streamFreeNACK. */
-void streamFreeNACKGeneric(void *na) {
-    streamFreeNACK((streamNACK *)na);
+void streamFreeNACKGeneric(void *na, void *s) {
+    streamFreeNACK((stream *)s, (streamNACK *)na);
 }
 
 /* Free a consumer and associated data structures. Note that this function
@@ -2975,16 +3084,19 @@ void streamFreeNACKGeneric(void *na) {
  * nor will delete them from the stream, so when this function is called
  * to delete a consumer, and not when the whole stream is destroyed, the caller
  * should do some work before. */
-void streamFreeConsumer(streamConsumer *sc) {
+void streamFreeConsumer(stream *s, streamConsumer *sc) {
+    size_t usable;
     raxFree(sc->pel); /* No value free callback: the PEL entries are shared
                          between the consumer and the main stream PEL. */
+    s->alloc_size -= sdsAllocSize(sc->name);
     sdsfree(sc->name);
-    zfree(sc);
+    zfree_usable(sc, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Generic version of streamFreeConsumer. */
-void streamFreeConsumerGeneric(void *sc) {
-    streamFreeConsumer((streamConsumer *)sc);
+void streamFreeConsumerGeneric(void *sc, void *s) {
+    streamFreeConsumer((stream *)s, (streamConsumer *)sc);
 }
 
 /* Create a new consumer group in the context of the stream 's', having the
@@ -2992,14 +3104,17 @@ void streamFreeConsumerGeneric(void *sc) {
  * the same name already exists NULL is returned, otherwise the pointer to the
  * consumer group is returned. */
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read) {
-    if (s->cgroups == NULL) s->cgroups = raxNew();
+    if (s->cgroups == NULL)
+        s->cgroups = raxNewWithMetadata(0, &s->alloc_size);
     if (raxFind(s->cgroups,(unsigned char*)name,namelen,NULL))
         return NULL;
 
-    streamCG *cg = zmalloc(sizeof(*cg));
-    cg->pel = raxNew();
-    cg->pel_by_time = raxNew();
-    cg->consumers = raxNew();
+    size_t usable;
+    streamCG *cg = zmalloc_usable(sizeof(*cg), &usable);
+    s->alloc_size += usable;
+    cg->pel = raxNewWithMetadata(0, &s->alloc_size);
+    cg->pel_by_time = raxNewWithMetadata(0, &s->alloc_size);
+    cg->consumers = raxNewWithMetadata(0, &s->alloc_size);
     cg->last_id.ms = 0;
     cg->last_id.seq = 0;
     streamUpdateCGroupLastId(s, cg, id);
@@ -3009,15 +3124,18 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
 }
 
 /* Free a consumer group and all its associated data. */
-static void streamFreeCG(streamCG *cg) {
-    raxFreeWithCallback(cg->pel, streamFreeNACKGeneric);
+static void streamFreeCG(stream *s, streamCG *cg) {
+    raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, s);
     raxFree(cg->pel_by_time);
-    raxFreeWithCallback(cg->consumers, streamFreeConsumerGeneric);
-    zfree(cg);
+    raxFreeWithCbAndContext(cg->consumers, streamFreeConsumerGeneric, s);
+    size_t usable;
+    zfree_usable(cg, &usable);
+    s->alloc_size -= usable;
 }
 
 /* Destroy a consumer group and clean up all associated references. */
 void streamDestroyCG(stream *s, streamCG *cg) {
+    /* Remove all references from the cgroups_ref. */
     raxIterator it;
     raxStart(&it, cg->pel);
     raxSeek(&it, "^", NULL, 0);
@@ -3027,12 +3145,18 @@ void streamDestroyCG(stream *s, streamCG *cg) {
     }
     raxStop(&it);
 
-    streamFreeCG(cg);
+    /* If we're destroying the group with the minimum last_id, the cached
+     * minimum is no longer valid and needs to be recalculated from the
+     * remaining groups. */
+    if (s->min_cgroup_last_id_valid && streamCompareID(&s->min_cgroup_last_id, &cg->last_id) == 0)
+        s->min_cgroup_last_id_valid = 0;
+
+    streamFreeCG(s, cg);
 }
 
 /* Generic version of streamFreeCG. */
-void streamFreeCGGeneric(void *cg) {
-    streamFreeCG((streamCG *)cg);
+void streamFreeCGGeneric(void *cg, void *s) {
+    streamFreeCG((stream *)s, (streamCG *)cg);
 }
 
 /* Lookup the consumer group in the specified stream and returns its
@@ -3048,19 +3172,22 @@ streamCG *streamLookupCG(stream *s, sds groupname) {
  * If the consumer exists, return NULL. As a side effect, when the consumer
  * is successfully created, the key space will be notified and dirty++ unless
  * the SCC_NO_NOTIFY or SCC_NO_DIRTIFY flags is specified. */
-streamConsumer *streamCreateConsumer(streamCG *cg, sds name, robj *key, int dbid, int flags) {
+streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *key, int dbid, int flags) {
     if (cg == NULL) return NULL;
     int notify = !(flags & SCC_NO_NOTIFY);
     int dirty = !(flags & SCC_NO_DIRTIFY);
-    streamConsumer *consumer = zmalloc(sizeof(*consumer));
+    size_t usable;
+    streamConsumer *consumer = zmalloc_usable(sizeof(*consumer), &usable);
     int success = raxTryInsert(cg->consumers,(unsigned char*)name,
                                sdslen(name),consumer,NULL);
     if (!success) {
         zfree(consumer);
         return NULL;
     }
+    s->alloc_size += usable;
     consumer->name = sdsdup(name);
-    consumer->pel = raxNew();
+    s->alloc_size += sdsAllocSize(consumer->name);
+    consumer->pel = raxNewWithMetadata(0, &s->alloc_size);
     consumer->active_time = -1;
     consumer->seen_time = commandTimeSnapshot();
     if (dirty) server.dirty++;
@@ -3093,14 +3220,14 @@ void streamDelConsumer(stream *s, streamCG *cg, streamConsumer *consumer) {
         raxRemovePelByTime(cg->pel_by_time, nack->delivery_time, &id);
         raxRemove(cg->pel,ri.key,ri.key_len,NULL);
 
-        streamFreeNACK(nack);
+        streamFreeNACK(s, nack);
     }
     raxStop(&ri);
 
     /* Deallocate the consumer. */
     raxRemove(cg->consumers,(unsigned char*)consumer->name,
               sdslen(consumer->name),NULL);
-    streamFreeConsumer(consumer);
+    streamFreeConsumer(s,consumer);
 }
 
 /* -----------------------------------------------------------------------
@@ -3120,6 +3247,7 @@ void xgroupCommand(client *c) {
     int mkstream = 0;
     long long entries_read = SCG_INVALID_ENTRIES_READ;
     robj *o;
+    size_t old_alloc;
 
     /* Everything but the "HELP" option requires a key and group name. */
     if (c->argc >= 4) {
@@ -3216,19 +3344,23 @@ NULL
             o = createStreamObject();
             dbAdd(c->db, c->argv[2], &o);
             s = o->ptr;
-            signalModifiedKey(c,c->db,c->argv[2]);
+            keyModified(c,c->db,c->argv[2],o,1);
         }
         
         if (entries_read != SCG_INVALID_ENTRIES_READ && (uint64_t)entries_read > s->entries_added) {
             entries_read = s->entries_added;
         }
 
+        old_alloc = s->alloc_size;
         streamCG *cg = streamCreateCG(s,grpname,sdslen(grpname),&id,entries_read);
         if (cg) {
+            if (server.memory_tracking_per_slot)
+                updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             addReply(c,shared.ok);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-create",
                                 c->argv[2],c->db->id);
+            keyModified(c,c->db,c->argv[2],o,0);
         } else {
             addReplyError(c,"-BUSYGROUP Consumer Group name already exists");
         }
@@ -3249,22 +3381,31 @@ NULL
         addReply(c,shared.ok);
         server.dirty++;
         notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-setid",c->argv[2],c->db->id);
+        keyModified(c,c->db,c->argv[2],o,0);
     } else if (!strcasecmp(opt,"DESTROY") && c->argc == 4) {
         if (cg) {
+            old_alloc = s->alloc_size;
             raxRemove(s->cgroups,(unsigned char*)grpname,sdslen(grpname),NULL);
             streamDestroyCG(s, cg);
+            if (server.memory_tracking_per_slot)
+                updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             addReply(c,shared.cone);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-destroy",
                                 c->argv[2],c->db->id);
+            keyModified(c,c->db,c->argv[2],o,0);
             /* We want to unblock any XREADGROUP consumers with -NOGROUP. */
             signalKeyAsReady(c->db,c->argv[2],OBJ_STREAM);
         } else {
             addReply(c,shared.czero);
         }
     } else if (!strcasecmp(opt,"CREATECONSUMER") && c->argc == 5) {
-        streamConsumer *created = streamCreateConsumer(cg,c->argv[4]->ptr,c->argv[2],
+        old_alloc = s->alloc_size;
+        streamConsumer *created = streamCreateConsumer(s,cg,c->argv[4]->ptr,c->argv[2],
                                                        c->db->id,SCC_DEFAULT);
+        keyModified(c,c->db,c->argv[2],o,0);
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
         addReplyLongLong(c,created ? 1 : 0);
     } else if (!strcasecmp(opt,"DELCONSUMER") && c->argc == 5) {
         long long pending = 0;
@@ -3272,11 +3413,15 @@ NULL
         if (consumer) {
             /* Delete the consumer and returns the number of pending messages
              * that were yet associated with such a consumer. */
+            old_alloc = s->alloc_size;
             pending = raxSize(consumer->pel);
             streamDelConsumer(s,cg,consumer);
+            if (server.memory_tracking_per_slot)
+                updateSlotAllocSize(c->db,getKeySlot(c->argv[2]->ptr),old_alloc,s->alloc_size);
             server.dirty++;
             notifyKeyspaceEvent(NOTIFY_STREAM,"xgroup-delconsumer",
                                 c->argv[2],c->db->id);
+            keyModified(c,c->db,c->argv[2],o,0);
         }
         addReplyLongLong(c,pending);
     } else {
@@ -3357,6 +3502,7 @@ void xsetidCommand(client *c) {
     addReply(c,shared.ok);
     server.dirty++;
     notifyKeyspaceEvent(NOTIFY_STREAM,"xsetid",c->argv[1],c->db->id);
+    keyModified(c,c->db,c->argv[1],kv,0);
 }
 
 /* XACK <key> <group> <id> <id> ... <id>
@@ -3395,6 +3541,8 @@ void xackCommand(client *c) {
     }
 
     int acknowledged = 0;
+    stream *s = kv->ptr;
+    size_t old_alloc = s->alloc_size;
     for (int j = 3; j < c->argc; j++) {
         unsigned char buf[sizeof(streamID)];
         streamEncodeID(buf,&ids[j-3]);
@@ -3411,8 +3559,11 @@ void xackCommand(client *c) {
             streamDestroyNACK(kv->ptr, nack, buf);
             acknowledged++;
             server.dirty++;
+            keyModified(c,c->db,c->argv[1],kv,0);
         }
     }
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
     addReplyLongLong(c,acknowledged);
 cleanup:
     if (ids != static_ids) zfree(ids);
@@ -3454,14 +3605,17 @@ void xackdelCommand(client *c) {
      * executed in a "all or nothing" fashion. */
     streamID static_ids[STREAMID_STATIC_VECTOR_LEN];
     streamID *ids = static_ids;
+    if (args.numids > STREAMID_STATIC_VECTOR_LEN)
+        ids = zmalloc(sizeof(streamID)*args.numids);
     for (int j = 0; j < args.numids; j++) {
         if (streamParseStrictIDOrReply(c,c->argv[j+args.startidx],&ids[j],0,NULL) != C_OK)
             goto cleanup;
     }
 
     s = kv->ptr;
+    size_t old_alloc = s->alloc_size;
     int first_entry = 0;
-    int deleted = 0;
+    int deleted = 0, dirty = server.dirty;
     addReplyArrayLen(c, args.numids);
     for (int j = 0; j < args.numids; j++) {
         int res = XACKDEL_NO_ID;
@@ -3510,6 +3664,9 @@ void xackdelCommand(client *c) {
         addReplyLongLong(c, res);
     }
 
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
+
     /* Update the stream's first ID. */
     if (deleted) {
         if (s->length == 0) {
@@ -3520,8 +3677,11 @@ void xackdelCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
+    } else if (server.dirty > dirty) {
+        /* Only ACK succeeded without deleting elements, just update LRM without signaling */
+        keyModified(c,c->db,c->argv[1],kv,0);
     }
 
 cleanup:
@@ -3880,9 +4040,11 @@ void xclaimCommand(client *c) {
     }
 
     /* Do the actual claiming. */
+    stream *s = o->ptr;
+    size_t old_alloc = s->alloc_size;
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
-        consumer = streamCreateConsumer(group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
     }
     consumer->seen_time = commandTimeSnapshot();
 
@@ -3899,7 +4061,7 @@ void xclaimCommand(client *c) {
         streamNACK *nack = result;
 
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(o->ptr,&id)) {
+        if (!streamEntryExists(s,&id)) {
             /* Clear this entry from the PEL, it no longer exists */
             if (nack != NULL) {
                 /* Propagate this change (we are going to delete the NACK). */
@@ -3908,9 +4070,9 @@ void xclaimCommand(client *c) {
                 server.dirty++;
                 /* Release the NACK */
                 raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
-                raxRemove(group->pel, buf,sizeof(buf),NULL);
+                raxRemove(group->pel,buf,sizeof(buf),NULL);
                 raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                streamDestroyNACK(o->ptr, nack, buf);
+                streamDestroyNACK(s, nack, buf);
             }
             continue;
         }
@@ -3922,10 +4084,10 @@ void xclaimCommand(client *c) {
          * and replication of consumer groups. */
         if (force && nack == NULL) {
             /* Create the NACK. */
-            nack = streamCreateNACK(NULL);
+            nack = streamCreateNACK(s,NULL);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
             raxInsertPelByTime(group->pel_by_time, nack->delivery_time, &id);
-            nack->cgroup_ref_node = streamLinkCGroupToEntry(o->ptr, group, buf);
+            nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
         }
 
         if (nack != NULL) {
@@ -3944,8 +4106,9 @@ void xclaimCommand(client *c) {
                 /* Remove the entry from the old consumer.
                  * Note that nack->consumer is NULL if we created the
                  * NACK above because of the FORCE option. */
-                if (nack->consumer)
+                if (nack->consumer) {
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                }
             }
 
             raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
@@ -3980,12 +4143,15 @@ void xclaimCommand(client *c) {
             server.dirty++;
         }
     }
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
     if (propagate_last_id) {
         streamPropagateGroupID(c,c->argv[1],group,c->argv[2]);
         server.dirty++;
     }
     setDeferredArrayLen(c,arraylenptr,arraylen);
     preventCommandPropagation(c);
+    keyModified(c,c->db,c->argv[1],o,0);
 cleanup:
     if (ids != static_ids) zfree(ids);
 }
@@ -4069,9 +4235,11 @@ void xautoclaimCommand(client *c) {
     }
 
     /* Do the actual claiming. */
+    stream *s = o->ptr;
+    size_t old_alloc = s->alloc_size;
     streamConsumer *consumer = streamLookupConsumer(group,c->argv[3]->ptr);
     if (consumer == NULL) {
-        consumer = streamCreateConsumer(group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
+        consumer = streamCreateConsumer(o->ptr,group,c->argv[3]->ptr,c->argv[1],c->db->id,SCC_DEFAULT);
     }
     consumer->seen_time = commandTimeSnapshot();
 
@@ -4096,7 +4264,7 @@ void xautoclaimCommand(client *c) {
         streamDecodeID(ri.key, &id);
 
         /* Item must exist for us to transfer it to another consumer. */
-        if (!streamEntryExists(o->ptr,&id)) {
+        if (!streamEntryExists(s,&id)) {
             /* Propagate this change (we are going to delete the NACK). */
             robj *idstr = createObjectFromStreamID(&id);
             streamPropagateXCLAIM(c,c->argv[1],group,c->argv[2],idstr,nack);
@@ -4106,7 +4274,7 @@ void xautoclaimCommand(client *c) {
             raxRemovePelByTime(group->pel_by_time, nack->delivery_time, &id);
             raxRemove(group->pel,ri.key,ri.key_len,NULL);
             raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
-            streamDestroyNACK(o->ptr, nack, ri.key);
+            streamDestroyNACK(s, nack, ri.key);
             /* Remember the ID for later */
             deleted_ids[deleted_id_num++] = id;
             raxSeek(&ri,">=",ri.key,ri.key_len);
@@ -4124,8 +4292,9 @@ void xautoclaimCommand(client *c) {
             /* Remove the entry from the old consumer.
              * Note that nack->consumer is NULL if we created the
              * NACK above because of the FORCE option. */
-            if (nack->consumer)
+            if (nack->consumer) {
                 raxRemove(nack->consumer->pel,ri.key,ri.key_len,NULL);
+            }
         }
 
         /* Update the consumer and idle time. */
@@ -4164,6 +4333,9 @@ void xautoclaimCommand(client *c) {
     /* We need to return the next entry as a cursor for the next XAUTOCLAIM call */
     raxNext(&ri);
 
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
+
     streamID endid;
     if (raxEOF(&ri)) {
         endid.ms = endid.seq = 0;
@@ -4182,6 +4354,8 @@ void xautoclaimCommand(client *c) {
     zfree(deleted_ids);
 
     preventCommandPropagation(c);
+    /* Update LRM but don't signal. */
+    keyModified(c,c->db,c->argv[1],o,0);
 }
 
 /* XDEL <key> [<ID1> <ID2> ... <IDN>]
@@ -4193,6 +4367,7 @@ void xdelCommand(client *c) {
     kvobj *kv = lookupKeyWriteOrReply(c, c->argv[1], shared.czero); 
     if (kv == NULL || checkType(c, kv, OBJ_STREAM)) return;
     stream *s = kv->ptr;
+    size_t old_alloc = s->alloc_size;
 
     /* We need to sanity check the IDs passed to start. Even if not
      * a big issue, it is not great that the command is only partially
@@ -4225,6 +4400,9 @@ void xdelCommand(client *c) {
         };
     }
 
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
+
     /* Update the stream's first ID. */
     if (deleted) {
         if (s->length == 0) {
@@ -4237,7 +4415,7 @@ void xdelCommand(client *c) {
 
     /* Propagate the write if needed. */
     if (deleted) {
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -4287,6 +4465,7 @@ void xdelexCommand(client *c) {
     }
 
     stream *s = kv->ptr;
+    size_t old_alloc = s->alloc_size;
     int first_entry = 0;
     int deleted = 0;
     addReplyArrayLen(c, args.numids);
@@ -4330,6 +4509,8 @@ void xdelexCommand(client *c) {
 
     /* Update the stream's first ID. */
     if (deleted) {
+        if (server.memory_tracking_per_slot)
+            updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
         if (s->length == 0) {
             s->first_id.ms = 0;
             s->first_id.seq = 0;
@@ -4338,7 +4519,7 @@ void xdelexCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c,c->db,c->argv[1]);
+        keyModified(c,c->db,c->argv[1],kv,1);
         notifyKeyspaceEvent(NOTIFY_STREAM,"xdel",c->argv[1],c->db->id);
         server.dirty += deleted;
     }
@@ -4389,7 +4570,10 @@ void xtrimCommand(client *c) {
     stream *s = kv->ptr;
 
     /* Perform the trimming. */
+    size_t old_alloc = s->alloc_size;
     int64_t deleted = streamTrim(s, &parsed_args);
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
     if (deleted) {
         notifyKeyspaceEvent(NOTIFY_STREAM,"xtrim",c->argv[1],c->db->id);
         if (parsed_args.approx_trim) {
@@ -4403,7 +4587,7 @@ void xtrimCommand(client *c) {
         }
 
         /* Propagate the write. */
-        signalModifiedKey(c, c->db,c->argv[1]);
+        keyModified(c, c->db,c->argv[1], kv, 1);
         server.dirty += deleted;
     }
     addReplyLongLong(c,deleted);
@@ -4461,6 +4645,7 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
     addReplyBulkCString(c,"recorded-first-entry-id");
     addReplyStreamID(c,&s->first_id);
 
+    size_t old_alloc = s->alloc_size;
     if (!full) {
         /* XINFO STREAM <key> */
 
@@ -4614,6 +4799,8 @@ void xinfoReplyWithStreamInfo(client *c, stream *s) {
             raxStop(&ri_cgroups);
         }
     }
+    if (server.memory_tracking_per_slot && old_alloc != s->alloc_size)
+        updateSlotAllocSize(c->db,getKeySlot(c->argv[1]->ptr),old_alloc,s->alloc_size);
 }
 
 /* XINFO CONSUMERS <key> <group>

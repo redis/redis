@@ -699,7 +699,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
         if (storekey) {
             /* store key is not NULL, try to delete it and return 0. */
             if (dbDelete(c->db, storekey)) {
-                signalModifiedKey(c, c->db, storekey);
+                keyModified(c, c->db, storekey, NULL, 1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
                 server.dirty++;
             }
@@ -833,7 +833,7 @@ void georadiusGeneric(client *c, int srcKeyIndex, int flags) {
                                 c->db->id);
             server.dirty += returned_items;
         } else if (dbDelete(c->db,storekey)) {
-            signalModifiedKey(c,c->db,storekey);
+            keyModified(c,c->db,storekey,NULL,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",storekey,c->db->id);
             server.dirty++;
         }

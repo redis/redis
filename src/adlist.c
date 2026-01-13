@@ -196,22 +196,13 @@ void listUnlinkNode(list *list, listNode *node) {
  * call to listNext() will return the next element of the list.
  *
  * This function can't fail. */
-listIter *listGetIterator(list *list, int direction)
+void listInitIterator(listIter *iter, list *list, int direction)
 {
-    listIter *iter;
-
-    if ((iter = zmalloc(sizeof(*iter))) == NULL) return NULL;
     if (direction == AL_START_HEAD)
         iter->next = list->head;
     else
         iter->next = list->tail;
     iter->direction = direction;
-    return iter;
-}
-
-/* Release the iterator memory */
-void listReleaseIterator(listIter *iter) {
-    zfree(iter);
 }
 
 /* Create an iterator in the list private iterator structure */

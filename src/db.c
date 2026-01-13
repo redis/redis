@@ -36,12 +36,14 @@ static_assert(MAX_KEYSIZES_TYPES == OBJ_TYPE_BASIC_MAX, "Must be equal");
 #define EXPIRE_FORCE_DELETE_EXPIRED 1
 #define EXPIRE_AVOID_DELETE_EXPIRED 2
 #define EXPIRE_ALLOW_ACCESS_EXPIRED 4
+#define EXPIRE_ALLOW_ACCESS_TRIMMED 8
 
 /* Return values for expireIfNeeded */
 typedef enum {
     KEY_VALID = 0, /* Could be volatile and not yet expired, non-volatile, or even non-existing key. */
     KEY_EXPIRED, /* Logically expired but not yet deleted. */
-    KEY_DELETED /* The key was deleted now. */
+    KEY_DELETED, /* The key was deleted now. */
+    KEY_TRIMMED  /* Logically trimmed but not yet deleted. */
 } keyStatus;
 
 static keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags);
@@ -53,6 +55,15 @@ void updateLFU(robj *val) {
     unsigned long counter = LFUDecrAndReturn(val);
     counter = LFULogIncr(counter);
     val->lru = (LFUGetTimeInMinutes()<<8) | counter;
+}
+
+/* Update LRM when an object is modified. */
+void updateLRM(robj *o) {
+    if (o->refcount == OBJ_SHARED_REFCOUNT)
+        return;
+    if (server.maxmemory_policy & MAXMEMORY_FLAG_LRM) {
+        o->lru = LRU_CLOCK();
+    }
 }
 
 /* 
@@ -78,7 +89,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
         return;
 
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMetadata(db->keys, didx);
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
 
     if (oldLen > 0) {
@@ -126,6 +137,15 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     }
 }
 
+void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize) {
+    debugServerAssert(server.memory_tracking_per_slot);
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
+    if (!dictMeta) return;
+    debugServerAssert(oldsize <= dictMeta->alloc_size);
+    dictMeta->alloc_size -= oldsize;
+    dictMeta->alloc_size += newsize;
+}
+
 /* Assert keysizes histogram (For debugging only)
  *
  * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
@@ -134,17 +154,19 @@ void dbgAssertKeysizesHist(redisDb *db) {
     /* Scan DB and build expected histogram by scanning all keys */
     int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
     dictEntry *de;
-    kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
-    while ((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+    kvstoreIterator kvs_it;
+    kvstoreIteratorInit(&kvs_it, db->keys);
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
         if (kv->type < OBJ_TYPE_BASIC_MAX) {
             int64_t len = getObjectLength(kv);
             scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
-    kvstoreIteratorRelease(kvs_it);
+    kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        volatile int64_t *keysizesHist = kvstoreGetMetadata(db->keys)->keysizes_hist[type];
+        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+        volatile int64_t *keysizesHist = meta->keysizes_hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])
                 continue;
@@ -163,6 +185,34 @@ void dbgAssertKeysizesHist(redisDb *db) {
             serverPanic("dbgAssertKeysizesHist: type=%d\nscanStr=%s\nkeysizes=%s\n",
                         type, scanStr, keysizesStr);
         }
+    }
+}
+
+/* Assert per-slot alloc_size (For debugging only)
+ *
+ * Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1 and tested after each command.
+ */
+void dbgAssertAllocSizePerSlot(redisDb *db) {
+    if (!server.memory_tracking_per_slot) return;
+    size_t slot_sizes[CLUSTER_SLOTS] = {0};
+    dictEntry *de;
+    kvstoreIterator kvs_it;
+    kvstoreIteratorInit(&kvs_it, db->keys);
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+        int slot = kvstoreIteratorGetCurrentDictIndex(&kvs_it);
+        kvobj *kv = dictGetKV(de);
+        slot_sizes[slot] += kvobjAllocSize(kv);
+    }
+    kvstoreIteratorReset(&kvs_it);
+
+    int num_slots = kvstoreNumDicts(db->keys);
+    for (int slot = 0; slot < num_slots; slot++) {
+        kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, slot, 0);
+        size_t want = slot_sizes[slot];
+        size_t have = dictMeta ? dictMeta->alloc_size : 0;
+        if (have == want) continue;
+        serverPanic("dbgAssertAllocSizePerSlot: slot=%d expected=%zu actual=%zu",
+                    slot, want, have);
     }
 }
 
@@ -218,6 +268,8 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
             expire_flags |= EXPIRE_AVOID_DELETE_EXPIRED;
         if (flags & LOOKUP_ACCESS_EXPIRED)
             expire_flags |= EXPIRE_ALLOW_ACCESS_EXPIRED;
+        if (flags & LOOKUP_ACCESS_TRIMMED)
+            expire_flags |= EXPIRE_ALLOW_ACCESS_TRIMMED;
         if (expireIfNeeded(db, key, val, expire_flags) != KEY_VALID) {
             /* The key is no longer valid. */
             val = NULL;
@@ -236,7 +288,8 @@ kvobj *lookupKey(redisDb *db, robj *key, int flags, dictEntryLink *link) {
         if (!hasActiveChildProcess() && !(flags & LOOKUP_NOTOUCH)){
             if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
                 updateLFU(val);
-            } else {
+            } else if (!(server.maxmemory_policy & MAXMEMORY_FLAG_LRM)) {
+                /* LRM policy should NOT update timestamp on reads. */
                 val->lru = LRU_CLOCK();
             }
         }
@@ -362,6 +415,8 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
     *valref = kv;
     return kv;
 }
@@ -396,49 +451,27 @@ int getKeySlot(sds key) {
      * This optimization is only used when current_client flag `CLIENT_EXECUTING_COMMAND` is set.
      * It only gets set during the execution of command under `call` method. Other flows requesting
      * the key slot would fallback to calculateKeySlot.
-     *
-     * Modules and scripts executed on the primary may get replicated as multi-execs that operate on multiple slots,
-     * so we must always recompute the slot for commands coming from the primary.
      */
-    if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND &&
-        !(server.current_client->flags & CLIENT_MASTER))
-    {
+    if (server.current_client && server.current_client->slot >= 0 && server.current_client->flags & CLIENT_EXECUTING_COMMAND) {
         debugServerAssertWithInfo(server.current_client, NULL,
                                   (int)keyHashSlot(key, (int)sdslen(key)) == server.current_client->slot);
         return server.current_client->slot;
     }
     int slot = keyHashSlot(key, (int)sdslen(key));
-    /* For the case of replicated commands from primary, getNodeByQuery() never gets called,
-     * and thus c->slot never gets populated. That said, if this command ends up accessing a key,
-     * we are able to backfill c->slot here, where the key's hash calculation is made. */
-    if (server.current_client && (server.current_client->flags & CLIENT_MASTER)) {
-        server.current_client->slot = slot;
-    }
     return slot;
 }
 
 /* Return the slot of the key in the command.
- * GETSLOT_NOKEYS if no keys, GETSLOT_CROSSSLOT if cross slot, otherwise the slot number. */
+ * INVALID_CLUSTER_SLOT if no keys, CLUSTER_CROSSSLOT if cross slot, otherwise the slot number. */
 int getSlotFromCommand(struct redisCommand *cmd, robj **argv, int argc) {
-    int slot = -1;
-    if (!cmd || !server.cluster_enabled) return slot;
+    if (!cmd || !server.cluster_enabled) return INVALID_CLUSTER_SLOT;
 
     /* Get the keys from the command */
     getKeysResult result = GETKEYS_RESULT_INIT;
-    int numkeys = getKeysFromCommand(cmd, argv, argc, &result);
-    keyReference *keyindex = result.keys;
+    getKeysFromCommand(cmd, argv, argc, &result);
 
-    /* Get slot of each key and check if they are all the same */
-    for (int j = 0; j < numkeys; j++) {
-        robj *thiskey = argv[keyindex[j].pos];
-        int thisslot = keyHashSlot((char*)thiskey->ptr, sdslen(thiskey->ptr));
-        if (slot == GETSLOT_NOKEYS) {
-            slot = thisslot;
-        } else if (slot != thisslot) {
-            slot = GETSLOT_CROSSSLOT; /* Mark as cross slot */
-            break;
-        }
-    }
+    /* Extract slot from the keys result. */
+    int slot = extractSlotFromKeysResult(argv, &result);
     getKeysFreeResult(&result);
     return slot;
 }
@@ -487,6 +520,8 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
     }
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
     return *valref = kv;
 }
 
@@ -513,6 +548,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     int freeModuleMeta = 0;
     robj *val = *valref;
     int slot = getKeySlot(key->ptr);
+    size_t oldsize = 0;
     if (!link) {
         link = kvstoreDictFindLink(db->keys, slot, key->ptr, NULL);
         serverAssertWithInfo(NULL, key, link != NULL); /* expected to exist */
@@ -559,6 +595,8 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetKV(*link);
     }
+    if (server.memory_tracking_per_slot)
+        oldsize = kvobjAllocSize(old);
 
     if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
         (val->refcount == 1 && val->encoding != OBJ_ENCODING_EMBSTR) && (!freeModuleMeta))
@@ -615,6 +653,9 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
             updateKeysizesHist(db, slot, kvNew->type, -1, newlen);
         }
     }
+
+    if (server.memory_tracking_per_slot)
+        updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvNew));
 
     if (server.io_threads_num > 1 && old->encoding == OBJ_ENCODING_RAW) {
         /* In multi-threaded mode, the OBJ_ENCODING_RAW string object usually is
@@ -706,8 +747,8 @@ void setKeyByLink(client *c, redisDb *db, robj *key, robj **valref, int flags, d
         dbAddByLink(db, key, valref, link);
     }
 
-    if (!(flags & SETKEY_NO_SIGNAL))
-        signalModifiedKey(c,db,key);
+    /* Signal key modification and update LRM timestamp. */
+    keyModified(c,db,key,*valref,!(flags & SETKEY_NO_SIGNAL));
 }
 
 /* During atomic slot migration, keys that are being imported are in an
@@ -799,6 +840,8 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             kvstoreDictDelete(db->expires, slot, key->ptr);
 
         if (async) {
+            if (server.memory_tracking_per_slot)
+                updateSlotAllocSize(db, slot, kvobjAllocSize(kv), 0);
             freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
@@ -993,9 +1036,10 @@ redisDb *initTempDb(void) {
     redisDb *tempDb = zcalloc(sizeof(redisDb)*server.dbnum);
     for (int i=0; i<server.dbnum; i++) {
         tempDb[i].id = i;
-        tempDb[i].keys = kvstoreCreate(&dbDictType, slot_count_bits,
-                                       flags | KVSTORE_ALLOC_META_KEYS_HIST);
-        tempDb[i].expires = kvstoreCreate(&dbExpiresDictType, slot_count_bits, flags);
+        tempDb[i].keys = kvstoreCreate(&kvstoreExType, &dbDictType, slot_count_bits,
+                                       flags);
+        tempDb[i].expires = kvstoreCreate(&kvstoreBaseType, &dbExpiresDictType,
+                                          slot_count_bits, flags);
         tempDb[i].subexpires = estoreCreate(&subexpiresBucketsType, slot_count_bits);
     }
 
@@ -1039,16 +1083,27 @@ long long dbTotalServerKeyCount(void) {
  * Hooks for key space changes.
  *
  * Every time a key in the database is modified the function
- * signalModifiedKey() is called.
+ * keyModified() is called.
  *
  * Every time a DB is flushed the function signalFlushDb() is called.
  *----------------------------------------------------------------------------*/
 
-/* Note that the 'c' argument may be NULL if the key was modified out of
- * a context of a client. */
-void signalModifiedKey(client *c, redisDb *db, robj *key) {
-    touchWatchedKey(db,key);
-    trackingInvalidateKey(c,key,1);
+/* Called when a key is modified to update LRM timestamp
+ * and optionally signal watchers/tracking clients.
+ *
+ * Arguments:
+ * - c: client (may be NULL if the key was modified out of a context of a client)
+ * - db: database containing the key
+ * - key: the key that was modified
+ * - val: the value object (if NULL, LRM won't be updated, e.g., for deleted keys)
+ * - signal: if true, trigger WATCH and client-side tracking invalidation
+ */
+void keyModified(client *c, redisDb *db, robj *key, robj *val, int signal) {
+    if (val) updateLRM(val);
+    if (signal) {
+        touchWatchedKey(db,key);
+        trackingInvalidateKey(c,key,1);
+    }
 }
 
 void signalFlushedDb(int dbid, int async, slotRangeArray *slots) {
@@ -1269,7 +1324,7 @@ void delGenericCommand(client *c, int lazy) {
         int deleted  = lazy ? dbAsyncDelete(c->db,c->argv[j]) :
                               dbSyncDelete(c->db,c->argv[j]);
         if (deleted) {
-            signalModifiedKey(c,c->db,c->argv[j]);
+            keyModified(c,c->db,c->argv[j],NULL,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "del",c->argv[j],c->db->id);
             server.dirty++;
@@ -1296,23 +1351,9 @@ void delexCommand(client *c) {
     kvobj *o;
     int deleted = 0, should_delete = 0;
 
-    robj *key = c->argv[1];
-    o = lookupKeyRead(c->db, key);
-    if (o == NULL) {
-        addReplyLongLong(c, 0);
-        return;
-    }
-
     /* If there are no conditions specified we just delete the key */
     if (c->argc == 2) {
         delGenericCommand(c, server.lazyfree_lazy_server_del);
-        return;
-    }
-
-    /* If any conditions are specified the only supported key type for now is
-     * string */
-    if (o->type != OBJ_STRING) {
-        addReplyError(c, "Key should be of string type if conditions are specified");
         return;
     }
 
@@ -1320,6 +1361,20 @@ void delexCommand(client *c) {
      * match-value */
     if (c->argc != 4) {
         addReplyErrorArity(c);
+        return;
+    }
+
+    robj *key = c->argv[1];
+    o = lookupKeyRead(c->db, key);
+    if (o == NULL) {
+        addReplyLongLong(c, 0);
+        return;
+    }
+
+    /* If any conditions are specified the only supported key type for now is
+     * string */
+    if (o->type != OBJ_STRING) {
+        addReplyError(c, "Key should be of string type if conditions are specified");
         return;
     }
 
@@ -1339,14 +1394,20 @@ void delexCommand(client *c) {
 
         decrRefCount(valueobj);
     } else if (!strcasecmp("ifdeq", condition)) {
+        if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
+            return;
+
         sds current_digest = stringDigest(o);
-        if (sdscmp(current_digest, c->argv[3]->ptr) == 0)
+        if (strcasecmp(current_digest, c->argv[3]->ptr) == 0)
             should_delete = 1;
 
         sdsfree(current_digest);
     } else if (!strcasecmp("ifdne", condition)) {
+        if (validateHexDigest(c, c->argv[3]->ptr) != C_OK)
+            return;
+
         sds current_digest = stringDigest(o);
-        if (sdscmp(current_digest, c->argv[3]->ptr) != 0)
+        if (strcasecmp(current_digest, c->argv[3]->ptr) != 0)
             should_delete = 1;
 
         sdsfree(current_digest);
@@ -1363,7 +1424,7 @@ void delexCommand(client *c) {
 
     if (deleted) {
         rewriteClientCommandVector(c, 2, shared.del, key);
-        signalModifiedKey(c, c->db, key);
+        keyModified(c, c->db, key, NULL, 1);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
         server.dirty++;
     }
@@ -1431,21 +1492,24 @@ void keysCommand(client *c) {
     if (server.cluster_enabled && !allkeys) {
         pslot = patternHashSlot(pattern, plen);
     }
-    kvstoreDictIterator *kvs_di = NULL;
-    kvstoreIterator *kvs_it = NULL;
-    if (pslot != -1) {
+    int has_slot = pslot != -1;
+    union {
+        kvstoreDictIterator kvs_di;
+        kvstoreIterator kvs_it;
+    } it;
+    if (has_slot) {
         if (!kvstoreDictSize(c->db->keys, pslot) || accessKeysShouldSkipDictIndex(pslot)) {
             /* Requested slot is empty */
             setDeferredArrayLen(c,replylen,0);
             return;
         }
-        kvs_di = kvstoreGetDictSafeIterator(c->db->keys, pslot);
+        kvstoreInitDictSafeIterator(&it.kvs_di, c->db->keys, pslot);
     } else {
-        kvs_it = kvstoreIteratorInit(c->db->keys);
+        kvstoreIteratorInit(&it.kvs_it, c->db->keys);
     }
 
-    while ((de = kvs_di ? kvstoreDictIteratorNext(kvs_di) : kvstoreIteratorNext(kvs_it)) != NULL) {
-        if (kvs_it && accessKeysShouldSkipDictIndex(kvstoreIteratorGetCurrentDictIndex(kvs_it))) {
+    while ((de = has_slot ? kvstoreDictIteratorNext(&it.kvs_di) : kvstoreIteratorNext(&it.kvs_it)) != NULL) {
+        if (!has_slot && accessKeysShouldSkipDictIndex(kvstoreIteratorGetCurrentDictIndex(&it.kvs_it))) {
             continue;
         }
 
@@ -1461,10 +1525,10 @@ void keysCommand(client *c) {
         if (c->flags & CLIENT_CLOSE_ASAP)
             break;
     }
-    if (kvs_di)
-        kvstoreReleaseDictIterator(kvs_di);
-    if (kvs_it)
-        kvstoreIteratorRelease(kvs_it);
+    if (has_slot)
+        kvstoreResetDictIterator(&it.kvs_di);
+    else
+        kvstoreIteratorReset(&it.kvs_it);
     setDeferredArrayLen(c,replylen,numkeys);
 }
 
@@ -1476,7 +1540,6 @@ typedef struct {
     sds pattern;  /* pattern string, NULL means no pattern */
     long sampled; /* cumulative number of keys sampled */
     int no_values; /* set to 1 means to return keys only */
-    size_t (*strlen)(char *s); /* (o->type == OBJ_HASH) ? hfieldlen : sdslen */
     sds typename; /* typename string, NULL means no type filter */
     redisDb *db;  /* database reference for expiration checks */
 } scanData;
@@ -1501,6 +1564,7 @@ int objectTypeCompare(robj *o, long long target) {
  * returned by the dictionary iterator into a list. */
 void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     UNUSED(plink);
+    Entry *hashEntry = NULL;
     scanData *data = (scanData *)privdata;
     list *keys = data->keys;
     robj *o = data->o;
@@ -1512,9 +1576,25 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
     /* o and typename can not have values at the same time. */
     serverAssert(!((data->type != LLONG_MAX) && o));
 
+    kvobj *kv = NULL;
     if (!o) { /* If scanning keyspace */
-        kvobj *kv = dictGetKV(de);
-
+        kv = dictGetKV(de);
+        keyStr = kvobjGetKey(kv);
+    } else if (o->type == OBJ_HASH) {
+        hashEntry = dictGetKey(de);
+        keyStr = entryGetField(hashEntry);
+    } else {
+        keyStr = dictGetKey(de);
+    }
+    
+    /* Filter element if it does not match the pattern. */
+    if (data->pattern) {
+        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, sdslen(keyStr), 0)) {
+            return;
+        }
+    }
+    
+    if (!o) {
         /* Expiration check first - only for database keyspace scanning.
          * Use kv obj to avoid robj creation. */
         if (expireIfNeeded(data->db, NULL, kv, 0) != KEY_VALID)
@@ -1529,17 +1609,6 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
             if (!objectTypeCompare(kv, data->type))
                 return;
         }
-
-        keyStr = kvobjGetKey(kv);
-    } else {
-        keyStr = dictGetKey(de);
-    }
-
-    /* Filter element if it does not match the pattern. */
-    if (data->pattern) {
-        if (!stringmatchlen(data->pattern, sdslen(data->pattern), keyStr, data->strlen(keyStr), 0)) {
-            return;
-        }
     }
 
     if (o == NULL) {
@@ -1548,10 +1617,10 @@ void scanCallback(void *privdata, const dictEntry *de, dictEntryLink plink) {
         key = keyStr;
     } else if (o->type == OBJ_HASH) {
         key = keyStr;
-        val = dictGetVal(de);
+        val = entryGetValue(hashEntry);
 
         /* If field is expired, then ignore */
-        if (hfieldIsExpired(key))
+        if (entryIsExpired(hashEntry))
             return;
 
     } else if (o->type == OBJ_ZSET) {
@@ -1636,7 +1705,6 @@ static int scanShouldSkipDict(dict *d, int didx) {
  * In the case of a Hash object the function returns both the field and value
  * of every element on the Hash. */
 void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
-    int isKeysHfield = 0;
     int i, j;
     listNode *node;
     long count = 10;
@@ -1717,7 +1785,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     } else if (o->type == OBJ_SET && o->encoding == OBJ_ENCODING_HT) {
         ht = o->ptr;
     } else if (o->type == OBJ_HASH && o->encoding == OBJ_ENCODING_HT) {
-        isKeysHfield = 1;
         ht = o->ptr;
     } else if (o->type == OBJ_ZSET && o->encoding == OBJ_ENCODING_SKIPLIST) {
         zset *zs = o->ptr;
@@ -1765,7 +1832,6 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             .pattern = use_pattern ? pat : NULL,
             .sampled = 0,
             .no_values = no_values,
-            .strlen = (isKeysHfield) ? hfieldlen : sdslen,
             .typename = typename,
             .db = c->db,
         };
@@ -1804,9 +1870,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             addReplyArrayLen(c, array_reply_len);
         }
 
-        setTypeIterator *si = setTypeInitIterator(o);
+        setTypeIterator si;
         unsigned long cur_length = 0;
-        while (setTypeNext(si, &str, &len, &llele) != -1) {
+        setTypeInitIterator(&si, o);
+        while (setTypeNext(&si, &str, &len, &llele) != -1) {
             if (str == NULL) {
                 len = ll2string(buf, sizeof(buf), llele);
             }
@@ -1817,7 +1884,7 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
             addReplyBulkCBuffer(c, key, len);
             cur_length++;
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
         if (use_pattern)
             setDeferredArrayLen(c,replylen,cur_length);
         else
@@ -1929,14 +1996,10 @@ void scanGenericCommand(client *c, robj *o, unsigned long long cursor) {
     addReplyArrayLen(c, 2);
     addReplyBulkLongLong(c,cursor);
 
-    unsigned long long idx = 0;
     addReplyArrayLen(c, listLength(keys));
     while ((node = listFirst(keys)) != NULL) {
         void *key = listNodeValue(node);
-        /* For HSCAN, list will contain keys value pairs unless no_values arg
-         * was given. We should call mstrlen for the keys only. */
-        int hfieldkey = isKeysHfield && (no_values || (idx++ % 2 == 0));
-        addReplyBulkCBuffer(c, key, hfieldkey ? mstrlen(key) : sdslen(key));
+        addReplyBulkCBuffer(c, key, sdslen(key));
         listDelNode(keys, node);
     }
 
@@ -2079,8 +2142,8 @@ void renameGenericCommand(client *c, int nx) {
     if (minHashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(c->db->subexpires, getKeySlot(c->argv[2]->ptr), o, minHashExpireTime);
 
-    signalModifiedKey(c,c->db,c->argv[1]);
-    signalModifiedKey(c,c->db,c->argv[2]);
+    keyModified(c,c->db,c->argv[1],NULL,1);
+    keyModified(c,c->db,c->argv[2],NULL,1); /* LRM already updated by dbAddInternal */
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_from",
         c->argv[1],c->db->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"rename_to",
@@ -2178,8 +2241,8 @@ void moveCommand(client *c) {
     if (hashExpireTime != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, slot, kv, hashExpireTime);
 
-    signalModifiedKey(c,src,c->argv[1]);
-    signalModifiedKey(c,dst,c->argv[1]);
+    keyModified(c,src,c->argv[1],NULL,1);
+    keyModified(c,dst,c->argv[1],NULL,1); /* LRM already updated by dbAddInternal */
     notifyKeyspaceEvent(NOTIFY_GENERIC,
                 "move_from",c->argv[1],src->id);
     notifyKeyspaceEvent(NOTIFY_GENERIC,
@@ -2298,8 +2361,8 @@ void copyCommand(client *c) {
     if (minHashExpire != EB_EXPIRE_TIME_INVALID)
         estoreAdd(dst->subexpires, getKeySlot(newkey->ptr), kvCopy, minHashExpire);
 
-    /* OK! key copied */
-    signalModifiedKey(c,dst,c->argv[2]);
+    /* OK! key copied. Signal modification (LRM already updated by dbAddInternal) */
+    keyModified(c,dst,c->argv[2],NULL,1);
     notifyKeyspaceEvent(NOTIFY_GENERIC,"copy_to",c->argv[2],dst->id);
 
     /* `delete` implies the destination key was overwritten */
@@ -2535,6 +2598,7 @@ kvobj *setExpire(client *c, redisDb *db, robj *key, long long when) {
 kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntryLink keyLink) {
     /* Reuse the sds from the main dict in the expire dict */
     int slot = getKeySlot(key);
+    size_t oldsize = 0;
     if (!keyLink) {
         keyLink = kvstoreDictFindLink(db->keys, slot, key, NULL);
         serverAssert(keyLink != NULL);
@@ -2547,6 +2611,8 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* Val already had an expire field, so it was not reallocated. */
         serverAssert(kv == kvnew);
     } else { /* No old expire */
+        if (server.memory_tracking_per_slot)
+            oldsize = kvobjAllocSize(kv);
         uint64_t subexpiry = EB_EXPIRE_TIME_INVALID;
         /* If hash with HFEs, take care to remove from global HFE DS before attempting
          * to manipulate and maybe free kv object */
@@ -2557,6 +2623,8 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* if kvobj was reallocated, update dict */
         if (kv != kvnew) {
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
+            if (server.memory_tracking_per_slot)
+                updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvnew));
             kv = kvnew;
         }
         /* Now add to expires */
@@ -2612,7 +2680,7 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, lo
      * we are freeing removing the key, but we can't account for
      * that otherwise we would never exit the loop.
      *
-     * Same for CSC invalidation messages generated by signalModifiedKey.
+     * Same for CSC invalidation messages generated by keyModified.
      *
      * AOF and Output buffer memory will be freed eventually so
      * we only care about memory used by the key space.
@@ -2629,7 +2697,7 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, lo
     if (key_mem_freed) *key_mem_freed -= (long long) zmalloc_used_memory() - freeMemoryGetNotCountedMemory();
 
     notifyKeyspaceEvent(notify_type, notify_name,keyobj, db->id);
-    signalModifiedKey(NULL, db, keyobj);
+    keyModified(NULL, db, keyobj, NULL, 1);
     propagateDeletion(db, keyobj, lazy_flag);
 
     if (notify_type == NOTIFY_EXPIRED)
@@ -2745,7 +2813,9 @@ int confAllowsExpireDel(void) {
  *
  * The return value of the function is KEY_VALID if the key is still valid.
  * The function returns KEY_EXPIRED if the key is expired BUT not deleted,
- * or returns KEY_DELETED if the key is expired and deleted.
+ * or returns KEY_DELETED if the key is expired and deleted. If the key is in a
+ * trim job due to slot migration, the function returns KEY_TRIMMED, unless
+ * EXPIRE_ALLOW_ACCESS_TRIMMED is set, in which case it returns KEY_VALID.
  *
  * You can optionally pass `kv` to save a lookup.
  */
@@ -2753,9 +2823,15 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
     debugAssert(key != NULL || kv != NULL);
 
     /* NOTE: Keys in slots scheduled for trimming can still exist for a while.
-     * If a module touches one of these keys, we remove it right away and
-     * return KEY_DELETED. */
-    if (asmActiveTrimDelIfNeeded(db, key, kv)) return KEY_DELETED;
+     * We don't delete it here, return KEY_VALID if allowing access to trimmed
+     * keys, and return KEY_TRIMMED otherwise. */
+    sds key_name = key ? key->ptr : kvobjGetKey(kv);
+    if (asmIsKeyInTrimJob(key_name)) {
+        if (server.allow_access_trimmed || (flags & EXPIRE_ALLOW_ACCESS_TRIMMED))
+            return KEY_VALID;
+
+        return KEY_TRIMMED;
+    }
 
     if ((flags & EXPIRE_ALLOW_ACCESS_EXPIRED) ||
         (!keyIsExpired(db,  key ? key->ptr : NULL, kv)))
@@ -3030,7 +3106,7 @@ int getKeysUsingKeySpecs(struct redisCommand *cmd, robj **argv, int argc, int se
             }
 
             first += spec->fk.keynum.firstkey;
-            last = first + (long)numkeys-1;
+            last = first + ((long)numkeys - 1) * step;
         } else {
             /* unknown spec */
             goto invalid_spec;
@@ -3230,10 +3306,7 @@ int extractKeysAndSlot(struct redisCommand *cmd, robj **argv, int argc,
         }
     }
 
-    *slot = INVALID_CLUSTER_SLOT;
-    if (num_keys >= 0)
-        *slot = extractSlotFromKeysResult(argv, result);
-
+    *slot = extractSlotFromKeysResult(argv, result);
     return num_keys;
 }
 
@@ -3628,7 +3701,7 @@ int xreadGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult 
 }
 
 /* Helper function to extract keys from the SET command, which may have
- * a read flag if the GET argument is passed in. */
+ * an RW flag if the GET, IF* arguments are present, OW otherwise. */
 int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
     keyReference *keys;
     UNUSED(cmd);
@@ -3636,6 +3709,8 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
     keys = getKeysPrepareResult(result, 1);
     keys[0].pos = 1; /* We always know the position */
     result->numkeys = 1;
+    int actual = CMD_KEY_OW;
+    int logical = CMD_KEY_UPDATE;
 
     for (int i = 3; i < argc; i++) {
         char *arg = argv[i]->ptr;
@@ -3643,12 +3718,43 @@ int setGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *r
             (arg[1] == 'e' || arg[1] == 'E') &&
             (arg[2] == 't' || arg[2] == 'T') && arg[3] == '\0')
         {
-            keys[0].flags = CMD_KEY_RW | CMD_KEY_ACCESS | CMD_KEY_UPDATE;
-            return 1;
+            actual = CMD_KEY_RW;
+            logical |= CMD_KEY_ACCESS;
+        } else if (!strcasecmp(arg, "ifeq") || !strcasecmp(arg, "ifne") ||
+                   !strcasecmp(arg, "ifdeq") || !strcasecmp(arg, "ifdne"))
+        {
+            actual = CMD_KEY_RW;
         }
     }
 
-    keys[0].flags = CMD_KEY_OW | CMD_KEY_UPDATE;
+    keys[0].flags = actual | logical;
+
+    return 1;
+}
+
+/* Helper function to extract keys from the DELEX command, which may have
+ * an RW flag if the IF* arguments are present, RM otherwise. */
+int delexGetKeys(struct redisCommand *cmd, robj **argv, int argc, getKeysResult *result) {
+    keyReference *keys;
+    UNUSED(cmd);
+
+    keys = getKeysPrepareResult(result, 1);
+    keys[0].pos = 1; /* We always know the position */
+    result->numkeys = 1;
+    int actual = CMD_KEY_RM;
+    int logical = CMD_KEY_DELETE;
+
+    for (int i = 2; i < argc; i++) {
+        char *arg = argv[i]->ptr;
+        if (!strcasecmp(arg, "ifeq") || !strcasecmp(arg, "ifne") ||
+            !strcasecmp(arg, "ifdeq") || !strcasecmp(arg, "ifdne"))
+        {
+            actual = CMD_KEY_RW;
+        }
+    }
+
+    keys[0].flags = actual | logical;
+
     return 1;
 }
 

@@ -216,6 +216,11 @@ void sdsfree(sds s) {
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
 
+void sdsfreeusable(sds s, size_t *usable) {
+    if (s == NULL) return;
+    s_free_usable((char*)s-sdsHdrSize(s[-1]), usable);
+}
+
 /* Generic version of sdsfree. */
 void sdsfreegeneric(void *s) {
     sdsfree((sds)s);
@@ -295,7 +300,7 @@ sds _sdsMakeRoomFor(sds s, size_t addlen, int greedy) {
     assert(hdrlen + newlen + 1 > reqlen);  /* Catch size_t overflow */
     use_realloc = (oldtype == type);
     if (use_realloc) {
-        newsh = s_realloc_usable(sh, hdrlen + newlen + 1, &bufsize);
+        newsh = s_realloc_usable(sh, hdrlen + newlen + 1, &bufsize, NULL);
         if (newsh == NULL) return NULL;
         s = (char*)newsh + hdrlen;
         if (adjustTypeIfNeeded(&type, &hdrlen, bufsize)) {
@@ -346,7 +351,7 @@ sds sdsRemoveFreeSpace(sds s, int would_regrow) {
 /* Resize the allocation, this can make the allocation bigger or smaller,
  * if the size is smaller than currently used len, the data will be truncated.
  *
- * The when the would_regrow argument is set to 1, it prevents the use of
+ * When the would_regrow argument is set to 1, it prevents the use of
  * SDS_TYPE_5, which is desired when the sds is likely to be changed again.
  *
  * The sdsAlloc size will be set to the requested size regardless of the actual
@@ -395,7 +400,7 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
         alloc_already_optimal = (je_nallocx(newlen, 0) == bufsize);
         #endif
         if (!alloc_already_optimal) {
-            newsh = s_realloc_usable(sh, newlen, &bufsize);
+            newsh = s_realloc_usable(sh, newlen, &bufsize, NULL);
             if (newsh == NULL) return NULL;
             s = (char *)newsh + oldhdrlen;
 
@@ -423,18 +428,6 @@ sds sdsResize(sds s, size_t size, int would_regrow) {
     sdssetlen(s, len);
     sdssetalloc(s, newsize);
     return s;
-}
-
-/* Return the total size of the allocation of the specified sds string,
- * including:
- * 1) The sds header before the pointer.
- * 2) The string.
- * 3) The free buffer at the end if any.
- * 4) The implicit null term.
- */
-size_t sdsAllocSize(sds s) {
-    size_t alloc = sdsalloc(s);
-    return sdsHdrSize(s[-1])+alloc+1;
 }
 
 /* Return the pointer of the actual SDS allocation (normally SDS strings

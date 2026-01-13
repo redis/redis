@@ -1093,7 +1093,7 @@ proc get_nonloopback_client {} {
 }
 
 # The following functions and variables are used only when running large-memory
-# tests. We avoid defining them when not running large-memory tests because the 
+# tests. We avoid defining them when not running large-memory tests because the
 # global variables takes up lots of memory.
 proc init_large_mem_vars {} {
     if {![info exists ::str500]} {

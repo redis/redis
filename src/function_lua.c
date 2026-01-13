@@ -495,6 +495,8 @@ int luaEngineInitEngine(void) {
     lua_enablereadonlytable(lua_engine_ctx->lua, -1, 1); /* protect the new global table */
     lua_replace(lua_engine_ctx->lua, LUA_GLOBALSINDEX); /* set new global table as the new globals */
 
+    /* Set metatables of basic types (string, number, nil etc.) readonly. */
+    luaSetTableProtectionForBasicTypes(lua_engine_ctx->lua);
 
     engine *lua_engine = zmalloc(sizeof(*lua_engine));
     *lua_engine = (engine) {

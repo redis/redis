@@ -53,7 +53,9 @@ typedef ucontext_t sigcontext_t;
 
 /* Globals */
 static int bug_report_start = 0; /* True if bug report header was already logged. */
-static pthread_mutex_t bug_report_start_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t bug_report_start_mutex;
+static pthread_mutexattr_t bug_report_start_attr;
+
 /* Mutex for a case when two threads crash at the same time. */
 static pthread_mutex_t signal_handler_lock;
 static pthread_mutexattr_t signal_handler_lock_attr;
@@ -139,22 +141,24 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     if (o->type == OBJ_STRING) {
         mixStringObjectDigest(digest,o);
     } else if (o->type == OBJ_LIST) {
-        listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+        listTypeIterator li;
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        listTypeInitIterator(&li, o, 0, LIST_TAIL);
+        while(listTypeNext(&li, &entry)) {
             robj *eleobj = listTypeGet(&entry);
             mixStringObjectDigest(digest,eleobj);
             decrRefCount(eleobj);
         }
-        listTypeReleaseIterator(li);
+        listTypeResetIterator(&li);
     } else if (o->type == OBJ_SET) {
-        setTypeIterator *si = setTypeInitIterator(o);
+        setTypeIterator si;
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, o);
+        while((sdsele = setTypeNextObject(&si)) != NULL) {
             xorDigest(digest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
     } else if (o->type == OBJ_ZSET) {
         unsigned char eledigest[20];
 
@@ -209,26 +213,27 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
-        hashTypeIterator *hi = hashTypeInitIterator(o);
-        while (hashTypeNext(hi, 0) != C_ERR) {
+        hashTypeIterator hi;
+        hashTypeInitIterator(&hi, o);
+        while (hashTypeNext(&hi, 0) != C_ERR) {
             unsigned char eledigest[20];
             sds sdsele;
 
             /* field */
             memset(eledigest,0,20);
-            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            sdsele = hashTypeCurrentObjectNewSds(&hi,OBJ_HASH_KEY);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
             /* val */
-            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            sdsele = hashTypeCurrentObjectNewSds(&hi,OBJ_HASH_VALUE);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
             /* hash-field expiration (HFE) */
-            if (hi->expire_time != EB_EXPIRE_TIME_INVALID)
+            if (hi.expire_time != EB_EXPIRE_TIME_INVALID)
                 xorDigest(eledigest,"!!hexpire!!",11);
             xorDigest(digest,eledigest,20);
         }
-        hashTypeReleaseIterator(hi);
+        hashTypeResetIterator(&hi);
     } else if (o->type == OBJ_STREAM) {
         streamIterator si;
         streamIteratorStart(&si,o->ptr,NULL,NULL,0);
@@ -284,14 +289,15 @@ void computeDatasetDigest(unsigned char *final) {
         redisDb *db = server.db+j;
         if (kvstoreSize(db->keys) == 0)
             continue;
-        kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
 
         /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
         mixDigest(final,&aux,sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, db->keys);
+        while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             robj *keyobj;
 
             memset(digest,0,20); /* This key-val digest */
@@ -307,7 +313,7 @@ void computeDatasetDigest(unsigned char *final) {
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
-        kvstoreIteratorRelease(kvs_it);
+        kvstoreIteratorReset(&kvs_it);
     }
 }
 
@@ -547,6 +553,12 @@ NULL
             return;
         server.dbg_assert_keysizes = (flag != 0);
         addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"ALLOCSIZE-SLOTS-ASSERT") && c->argc == 3) {
+        long long flag;
+        if (getLongLongFromObjectOrReply(c, c->argv[2], &flag, NULL) != C_OK)
+            return;
+        server.dbg_assert_alloc_per_slot = (flag != 0);
+        addReply(c, shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr,"log") && c->argc == 3) {
         serverLog(LL_WARNING, "DEBUG LOG: %s", (char*)c->argv[2]->ptr);
         addReply(c,shared.ok);
@@ -773,7 +785,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db, key, &val);
-            signalModifiedKey(c,c->db,key);
+            keyModified(c,c->db,key,NULL,1);
             decrRefCount(key);
         }
         addReply(c,shared.ok);
@@ -1315,9 +1327,9 @@ void _serverPanic(const char *file, int line, const char *msg, ...) {
 int bugReportStart(void) {
     pthread_mutex_lock(&bug_report_start_mutex);
     if (bug_report_start == 0) {
+        bug_report_start = 1;
         serverLogRaw(LL_WARNING|LL_RAW,
         "\n\n=== REDIS BUG REPORT START: Cut & paste starting from here ===\n");
-        bug_report_start = 1;
         pthread_mutex_unlock(&bug_report_start_mutex);
         return 1;
     }
@@ -2498,6 +2510,12 @@ void setupSigSegvHandler(void) {
         pthread_mutexattr_init(&signal_handler_lock_attr);
         pthread_mutexattr_settype(&signal_handler_lock_attr, PTHREAD_MUTEX_ERRORCHECK);
         pthread_mutex_init(&signal_handler_lock, &signal_handler_lock_attr);
+
+        pthread_mutexattr_init(&bug_report_start_attr);
+        /* Use recursive to avoid deadlock when a signal is raised during bugReportStart(). */
+        pthread_mutexattr_settype(&bug_report_start_attr, PTHREAD_MUTEX_RECURSIVE);
+        pthread_mutex_init(&bug_report_start_mutex, &bug_report_start_attr);
+
         signal_handler_lock_initialized = 1;
     }
 

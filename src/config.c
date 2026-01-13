@@ -40,9 +40,11 @@ configEnum maxmemory_policy_enum[] = {
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
     {"volatile-random",MAXMEMORY_VOLATILE_RANDOM},
     {"volatile-ttl",MAXMEMORY_VOLATILE_TTL},
+    {"volatile-lrm",MAXMEMORY_VOLATILE_LRM},
     {"allkeys-lru",MAXMEMORY_ALLKEYS_LRU},
     {"allkeys-lfu",MAXMEMORY_ALLKEYS_LFU},
     {"allkeys-random",MAXMEMORY_ALLKEYS_RANDOM},
+    {"allkeys-lrm",MAXMEMORY_ALLKEYS_LRM},
     {"noeviction",MAXMEMORY_NO_EVICTION},
     {NULL, 0}
 };
@@ -97,6 +99,7 @@ configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
     {"swapdb", REPL_DISKLESS_LOAD_SWAPDB},
+    {"flushdb", REPL_DISKLESS_LOAD_ALWAYS},
     {NULL, 0}
 };
 
@@ -104,6 +107,12 @@ configEnum tls_auth_clients_enum[] = {
     {"no", TLS_CLIENT_AUTH_NO},
     {"yes", TLS_CLIENT_AUTH_YES},
     {"optional", TLS_CLIENT_AUTH_OPTIONAL},
+    {NULL, 0}
+};
+
+configEnum tls_client_auth_user_enum[] = {
+    {"CN", TLS_CLIENT_FIELD_CN},
+    {"off", TLS_CLIENT_FIELD_OFF},
     {NULL, 0}
 };
 
@@ -2097,10 +2106,6 @@ static int numericBoundaryCheck(standardConfig *config, long long ll, const char
         config->data.numeric.numeric_type == NUMERIC_TYPE_UINT ||
         config->data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
         /* Boundary check for unsigned types */
-        if (ll < 0) {
-            *err = "argument must be greater or equal to 0";
-            return 0;
-        }
         unsigned long long ull = ll;
         unsigned long long upper_bound = config->data.numeric.upper_bound;
         unsigned long long lower_bound = config->data.numeric.lower_bound;
@@ -3100,7 +3105,6 @@ standardConfig static_configs[] = {
     createBoolConfig("cluster-require-full-coverage", NULL, MODIFIABLE_CONFIG, server.cluster_require_full_coverage, 1, NULL, NULL),
     createBoolConfig("rdb-save-incremental-fsync", NULL, MODIFIABLE_CONFIG, server.rdb_save_incremental_fsync, 1, NULL, NULL),
     createBoolConfig("aof-load-truncated", NULL, MODIFIABLE_CONFIG, server.aof_load_truncated, 1, NULL, NULL),
-    createBoolConfig("aof-load-broken", NULL, MODIFIABLE_CONFIG, server.aof_load_broken, 0, NULL, NULL),
     createBoolConfig("aof-use-rdb-preamble", NULL, MODIFIABLE_CONFIG, server.aof_use_rdb_preamble, 1, NULL, NULL),
     createBoolConfig("aof-timestamp-enabled", NULL, MODIFIABLE_CONFIG, server.aof_timestamp_enabled, 0, NULL, NULL),
     createBoolConfig("cluster-replica-no-failover", "cluster-slave-no-failover", MODIFIABLE_CONFIG, server.cluster_slave_no_failover, 0, NULL, updateClusterFlags), /* Failover by default. */
@@ -3127,6 +3131,7 @@ standardConfig static_configs[] = {
     createBoolConfig("hide-user-data-from-log", NULL, MODIFIABLE_CONFIG, server.hide_user_data_from_log, 0, NULL, NULL),
     createBoolConfig("lazyexpire-nested-arbitrary-keys", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.lazyexpire_nested_arbitrary_keys, 1, NULL, NULL),
     createBoolConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG, server.cluster_slot_stats_enabled, 0, NULL, NULL),
+    createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -3272,7 +3277,7 @@ standardConfig static_configs[] = {
     createTimeTConfig("repl-backlog-ttl", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.repl_backlog_time_limit, 60*60, INTEGER_CONFIG, NULL, NULL), /* Default: 1 hour */
     createOffTConfig("auto-aof-rewrite-min-size", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.aof_rewrite_min_size, 64*1024*1024, MEMORY_CONFIG, NULL, NULL),
     createOffTConfig("loading-process-events-interval-bytes", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 1024, INT_MAX, server.loading_process_events_interval_bytes, 1024*512, INTEGER_CONFIG, NULL, NULL),
-    createOffTConfig("aof-load-broken-max-size", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.aof_load_broken_max_size, 4*1024, INTEGER_CONFIG, NULL, NULL),
+    createOffTConfig("aof-load-corrupt-tail-max-size", NULL, MODIFIABLE_CONFIG, 0, LONG_MAX, server.aof_load_corrupt_tail_max_size, 0, INTEGER_CONFIG, NULL, NULL),
 
     createIntConfig("tls-port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.tls_port, 0, INTEGER_CONFIG, NULL, applyTLSPort), /* TCP port. */
     createIntConfig("tls-session-cache-size", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.tls_ctx_config.session_cache_size, 20*1024, INTEGER_CONFIG, NULL, applyTlsCfg),
@@ -3280,6 +3285,7 @@ standardConfig static_configs[] = {
     createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, applyTlsCfg),
     createBoolConfig("tls-replication", NULL, MODIFIABLE_CONFIG, server.tls_replication, 0, NULL, applyTlsCfg),
     createEnumConfig("tls-auth-clients", NULL, MODIFIABLE_CONFIG, tls_auth_clients_enum, server.tls_auth_clients, TLS_CLIENT_AUTH_YES, NULL, NULL),
+    createEnumConfig("tls-auth-clients-user", NULL, MODIFIABLE_CONFIG, tls_client_auth_user_enum, server.tls_ctx_config.client_auth_user, TLS_CLIENT_FIELD_OFF, NULL, NULL),
     createBoolConfig("tls-prefer-server-ciphers", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.prefer_server_ciphers, 0, NULL, applyTlsCfg),
     createBoolConfig("tls-session-caching", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.session_caching, 1, NULL, applyTlsCfg),
     createStringConfig("tls-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, applyTlsCfg),
