@@ -52,7 +52,7 @@ static void streamClearIdmpEntries(stream *s);
 static void idmpInsertEntry(stream *s, idmpProducer *producer, idmpEntry *entry, const streamID *id);
 static int idmpLookupAndReply(stream *s, idmpProducer *producer, idmpEntry *entry, client *c);
 static idmpProducer *idmpGetOrCreateProducer(stream *s, const char *pid, size_t pid_len);
-static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields);
+static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash);
 static void idmpEvictOldestEntry(stream *s, idmpProducer *producer);
 
 /* -----------------------------------------------------------------------
@@ -2484,8 +2484,7 @@ void xaddCommand(client *c) {
         if (parsed_args.idmp_auto) {
             /* Auto-generate IID by hashing field-value pairs */
             int64_t numfields = (c->argc - field_pos) / 2;
-            hash = createIdempotencyHash(&c->argv[field_pos], numfields);
-            if (hash.low64 == 0 && hash.high64 == 0) {
+            if (createIdempotencyHash(&c->argv[field_pos], numfields, &hash) == C_ERR) {
                 addReplyError(c, "Failed to create idempotency hash");
                 return;
             }
@@ -5640,19 +5639,25 @@ void handleExpiredIdmpEntries(void) {
     }
 }
 
-/* Hash field-value pairs using XXH3_128bits for AUTOIDMP. The function
- * takes an array of robj pointers in 'argv' representing field-value pairs
- * (field1, value1, field2, value2, ...) and 'numfields' indicating the number
- * of pairs (not the array length). Each field-value pair is hashed using
- * streaming XXH3_128bits, and the resulting pair hashes are XORed together
- * to produce a final 128-bit hash. Returns a zero hash {0, 0} on error.
- *
- * XXH128 is a non-cryptographic hash function: fast and well-distributed, but
- * does NOT prevent intentional collision attacks. */
-static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
-    XXH128_hash_t hash_result = {0, 0};
+/* 64-bit left rotation helper for hash combination */
+static inline uint64_t rotl64(uint64_t x, int r) {
+    return (x << r) | (x >> (64 - r));
+}
+
+/* Hash field-value pairs using XXH3_128bits for AUTOIDMP. The function takes
+ * an array of robj pointers in 'argv' representing field-value pairs (field1,
+ * value1, field2, value2, ...) and 'numfields' indicating the number of pairs
+ * (not the array length). Each field-value pair is hashed using streaming
+ * XXH3_128bits, and the resulting pair hashes are combined using an
+ * order-independent Sum + XOR approach with rotation to produce a final
+ * 128-bit hash stored in 'out_hash'. Returns C_OK on success, C_ERR on
+ * error. XXH128 is a non-cryptographic hash function: fast and well-distributed,
+ * but does NOT prevent intentional collision attacks. Note: state must not be
+ * NULL - XXH3_createState() uses Redis allocator which panics on OOM. */
+static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash) {
+    uint64_t sum_lo = 0, sum_hi = 0;
+    uint64_t xor_lo = 0, xor_hi = 0;
     XXH3_state_t* state = XXH3_createState();
-    if (state == NULL) return hash_result;
     
     char llbuf[LONG_STR_SIZE];
     XXH_errorcode err;
@@ -5681,17 +5686,25 @@ static XXH128_hash_t createIdempotencyHash(robj **argv, int64_t numfields) {
         /* Get the hash for this pair */
         XXH128_hash_t pair_hash = XXH3_128bits_digest(state);
         
-        /* XOR with accumulated result */
-        hash_result.low64 ^= pair_hash.low64;
-        hash_result.high64 ^= pair_hash.high64;
+        /* Accumulate with both sum and xor for order-independent combination */
+        sum_lo += pair_hash.low64;
+        sum_hi += pair_hash.high64;
+        xor_lo ^= pair_hash.low64;
+        xor_hi ^= pair_hash.high64;
     }
     
+    /* Combine sum and xor with rotation for better distribution */
+    XXH128_hash_t hash_result;
+    hash_result.low64 = sum_lo ^ rotl64(xor_hi, 1);
+    hash_result.high64 = sum_hi ^ rotl64(xor_lo, 1);
+    
     XXH3_freeState(state);
-    return hash_result;
+    *out_hash = hash_result;
+    return C_OK;
 
 cleanup:
     XXH3_freeState(state);
-    return (XXH128_hash_t){0, 0};
+    return C_ERR;
 }
 
 /* Clear all IDMP entries from a stream - free all producers and their entries */
