@@ -942,6 +942,8 @@ void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded) {
 }
 
 void *kvstoreGetMetadata(kvstore *kvs) {
+    if (!kvs->type->kvstoreMetadataBytes)
+        return NULL;
     return &kvs->metadata;
 }
 

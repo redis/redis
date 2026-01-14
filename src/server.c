@@ -342,7 +342,10 @@ static void dictDestructorKV(dict *d, void *key) {
         size_t alloc_size = kvobjAllocSize(kv);
         debugServerAssert(alloc_size <= meta->alloc_size);
         meta->alloc_size -= alloc_size;
-        updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, alloc_size, -1);
+        /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
+         * (e.g. in lazy free context). */
+        if (kvstoreMeta)
+            updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, alloc_size, -1);
     }
     decrRefCount(kv);
 }
