@@ -355,6 +355,42 @@ void keyMetaOnFree(kvobj *kv) {
     } while (mbits != 0);
 }
 
+/* Free any metadata stored in a KeyMetaSpec. This is called when RDB load fails 
+ * after some metadata has been loaded. It invokes the free cb for each metadata 
+ * class that was already loaded, preventing memory leaks from partially-loaded metadata.
+ *
+ * Note: 
+ * - We pass NULL for keyname since the key doesn't exist yet.
+ * - The kms->meta[] array is stored in reverse order: smallest metaid at the end.
+ */
+static void keyMetaSpecCleanup(KeyMetaSpec *kms) {
+    if (kms->numMeta == 0) return;
+
+    /* Iterate through the metadata array in reverse order (largest to smallest ID) */
+    int startIdx = KEY_META_ID_MAX - kms->numMeta;
+    uint32_t mbits = kms->metabits;
+
+    for (int i = startIdx ; mbits != 0 ; i++) {
+        /* Find the highest metaid remaining in mbits */
+        int metaid = 31 - __builtin_clz((unsigned)mbits);
+
+        /* Get the metadata value for this slot */
+        uint64_t meta = kms->meta[i];
+
+        /* Call free callback if metadata is not reset value */
+        KeyMetaClass *pClass = &keyMetaClass[metaid];
+        if (pClass->state == CLASS_STATE_INUSE &&
+            meta != pClass->conf.reset_value &&
+            pClass->conf.free)
+        {
+            pClass->conf.free(NULL, meta);
+        }
+
+        /* Clear this bit and continue to next slot */
+        mbits &= ~(1 << metaid);
+    }
+}
+
 int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {
     static int countDownNotice = 0;
     static rio *lastRdb = NULL;
@@ -413,7 +449,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
     for (int i = 0; i < numClasses; i++) {
         /* Read 32-bit encoded class spec */
         uint32_t encClassSpec;
-        if (rioRead(rdb, &encClassSpec, KM_CLASS_SPEC_SIZE) == 0) return -1;
+        if (rioRead(rdb, &encClassSpec, KM_CLASS_SPEC_SIZE) == 0) goto error;
 
         /* Deserialize to get name, version, flags */
         char name[5];
@@ -428,7 +464,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
         /* If class not found or released, check ALLOW_IGNORE flag */
         if (classId == -1 || alreadyReleased) {
             int rc = rdbLoadSkipMetaIfAllowed(rdb, name, flags);
-            if (rc == -1) return -1;
+            if (rc == -1) goto error;
             continue;
         }
 
@@ -440,7 +476,7 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
         if (pClass->conf.rdb_load == NULL) {
             /* No rdb_load callback - check ALLOW_IGNORE flag */
             int rc = rdbLoadSkipMetaIfAllowed(rdb, name, flags);
-            if (rc == -1) return -1;
+            if (rc == -1) goto error;
             continue;
         }
 
@@ -464,12 +500,16 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
             zfree(io.ctx);
         }
 
-        if (io.error) return -1;
+        if (io.error) {
+            /* rdb_load succeeded but loading EOF failed */
+            if (rc == 1) keyMetaSpecAddUnordered(kms, classId, meta);
+            goto error;
+        }
 
         /* Handle rdb_load return value:
          *   1: Attach metadata to key (success)
          *   0: Ignore/skip metadata (not an error)
-         *  -1: Error - abort RDB load */
+         *  -1: Error - abort RDB load (module should clean up before returning -1) */
         if (rc == 1) {
             /* Add metadata, handling out-of-order classIds that may occur when
              * modules register in different order at load time vs save time */
@@ -480,18 +520,23 @@ int rdbLoadKeyMetadata(rio *rdb, int dbid, int numClasses, KeyMetaSpec *kms) {
             /* Error - abort RDB load */
             serverLog(LL_WARNING,
                 "RDB load failed: rdb_load callback for metadata class '%s' returned error", name);
-            return -1;
+            goto error;
         } else {
             /* Invalid return value */
             serverLog(LL_WARNING,
                 "RDB load failed: rdb_load callback for metadata class '%s' "
                 "returned invalid value %d (expected -1, 0, or 1)",
                 name, rc);
-            return -1;
+            goto error;
         }
     }
 
     return 0; /* Success */
+
+error:
+    /* Clean up any metadata that was successfully loaded before the error */
+    keyMetaSpecCleanup(kms);
+    return -1;
 }
 
 /* Save all key metadata to RDB using lazy header writing.
@@ -583,18 +628,15 @@ int rdbSaveKeyMetadata(rio *rdb, robj *key, kvobj *kv, int dbid) {
         return 0;
     }
 
-    /* Now write headers to RDB, followed by payload */
-    if (rdbSaveType(rdb, RDB_OPCODE_KEY_META) == -1) goto error;
-    if (rdbSaveLen(rdb, numClasses) == -1) goto error;
-
-    /* Write accumulated payload to RDB */
-    sds payload = payload_rio.io.buffer.ptr;
-    if (rdbWriteRaw(rdb, payload, sdslen(payload)) == -1) {
-        sdsfree(payload);
-        return -1;
+    /* Now write: [RDB_OPCODE_KEY_META][numClasses][payload] */
+    if ((rdbSaveType(rdb, RDB_OPCODE_KEY_META) == -1) ||
+        (rdbSaveLen(rdb, numClasses) == -1) ||
+        (rdbWriteRaw(rdb, payload_rio.io.buffer.ptr, sdslen(payload_rio.io.buffer.ptr)) == -1))
+    {
+        goto error;
     }
-
-    sdsfree(payload);
+    
+    sdsfree(payload_rio.io.buffer.ptr);
     return 0;
 
 error:

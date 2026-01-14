@@ -4422,6 +4422,9 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *   The module should free any external allocation referenced by `meta`
  *   if it uses the 8 bytes as a handle/pointer.
  *   This callback may run in a background thread and is not protected by GIL.
+ *   It also might be called during RDB loading if the load fails after some
+ *   metadata has been successfully loaded. In this case, keyname will be NULL
+ *   since the key hasn't been created yet.
  *
  * * **rdb_load**: A callback function pointer for RDB loading (optional).
  *   - Called during RDB loading when metadata for this class is encountered.
@@ -4449,6 +4452,7 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
  *     > 1: Attach value `*meta` to the key (success)
  *     > 0: Ignore/skip metadata (don't attach, but continue loading - not an error)
  *     > -1: Error - abort RDB load (e.g., invalid data, version incompatibility)
+ *            Module MUST clean up any allocated metadata before returning -1.
  *
  * * **rdb_save**: A callback function pointer for RDB saving (optional).
  *   - If set to NULL, Redis will not save metadata to RDB.

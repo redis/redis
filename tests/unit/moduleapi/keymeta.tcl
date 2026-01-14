@@ -757,7 +757,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"}} {
     }
 }
 
-test {RDB: Load with different module registration order preserves metadata correctly} {
+test "RDB: Load with different module registration order preserves metadata correctly" {
     # This test verifies out-of-order metadata attachment during RDB load.
     # When modules register in different order at load time vs save time,
     # metadata values should still be correctly associated with their classes.
@@ -856,5 +856,45 @@ test {RDB: Load with different module registration order preserves metadata corr
         # Cleanup temp file
         file delete $temp_rdb
 
+    }
+} {} {external:skip needs:save}
+
+test "RDB: File size same with/without metadata when no rdb_save callback" {
+    # This test verifies that when a metadata class has no rdb_save callback,
+    # the metadata is not serialized to RDB, so the RDB file size should be
+    # approximately the same (within a small tolerance for header differences).
+
+    start_server {tags {"modules" "external:skip" "cluster:skip"}} {
+        r module load $testmodule
+
+        # Get RDB directory
+        set rdb_dir [lindex [r config get dir] 1]
+        set rdb_file [lindex [r config get dbfilename] 1]
+        set rdb_path [file join $rdb_dir $rdb_file]
+
+        # Test 1: Create key WITHOUT metadata and save
+        r flushall
+        r set key1 "test_value_12345"
+        r save
+        set size_without_meta [file size $rdb_path]
+        
+        # Test 2: Create identical key WITH metadata (but no rdb_save) and save        
+        # Register a class WITHOUT rdb_save callback (RDBSAVE=0)
+        # Use ALLOWIGNORE so loading doesn't fail when metadata is missing
+        set spec "ALLOWIGNORE"
+        r keymeta.register [cname 1] 1 $spec
+        
+        r flushall
+        r set key1 "test_value_12345"
+        r keymeta.set [cname 1] key1 "some_metadata_value"
+
+        # Verify metadata is attached
+        assert_equal [r keymeta.get [cname 1] key1] "some_metadata_value"
+
+        r save
+        set size_with_meta [file size $rdb_path]
+
+        # The file sizes should be the same (metadata not serialized)
+        assert_equal $size_without_meta $size_with_meta
     }
 } {} {external:skip needs:save}
