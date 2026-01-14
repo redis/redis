@@ -5652,12 +5652,12 @@ static inline uint64_t rotl64(uint64_t x, int r) {
  * order-independent Sum + XOR approach with rotation to produce a final
  * 128-bit hash stored in 'out_hash'. Returns C_OK on success, C_ERR on
  * error. XXH128 is a non-cryptographic hash function: fast and well-distributed,
- * but does NOT prevent intentional collision attacks. Note: state must not be
- * NULL - XXH3_createState() uses Redis allocator which panics on OOM. */
+ * but does NOT prevent intentional collision attacks. */
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash) {
     uint64_t sum_lo = 0, sum_hi = 0;
     uint64_t xor_lo = 0, xor_hi = 0;
     XXH3_state_t* state = XXH3_createState();
+    if (state == NULL) return C_ERR;
     
     char llbuf[LONG_STR_SIZE];
     XXH_errorcode err;
