@@ -5599,7 +5599,6 @@ void handleExpiredIdmpEntries(void) {
             }
 
             /* Iterate through all producers and remove expired entries */
-            int has_entries = 0;
             raxIterator ri;
             raxStart(&ri, s->idmp_producers);
             raxSeek(&ri, "^", NULL, 0);
@@ -5624,13 +5623,18 @@ void handleExpiredIdmpEntries(void) {
                     }
                 }
 
-                if (producer->idmp_head != NULL) {
-                    has_entries = 1;
+                /* If this producer has no entries left, remove it from the rax tree */
+                if (producer->idmp_head == NULL) {
+                    raxRemove(s->idmp_producers, ri.key, ri.key_len, NULL);
+                    idmpProducerFree(producer, &s->alloc_size);
                 }
             }
             raxStop(&ri);
 
-            if (!has_entries) {
+            /* If no producers remain, free the entire rax tree */
+            if (raxSize(s->idmp_producers) == 0) {
+                raxFree(s->idmp_producers);
+                s->idmp_producers = NULL;
                 dictDelete(db->stream_idmp_keys, key);
                 continue;
             }
