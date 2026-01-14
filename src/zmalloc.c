@@ -118,7 +118,7 @@ static void update_zmalloc_stat_alloc(long long num) {
              * since the other thread's value is likely higher or equal.
              * Here we just try once for simplicity and performance. */
             size_t expected = peak;
-            while (current_mem > expected && !atomic_compare_exchange_weak_explicit(&zmalloc_peak, &expected, current_mem, memory_order_relaxed, memory_order_relaxed)) {
+            while (current_mem > expected && !atomicCompareExchange(zmalloc_peak, expected, current_mem)) {
                  /* If CAS fails, expected is updated to the current value of zmalloc_peak.
                   * We continue the loop to check if we still have a higher value. */
             }
