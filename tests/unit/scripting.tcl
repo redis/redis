@@ -1056,6 +1056,25 @@ start_server {tags {"scripting"}} {
     }
     }
 
+    if {!$::log_req_res} {
+        test {new test} {
+            r readraw 1
+            set res [run_script {
+                local t = {} for i=1,5000 do t = {t} end return t
+            } 0]
+            
+            while {true} {
+                if {$res == "-ERR max recursion level reached"} {
+                    break
+                }
+                assert_equal $res "*1"
+                set res [r read]
+            }
+            r readraw 0
+            assert_equal [r ping] {PONG}
+        }
+    }
+
     test {Script check unpack with massive arguments} {
         run_script {
             local a = {}
@@ -2686,15 +2705,4 @@ start_server {tags {"scripting"}} {
         }
     }
 
-    test {EVAL - recursion protection in reply conversion} {        
-        assert_error {*max recursion level reached*} {
-            r eval {
-                local t = {}
-                for i=1,50000 do
-                    t = {t}
-                end
-                return t
-            } 0
-        }
-    }
 }
