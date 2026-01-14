@@ -65,7 +65,7 @@
 
 #if defined (HAVE_AVX512)
 #define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,avx512bw,fma")))
-#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw") && __builtin_cpu_supports("fma"))
 #else
 #define ATTRIBUTE_TARGET_AVX512
 #define VSET_USE_AVX512 0
