@@ -133,7 +133,7 @@ void fetchClientFromIOThread(client *c) {
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     resumeIOThread(c->tid);
     freeClientDeferredObjects(c, 1); /* Free deferred objects. */
-    freeClientIODeferredObjects(c); /* Free IO deferred objects. */
+    freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
 }
 
 /* For some clients, we must handle them in the main thread, since there is
@@ -449,7 +449,7 @@ int processClientsFromIOThread(IOThread *t) {
         c->running_tid = IOTHREAD_MAIN_THREAD_ID;
 
         /* Free objects queued by IO thread for deferred freeing. */
-        freeClientIODeferredObjects(c);
+        freeClientIODeferredObjects(c, 0);
 
         /* If a read error occurs, handle it in the main thread first, since we
          * want to print logs about client information before freeing. */

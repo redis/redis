@@ -1692,22 +1692,28 @@ void ioDeferFreeRobj(client *c, robj *obj) {
 }
 
 /* Free all objects queued by IO thread for deferred freeing.
- * Called by main thread when client returns from IO thread. */
-void freeClientIODeferredObjects(client *c) {
+ * Called by main thread when client returns from IO thread.
+ * If free_array is true then free the array itself as well. */
+void freeClientIODeferredObjects(client *c, int free_array) {
     for (int i = 0; i < c->io_deferred_objects_num; i++) {
         robj *obj = c->io_deferred_objects[i];
         decrRefCount(obj);
     }
 
-    /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
-    if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
-        c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
-    {
-        int new_size = c->io_deferred_objects_size / 2;
-        c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
-        c->io_deferred_objects_size = new_size;
+    if (!free_array) {
+        /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
+        if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
+            c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
+        {
+            int new_size = c->io_deferred_objects_size / 2;
+            c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
+            c->io_deferred_objects_size = new_size;
+        }
+        c->io_deferred_objects_num = 0;
+    } else {
+        zfree(c->io_deferred_objects);
+        c->io_deferred_objects = NULL; 
     }
-    c->io_deferred_objects_num = 0;
 }
 
 void freeClientOriginalArgv(client *c) {
@@ -2086,7 +2092,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
-    freeClientIODeferredObjects(c);
+    freeClientIODeferredObjects(c, 1);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
@@ -2170,7 +2176,6 @@ void freeClient(client *c) {
     if (c->name) decrRefCount(c->name);
     if (c->lib_name) decrRefCount(c->lib_name);
     if (c->lib_ver) decrRefCount(c->lib_ver);
-    zfree(c->io_deferred_objects);
     serverAssert(c->all_argv_len_sum == 0);
     sdsfree(c->peerid);
     sdsfree(c->sockname);
