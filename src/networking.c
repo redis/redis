@@ -1709,7 +1709,6 @@ void tryResizeClientIODeferredObjects(client *c) {
             c->io_deferred_objects_size = new_size;
         }
 
-        c->io_deferred_objects_peak = 0;
         c->io_deferred_objects_peak_last_reset_time = now_ms;
     }
 }
