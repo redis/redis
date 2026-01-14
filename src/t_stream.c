@@ -5627,6 +5627,7 @@ void handleExpiredIdmpEntries(void) {
                 if (producer->idmp_head == NULL) {
                     raxRemove(s->idmp_producers, ri.key, ri.key_len, NULL);
                     idmpProducerFree(producer, &s->alloc_size);
+                    raxSeek(&ri, ">=", ri.key, ri.key_len);
                 }
             }
             raxStop(&ri);
