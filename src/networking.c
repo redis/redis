@@ -462,7 +462,13 @@ static size_t _addBulkStrRefToBuffer(client *c, const void *payload, size_t len)
     if (!c->buf_encoded) {
         /* If buffer is plain and not empty then can't add bulk string reference to it */
         if (c->bufpos) return 0;
-        c->buf_encoded = 1;
+        c->buf_encoded = 1; /* Set c->buf to encoded mode to allow bulk string reference to be stored in it */
+        size_t result = _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
+        if (!result) {
+            /* Failed to add bulk string reference to buffer, need to revert to plain mode. */
+            c->buf_encoded = 0;
+        }
+        return result;
     }
     return _addReplyPayloadToBuffer(c, payload, len, BULK_STR_REF);
 }
