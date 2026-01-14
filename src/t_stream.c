@@ -5132,7 +5132,7 @@ void xcfgsetCommand(client *c) {
 
     /* Mark the key as dirty for replication only if we changed something */
     if (changed) {
-        keyModified(c,c->db,key,kv,1);
+        keyModified(c,c->db,key,kv,0);
         server.dirty++;
     }
     addReply(c,shared.ok);
