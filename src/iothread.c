@@ -95,6 +95,7 @@ void keepClientInMainThread(client *c) {
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     c->tid = IOTHREAD_MAIN_THREAD_ID;
     freeClientDeferredObjects(c, 1); /* Free deferred objects. */
+    freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
     /* Main thread starts to manage it. */
     server.io_threads_clients_num[c->tid]++;
 }

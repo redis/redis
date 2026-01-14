@@ -1713,6 +1713,8 @@ void freeClientIODeferredObjects(client *c, int free_array) {
     } else {
         zfree(c->io_deferred_objects);
         c->io_deferred_objects = NULL; 
+        c->io_deferred_objects_num = 0;
+        c->io_deferred_objects_size = 0;
     }
 }
 
