@@ -175,6 +175,8 @@ client *createClient(connection *conn) {
     c->io_deferred_objects = NULL;
     c->io_deferred_objects_num = 0;
     c->io_deferred_objects_size = 0;
+    c->io_deferred_objects_peak = 0;
+    c->io_deferred_objects_peak_last_reset_time = server.mstime;
     c->cmd = c->lastcmd = c->realcmd = c->lookedcmd = NULL;
     c->cur_script = NULL;
     c->multibulklen = 0;
@@ -1678,9 +1680,11 @@ void freeClientDeferredObjects(client *c, int free_array) {
     }
 }
 
+/* Initial size of io_deferred_objects array */
+#define IO_DEFERRED_OBJECTS_INIT_SIZE 8
+
 /* Queue an robj to be freed by the main thread when client returns from IO thread.
  * This is used in IO thread write path to avoid refcount race conditions. */
-#define IO_DEFERRED_OBJECTS_INIT_SIZE 8
 void ioDeferFreeRobj(client *c, robj *obj) {
     if (c->io_deferred_objects_num >= c->io_deferred_objects_size) {
         int new_size = !c->io_deferred_objects_size ?
@@ -1691,6 +1695,24 @@ void ioDeferFreeRobj(client *c, robj *obj) {
     c->io_deferred_objects[c->io_deferred_objects_num++] = obj;
 }
 
+/* Try to Resize io_deferred_objects array. */
+void tryResizeClientIODeferredObjects(client *c) {
+    mstime_t now_ms = server.mstime;
+    if (now_ms - c->io_deferred_objects_peak_last_reset_time >= 2000) {
+        /* If the peak utilization rate in the last 2 seconds is less than 1/4,
+         * reduce the size to 1/2 to avoid thrashing. */
+        if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
+            c->io_deferred_objects_peak * 4 < c->io_deferred_objects_size)
+        {
+            int new_size = c->io_deferred_objects_size / 2;
+            c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
+            c->io_deferred_objects_size = new_size;
+        }
+
+        c->io_deferred_objects_peak_last_reset_time = now_ms;
+    }
+}
+
 /* Free all objects queued by IO thread for deferred freeing.
  * Called by main thread when client returns from IO thread. */
 void freeClientIODeferredObjects(client *c) {
@@ -1699,14 +1721,9 @@ void freeClientIODeferredObjects(client *c) {
         decrRefCount(obj);
     }
 
-    /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
-    if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
-        c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
-    {
-        int new_size = c->io_deferred_objects_size / 2;
-        c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
-        c->io_deferred_objects_size = new_size;
-    }
+    /* Update the peak value */
+    if (c->io_deferred_objects_peak < c->io_deferred_objects_num)
+        c->io_deferred_objects_peak = c->io_deferred_objects_num;
     c->io_deferred_objects_num = 0;
 }
 

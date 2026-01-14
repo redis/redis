@@ -691,6 +691,10 @@ void IOThreadClientsCron(IOThread *t) {
     listRewind(t->clients, &li);
     while ((ln = listNext(&li)) && iterations--) {
         client *c = listNodeValue(ln);
+
+        /* Try to resize io_deferred_objects array if needed. */
+        tryResizeClientIODeferredObjects(c);
+
         /* Mark the client as pending cron, main thread will process it. */
         c->io_flags |= CLIENT_IO_PENDING_CRON;
         enqueuePendingClientsToMainThread(c, 0);
