@@ -40,18 +40,18 @@ ifeq ($(INSTALL_RUST_TOOLCHAIN),yes)
 		'x86_64') \
 			if [ "$${LIBC_TYPE}" = "musl" ]; then \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-x86_64-unknown-linux-musl"; \
-				RUST_SHA256="1a257be51efac7bea14d5566e521777b85c473ee42524a38abb181c6443c38e4"; \
+				RUST_SHA256="e9b977ef480504d3beef0a095b470945af79e8496bcbb0e4a9d4601d6d72dd91"; \
 			else \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-x86_64-unknown-linux-gnu"; \
-				RUST_SHA256="6e5efd6c25953b2732d4e6b1842512536650c68cf72a8b99a0fc566012dd6ca5"; \
+				RUST_SHA256="d2ccef59dd9f7439f2c694948069f789a044dc1addcc0803613232af8f88ee0c"; \
 			fi ;; \
 		'aarch64') \
 			if [ "$${LIBC_TYPE}" = "musl" ]; then \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-aarch64-unknown-linux-musl"; \
-				RUST_SHA256="ad412daf7b31aadbeb12f836ed14983f5d1d0717bd444e305f94ee68ea822fcd"; \
+				RUST_SHA256="0c35fca319d01c3d55345d44dbe66c987858c45e262a77c4db679e9869b0af73"; \
 			else \
 				RUST_INSTALLER="rust-$${RUST_VERSION}-aarch64-unknown-linux-gnu"; \
-				RUST_SHA256="c812028423c3d7dd7ba99f66101e9e1aa3f66eab44a1285f41c363825d49dca4"; \
+				RUST_SHA256="3e383f8b4fca710d0600d0c1de97b78281672be2cda6575ecbe1c183a12e3822"; \
 			fi ;; \
 		*) echo >&2 "Unsupported architecture: '$${ARCH}'"; exit 1 ;; \
 	esac; \
