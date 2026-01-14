@@ -160,7 +160,8 @@ foreach call_type {nested normal} {
 
         # make sure we didn't get BUSY error, it simply blocked till the command was done
         r ping
-        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] 200
+        # The command blocks for 200ms, allow 1-2ms clock skew (1%)
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] 198
         $rd read
 
         $rd close
