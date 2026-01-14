@@ -363,7 +363,7 @@ void keyMetaOnFree(kvobj *kv) {
  * - We pass NULL for keyname since the key doesn't exist yet.
  * - The kms->meta[] array is stored in reverse order: smallest metaid at the end.
  */
-static void keyMetaSpecCleanup(KeyMetaSpec *kms) {
+void keyMetaSpecCleanup(KeyMetaSpec *kms) {
     if (kms->numMeta == 0) return;
 
     /* Iterate through the metadata array in reverse order (largest to smallest ID) */
@@ -389,6 +389,8 @@ static void keyMetaSpecCleanup(KeyMetaSpec *kms) {
         /* Clear this bit and continue to next slot */
         mbits &= ~(1 << metaid);
     }
+    kms->numMeta = 0;
+    kms->metabits = 0;
 }
 
 int rdbLoadSkipMetaIfAllowed(rio *rdb, char *cname, int flags) {

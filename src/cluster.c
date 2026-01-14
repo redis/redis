@@ -265,6 +265,7 @@ void restoreCommand(client *c) {
     /* Load the object */
     if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
     {
+        keyMetaSpecCleanup(&keymeta);
         addReplyError(c,"Bad data format");
         return;
     }
@@ -282,6 +283,7 @@ void restoreCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
+        keyMetaSpecCleanup(&keymeta);
         decrRefCount(obj);
         addReply(c, shared.ok);
         return;

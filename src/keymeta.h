@@ -165,6 +165,11 @@ static inline void keyMetaSpecInit(KeyMetaSpec *keymeta) {
 /* Add metadata to keymeta spec. metaid must be in range 0..7 and added in order! */
 void keyMetaSpecAdd(KeyMetaSpec *keymeta, int metaid, uint64_t metaval);
 
+/* Free any metadata stored in a KeyMetaSpec. This is called when RDB load fails after
+ * some metadata has been loaded. It invokes the free cb for each metadata class that 
+ * was already loaded, preventing memory leaks from partially-loaded metadata. */
+void keyMetaSpecCleanup(KeyMetaSpec *kms);
+
 static inline uint32_t getNumMeta(uint16_t metabits) {
     /* Assumed expire is always first meta */
     return __builtin_popcount(metabits);

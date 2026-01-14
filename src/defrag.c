@@ -994,7 +994,7 @@ void defragModule(defragKeysCtx *ctx, redisDb *db, kvobj *kv) {
  * Returns NULL if the allocation wasn't moved.
  * When it returns a non-null value, the old pointer was already released
  * (unless without_free is set) and should NOT be accessed. */
-robj *kvobjActiveDefrag(kvobj* kv, int without_free) {
+robj *activeDefragKvobj(kvobj* kv, int without_free) {
     void *alloc, *newalloc;
     kvobj *kvNew = NULL;
     /* Use LONG_MIN as sentinel to detect if we have an EMBSTR string */
@@ -1060,7 +1060,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
      * defer defragmentation until processing db's subexpires. */
     if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
         /* If the dict doesn't have metadata, we directly defrag it. */
-        kvnew = kvobjActiveDefrag(ob, 0);
+        kvnew = activeDefragKvobj(ob, 0);
     }
     if (kvnew) {
         kvstoreDictSetAtLink(db->keys, slot, kvnew, &link, 0);
@@ -1455,7 +1455,7 @@ void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
         serverAssert(exlink != NULL);
     }
 
-    if ((newkv = kvobjActiveDefrag(kv, 1))) {
+    if ((newkv = activeDefragKvobj(kv, 1))) {
         /* Update its reference in the DB keys. */
         link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
         serverAssert(link != NULL);
