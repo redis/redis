@@ -5653,11 +5653,12 @@ static inline uint64_t rotl64(uint64_t x, int r) {
  * an array of robj pointers in 'argv' representing field-value pairs (field1,
  * value1, field2, value2, ...) and 'numfields' indicating the number of pairs
  * (not the array length). Each field-value pair is hashed using streaming
- * XXH3_128bits, and the resulting pair hashes are combined using an
- * order-independent Sum + XOR approach with rotation to produce a final
- * 128-bit hash stored in 'out_hash'. Returns C_OK on success, C_ERR on
- * error. XXH128 is a non-cryptographic hash function: fast and well-distributed,
- * but does NOT prevent intentional collision attacks. */
+ * XXH3_128bits with the field length included as a separator to prevent hash
+ * collisions from ambiguous concatenations. The resulting pair hashes are 
+ * combined using an order-independent Sum + XOR approach with rotation to 
+ * produce a final 128-bit hash stored in 'out_hash'. Returns C_OK on success,
+ * C_ERR on error. XXH128 is a non-cryptographic hash function: fast and 
+ * well-distributed, but does NOT prevent intentional collision attacks. */
 static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *out_hash) {
     uint64_t sum_lo = 0, sum_hi = 0;
     uint64_t xor_lo = 0, xor_hi = 0;
@@ -5680,6 +5681,10 @@ static int createIdempotencyHash(robj **argv, int64_t numfields, XXH128_hash_t *
         long field_len;
         unsigned char *field_data = getObjectReadOnlyString(field, &field_len, llbuf);
         err = XXH3_128bits_update(state, field_data, field_len);
+        if (err != XXH_OK) goto cleanup;
+        
+        /* Hash the field length as separator to prevent collisions */
+        err = XXH3_128bits_update(state, &field_len, sizeof(field_len));
         if (err != XXH_OK) goto cleanup;
         
         /* Hash the value */

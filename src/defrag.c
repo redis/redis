@@ -985,9 +985,14 @@ void defragStreamIdmpProducers(stream *s) {
     if (newrax)
         s->idmp_producers = newrax;
 
+    /* Defrag the rax head node */
+    defragRaxNode(&s->idmp_producers->head, NULL);
+
     /* Iterate through all producers and defrag each one */
     raxIterator ri;
     raxStart(&ri, s->idmp_producers);
+    /* Set the node callback to defrag internal rax nodes */
+    ri.node_cb = defragRaxNode;
     raxSeek(&ri, "^", NULL, 0);
     while (raxNext(&ri)) {
         idmpProducer *producer = ri.data;
