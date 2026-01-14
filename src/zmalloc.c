@@ -85,7 +85,7 @@ void je_free_with_usize(void *ptr, size_t *usize);
 
 typedef struct used_memory_entry {
     redisAtomic long long used_memory;
-    long long last_peak_check;
+    redisAtomic long long last_peak_check;
     char padding[CACHE_LINE_SIZE - sizeof(long long) - sizeof(long long)];
 } used_memory_entry;
 
@@ -106,9 +106,11 @@ static void update_zmalloc_stat_alloc(long long num) {
     init_my_thread_index();
     atomicIncr(used_memory[my_thread_index].used_memory, num);
 
-    long long used;
+    long long used, last_check;
     atomicGet(used_memory[my_thread_index].used_memory, used);
-    if (unlikely(used - used_memory[my_thread_index].last_peak_check > PEAK_CHECK_THRESHOLD)) {
+    atomicGet(used_memory[my_thread_index].last_peak_check, last_check);
+    
+    if (unlikely(used - last_check > PEAK_CHECK_THRESHOLD)) {
         size_t current_mem = zmalloc_used_memory();
         size_t peak;
         atomicGet(zmalloc_peak, peak);
@@ -126,7 +128,7 @@ static void update_zmalloc_stat_alloc(long long num) {
                 atomicSet(zmalloc_peak_time, time(NULL));
             }
         }
-        used_memory[my_thread_index].last_peak_check = used;
+        atomicSet(used_memory[my_thread_index].last_peak_check, used);
     }
 }
 
