@@ -1451,8 +1451,6 @@ typedef struct client {
     robj **io_deferred_objects;    /* Objects to be freed by main thread, queued by IO thread */
     int io_deferred_objects_num;   /* Number of objects in io_deferred_objects */
     int io_deferred_objects_size;  /* Allocated size of io_deferred_objects */
-    int io_deferred_objects_peak;  /* Peak used size of io_deferred_objects in last 2 sec interval. */
-    mstime_t io_deferred_objects_peak_last_reset_time; /* keeps the last time the io_deferred_objects peak value was reset */
     struct redisCommand *cmd, *lastcmd;  /* Last command executed. */
     struct redisCommand *lookedcmd; /* Command looked up in lookahead. */
     struct redisCommand *realcmd; /* The original command that was executed by the client,
@@ -3011,7 +3009,6 @@ void freeClientPendingCommands(client *c, int num_pcmds_to_free);
 void tryDeferFreeClientObject(client *c, int type, void *ptr);
 void freeClientDeferredObjects(client *c, int free_array);
 void freeClientIODeferredObjects(client *c);
-void tryResizeClientIODeferredObjects(client *c);
 void sendReplyToClient(connection *conn);
 void *addReplyDeferredLen(client *c);
 void setDeferredArrayLen(client *c, void *node, long length);
