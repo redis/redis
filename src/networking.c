@@ -4415,13 +4415,10 @@ void replaceClientCommandVector(client *c, int argc, robj **argv) {
             c->all_argv_len_sum += pcmd->argv_len_sum;
         }
     }
-    /* Only re-lookup the command if the command name (argv[0]) changed. */
-    if (c->original_argv[0] != c->argv[0]) {
-        c->cmd = lookupCommandOrOriginal(c->argv,c->argc);
-        if (pcmd)
-            pcmd->cmd = c->cmd;
-        serverAssertWithInfo(c,NULL,c->cmd != NULL);
-    }
+    c->cmd = lookupCommandOrOriginal(c->argv,c->argc);
+    if (pcmd)
+        pcmd->cmd = c->cmd;
+    serverAssertWithInfo(c,NULL,c->cmd != NULL);
 }
 
 /* Rewrite a single item in the command vector.
