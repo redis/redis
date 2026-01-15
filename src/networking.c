@@ -1701,6 +1701,7 @@ void ioDeferFreeRobj(client *c, robj *obj) {
  * Called by main thread when client returns from IO thread.
  * If free_array is true then free the array itself as well. */
 void freeClientIODeferredObjects(client *c, int free_array) {
+    serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
     for (int i = 0; i < c->io_deferred_objects_num; i++) {
         robj *obj = c->io_deferred_objects[i];
         decrRefCount(obj);
@@ -1721,6 +1722,12 @@ void freeClientIODeferredObjects(client *c, int free_array) {
         c->io_deferred_objects = NULL; 
         c->io_deferred_objects_num = 0;
         c->io_deferred_objects_size = 0;
+    }
+
+    /* Remove client from pending referenced reply clients list. */
+    if (c->pending_ref_reply_node) {
+        listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
+        c->pending_ref_reply_node = NULL;
     }
 }
 
@@ -2171,12 +2178,6 @@ void freeClient(client *c) {
     if (c->mem_usage_bucket) {
         c->mem_usage_bucket->mem_usage_sum -= c->last_memory_usage;
         listDelNode(c->mem_usage_bucket->clients, c->mem_usage_bucket_node);
-    }
-
-    /* Remove from clients with pending ref reply list. */
-    if (c->pending_ref_reply_node) {
-        listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
-        c->pending_ref_reply_node = NULL;
     }
 
     /* Release other dynamically allocated client structure fields,
@@ -2681,6 +2682,12 @@ int writeToClient(client *c, int handler_installed) {
         if (c->flags & CLIENT_CLOSE_AFTER_REPLY) {
             freeClientAsync(c);
             return C_ERR;
+        }
+
+        /* Remove client from pending referenced reply clients list. */
+        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID && c->pending_ref_reply_node) {
+            listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
+            c->pending_ref_reply_node = NULL;
         }
     }
     /* Update client's memory usage after writing.

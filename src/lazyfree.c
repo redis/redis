@@ -263,9 +263,8 @@ static void protectClientReplyObjects(void) {
             }
         }
 
-        /* Remove client from pending ref reply list since all refs are now copies */
-        listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
-        c->pending_ref_reply_node = NULL;
+        /* Process references in IO deferred objects. */
+        freeClientIODeferredObjects(c, 0);
     }
 
     if (allpaused) resumeAllIOThreads();
