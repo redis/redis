@@ -86,6 +86,7 @@ char *rdb_type_string[] = {
     "hash-listpack-md-pre-release",
     "hash-hashtable-md",
     "hash-listpack-md",
+    "stream-v4",
 };
 
 /* Show a few stats collected into 'rdbstate' */
@@ -242,6 +243,21 @@ int redis_check_rdb(char *rdbfilename, FILE *fp) {
         } else if (type == RDB_OPCODE_IDLE) {
             /* IDLE: LRU idle time. */
             if (rdbLoadLen(&rdb,NULL) == RDB_LENERR) goto eoferr;
+            continue; /* Read next opcode. */
+        } else if (type == RDB_OPCODE_KEY_META) {
+            /* KEY_META: Module metadata for the next key. */
+            uint64_t numClasses;
+            if ((numClasses = rdbLoadLen(&rdb,NULL)) == RDB_LENERR) goto eoferr;
+            /* Skip metadata by reading and discarding each class's data */
+            for (uint64_t i = 0; i < numClasses; i++) {
+                /* Read 4-byte CLASS_SPEC */
+                uint32_t classSpec;
+                if (rioRead(&rdb, &classSpec, 4) == 0) goto eoferr;
+                /* Skip module value using rdbLoadCheckModuleValue */
+                robj *o = rdbLoadCheckModuleValue(&rdb, "metadata");
+                if (o == NULL) goto eoferr;
+                decrRefCount(o);
+            }
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EOF) {
             /* EOF: End of file, exit the main loop. */

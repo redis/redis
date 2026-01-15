@@ -632,7 +632,7 @@ void sortCommandGeneric(client *c, int readonly) {
             /* Ownership of sobj transferred to the db. No need to free it. */
         } else {
             if (dbDelete(c->db, storekey)) {
-                signalModifiedKey(c, c->db, storekey);
+                keyModified(c, c->db, storekey, NULL, 1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
                 server.dirty++;
             }

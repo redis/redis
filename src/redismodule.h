@@ -9,6 +9,7 @@
 
 typedef struct RedisModuleString RedisModuleString;
 typedef struct RedisModuleKey RedisModuleKey;
+typedef int RedisModuleKeyMetaClassId;
 
 /* -------------- Defines NOT common between core and modules ------------- */
 
@@ -44,6 +45,10 @@ typedef long long ustime_t;
 /* Version of the RedisModuleTypeMethods structure. Once the RedisModuleTypeMethods 
  * structure is changed, this version number needs to be changed synchronistically. */
 #define REDISMODULE_TYPE_METHOD_VERSION 5
+
+/* Version of the RedisModuleKeyMetaClassConfig structure. Once the RedisModuleKeyMetaClassConfig 
+ * structure is changed, this version number needs to be changed synchronistically. */
+#define REDISMODULE_KEY_META_VERSION    1
 
 /* API flags and constants */
 #define REDISMODULE_READ (1<<0)
@@ -1005,6 +1010,19 @@ typedef int (*RedisModuleConfigApplyFunc)(RedisModuleCtx *ctx, void *privdata, R
 typedef void (*RedisModuleOnUnblocked)(RedisModuleCtx *ctx, RedisModuleCallReply *reply, void *private_data);
 typedef int (*RedisModuleAuthCallback)(RedisModuleCtx *ctx, RedisModuleString *username, RedisModuleString *password, RedisModuleString **err);
 
+typedef int (*RedisModuleKeyMetaLoadFunc)(RedisModuleIO *rdb, uint64_t *meta, int encver);
+typedef void (*RedisModuleKeyMetaSaveFunc)(RedisModuleIO *rdb, void *value, uint64_t *meta);
+typedef void (*RedisModuleKeyMetaAOFRewriteFunc)(RedisModuleIO *aof, void *value, uint64_t meta);
+typedef void (*RedisModuleKeyMetaFreeFunc)(const char *keyname, uint64_t meta);
+typedef int (*RedisModuleKeyMetaCopyFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaRenameFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaDefragFunc)(RedisModuleDefragCtx *ctx, RedisModuleString *keyname, uint64_t meta);
+typedef size_t (*RedisModuleKeyMetaMemUsageFunc)(RedisModuleKeyOptCtx *ctx, size_t sample_size, uint64_t meta);
+typedef size_t (*RedisModuleKeyMetaFreeEffortFunc)(RedisModuleKeyOptCtx *ctx, uint64_t meta);
+typedef void (*RedisModuleKeyMetaUnlinkFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+typedef int (*RedisModuleKeyMetaMoveFunc)(RedisModuleKeyOptCtx *ctx, uint64_t *meta);
+
+
 typedef struct RedisModuleTypeMethods {
     uint64_t version;
     RedisModuleTypeLoadFunc rdb_load;
@@ -1026,6 +1044,27 @@ typedef struct RedisModuleTypeMethods {
     RedisModuleTypeCopyFunc2 copy2;
     RedisModuleTypeAuxSaveFunc aux_save2;
 } RedisModuleTypeMethods;
+
+/* Key metadata class configuration structure.
+ * Must be aligned with KeyMetaConfAllVersions in module.c.
+ * See RM_CreateKeyMetaClass() documentation in module.c for detailed information. */
+typedef struct RedisModuleKeyMetaClassConfig {
+    uint64_t version;
+#define REDISMODULE_META_ALLOW_IGNORE 0
+    uint64_t flags;
+    uint64_t reset_value;
+    RedisModuleKeyMetaCopyFunc copy;
+    RedisModuleKeyMetaRenameFunc rename;
+    RedisModuleKeyMetaMoveFunc move;
+    RedisModuleKeyMetaUnlinkFunc unlink;
+    RedisModuleKeyMetaFreeFunc free;
+    RedisModuleKeyMetaLoadFunc rdb_load;
+    RedisModuleKeyMetaSaveFunc rdb_save;
+    RedisModuleKeyMetaAOFRewriteFunc aof_rewrite;
+    RedisModuleKeyMetaDefragFunc defrag;
+    RedisModuleKeyMetaMemUsageFunc mem_usage;
+    RedisModuleKeyMetaFreeEffortFunc free_effort;
+} RedisModuleKeyMetaClassConfig;
 
 #define REDISMODULE_GET_API(name) \
     RedisModule_GetApi("RedisModule_" #name, ((void **)&RedisModule_ ## name))
@@ -1428,6 +1467,10 @@ REDISMODULE_API int (*RedisModule_ConfigSet)(RedisModuleCtx *ctx, const char *na
 REDISMODULE_API int (*RedisModule_ConfigSetBool)(RedisModuleCtx *ctx, const char *name, int value, RedisModuleString **err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ConfigSetEnum)(RedisModuleCtx *ctx, const char *name, RedisModuleString *value, RedisModuleString **err) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_ConfigSetNumeric)(RedisModuleCtx *ctx, const char *name, long long value, RedisModuleString **err) REDISMODULE_ATTR;
+REDISMODULE_API RedisModuleKeyMetaClassId (*RedisModule_CreateKeyMetaClass)(RedisModuleCtx *ctx, const char *metaname, int metaver, RedisModuleKeyMetaClassConfig *conf) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_ReleaseKeyMetaClass)(RedisModuleKeyMetaClassId id) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_SetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t metadata) REDISMODULE_ATTR;
+REDISMODULE_API int (*RedisModule_GetKeyMeta)(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t *metadata) REDISMODULE_ATTR;
 
 #define RedisModule_IsAOFClient(id) ((id) == UINT64_MAX)
 
@@ -1823,6 +1866,11 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(ConfigSetBool);
     REDISMODULE_GET_API(ConfigSetEnum);
     REDISMODULE_GET_API(ConfigSetNumeric);
+    REDISMODULE_GET_API(CreateKeyMetaClass);
+    REDISMODULE_GET_API(ReleaseKeyMetaClass);
+
+    REDISMODULE_GET_API(SetKeyMeta);
+    REDISMODULE_GET_API(GetKeyMeta);
 
     if (RedisModule_IsModuleNameBusy && RedisModule_IsModuleNameBusy(name)) return REDISMODULE_ERR;
     RedisModule_SetModuleAttribs(ctx,name,ver,apiver);

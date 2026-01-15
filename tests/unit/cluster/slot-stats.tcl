@@ -288,8 +288,9 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for lua-scripts, without cross-slot keys." {
-        r eval [format "#!lua
-            redis.call('set', '%s', 'bar'); redis.call('get', '%s')" $key $key] 0
+        R 0 eval {#!lua
+            redis.call('set', KEYS[1], 'bar') redis.call('get', KEYS[2])
+        } 2 $key $key
 
         set eval_usec [get_cmdstat_usec eval r]
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
@@ -305,9 +306,9 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for lua-scripts, with cross-slot keys." {
-        r eval [format "#!lua flags=allow-cross-slot-keys
-            redis.call('set', '%s', 'bar'); redis.call('get', '%s');
-        " $key $key_secondary] 0
+        R 0 eval {#!lua flags=allow-cross-slot-keys
+            redis.call('set', KEYS[1], 'bar') redis.call('get', ARGV[1])
+        } 1 $key $key_secondary
 
         # For cross-slot, we do not accumulate at all.
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
@@ -317,13 +318,13 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for functions, without cross-slot keys." {
-        set function_str [format "#!lua name=f1
+        R 0 function load replace {#!lua name=f1
             redis.register_function{
                 function_name='f1',
-                callback=function() redis.call('set', '%s', '1') redis.call('get', '%s') end
-            }" $key $key]
-        r function load replace $function_str
-        r fcall f1 0
+                callback=function(keys, args) redis.call('set', keys[1], '1') redis.call('get', keys[2]) end
+            }
+        }
+        R 0 fcall f1 2 $key $key
 
         set fcall_usec [get_cmdstat_usec fcall r]
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
@@ -339,14 +340,14 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for functions, with cross-slot keys." {
-        set function_str [format "#!lua name=f1
+        R 0 function load replace {#!lua name=f1
             redis.register_function{
                 function_name='f1',
-                callback=function() redis.call('set', '%s', '1') redis.call('get', '%s') end,
+                callback=function(keys, args) redis.call('set', keys[1], '1') redis.call('get', args[1]) end,
                 flags={'allow-cross-slot-keys'}
-            }" $key $key_secondary]
-        r function load replace $function_str
-        r fcall f1 0
+            }
+        }
+        R 0 fcall f1 1 $key $key_secondary
 
         # For cross-slot, we do not accumulate at all.
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
