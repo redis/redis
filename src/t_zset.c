@@ -4876,7 +4876,7 @@ int zsetTest(int argc, char **argv, int flags) {
 
         /* Store for later deletion - keep a copy of the element name */
         elements[i].score = score;
-        elements[i].ele = ele;
+        elements[i].ele = sdsdup(ele);
         elements[i].node = node;
 
         /* Verify structure after each insertion */
@@ -4914,9 +4914,7 @@ int zsetTest(int argc, char **argv, int flags) {
 
         /* Verify structure after each deletion */
         zslDebugVerifyStruct(zsl);
-
-        /* Free our copy of the element name */
-        sdsfree(ele);
+        sdsfree(elements[i].ele);
     }
 
     test_cond("Delete N elements with verification",
