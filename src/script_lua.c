@@ -593,7 +593,7 @@ static void luaReplyToRedisReply(client *c, client* script_client, lua_State *lu
         return;
     }
 
-    if (level++ == MAX_STACK_DEPTH) {
+    if (++level > MAX_STACK_DEPTH) {
         /* This case is for preventing server crashes when the C stack limit is reached first */
         addReplyError(c, "max recursion level reached");
         lua_pop(lua,1);
