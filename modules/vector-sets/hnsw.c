@@ -56,7 +56,7 @@
 #endif
 
 #if defined (HAVE_AVX2)
-#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma")))
+#define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma,popcnt")))
 #define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
 #else
 #define ATTRIBUTE_TARGET_AVX2
@@ -434,10 +434,10 @@ static float vectors_distance_bin_avx512_vpopcnt(const uint64_t *x, const uint64
         opposite = _mm512_reduce_add_epi64(sum);
     }
 
-    /* Handle remaining elements with scalar code */
+    /* Handle remaining elements */
     for (; j < len; j++) {
         uint64_t xor = x[j] ^ y[j];
-        opposite += popcount64(xor);
+        opposite += __builtin_popcountll(xor);
     }
 
     return (float)opposite * 2.0f / dim;
@@ -460,21 +460,21 @@ static float vectors_distance_bin_avx2(const uint64_t *x, const uint64_t *y, uin
             __m256i vy = _mm256_loadu_si256((__m256i*)&y[j]);
             __m256i vxor = _mm256_xor_si256(vx, vy);
             
-            /* AVX2 doesn't have hardware popcount, so we use the scalar approach
-             * but still benefit from vectorized XOR operations */
+            /* Extract and use hardware POPCNT instruction */
             uint64_t xor_vals[4];
             _mm256_storeu_si256((__m256i*)xor_vals, vxor);
             
-            for (int k = 0; k < 4; k++) {
-                opposite += popcount64(xor_vals[k]);
-            }
+            opposite += __builtin_popcountll(xor_vals[0]);
+            opposite += __builtin_popcountll(xor_vals[1]);
+            opposite += __builtin_popcountll(xor_vals[2]);
+            opposite += __builtin_popcountll(xor_vals[3]);
         }
     }
 
-    /* Handle remaining elements with scalar code */
+    /* Handle remaining elements */
     for (; j < len; j++) {
         uint64_t xor = x[j] ^ y[j];
-        opposite += popcount64(xor);
+        opposite += __builtin_popcountll(xor);
     }
 
     return (float)opposite * 2.0f / dim;
