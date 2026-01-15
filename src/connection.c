@@ -68,6 +68,11 @@ int connTypeInitialize(void) {
     /* may fail if without BUILD_TLS=yes */
     RedisRegisterConnectionTypeTLS();
 
+#ifdef HAVE_IOURING
+    /* may fail if io_uring is not available at runtime */
+    RedisRegisterConnectionTypeIoUring();
+#endif
+
     return C_OK;
 }
 

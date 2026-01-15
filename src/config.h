@@ -84,6 +84,13 @@
 /* Test for polling API */
 #ifdef __linux__
 #define HAVE_EPOLL 1
+
+/* io_uring support - available on Linux 5.1+ but we require 5.6+ for
+ * multishot poll and other features. Detection is done at build time
+ * via USE_IOURING=yes in the Makefile. */
+#ifdef USE_IOURING
+#define HAVE_IOURING 1
+#endif
 #endif
 
 /* Test for accept4() */

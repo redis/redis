@@ -463,9 +463,26 @@ int RedisRegisterConnectionTypeSocket(void);
 int RedisRegisterConnectionTypeUnix(void);
 int RedisRegisterConnectionTypeTLS(void);
 
+#ifdef HAVE_IOURING
+int RedisRegisterConnectionTypeIoUring(void);
+ConnectionType *connectionTypeIoUring(void);
+#endif
+
 /* Return 1 if connection is using TLS protocol, 0 if otherwise. */
 static inline int connIsTLS(connection *conn) {
     return conn && conn->type == connectionTypeTls();
 }
+
+#ifdef HAVE_IOURING
+/* Return 1 if connection is using io_uring, 0 if otherwise. */
+static inline int connIsIoUring(connection *conn) {
+    return conn && conn->type == connectionTypeIoUring();
+}
+#else
+static inline int connIsIoUring(connection *conn) {
+    (void)conn;
+    return 0;
+}
+#endif
 
 #endif  /* __REDIS_CONNECTION_H */

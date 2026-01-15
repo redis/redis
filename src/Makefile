@@ -321,6 +321,22 @@ endif
 BUILD_NO:=0
 BUILD_YES:=1
 BUILD_MODULE:=2
+
+# io_uring support (Linux only)
+# Use USE_IOURING=yes to enable io_uring as the event loop backend
+ifeq ($(USE_IOURING),yes)
+ifeq ($(uname_S),Linux)
+	LIBURING_PKGCONFIG := $(shell $(PKG_CONFIG) --exists liburing && echo $$?)
+ifeq ($(LIBURING_PKGCONFIG),0)
+	FINAL_CFLAGS+= -DUSE_IOURING $(shell $(PKG_CONFIG) --cflags liburing)
+	FINAL_LIBS+= $(shell $(PKG_CONFIG) --libs liburing)
+else
+	FINAL_CFLAGS+= -DUSE_IOURING
+	FINAL_LIBS+= -luring
+endif
+endif
+endif
+
 ifeq ($(BUILD_TLS),yes)
 	FINAL_CFLAGS+=-DUSE_OPENSSL=$(BUILD_YES) $(OPENSSL_CFLAGS) -DBUILD_TLS_MODULE=$(BUILD_NO)
 	FINAL_LDFLAGS+=$(OPENSSL_LDFLAGS)
@@ -382,7 +398,7 @@ endif
 
 REDIS_SERVER_NAME=redis-server$(PROG_SUFFIX)
 REDIS_SENTINEL_NAME=redis-sentinel$(PROG_SUFFIX)
-REDIS_SERVER_OBJ=threads_mngr.o memory_prefetch.o adlist.o quicklist.o ae.o anet.o dict.o ebuckets.o eventnotifier.o iothread.o mstr.o entry.o kvstore.o fwtree.o estore.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o cluster_asm.o cluster_legacy.o cluster_slot_stats.o crc16.o endianconv.o slowlog.o eval.o bio.o rio.o rand.o memtest.o syscheck.o crcspeed.o crccombine.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o lolwut8.o acl.o tracking.o socket.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o mt19937-64.o resp_parser.o call_reply.o script_lua.o script.o functions.o function_lua.o commands.o strl.o connection.o unix.o logreqres.o
+REDIS_SERVER_OBJ=threads_mngr.o memory_prefetch.o adlist.o quicklist.o ae.o anet.o dict.o ebuckets.o eventnotifier.o iothread.o mstr.o entry.o kvstore.o fwtree.o estore.o server.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o pubsub.o multi.o debug.o sort.o intset.o syncio.o cluster.o cluster_asm.o cluster_legacy.o cluster_slot_stats.o crc16.o endianconv.o slowlog.o eval.o bio.o rio.o rand.o memtest.o syscheck.o crcspeed.o crccombine.o crc64.o bitops.o sentinel.o notify.o setproctitle.o blocked.o hyperloglog.o latency.o sparkline.o redis-check-rdb.o redis-check-aof.o geo.o lazyfree.o module.o evict.o expire.o geohash.o geohash_helper.o childinfo.o defrag.o siphash.o rax.o t_stream.o listpack.o localtime.o lolwut.o lolwut5.o lolwut6.o lolwut8.o acl.o tracking.o socket.o tls.o sha256.o timeout.o setcpuaffinity.o monotonic.o mt19937-64.o resp_parser.o call_reply.o script_lua.o script.o functions.o function_lua.o commands.o strl.o connection.o unix.o logreqres.o conn_iouring.o
 REDIS_CLI_NAME=redis-cli$(PROG_SUFFIX)
 REDIS_CLI_OBJ=anet.o adlist.o dict.o redis-cli.o zmalloc.o release.o ae.o redisassert.o crcspeed.o crccombine.o crc64.o siphash.o crc16.o monotonic.o cli_common.o mt19937-64.o strl.o cli_commands.o
 REDIS_BENCHMARK_NAME=redis-benchmark$(PROG_SUFFIX)
@@ -417,6 +433,7 @@ persist-settings: distclean
 	echo MALLOC=$(MALLOC) >> .make-settings
 	echo BUILD_TLS=$(BUILD_TLS) >> .make-settings
 	echo USE_SYSTEMD=$(USE_SYSTEMD) >> .make-settings
+	echo USE_IOURING=$(USE_IOURING) >> .make-settings
 	echo CFLAGS=$(CFLAGS) >> .make-settings
 	echo LDFLAGS=$(LDFLAGS) >> .make-settings
 	echo REDIS_CFLAGS=$(REDIS_CFLAGS) >> .make-settings
