@@ -1070,7 +1070,10 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     }
 
     if (ob->type == OBJ_STRING) {
-        if (ob->encoding == OBJ_ENCODING_RAW) {
+        /* Only defrag strings with refcount==1 (String might be shared as dict 
+         * keys, e.g. pub/sub channels, and may be accessed by IO threads. Other 
+         * types are never used as dict keys) */
+        if ((ob->refcount==1) && (ob->encoding == OBJ_ENCODING_RAW)) {
             /* For RAW strings, defrag the separate SDS allocation */
             sds newsds = activeDefragSds((sds)ob->ptr);
             if (newsds) ob->ptr = newsds;
