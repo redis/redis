@@ -104,10 +104,9 @@ static inline void init_my_thread_index(void) {
 
 static void update_zmalloc_stat_alloc(long long num) {
     init_my_thread_index();
-    atomicIncr(used_memory[my_thread_index].used_memory, num);
-
+    
     long long used, last_check;
-    atomicGet(used_memory[my_thread_index].used_memory, used);
+    atomicIncrGet(used_memory[my_thread_index].used_memory, used, num);
     atomicGet(used_memory[my_thread_index].last_peak_check, last_check);
     
     if (unlikely(used - last_check > PEAK_CHECK_THRESHOLD)) {
