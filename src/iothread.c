@@ -351,18 +351,30 @@ int prefetchIOThreadCommands(IOThread *t) {
     int to_prefetch = determinePrefetchCount(len);
     if (to_prefetch == 0) return 0;
 
+    /* Two-phase approach to optimize cache utilization:
+     * Phase 1: Issue prefetch hints for client structures
+     * Phase 2: Access the now-cached client data and add commands to batch */
+    client *c[16];
     int clients = 0;
     listIter li;
     listNode *ln;
     listRewind(mainThreadProcessingClients[t->id], &li);
-    while((ln = listNext(&li)) && clients < to_prefetch) {
-        client *c = listNodeValue(ln);
-        /* A single command may contain multiple keys. If the batch is full,
-         * we stop adding clients to it. */
-        if (addCommandToBatch(c) == C_ERR) break;
-        clients++;
+    /* Phase 1: Issue prefetch instructions for client struct and pending_cmds.
+     * These prefetches will bring data into cache asynchronously. */
+    for (int i = 0; i < to_prefetch && (ln = listNext(&li)); i++) {
+        c[i] = listNodeValue(ln);
+        redis_prefetch_read(c[i]);
+        redis_prefetch_read(&c[i]->pending_cmds);
     }
-
+    /* Phase 2: Access client data (now likely in cache) and add to batch.
+     * Also prefetch additional fields (reply, mem_usage_bucket) that will be
+     * needed later during command execution. */
+    for (int i = 0; i < to_prefetch; i++) {
+        if (addCommandToBatch(c[i]) == C_ERR) break;
+        if (c[i]->reply) redis_prefetch_read(c[i]->reply);
+        redis_prefetch_read(&c[i]->mem_usage_bucket);
+        clients++;
+     }
     /* Prefetch the commands in the batch. */
     prefetchCommands();
     return clients;
