@@ -4497,11 +4497,14 @@ RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
                                                 int metaver,
                                                 void *confPtr)
 {
-    UNUSED(ctx);
     RedisModuleKeyMetaClassId id;
-    /* Registration is only allowed from OnLoad like data types. */
-    if (!confPtr)
+    
+    /* Allow registration only OnLoad (and when debug commands disabled) */
+    if ((!ctx->module->onload) && (server.enable_debug_cmd == PROTECTED_ACTION_ALLOWED_NO))
         return -1;
+
+    if (!confPtr)
+        return -2;
     
     /* This structure supposed to evolve over time and defines the superset of all
      * module type methods supported across different Redis module API versions */
@@ -4524,7 +4527,7 @@ RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
     } *legacy = (struct KeyMetaConfAllVersions *)confPtr;
     
     if (legacy->version == 0 || legacy->version > REDISMODULE_KEY_META_VERSION)
-        return -2;
+        return -3;
 
     KeyMetaClassConf conf = {
             .flags = legacy->flags,
@@ -4545,7 +4548,7 @@ RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
     };
 
     id = keyMetaClassCreate(ctx->module, metaname, metaver, &conf);
-    if (id == 0) return -3;
+    if (id == 0) return -4;
     
     return id;
 }

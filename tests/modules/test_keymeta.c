@@ -381,7 +381,8 @@ static int KeyMetaRegister_RedisCommand(RedisModuleCtx *ctx, RedisModuleString *
     RedisModuleKeyMetaClassId class_id = RedisModule_CreateKeyMetaClass(ctx, metaname, (int)metaver, &config);
 
     if (class_id < 0) {
-        RedisModule_ReplyWithNull(ctx);
+        RedisModule_ReplyWithError(ctx, "ERR failed to create metadata class");
+        return REDISMODULE_OK;
     } else {
         /* Store the mapping from 9-byte-id to class-id */
         if (!addClassMapping(metaname, class_id)) {

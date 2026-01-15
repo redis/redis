@@ -97,7 +97,7 @@ proc flushallAndVerifyCleanup {} {
     assert_equal [r keymeta.active] 0
 }
 
-start_server {tags {"modules" "external:skip" "cluster:skip"}} {
+start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
     r module load $testmodule
 
     array set classesSpec {}
@@ -761,7 +761,7 @@ test "RDB: Load with different module registration order preserves metadata corr
     # This test verifies out-of-order metadata attachment during RDB load.
     # When modules register in different order at load time vs save time,
     # metadata values should still be correctly associated with their classes.
-    start_server {tags {"modules" "external:skip" "cluster:skip"}} {
+    start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
 
         # Helper function to generate class names (needed in inner scope)
@@ -803,7 +803,7 @@ test "RDB: Load with different module registration order preserves metadata corr
         file copy -force $rdb_path $temp_rdb
 
         # INNER SERVER: Start new server, register classes in DIFFERENT order, then load RDB
-        start_server [list overrides [list dir $rdb_dir]] {
+        start_server [list overrides [list dir $rdb_dir enable-debug-command yes]] {
             r module load $testmodule
 
             # Helper function to generate class names (needed in inner scope)
@@ -864,7 +864,7 @@ test "RDB: File size same with/without metadata when no rdb_save callback" {
     # the metadata is not serialized to RDB, so the RDB file size should be
     # approximately the same (within a small tolerance for header differences).
 
-    start_server {tags {"modules" "external:skip" "cluster:skip"}} {
+    start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command yes}} {
         r module load $testmodule
 
         # Get RDB directory
@@ -896,5 +896,15 @@ test "RDB: File size same with/without metadata when no rdb_save callback" {
 
         # The file sizes should be the same (metadata not serialized)
         assert_equal $size_without_meta $size_with_meta
+    }
+} {} {external:skip needs:save}
+
+test "Creating key metadata not during OnLoad should fail" {
+    # This time start_server without "enable-debug-command yes"
+    start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-debug-command no}} {
+        r module load $testmodule
+        # Creating a class not during OnLoad should fail
+        catch {r keymeta.register [cname 1] 1 "ALLOWIGNORE"} err
+        assert_match {*failed to create metadata class*} $err        
     }
 } {} {external:skip needs:save}
