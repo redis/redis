@@ -945,6 +945,67 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     return cg;
 }
 
+/* Defrag a single idmpProducer's dict and linked list entries. */
+static void defragIdmpProducer(idmpProducer *producer) {
+    if (producer->idmp_dict == NULL) return;
+
+    dict *newdict = dictDefragTables(producer->idmp_dict);
+    if (newdict)
+        producer->idmp_dict = newdict;
+
+    idmpEntry *prev = NULL;
+    idmpEntry *entry = producer->idmp_head;
+    while (entry != NULL) {
+        idmpEntry *next = entry->next;
+        idmpEntry *newentry = activeDefragAllocWithoutFree(entry);
+        if (newentry) {
+            dictEntry *de = dictFind(producer->idmp_dict, entry);
+            serverAssert(de);
+            dictSetKey(producer->idmp_dict, de, newentry);
+            if (prev)
+                prev->next = newentry;
+            else
+                producer->idmp_head = newentry;
+            if (producer->idmp_tail == entry)
+                producer->idmp_tail = newentry;
+            activeDefragFree(entry);
+            entry = newentry;
+        }
+        prev = entry;
+        entry = next;
+    }
+}
+
+/* Defrag all IDMP producers and their dict/linked list entries. */
+void defragStreamIdmpProducers(stream *s) {
+    if (s->idmp_producers == NULL) return;
+
+    /* Defrag the producers rax tree itself */
+    rax *newrax = activeDefragAlloc(s->idmp_producers);
+    if (newrax)
+        s->idmp_producers = newrax;
+
+    /* Defrag the rax head node */
+    defragRaxNode(&s->idmp_producers->head, NULL);
+
+    /* Iterate through all producers and defrag each one */
+    raxIterator ri;
+    raxStart(&ri, s->idmp_producers);
+    /* Set the node callback to defrag internal rax nodes */
+    ri.node_cb = defragRaxNode;
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        idmpProducer *producer = ri.data;
+        idmpProducer *newproducer = activeDefragAlloc(producer);
+        if (newproducer) {
+            raxSetData(ri.node, ri.data=newproducer);
+            producer = newproducer;
+        }
+        defragIdmpProducer(producer);
+    }
+    raxStop(&ri);
+}
+
 void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     serverAssert(ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM);
     stream *s = ob->ptr, *news;
@@ -972,6 +1033,11 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     if (s->cgroups_ref) {
         /* Update cgroups_ref back-pointer to new stream */
         s->cgroups_ref->alloc_size = &s->alloc_size;
+    }
+
+    if (s->idmp_producers) {
+        /* Defrag the producers and all idmpEntry structures in their linked lists */
+        defragStreamIdmpProducers(s);
     }
 }
 

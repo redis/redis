@@ -86,6 +86,7 @@ char *rdb_type_string[] = {
     "hash-listpack-md-pre-release",
     "hash-hashtable-md",
     "hash-listpack-md",
+    "stream-v4",
 };
 
 /* Show a few stats collected into 'rdbstate' */

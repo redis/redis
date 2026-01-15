@@ -301,7 +301,6 @@ static int ebTrySegSplit(EbucketsType *type, FirstSegHdr *seg, EBucketNew *newBu
      * balanced (Or won't be possible to split at all if all have the same exp-time!)
      */
     for (int i = 0 ; i < EB_SEG_MAX_ITEMS-1 ; i++) {
-        //printf ("i=%d\n", i);
         mNext = type->getExpireMeta(mIter->next);
         if (EB_BUCKET_KEY(ebGetMetaExpTime(mNext)) > EB_BUCKET_KEY(
                                                          ebGetMetaExpTime(mIter))) {

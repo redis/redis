@@ -712,7 +712,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_3);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_4);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -776,6 +776,167 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     }
     raxStop(&ri);
     return nwritten;
+}
+
+/* Serialize the IDMP entries for a stream into the RDB file.
+ * This saves all the idempotent producer tracking entries (IID -> stream ID mappings).
+ * Format: num_producers, then for each producer: pid, num_entries, entries... */
+ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
+    ssize_t n, nwritten = 0;
+
+    /* Save the number of producers. */
+    size_t num_producers = s->idmp_producers ? raxSize(s->idmp_producers) : 0;
+    if ((n = rdbSaveLen(rdb,num_producers)) == -1) return -1;
+    nwritten += n;
+
+    if (num_producers == 0) return nwritten;
+
+    /* Iterate through all producers. */
+    raxIterator ri;
+    raxStart(&ri, s->idmp_producers);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        idmpProducer *producer = ri.data;
+
+        /* Save the producer ID (pid). */
+        if ((n = rdbSaveRawString(rdb, ri.key, ri.key_len)) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
+        nwritten += n;
+
+        /* Save the number of entries for this producer. */
+        size_t count = dictSize(producer->idmp_dict);
+        if ((n = rdbSaveLen(rdb, count)) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
+        nwritten += n;
+
+        /* Iterate through the linked list and save each entry in insertion order. */
+        idmpEntry *entry = producer->idmp_head;
+        while (entry != NULL) {
+            /* Save the IID string (length + data). */
+            if ((n = rdbSaveRawString(rdb,(unsigned char *)entry->iid,entry->iid_len)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            nwritten += n;
+
+            /* Save the associated stream ID. */
+            if ((n = rdbSaveLen(rdb,entry->id.ms)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            nwritten += n;
+            if ((n = rdbSaveLen(rdb,entry->id.seq)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            nwritten += n;
+
+            entry = entry->next;
+        }
+    }
+    raxStop(&ri);
+    return nwritten;
+}
+
+/* Load IDMP entries for a stream from the RDB file.
+ * This loads all the idempotent producer tracking entries (IID -> stream ID mappings)
+ * and inserts them into the stream's idmp_producers rax tree.
+ * Format: num_producers, then for each producer: pid, num_entries, entries... */
+int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
+    /* Load the number of producers. */
+    uint64_t num_producers = rdbLoadLen(rdb, NULL);
+    if (num_producers == RDB_LENERR) {
+        return -1;
+    }
+
+    if (num_producers == 0) return 0;
+
+    /* Create the producers rax tree. */
+    s->idmp_producers = raxNew();
+    if (s->idmp_producers == NULL) {
+        return -1;
+    }
+
+    /* Load each producer. */
+    for (uint64_t p = 0; p < num_producers; p++) {
+        /* Load the producer ID (pid). */
+        size_t pid_len;
+        char *pid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &pid_len);
+        if (pid == NULL) goto cleanup;
+
+        /* Load the number of entries for this producer. */
+        uint64_t count = rdbLoadLen(rdb, NULL);
+        if (count == RDB_LENERR) {
+            sdsfree(pid);
+            goto cleanup;
+        }
+
+        /* Create the producer. */
+        idmpProducer *producer = idmpProducerCreate(&s->alloc_size);
+
+        /* Insert producer into rax tree. */
+        int inserted = raxTryInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL);
+        sdsfree(pid);
+        if (!inserted) {
+            idmpProducerFree(producer, &s->alloc_size);
+            goto cleanup;
+        }
+
+        /* Load each entry for this producer. */
+        for (uint64_t i = 0; i < count; i++) {
+            /* Load the IID string. */
+            size_t iid_len;
+            char *iid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &iid_len);
+            if (iid == NULL) goto cleanup;
+
+            /* Load the associated stream ID. */
+            streamID id;
+            id.ms = rdbLoadLen(rdb, NULL);
+            id.seq = rdbLoadLen(rdb, NULL);
+            if (rioGetReadError(rdb)) {
+                sdsfree(iid);
+                goto cleanup;
+            }
+
+            /* Create the idmpEntry. */
+            idmpEntry *entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
+            sdsfree(iid); /* idmpEntryCreate makes a copy */
+
+            /* Set the stream ID. */
+            entry->id = id;
+            entry->next = NULL;
+
+            /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
+            int ret = dictAdd(producer->idmp_dict, entry, NULL);
+            if (ret != DICT_OK) {
+                /* Insertion failed (duplicate). For RDB loading, we'll just skip
+                 * duplicates rather than failing the entire load. */
+                idmpEntryFree(entry, &s->alloc_size);
+            } else {
+                /* Add to linked list tail. */
+                if (producer->idmp_tail == NULL) {
+                    producer->idmp_head = producer->idmp_tail = entry;
+                } else {
+                    producer->idmp_tail->next = entry;
+                    producer->idmp_tail = entry;
+                }
+            }
+        }
+    }
+    return 0;
+
+cleanup:
+    /* Clean up partially constructed producers tree on error.
+     * This prevents use-after-free when the stream is later freed. */
+    if (s->idmp_producers) {
+        raxFreeWithCbAndContext(s->idmp_producers, streamFreeIdmpProducerGeneric, s);
+        s->idmp_producers = NULL;
+    }
+    return -1;
 }
 
 /* Serialize the consumers of a stream consumer group into the RDB. Helper
@@ -1148,6 +1309,28 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             }
             raxStop(&ri);
         }
+
+        /* Save IDMP (Idempotent Message Producer) configuration and entries. */
+        
+        /* Save IDMP duration (in seconds). */
+        if ((n = rdbSaveLen(rdb,s->idmp_duration)) == -1) return -1;
+        nwritten += n;
+        
+        /* Save IDMP max entries. */
+        if ((n = rdbSaveLen(rdb,s->idmp_max_entries)) == -1) return -1;
+        nwritten += n;
+        
+        /* Save all IDMP entries. */
+        if ((n = rdbSaveStreamIdmpEntries(rdb,s)) == -1) return -1;
+        nwritten += n;
+
+        /* Save the all-time count of IIDs added. */
+        if ((n = rdbSaveLen(rdb,s->iids_added)) == -1) return -1;
+        nwritten += n;
+
+        /* Save the all-time count of duplicate IIDs detected. */
+        if ((n = rdbSaveLen(rdb,s->iids_duplicates)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -2861,7 +3044,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
     } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -3170,6 +3354,61 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     }
                 }
                 raxStop(&ri_cg_pel);
+            }
+        }
+
+        /* Load IDMP (Idempotent Message Producer) configuration and entries
+         * for RDB_TYPE_STREAM_LISTPACKS_4 and above. */
+        if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_4) {
+            /* Load IDMP duration. */
+            s->idmp_duration = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream IDMP duration loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+            if (s->idmp_duration < CONFIG_STREAM_IDMP_MIN_DURATION || 
+                s->idmp_duration > CONFIG_STREAM_IDMP_MAX_DURATION) {
+                rdbReportCorruptRDB("Stream IDMP duration out of range");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load IDMP max entries. */
+            s->idmp_max_entries = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream IDMP max entries loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+            if (s->idmp_max_entries < CONFIG_STREAM_IDMP_MIN_MAXSIZE || 
+                s->idmp_max_entries > CONFIG_STREAM_IDMP_MAX_MAXSIZE) {
+                rdbReportCorruptRDB("Stream IDMP max entries out of range");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all IDMP entries. */
+            if (rdbLoadStreamIdmpEntries(rdb,s) == -1) {
+                rdbReportReadError("Stream IDMP entries loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all-time count of IIDs added. */
+            s->iids_added = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream iids_added loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all-time count of duplicate IIDs detected. */
+            s->iids_duplicates = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream iids_duplicates loading failed.");
+                decrRefCount(o);
+                return NULL;
             }
         }
     } else if (rdbtype == RDB_TYPE_MODULE_PRE_GA) {
