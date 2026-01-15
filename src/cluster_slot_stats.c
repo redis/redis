@@ -100,7 +100,7 @@ static void addReplySlotStat(client *c, int slot) {
     addReplyLongLong(c, slot);
     /* Nested map representing slot usage statistics. */
     addReplyMapLen(c, 1 +                                        /* key-count */
-                   (server.memory_tracking_per_slot ? 1 : 0) +   /* memory-bytes */
+                   (server.memory_tracking_enabled ? 1 : 0) +    /* memory-bytes */
                    (server.cluster_slot_stats_enabled ? 3 : 0)); /* remaining fields */
     addReplyBulkCString(c, "key-count");
     addReplyLongLong(c, countKeysInSlot(slot));
@@ -108,7 +108,7 @@ static void addReplySlotStat(client *c, int slot) {
     /* Any additional metrics aside from key-count come with a performance trade-off,
      * and are aggregated and returned based on its server config. */
     kvstoreDictMetadata *meta = getSlotMeta(slot, 0);
-    if (server.memory_tracking_per_slot) {
+    if (server.memory_tracking_enabled) {
         addReplyBulkCString(c, "memory-bytes");
         addReplyLongLong(c, meta ? meta->alloc_size : 0);
     }
@@ -317,7 +317,7 @@ void clusterSlotStatsCommand(client *c) {
             order_by = KEY_COUNT;
         } else if (!strcasecmp(c->argv[3]->ptr, "cpu-usec") && server.cluster_slot_stats_enabled) {
             order_by = CPU_USEC;
-        } else if (!strcasecmp(c->argv[3]->ptr, "memory-bytes") && server.cluster_slot_stats_enabled && server.memory_tracking_per_slot) {
+        } else if (!strcasecmp(c->argv[3]->ptr, "memory-bytes") && server.cluster_slot_stats_enabled && server.memory_tracking_enabled) {
             order_by = MEMORY_BYTES;
         } else if (!strcasecmp(c->argv[3]->ptr, "network-bytes-in") && server.cluster_slot_stats_enabled) {
             order_by = NETWORK_BYTES_IN;

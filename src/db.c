@@ -140,7 +140,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
 }
 
 void updateSlotAllocSize(redisDb *db, int didx, uint32_t type, int64_t oldsize, int64_t newsize) {
-    debugServerAssert(server.memory_tracking_per_slot);
+    debugServerAssert(server.memory_tracking_enabled);
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
 
@@ -160,6 +160,48 @@ void updateSlotAllocSize(redisDb *db, int didx, uint32_t type, int64_t oldsize, 
 
     /* Update allocation size histogram */
     updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, type, oldsize, newsize);
+}
+
+/* Assert allocation sizes histogram (For debugging only)
+ *
+ * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
+ */
+void dbgAssertAllocsizesHist(redisDb *db) {
+    /* Scan DB and build expected histogram by scanning all keys */
+    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
+    dictEntry *de;
+    kvstoreIterator kvs_it;
+    kvstoreIteratorInit(&kvs_it, db->keys);
+    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
+        kvobj *kv = dictGetKV(de);
+        if (kv->type < OBJ_TYPE_BASIC_MAX) {
+            size_t allocsize = kvobjAllocSize(kv);
+            scanHist[kv->type][(allocsize == 0) ? 0 : log2ceil(allocsize) + 1]++;
+        }
+    }
+    kvstoreIteratorReset(&kvs_it);
+    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+        volatile int64_t *allocsizesHist = meta->allocsizes_hist[type];
+        for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
+            if (scanHist[type][i] == allocsizesHist[i])
+                continue;
+
+            /* print scanStr vs. expected histograms for debugging */
+            char scanStr[500] = {0}, allocsizesStr[500] = {0};
+            int l1 = 0, l2 = 0;
+            for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
+                if (scanHist[type][j])
+                    l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1,
+                                        "[%d]=%"PRId64" ", j, scanHist[type][j]);
+                if (allocsizesHist[j])
+                    l2 += snprintf(allocsizesStr + l2, sizeof(allocsizesStr) - l2,
+                                            "[%d]=%"PRId64" ", j, allocsizesHist[j]);
+            }
+            serverPanic("dbgAssertAllocsizesHist: type=%d\nscanStr=%s\nallocsizes=%s\n",
+                        type, scanStr, allocsizesStr);
+        }
+    }
 }
 
 /* Assert keysizes histogram (For debugging only)
@@ -188,7 +230,7 @@ void dbgAssertKeysizesHist(redisDb *db) {
                 continue;
 
             /* print scanStr vs. expected histograms for debugging */
-            char scanStr[500], keysizesStr[500];
+            char scanStr[500] = {0}, keysizesStr[500] = {0};
             int l1 = 0, l2 = 0;
             for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
                 if (scanHist[type][j])
@@ -202,49 +244,8 @@ void dbgAssertKeysizesHist(redisDb *db) {
                         type, scanStr, keysizesStr);
         }
     }
-}
-
-/* Assert allocation sizes histogram (For debugging only)
- *
- * Triggered by DEBUG ALLOCSIZES-HIST-ASSERT 1 and tested after each command.
- */
-void dbgAssertAllocsizesHist(redisDb *db) {
-    if (!server.memory_tracking_per_slot) return;
-    /* Scan DB and build expected histogram by scanning all keys */
-    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
-    dictEntry *de;
-    kvstoreIterator kvs_it;
-    kvstoreIteratorInit(&kvs_it, db->keys);
-    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
-        kvobj *kv = dictGetKV(de);
-        if (kv->type < OBJ_TYPE_BASIC_MAX) {
-            size_t allocsize = kvobjAllocSize(kv);
-            scanHist[kv->type][(allocsize == 0) ? 0 : log2ceil(allocsize) + 1]++;
-        }
-    }
-    kvstoreIteratorReset(&kvs_it);
-    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-        volatile int64_t *allocsizesHist = meta->allocsizes_hist[type];
-        for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-            if (scanHist[type][i] == allocsizesHist[i])
-                continue;
-
-            /* print scanStr vs. expected histograms for debugging */
-            char scanStr[500], allocsizesStr[500];
-            int l1 = 0, l2 = 0;
-            for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
-                if (scanHist[type][j])
-                    l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1,
-                                        "[%d]=%"PRId64" ", j, scanHist[type][j]);
-                if (allocsizesHist[j])
-                    l2 += snprintf(allocsizesStr + l2, sizeof(allocsizesStr) - l2,
-                                            "[%d]=%"PRId64" ", j, allocsizesHist[j]);
-            }
-            serverPanic("dbgAssertAllocsizesHist: type=%d\nscanStr=%s\nallocsizes=%s\n",
-                        type, scanStr, allocsizesStr);
-        }
-    }
+    if (server.memory_tracking_enabled)
+        dbgAssertAllocsizesHist(db);
 }
 
 /* Assert per-slot alloc_size (For debugging only)
@@ -252,7 +253,7 @@ void dbgAssertAllocsizesHist(redisDb *db) {
  * Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1 and tested after each command.
  */
 void dbgAssertAllocSizePerSlot(redisDb *db) {
-    if (!server.memory_tracking_per_slot) return;
+    if (!server.memory_tracking_enabled) return;
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
     dictEntry *de;
     kvstoreIterator kvs_it;
@@ -458,7 +459,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
-    if (server.memory_tracking_per_slot)
+    if (server.memory_tracking_enabled)
         updateSlotAllocSize(db, slot, kv->type, -1, kvobjAllocSize(kv));
     *valref = kv;
     return kv;
@@ -546,7 +547,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, long long expire) {
         kv = setExpireByLink(NULL, db, key, expire, bucket);
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
-    if (server.memory_tracking_per_slot)
+    if (server.memory_tracking_enabled)
         updateSlotAllocSize(db, slot, kv->type, -1, kvobjAllocSize(kv));
     return *valref = kv;
 }
@@ -603,7 +604,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetKV(*link);
     }
-    if (server.memory_tracking_per_slot)
+    if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(old);
 
     if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
@@ -659,7 +660,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         }
     }
 
-    if (server.memory_tracking_per_slot) {
+    if (server.memory_tracking_enabled) {
         /* Save one call if old and new are the same type */
         if (oldtype == kvNew->type) {
             updateSlotAllocSize(db, slot, oldtype, oldsize, kvobjAllocSize(kvNew));
@@ -850,7 +851,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             kvstoreDictDelete(db->expires, slot, key->ptr);
 
         if (async) {
-            if (server.memory_tracking_per_slot)
+            if (server.memory_tracking_enabled)
                 updateSlotAllocSize(db, slot, type, kvobjAllocSize(kv), -1);
             freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
@@ -2607,7 +2608,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* Val already had an expire field, so it was not reallocated. */
         serverAssert(kv == kvnew);
     } else { /* No old expire */
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(kv);
         uint64_t subexpiry = EB_EXPIRE_TIME_INVALID;
         /* If hash with HFEs, take care to remove from global HFE DS before attempting
@@ -2619,7 +2620,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* if kvobj was reallocated, update dict */
         if (kv != kvnew) {
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
-            if (server.memory_tracking_per_slot)
+            if (server.memory_tracking_enabled)
                 updateSlotAllocSize(db, slot, kvnew->type, oldsize, kvobjAllocSize(kvnew));
             kv = kvnew;
         }

@@ -600,10 +600,10 @@ void setrangeCommand(client *c) {
 
     if (value_len > 0) {
         size_t oldsize = 0;
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(kv);
         kv->ptr = sdsgrowzero(kv->ptr,offset+value_len);
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldsize, kvobjAllocSize(kv));
         memcpy((char*)kv->ptr+offset,value,value_len);
         keyModified(c,c->db,c->argv[1],kv,1);
@@ -919,10 +919,10 @@ void appendCommand(client *c) {
 
         /* Append the value */
         o = dbUnshareStringValueByLink(c->db,c->argv[1],o,link);
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(o);
         o->ptr = sdscatlen(o->ptr,append->ptr,append_len);
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_STRING, oldsize, kvobjAllocSize(o));
         totlen = sdslen(o->ptr);
         int64_t oldlen = totlen - append_len;

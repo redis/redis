@@ -340,10 +340,10 @@ void sortCommandGeneric(client *c, int readonly) {
 
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == OBJ_ZSET) {
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(sortval));
     }
 
@@ -424,7 +424,7 @@ void sortCommandGeneric(client *c, int readonly) {
         }
         listTypeResetIterator(&li);
     } else if (sortval->type == OBJ_SET) {
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
         sds sdsele;
@@ -436,7 +436,7 @@ void sortCommandGeneric(client *c, int readonly) {
             j++;
         }
         setTypeResetIterator(&si);
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(sortval));
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
@@ -483,7 +483,7 @@ void sortCommandGeneric(client *c, int readonly) {
         dictEntry *setele;
         sds sdsele;
 
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(sortval);
         dictInitIterator(&di, set);
         while((setele = dictNext(&di)) != NULL) {
@@ -494,7 +494,7 @@ void sortCommandGeneric(client *c, int readonly) {
             j++;
         }
         dictResetIterator(&di);
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(sortval));
     } else {
         serverPanic("Unknown type");

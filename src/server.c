@@ -335,7 +335,7 @@ int dictSdsCompareKV(dictCmpCache *cache, const void *sdsKey1, const void *sdsKe
 static void dictDestructorKV(dict *d, void *key) {
     kvobj *kv = (kvobj *)key;
     if (kv == NULL) return;
-    if (server.memory_tracking_per_slot) {
+    if (server.memory_tracking_enabled) {
         kvstore *kvs = d->type->userdata;
         kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(kvs);
         kvstoreDictMetadata *meta = (kvstoreDictMetadata *)dictMetadata(d);
@@ -2285,7 +2285,6 @@ void initServerConfig(void) {
     server.executable = NULL;
     server.arch_bits = (sizeof(long) == 8) ? 64 : 32;
     server.dbg_assert_keysizes = 0; /* Disabled by default */
-    server.dbg_assert_allocsizes = 0; /* Disabled by default */
     server.dbg_assert_alloc_per_slot = 0; /* Disabled by default */
     server.bindaddr_count = CONFIG_DEFAULT_BINDADDR_COUNT;
     for (j = 0; j < CONFIG_DEFAULT_BINDADDR_COUNT; j++)
@@ -2894,11 +2893,11 @@ void initServer(void) {
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
     server.client_mem_usage_buckets = NULL;
-    /* Enable per slot memory accounting only if cluster-slot-stats-enabled is
-     * enabled on startup and disregard future configuration changes.
+    /* Enable memory accounting only if key-bytes-stats or cluster-slot-stats-enabled
+     * is enabled on startup and disregard future configuration changes.
      * The reason behind this behavior is we want to avoid situation where we
      * would need to catch up or iterate over all slots and kvobjs. */
-    server.memory_tracking_per_slot = clusterSlotStatsEnabled();
+    server.memory_tracking_enabled = server.key_bytes_stats || clusterSlotStatsEnabled();
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
@@ -4089,10 +4088,6 @@ void afterCommand(client *c) {
     /* Assert keysizes histogram if enabled */
     if (unlikely(server.dbg_assert_keysizes))
         dbgAssertKeysizesHist(c->db);
-
-    /* Assert allocsizes histogram if enabled */
-    if (unlikely(server.dbg_assert_allocsizes))
-        dbgAssertAllocsizesHist(c->db);
 
     /* Assert per-slot alloc_size if enabled */
     if (unlikely(server.dbg_assert_alloc_per_slot))
@@ -6656,43 +6651,52 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         }
     }
 
-    /* Exponential size labels used for histogram display (keysizes and allocsizes) */
-    static const char *expSizeLabels[] = {
-        "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
-        "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
-        "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", /* Mega */
-        "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G", /* Giga */
-        "1T", "2T", "4T", "8T", "16T", "32T", "64T", "128T", "256T", "512T", /* Tera */
-        "1P", "2P", "4P", "8P", "16P", "32P", "64P", "128P", "256P", "512P", /* Peta */
-        "1E", "2E", "4E"                                               /* Exa */
-    };
-
     /* keysizes */
     if (all_sections || (dictFind(section_dict,"keysizes") != NULL)) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keysizes\r\n");
 
-        char *typestr[] = {
+        static char *type_items_str[] = {
             [OBJ_STRING] = "distrib_strings_sizes",
             [OBJ_LIST] = "distrib_lists_items",
             [OBJ_SET] = "distrib_sets_items",
             [OBJ_ZSET] = "distrib_zsets_items",
             [OBJ_HASH] = "distrib_hashes_items"
         };
-        serverAssert(sizeof(typestr)/sizeof(typestr[0]) == OBJ_TYPE_BASIC_MAX);
+        serverAssert(sizeof(type_items_str)/sizeof(type_items_str[0]) == OBJ_TYPE_BASIC_MAX);
+        static const char *type_bytes_str[] = {
+            [OBJ_STRING] = "distrib_strings_bytes",
+            [OBJ_LIST] = "distrib_lists_bytes",
+            [OBJ_SET] = "distrib_sets_bytes",
+            [OBJ_ZSET] = "distrib_zsets_bytes",
+            [OBJ_HASH] = "distrib_hashes_bytes"
+        };
+        serverAssert(sizeof(type_bytes_str)/sizeof(type_bytes_str[0]) == OBJ_TYPE_BASIC_MAX);
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
+            static const char *expSizeLabels[] = {
+                "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
+                "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
+                "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", /* Mega */
+                "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G", /* Giga */
+                "1T", "2T", "4T", "8T", "16T", "32T", "64T", "128T", "256T", "512T", /* Tera */
+                "1P", "2P", "4P", "8P", "16P", "32P", "64P", "128P", "256P", "512P", /* Peta */
+                "1E", "2E", "4E"                                               /* Exa */
+            };
+
             if (kvstoreSize(server.db[dbnum].keys) == 0)
                 continue;
             
+            kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
+            char buf[10000];
+
+            /* Collection sizes distribution */
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
                 int64_t *kvstoreHist = meta->keysizes_hist[type];
-                char buf[10000];
                 int cnt = 0, buflen = 0;
 
                 /* Print histogram to temp buf[]. First bin is garbage */
-                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, typestr[type]);
+                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, type_items_str[type]);
 
                 for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
                     if (kvstoreHist[i] == 0) 
@@ -6709,35 +6713,16 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 /* Print the temp buf[] to the info string */
                 if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
             }
-        }
-    }
 
-    /* Allocation sizes distribution */
-    if (server.memory_tracking_per_slot && (all_sections || dictFind(section_dict,"allocsizes") != NULL)) {
-        if (sections++) info = sdscat(info,"\r\n");
-        info = sdscatprintf(info, "# Allocsizes\r\n");
+            if (!server.memory_tracking_enabled) continue;
 
-        const char *typestr[] = {
-            [OBJ_STRING] = "distrib_strings_allocsizes",
-            [OBJ_LIST] = "distrib_lists_allocsizes",
-            [OBJ_SET] = "distrib_sets_allocsizes",
-            [OBJ_ZSET] = "distrib_zsets_allocsizes",
-            [OBJ_HASH] = "distrib_hashes_allocsizes"
-        };
-        serverAssert(sizeof(typestr)/sizeof(typestr[0]) == OBJ_TYPE_BASIC_MAX);
-
-        for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
-            if (kvstoreSize(server.db[dbnum].keys) == 0)
-                continue;
-
+            /* Allocation sizes distribution */
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
                 int64_t *kvstoreHist = meta->allocsizes_hist[type];
-                char buf[10000];
                 int cnt = 0, buflen = 0;
 
                 /* Print histogram to temp buf[]. First bin is garbage */
-                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, typestr[type]);
+                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, type_bytes_str[type]);
 
                 for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
                     if (kvstoreHist[i] == 0)
