@@ -2114,7 +2114,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
-    freeClientIODeferredAndRemoveRef(c, 1, 0);
+    freeClientIODeferredAndRemoveRef(c, 1, 1);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
