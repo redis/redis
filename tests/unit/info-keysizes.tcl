@@ -755,20 +755,23 @@ start_server {} {
 }
 
 ################################################################################
-# Test the key-bytes-stats config and allocation bytes histogram (-bytes fields)
+# Test the key-bytes-stats config and key bytes histogram (_sizes fields)
 # in "info keysizes" command.
 #
-# The bytes histogram (distrib_*_bytes) requires key-bytes-stats or
+# The key bytes histogram (distrib_*_sizes) requires key-bytes-stats or
 # cluster-slot-stats-enabled to be set on startup (which enables memory_tracking).
+#
+# Note: Strings are not tracked to avoid confusion with distrib_strings_sizes.
 ################################################################################
 
 # Query and Strip result of "info keysizes" from header, spaces, and newlines,
-# keeping only the bytes distribution lines.
+# keeping only the key bytes distribution lines.
 proc get_info_keybytes_stripped {server} {
     set info [$server info keysizes]
     set result ""
     foreach line [split $info "\n"] {
-        if {[string match "*distrib_*_bytes*" $line]} {
+        # Match key bytes: lists_sizes, sets_sizes, zsets_sizes, hashes_sizes
+        if {[regexp {distrib_(lists|sets|zsets|hashes)_sizes} $line]} {
             append result [string map {" " "" "\r" ""} $line]
         }
     }
@@ -779,7 +782,7 @@ proc get_info_keybytes_stripped {server} {
 proc verify_keybytes_non_empty {server types} {
     set info [$server info keysizes]
     foreach type $types {
-        if {![string match "*distrib_${type}_bytes*" $info]} {
+        if {![string match "*distrib_${type}_sizes*" $info]} {
             fail "Expected key bytes for type $type but not found in: $info"
         }
     }
@@ -801,30 +804,29 @@ start_server {tags {external:skip needs:debug} overrides {key-bytes-stats yes}} 
         verify_keybytes_empty r
     }
 
-    test "KEY-BYTES-STATS - String keys should appear in key bytes histogram" {
+    test "KEY-BYTES-STATS - List keys should appear in key bytes histogram" {
         r FLUSHALL
-        r SET "mykey" "hello world"
-        verify_keybytes_non_empty r {strings}
+        r RPUSH "mylist" a b c d e
+        verify_keybytes_non_empty r {lists}
         r FLUSHALL
         verify_keybytes_empty r
     }
 
     test "KEY-BYTES-STATS - All data types should appear in key bytes histogram" {
         r FLUSHALL
-        r SET "str" "hello"
         r RPUSH "list" a b c
         r SADD "set" x y z
         r ZADD "zset" 1 a 2 b
         r HSET "hash" f1 v1
 
-        verify_keybytes_non_empty r {strings lists sets zsets hashes}
+        verify_keybytes_non_empty r {lists sets zsets hashes}
     }
 
     test "KEY-BYTES-STATS - Histogram bins should use power-of-2 labels" {
         r FLUSHALL
-        r SET "small" "x"
+        r HSET "hash" f1 v1
         set info [r info keysizes]
-        assert {[regexp {distrib_strings_bytes:([0-9]+[KMGTPE]?)=} $info -> label]}
+        assert {[regexp {distrib_hashes_sizes:([0-9]+[KMGTPE]?)=} $info -> label]}
         set valid_labels {0 1 2 4 8 16 32 64 128 256 512
                           1K 2K 4K 8K 16K 32K 64K 128K 256K 512K
                           1M 2M 4M 8M 16M 32M 64M 128M 256M 512M
@@ -839,37 +841,43 @@ start_server {tags {external:skip needs:debug} overrides {key-bytes-stats yes}} 
 
     test "KEY-BYTES-STATS - DEL should remove key from key bytes histogram" {
         r FLUSHALL
-        r SET "k1" "value1"
-        verify_keybytes_non_empty r {strings}
-        r DEL "k1"
+        r RPUSH "list" a b c
+        verify_keybytes_non_empty r {lists}
+        r DEL "list"
         verify_keybytes_empty r
     }
 
-    test "KEY-BYTES-STATS - Overwriting a key should update key bytes histogram" {
+    test "KEY-BYTES-STATS - Modifying a list should update key bytes histogram" {
         r FLUSHALL
-        r SET "mykey" "a"
+        r RPUSH "mylist" a
         set info1 [r info keysizes]
-        r SET "mykey" [string repeat "x" 10000]
+        # Add many elements to change allocation
+        for {set i 0} {$i < 1000} {incr i} {
+            r RPUSH "mylist" [string repeat "x" 100]
+        }
         set info2 [r info keysizes]
         # The histogram should have changed
         assert {$info1 ne $info2}
     }
 
     test "KEY-BYTES-STATS - FLUSHALL clears key bytes histogram" {
-        r SET "k1" "value1"
-        r SET "k2" "value2"
-        verify_keybytes_non_empty r {strings}
+        r RPUSH "list1" a b c
+        r RPUSH "list2" d e f
+        verify_keybytes_non_empty r {lists}
         r FLUSHALL
         verify_keybytes_empty r
     }
 
     test "KEY-BYTES-STATS - Larger allocations go to higher bins" {
         r FLUSHALL
-        r SET "small" "x"
+        r HSET "small" f1 v1
         set small_info [r info keysizes]
         r FLUSHALL
 
-        r SET "large" [string repeat "x" 100000]
+        # Create a large hash
+        for {set i 0} {$i < 1000} {incr i} {
+            r HSET "large" field$i [string repeat "x" 100]
+        }
         set large_info [r info keysizes]
 
         # The bin labels should be different
@@ -878,8 +886,8 @@ start_server {tags {external:skip needs:debug} overrides {key-bytes-stats yes}} 
 
     test "KEY-BYTES-STATS - EXPIRE eventually removes from histogram" {
         r FLUSHALL
-        r SET "expiring" "value"
-        verify_keybytes_non_empty r {strings}
+        r RPUSH "expiring" a b c
+        verify_keybytes_non_empty r {lists}
         r PEXPIRE "expiring" 50
         after 100
         wait_for_condition 50 20 {
@@ -901,24 +909,24 @@ start_server {tags {external:skip needs:debug} overrides {key-bytes-stats yes}} 
 
     test "KEY-BYTES-STATS - DEBUG RELOAD preserves key bytes histogram" {
         r FLUSHALL
-        r SET "str" "hello world"
         r RPUSH "list" 1 2 3 4 5
-        verify_keybytes_non_empty r {strings lists}
+        r HSET "hash" f1 v1
+        verify_keybytes_non_empty r {lists hashes}
         r DEBUG RELOAD
-        verify_keybytes_non_empty r {strings lists}
+        verify_keybytes_non_empty r {lists hashes}
         r DEL "list"
         r DEBUG RELOAD
-        verify_keybytes_non_empty r {strings}
+        verify_keybytes_non_empty r {hashes}
         r FLUSHALL
         verify_keybytes_empty r
     }
 
     test "KEY-BYTES-STATS - RENAME should preserve key bytes histogram" {
         r FLUSHALL
-        r SET "oldkey" "hello world"
-        verify_keybytes_non_empty r {strings}
+        r RPUSH "oldkey" a b c d e
+        verify_keybytes_non_empty r {lists}
         r RENAME "oldkey" "newkey"
-        verify_keybytes_non_empty r {strings}
+        verify_keybytes_non_empty r {lists}
         r DEL "newkey"
         verify_keybytes_empty r
     }
@@ -934,15 +942,14 @@ start_server {tags {external:skip needs:debug} overrides {key-bytes-stats yes}} 
 
     test "KEY-BYTES-STATS - RDB save and restart preserves key bytes histogram" {
         r FLUSHALL
-        r SET "str" "hello world"
         r RPUSH "list" 1 2 3 4 5
         r SADD "set" a b c d e
         r ZADD "zset" 1 a 2 b 3 c
         r HSET "hash" f1 v1 f2 v2
-        verify_keybytes_non_empty r {strings lists sets zsets hashes}
+        verify_keybytes_non_empty r {lists sets zsets hashes}
         r SAVE
         restart_server 0 true false
-        verify_keybytes_non_empty r {strings lists sets zsets hashes}
+        verify_keybytes_non_empty r {lists sets zsets hashes}
     }
 
     foreach type {listpackex hashtable} {
@@ -971,10 +978,10 @@ start_server {tags {external:skip needs:debug} overrides {key-bytes-stats yes}} 
     }
 }
 
-# Test that key-bytes-stats=no does NOT show bytes histogram
+# Test that key-bytes-stats=no does NOT show key bytes histogram
 start_server {tags {external:skip} overrides {key-bytes-stats no}} {
 
-    test "KEY-BYTES-STATS disabled - bytes histogram should not appear" {
+    test "KEY-BYTES-STATS disabled - key bytes histogram should not appear" {
         r FLUSHALL
         r SET "mykey" "hello world"
         r RPUSH "list" a b c
@@ -986,35 +993,35 @@ start_server {tags {external:skip} overrides {key-bytes-stats no}} {
         # Keysizes (sizes/items) should be present
         assert {[string match "*distrib_strings_sizes*" $info]}
         assert {[string match "*distrib_lists_items*" $info]}
-        # But bytes histogram should NOT be present
-        assert {![string match "*distrib_strings_bytes*" $info]}
-        assert {![string match "*distrib_lists_bytes*" $info]}
+        # Key bytes histogram should NOT be present (note: lists_sizes
+        # is only present when memory tracking is enabled, but lists_items always is)
+        set stripped [get_info_keybytes_stripped r]
+        assert {$stripped eq ""}
     }
 }
 
 # Test key-bytes-stats in cluster mode (with cluster-slot-stats-enabled)
 start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-slot-stats-enabled yes}} {
 
-    test "CLUSTER-SLOT-STATS - bytes histogram should appear" {
+    test "KEY-BYTES-STATS - key bytes histogram should appear" {
         r FLUSHALL
-        r SET "mykey{t}" "hello world"
-        verify_keybytes_non_empty r {strings}
+        r RPUSH "mylist{t}" a b c d e
+        verify_keybytes_non_empty r {lists}
         r FLUSHALL
         verify_keybytes_empty r
     }
 
-    test "CLUSTER-SLOT-STATS - All data types should appear in key bytes histogram" {
+    test "KEY-BYTES-STATS - All data types should appear in key bytes histogram" {
         r FLUSHALL
-        r SET "str{t}" "hello"
         r RPUSH "list{t}" a b c
         r SADD "set{t}" x y z
         r ZADD "zset{t}" 1 a 2 b
         r HSET "hash{t}" f1 v1
 
-        verify_keybytes_non_empty r {strings lists sets zsets hashes}
+        verify_keybytes_non_empty r {lists sets zsets hashes}
     }
 
-    test "CLUSTER-SLOT-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
+    test "KEY-BYTES-STATS - Test DEBUG KEYSIZES-HIST-ASSERT command" {
         r DEBUG KEYSIZES-HIST-ASSERT 1
         r FLUSHALL
         createComplexDataset r 100 {usetag}
@@ -1024,7 +1031,7 @@ start_cluster 1 0 {tags {external:skip cluster needs:debug} overrides {cluster-s
     }
 }
 
-# Test with replication in cluster mode for bytes stats
+# Test with replication in cluster mode for key bytes stats
 start_cluster 1 1 {tags {external:skip cluster needs:debug needs:repl} overrides {cluster-slot-stats-enabled yes}} {
     set primary_id 0
     set replica_id 1
@@ -1043,11 +1050,10 @@ start_cluster 1 1 {tags {external:skip cluster needs:debug needs:repl} overrides
         fail "Replica link not up"
     }
 
-    test "CLUSTER-BYTES-STATS - Replication updates key bytes on replica" {
+    test "KEY-BYTES-STATS - Replication updates key bytes on replica" {
         $primary FLUSHALL
         wait_for_ofs_sync $primary $replica
 
-        $primary SET "str{t}" "hello world"
         $primary RPUSH "list{t}" 1 2 3 4 5
         $primary SADD "set{t}" a b c d e
         $primary ZADD "zset{t}" 1 a 2 b 3 c
@@ -1055,18 +1061,18 @@ start_cluster 1 1 {tags {external:skip cluster needs:debug needs:repl} overrides
 
         wait_for_ofs_sync $primary $replica
 
-        verify_keybytes_non_empty $replica {strings lists sets zsets hashes}
+        verify_keybytes_non_empty $replica {lists sets zsets hashes}
     }
 
-    test "CLUSTER-BYTES-STATS - DEL on primary updates key bytes on replica" {
+    test "KEY-BYTES-STATS - DEL on primary updates key bytes on replica" {
         $primary FLUSHALL
         wait_for_ofs_sync $primary $replica
 
-        $primary SET "k1{t}" "value"
+        $primary RPUSH "list{t}" a b c d e
         wait_for_ofs_sync $primary $replica
-        verify_keybytes_non_empty $replica {strings}
+        verify_keybytes_non_empty $replica {lists}
 
-        $primary DEL "k1{t}"
+        $primary DEL "list{t}"
         wait_for_ofs_sync $primary $replica
         verify_keybytes_empty $replica
     }

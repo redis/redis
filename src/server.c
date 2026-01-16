@@ -6670,14 +6670,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             [OBJ_HASH] = "distrib_hashes_items"
         };
         serverAssert(sizeof(type_items_str)/sizeof(type_items_str[0]) == OBJ_TYPE_BASIC_MAX);
-        static const char *type_bytes_str[] = {
-            [OBJ_STRING] = "distrib_strings_bytes",
-            [OBJ_LIST] = "distrib_lists_bytes",
-            [OBJ_SET] = "distrib_sets_bytes",
-            [OBJ_ZSET] = "distrib_zsets_bytes",
-            [OBJ_HASH] = "distrib_hashes_bytes"
+        static const char *type_sizes_str[] = {
+            [OBJ_STRING] = NULL, /* Skip strings to avoid confusion with distrib_strings_sizes */
+            [OBJ_LIST] = "distrib_lists_sizes",
+            [OBJ_SET] = "distrib_sets_sizes",
+            [OBJ_ZSET] = "distrib_zsets_sizes",
+            [OBJ_HASH] = "distrib_hashes_sizes"
         };
-        serverAssert(sizeof(type_bytes_str)/sizeof(type_bytes_str[0]) == OBJ_TYPE_BASIC_MAX);
+        serverAssert(sizeof(type_sizes_str)/sizeof(type_sizes_str[0]) == OBJ_TYPE_BASIC_MAX);
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
             static const char *expSizeLabels[] = {
@@ -6724,11 +6724,14 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
 
             /* Allocation sizes distribution */
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+                /* Skip types without a label (e.g., strings to avoid confusion with distrib_strings_sizes) */
+                if (type_sizes_str[type] == NULL) continue;
+
                 int64_t *kvstoreHist = meta->allocsizes_hist[type];
                 int cnt = 0, buflen = 0;
 
                 /* Print histogram to temp buf[]. First bin is garbage */
-                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, type_bytes_str[type]);
+                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, type_sizes_str[type]);
 
                 for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
                     if (kvstoreHist[i] == 0)
