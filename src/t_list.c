@@ -957,14 +957,15 @@ void ltrimCommand(client *c) {
         serverPanic("Unknown list encoding");
     }
 
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
     if ((llenNew = listTypeLength(o)) == 0) {
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
         dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         llenNew = -1; /* Indicate key deleted to updateKeysizesHist() */
     } else {
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
     }
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
     keyModified(c, c->db, c->argv[1], (llenNew > 0) ? o : NULL, 1);
@@ -1127,15 +1128,16 @@ void lremCommand(client *c) {
 
     if (removed) {
         long ll = listTypeLength(subject);
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(subject));
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, ll + removed, ll);
         notifyKeyspaceEvent(NOTIFY_LIST,"lrem",c->argv[1],c->db->id);
-        
+
         if (ll == 0) {
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(subject));
             dbDelete(c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         } else {
             listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,NULL);
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(subject));
         }
         keyModified(c, c->db, c->argv[1], ll ? subject : NULL, 1);
     }
