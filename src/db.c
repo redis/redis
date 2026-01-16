@@ -163,69 +163,23 @@ void updateSlotAllocSize(redisDb *db, int didx, uint32_t type, int64_t oldsize, 
     updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, type, oldsize, newsize);
 }
 
-/* Assert allocation sizes histogram (For debugging only)
- *
- * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
- */
-void dbgAssertAllocsizesHist(redisDb *db) {
+static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
+                          size_t (*fn)(kvobj *), const char *name) {
     /* Scan DB and build expected histogram by scanning all keys */
     int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
     dictEntry *de;
     kvstoreIterator kvs_it;
-    kvstoreIteratorInit(&kvs_it, db->keys);
+    kvstoreIteratorInit(&kvs_it, kvs);
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
         if (kv->type < OBJ_TYPE_BASIC_MAX) {
-            size_t allocsize = kvobjAllocSize(kv);
-            scanHist[kv->type][(allocsize == 0) ? 0 : log2ceil(allocsize) + 1]++;
-        }
-    }
-    kvstoreIteratorReset(&kvs_it);
-    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-        volatile int64_t *allocsizesHist = meta->allocsizes_hist[type];
-        for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-            if (scanHist[type][i] == allocsizesHist[i])
-                continue;
-
-            /* print scanStr vs. expected histograms for debugging */
-            char scanStr[500] = {0}, allocsizesStr[500] = {0};
-            int l1 = 0, l2 = 0;
-            for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
-                if (scanHist[type][j])
-                    l1 += snprintf(scanStr + l1, sizeof(scanStr) - l1,
-                                        "[%d]=%"PRId64" ", j, scanHist[type][j]);
-                if (allocsizesHist[j])
-                    l2 += snprintf(allocsizesStr + l2, sizeof(allocsizesStr) - l2,
-                                            "[%d]=%"PRId64" ", j, allocsizesHist[j]);
-            }
-            serverPanic("dbgAssertAllocsizesHist: type=%d\nscanStr=%s\nallocsizes=%s\n",
-                        type, scanStr, allocsizesStr);
-        }
-    }
-}
-
-/* Assert keysizes histogram (For debugging only)
- *
- * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
- */
-void dbgAssertKeysizesHist(redisDb *db) {
-    /* Scan DB and build expected histogram by scanning all keys */
-    int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
-    dictEntry *de;
-    kvstoreIterator kvs_it;
-    kvstoreIteratorInit(&kvs_it, db->keys);
-    while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
-        kvobj *kv = dictGetKV(de);
-        if (kv->type < OBJ_TYPE_BASIC_MAX) {
-            int64_t len = getObjectLength(kv);
+            int64_t len = fn(kv);
             scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-        volatile int64_t *keysizesHist = meta->keysizes_hist[type];
+        volatile int64_t *keysizesHist = hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])
                 continue;
@@ -241,12 +195,21 @@ void dbgAssertKeysizesHist(redisDb *db) {
                     l2 += snprintf(keysizesStr + l2, sizeof(keysizesStr) - l2,
                                             "[%d]=%"PRId64" ", j, keysizesHist[j]);
             }
-            serverPanic("dbgAssertKeysizesHist: type=%d\nscanStr=%s\nkeysizes=%s\n",
-                        type, scanStr, keysizesStr);
+            serverPanic("%s: type=%d\nscanStr=%s\nkeysizes=%s\n",
+                        name, type, scanStr, keysizesStr);
         }
     }
+}
+
+/* Assert keysizes histogram (For debugging only)
+ *
+ * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
+ */
+void dbgAssertKeysizesHist(redisDb *db) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    dbgAssertHist(db->keys, meta->keysizes_hist, getObjectLength, "dbgAssertKeysizesHist");
     if (server.memory_tracking_enabled)
-        dbgAssertAllocsizesHist(db);
+        dbgAssertHist(db->keys, meta->allocsizes_hist, kvobjAllocSize, "dbgAssertAllocsizesHist");
 }
 
 /* Assert per-slot alloc_size (For debugging only)
