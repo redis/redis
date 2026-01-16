@@ -57,7 +57,7 @@
 
 #if defined (HAVE_AVX2)
 #define ATTRIBUTE_TARGET_AVX2 __attribute__((target("avx2,fma,popcnt")))
-#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"))
+#define VSET_USE_AVX2 (__builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma") && __builtin_cpu_supports("popcnt"))
 #else
 #define ATTRIBUTE_TARGET_AVX2
 #define VSET_USE_AVX2 0
