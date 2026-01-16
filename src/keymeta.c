@@ -835,8 +835,10 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
 
     /* Reallocate kv with the new metadata bit enabled. kvobjSet may return a new 
      * ptr. Takes care to transition existing metadata as needed. */
+    size_t oldsize = kvobjAllocSize(kv);
     kv = kvobjSet(key, kv, kv->metabits | (1u << id));
     kvstoreDictSetAtLink(db->keys, slot, kv, &keyLink, 0);
+    updateSlotAllocSize(db, slot, kv->type, oldsize, kvobjAllocSize(kv));
 
     /* Set new metadata */
     *kvobjMetaRef(kv, id) = metadata;
