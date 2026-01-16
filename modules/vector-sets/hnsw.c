@@ -299,7 +299,7 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
 #endif
 
 #if defined(HAVE_AVX2)
-    if (dim >= 16 && VSET_USE_AVX2) {
+    if (VSET_USE_AVX2 && dim >= 16) {
         return vectors_distance_float_avx2(x, y, dim);
     }
 #endif
