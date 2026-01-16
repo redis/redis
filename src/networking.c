@@ -1703,28 +1703,32 @@ void ioDeferFreeRobj(client *c, robj *obj) {
  * If force_remove_ref is true, unconditionally remove the client
  * from clients_with_pending_ref_reply list (used by protectClientReplyObjects
  * after all bulk string refs have been duplicated). */
-void freeClientIODeferredObjects(client *c, int free_array, int force_remove_ref) {
+void freeClientIODeferredAndRemoveRef(client *c, int free_array, int force_remove_ref) {
     serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
-    for (int i = 0; i < c->io_deferred_objects_num; i++) {
-        robj *obj = c->io_deferred_objects[i];
-        decrRefCount(obj);
-    }
 
-    if (!free_array) {
-        /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
-        if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
-            c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
-        {
-            int new_size = c->io_deferred_objects_size / 2;
-            c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
-            c->io_deferred_objects_size = new_size;
+    /* Free all objects queued by IO thread for deferred freeing. */
+    if (c->io_deferred_objects) {
+        for (int i = 0; i < c->io_deferred_objects_num; i++) {
+            robj *obj = c->io_deferred_objects[i];
+            decrRefCount(obj);
         }
-        c->io_deferred_objects_num = 0;
-    } else {
-        zfree(c->io_deferred_objects);
-        c->io_deferred_objects = NULL;
-        c->io_deferred_objects_num = 0;
-        c->io_deferred_objects_size = 0;
+
+        if (!free_array) {
+            /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
+            if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
+                c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
+            {
+                int new_size = c->io_deferred_objects_size / 2;
+                c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
+                c->io_deferred_objects_size = new_size;
+            }
+            c->io_deferred_objects_num = 0;
+        } else {
+            zfree(c->io_deferred_objects);
+            c->io_deferred_objects = NULL;
+            c->io_deferred_objects_num = 0;
+            c->io_deferred_objects_size = 0;
+        }
     }
 
     /* Remove client from pending referenced reply clients list. */
@@ -2110,7 +2114,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
-    freeClientIODeferredObjects(c, 1, 0);
+    freeClientIODeferredAndRemoveRef(c, 1, 0);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
