@@ -3715,7 +3715,6 @@ void updateSlotAllocSize(redisDb *db, int didx, uint32_t type, int64_t oldsize, 
 void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t type, int64_t oldLen, int64_t newLen);
 void dbgAssertKeysizesHist(redisDb *db);
 void dbgAssertAllocSizePerSlot(redisDb *db);
-void dbgAssertAllocsizesHist(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
 void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
