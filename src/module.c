@@ -4727,6 +4727,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
     } else {
         /* Unshare and resize. */
         key->kv = dbUnshareStringValue(key->db, key->key, key->kv);
+        size_t oldsize = kvobjAllocSize(key->kv);
         size_t curlen = sdslen(key->kv->ptr);
         if (newlen > curlen) {
             key->kv->ptr = sdsgrowzero(key->kv->ptr,newlen);
@@ -4736,6 +4737,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
             if (sdslen(key->kv->ptr) < sdsavail(key->kv->ptr))
                 key->kv->ptr = sdsRemoveFreeSpace(key->kv->ptr, 0);
         }
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_STRING, oldsize, kvobjAllocSize(key->kv));
     }
     return REDISMODULE_OK;
 }
