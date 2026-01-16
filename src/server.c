@@ -335,18 +335,16 @@ int dictSdsCompareKV(dictCmpCache *cache, const void *sdsKey1, const void *sdsKe
 static void dictDestructorKV(dict *d, void *key) {
     kvobj *kv = (kvobj *)key;
     if (kv == NULL) return;
-    if (server.memory_tracking_enabled) {
-        kvstore *kvs = d->type->userdata;
-        kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(kvs);
-        kvstoreDictMetadata *meta = (kvstoreDictMetadata *)dictMetadata(d);
-        size_t alloc_size = kvobjAllocSize(kv);
-        debugServerAssert(alloc_size <= meta->alloc_size);
-        meta->alloc_size -= alloc_size;
-        /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
-         * (e.g. in lazy free context). */
-        if (kvstoreMeta)
-            updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, alloc_size, -1);
-    }
+    kvstore *kvs = d->type->userdata;
+    kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(kvs);
+    kvstoreDictMetadata *meta = (kvstoreDictMetadata *)dictMetadata(d);
+    size_t alloc_size = kvobjAllocSize(kv);
+    debugServerAssert(alloc_size <= meta->alloc_size);
+    meta->alloc_size -= alloc_size;
+    /* kvstoreMeta may be NULL when freeing kvstore created with kvstoreBaseType
+     * (e.g. in lazy free context). */
+    if (kvstoreMeta)
+        updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, alloc_size, -1);
     decrRefCount(kv);
 }
 
@@ -2898,11 +2896,6 @@ void initServer(void) {
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
     server.client_mem_usage_buckets = NULL;
-    /* Enable memory accounting only if key-bytes-stats or cluster-slot-stats-enabled
-     * is enabled on startup and disregard future configuration changes.
-     * The reason behind this behavior is we want to avoid situation where we
-     * would need to catch up or iterate over all slots and kvobjs. */
-    server.memory_tracking_enabled = server.key_bytes_stats || clusterSlotStatsEnabled();
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
@@ -6719,8 +6712,6 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
                 /* Print the temp buf[] to the info string */
                 if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
             }
-
-            if (!server.memory_tracking_enabled) continue;
 
             /* Allocation sizes distribution */
             for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {

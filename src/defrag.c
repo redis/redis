@@ -1110,8 +1110,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     int slot = ctx->kvstate.slot;
     unsigned char *newzl;
 
-    if (server.memory_tracking_enabled)
-        oldsize = kvobjAllocSize(ob);
+    oldsize = kvobjAllocSize(ob);
 
     long long expire = kvobjGetExpire(ob);
     /* We can't search in db->expires for that KV after we've released
@@ -1196,8 +1195,7 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     } else {
         serverPanic("Unknown object type");
     }
-    if (server.memory_tracking_enabled)
-        updateSlotAllocSize(db, slot, ob->type, oldsize, kvobjAllocSize(ob));
+    updateSlotAllocSize(db, slot, ob->type, oldsize, kvobjAllocSize(ob));
 }
 
 /* Defrag scan callback for the main db dictionary. */
@@ -1340,10 +1338,10 @@ static doneStatus defragLaterStep(void *ctx, monotime endtime) {
         kvobj *kv = de ? dictGetKV(de) : NULL;
 
         long long key_defragged = server.stat_active_defrag_hits;
-        if (server.memory_tracking_enabled && kv)
+        if (kv)
             oldsize = kvobjAllocSize(kv);
         int timeout = (defragLaterItem(kv, &defrag_keys_ctx->defrag_later_cursor, endtime, defrag_keys_ctx->dbid) == 1);
-        if (server.memory_tracking_enabled && kv)
+        if (kv)
             updateSlotAllocSize(db, slot, kv->type, oldsize, kvobjAllocSize(kv));
         if (key_defragged != server.stat_active_defrag_hits) {
             server.stat_active_defrag_key_hits++;

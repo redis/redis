@@ -340,11 +340,9 @@ void sortCommandGeneric(client *c, int readonly) {
 
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == OBJ_ZSET) {
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
+        oldsize = kvobjAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(sortval));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(sortval));
     }
 
     /* Obtain the length of the object to sort. */
@@ -424,8 +422,7 @@ void sortCommandGeneric(client *c, int readonly) {
         }
         listTypeResetIterator(&li);
     } else if (sortval->type == OBJ_SET) {
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
+        oldsize = kvobjAllocSize(sortval);
         setTypeIterator si;
         sds sdsele;
         setTypeInitIterator(&si, sortval);
@@ -436,8 +433,7 @@ void sortCommandGeneric(client *c, int readonly) {
             j++;
         }
         setTypeResetIterator(&si);
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(sortval));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(sortval));
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original
@@ -483,8 +479,7 @@ void sortCommandGeneric(client *c, int readonly) {
         dictEntry *setele;
         sds sdsele;
 
-        if (server.memory_tracking_enabled)
-            oldsize = kvobjAllocSize(sortval);
+        oldsize = kvobjAllocSize(sortval);
         dictInitIterator(&di, set);
         while((setele = dictNext(&di)) != NULL) {
             sdsele =  dictGetKey(setele);
@@ -494,8 +489,7 @@ void sortCommandGeneric(client *c, int readonly) {
             j++;
         }
         dictResetIterator(&di);
-        if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(sortval));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(sortval));
     } else {
         serverPanic("Unknown type");
     }
