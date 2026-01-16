@@ -42,4 +42,3 @@ Makefile.dep
 .ccls-cache/*
 compile_commands.json
 redis.code-workspace
-.DS_Store
