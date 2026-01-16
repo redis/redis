@@ -95,7 +95,7 @@ void keepClientInMainThread(client *c) {
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     c->tid = IOTHREAD_MAIN_THREAD_ID;
     freeClientDeferredObjects(c, 1); /* Free deferred objects. */
-    freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
+    freeClientIODeferredObjects(c, 1, 0); /* Free IO deferred objects. */
     /* Main thread starts to manage it. */
     server.io_threads_clients_num[c->tid]++;
 }
@@ -134,7 +134,7 @@ void fetchClientFromIOThread(client *c) {
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     resumeIOThread(c->tid);
     freeClientDeferredObjects(c, 1); /* Free deferred objects. */
-    freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
+    freeClientIODeferredObjects(c, 1, 0); /* Free IO deferred objects. */
 }
 
 /* For some clients, we must handle them in the main thread, since there is
@@ -450,7 +450,7 @@ int processClientsFromIOThread(IOThread *t) {
         c->running_tid = IOTHREAD_MAIN_THREAD_ID;
 
         /* Free objects queued by IO thread for deferred freeing. */
-        freeClientIODeferredObjects(c, 0);
+        freeClientIODeferredObjects(c, 0, 0);
 
         /* If a read error occurs, handle it in the main thread first, since we
          * want to print logs about client information before freeing. */

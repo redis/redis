@@ -1699,8 +1699,11 @@ void ioDeferFreeRobj(client *c, robj *obj) {
 
 /* Free all objects queued by IO thread for deferred freeing.
  * Called by main thread when client returns from IO thread.
- * If free_array is true then free the array itself as well. */
-void freeClientIODeferredObjects(client *c, int free_array) {
+ * If free_array is true then free the array itself as well.
+ * If force_remove_ref is true, unconditionally remove the client
+ * from clients_with_pending_ref_reply list (used by protectClientReplyObjects
+ * after all bulk string refs have been duplicated). */
+void freeClientIODeferredObjects(client *c, int free_array, int force_remove_ref) {
     serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
     for (int i = 0; i < c->io_deferred_objects_num; i++) {
         robj *obj = c->io_deferred_objects[i];
@@ -1719,13 +1722,13 @@ void freeClientIODeferredObjects(client *c, int free_array) {
         c->io_deferred_objects_num = 0;
     } else {
         zfree(c->io_deferred_objects);
-        c->io_deferred_objects = NULL; 
+        c->io_deferred_objects = NULL;
         c->io_deferred_objects_num = 0;
         c->io_deferred_objects_size = 0;
     }
 
     /* Remove client from pending referenced reply clients list. */
-    if (c->pending_ref_reply_node) {
+    if (c->pending_ref_reply_node && (force_remove_ref || !clientHasPendingReplies(c))) {
         listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
         c->pending_ref_reply_node = NULL;
     }
@@ -2107,7 +2110,7 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
-    freeClientIODeferredObjects(c, 1);
+    freeClientIODeferredObjects(c, 1, 0);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
