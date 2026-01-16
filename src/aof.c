@@ -2359,7 +2359,7 @@ int rewriteModuleObject(rio *r, robj *key, robj *o, int dbid) {
     RedisModuleIO io;
     moduleValue *mv = o->ptr;
     moduleType *mt = mv->type;
-    moduleInitIOContext(io,mt,r,key,dbid);
+    moduleInitIOContext(&io, &mt->entity, r, key, dbid);
     mt->aof_rewrite(&io,key,mv->value);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -2420,6 +2420,10 @@ int rewriteObject(rio *r, robj *key, robj *o, int dbid, long long expiretime) {
         if (rioWriteBulkObject(r,key) == 0) return C_ERR;
         if (rioWriteBulkLongLong(r,expiretime) == 0) return C_ERR;
     }
+
+    /* If modules metadata is available */
+    if ((getModuleMetaBits(o->metabits)) && (keyMetaOnAof(r, key, o, dbid) == 0))
+        return C_ERR;
 
     return C_OK;
 }

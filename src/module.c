@@ -76,6 +76,7 @@ struct RedisModuleSharedAPI {
     RedisModule *module;
 };
 typedef struct RedisModuleSharedAPI RedisModuleSharedAPI;
+typedef struct RedisModuleKeyOptCtx RedisModuleKeyOptCtx;
 
 dict *modules; /* Hash table of modules. SDS -> RedisModule ptr.*/
 
@@ -425,16 +426,6 @@ typedef struct RedisModuleUser {
     user *user; /* Reference to the real redis user */
     int free_user; /* Indicates that user should also be freed when this object is freed */
 } RedisModuleUser;
-
-/* This is a structure used to export some meta-information such as dbid to the module. */
-typedef struct RedisModuleKeyOptCtx {
-    struct redisObject *from_key, *to_key; /* Optional name of key processed, NULL when unknown. 
-                                              In most cases, only 'from_key' is valid, but in callbacks 
-                                              such as `copy2`, both 'from_key' and 'to_key' are valid. */
-    int from_dbid, to_dbid;                /* The dbid of the key being processed, -1 when unknown.
-                                              In most cases, only 'from_dbid' is valid, but in callbacks such 
-                                              as `copy2`, 'from_dbid' and 'to_dbid' are both valid. */
-} RedisModuleKeyOptCtx;
 
 /* Data structures related to redis module configurations */
 /* The function signatures for module config get callbacks. These are identical to the ones exposed in redismodule.h. */
@@ -4334,6 +4325,267 @@ int RM_SetAbsExpire(RedisModuleKey *key, mstime_t expire) {
     return REDISMODULE_OK;
 }
 
+/* Register a new key metadata class exported by the module.
+ *
+ * Key metadata allows modules to attach up to 8 bytes of metadata to any Redis key,
+ * regardless of the key's type. This metadata persists across key operations like
+ * COPY, RENAME, MOVE, and can be saved/loaded from RDB files.
+ *
+ * The parameters are the following:
+ *
+ * * **metaname**: A 9 characters metadata class name that MUST be unique in the Redis
+ *   Modules ecosystem. Use the charset A-Z a-z 0-9, plus the two "-_" characters.
+ *   A good idea is to use, for example `<metaname>-<vendor>`. For example
+ *   "idx-RediSearch" may mean "Index metadata by RediSearch module". To use both
+ *   lower case and upper case letters helps in order to prevent collisions.
+ *
+ * * **metaver**: Encoding version, which is the version of the serialization
+ *   that a module used in order to persist metadata. As long as the "metaname"
+ *   matches, the RDB loading will be dispatched to the metadata class callbacks
+ *   whatever 'metaver' is used, however the module can understand if
+ *   the encoding it must load is of an older version of the module.
+ *   For example the module "idx-RediSearch" initially used metaver=0. Later
+ *   after an upgrade, it started to serialize metadata in a different format
+ *   and to register the class with metaver=1. However this module may
+ *   still load old data produced by an older version if the rdb_load
+ *   callback is able to check the metaver value and act accordingly.
+ *   The metaver must be a positive value between 0 and 1023.
+ *
+ * * **confPtr** is a pointer to a RedisModuleKeyMetaClassConfig structure
+ *   that should be populated with the configuration and callbacks, like in
+ *   the following example:
+ *
+ *         RedisModuleKeyMetaClassConfig config = {
+ *             .version = REDISMODULE_KEY_META_VERSION,
+ *             .flags = 1 << REDISMODULE_META_ALLOW_IGNORE,
+ *             .reset_value = 0,
+ *             .copy = myMeta_CopyCallback,
+ *             .rename = myMeta_RenameCallback,
+ *             .move = myMeta_MoveCallback,
+ *             .unlink = myMeta_UnlinkCallback,
+ *             .free = myMeta_FreeCallback,
+ *             .rdb_load = myMeta_RDBLoadCallback,
+ *             .rdb_save = myMeta_RDBSaveCallback,
+ *             .aof_rewrite = myMeta_AOFRewriteCallback,
+ *             .defrag = myMeta_DefragCallback,
+ *             .mem_usage = myMeta_MemUsageCallback,
+ *             .free_effort = myMeta_FreeEffortCallback
+ *         }
+ *
+ *   Redis does NOT take ownership of the config structure itself. The `confPtr` 
+ *   parameter only needs to remain valid during the RM_CreateKeyMetaClass() call 
+ *   and can be freed immediately after.
+ *
+ * * **version**: Module must set it to REDISMODULE_KEY_META_VERSION. This field is
+ *   bumped when new fields are added; Redis keeps backward compatibility in
+ *   RM_CreateKeyMetaClass().
+ *
+ * * **flags**: Currently supports REDISMODULE_META_ALLOW_IGNORE (value 0).
+ *   When set, metadata will be silently ignored during RDB load if the module
+ *   is not available or if rdb_load callback is NULL. Otherwise, RDB loading
+ *   will fail if metadata is encountered but cannot be loaded.
+ *
+ * * **reset_value**: The value to which metadata should be reset when it is being
+ *   "removed" from a key. Typically 0, but can be any 8-byte value. This is
+ *   especially relevant when metadata is a pointer/handler to external resources.
+ *
+ *   IMPORTANT GUARANTEE: Redis only invokes callbacks when meta != reset_value.
+ *
+ * * **copy**: A callback function pointer for COPY command (optional).
+ *   - Return 1 to attach `meta` to the new key, or 0 to skip attaching metadata.
+ *   - If NULL, metadata is ignored during copy.
+ *   - The `meta` value may be modified in-place to produce a different value
+ *     for the new key.
+ *
+ * * **rename**: A callback function pointer for RENAME command (optional).
+ *   - If NULL, then metadata is kept during rename.
+ *   - The `meta` value may be modified in-place to produce a different value
+ *     for the new key.
+ *
+ * * **move**: A callback function pointer for MOVE command (optional).
+ *   - Return 1 to keep metadata, 0 to drop.
+ *   - If NULL, then metadata is kept during move.
+ *   - The `meta` value may be modified in-place to produce a different value
+ *     for the new key.
+ *
+ * * **unlink**: A callback function pointer for unlink operations (optional).
+ *   - If not provided, then metadata is ignored during unlink.
+ *   - Indication that key may soon be freed by background thread.
+ *   - Pointer to meta is provided for modification. If the metadata holds a pointer
+ *     or handle to resources and you free them here, you should set `*meta=reset_value`
+ *     to prevent the free callback from being invoked (Redis skips callbacks when
+ *     meta == reset_value, see reset_value documentation above).
+ *
+ * * **free**: A callback function pointer for cleanup (optional).
+ *   Invoked when a key with this metadata is deleted/overwritten/expired,
+ *   or when Redis needs to release per-key metadata during lifecycle operations.
+ *   The module should free any external allocation referenced by `meta`
+ *   if it uses the 8 bytes as a handle/pointer.
+ *   This callback may run in a background thread and is not protected by GIL.
+ *   It also might be called during RDB loading if the load fails after some
+ *   metadata has been successfully loaded. In this case, keyname will be NULL
+ *   since the key hasn't been created yet.
+ *
+ * * **rdb_load**: A callback function pointer for RDB loading (optional).
+ *   - Called during RDB loading when metadata for this class is encountered.
+ *   - Behavior when NULL:
+ *     > If rdb_load is NULL AND REDISMODULE_META_ALLOW_IGNORE flag is set,
+ *       the metadata will be silently ignored during RDB load.
+ *     > If rdb_load is NULL AND the flag is NOT set, RDB loading will fail
+ *       if metadata for this class is encountered.
+ *   - Behavior when class is not registered:
+ *     > If the class was saved with REDISMODULE_META_ALLOW_IGNORE flag but
+ *       is not registered at load time, the metadata will be silently ignored.
+ *     > Otherwise, RDB loading will fail.
+ *   - Callback responsibilities:
+ *     > Read custom serialized data from `rdb` using RedisModule_Load*() APIs
+ *     > Deserialize and reconstruct the 8-byte metadata value
+ *     > Write the final 8-byte value into `*meta`
+ *     > Return appropriate status code (see below)
+ *     > Database ID can be derived from `rdb` if needed. The associated key
+ *       will be loaded immediately after this callback returns.
+ *   - Parameters:
+ *     > rdb: RDB I/O context (use RedisModule_Load*() functions to read data)
+ *     > meta: Pointer to 8-byte metadata slot (write your deserialized value here)
+ *     > encver: Encoding version (the metadata class version at save time)
+ *   - Return values:
+ *     > 1: Attach value `*meta` to the key (success)
+ *     > 0: Ignore/skip metadata (don't attach, but continue loading - not an error)
+ *     > -1: Error - abort RDB load (e.g., invalid data, version incompatibility)
+ *            Module MUST clean up any allocated metadata before returning -1.
+ *
+ * * **rdb_save**: A callback function pointer for RDB saving (optional).
+ *   - If set to NULL, Redis will not save metadata to RDB.
+ *   - Callback should write data using RDB assisting functions: RedisModule_Save*().
+ *
+ * * **aof_rewrite**: A callback function pointer for AOF rewrite (optional).
+ *   Called during AOF rewrite to emit commands that reconstruct the metadata.
+ *   IMPORTANT: For AOF/RDB persistence to work correctly, metadata classes must be
+ *   registered in RedisModule_OnLoad() so they are available when loading persisted
+ *   data on server startup.
+ *
+ * * **defrag**: A callback function pointer for active defragmentation (optional).
+ *   If the metadata contains pointers, this callback should defragment them.
+ *
+ * * **mem_usage**: A callback function pointer for MEMORY USAGE command (optional).
+ *   Should return the memory used by the metadata in bytes.
+ *
+ * * **free_effort**: A callback function pointer for lazy free (optional).
+ *   Should return the complexity of freeing the metadata to determine if
+ *   lazy free should be used.
+ *
+ * Note: the metadata class name "AAAAAAAAA" is reserved and produces an error.
+ *
+ * If RM_CreateKeyMetaClass() is called outside of RedisModule_OnLoad() function,
+ * there is already a metadata class registered with the same name,
+ * or if the metadata class name or metaver is invalid, a negative value is returned.
+ * Otherwise the new metadata class is registered into Redis, and a reference of
+ * type RedisModuleKeyMetaClassId is returned: the caller of the function should store
+ * this reference into a global variable to make future use of it in the
+ * modules metadata API, since a single module may register multiple metadata classes.
+ * Example code fragment:
+ *
+ *      static RedisModuleKeyMetaClassId IndexMetaClass;
+ *
+ *      int RedisModule_OnLoad(RedisModuleCtx *ctx) {
+ *          // some code here ...
+ *          IndexMetaClass = RM_CreateKeyMetaClass(...);
+ *      }
+ */
+RedisModuleKeyMetaClassId RM_CreateKeyMetaClass(RedisModuleCtx *ctx,
+                                                const char *metaname,
+                                                int metaver,
+                                                void *confPtr)
+{
+    RedisModuleKeyMetaClassId id;
+    
+    /* Allow registration only OnLoad (and when debug commands disabled) */
+    if ((!ctx->module->onload) && (server.enable_debug_cmd == PROTECTED_ACTION_ALLOWED_NO))
+        return -1;
+
+    if (!confPtr)
+        return -2;
+    
+    /* This structure supposed to evolve over time and defines the superset of all
+     * module type methods supported across different Redis module API versions */
+    struct KeyMetaConfAllVersions {
+        uint64_t version;
+        uint64_t flags;
+        uint64_t reset_value;
+        KeyMetaCopyFunc copy;
+        KeyMetaRenameFunc rename;
+        KeyMetaMoveFunc move;
+        KeyMetaUnlinkFunc unlink;
+        KeyMetaFreeFunc free;
+        /********** TBD: **********/
+        KeyMetaLoadFunc rdb_load;
+        KeyMetaSaveFunc rdb_save;
+        KeyMetaAOFRewriteFunc aof_rewrite;
+        KeyMetaDefragFunc defrag;        
+        KeyMetaMemUsageFunc mem_usage;
+        KeyMetaFreeEffortFunc free_effort;
+    } *legacy = (struct KeyMetaConfAllVersions *)confPtr;
+    
+    if (legacy->version == 0 || legacy->version > REDISMODULE_KEY_META_VERSION)
+        return -3;
+
+    KeyMetaClassConf conf = {
+            .flags = legacy->flags,
+            .reset_value = legacy->reset_value,
+
+            .copy = legacy->copy,
+            .rename = legacy->rename,
+            .move = legacy->move,
+            .unlink = legacy->unlink,
+            .free = legacy->free,
+
+            .rdb_load = legacy->rdb_load,
+            .rdb_save = legacy->rdb_save,
+            .aof_rewrite = legacy->aof_rewrite,
+            .defrag = legacy->defrag,
+            .mem_usage = legacy->mem_usage,
+            .free_effort = legacy->free_effort
+    };
+
+    id = keyMetaClassCreate(ctx->module, metaname, metaver, &conf);
+    if (id == 0) return -4;
+    
+    return id;
+}
+
+/* Release a class by its ID. Returns 1 on success, 0 on failure. */
+int RM_ReleaseKeyMetaClass(RedisModuleKeyMetaClassId id) {
+    return (keyMetaClassRelease(id)) ? REDISMODULE_OK : REDISMODULE_ERR;
+}
+
+/* Set metadata of class id on an opened key. If metadata is already attached,
+ * it will be overwritten. The caller is responsible for retrieving and freeing
+ * any existing pointer-based metadata before setting a new value. */
+int RM_SetKeyMeta(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t metadata) {
+    if ((!key) || !(key->mode & REDISMODULE_WRITE) || (key->kv == NULL))
+        return REDISMODULE_ERR;
+
+    kvobj *new_kv = keyMetaSetMetadata(key->db, key->kv, id, metadata);
+    if (new_kv == NULL)
+        return REDISMODULE_ERR;
+
+    /* Update the key->kv pointer in case it was reallocated */
+    key->kv = new_kv;
+
+    return REDISMODULE_OK;
+}
+
+/* Get metadata of class id from an opened key. */
+int RM_GetKeyMeta(RedisModuleKeyMetaClassId id, RedisModuleKey *key, uint64_t *metadata) {
+    if ((!key) || (key->kv == NULL) || (!metadata))
+        return REDISMODULE_ERR;
+    
+    if (keyMetaGetMetadata(id, key->kv, metadata) == 0)
+        return REDISMODULE_ERR;
+    
+    return REDISMODULE_OK;
+}
+
 /* Performs similar operation to FLUSHALL, and optionally start a new AOF file (if enabled)
  * If restart_aof is true, you must make sure the command that triggered this call is not
  * propagated to the AOF file.
@@ -6926,8 +7178,8 @@ moduleType *moduleTypeLookupModuleByNameInternal(const char *name, int ignore_ca
         listRewind(module->types,&li);
         while((ln = listNext(&li))) {
             moduleType *mt = ln->value;
-            if ((!ignore_case && memcmp(name,mt->name,sizeof(mt->name)) == 0)
-                || (ignore_case && !strcasecmp(name, mt->name)))
+            if ((!ignore_case && memcmp(name,mt->entity.name,sizeof(mt->entity.name)) == 0)
+                || (ignore_case && !strcasecmp(name, mt->entity.name)))
             {
                 dictResetIterator(&di);
                 return mt;
@@ -6979,7 +7231,7 @@ moduleType *moduleTypeLookupModuleByID(uint64_t id) {
             moduleType *this_mt = ln->value;
             /* Compare only the 54 bit module identifier and not the
              * encoding version. */
-            if (this_mt->id >> 10 == id >> 10) {
+            if (this_mt->entity.id >> 10 == id >> 10) {
                 mt = this_mt;
                 break;
             }
@@ -7013,8 +7265,8 @@ void moduleTypeNameByID(char *name, uint64_t moduleid) {
 
 /* Return the name of the module that owns the specified moduleType. */
 const char *moduleTypeModuleName(moduleType *mt) {
-    if (!mt || !mt->module) return NULL;
-    return mt->module->name;
+    if (!mt || !mt->entity.module) return NULL;
+    return mt->entity.module->name;
 }
 
 /* Return the module name from a module command */
@@ -7212,8 +7464,8 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     } *tms = (struct typemethods*) typemethods_ptr;
 
     moduleType *mt = zcalloc(sizeof(*mt));
-    mt->id = id;
-    mt->module = ctx->module;
+    mt->entity.id = id;
+    mt->entity.module = ctx->module;
     mt->rdb_load = tms->rdb_load;
     mt->rdb_save = tms->rdb_save;
     mt->aof_rewrite = tms->aof_rewrite;
@@ -7240,7 +7492,7 @@ moduleType *RM_CreateDataType(RedisModuleCtx *ctx, const char *name, int encver,
     if (tms->version >= 5) {
         mt->aux_save2 = tms->v5.aux_save2;
     }
-    memcpy(mt->name,name,sizeof(mt->name));
+    memcpy(mt->entity.name,name,sizeof(mt->entity.name));
     listAddNodeTail(ctx->module->types,mt);
     return mt;
 }
@@ -7293,7 +7545,7 @@ void *RM_ModuleTypeGetValue(RedisModuleKey *key) {
  * modules this cannot be recovered, but if the module declared capability
  * to handle errors, we'll raise a flag rather than exiting. */
 void moduleRDBLoadError(RedisModuleIO *io) {
-    if (io->type->module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS) {
+    if (io->entity->module->options & REDISMODULE_OPTIONS_HANDLE_IO_ERRORS) {
         io->error = 1;
         return;
     }
@@ -7302,8 +7554,8 @@ void moduleRDBLoadError(RedisModuleIO *io) {
         "Read performed by module '%s' about type '%s' "
         "after reading '%llu' bytes of a value "
         "for key named: '%s'.",
-        io->type->module->name,
-        io->type->name,
+        io->entity->module->name,
+        io->entity->name,
         (unsigned long long)io->bytes,
         io->key? (char*)io->key->ptr: "(null)");
 }
@@ -7708,7 +7960,8 @@ void *RM_LoadDataTypeFromStringEncver(const RedisModuleString *str, const module
     void *ret;
 
     rioInitWithBuffer(&payload, str->ptr);
-    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL,-1);
+    moduleType *mt_non_const = (moduleType *)mt; /*cast const away*/    
+    moduleInitIOContext(&io, &mt_non_const->entity, &payload, NULL, -1);
 
     /* All RM_Save*() calls always write a version 2 compatible format, so we
      * need to make sure we read the same.
@@ -7740,7 +7993,8 @@ RedisModuleString *RM_SaveDataTypeToString(RedisModuleCtx *ctx, void *data, cons
     RedisModuleIO io;
 
     rioInitWithBuffer(&payload,sdsempty());
-    moduleInitIOContext(io,(moduleType *)mt,&payload,NULL,-1);
+    moduleType *mt_non_const = (moduleType *)mt; /*cast const away*/
+    moduleInitIOContext(&io, &mt_non_const->entity, &payload, NULL, -1);
     mt->rdb_save(&io,data);
     if (io.ctx) {
         moduleFreeContext(io.ctx);
@@ -7785,7 +8039,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
         serverLog(LL_WARNING,
             "Fatal: AOF method for module data type '%s' tried to "
             "emit unknown command '%s'",
-            io->type->name, cmdname);
+            io->entity->name, cmdname);
         io->error = 1;
         errno = EINVAL;
         return;
@@ -7799,7 +8053,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
         serverLog(LL_WARNING,
             "Fatal: AOF method for module data type '%s' tried to "
             "call RedisModule_EmitAOF() with wrong format specifiers '%s'",
-            io->type->name, fmt);
+            io->entity->name, fmt);
         io->error = 1;
         errno = EINVAL;
         return;
@@ -7826,7 +8080,7 @@ void RM_EmitAOF(RedisModuleIO *io, const char *cmdname, const char *fmt, ...) {
 RedisModuleCtx *RM_GetContextFromIO(RedisModuleIO *io) {
     if (io->ctx) return io->ctx; /* Can't have more than one... */
     io->ctx = zmalloc(sizeof(RedisModuleCtx));
-    moduleCreateContext(io->ctx, io->type->module, REDISMODULE_CTX_NONE);
+    moduleCreateContext(io->ctx, io->entity->module, REDISMODULE_CTX_NONE);
     return io->ctx;
 }
 
@@ -7915,7 +8169,7 @@ void RM_Log(RedisModuleCtx *ctx, const char *levelstr, const char *fmt, ...) {
 void RM_LogIOError(RedisModuleIO *io, const char *levelstr, const char *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);
-    moduleLogRaw(io->type->module,levelstr,fmt,ap);
+    moduleLogRaw(io->entity->module, levelstr, fmt, ap);
     va_end(ap);
 }
 
@@ -14926,12 +15180,16 @@ void moduleRegisterCoreAPI(void) {
     REGISTER_API(ReplySetArrayLength);
     REGISTER_API(ReplySetMapLength);
     REGISTER_API(ReplySetSetLength);
+    REGISTER_API(ReleaseKeyMetaClass);
     REGISTER_API(ReplySetAttributeLength);
     REGISTER_API(ReplyWithString);
     REGISTER_API(ReplyWithEmptyString);
     REGISTER_API(ReplyWithVerbatimString);
     REGISTER_API(ReplyWithVerbatimStringType);
     REGISTER_API(ReplyWithStringBuffer);
+    REGISTER_API(CreateKeyMetaClass);
+    REGISTER_API(SetKeyMeta);
+    REGISTER_API(GetKeyMeta);
     REGISTER_API(ReplyWithCString);
     REGISTER_API(ReplyWithNull);
     REGISTER_API(ReplyWithBool);

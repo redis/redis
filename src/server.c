@@ -1707,6 +1707,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
         migrateCloseTimedoutSockets();
     }
 
+    /* Cleanup expired IDMP entries from tracked streams */
+    run_with_period(1000) {
+        handleExpiredIdmpEntries();
+    }
+
     /* Periodically shrink pending command reuse pool */
     run_with_period(2000) {
         pendingCommandPoolCron();
@@ -2934,6 +2939,7 @@ void initServer(void) {
         server.db[j].blocking_keys = dictCreate(&keylistDictType);
         server.db[j].blocking_keys_unblock_on_nokey = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].stream_claim_pending_keys = dictCreate(&objectKeyPointerValueDictType);
+        server.db[j].stream_idmp_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType);
         server.db[j].watched_keys = dictCreate(&keylistDictType);
         server.db[j].id = j;
@@ -7627,6 +7633,7 @@ int main(int argc, char **argv) {
                   basic networking code and client creation depends on it. */
     moduleInitModulesSystem();
     connTypeInitialize();
+    keyMetaInit();
 
     /* Store the executable path and arguments in a safe place in order
      * to be able to restart the server later. */
