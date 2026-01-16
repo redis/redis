@@ -10501,11 +10501,10 @@ static int displayKeyStatsSizeDist(struct hdr_histogram *keysize_histogram) {
         /* Skip repeat in hdr_histogram cumulative_count. For instance:
          * 140.68K    99.9969%        50013
          * 140.68K    99.9977%        50013
-         *   2.04G    99.9985%        50014
          *   2.04G   100.0000%        50014
          * Will display:
          * 140.68K    99.9969%        50013
-         *   2.04G    99.9985%        50014                                   */
+         *   2.04G   100.0000%        50014                                   */
 
         if (iter.cumulative_count != last_displayed_cumulative_count) {
             percentile = (100.0 * (double) iter.cumulative_count) / iter.h->total_count;
