@@ -202,7 +202,6 @@ zskiplistNode *zslInsert(zskiplist *zsl, double score, sds ele) {
             zslSetNodeSpanAtLevel(update[i], i, zsl->length);
         }
         zsl->level = level;
-        zslSetNodeLevel(zsl->header, level);
     }
     x = zslCreateNode(zsl,level,score,ele);
     for (i = 0; i < level; i++) {
@@ -245,8 +244,11 @@ static void zslDeleteNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **upda
     } else {
         zsl->tail = x->backward;
     }
-    while(zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL)
+    /* Decrease skiplist level if top levels are empty, and clear their spans */
+    while(zsl->level > 1 && zsl->header->level[zsl->level-1].forward == NULL) {
+        zsl->header->level[zsl->level-1].span = 0;
         zsl->level--;
+    }
     zsl->length--;
 }
 
@@ -368,13 +370,22 @@ static int zslIsInRange(zskiplist *zsl, zrangespec *range) {
     return 1;
 }
 
-/* Find the Nth node that is contained in the specified range. N should be 0-based.
- * Negative N works for reversed order (-1 represents the last element). Returns
- * NULL when no element is contained in the range. */
-zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
+/* Find the Nth element within the specified score range.
+ *
+ * Parameters:
+ *   - N is 0-based for forward direction (0 = first element in range)
+ *   - N can be negative for reverse direction (-1 = last element in range)
+ *
+ * Returns:
+ *   - The skiplist node at position N within the range, or NULL if:
+ *     * N is out of bounds for the range
+ *     * The range contains no elements
+ *   - If out_rank!=NULL, it receives the 1-based absolute rank of the returned node 
+ */
+zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n, unsigned long *out_rank) {
     zskiplistNode *x;
     int i;
-    long edge_rank = 0;
+    long edge_rank = 0; /* 0-based rank of the last element smaller than the range. */
     long last_highest_level_rank = 0;
     zskiplistNode *last_highest_level_node = NULL;
     unsigned long rank_diff;
@@ -417,6 +428,8 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         }
         /* Check if score <= max. */
         if (x && !zslValueLteMax(x->score,range)) return NULL;
+        /* Store rank if requested. For n >= 0, the returned node is at rank edge_rank + n + 1. */
+        if (x && out_rank) *out_rank = edge_rank + n + 1;
     } else  {
         for (i = zsl->level - 1; i >= 0; i--) {
             /* Go forward while *IN* range. */
@@ -442,6 +455,8 @@ zskiplistNode *zslNthInRange(zskiplist *zsl, zrangespec *range, long n) {
         }
         /* Check if score >= min. */
         if (x && !zslValueGteMin(x->score, range)) return NULL;
+        /* Store rank if requested. For n < 0, the returned node is at rank edge_rank + n + 1. */
+        if (x && out_rank) *out_rank = edge_rank + n + 1;
     }
 
     return x;
@@ -566,22 +581,27 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
     return 0;
 }
 
-/* Find the rank for a skiplist node by walking upward from the node to the end.
+/* Find the rank for a skiplist node by walking forward from the node to the end.
  * This avoids expensive string comparisons during traversal. The algorithm:
- * 1. Start at the node's top level
- * 2. Walk forward at the top level of each node, summing spans
- * 3. Calculate rank as (list_length - sum_of_spans)
+ * 1. Start at the given node's top level
+ * 2. Walk forward to the tail, jumping at each node's top level
+ * 3. Sum the spans to get distance from node to end
+ * 4. Calculate rank as (list_length - distance_to_end)
  * Time complexity: O(log N) on average, same as traditional approach but faster
  * due to avoiding string comparisons. */
 unsigned long zslGetRankByNode(zskiplist *zsl, zskiplistNode *x) {
-    int level = zslGetNodeLevel(x) - 1;
-    unsigned long rank = zslGetNodeSpanAtLevel(x, level);
-    while (x->level[zslGetNodeLevel(x) - 1].forward) {
-        x = x->level[zslGetNodeLevel(x) - 1].forward;
-        rank += zslGetNodeSpanAtLevel(x, zslGetNodeLevel(x) - 1);
+    unsigned long distance_to_end = 0;
+    int level;
+    
+    /* Walk forward from x to the end, using top level of each node for fast jumps */
+    while (x) {
+        level = zslGetNodeLevel(x) - 1;
+        distance_to_end += zslGetNodeSpanAtLevel(x, level);
+        x = x->level[level].forward;
     }
-    rank = zsl->length - rank;
-    return rank;
+    
+    /* Rank = total nodes - nodes after this one */
+    return zsl->length - distance_to_end;
 }
 
 /* Finds an element by its rank from start node. The rank argument needs to be 1-based. */
@@ -759,8 +779,9 @@ static int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
 
 /* Find the Nth node that is contained in the specified range. N should be 0-based.
  * Negative N works for reversed order (-1 represents the last element). Returns
- * NULL when no element is contained in the range. */
-zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
+ * NULL when no element is contained in the range.
+ * If out_rank is not NULL, stores the 1-based rank of the returned node. */
+zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n, unsigned long *out_rank) {
     zskiplistNode *x;
     int i;
     long edge_rank = 0;
@@ -806,6 +827,8 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
         }
         /* Check if score <= max. */
         if (x && !zslLexValueLteMax(x->ele,range)) return NULL;
+        /* Store rank if requested. For n >= 0, the returned node is at rank edge_rank + n + 1. */
+        if (x && out_rank) *out_rank = edge_rank + n + 1;
     } else {
         for (i = zsl->level - 1; i >= 0; i--) {
             /* Go forward while *IN* range. */
@@ -830,6 +853,8 @@ zskiplistNode *zslNthInLexRange(zskiplist *zsl, zlexrangespec *range, long n) {
         }
         /* Check if score >= min. */
         if (x && !zslLexValueGteMin(x->ele, range)) return NULL;
+        /* Store rank if requested. For n < 0, the returned node is at rank edge_rank + n + 1. */
+        if (x && out_rank) *out_rank = edge_rank + n + 1;
     }
 
     return x;
@@ -3472,9 +3497,9 @@ void genericZrangebyscoreCommand(zrange_result_handler *handler,
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            ln = zslNthInRange(zsl,range,-offset-1);
+            ln = zslNthInRange(zsl, range, -offset-1, NULL);
         } else {
-            ln = zslNthInRange(zsl,range,offset);
+            ln = zslNthInRange(zsl, range, offset, NULL);
         }
 
         while (ln && limit--) {
@@ -3569,20 +3594,18 @@ void zcountCommand(client *c) {
         zskiplistNode *zn;
         unsigned long rank;
 
-        /* Find first element in range */
-        zn = zslNthInRange(zsl, &range, 0);
+        /* Find first element in range and get its rank */
+        zn = zslNthInRange(zsl, &range, 0, &rank);
 
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->ele);
             count = (zsl->length - (rank - 1));
 
-            /* Find last element in range */
-            zn = zslNthInRange(zsl, &range, -1);
+            /* Find last element in range and get its rank */
+            zn = zslNthInRange(zsl, &range, -1, &rank);
 
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
-                rank = zslGetRank(zsl, zn->score, zn->ele);
                 count -= (zsl->length - rank);
             }
         }
@@ -3647,20 +3670,18 @@ void zlexcountCommand(client *c) {
         zskiplistNode *zn;
         unsigned long rank;
 
-        /* Find first element in range */
-        zn = zslNthInLexRange(zsl, &range, 0);
+        /* Find first element in range and get its rank */
+        zn = zslNthInLexRange(zsl, &range, 0, &rank);
 
         /* Use rank of first element, if any, to determine preliminary count */
         if (zn != NULL) {
-            rank = zslGetRank(zsl, zn->score, zn->ele);
             count = (zsl->length - (rank - 1));
 
-            /* Find last element in range */
-            zn = zslNthInLexRange(zsl, &range, -1);
+            /* Find last element in range and get its rank */
+            zn = zslNthInLexRange(zsl, &range, -1, &rank);
 
             /* Use rank of last element, if any, to determine the actual count */
             if (zn != NULL) {
-                rank = zslGetRank(zsl, zn->score, zn->ele);
                 count -= (zsl->length - rank);
             }
         }
@@ -3749,9 +3770,9 @@ void genericZrangebylexCommand(zrange_result_handler *handler,
 
         /* If reversed, get the last node in range as starting point. */
         if (reverse) {
-            ln = zslNthInLexRange(zsl,range,-offset-1);
+            ln = zslNthInLexRange(zsl,range,-offset-1,NULL);
         } else {
-            ln = zslNthInLexRange(zsl,range,offset);
+            ln = zslNthInLexRange(zsl,range,offset,NULL);
         }
 
         while (ln && limit--) {
@@ -4694,3 +4715,214 @@ void zmpopCommand(client *c) {
 void bzmpopCommand(client *c) {
     zmpopGenericCommand(c, 2, 1);
 }
+
+#ifdef REDIS_TEST
+#include <assert.h>
+#include "testhelp.h"
+
+/* Verify the entire skiplist structure for debugging purposes:
+ * - Header node has correct structure
+ * - Level is correct (highest non-NULL level)
+ * - Forward and backward pointers are correct
+ * - Scores are in sorted order (with lexicographic tie-breaking)
+ * - Node levels stored in level[0].span are correct
+ * - Span values across all levels sum to zsl->length
+ * - Length matches actual node count
+ * - Tail pointer is correct
+ *
+ * Panics with detailed error message if any invariant is violated. */
+static void zslDebugVerifyStruct(zskiplist *zsl) {
+    zskiplistNode *x;
+    unsigned long length = 0;
+    int i;
+
+    /* Verify header node */
+    serverAssert(zsl->header != NULL);
+    serverAssert(zsl->header->ele == NULL);
+    serverAssert(zsl->header->backward == NULL);
+
+    /* Verify level is in valid range */
+    serverAssert(zsl->level >= 1 && zsl->level <= ZSKIPLIST_MAXLEVEL);
+
+    /* Verify that all levels >= zsl->level in header are NULL */
+    for (i = zsl->level; i < ZSKIPLIST_MAXLEVEL; i++) {
+        serverAssert(zsl->header->level[i].forward == NULL);
+        serverAssert(zsl->header->level[i].span == 0);
+    }
+
+    /* Verify that level zsl->level-1 has at least one node (if list is not empty) */
+    if (zsl->length > 0) {
+        serverAssert(zsl->header->level[zsl->level-1].forward != NULL);
+    }
+
+    /* Single pass: verify forward/backward pointers, scores, node levels, and accumulate spans */
+    x = zsl->header->level[0].forward;
+    zskiplistNode *prev = NULL;
+
+    while (x) {
+        length++;
+
+        /* Verify backward pointer */
+        serverAssert(x->backward == prev);
+
+        /* Verify node has valid element */
+        serverAssert(x->ele != NULL);
+
+        /* Verify node level is in valid range */
+        unsigned long node_level = zslGetNodeLevel(x);
+        serverAssert(node_level >= 1 && node_level <= ZSKIPLIST_MAXLEVEL);
+
+        /* Verify score ordering */
+        if (x->level[0].forward) {
+            zskiplistNode *next = x->level[0].forward;
+            serverAssert(next->score > x->score ||
+                       (next->score == x->score && sdscmp(next->ele, x->ele) > 0));
+        }
+
+        /* Verify spans are correct for all levels this node participates in.
+         * Note: level 0 doesn't store span (it stores node level), so start from level 1.
+         *
+         * Span semantics:
+         * - If forward != NULL: span represents distance to next node at this level (must be > 0)
+         * - If forward == NULL: span represents number of nodes after this node at level 0
+         *   (needed for zslGetRankByNode optimization) */
+        for (i = 1; i < (int)node_level; i++) {
+            if (x->level[i].forward) {
+                /* Verify span is positive when there's a next node */
+                serverAssert(x->level[i].span > 0);
+            } else {
+                /* When forward is NULL, span should equal the number of nodes after this node.
+                 * We can verify this by counting remaining nodes at level 0. */
+                unsigned long nodes_after = 0;
+                zskiplistNode *temp = x->level[0].forward;
+                while (temp) {
+                    nodes_after++;
+                    temp = temp->level[0].forward;
+                }
+                serverAssert(x->level[i].span == nodes_after);
+            }
+        }
+
+        prev = x;
+        x = x->level[0].forward;
+    }
+
+    /* Verify length matches actual count */
+    serverAssert(length == zsl->length);
+
+    /* Verify tail pointer */
+    if (zsl->length == 0) {
+        serverAssert(zsl->tail == NULL);
+    } else {
+        serverAssert(zsl->tail == prev);
+        serverAssert(zsl->tail->level[0].forward == NULL);
+    }
+
+    /* Verify that the sum of spans at each level is consistent.
+     * At each level, we traverse from header following forward pointers and sum all spans.
+     * The sum should equal the rank of the last node at that level.
+     * If the last node at a level is the tail, the sum should equal zsl->length. */
+    for (i = 1; i < zsl->level; i++) {
+        unsigned long span_sum = 0;
+        zskiplistNode *last_at_level = zsl->header;
+        x = zsl->header;
+        while (x->level[i].forward) {
+            span_sum += x->level[i].span;
+            x = x->level[i].forward;
+            last_at_level = x;
+        }
+        /* If the last node at this level is the tail, span sum should equal length */
+        if (last_at_level == zsl->tail) {
+            serverAssert(span_sum == zsl->length);
+        } else {
+            /* Otherwise, span sum should be less than length */
+            serverAssert(span_sum < zsl->length);
+        }
+    }
+}
+
+int zsetTest(int argc, char **argv, int flags) {
+    UNUSED(argc);
+    UNUSED(argv);
+    UNUSED(flags);
+
+    printf("Testing skiplist operations with structure verification\n");
+
+    const int N = 1000;
+    zskiplist *zsl = zslCreate();
+
+    /* Store inserted elements for later deletion */
+    typedef struct {
+        double score;
+        sds ele;
+        zskiplistNode *node;
+    } InsertedElement;
+
+    InsertedElement *elements = zmalloc(sizeof(InsertedElement) * N);
+
+    /* Seed random number generator for reproducible tests */
+    srand(12345);
+
+    printf("Inserting %d elements with scores 0-100 (with duplicates)...\n", N);
+
+    /* Insert N elements with random scores between 0 and 100 */
+    for (int i = 0; i < N; i++) {
+        double score = (double)(rand() % 101); /* 0 to 100 */
+        char buf[32];
+        snprintf(buf, sizeof(buf), "elem%d", i);
+        sds ele = sdsnew(buf);
+
+        zskiplistNode *node = zslInsert(zsl, score, ele);
+
+        /* Store for later deletion - keep a copy of the element name */
+        elements[i].score = score;
+        elements[i].ele = sdsdup(ele);
+        elements[i].node = node;
+
+        /* Verify structure after each insertion */
+        zslDebugVerifyStruct(zsl);
+
+        /* Query the inserted element */
+        unsigned long rank = zslGetRank(zsl, score, ele);
+        assert(rank != 0);
+
+        /* Verify we can get the element by rank */
+        zskiplistNode *found = zslGetElementByRank(zsl, rank);
+        assert(found != NULL && found == node);
+
+        /* Verify rank by node */
+        unsigned long node_rank = zslGetRankByNode(zsl, node);
+        assert(node_rank == rank);
+    }
+
+    test_cond("Insert N elements with verification",
+        zsl->length == (unsigned long)N);
+
+    printf("Deleting %d elements...\n", N);
+
+    /* Delete all elements in reverse order */
+    for (int i = N - 1; i >= 0; i--) {
+        double score = elements[i].score;
+        sds ele = elements[i].ele;
+
+        /* Verify element exists before deletion with valid rank */
+        unsigned long rank = zslGetRank(zsl, score, ele);
+        assert(rank >= 1 && rank <= (unsigned long)(i + 1));
+
+        /* Delete the element - zslDelete frees the node's SDS string */
+        assert(zslDelete(zsl, score, ele, NULL));
+
+        /* Verify structure after each deletion */
+        zslDebugVerifyStruct(zsl);
+        sdsfree(elements[i].ele);
+    }
+
+    test_cond("Delete N elements with verification",
+        zsl->length == 0 && zsl->tail == NULL);
+
+    zfree(elements);
+    zslFree(zsl);
+    
+    return 0;
+}
+#endif

@@ -3,6 +3,8 @@
 
 #include "rax.h"
 #include "listpack.h"
+#include "dict.h"
+#include "xxhash.h"
 
 /* Stream item ID: a 128 bit number composed of a milliseconds time and
  * a sequence counter. IDs generated in the same millisecond (or in a past
@@ -12,6 +14,24 @@ typedef struct streamID {
     uint64_t ms;        /* Unix time in milliseconds. */
     uint64_t seq;       /* Sequence number. */
 } streamID;
+
+/* Structure to hold IID and stream ID for IDMP deduplication */
+typedef struct idmpEntry {
+    struct idmpEntry *next;  /* Pointer to next entry in insertion order (linked list) */
+    streamID id;             /* Associated stream ID */
+    size_t iid_len;          /* Length of the IID */
+    char iid[];              /* Flexible array member for inline IID storage */
+} idmpEntry;
+
+/* IDMP Producer structure for per-producer deduplication tracking */
+typedef struct idmpProducer {
+    dict *idmp_dict;       /* IDMP IID tracking tree. */
+    idmpEntry *idmp_head;  /* Head of the IDMP entries linked list. */
+    idmpEntry *idmp_tail;  /* Tail of the IDMP entries linked list. */
+} idmpProducer;
+
+/* Dictionary type for IDMP entries - uses IID as key */
+extern dictType idmpDictType;
 
 typedef struct stream {
     rax *rax;               /* The radix tree holding the stream. */
@@ -25,6 +45,11 @@ typedef struct stream {
     rax *cgroups_ref;       /* Index mapping message IDs to their consumer groups. */
     streamID min_cgroup_last_id;  /* The minimum ID of consume group. */
     unsigned int min_cgroup_last_id_valid: 1;
+    uint64_t idmp_duration; /* IDMP duration in seconds. */
+    uint64_t idmp_max_entries; /* Max number of IID for tracking. */
+    rax *idmp_producers;   /* IDMP producers radix tree: pid -> idmpProducer */
+    uint64_t iids_added;   /* All time count of entries with IID added. */
+    uint64_t iids_duplicates; /* All time count of duplicate IIDs detected. */
 } stream;
 
 /* We define an iterator to iterate stream items in an abstract way, without
@@ -172,5 +197,12 @@ void encodePelTimeKey(void* buf, pelTimeKey *timeKey);
 void decodePelTimeKey(void *buf, pelTimeKey *timeKey);
 void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
 void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
+
+/* IDMP functions */
+idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
+void idmpEntryFree(idmpEntry *entry, size_t *alloc_size);
+idmpProducer *idmpProducerCreate(size_t *alloc_size);
+void idmpProducerFree(idmpProducer *producer, size_t *alloc_size);
+void streamFreeIdmpProducerGeneric(void *producer, void *strm);
 
 #endif

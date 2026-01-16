@@ -1087,7 +1087,7 @@ start_server {
         r XDEL x 103
 
         set reply [r XINFO STREAM x FULL]
-        assert_equal [llength $reply] 18
+        assert_equal [llength $reply] 30
         assert_equal [dict get $reply length] 4
         assert_equal [dict get $reply entries] "{100-0 {a 1}} {101-0 {b 1}} {102-0 {c 1}} {104-0 {f 1}}"
 
@@ -1108,7 +1108,7 @@ start_server {
         assert_equal [lindex [dict get $consumer pending] 1 0] "101-0" ;# second entry in first consumer's PEL
 
         set reply [r XINFO STREAM x FULL COUNT 1]
-        assert_equal [llength $reply] 18
+        assert_equal [llength $reply] 30
         assert_equal [dict get $reply length] 4
         assert_equal [dict get $reply entries] "{100-0 {a 1}}"
     }

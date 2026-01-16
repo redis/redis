@@ -22,6 +22,7 @@
 #include "intset.h"  /* Compact integer set structure */
 #include "bio.h"
 #include "cluster_asm.h"
+#include "keymeta.h"
 
 #include <math.h>
 #include <fcntl.h>
@@ -711,7 +712,7 @@ int rdbSaveObjectType(rio *rdb, robj *o) {
         } else
             serverPanic("Unknown hash encoding");
     case OBJ_STREAM:
-        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_3);
+        return rdbSaveType(rdb,RDB_TYPE_STREAM_LISTPACKS_4);
     case OBJ_MODULE:
         return rdbSaveType(rdb,RDB_TYPE_MODULE_2);
     default:
@@ -775,6 +776,167 @@ ssize_t rdbSaveStreamPEL(rio *rdb, rax *pel, int nacks) {
     }
     raxStop(&ri);
     return nwritten;
+}
+
+/* Serialize the IDMP entries for a stream into the RDB file.
+ * This saves all the idempotent producer tracking entries (IID -> stream ID mappings).
+ * Format: num_producers, then for each producer: pid, num_entries, entries... */
+ssize_t rdbSaveStreamIdmpEntries(rio *rdb, stream *s) {
+    ssize_t n, nwritten = 0;
+
+    /* Save the number of producers. */
+    size_t num_producers = s->idmp_producers ? raxSize(s->idmp_producers) : 0;
+    if ((n = rdbSaveLen(rdb,num_producers)) == -1) return -1;
+    nwritten += n;
+
+    if (num_producers == 0) return nwritten;
+
+    /* Iterate through all producers. */
+    raxIterator ri;
+    raxStart(&ri, s->idmp_producers);
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        idmpProducer *producer = ri.data;
+
+        /* Save the producer ID (pid). */
+        if ((n = rdbSaveRawString(rdb, ri.key, ri.key_len)) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
+        nwritten += n;
+
+        /* Save the number of entries for this producer. */
+        size_t count = dictSize(producer->idmp_dict);
+        if ((n = rdbSaveLen(rdb, count)) == -1) {
+            raxStop(&ri);
+            return -1;
+        }
+        nwritten += n;
+
+        /* Iterate through the linked list and save each entry in insertion order. */
+        idmpEntry *entry = producer->idmp_head;
+        while (entry != NULL) {
+            /* Save the IID string (length + data). */
+            if ((n = rdbSaveRawString(rdb,(unsigned char *)entry->iid,entry->iid_len)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            nwritten += n;
+
+            /* Save the associated stream ID. */
+            if ((n = rdbSaveLen(rdb,entry->id.ms)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            nwritten += n;
+            if ((n = rdbSaveLen(rdb,entry->id.seq)) == -1) {
+                raxStop(&ri);
+                return -1;
+            }
+            nwritten += n;
+
+            entry = entry->next;
+        }
+    }
+    raxStop(&ri);
+    return nwritten;
+}
+
+/* Load IDMP entries for a stream from the RDB file.
+ * This loads all the idempotent producer tracking entries (IID -> stream ID mappings)
+ * and inserts them into the stream's idmp_producers rax tree.
+ * Format: num_producers, then for each producer: pid, num_entries, entries... */
+int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
+    /* Load the number of producers. */
+    uint64_t num_producers = rdbLoadLen(rdb, NULL);
+    if (num_producers == RDB_LENERR) {
+        return -1;
+    }
+
+    if (num_producers == 0) return 0;
+
+    /* Create the producers rax tree. */
+    s->idmp_producers = raxNew();
+    if (s->idmp_producers == NULL) {
+        return -1;
+    }
+
+    /* Load each producer. */
+    for (uint64_t p = 0; p < num_producers; p++) {
+        /* Load the producer ID (pid). */
+        size_t pid_len;
+        char *pid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &pid_len);
+        if (pid == NULL) goto cleanup;
+
+        /* Load the number of entries for this producer. */
+        uint64_t count = rdbLoadLen(rdb, NULL);
+        if (count == RDB_LENERR) {
+            sdsfree(pid);
+            goto cleanup;
+        }
+
+        /* Create the producer. */
+        idmpProducer *producer = idmpProducerCreate(&s->alloc_size);
+
+        /* Insert producer into rax tree. */
+        int inserted = raxTryInsert(s->idmp_producers, (unsigned char *)pid, pid_len, producer, NULL);
+        sdsfree(pid);
+        if (!inserted) {
+            idmpProducerFree(producer, &s->alloc_size);
+            goto cleanup;
+        }
+
+        /* Load each entry for this producer. */
+        for (uint64_t i = 0; i < count; i++) {
+            /* Load the IID string. */
+            size_t iid_len;
+            char *iid = rdbGenericLoadStringObject(rdb, RDB_LOAD_SDS, &iid_len);
+            if (iid == NULL) goto cleanup;
+
+            /* Load the associated stream ID. */
+            streamID id;
+            id.ms = rdbLoadLen(rdb, NULL);
+            id.seq = rdbLoadLen(rdb, NULL);
+            if (rioGetReadError(rdb)) {
+                sdsfree(iid);
+                goto cleanup;
+            }
+
+            /* Create the idmpEntry. */
+            idmpEntry *entry = idmpEntryCreate(iid, iid_len, &s->alloc_size);
+            sdsfree(iid); /* idmpEntryCreate makes a copy */
+
+            /* Set the stream ID. */
+            entry->id = id;
+            entry->next = NULL;
+
+            /* Insert into dict. If insertion fails (e.g., duplicate), skip. */
+            int ret = dictAdd(producer->idmp_dict, entry, NULL);
+            if (ret != DICT_OK) {
+                /* Insertion failed (duplicate). For RDB loading, we'll just skip
+                 * duplicates rather than failing the entire load. */
+                idmpEntryFree(entry, &s->alloc_size);
+            } else {
+                /* Add to linked list tail. */
+                if (producer->idmp_tail == NULL) {
+                    producer->idmp_head = producer->idmp_tail = entry;
+                } else {
+                    producer->idmp_tail->next = entry;
+                    producer->idmp_tail = entry;
+                }
+            }
+        }
+    }
+    return 0;
+
+cleanup:
+    /* Clean up partially constructed producers tree on error.
+     * This prevents use-after-free when the stream is later freed. */
+    if (s->idmp_producers) {
+        raxFreeWithCbAndContext(s->idmp_producers, streamFreeIdmpProducerGeneric, s);
+        s->idmp_producers = NULL;
+    }
+    return -1;
 }
 
 /* Serialize the consumers of a stream consumer group into the RDB. Helper
@@ -1147,6 +1309,28 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
             }
             raxStop(&ri);
         }
+
+        /* Save IDMP (Idempotent Message Producer) configuration and entries. */
+        
+        /* Save IDMP duration (in seconds). */
+        if ((n = rdbSaveLen(rdb,s->idmp_duration)) == -1) return -1;
+        nwritten += n;
+        
+        /* Save IDMP max entries. */
+        if ((n = rdbSaveLen(rdb,s->idmp_max_entries)) == -1) return -1;
+        nwritten += n;
+        
+        /* Save all IDMP entries. */
+        if ((n = rdbSaveStreamIdmpEntries(rdb,s)) == -1) return -1;
+        nwritten += n;
+
+        /* Save the all-time count of IIDs added. */
+        if ((n = rdbSaveLen(rdb,s->iids_added)) == -1) return -1;
+        nwritten += n;
+
+        /* Save the all-time count of duplicate IIDs detected. */
+        if ((n = rdbSaveLen(rdb,s->iids_duplicates)) == -1) return -1;
+        nwritten += n;
     } else if (o->type == OBJ_MODULE) {
         /* Save a module-specific value. */
         RedisModuleIO io;
@@ -1155,9 +1339,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
 
         /* Write the "module" identifier as prefix, so that we'll be able
          * to call the right module during loading. */
-        int retval = rdbSaveLen(rdb,mt->id);
+        int retval = rdbSaveLen(rdb,mt->entity.id);
         if (retval == -1) return -1;
-        moduleInitIOContext(io,mt,rdb,key,dbid);
+        moduleInitIOContext(&io, &mt->entity, rdb, key, dbid);
         io.bytes += retval;
 
         /* Then write the module-specific representation + EOF marker. */
@@ -1220,6 +1404,12 @@ int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, in
          * a single time when loading does not affect the frequency much. */
         if (rdbSaveType(rdb,RDB_OPCODE_FREQ) == -1) return -1;
         if (rdbWriteRaw(rdb,buf,1) == -1) return -1;
+    }
+
+    /* if needed save key metadata  */
+    if (getModuleMetaBits(val->metabits)) {
+        if (rdbSaveKeyMetadata(rdb, key, val, dbid) == -1)
+            return -1;
     }
 
     /* Save type, key, value */
@@ -1297,7 +1487,7 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
     /* Save a module-specific aux value. */
     RedisModuleIO io;
     int retval = 0;
-    moduleInitIOContext(io,mt,rdb,NULL,-1);
+    moduleInitIOContext(&io, &mt->entity, rdb, NULL, -1);
 
     /* We save the AUX field header in a temporary buffer so we can support aux_save2 API.
      * If aux_save2 is used the buffer will be flushed at the first time the module will perform
@@ -1309,7 +1499,7 @@ ssize_t rdbSaveSingleModuleAux(rio *rdb, int when, moduleType *mt) {
 
     /* Write the "module" identifier as prefix, so that we'll be able
      * to call the right module during loading. */
-    if (rdbSaveLen(&aux_save_headers_rio,mt->id) == -1) goto error;
+    if (rdbSaveLen(&aux_save_headers_rio,mt->entity.id) == -1) goto error;
 
     /* write the 'when' so that we can provide it on loading. add a UINT opcode
      * for backwards compatibility, everything after the MT needs to be prefixed
@@ -1763,6 +1953,37 @@ robj *rdbLoadCheckModuleValue(rio *rdb, char *modulename) {
         }
     }
     return createStringObject("module-dummy-value",18);
+}
+
+/* Load object type and optional key metadata (into `keymeta`) from RDB stream.
+ * This function handles the RDB_OPCODE_KEY_META opcode that may appear before
+ * the actual object type in RDB streams (both regular RDB files and DUMP payloads).
+ * The `type` parameter is updated with the actual object type.
+ * 
+ * Returns: 0 on success, -1 on error
+ */
+int rdbResolveKeyType(rio *rdb, int *type, int dbid, KeyMetaSpec *keymeta) {
+    if (*type == RDB_OPCODE_KEY_META) {
+        /* Load key metadata from RDB */
+        uint64_t numClasses;
+        if ((numClasses = rdbLoadLen(rdb, NULL)) == RDB_LENERR) {
+            return -1;
+        }
+        if (rdbLoadKeyMetadata(rdb, dbid, numClasses, keymeta) == -1) {
+            return -1;
+        }
+        /* Read the actual object type after metadata */
+        *type = rdbLoadObjectType(rdb);
+        if (*type == -1) {
+            keyMetaSpecCleanup(keymeta);
+            return -1;
+        }
+    } else if (!rdbIsObjectType(*type)) {
+        /* Not metadata and not a valid object type */
+        return -1;
+    }
+
+    return 0;
 }
 
 /* callback for hashZiplistConvertAndValidateIntegrity.
@@ -2823,7 +3044,8 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         }
     } else if (rdbtype == RDB_TYPE_STREAM_LISTPACKS ||
                rdbtype == RDB_TYPE_STREAM_LISTPACKS_2 ||
-               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3)
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_3 ||
+               rdbtype == RDB_TYPE_STREAM_LISTPACKS_4)
     {
         o = createStreamObject();
         stream *s = o->ptr;
@@ -3134,6 +3356,61 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                 raxStop(&ri_cg_pel);
             }
         }
+
+        /* Load IDMP (Idempotent Message Producer) configuration and entries
+         * for RDB_TYPE_STREAM_LISTPACKS_4 and above. */
+        if (rdbtype >= RDB_TYPE_STREAM_LISTPACKS_4) {
+            /* Load IDMP duration. */
+            s->idmp_duration = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream IDMP duration loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+            if (s->idmp_duration < CONFIG_STREAM_IDMP_MIN_DURATION || 
+                s->idmp_duration > CONFIG_STREAM_IDMP_MAX_DURATION) {
+                rdbReportCorruptRDB("Stream IDMP duration out of range");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load IDMP max entries. */
+            s->idmp_max_entries = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream IDMP max entries loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+            if (s->idmp_max_entries < CONFIG_STREAM_IDMP_MIN_MAXSIZE || 
+                s->idmp_max_entries > CONFIG_STREAM_IDMP_MAX_MAXSIZE) {
+                rdbReportCorruptRDB("Stream IDMP max entries out of range");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all IDMP entries. */
+            if (rdbLoadStreamIdmpEntries(rdb,s) == -1) {
+                rdbReportReadError("Stream IDMP entries loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all-time count of IIDs added. */
+            s->iids_added = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream iids_added loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+
+            /* Load all-time count of duplicate IIDs detected. */
+            s->iids_duplicates = rdbLoadLen(rdb,NULL);
+            if (rioGetReadError(rdb)) {
+                rdbReportReadError("Stream iids_duplicates loading failed.");
+                decrRefCount(o);
+                return NULL;
+            }
+        }
     } else if (rdbtype == RDB_TYPE_MODULE_PRE_GA) {
             rdbReportCorruptRDB("Pre-release module format not supported");
             return NULL;
@@ -3160,7 +3437,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
         RedisModuleIO io;
         robj keyobj;
         initStaticStringObject(keyobj,key);
-        moduleInitIOContext(io,mt,rdb,&keyobj,dbid);
+        moduleInitIOContext(&io, &mt->entity, rdb, &keyobj, dbid);
         /* Call the rdb_load method of the module providing the 10 bit
          * encoding version in the lower 10 bits of the module ID. */
         void *ptr = mt->rdb_load(&io,moduleid&1023);
@@ -3407,6 +3684,8 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
     /* Key-specific attributes, set by opcodes before the key type. */
     long long lru_idle = -1, lfu_freq = -1, expiretime = -1, now = mstime();
     long long lru_clock = LRU_CLOCK();
+    KeyMetaSpec keyMeta; /* Updated by OPCODE_KEY_META and OPCODE_EXPIRETIME */
+    keyMetaSpecInit(&keyMeta);
 
     while(1) {
         sds key;
@@ -3422,12 +3701,14 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
              * load the actual type, and continue. */
             expiretime = rdbLoadTime(rdb);
             expiretime *= 1000;
+            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_EXPIRETIME_MS) {
             /* EXPIRETIME_MS: milliseconds precision expire times introduced
              * with RDB v3. Like EXPIRETIME but no with more precision. */
             expiretime = rdbLoadMillisecondTime(rdb,rdbver);
+            keyMetaSpecAdd(&keyMeta, KEY_META_ID_EXPIRE, expiretime);
             if (rioGetReadError(rdb)) goto eoferr;
             continue; /* Read next opcode. */
         } else if (type == RDB_OPCODE_FREQ) {
@@ -3574,7 +3855,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                 }
 
                 RedisModuleIO io;
-                moduleInitIOContext(io,mt,rdb,NULL,-1);
+                moduleInitIOContext(&io, &mt->entity, rdb, NULL, -1);
                 /* Call the rdb_load method of the module providing the 10 bit
                  * encoding version in the lower 10 bits of the module ID. */
                 int rc = mt->aux_load(&io,moduleid&1023, when);
@@ -3620,9 +3901,15 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             should_expand_db = 0;
         }
 
-        /* Read key */
-        if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL)
+        /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
+        if (rdbResolveKeyType(rdb, &type, dbid, &keyMeta) == -1) 
             goto eoferr;
+
+        /* Read key */
+        if ((key = rdbGenericLoadStringObject(rdb,RDB_LOAD_SDS,NULL)) == NULL) {
+            keyMetaSpecCleanup(&keyMeta);
+            goto eoferr;
+        }
         /* Read value */
         val = rdbLoadObject(type,rdb,key,db->id,&error);
 
@@ -3635,6 +3922,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
          * the keys they are, since the log of operations in the incr AOF
          * is assumed to work in the exact keyspace state. */
         if (val == NULL) {
+            keyMetaSpecCleanup(&keyMeta);
             /* Since we used to have bug that could lead to empty keys
              * (See #8453), we rather not fail when empty key is encountered
              * in an RDB file, instead we will silently discard it and
@@ -3665,13 +3953,14 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
             }
             sdsfree(key);
             decrRefCount(val);
+            keyMetaSpecCleanup(&keyMeta);
             server.rdb_last_load_keys_expired++;
         } else {
             robj keyobj;
             initStaticStringObject(keyobj,key);
 
             /* Add the new object in the hash table */
-            kvobj *kv = dbAddRDBLoad(db, key, &val, expiretime);
+            kvobj *kv = dbAddRDBLoad(db, key, &val, &keyMeta);
             server.rdb_last_load_keys_loaded++;
             if (!kv) {
                 if (rdbflags & RDBFLAGS_ALLOW_DUP) {
@@ -3679,7 +3968,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
                      * When it's set we allow new keys to replace the current
                      * keys with the same name. */
                     dbSyncDelete(db,&keyobj);
-                    kv = dbAddRDBLoad(db, key, &val, expiretime);
+                    kv = dbAddRDBLoad(db, key, &val, &keyMeta);
                     serverAssert(kv != NULL);
                 } else {
                     serverLog(LL_WARNING,
@@ -3716,6 +4005,7 @@ int rdbLoadRioWithLoadingCtx(rio *rdb, int rdbflags, rdbSaveInfo *rsi, rdbLoadin
         expiretime = -1;
         lfu_freq = -1;
         lru_idle = -1;
+        keyMetaSpecInit(&keyMeta);
     }
     /* Verify the checksum if RDB version is >= 5 */
     if (rdbver >= 5) {
