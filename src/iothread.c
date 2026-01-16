@@ -354,7 +354,10 @@ int prefetchIOThreadCommands(IOThread *t) {
     /* Two-phase approach to optimize cache utilization:
      * Phase 1: Issue prefetch hints for client structures
      * Phase 2: Access the now-cached client data and add commands to batch */
-    client *c[PREFETCH_BATCH_MAX_SIZE];
+    /* Since we double the configured size for better performance,
+     * see also `determinePrefetchCount` */
+    static client *c[PREFETCH_BATCH_MAX_SIZE*2];
+    serverAssert(PREFETCH_BATCH_MAX_SIZE*2 >= to_prefetch );
     int clients = 0;
     listIter li;
     listNode *ln;
