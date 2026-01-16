@@ -354,7 +354,7 @@ int prefetchIOThreadCommands(IOThread *t) {
     /* Two-phase approach to optimize cache utilization:
      * Phase 1: Issue prefetch hints for client structures
      * Phase 2: Access the now-cached client data and add commands to batch */
-    client **c = zcalloc(to_prefetch * sizeof(client *));
+    client *c[PREFETCH_BATCH_MAX_SIZE];
     int clients = 0;
     listIter li;
     listNode *ln;
@@ -377,7 +377,6 @@ int prefetchIOThreadCommands(IOThread *t) {
      }
     /* Prefetch the commands in the batch. */
     prefetchCommands();
-    zfree(c);
     return clients;
 }
 
