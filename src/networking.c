@@ -1982,11 +1982,11 @@ static void releaseBufReferences(client *c, char *buf, size_t bufpos) {
             bulkStrRef *str_ref = (bulkStrRef *)ptr;
             /* Only release if not already released. */
             if (str_ref->obj != NULL) {
-                if (in_io_thread) {
+                if (in_io_thread)
                     ioDeferFreeRobj(c, str_ref->obj);
-                } else {
+                else
                     decrRefCount(str_ref->obj);
-                }
+                str_ref->obj = NULL;
             }
         } else {
             serverAssert(header->payload_type == PLAIN_REPLY);
