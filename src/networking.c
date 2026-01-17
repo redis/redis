@@ -2007,7 +2007,7 @@ static void releaseAllBufReferences(client *c) {
     listRewind(c->reply, &iter);
     while ((next = listNext(&iter))) {
         clientReplyBlock *o = (clientReplyBlock *)listNodeValue(next);
-        if (o->buf_encoded) {
+        if (o && o->buf_encoded) {
             releaseBufReferences(c, o->buf, o->used);
         }
     }
@@ -2451,6 +2451,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply, next);
                 offset = 0;
+                last_header = NULL;
                 continue;
             }
 
