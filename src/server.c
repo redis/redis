@@ -31,6 +31,7 @@
 #include "cluster_asm.h"
 #include "fwtree.h"
 #include "estore.h"
+#include "chk.h"
 
 #include <time.h>
 #include <signal.h>
@@ -1715,6 +1716,15 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * executed changes the value via CONFIG SET, the server will perform
      * the operation even if completely idle. */
     if (server.tracking_clients) trackingLimitUsedSlots();
+
+    /* Check if hotkey tracking duration has expired and auto-stop if needed */
+    if (server.hotkeys && server.hotkeys->active && server.hotkeys->duration > 0) {
+        mstime_t elapsed = (server.mstime - server.hotkeys->start);
+        if (elapsed >= server.hotkeys->duration) {
+            server.hotkeys->active = 0;
+            server.hotkeys->duration = elapsed;
+        }
+    }
 
     /* Start a scheduled BGSAVE if the corresponding flag is set. This is
      * useful when we are forced to postpone a BGSAVE because an AOF
@@ -3914,11 +3924,6 @@ void call(client *c, int flags) {
         replicationFeedMonitors(c,server.monitors,c->db->id,argv,argc);
     }
 
-    /* Clear the original argv.
-     * If the client is blocked we will handle slowlog when it is unblocked. */
-    if (!(c->flags & CLIENT_BLOCKED))
-        freeClientOriginalArgv(c);
-
     /* Populate the per-command and per-slot statistics that we show in INFO commandstats and CLUSTER SLOT-STATS,
      * respectively. If the client is blocked we will handle latency stats and duration when it is unblocked. */
     if (update_command_stats && !(c->flags & CLIENT_BLOCKED)) {
@@ -3927,6 +3932,23 @@ void call(client *c, int flags) {
         if (server.latency_tracking_enabled && !(c->flags & CLIENT_BLOCKED))
             updateCommandLatencyHistogram(&(real_cmd->latency_histogram), c->duration*1000);
         clusterSlotStatsAddCpuDuration(c, c->duration);
+    }
+
+    /* Populate the per-key hotkey stats. Before updating stats for a command
+     * we need to do some setup on the hotkeyStats structure. We only do this
+     * once during the outer-most call in case of nesting.
+     * NOTE: even though we update the network bytes during nested calls we
+     * only update the duration, since the outer-most call records the whole
+     * duration. */
+    if (update_command_stats && !(c->flags & CLIENT_BLOCKED) &&
+        !server.execution_nesting)
+    {
+        /* First we need to prepare the hotkeyStats for updates */
+        hotkeyStatsPreCurrentCmd(server.hotkeys, c);
+
+        /* Update the current cmd's keys with the commands duration */
+        hotkeyMetrics metrics = {c->duration, 0};
+        hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
     }
 
     /* The duration needs to be reset after each call except for a blocked command,
@@ -4011,6 +4033,28 @@ void call(client *c, int flags) {
 
     /* Do some maintenance job and cleanup */
     afterCommand(c);
+
+    /* The afterCommand updates the replication network bytes. At this point we
+     * are ready to update the ingress/egress net bytes and cleanup tracking
+     * of the current command. */
+    if (update_command_stats && !(c->flags & CLIENT_BLOCKED)) {
+        /* Update the current cmd's keys with the commands output bytes */
+        hotkeyMetrics metrics =
+            {0, c->net_output_bytes_curr_cmd + c->net_input_bytes_curr_cmd};
+        hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
+
+        /* Just like curr cmd setup we only do the cleanup in case we are not in
+         * a nested command. */
+        if (!server.execution_nesting)
+            hotkeyStatsPostCurrentCmd(server.hotkeys);
+    }
+
+    /* Clear the original argv.
+     * If the client is blocked we will handle slowlog when it is unblocked.
+     * NOTE: we free the origin argv only after hoykeyStatsPostCurrentCmd as
+     * hotkeyStats updates depend on original_argv. */
+    if (!(c->flags & CLIENT_BLOCKED))
+        freeClientOriginalArgv(c);
 
     /* Remember the replication offset of the client, right after its last
      * command that resulted in propagation. */
@@ -5956,7 +6000,7 @@ void releaseInfoSectionDict(dict *sec) {
 dict *genInfoSectionDict(robj **argv, int argc, char **defaults, int *out_all, int *out_everything) {
     char *default_sections[] = {
         "server", "clients", "memory", "persistence", "stats", "replication", "threads",
-        "cpu", "module_list", "errorstats", "cluster", "keyspace", "keysizes", NULL};
+        "cpu", "hotkeys", "module_list", "errorstats", "cluster", "keyspace", "keysizes", NULL};
     if (!defaults)
         defaults = default_sections;
 
@@ -6578,6 +6622,34 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
             (long)m_ru.ru_stime.tv_sec, (long)m_ru.ru_stime.tv_usec,
             (long)m_ru.ru_utime.tv_sec, (long)m_ru.ru_utime.tv_usec);
 #endif  /* RUSAGE_THREAD */
+    }
+
+    /* Hotkeys */
+    if (server.hotkeys &&
+        (all_sections || (dictFind(section_dict,"hotkeys") != NULL)))
+    {
+        if (sections++) info = sdscat(info,"\r\n");
+
+        /* Calculate memory usage on-the-fly */
+        size_t memory_usage = sizeof(hotkeyStats);
+        if (server.hotkeys->cpu) {
+            memory_usage += chkTopKGetMemoryUsage(server.hotkeys->cpu);
+        }
+        if (server.hotkeys->net) {
+            memory_usage += chkTopKGetMemoryUsage(server.hotkeys->net);
+        }
+        /* Add memory for slots array if present */
+        if (server.hotkeys->slots) {
+            memory_usage += sizeof(int) * server.hotkeys->numslots;
+        }
+
+        info = sdscatprintf(info, "# Hotkeys\r\n"
+            "tracking-active:%d\r\n"
+            "used-memory:%zu\r\n"
+            "cpu-time:%lld\r\n",
+            server.hotkeys->active ? 1 : 0,
+            memory_usage,
+            server.hotkeys->cpu_time);
     }
 
     /* Modules */
@@ -7497,6 +7569,7 @@ struct redisTest {
     {"bitmap", bitopsTest},
     {"rax", raxTest},
     {"zset", zsetTest},
+    {"topk", chkTopKTest},
 };
 redisTestProc *getTestProcByName(const char *name) {
     int numtests = sizeof(redisTests)/sizeof(struct redisTest);
