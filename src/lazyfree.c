@@ -202,6 +202,11 @@ void freeObjAsync(robj *key, robj *obj, int dbid) {
  * free database objects while main thread/IO threads send client replies, we need to
  * create independent copies of the string objects to avoid concurrent access. */
 static void protectClientReplyObjects(void) {
+    /* If there are no clients with pending ref replies, exit ASAP. */
+    if (!listLength(server.clients_with_pending_ref_reply))
+        return;
+
+    /* Pause all IO threads to safely duplicate string objects. */
     int allpaused = 0;
     if (server.io_threads_num > 1) {
         serverAssert(pthread_equal(server.main_thread_id, pthread_self()));
