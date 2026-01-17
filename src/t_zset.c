@@ -114,10 +114,10 @@ static inline void zslSetNodeInfo(zskiplistNode *node, uint8_t levels, uint16_t 
 }
 
 /* Compare {score, ele} with node. Returns: 1=bigger 0=equal -1=smaller
- * 
+ *
  * Ordering is by score first, then lexicographically by element.
  * NULL is treated as +infinity (comes after any real node). */
-static int zslCompareWithNode(double score, sds ele, const zskiplistNode *n) {
+int zslCompareWithNode(double score, sds ele, const zskiplistNode *n) {
     if (n == NULL) return -1;  /* NULL is +infinity, comes after any real node */
     if (n->score < score) return 1;
     if (n->score > score) return -1;

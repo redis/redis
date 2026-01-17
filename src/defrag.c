@@ -382,7 +382,7 @@ dict *dictDefragTables(dict *d) {
     return ret;
 }
 
-/* Internal function used by activeDefragZsetEntry */
+/* Internal function used by activeDefragZsetNode */
 void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnode, zskiplistNode **update) {
     int i;
     for (i = 0; i < zsl->level; i++) {
@@ -399,9 +399,8 @@ void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnod
     }
 }
 
-/* Defrag helper for sorted set.
- * Defrag a single node, update dictEntry and skiplist struct */
-void activeDefragZsetEntry(zset *zs, dictEntry *de, dictEntryLink plink) {
+/* Defrag a single zset node, update dictEntry and skiplist struct */
+void activeDefragZsetNode(zset *zs, dictEntry *de, dictEntryLink plink) {
     zskiplistNode *znode = dictGetKey(de);
 
     /* Try to defrag the skiplist node first */
@@ -419,9 +418,7 @@ void activeDefragZsetEntry(zset *zs, dictEntry *de, dictEntryLink plink) {
     for (i = zs->zsl->level-1; i >= 0; i--) {
         while (iter->level[i].forward &&
             iter->level[i].forward != znode &&
-            (iter->level[i].forward->score < score ||
-                (iter->level[i].forward->score == score &&
-                sdscmp(zslGetNodeElement(iter->level[i].forward), ele) < 0)))
+            zslCompareWithNode(score, ele, iter->level[i].forward) > 0)
             iter = iter->level[i].forward;
         update[i] = iter;
     }
@@ -613,7 +610,7 @@ typedef struct {
 void scanZsetCallback(void *privdata, const dictEntry *_de, dictEntryLink plink) {
     dictEntry *de = (dictEntry*)_de;
     scanLaterZsetData *data = privdata;
-    activeDefragZsetEntry(data->zs, de, plink);
+    activeDefragZsetNode(data->zs, de, plink);
     server.stat_active_defrag_scanned++;
 }
 
