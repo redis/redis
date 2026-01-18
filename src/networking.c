@@ -2497,6 +2497,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
             if (!c->last_header) { /* reach end */
                 c->bufpos = 0;
                 c->buf_encoded = 0;
+                c->sentlen = 0;
             }
         }
     }
@@ -2526,6 +2527,7 @@ static int _writevToClient(client *c, ssize_t *nwritten) {
                 /* Block fully consumed, remove it */
                 c->reply_bytes -= o->size;
                 listDelNode(c->reply, next);
+                c->sentlen = 0;
             } else {
                 /* Partial write, c->sentlen and o->last_header already updated, stop processing */
                 break;
