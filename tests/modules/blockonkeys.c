@@ -587,7 +587,7 @@ int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 /* Background thread data for testing UAF fix */
 typedef struct {
     RedisModuleBlockedClient *bc;
-    int sleep_ms;
+    long long sleep_ms;
 } uaf_thread_data_t;
 
 /* Background thread that attempts to unblock client after a delay.
