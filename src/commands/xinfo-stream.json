@@ -18,6 +18,10 @@
             [
                 "7.2.0",
                 "Added the `active-time` field, and changed the meaning of `seen-time`."
+            ],
+            [
+                "8.6.0",
+                "Added the `idmp-duration`, `idmp-maxsize`, `pids-tracked`, `iids-tracked`, `iids-added` and `iids-duplicates` fields for IDMP tracking."
             ]
         ],
         "function": "xinfoCommand",
@@ -83,6 +87,30 @@
                         },
                         "entries-added": {
                             "description": "the count of all entries added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "idmp-duration": {
+                            "description": "the duration in seconds that each iid is kept in the stream's IDMP map",
+                            "type": "integer"
+                        },
+                        "idmp-maxsize": {
+                            "description": "the maximum number of most recent iids kept for each pid in the stream's IDMP map",
+                            "type": "integer"
+                        },
+                        "pids-tracked": {
+                            "description": "the number of idempotent producer ids currently tracked in the stream",
+                            "type": "integer"
+                        },
+                        "iids-tracked": {
+                            "description": "the number of idempotent ids currently tracked in the stream",
+                            "type": "integer"
+                        },
+                        "iids-added": {
+                            "description": "the count of all entries with an idempotent id added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "iids-duplicates": {
+                            "description": "the count of duplicate idempotent ids detected during the stream's lifetime",
                             "type": "integer"
                         },
                         "groups": {
@@ -179,6 +207,30 @@
                         },
                         "entries-added": {
                             "description": "the count of all entries added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "idmp-duration": {
+                            "description": "the duration in seconds that each iid is kept in the stream's IDMP map",
+                            "type": "integer"
+                        },
+                        "idmp-maxsize": {
+                            "description": "the maximum number of most recent iids kept for each pid in the stream's IDMP map",
+                            "type": "integer"
+                        },
+                        "pids-tracked": {
+                            "description": "the number of idempotent producer ids currently tracked in the stream",
+                            "type": "integer"
+                        },
+                        "iids-tracked": {
+                            "description": "the number of idempotent ids currently tracked in the stream",
+                            "type": "integer"
+                        },
+                        "iids-added": {
+                            "description": "the count of all entries with an idempotent id added to the stream during its lifetime",
+                            "type": "integer"
+                        },
+                        "iids-duplicates": {
+                            "description": "the count of duplicate idempotent ids detected during the stream's lifetime",
                             "type": "integer"
                         },
                         "entries": {

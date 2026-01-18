@@ -926,6 +926,67 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
     return cg;
 }
 
+/* Defrag a single idmpProducer's dict and linked list entries. */
+static void defragIdmpProducer(idmpProducer *producer) {
+    if (producer->idmp_dict == NULL) return;
+
+    dict *newdict = dictDefragTables(producer->idmp_dict);
+    if (newdict)
+        producer->idmp_dict = newdict;
+
+    idmpEntry *prev = NULL;
+    idmpEntry *entry = producer->idmp_head;
+    while (entry != NULL) {
+        idmpEntry *next = entry->next;
+        idmpEntry *newentry = activeDefragAllocWithoutFree(entry);
+        if (newentry) {
+            dictEntry *de = dictFind(producer->idmp_dict, entry);
+            serverAssert(de);
+            dictSetKey(producer->idmp_dict, de, newentry);
+            if (prev)
+                prev->next = newentry;
+            else
+                producer->idmp_head = newentry;
+            if (producer->idmp_tail == entry)
+                producer->idmp_tail = newentry;
+            activeDefragFree(entry);
+            entry = newentry;
+        }
+        prev = entry;
+        entry = next;
+    }
+}
+
+/* Defrag all IDMP producers and their dict/linked list entries. */
+void defragStreamIdmpProducers(stream *s) {
+    if (s->idmp_producers == NULL) return;
+
+    /* Defrag the producers rax tree itself */
+    rax *newrax = activeDefragAlloc(s->idmp_producers);
+    if (newrax)
+        s->idmp_producers = newrax;
+
+    /* Defrag the rax head node */
+    defragRaxNode(&s->idmp_producers->head, NULL);
+
+    /* Iterate through all producers and defrag each one */
+    raxIterator ri;
+    raxStart(&ri, s->idmp_producers);
+    /* Set the node callback to defrag internal rax nodes */
+    ri.node_cb = defragRaxNode;
+    raxSeek(&ri, "^", NULL, 0);
+    while (raxNext(&ri)) {
+        idmpProducer *producer = ri.data;
+        idmpProducer *newproducer = activeDefragAlloc(producer);
+        if (newproducer) {
+            raxSetData(ri.node, ri.data=newproducer);
+            producer = newproducer;
+        }
+        defragIdmpProducer(producer);
+    }
+    raxStop(&ri);
+}
+
 void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     serverAssert(ob->type == OBJ_STREAM && ob->encoding == OBJ_ENCODING_STREAM);
     stream *s = ob->ptr, *news;
@@ -954,6 +1015,11 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
         /* Update cgroups_ref back-pointer to new stream */
         s->cgroups_ref->alloc_size = &s->alloc_size;
     }
+
+    if (s->idmp_producers) {
+        /* Defrag the producers and all idmpEntry structures in their linked lists */
+        defragStreamIdmpProducers(s);
+    }
 }
 
 /* Defrag a module key. This is either done immediately or scheduled
@@ -965,6 +1031,53 @@ void defragModule(defragKeysCtx *ctx, redisDb *db, kvobj *kv) {
     initStaticStringObject(keyobj, kvobjGetKey(kv));
     if (!moduleDefragValue(&keyobj, kv, db->id))
         defragLater(ctx, kv);
+}
+
+/* Defrag a kvobj structure, taking into account optional preceding metadata.
+ * For EMBSTR strings, also defrags the embedded string value in the same allocation.
+ * For RAW strings and other types, only the kvobj wrapper is defragged here;
+ * the value's internal data structures are defragged separately in defragKey().
+ *
+ * Returns NULL if the allocation wasn't moved.
+ * When it returns a non-null value, the old pointer was already released
+ * (unless without_free is set) and should NOT be accessed. */
+robj *activeDefragKvobj(kvobj* kv, int without_free) {
+    void *alloc, *newalloc;
+    kvobj *kvNew = NULL;
+    /* Use LONG_MIN as sentinel to detect if we have an EMBSTR string */
+    long offsetEmbstr = LONG_MIN;
+
+    /* Don't defrag kvobj's with multiple references (refcount > 1) */
+    if (kv->refcount != 1)
+        return NULL;
+
+    /* Calculate offset for EMBSTR strings */
+    if ((kv->type == OBJ_STRING) && (kv->encoding == OBJ_ENCODING_EMBSTR))
+        offsetEmbstr = (intptr_t)kv->ptr - (intptr_t)kv;
+
+    /* Defrag the kvobj allocation (including optional metadata prefix).
+     * For EMBSTR strings, this allocation also contains the embedded string data,
+     * so we'll need to recalculate the ptr offset after defragmentation (see below). */
+
+    alloc = kvobjGetAllocPtr(kv);
+    size_t metaBytes = (char *)kv - (char *)alloc;
+    if (without_free)
+        newalloc = activeDefragAllocWithoutFree(alloc);
+    else
+        newalloc = activeDefragAlloc(alloc);
+
+    if (!newalloc)
+        return NULL;
+
+    /* Update kv pointer to new allocation */
+    kvNew = (kvobj *)((char *)newalloc + metaBytes);
+
+    /* For EMBSTR strings, recalculate ptr to point to the embedded string data
+     * at the same offset within the new allocation */
+    if (offsetEmbstr != LONG_MIN)
+        kvNew->ptr = (void*)((intptr_t)kvNew + offsetEmbstr);
+
+    return kvNew;
 }
 
 /* for each key we scan in the main dict, this function will attempt to defrag
@@ -990,11 +1103,11 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
          serverAssert(exlink != NULL);
      }
 
-    /* Try to defrag robj and/or string value. For hash objects with HFEs,
+    /* Try to defrag robj. For hash objects with HFEs,
      * defer defragmentation until processing db's subexpires. */
     if (!(ob->type == OBJ_HASH && hashTypeGetMinExpire(ob, 0) != EB_EXPIRE_TIME_INVALID)) {
         /* If the dict doesn't have metadata, we directly defrag it. */
-        kvnew = activeDefragStringOb(ob);
+        kvnew = activeDefragKvobj(ob, 0);
     }
     if (kvnew) {
         kvstoreDictSetAtLink(db->keys, slot, kvnew, &link, 0);
@@ -1004,7 +1117,14 @@ void defragKey(defragKeysCtx *ctx, dictEntry *de, dictEntryLink link) {
     }
 
     if (ob->type == OBJ_STRING) {
-        /* Already handled in activeDefragStringOb. */
+        /* Only defrag strings with refcount==1 (String might be shared as dict 
+         * keys, e.g. pub/sub channels, and may be accessed by IO threads. Other 
+         * types are never used as dict keys) */
+        if ((ob->refcount==1) && (ob->encoding == OBJ_ENCODING_RAW)) {
+            /* For RAW strings, defrag the separate SDS allocation */
+            sds newsds = activeDefragSds((sds)ob->ptr);
+            if (newsds) ob->ptr = newsds;
+        } 
     } else if (ob->type == OBJ_LIST) {
         if (ob->encoding == OBJ_ENCODING_QUICKLIST) {
             defragQuicklist(ctx, ob);
@@ -1385,14 +1505,14 @@ void *activeDefragSubexpiresOB(void *ptr, void *privdata) {
         serverAssert(exlink != NULL);
     }
 
-    if ((newkv = activeDefragAllocWithoutFree(kv))) {
+    if ((newkv = activeDefragKvobj(kv, 1))) {
         /* Update its reference in the DB keys. */
         link = kvstoreDictFindLink(db->keys, slot, keystr, NULL);
         serverAssert(link != NULL);
         kvstoreDictSetAtLink(db->keys, slot, newkv, &link, 0);
         if (expire != -1)
             kvstoreDictSetAtLink(db->expires, slot, newkv, &exlink, 0);
-        activeDefragFree(kv);
+        activeDefragFree(kvobjGetAllocPtr(kv));
     }
     return newkv;
 }

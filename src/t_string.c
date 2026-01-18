@@ -168,7 +168,15 @@ void setGenericCommand(client *c, int flags, robj *key, robj **valref, robj *exp
          * EX/PX/EXAT flag. */
         if (!(flags & OBJ_PXAT)) {
             robj *milliseconds_obj = createStringObjectFromLongLong(milliseconds);
-            rewriteClientCommandVector(c, 5, shared.set, key, *valref, shared.pxat, milliseconds_obj);
+            /* If command is exactly "SET key value EX/PX/EXAT ttl", we can just
+             * replace the expire type and value in-place. Otherwise, we need to
+             * rewrite the entire command to strip extra flags (NX, XX, GET, etc). */
+            if ((c->cmd->proc == setCommand) && c->argc == 5) {
+                rewriteClientCommandArgument(c, 3, shared.pxat);
+                rewriteClientCommandArgument(c, 4, milliseconds_obj);
+            } else {
+                rewriteClientCommandVector(c, 5, shared.set, key, *valref, shared.pxat, milliseconds_obj);
+            }
             decrRefCount(milliseconds_obj);
         }
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);

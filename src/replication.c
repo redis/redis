@@ -398,6 +398,10 @@ void feedReplicationBuffer(char *s, size_t len) {
 
     clusterSlotStatsIncrNetworkBytesOutForReplication(len);
 
+    /* Update the current cmd's keys with the commands replication bytes*/
+    hotkeyMetrics metrics = {0, len};
+    hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
+
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
         listNode *start_node = NULL; /* Replica/backlog starts referenced node. */

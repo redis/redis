@@ -92,6 +92,10 @@ void createDumpPayload(rio *payload, robj *o, robj *key, int dbid, int skip_chec
     /* Serialize the object in an RDB-like format. It consist of an object type
      * byte followed by the serialized object. This is understood by RESTORE. */
     rioInitWithBuffer(payload,sdsempty());
+
+    /* Save key metadata if present without (handles TTL separately via command args) */
+    if (getModuleMetaBits(o->metabits))
+        serverAssert(rdbSaveKeyMetadata(payload, key, o, dbid) != -1);
     serverAssert(rdbSaveObjectType(payload,o));
     serverAssert(rdbSaveObject(payload,o,key,dbid));
 
@@ -240,9 +244,28 @@ void restoreCommand(client *c) {
     }
 
     rioInitWithBuffer(&payload,c->argv[3]->ptr);
-    if (((type = rdbLoadObjectType(&payload)) == -1) ||
-        ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL))
+
+    /* Initialize metadata spec to collect metadata+expiry from payload. */
+    KeyMetaSpec keymeta;
+    keyMetaSpecInit(&keymeta);
+
+    /* Compute TTL early so we can add it to metadata spec in correct order */
+    if (ttl) {
+        if (!absttl) ttl+=commandTimeSnapshot();
+        keyMetaSpecAdd(&keymeta, KEY_META_ID_EXPIRE, ttl);
+    }
+
+    /* With metadata, type = RDB_OPCODE_KEY_META. Layout: [<META>,]<TYPE>,<KEY>,<VALUE> */
+    type = rdbLoadType(&payload);
+    if (rdbResolveKeyType(&payload, &type, c->db->id, &keymeta) == -1) {
+        addReplyError(c,"Bad data format");
+        return;
+    }
+
+    /* Load the object */
+    if ((obj = rdbLoadObject(type,&payload,key->ptr,c->db->id,NULL)) == NULL)
     {
+        keyMetaSpecCleanup(&keymeta);
         addReplyError(c,"Bad data format");
         return;
     }
@@ -252,7 +275,6 @@ void restoreCommand(client *c) {
     if (replace)
         deleted = dbDelete(c->db,key);
 
-    if (ttl && !absttl) ttl+=commandTimeSnapshot();
     if (ttl && checkAlreadyExpired(ttl)) {
         if (deleted) {
             robj *aux = server.lazyfree_lazy_server_del ? shared.unlink : shared.del;
@@ -261,13 +283,14 @@ void restoreCommand(client *c) {
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
             server.dirty++;
         }
+        keyMetaSpecCleanup(&keymeta);
         decrRefCount(obj);
         addReply(c, shared.ok);
         return;
     }
 
     /* Create the key and set the TTL if any */
-    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, ttl ? ttl : -1);
+    kvobj *kv = dbAddInternal(c->db, key, &obj, NULL, &keymeta);
 
     /* If minExpiredField was set, then the object is hash with expiration
      * on fields and need to register it in global HFE DS */
