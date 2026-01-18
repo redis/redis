@@ -1704,7 +1704,7 @@ void ioDeferFreeRobj(client *c, robj *obj) {
  * from clients_with_pending_ref_reply list (used by protectClientReplyObjects
  * after all bulk string refs have been duplicated). */
 void freeClientIODeferredAndRemoveRef(client *c, int free_array, int force_remove_ref) {
-    serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
+    if (!c->conn) return;
 
     /* Free all objects queued by IO thread for deferred freeing. */
     if (c->io_deferred_objects) {
