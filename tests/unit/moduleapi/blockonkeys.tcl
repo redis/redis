@@ -329,6 +329,31 @@ start_server {tags {"modules external:skip"}} {
         $rd close
     }
 
+    test {Module client blocked on keys: UAF protection on client disconnect} {
+        # This test verifies the fix for issue #14677 - use-after-free when
+        # a background thread tries to unblock a client that has already
+        # disconnected and been freed.
+        r del k
+        set rd [redis_deferring_client]
+
+        # Block client and spawn thread that will try to unblock after 200ms
+        $rd blockonkeys.uaftest k 200 5000
+        wait_for_blocked_clients_count 1
+
+        # Disconnect client while thread is sleeping
+        # Without the fix, this would cause UAF when thread calls RM_UnblockClient
+        $rd close
+
+        # Wait for background thread to attempt unblock (should handle gracefully)
+        after 300
+
+        # Verify server is still responsive (didn't crash from UAF)
+        assert_equal {PONG} [r ping]
+
+        # Verify no blocked clients remain
+        assert_equal 0 [s blocked_clients]
+    }
+
     set master [srv 0 client]
     set master_host [srv 0 host]
     set master_port [srv 0 port]

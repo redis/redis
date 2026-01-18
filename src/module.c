@@ -8063,6 +8063,12 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->background_timer = 0;
     bc->background_duration = 0;
 
+    /* Register this bc pointer as valid so RM_UnblockClient can safely check it.
+     * Must be done immediately after allocation so early returns don't leak bc. */
+    pthread_mutex_lock(&moduleUnblockedClientsMutex);
+    dictAdd(moduleBlockedClientsSet, bc, NULL);
+    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
+
     mstime_t timeout = 0;
     if (timeout_ms) {
         mstime_t now = mstime();
@@ -8093,11 +8099,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
             blockClient(c,BLOCKED_MODULE);
         }
     }
-
-    /* Register this bc pointer as valid so RM_UnblockClient can safely check it */
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    dictAdd(moduleBlockedClientsSet, bc, NULL);
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
 
     return bc;
 }
@@ -8475,9 +8476,9 @@ void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
     signalKeyAsReady(ctx->client->db, key, OBJ_MODULE);
 }
 
-/* Implements RM_UnblockClient() and moduleUnblockClient(). */
+/* Implements RM_UnblockClient() and moduleUnblockClient().
+ * IMPORTANT: Caller must hold moduleUnblockedClientsMutex. */
 int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
     if (!bc->blocked_on_keys) bc->privdata = privdata;
     bc->unblocked = 1;
     if (listLength(moduleUnblockedClients) == 0) {
@@ -8486,7 +8487,6 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
         }
     }
     listAddNodeTail(moduleUnblockedClients,bc);
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
 }
 
@@ -8494,7 +8494,9 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
  * by a module. */
 void moduleUnblockClient(client *c) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
+    pthread_mutex_lock(&moduleUnblockedClientsMutex);
     moduleUnblockClientByHandle(bc,NULL);
+    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
 }
 
 /* Return true if the client 'c' was blocked by a module using
@@ -8550,8 +8552,8 @@ int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
         if (bc->client) bc->blocked_on_keys_explicit_unblock = 1;
     }
 
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     moduleUnblockClientByHandle(bc,privdata);
+    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
 }
 
@@ -8689,7 +8691,9 @@ void moduleHandleBlockedClients(void) {
 
             /* Remove bc from valid set before freeing to prevent use-after-free
              * in concurrent RM_UnblockClient() calls from module threads. */
+            pthread_mutex_lock(&moduleUnblockedClientsMutex);
             dictDelete(moduleBlockedClientsSet, bc);
+            pthread_mutex_unlock(&moduleUnblockedClientsMutex);
             zfree(bc);
         }
 
