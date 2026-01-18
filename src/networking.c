@@ -1217,7 +1217,11 @@ static int isCopyAvoidPreferred(client *c, robj *obj, size_t len) {
     if (!c->conn || !server.reply_copy_avoidance_enabled) return 0;
 
     int type = getClientType(c);
-    if (type != CLIENT_TYPE_NORMAL && type != CLIENT_TYPE_PUBSUB) return 0;
+    if (type != CLIENT_TYPE_NORMAL) return 0;
+
+    /* Don't use copy avoidance for push messages. Push messages need to be deferred
+     * to server.pending_push_messages when CLIENT_PUSHING is set. */
+    if (c->flags & CLIENT_PUSHING) return 0;
 
     if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount == OBJ_STATIC_REFCOUNT) return 0;
 
