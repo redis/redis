@@ -270,7 +270,8 @@ static void protectClientReplyObjects(void) {
 
         /* Process references in IO deferred objects and remove client from
          * pending ref list since all refs have been duplicated above. */
-        freeClientIODeferredAndRemoveRef(c, 0, 1);
+        freeClientIODeferredObjects(c, 0);
+        tryUnlinkClientFromPendingRefReply(c, 1);
     }
 
     if (allpaused) resumeAllIOThreads();

@@ -1703,42 +1703,30 @@ void ioDeferFreeRobj(client *c, robj *obj) {
 
 /* Free all objects queued by IO thread for deferred freeing.
  * Called by main thread when client returns from IO thread.
- * If free_array is true then free the array itself as well.
- * If force_remove_ref is true, unconditionally remove the client
- * from clients_with_pending_ref_reply list (used by protectClientReplyObjects
- * after all bulk string refs have been duplicated). */
-void freeClientIODeferredAndRemoveRef(client *c, int free_array, int force_remove_ref) {
+ * If free_array is true then free the array itself as well. */
+void freeClientIODeferredObjects(client *c, int free_array) {
     if (!c->conn) return;
 
-    /* Free all objects queued by IO thread for deferred freeing. */
-    if (c->io_deferred_objects) {
-        for (int i = 0; i < c->io_deferred_objects_num; i++) {
-            robj *obj = c->io_deferred_objects[i];
-            decrRefCount(obj);
-        }
-
-        if (!free_array) {
-            /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
-            if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
-                c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
-            {
-                int new_size = c->io_deferred_objects_size / 2;
-                c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
-                c->io_deferred_objects_size = new_size;
-            }
-            c->io_deferred_objects_num = 0;
-        } else {
-            zfree(c->io_deferred_objects);
-            c->io_deferred_objects = NULL;
-            c->io_deferred_objects_num = 0;
-            c->io_deferred_objects_size = 0;
-        }
+    for (int i = 0; i < c->io_deferred_objects_num; i++) {
+        robj *obj = c->io_deferred_objects[i];
+        decrRefCount(obj);
     }
 
-    /* Remove client from pending referenced reply clients list. */
-    if (c->pending_ref_reply_node && (force_remove_ref || !clientHasPendingReplies(c))) {
-        listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
-        c->pending_ref_reply_node = NULL;
+    if (!free_array) {
+        /* If the utilization rate is less than 1/4, reduce the size to 1/2 to avoid thrashing */
+        if (c->io_deferred_objects_size > IO_DEFERRED_OBJECTS_INIT_SIZE &&
+            c->io_deferred_objects_num * 4 < c->io_deferred_objects_size)
+        {
+            int new_size = c->io_deferred_objects_size / 2;
+            c->io_deferred_objects = zrealloc(c->io_deferred_objects, new_size * sizeof(robj *));
+            c->io_deferred_objects_size = new_size;
+        }
+        c->io_deferred_objects_num = 0;
+    } else {
+        zfree(c->io_deferred_objects);
+        c->io_deferred_objects = NULL;
+        c->io_deferred_objects_num = 0;
+        c->io_deferred_objects_size = 0;
     }
 }
 
@@ -1890,6 +1878,20 @@ void unlinkClient(client *c) {
 
     /* Clear the tracking status. */
     if (c->flags & CLIENT_TRACKING) disableTracking(c);
+}
+
+/* Remove client from the list of clients with pending referenced replies.
+ * This is called when the client has finished sending all pending replies,
+ * or when the client is being freed.
+ *
+ * If 'force' is true, the client is removed unconditionally.
+ * This should only be used when we are certain that the replies no longer
+ * contain any referenced robj. */
+void tryUnlinkClientFromPendingRefReply(client *c, int force) {
+    if (c->pending_ref_reply_node && (force || !clientHasPendingReplies(c))) {
+        listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
+        c->pending_ref_reply_node = NULL;
+    }
 }
 
 /* Clear the client state to resemble a newly connected client. */
@@ -2118,7 +2120,8 @@ void freeClient(client *c) {
     freeReplicaReferencedReplBuffer(c);
     freeClientOriginalArgv(c);
     freeClientDeferredObjects(c, 1);
-    freeClientIODeferredAndRemoveRef(c, 1, 1);
+    freeClientIODeferredObjects(c, 1);
+    tryUnlinkClientFromPendingRefReply(c, 1);
     if (c->deferred_reply_errors)
         listRelease(c->deferred_reply_errors);
 #ifdef LOG_REQ_RES
@@ -2699,10 +2702,8 @@ int writeToClient(client *c, int handler_installed) {
         }
 
         /* Remove client from pending referenced reply clients list. */
-        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID && c->pending_ref_reply_node) {
-            listDelNode(server.clients_with_pending_ref_reply, c->pending_ref_reply_node);
-            c->pending_ref_reply_node = NULL;
-        }
+        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
+            tryUnlinkClientFromPendingRefReply(c, 1);
     }
     /* Update client's memory usage after writing.
      * Since this isn't thread safe we do this conditionally. */
