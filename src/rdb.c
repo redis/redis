@@ -2154,7 +2154,7 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             totelelen += sdslen(sdsele);
 
             znode = zslInsert(zs->zsl,score,sdsele);
-            if (dictAdd(zs->dict,znode,NULL) != DICT_OK) {
+            if (dictAdd(zs->dict, znode, NULL) != DICT_OK) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
                 decrRefCount(o);
                 sdsfree(sdsele); /* zslInsert copies the sds, so we need to free the original */

@@ -118,9 +118,9 @@ static inline void zslSetNodeInfo(zskiplistNode *node, uint8_t levels, uint16_t 
  * Ordering is by score first, then lexicographically by element.
  * NULL is treated as +infinity (comes after any real node). */
 int zslCompareWithNode(double score, sds ele, const zskiplistNode *n) {
-    if (n == NULL) return -1;  /* NULL is +infinity, comes after any real node */
-    if (n->score < score) return 1;
-    if (n->score > score) return -1;
+    if (/*score < */ n == NULL) return -1; /* NULL is +infinity, comes after any real node */
+    if (score < n->score) return -1;
+    if (score > n->score) return 1;
     /* Scores are equal, compare elements lexicographically */
     return sdscmp(ele, zslGetNodeElement(n));
 }
@@ -365,14 +365,9 @@ static void zslUnlinkNode(zskiplist *zsl, zskiplistNode *x, zskiplistNode **upda
     zsl->length--;
 }
 
-/* Delete an element with matching score/element from the skiplist.
- * The function returns 1 if the node was found and deleted, otherwise
- * 0 is returned.
- *
- * If 'node' is NULL the deleted node is freed by zslFreeNode(), otherwise
- * it is not freed (but just unlinked) and *node is set to the node pointer,
- * so that it is possible for the caller to reuse the node (including the
- * embedded SDS string accessible via zslGetNodeElement(node)). */
+/* Delete the specified node from the skiplist.
+ * The node is unlinked from all levels and then freed by zslFreeNode(),
+ * which also frees the embedded SDS string. */
 static void zslDelete(zskiplist *zsl, zskiplistNode *node) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x;
     int i;
@@ -395,15 +390,10 @@ static void zslDelete(zskiplist *zsl, zskiplistNode *node) {
 }
 
 /* Update the score of an element inside the sorted set skiplist.
- * Takes the node pointer directly (caller already has it from dict lookup).
- * This function does not update the dict - the node pointer stays the same.
- *
- * Note that this function attempts to just update the node in-place if the
- * score update doesn't change its position. Otherwise it unlinks and reinserts.
- *
- * Returns the node pointer (same as input) if relinking was needed, or NULL
- * if the score was updated in-place without relinking. */
-static zskiplistNode *zslUpdateScore(zskiplist *zsl, zskiplistNode *node, double newscore) {
+ * If the new score would keep the node in its current position, updates in-place and returns NULL.
+ * Otherwise, unlinks the node, updates score, reinserts at correct position, and returns node.
+ * Anyway, the node pointer stays the same (no dict update needed). */
+static void zslUpdateScore(zskiplist *zsl, zskiplistNode *node, double newscore) {
     /* Fast path: if the node, after the score update, would be still exactly
      * at the same position, we can just update the score without
      * actually removing and re-inserting the element in the skiplist. */
@@ -411,7 +401,7 @@ static zskiplistNode *zslUpdateScore(zskiplist *zsl, zskiplistNode *node, double
         (node->level[0].forward == NULL || node->level[0].forward->score > newscore))
     {
         node->score = newscore;
-        return NULL;  /* Signal: no relinking needed */
+        return;
     }
 
     /* Slow path: need to reposition the node.
@@ -437,7 +427,6 @@ static zskiplistNode *zslUpdateScore(zskiplist *zsl, zskiplistNode *node, double
     zslUnlinkNode(zsl, node, update);
     node->score = newscore;
     zslInsertNode(zsl, node);
-    return node;
 }
 
 int zslValueGteMin(double value, zrangespec *spec) {
@@ -665,7 +654,6 @@ unsigned long zslGetRank(zskiplist *zsl, double score, sds ele) {
             x = x->level[i].forward;
         }
 
-        /* x might be equal to zsl->header, so test if obj is non-NULL */
         if (x != zsl->header && zslCompareWithNode(score, ele, x) == 0) {
             return rank;
         }
@@ -710,10 +698,6 @@ static zskiplistNode *zslGetElementByRankFromNode(zskiplistNode *start_node, int
             x = x->level[i].forward;
         }
         if (traversed == rank) {
-            /* Never return the header node - check if x has moved from start_node */
-            if (x == start_node && zslGetNodeInfo(x)->sdsoffset == ZSL_OFFSET_NO_ELE) {
-                return NULL; /* This is the header node */
-            }
             return x;
         }
     }
@@ -865,12 +849,10 @@ static int zslIsInLexRange(zskiplist *zsl, zlexrangespec *range) {
     if (cmp > 0 || (cmp == 0 && (range->minex || range->maxex)))
         return 0;
     x = zsl->tail;
-    if (x == NULL) return 0;
-    if (!zslLexValueGteMin(zslGetNodeElement(x),range))
+    if ((x == NULL) || (!zslLexValueGteMin(zslGetNodeElement(x),range)))
         return 0;
     x = zsl->header->level[0].forward;
-    if (x == NULL) return 0;
-    if (!zslLexValueLteMax(zslGetNodeElement(x),range))
+    if ((x == NULL) || (!zslLexValueLteMax(zslGetNodeElement(x),range)))
         return 0;
     return 1;
 }
@@ -2311,6 +2293,8 @@ void zremrangebylexCommand(client *c) {
     zremrangeGenericCommand(c,ZRANGE_LEX);
 }
 
+/* Unified iterator source for set operations (ZUNION/ZINTER/ZDIFF).
+ * Provides polymorphic iteration over sets and sorted sets with different encodings. */
 typedef struct {
     robj *subject;
     int type; /* Set, sorted set */
@@ -3077,6 +3061,7 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
             zuiClearIterator(&src[0]);
         }
     } else if (op == SET_OP_UNION) {
+        dictIterator di;
         dictEntry *de;
         double score;
 
@@ -3098,36 +3083,43 @@ void zunionInterDiffGenericCommand(client *c, robj *dstkey, int numkeysIndex, in
                 if (isnan(score)) score = 0;
 
                 /* Search for this element in the dict (which stores node pointers). */
-                de = dictFind(dstzset->dict, zuiSdsFromValue(&zval));
-
-                if (!de) {
-                    /* New element: insert into skiplist and dict */
+                dictEntryLink bucket, link;
+                link = dictFindLink(dstzset->dict, zuiSdsFromValue(&zval), &bucket);
+                
+                if (link == NULL) {  /* if not exists */
+                    /* New element: create node and insert into dict */
                     tmp = zuiNewSdsFromValue(&zval);
                     /* Remember the longest single element encountered,
                      * to understand if it's possible to convert to listpack
                      * at the end. */
                      totelelen += sdslen(tmp);
                      if (sdslen(tmp) > maxelelen) maxelelen = sdslen(tmp);
-                    /* Insert into skiplist (copies the sds) */
-                    znode = zslInsert(dstzset->zsl, score, tmp);
-                    /* Add node pointer to dict */
-                    dictAdd(dstzset->dict, znode, NULL);
-                    sdsfree(tmp); /* zslInsert copied it, we can free our copy */
+
+                    /* Create node with embedded sds and score */
+                    znode = zslCreateNode(dstzset->zsl, zslRandomLevel(), score, tmp);
+                    /* Add node pointer to dict using the bucket we already found */
+                    dictSetKeyAtLink(dstzset->dict, znode, &bucket, 1);
+                    sdsfree(tmp); /* zslCreateNode copied it, we can free our copy */
                 } else {
-                    /* Existing element: update score in skiplist */
+                    /* Existing element: aggregate score */
+                    de = *link;
                     znode = dictGetKey(de);
                     double newscore = znode->score;
                     zunionInterAggregate(&newscore, score, aggregate);
-
-                    /* Update score if it changed */
-                    if (newscore != znode->score) {
-                        zslUpdateScore(dstzset->zsl, znode, newscore);
-                        /* Note: node pointer stays the same, no dict update needed */
-                    }
+                    znode->score = newscore;
                 }
             }
             zuiClearIterator(&src[i]);
         }
+
+        /* Step 2: Done filling dict with nodes and updating scores. Now insert skiplist */
+        dictInitIterator(&di, dstzset->dict);
+
+        while((de = dictNext(&di)) != NULL) {
+            zskiplistNode *znode = dictGetKey(de);
+            zslInsertNode(dstzset->zsl, znode);
+        }
+        dictResetIterator(&di);
     } else if (op == SET_OP_DIFF) {
         zdiff(src, setnum, dstzset, &maxelelen, &totelelen);
     } else {
