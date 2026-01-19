@@ -3838,8 +3838,9 @@ void call(client *c, int flags) {
     long long old_master_repl_offset = server.master_repl_offset;
     incrCommandStatsOnError(NULL, 0);
 
-    const long long call_timer = ustime();
-    enterExecutionUnit(1, call_timer);
+    /* Pass current server.ustime to avoid ustime() call - time will be updated
+     * after command execution based on accumulated monotonic duration. */
+    enterExecutionUnit(1, server.ustime);
 
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
      * sending client side caching message in the middle of a command reply.
@@ -3847,8 +3848,10 @@ void call(client *c, int flags) {
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
 
+    /* Use monotonic clock if available */
+    const int use_hw_clock = monotonicGetType() == MONOTONIC_CLOCK_HW;
     monotime monotonic_start = 0;
-    if (monotonicGetType() == MONOTONIC_CLOCK_HW)
+    if (use_hw_clock)
         monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
@@ -3859,13 +3862,29 @@ void call(client *c, int flags) {
      * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
     if (!(c->flags & CLIENT_BLOCKED)) c->flags &= ~(CLIENT_EXECUTING_COMMAND);
 
-    /* In order to avoid performance implication due to querying the clock using a system call 3 times,
-     * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
+    /* In order to avoid performance implication due to querying the clock using a system call,
+     * we use the monotonic HW clock to measure duration when available.
+     * We accumulate durations and only call ustime() when the accumulated
+     * duration crosses a threshold (10us) or after 25 commands to reduce syscall overhead. */
     ustime_t duration;
-    if (monotonicGetType() == MONOTONIC_CLOCK_HW)
+    if (use_hw_clock) {
         duration = getMonotonicUs() - monotonic_start;
-    else
-        duration = ustime() - call_timer;
+        server.accumulated_call_duration += duration;
+        server.accumulated_call_count++;
+        /* Call ustime() when accumulated duration crosses 10us or after 25 commands */
+        if (server.accumulated_call_duration > 10 || server.accumulated_call_count >= 25) {
+            updateCachedTimeWithUs(0, ustime());
+            server.accumulated_call_duration = 0;
+            server.accumulated_call_count = 0;
+        }
+    }
+    else {
+        /* Fallback: call ustime() directly */
+        const long long now = ustime();
+        duration = now - server.ustime;
+        updateCachedTimeWithUs(0, now);
+    }
+        
 
     c->duration += duration;
     dirty = server.dirty-dirty;
