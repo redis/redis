@@ -38,9 +38,16 @@
 #include <ctype.h>
 #include <string.h>
 
+typedef unsigned short recursion_depth_t;
+
+// Don't see much point in making the depth configurable by the caller
+// Making it hardcoded to simplify the callers usage
+// Used to avoid getting into a stack overflow in case of malicious json input
+#define MAX_RECURSION_DEPTH_LIMIT 1000
+
 // Forward declarations.
 static int jsonSkipValue(const char **p, const char *end);
-static exprtoken *jsonParseValueToken(const char **p, const char *end);
+static exprtoken *jsonParseValueToken(const char **p, const char *end, recursion_depth_t current);
 
 /* Similar to ctype.h isdigit() but covers the whole JSON number charset,
  * including exp form. */
@@ -267,7 +274,7 @@ static exprtoken *jsonParseLiteralToken(const char **p, const char *end, const c
     return t;
 }
 
-static exprtoken *jsonParseArrayToken(const char **p, const char *end) {
+static exprtoken *jsonParseArrayToken(const char **p, const char *end, recursion_depth_t current) {
     if (*p >= end || **p != '[') return NULL;
     (*p)++; // Skip '['.
     jsonSkipWhiteSpaces(p,end);
@@ -283,7 +290,7 @@ static exprtoken *jsonParseArrayToken(const char **p, const char *end) {
 
     // Parse array elements.
     while (1) {
-        exprtoken *ele = jsonParseValueToken(p,end);
+        exprtoken *ele = jsonParseValueToken(p,end, current + 1);
         if (!ele) {
             exprTokenRelease(t); // Clean up partially built array token.
             return NULL;
@@ -330,13 +337,17 @@ static exprtoken *jsonParseArrayToken(const char **p, const char *end) {
 }
 
 /* Turn a JSON value into an expr token. */
-static exprtoken *jsonParseValueToken(const char **p, const char *end) {
+static exprtoken *jsonParseValueToken(const char **p, const char *end, recursion_depth_t current) {
+    if (current >= MAX_RECURSION_DEPTH_LIMIT) {
+        // protect from stack overflow
+        return NULL; 
+    }
     jsonSkipWhiteSpaces(p,end);
     if (*p >= end) return NULL;
 
     switch (**p) {
     case '"': return jsonParseStringToken(p,end);
-    case '[':  return jsonParseArrayToken(p,end);
+    case '[':  return jsonParseArrayToken(p,end,current);
     case '{':  return NULL; // No nested elements support for now.
     case 't':  return jsonParseLiteralToken(p,end,"true",EXPR_TOKEN_NUM,1);
     case 'f':  return jsonParseLiteralToken(p,end,"false",EXPR_TOKEN_NUM,0);
@@ -437,5 +448,5 @@ exprtoken *jsonExtractField(const char *json, size_t json_len,
 
     /* Key found, valptr points to the start of the value.
      * Convert it into an expression token object. */
-    return jsonParseValueToken(&valptr,end);
+    return jsonParseValueToken(&valptr,end, 0);
 }
