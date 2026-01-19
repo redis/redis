@@ -4140,28 +4140,31 @@ int commandCheckExistence(client *c, sds *err) {
         return 1;
     if (!err)
         return 0;
+
     if (isContainerCommandBySds(c->argv[0]->ptr)) {
-        /* If we can't find the command but argv[0] by itself is a command
-         * it means we're dealing with an invalid subcommand. Print Help. */
         sds cmd = sdsnew((char *)c->argv[0]->ptr);
         sdstoupper(cmd);
         *err = sdsnew(NULL);
-        if (c->argc >= 2) {
+
+        if (c->argc < 2) {
+            *err = sdscatprintf(*err, "missing subcommand. Try %s HELP.", cmd);
+        } else {
             *err = sdscatprintf(*err, "unknown subcommand '%.128s'. Try %s HELP.",
                                 (char *)c->argv[1]->ptr, cmd);
-        } else {
-            *err = sdscatprintf(*err, "unknown command '%.128s'", cmd);
         }
+
         sdsfree(cmd);
     } else {
-        sds args = sdsempty();
-        int i;
-        for (i=1; i < c->argc && sdslen(args) < 128; i++)
-            args = sdscatprintf(args, "'%.*s' ", 128-(int)sdslen(args), (char*)c->argv[i]->ptr);
         *err = sdsnew(NULL);
-        *err = sdscatprintf(*err, "unknown command '%.128s', with args beginning with: %s",
-                            (char*)c->argv[0]->ptr, args);
-        sdsfree(args);
+        *err = sdscatprintf(*err, "unknown command '%.128s'", (char *)c->argv[0]->ptr);
+
+        if (c->argc >= 2) {
+            sds args = sdsempty();
+            for (int i = 1; i < c->argc && sdslen(args) < 128; i++)
+                args = sdscatprintf(args, "'%.*s' ", 128 - (int)sdslen(args), (char *)c->argv[i]->ptr);
+            *err = sdscatprintf(*err, ", with args beginning with: %s", args);
+            sdsfree(args);
+        }
     }
     /* Make sure there are no newlines in the string, otherwise invalid protocol
      * is emitted (The args come from the user, they may contain any character). */

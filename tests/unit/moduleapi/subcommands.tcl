@@ -51,8 +51,8 @@ start_server {tags {"modules external:skip"}} {
         assert_equal [lsearch $commands "set"] -1
     }
 
-    test "Internal container command without subcommand does not crash" {
-        assert_error {*unknown command*} {r subcommands.internal_container}
+    test "Internal container command without subcommand returns missing subcommand error" {
+        assert_error {*missing subcommand*} {r subcommands.internal_container}
     }
 
     test "Unload the module - subcommands" {
