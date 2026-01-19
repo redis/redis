@@ -1223,7 +1223,7 @@ static int isCopyAvoidPreferred(client *c, robj *obj, size_t len) {
      * to server.pending_push_messages when CLIENT_PUSHING is set. */
     if (c->flags & CLIENT_PUSHING) return 0;
 
-    if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount == OBJ_STATIC_REFCOUNT) return 0;
+    if (obj->encoding != OBJ_ENCODING_RAW || obj->refcount >= OBJ_FIRST_SPECIAL_REFCOUNT) return 0;
 
     /* Copy avoidance is preferred for any string size starting certain number of I/O threads  */
     if (server.io_threads_num >= COPY_AVOID_MIN_IO_THREADS) return 1;
