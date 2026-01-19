@@ -2216,7 +2216,7 @@ void freeClientAsync(client *c) {
         int main_thread = pthread_equal(pthread_self(), server.main_thread_id);
         /* Make sure the main thread can access IO thread data safely. */
         if (main_thread) pauseIOThread(c->tid);
-        if (!(c->flags & CLIENT_IO_CLOSE_ASAP)) {
+        if (!(c->io_flags & CLIENT_IO_CLOSE_ASAP)) {
             c->io_flags |= CLIENT_IO_CLOSE_ASAP;
             enqueuePendingClientsToMainThread(c, 1);
         }
