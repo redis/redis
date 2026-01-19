@@ -7905,6 +7905,23 @@ int main(int argc, char **argv) {
             }
             redisCommunicateSystemd("READY=1\n");
         }
+        /* Warning the user about security configuration. */
+        if (server.requirepass == NULL) {
+            if (!server.protected_mode && server.bindaddr_count == 0) {
+                serverLog(LL_WARNING,
+                    "WARNING: Redis does not require a password. "
+                    "Redis will accept connections from any IP address or any network interface.");
+            } else if (!server.protected_mode) {
+                serverLog(LL_WARNING,
+                    "WARNING: Redis does not require a password. "
+                    "Redis will accept connections from any IP address on the configured network interface.");
+            } else {
+                /* protected_mode is enabled */
+                serverLog(LL_WARNING,
+                    "WARNING: Redis does not require a password. "
+                    "Redis will accept connection from any local client.");
+            }
+        }
     } else {
         sentinelIsRunning();
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {
