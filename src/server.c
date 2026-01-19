@@ -3869,20 +3869,28 @@ void call(client *c, int flags) {
     ustime_t duration;
     if (use_hw_clock) {
         duration = getMonotonicUs() - monotonic_start;
-        server.accumulated_call_duration += duration;
-        server.accumulated_call_count++;
-        /* Call ustime() when accumulated duration crosses 10us or after 25 commands */
-        if (server.accumulated_call_duration > 10 || server.accumulated_call_count >= 25) {
-            updateCachedTimeWithUs(0, ustime());
-            server.accumulated_call_duration = 0;
-            server.accumulated_call_count = 0;
+        /* Only accumulate and update cached time for top-level commands to ensure
+         * nested calls (e.g., from modules) see consistent cached time */
+        if (server.execution_nesting == 0) {
+            server.accumulated_call_duration += duration;
+            server.accumulated_call_count++;
+            /* Sync cached time when accumulated duration crosses 10us or after 25 commands */
+            if (server.accumulated_call_duration > 10 || server.accumulated_call_count >= 25) {
+                updateCachedTimeWithUs(0, ustime());
+                server.accumulated_call_duration = 0;
+                server.accumulated_call_count = 0;
+            }
         }
     }
     else {
-        /* Fallback: call ustime() directly */
+        /* Fallback: call ustime() directly and update cached time */
         const long long now = ustime();
         duration = now - server.ustime;
-        updateCachedTimeWithUs(0, now);
+        /* Only update cached time for top-level commands to ensure
+         * nested calls see consistent time */
+        if (server.execution_nesting == 0) {
+            updateCachedTimeWithUs(0, now);
+        }
     }
         
 
