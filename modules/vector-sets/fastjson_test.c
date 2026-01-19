@@ -25,6 +25,7 @@
 #define NUM_TEST_ITERATIONS 100000
 #define NUM_CORRUPTION_TESTS 10000
 #define NUM_BOUNDARY_TESTS 10000
+#define NUM_RECURSION_DEPTH_TESTS 8  /* 6 depth levels + 2 validation tests */
 
 /* Test state tracking */
 static char *safe_page = NULL;       /* Start of readable/writable page */
@@ -35,6 +36,7 @@ static int tests_passed = 0;
 static int tests_failed = 0;
 static int corruptions_passed = 0;
 static int boundary_tests_passed = 0;
+static int recursion_tests_passed = 0;
 
 /* Test metadata for tracking */
 typedef struct {
@@ -53,6 +55,7 @@ void cleanup_test_memory(void);
 void run_normal_tests(void);
 void run_corruption_tests(void);
 void run_boundary_tests(void);
+void run_recursion_depth_tests(void);
 void print_test_summary(void);
 
 /* Signal handler for segmentation violations */
@@ -368,12 +371,127 @@ void run_boundary_tests(void) {
     }
 }
 
+/* Run tests for recursion depth protection */
+void run_recursion_depth_tests(void) {
+    printf("Running recursion depth protection tests...\n");
+
+    /* Test 1: Deeply nested arrays that should be rejected */
+    /* Create a JSON with nested arrays beyond MAX_RECURSION_DEPTH_LIMIT (1000) */
+    const int test_depths[] = {500, 999, 1000, 1001, 1500, 2000};
+    const int num_depth_tests = sizeof(test_depths) / sizeof(test_depths[0]);
+
+    for (int t = 0; t < num_depth_tests; t++) {
+        int depth = test_depths[t];
+
+        /* Build deeply nested array JSON: [[[[...]]]] with a field at the top level */
+        /* Format: {"field": [[[[...]]]]} */
+        size_t json_size = depth * 2 + 100; /* Each level adds '[' and ']' */
+        char *json = malloc(json_size);
+        if (!json) {
+            perror("malloc");
+            exit(EXIT_FAILURE);
+        }
+
+        size_t pos = 0;
+        pos += snprintf(json + pos, json_size - pos, "{\"testfield\": ");
+
+        /* Add opening brackets */
+        for (int i = 0; i < depth; i++) {
+            if (pos >= json_size - 10) break; /* Safety check */
+            json[pos++] = '[';
+        }
+
+        /* Add a simple value at the deepest level */
+        pos += snprintf(json + pos, json_size - pos, "42");
+
+        /* Add closing brackets */
+        for (int i = 0; i < depth; i++) {
+            if (pos >= json_size - 10) break; /* Safety check */
+            json[pos++] = ']';
+        }
+
+        pos += snprintf(json + pos, json_size - pos, "}");
+
+        /* Try to extract the field */
+        const char *field = "testfield";
+        exprtoken *token = safe_extract_field(json, pos, field, strlen(field));
+
+        /* For depths >= 1000, we expect NULL (recursion limit hit) */
+        /* For depths < 1000, we expect a valid token */
+        if (depth >= 1000) {
+            if (token == NULL) {
+                printf("PASS: Depth %d correctly rejected (recursion limit)\n", depth);
+                recursion_tests_passed++;
+            } else {
+                printf("FAIL: Expected NULL for depth %d but got a token\n", depth);
+                exprTokenRelease(token);
+                tests_failed++;
+            }
+        } else {
+            if (token != NULL) {
+                printf("PASS: Depth %d correctly accepted\n", depth);
+                exprTokenRelease(token);
+                recursion_tests_passed++;
+            } else {
+                printf("FAIL: Expected valid token for depth %d but got NULL\n", depth);
+                tests_failed++;
+            }
+        }
+
+        free(json);
+    }
+
+    /* Test 2: Verify that reasonable nesting still works */
+    const char *valid_nested = "{\"data\": [[1, 2], [3, 4], [5, 6]]}";
+    exprtoken *token = safe_extract_field(valid_nested, strlen(valid_nested), "data", 4);
+    if (token != NULL) {
+        printf("PASS: Valid nested array accepted\n");
+        exprTokenRelease(token);
+        recursion_tests_passed++;
+    } else {
+        printf("FAIL: Valid nested array was rejected\n");
+        tests_failed++;
+    }
+
+    /* Test 3: Verify that moderately deep nesting works (depth 100) */
+    char *moderate_json = malloc(10000);
+    if (!moderate_json) {
+        // fail the test process if we can't allocate memory for the test
+        perror("moderate_json allocation failure");
+        exit(EXIT_FAILURE);
+    } else {
+        int pos = 0;
+        pos += snprintf(moderate_json + pos, 10000 - pos, "{\"deep\": ");
+        for (int i = 0; i < 100; i++) {
+            moderate_json[pos++] = '[';
+        }
+        pos += snprintf(moderate_json + pos, 10000 - pos, "123");
+        for (int i = 0; i < 100; i++) {
+            moderate_json[pos++] = ']';
+        }
+        moderate_json[pos++] = '}';
+        moderate_json[pos] = '\0';
+
+        token = safe_extract_field(moderate_json, pos, "deep", 4);
+        if (token != NULL) {
+            printf("PASS: Moderate depth (100) accepted\n");
+            exprTokenRelease(token);
+            recursion_tests_passed++;
+        } else {
+            printf("FAIL: Moderate depth (100) was rejected\n");
+            tests_failed++;
+        }
+        free(moderate_json);
+    }
+}
+
 /* Print summary of test results */
 void print_test_summary(void) {
     printf("\n===== FASTJSON PARSER TEST SUMMARY =====\n");
     printf("Normal tests passed: %d/%d\n", tests_passed, NUM_TEST_ITERATIONS * 2);
     printf("Corruption tests passed: %d/%d\n", corruptions_passed, NUM_CORRUPTION_TESTS);
     printf("Boundary tests passed: %d/%d\n", boundary_tests_passed, NUM_BOUNDARY_TESTS);
+    printf("Recursion depth tests passed: %d/%d\n", recursion_tests_passed, NUM_RECURSION_DEPTH_TESTS);
     printf("Failed tests: %d\n", tests_failed);
 
     if (tests_failed == 0) {
@@ -383,8 +501,11 @@ void print_test_summary(void) {
     }
 }
 
-/* Entry point for fastjson parser test */
-void run_fastjson_test(void) {
+/* 
+    Entry point for fastjson parser test 
+    @return the number of failed tests
+*/
+int run_fastjson_test(void) {
     printf("Starting fastjson parser stress test...\n");
 
     /* Seed the random number generator */
@@ -397,10 +518,12 @@ void run_fastjson_test(void) {
     run_normal_tests();
     run_corruption_tests();
     run_boundary_tests();
+    run_recursion_depth_tests();
 
     /* Print summary */
     print_test_summary();
 
     /* Cleanup */
     cleanup_test_memory();
+    return tests_failed;
 }
