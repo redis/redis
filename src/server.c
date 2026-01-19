@@ -3840,7 +3840,8 @@ void call(client *c, int flags) {
 
     /* Pass current server.ustime to avoid ustime() call - time will be updated
      * after command execution based on accumulated monotonic duration. */
-    enterExecutionUnit(1, server.ustime);
+    const long long call_timer = server.ustime;
+    enterExecutionUnit(1, call_timer);
 
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
      * sending client side caching message in the middle of a command reply.
@@ -3885,14 +3886,14 @@ void call(client *c, int flags) {
     else {
         /* Fallback: call ustime() directly and update cached time */
         const long long now = ustime();
-        duration = now - server.ustime;
+        duration = now - call_timer;
         /* Only update cached time for top-level commands to ensure
          * nested calls see consistent time */
         if (server.execution_nesting == 0) {
             updateCachedTimeWithUs(0, now);
         }
     }
-        
+
 
     c->duration += duration;
     dirty = server.dirty-dirty;
