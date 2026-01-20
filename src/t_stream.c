@@ -5062,7 +5062,9 @@ void xcfgsetCommand(client *c) {
     kvobj *kv = lookupKeyWriteOrReply(c,key,shared.nokeyerr);
     if (kv == NULL || checkType(c,kv,OBJ_STREAM)) return;
     stream *s = kv->ptr;
-    size_t old_alloc = kvobjAllocSize(kv);
+    size_t old_alloc = 0;
+    if (server.memory_tracking_enabled)
+        old_alloc = kvobjAllocSize(kv);
 
     /* XCFGSET <key> [IDMP-DURATION <duration>] [IDMP-MAXSIZE <maxsize>] */
     long long duration = -1;
@@ -5134,7 +5136,8 @@ void xcfgsetCommand(client *c) {
     if (changed) {
         keyModified(c,c->db,key,kv,0);
         server.dirty++;
-        updateSlotAllocSize(c->db,getKeySlot(key->ptr),OBJ_STREAM,old_alloc,kvobjAllocSize(kv));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db,getKeySlot(key->ptr),OBJ_STREAM,old_alloc,kvobjAllocSize(kv));
     }
     addReply(c,shared.ok);
 }
