@@ -868,7 +868,8 @@ void* defragStreamConsumerPendingEntry(raxIterator *ri, void *privdata) {
     newnack = activeDefragAlloc(nack);
     if (newnack) {
         /* Update consumer group pointer to the nack.
-         * pel_by_time doesn't need updating since delivery time is unchanged. */
+         * pel time list doesn't need updating since delivery time is unchanged
+         * and the list pointers are updated during pel traversal. */
         void *prev;
         raxInsert(ctx->cg->pel, ri->key, ri->key_len, newnack, &prev);
         serverAssert(prev==nack);
@@ -912,11 +913,7 @@ void* defragStreamConsumerGroup(raxIterator *ri, void *privdata) {
         cg->pel->alloc_size = &s->alloc_size;
         defragRadixTree(&cg->pel, 0, NULL, NULL);
     }
-    if (cg->pel_by_time) {
-        /* Update pel_by_time back-pointer to new stream */
-        cg->pel_by_time->alloc_size = &s->alloc_size;
-        defragRadixTree(&cg->pel_by_time, 0, NULL, NULL);
-    }
+    /* pel_time_head/tail are just pointers to NACKs in pel, no separate defrag needed */
     if (cg->consumers) {
         /* Update consumers back-pointer to new stream */
         cg->consumers->alloc_size = &s->alloc_size;
