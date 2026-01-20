@@ -2364,7 +2364,7 @@ static int isValidKeyMemoryHistograms(int val, const char **err) {
      * Once disabled, it cannot be re-enabled because we would need to catch up
      * or iterate over all slots and kvobjs. We check cronloops to allow setting
      * during startup config loading. */
-    if (server.cronloops > 0 && val) {
+    if (server.cronloops > 0 && val && !server.memory_tracking_enabled) {
         *err = "key-memory-histograms cannot be enabled at runtime";
         return 0;
     }
@@ -2376,7 +2376,9 @@ static int updateKeyMemoryHistograms(const char **err) {
     /* Re-evaluate memory_tracking_enabled when key-memory-histograms changes.
      * Memory tracking is needed if either key-memory-histograms or
      * cluster-slot-stats-enabled is on. */
-    server.memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled();
+    int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled();
+    debugServerAssert(server.memory_tracking_enabled || !memory_tracking_enabled);
+    server.memory_tracking_enabled = memory_tracking_enabled;
     return 1;
 }
 
