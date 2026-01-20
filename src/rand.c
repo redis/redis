@@ -8,7 +8,7 @@
  * in different systems if seeded with the same integer).
  *
  * The original code appears to be under the public domain.
- * I modified it removing the not needed functions and all the
+ * I modified it removing the unneeded functions and all the
  * 1960-style C coding stuff...
  *
  * ----------------------------------------------------------------------------
