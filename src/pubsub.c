@@ -85,6 +85,61 @@ pubsubtype pubSubShardType = {
  * Pubsub client replies API
  *----------------------------------------------------------------------------*/
 
+/* Build the RESP protocol for a pubsub message.
+ * This pre-formats the entire message to avoid formatting overhead.
+ *
+ * resp: 2 for RESP2, 3 for RESP3
+ * Returns an sds string containing the complete RESP protocol message.
+ * The caller is responsible for freeing the returned sds. */
+sds _pubsubBuildMessageReply(robj *message_bulk, robj *channel, robj *msg, int resp) {
+    sds proto = sdsempty();
+
+    /* Pre-allocate space for the entire protocol message */
+    size_t channel_len = sdslen(channel->ptr);
+    size_t msg_len = sdslen(msg->ptr);
+    size_t message_bulk_len = sdslen(message_bulk->ptr);
+
+    /* Calculate exact size needed:
+     * - Array/Push header: 4 bytes (*3\r\n or >3\r\n)
+     * - Message bulk: already formatted (e.g., $7\r\nmessage\r\n)
+     * - Channel bulk: $<len>\r\n<data>\r\n (max 20 bytes for length encoding + data + delimiters)
+     * - Message bulk: $<len>\r\n<data>\r\n (max 20 bytes for length encoding + data + delimiters)
+     */
+    size_t overhead = 4 + 20 + 20; /* Array header + max length encodings */
+    proto = sdsMakeRoomFor(proto, overhead + message_bulk_len + channel_len + msg_len);
+
+    /* Array/Push header */
+    if (resp == 2) {
+        /* RESP2 array header: *3\r\n */
+        proto = sdscatlen(proto, "*3\r\n", 4);
+    } else {
+        /* RESP3 push header: >3\r\n */
+        proto = sdscatlen(proto, ">3\r\n", 4);
+    }
+
+    /* Message type (e.g., "$7\r\nmessage\r\n") - already formatted */
+    proto = sdscatlen(proto, message_bulk->ptr, message_bulk_len);
+
+    /* Channel as bulk string: $<len>\r\n<data>\r\n */
+    char buf[32];
+    size_t len = ll2string(buf, sizeof(buf), channel_len);
+    proto = sdscatlen(proto, "$", 1);
+    proto = sdscatlen(proto, buf, len);
+    proto = sdscatlen(proto, "\r\n", 2);
+    proto = sdscatlen(proto, channel->ptr, channel_len);
+    proto = sdscatlen(proto, "\r\n", 2);
+
+    /* Message as bulk string: $<len>\r\n<data>\r\n */
+    len = ll2string(buf, sizeof(buf), msg_len);
+    proto = sdscatlen(proto, "$", 1);
+    proto = sdscatlen(proto, buf, len);
+    proto = sdscatlen(proto, "\r\n", 2);
+    proto = sdscatlen(proto, msg->ptr, msg_len);
+    proto = sdscatlen(proto, "\r\n", 2);
+
+    return proto;
+}
+
 /* Send a pubsub message of type "message" to the client.
  * Normally 'msg' is a Redis object containing the string to send as
  * message. However if the caller sets 'msg' as NULL, it will be able
@@ -100,6 +155,16 @@ void addReplyPubsubMessage(client *c, robj *channel, robj *msg, robj *message_bu
     addReply(c,message_bulk);
     addReplyBulk(c,channel);
     if (msg) addReplyBulk(c,msg);
+    if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
+}
+
+/* Send a pubsub message using pre-built RESP protocol.
+ * This is an optimized path for broadcasting to multiple clients.
+ * The proto string should be built using pubsubBuildBroadcastReply(). */
+void addReplyPubsubMessageProto(client *c, const char *proto, size_t len) {
+    uint64_t old_flags = c->flags;
+    c->flags |= CLIENT_PUSHING;
+    addReplyProto(c, proto, len);
     if (!(old_flags & CLIENT_PUSHING)) c->flags &= ~CLIENT_PUSHING;
 }
 
@@ -480,15 +545,37 @@ int pubsubPublishMessageInternal(robj *channel, robj *message, pubsubtype type) 
         dictIterator iter;
 
         dictInitIterator(&iter, clients);
+
+        /* Pre-build the protocol for RESP2 and RESP3 clients.
+         * We lazily build each version when we encounter the first client of that type. */
+        sds proto_resp2 = NULL;
+        sds proto_resp3 = NULL;
+
         while ((entry = dictNext(&iter)) != NULL) {
             client *c = dictGetKey(entry);
-            addReplyPubsubMessage(c,channel,message,*type.messageBulk);
+
+            /* Lazily build pre-formatted protocol for each RESP version */
+            if (c->resp == 2) {
+                if (!proto_resp2) {
+                    proto_resp2 = _pubsubBuildMessageReply(*type.messageBulk, channel, message, 2);
+                }
+                addReplyPubsubMessageProto(c, proto_resp2, sdslen(proto_resp2));
+            } else {
+                if (!proto_resp3) {
+                    proto_resp3 = _pubsubBuildMessageReply(*type.messageBulk, channel, message, 3);
+                }
+                addReplyPubsubMessageProto(c, proto_resp3, sdslen(proto_resp3));
+            }
+
             if (clusterSlotStatsEnabled())
                 clusterSlotStatsAddNetworkBytesOutForShardedPubSubInternalPropagation(c, slot);
             updateClientMemUsageAndBucket(c);
             receivers++;
         }
         dictResetIterator(&iter);
+
+        if (proto_resp2) sdsfree(proto_resp2);
+        if (proto_resp3) sdsfree(proto_resp3);
     }
 
     if (type.shard) {
