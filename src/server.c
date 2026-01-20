@@ -6056,6 +6056,44 @@ void totalNumberOfStatefulKeys(unsigned long *blocking_keys, unsigned long *bloc
         *watched_keys = wkeys;
 }
 
+/* Append keysizes histograms to the info string in format "db<dbnum>_<field_name>:<label>=<count>,..."
+ * field_names is an array of field names indexed by type, NULL entries are skipped. */
+static sds sdscatHistograms(sds info, int dbnum, keysizesHist histogram, const char *field_names[]) {
+    static const char *expSizeLabels[] = {
+        "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
+        "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
+        "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", /* Mega */
+        "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G", /* Giga */
+        "1T", "2T", "4T", "8T", "16T", "32T", "64T", "128T", "256T", "512T", /* Tera */
+        "1P", "2P", "4P", "8P", "16P", "32P", "64P", "128P", "256P", "512P", /* Peta */
+        "1E", "2E", "4E"                                                     /* Exa */
+    };
+
+    for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
+        if (field_names[type] == NULL) continue;
+
+        char buf[10000];
+        int cnt = 0, buflen = 0;
+
+        buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, field_names[type]);
+
+        for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
+            if (histogram[type][i] == 0)
+                continue;
+
+            int res = snprintf(buf + buflen, sizeof(buf) - buflen,
+                               (cnt == 0) ? "%s=%llu" : ",%s=%llu",
+                               expSizeLabels[i], (unsigned long long) histogram[type][i]);
+            if (res < 0) break;
+            buflen += res;
+            cnt += histogram[type][i];
+        }
+
+        if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
+    }
+    return info;
+}
+
 /* Create the string returned by the INFO command. This is decoupled
  * by the INFO command itself as we need to report the same information
  * on memory corruption problems. */
@@ -6715,7 +6753,7 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         if (sections++) info = sdscat(info,"\r\n");
         info = sdscatprintf(info, "# Keysizes\r\n");
 
-        static char *type_items_str[] = {
+        static const char *type_items_str[] = {
             [OBJ_STRING] = "distrib_strings_sizes",
             [OBJ_LIST] = "distrib_lists_items",
             [OBJ_SET] = "distrib_sets_items",
@@ -6733,74 +6771,18 @@ sds genRedisInfoString(dict *section_dict, int all_sections, int everything) {
         serverAssert(sizeof(type_sizes_str)/sizeof(type_sizes_str[0]) == OBJ_TYPE_BASIC_MAX);
 
         for (int dbnum = 0; dbnum < server.dbnum; dbnum++) {
-            static const char *expSizeLabels[] = {
-                "0", "1",   "2",  "4",  "8",  "16",  "32",  "64",  "128",  "256",  "512", /* Byte */
-                "1K", "2K", "4K", "8K", "16K", "32K", "64K", "128K", "256K", "512K", /* Kilo */
-                "1M", "2M", "4M", "8M", "16M", "32M", "64M", "128M", "256M", "512M", /* Mega */
-                "1G", "2G", "4G", "8G", "16G", "32G", "64G", "128G", "256G", "512G", /* Giga */
-                "1T", "2T", "4T", "8T", "16T", "32T", "64T", "128T", "256T", "512T", /* Tera */
-                "1P", "2P", "4P", "8P", "16P", "32P", "64P", "128P", "256P", "512P", /* Peta */
-                "1E", "2E", "4E"                                               /* Exa */
-            };
-
             if (kvstoreSize(server.db[dbnum].keys) == 0)
                 continue;
-            
+
             kvstoreMetadata *meta = kvstoreGetMetadata(server.db[dbnum].keys);
-            char buf[10000];
 
             /* Collection sizes distribution */
-            for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                int64_t *kvstoreHist = meta->keysizes_hist[type];
-                int cnt = 0, buflen = 0;
-
-                /* Print histogram to temp buf[]. First bin is garbage */
-                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, type_items_str[type]);
-
-                for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-                    if (kvstoreHist[i] == 0) 
-                        continue;
-                    
-                    int res = snprintf(buf + buflen, sizeof(buf) - buflen,
-                                       (cnt == 0) ? "%s=%llu" : ",%s=%llu", 
-                                       expSizeLabels[i], (unsigned long long) kvstoreHist[i]);
-                    if (res < 0) break;
-                    buflen += res;
-                    cnt += kvstoreHist[i];
-                }
-
-                /* Print the temp buf[] to the info string */
-                if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
-            }
+            info = sdscatHistograms(info, dbnum, meta->keysizes_hist, type_items_str);
 
             if (!server.memory_tracking_enabled) continue;
 
             /* Allocation sizes distribution */
-            for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-                /* Skip types without a label (e.g., strings to avoid confusion with distrib_strings_sizes) */
-                if (type_sizes_str[type] == NULL) continue;
-
-                int64_t *kvstoreHist = meta->allocsizes_hist[type];
-                int cnt = 0, buflen = 0;
-
-                /* Print histogram to temp buf[]. First bin is garbage */
-                buflen += snprintf(buf + buflen, sizeof(buf) - buflen, "db%d_%s:", dbnum, type_sizes_str[type]);
-
-                for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
-                    if (kvstoreHist[i] == 0)
-                        continue;
-
-                    int res = snprintf(buf + buflen, sizeof(buf) - buflen,
-                                       (cnt == 0) ? "%s=%llu" : ",%s=%llu",
-                                       expSizeLabels[i], (unsigned long long) kvstoreHist[i]);
-                    if (res < 0) break;
-                    buflen += res;
-                    cnt += kvstoreHist[i];
-                }
-
-                /* Print the temp buf[] to the info string */
-                if (cnt) info = sdscatprintf(info, "%s\r\n", buf);
-            }
+            info = sdscatHistograms(info, dbnum, meta->allocsizes_hist, type_sizes_str);
         }
     }
 
