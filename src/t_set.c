@@ -621,16 +621,20 @@ void saddCommand(client *c) {
         robj *o = setTypeCreate(c->argv[2]->ptr, c->argc - 2);
         set = dbAddByLink(c->db, c->argv[1], &o, &link);
     } else {
-        oldsize = kvobjAllocSize(set);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(set);
         setTypeMaybeConvert(set, c->argc - 2);
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
     }
 
-    oldsize = kvobjAllocSize(set);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
     for (j = 2; j < c->argc; j++) {
         if (setTypeAdd(set,c->argv[j]->ptr)) added++;
     }
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
     if (added) {
         unsigned long size = setTypeSize(set);
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size - added, size);
@@ -650,20 +654,22 @@ void sremCommand(client *c) {
         return;
 
     unsigned long oldSize = setTypeSize(set);
-    oldsize = kvobjAllocSize(set);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
 
     for (j = 2; j < c->argc; j++) {
         if (setTypeRemove(set,c->argv[j]->ptr)) {
             deleted++;
             if (setTypeSize(set) == 0) {
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+                if (server.memory_tracking_enabled)
+                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
                 dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
                 break;
             }
         }
     }
-    if (!keyremoved)
+    if (server.memory_tracking_enabled && !keyremoved)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
     if (deleted) {
         int64_t newSize = oldSize - deleted;
@@ -706,9 +712,11 @@ void smoveCommand(client *c) {
         return;
     }
 
-    oldSrcAllocSize = kvobjAllocSize(srcset);
+    if (server.memory_tracking_enabled)
+        oldSrcAllocSize = kvobjAllocSize(srcset);
     int deleted = setTypeRemove(srcset,ele->ptr);
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldSrcAllocSize, kvobjAllocSize(srcset));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldSrcAllocSize, kvobjAllocSize(srcset));
     /* If the element cannot be removed from the src set, return 0. */
     if (!deleted) {
         addReply(c,shared.czero);
@@ -736,7 +744,8 @@ void smoveCommand(client *c) {
     keyModified(c, c->db, c->argv[1], (srcNewLen > 0) ? srcset : NULL, 1);
     server.dirty++;
 
-    oldDstAllocSize = kvobjAllocSize(dstset);
+    if (server.memory_tracking_enabled)
+        oldDstAllocSize = kvobjAllocSize(dstset);
     /* An extra key has changed when ele was successfully added to dstset */
     if (setTypeAdd(dstset,ele->ptr)) {
         unsigned long dstLen = setTypeSize(dstset);
@@ -745,7 +754,8 @@ void smoveCommand(client *c) {
         keyModified(c,c->db,c->argv[2],dstset,1);
         notifyKeyspaceEvent(NOTIFY_SET,"sadd",c->argv[2],c->db->id);
     }
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), OBJ_SET, oldDstAllocSize, kvobjAllocSize(dstset));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[2]->ptr), OBJ_SET, oldDstAllocSize, kvobjAllocSize(dstset));
     addReply(c,shared.cone);
 }
 
@@ -756,12 +766,14 @@ void sismemberCommand(client *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.czero)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
 
-    oldsize = kvobjAllocSize(set);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
     if (setTypeIsMember(set,c->argv[2]->ptr))
         addReply(c,shared.cone);
     else
         addReply(c,shared.czero);
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
 }
 
 void smismemberCommand(client *c) {
@@ -773,7 +785,7 @@ void smismemberCommand(client *c) {
 
     addReplyArrayLen(c,c->argc - 2);
 
-    if (set)
+    if (server.memory_tracking_enabled && set)
         oldsize = kvobjAllocSize(set);
     for (int j = 2; j < c->argc; j++) {
         if (set && setTypeIsMember(set,c->argv[j]->ptr))
@@ -781,7 +793,7 @@ void smismemberCommand(client *c) {
         else
             addReply(c,shared.czero);
     }
-    if (set)
+    if (server.memory_tracking_enabled && set)
         updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
 }
 
@@ -877,7 +889,8 @@ void spopWithCountCommand(client *c) {
         set->encoding == OBJ_ENCODING_LISTPACK)
     {
         /* Specialized case for listpack. Traverse it only once. */
-        oldsize = kvobjAllocSize(set);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(set);
         unsigned char *lp = set->ptr;
         unsigned char *p = lpFirst(lp);
         unsigned int index = 0;
@@ -912,9 +925,11 @@ void spopWithCountCommand(client *c) {
         zfree(ps);
         set->ptr = lp;
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
     } else if (remaining*SPOP_MOVE_STRATEGY_MUL > count) {
-        oldsize = kvobjAllocSize(set);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(set);
         for (unsigned long i = 0; i < count; i++) {
             propargv[propindex] = setTypePopRandom(set);
             addReplyBulk(c, propargv[propindex]);
@@ -929,7 +944,8 @@ void spopWithCountCommand(client *c) {
             }
         }
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size - count);
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
     } else {
     /* CASE 3: The number of elements to return is very big, approaching
      * the size of the set itself. After some time extracting random elements
@@ -940,7 +956,8 @@ void spopWithCountCommand(client *c) {
      * set). Then we return the elements left in the original set and
      * release it. */
         robj *newset = NULL;
-        oldsize = kvobjAllocSize(set);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(set);
 
         /* Create a new set with just the remaining elements. */
         if (set->encoding == OBJ_ENCODING_LISTPACK) {
@@ -1000,7 +1017,8 @@ void spopWithCountCommand(client *c) {
          * but here we're building the new set from the existing one. As a result, 
          * the size of the old set has already changed by the time we reach this point. */
         updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-count);
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
         dbReplaceValue(c->db, c->argv[1], &newset, 0);
         set = newset;
     }
@@ -1044,12 +1062,14 @@ void spopCommand(client *c) {
     size = setTypeSize(kv);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, size, size-1);
 
-    oldsize = kvobjAllocSize(kv);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(kv);
 
     /* Pop a random element from the kv */
     ele = setTypePopRandom(kv);
 
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(kv));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(kv));
 
     notifyKeyspaceEvent(NOTIFY_SET,"spop",c->argv[1],c->db->id);
 
@@ -1310,9 +1330,11 @@ void srandmemberCommand(client *c) {
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.null[c->resp]))
         == NULL || checkType(c,set,OBJ_SET)) return;
 
-    oldsize = kvobjAllocSize(set);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
     setTypeRandomElement(set, &str, &len, &llele);
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
     if (str == NULL) {
         addReplyBulkLongLong(c,llele);
     } else {
@@ -1379,7 +1401,8 @@ void sinterGenericCommand(client *c, robj **setkeys,
             return;
         }
         sets[j].set = kv;
-        sets[j].oldsize = kvobjAllocSize(kv);
+        if (server.memory_tracking_enabled)
+            sets[j].oldsize = kvobjAllocSize(kv);
     }
 
     /* Set intersection with an empty set always results in an empty set.
@@ -1485,10 +1508,12 @@ void sinterGenericCommand(client *c, robj **setkeys,
     }
     setTypeResetIterator(&si);
 
-    for (j = 0; j < setnum; j++) {
-        if (!sets[j].set) continue;
-        updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), OBJ_SET,
+    if (server.memory_tracking_enabled) {
+        for (j = 0; j < setnum; j++) {
+            if (!sets[j].set) continue;
+            updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), OBJ_SET,
                             sets[j].oldsize, kvobjAllocSize(sets[j].set));
+        }
     }
 
     if (cardinality_only) {
@@ -1545,7 +1570,8 @@ void smembersCommand(client *c) {
     /* Prepare the response. */
     unsigned long length = setTypeSize(setobj);
     addReplySetLen(c,length);
-    oldsize = kvobjAllocSize(setobj);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(setobj);
     /* Iterate through the elements of the set. */
     setTypeInitIterator(&si, setobj);
 
@@ -1557,7 +1583,8 @@ void smembersCommand(client *c) {
         length--;
     }
     setTypeResetIterator(&si);
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(setobj));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(setobj));
     serverAssert(length == 0); /* fail on corrupt data */
 }
 
@@ -1641,7 +1668,8 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             dstset_encoding = OBJ_ENCODING_HT;
         }
         sets[j].set = setobj;
-        sets[j].oldsize = kvobjAllocSize(setobj);
+        if (server.memory_tracking_enabled)
+            sets[j].oldsize = kvobjAllocSize(setobj);
         if (j > 0 && sets[0].set == sets[j].set) {
             sameset = 1; 
         }
@@ -1755,10 +1783,12 @@ void sunionDiffGenericCommand(client *c, robj **setkeys, int setnum,
             if (cardinality == 0) break;
         }
     }
-    for (j = 0; j < setnum; j++) {
-        if (!sets[j].set) continue;
-        updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), OBJ_SET,
-                        sets[j].oldsize, kvobjAllocSize(sets[j].set));
+    if (server.memory_tracking_enabled) {
+        for (j = 0; j < setnum; j++) {
+            if (!sets[j].set) continue;
+            updateSlotAllocSize(c->db, getKeySlot(setkeys[j]->ptr), OBJ_SET,
+                            sets[j].oldsize, kvobjAllocSize(sets[j].set));
+        }
     }
 
     /* Output the content of the resulting set, if not in STORE mode */
@@ -1825,7 +1855,9 @@ void sscanCommand(client *c) {
     if (parseScanCursorOrReply(c,c->argv[2],&cursor) == C_ERR) return;
     if ((set = lookupKeyReadOrReply(c,c->argv[1],shared.emptyscan)) == NULL ||
         checkType(c,set,OBJ_SET)) return;
-    oldsize = kvobjAllocSize(set);
+    if (server.memory_tracking_enabled)
+        oldsize = kvobjAllocSize(set);
     scanGenericCommand(c,set,cursor);
-    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_SET, oldsize, kvobjAllocSize(set));
 }

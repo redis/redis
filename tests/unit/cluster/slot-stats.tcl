@@ -1072,3 +1072,40 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         assert {![dict exists $stats network-bytes-out]}
     }
 }
+
+start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled no}} {
+    # Define shared variables.
+    set key "FOO"
+    set key_slot [R 0 cluster keyslot $key]
+
+    test "CLUSTER SLOT-STATS memory-bytes field not present when cluster-slot-stats-enabled not set on startup" {
+        R 0 SET $key VALUE
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        # Verify memory-bytes field is not present
+        assert {[dict exists $slot_stats $key_slot]}
+        set stats [dict get $slot_stats $key_slot]
+        assert {![dict exists $stats memory-bytes]}
+
+        # Only key-count should be present
+        assert {[dict exists $stats key-count]}
+        assert {[dict get $stats key-count] == 1}
+    }
+
+    test "CLUSTER SLOT-STATS memory-bytes field not present after enabling cluster-slot-stats-enabled via CONFIG SET" {
+        R 0 CONFIG SET cluster-slot-stats-enabled yes
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        # Verify memory-bytes field is still not present
+        assert {[dict exists $slot_stats $key_slot]}
+        set stats [dict get $slot_stats $key_slot]
+        assert {![dict exists $stats memory-bytes]}
+
+        # Other stats fields should now be present
+        assert {[dict exists $stats cpu-usec]}
+        assert {[dict exists $stats network-bytes-in]}
+        assert {[dict exists $stats network-bytes-out]}
+    }
+}

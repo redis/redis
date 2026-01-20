@@ -140,18 +140,8 @@ start_server {tags {"modules external:skip"}} {
 
     test {Module hash - KEYSIZES is updated as expected} {
         proc run_cmd_verify_hist {cmd expOutput {retries 1}} {
-            # Filter info keysizes output to only include _items lines, skip _sizes lines
-            proc K {} {
-                set info [r info keysizes]
-                set result ""
-                foreach line [split $info "\n"] {
-                    if {[string match "# Keysizes*" $line]} { continue }
-                    if {[regexp {distrib_(lists|sets|zsets|hashes)_sizes} $line]} { continue }
-                    append result [string map {"db0_distrib_hashes_items" "db0_HASH" " " "" "\r" ""} $line]
-                }
-                return $result
-            }
-            uplevel 1 $cmd
+            proc K {} {return [string map { "db0_distrib_hashes_items" "db0_HASH" "# Keysizes" "" " " "" "\n" "" "\r" "" } [r info keysizes] ]}
+            uplevel 1 $cmd    
             wait_for_condition 50 $retries {
                 $expOutput eq [K]
             } else { fail "Expected: \n`$expOutput`\n Actual:\n`[K]`.\nFailed after command: $cmd" }
