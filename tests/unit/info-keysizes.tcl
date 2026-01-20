@@ -998,6 +998,57 @@ start_server {tags {external:skip} overrides {key-memory-histograms no}} {
         set stripped [get_info_keymem_stripped r]
         assert {$stripped eq ""}
     }
+
+    test "KEY-MEMORY-STATS - cannot enable key-memory-histograms at runtime when disabled at startup" {
+        # Verify the config is currently disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Try to enable at runtime - should fail
+        catch {r config set key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+
+        # Verify it's still disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+    }
+}
+
+# Test that key-memory-histograms can be disabled at runtime when enabled at startup
+start_server {tags {external:skip} overrides {key-memory-histograms yes}} {
+
+    test "KEY-MEMORY-STATS - can disable key-memory-histograms at runtime and distrib_*_sizes disappear" {
+        # Verify the config is currently enabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms yes}
+
+        # Create some data that would appear in histogram
+        r RPUSH "list" a b c d e
+        r SADD "set" x y z
+        r ZADD "zset" 1 a 2 b
+        r HSET "hash" f1 v1
+        verify_keymem_non_empty r {lists sets zsets hashes}
+
+        # Disable at runtime - should succeed
+        r config set key-memory-histograms no
+
+        # Verify it's now disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Verify distrib_*_sizes fields are no longer in INFO keysizes
+        set stripped [get_info_keymem_stripped r]
+        assert_equal $stripped "" "Expected empty key memory histogram after disabling"
+    }
+
+    test "KEY-MEMORY-STATS - cannot re-enable key-memory-histograms at runtime after disabling" {
+        # Disable first (may already be disabled from previous test)
+        r config set key-memory-histograms no
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+
+        # Try to re-enable - should fail
+        catch {r config set key-memory-histograms yes} err
+        assert_match "*cannot be enabled at runtime*" $err
+
+        # Verify it's still disabled
+        assert_equal [r config get key-memory-histograms] {key-memory-histograms no}
+    }
 }
 
 # Test key memory histograms in cluster mode (with cluster-slot-stats-enabled)
