@@ -381,7 +381,7 @@ int prefetchIOThreadCommands(IOThread *t) {
         if (c[i]->reply) redis_prefetch_read(c[i]->reply);
         redis_prefetch_read(&c[i]->mem_usage_bucket);
         clients++;
-     }
+    }
     /* Prefetch the commands in the batch. */
     prefetchCommands();
     return clients;
