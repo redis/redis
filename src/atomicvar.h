@@ -169,8 +169,12 @@
     ANNOTATE_HAPPENS_BEFORE(&var);  \
     while(!__sync_bool_compare_and_swap(&var,var,value,__sync_synchronize)); \
 } while(0)
-#define atomicCompareExchange(var,expected_var,desired) \
-    __sync_bool_compare_and_swap(&var,expected_var,desired)
+#define atomicCompareExchange(var,expected_var,desired) __extension__ ({ \
+    __typeof(expected_var) _old = __sync_val_compare_and_swap(&var,expected_var,desired); \
+    int _success = (_old == expected_var); \
+    if (!_success) expected_var = _old; \
+    _success; \
+})
 #define atomicFlagGetSet(var,oldvalue_var) \
     oldvalue_var = __sync_val_compare_and_swap(&var,0,1)
 #define REDIS_ATOMIC_API "sync-builtin"
