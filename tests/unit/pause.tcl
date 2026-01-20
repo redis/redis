@@ -40,6 +40,7 @@ start_server {tags {"pause network"}} {
         #   preserve most restrictive configuration among multiple settings.
         set rd [redis_deferring_client]
         $rd SET FOO BAR
+        $rd read
 
         set test_start_time [clock milliseconds]
         r client PAUSE 200 ALL
