@@ -603,7 +603,6 @@ start_server {tags {"introspection"}} {
             req-res-logfile
             client-default-resp
             vset-force-single-threaded-execution
-            key-memory-histograms
         }
 
         if {!$::tls} {
