@@ -287,7 +287,7 @@ kvobj *kvobjSet(sds key, robj *val, uint32_t keyMetaBits) {
         /* Embed when the sum is less than a cache line (Metadata is discarded 
          * since we don't have to be accurate and it is placed before the object) */
         size_t size = sizeof(kvobj);
-        size += (key != NULL) * (sdslen(key) + 1 + sdshdrSize(sdsReqType(sdslen(key))) + 1); /* hdr size (1) + hdr + nullterm (1) */
+        size += (key != NULL) * (sdslen(key) + 1 + sdsHdrSize(sdsReqType(sdslen(key))) + 1); /* hdr size (1) + hdr + nullterm (1) */
         size += 4 + len; /* embstr header (3) + nullterm (1) */
         if (size <= CACHE_LINE_SIZE) {
             kv = kvobjCreateEmbedString(val->ptr, len, key, keyMetaBits);
