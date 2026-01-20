@@ -1093,3 +1093,30 @@ test {Clients are evenly distributed among io threads} {
         }
     }
 }
+
+# Test insecure configuration warnings
+start_server {tags {introspection external:skip} overrides {protected-mode no bind "*"}} {
+    test {Warning shown when no auth and binding all interfaces} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require a password and is not protected by network restrictions*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {protected-mode no bind "127.0.0.1"}} {
+    test {Warning shown for configured interface when binding specific address} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require a password*configured network interface*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {protected-mode yes}} {
+    test {Warning shown for local clients when protected mode is on} {
+        wait_for_log_messages 0 {"*WARNING: Redis does not require a password*local client*"} 0 10 100
+    }
+}
+
+start_server {tags {introspection external:skip} overrides {requirepass secret}} {
+    test {No warning shown when password is set} {
+        # Check that the warning does NOT appear
+        set loglines [exec cat [srv 0 stdout]]
+        assert_equal 0 [string match "*WARNING: Redis does not require a password*" $loglines]
+    }
+}

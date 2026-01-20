@@ -6990,6 +6990,39 @@ void redisAsciiArt(void) {
     zfree(buf);
 }
 
+/* Warn if the default user allows unauthenticated access. */
+void warnAboutInsecureConfig(void) {
+    if ((DefaultUser->flags & USER_FLAG_NOPASS) &&
+        !(DefaultUser->flags & USER_FLAG_DISABLED)) {
+        /* Check if Redis listens on all network interfaces */
+        int bind_all_interfaces = 0;
+        for (int j = 0; j < server.bindaddr_count; j++) {
+            char *addr = server.bindaddr[j];
+            if (addr[0] == '-') addr++;
+            if (!strcmp(addr, "*") || !strcmp(addr, "0.0.0.0") ||
+                !strcmp(addr, "::") || !strcmp(addr, "::*")) {
+                bind_all_interfaces = 1;
+                break;
+            }
+        }
+
+        if (!server.protected_mode && bind_all_interfaces) {
+            serverLog(LL_WARNING,
+                "WARNING: Redis does not require a password and is not protected by network restrictions. "
+                "Redis will accept connections from any IP address on any network interface.");
+        } else if (!server.protected_mode) {
+            serverLog(LL_WARNING,
+                "WARNING: Redis does not require a password. "
+                "Redis will accept connections from any IP address on the configured network interface.");
+        } else {
+            /* protected_mode is enabled */
+            serverLog(LL_WARNING,
+                "WARNING: Redis does not require a password. "
+                "Redis will accept connections from any local client.");
+        }
+    }
+}
+
 /* Get the server listener by type name */
 connListener *listenerByType(const char *typename) {
     int conn_index;
@@ -7905,24 +7938,7 @@ int main(int argc, char **argv) {
             }
             redisCommunicateSystemd("READY=1\n");
         }
-        /* Warn only when the default user is enabled and allows unauthenticated access. */
-        if ((DefaultUser->flags & USER_FLAG_NOPASS) &&
-            !(DefaultUser->flags & USER_FLAG_DISABLED)) {
-            if (!server.protected_mode && server.bindaddr_count == 0) {
-                serverLog(LL_WARNING,
-                    "WARNING: Redis does not require a password and is not protected by network restrictions. "
-                    "Redis will accept connections from any IP address on any network interface.");
-            } else if (!server.protected_mode) {
-                serverLog(LL_WARNING,
-                    "WARNING: Redis does not require a password. "
-                    "Redis will accept connections from any IP address on the configured network interface.");
-            } else {
-                /* protected_mode is enabled */
-                serverLog(LL_WARNING,
-                    "WARNING: Redis does not require authentication. "
-                    "Redis will accept connections from any local client.");
-            }
-        }
+        warnAboutInsecureConfig();
     } else {
         sentinelIsRunning();
         if (server.supervised_mode == SUPERVISED_SYSTEMD) {

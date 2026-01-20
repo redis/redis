@@ -1308,4 +1308,3 @@ start_server {overrides {user "default on nopass ~* +@all -flushdb"} tags {acl e
         assert_error {NOPERM *} {r flushdb}
     }
 }
-
