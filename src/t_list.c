@@ -235,9 +235,7 @@ void listTypeInitIterator(listTypeIterator *li, robj *subject,
      * LIST_TAIL means start at HEAD and move *towards* tail. */
     if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         int iter_direction = direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
-        serverAssert(
-            quicklistInitIteratorAtIdx(&li->iter, li->subject->ptr, iter_direction, index)
-        );
+        quicklistInitIteratorAtIdx(&li->iter, li->subject->ptr, iter_direction, index);
     } else if (li->encoding == OBJ_ENCODING_LISTPACK) {
         li->lpi = lpSeek(subject->ptr, index);
     } else {
@@ -712,9 +710,7 @@ void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int 
 
     int direction = reverse ? AL_START_TAIL : AL_START_HEAD;
     quicklistIter iter;
-    serverAssert(
-        quicklistInitIteratorAtIdx(&iter, o->ptr, direction, from)
-    ); /* fail on corrupt data */
+    quicklistInitIteratorAtIdx(&iter, o->ptr, direction, from);
     while(rangelen--) {
         quicklistEntry qe;
         serverAssert(quicklistNext(&iter, &qe)); /* fail on corrupt data */
