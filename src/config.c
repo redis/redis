@@ -2371,13 +2371,13 @@ static int isValidKeyMemoryHistograms(int val, const char **err) {
     return 1;
 }
 
-static int updateKeyMemoryHistograms(const char **err) {
+static int updateMemoryTrackingEnabled(const char **err) {
     UNUSED(err);
-    /* Re-evaluate memory_tracking_enabled when key-memory-histograms changes.
-     * Memory tracking is needed if either key-memory-histograms or
-     * cluster-slot-stats-enabled is on. */
     int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled();
-    debugServerAssert(server.memory_tracking_enabled || !memory_tracking_enabled);
+    if (!server.memory_tracking_enabled && memory_tracking_enabled) {
+        *err = "memory tracking cannot be enabled at runtime";
+        return 0;
+    }
     server.memory_tracking_enabled = memory_tracking_enabled;
     return 1;
 }
@@ -3155,7 +3155,7 @@ standardConfig static_configs[] = {
     createBoolConfig("lazyexpire-nested-arbitrary-keys", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.lazyexpire_nested_arbitrary_keys, 1, NULL, NULL),
     createBoolConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG, server.cluster_slot_stats_enabled, 0, NULL, NULL),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
-    createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, isValidKeyMemoryHistograms, updateKeyMemoryHistograms),
+    createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, isValidKeyMemoryHistograms, updateMemoryTrackingEnabled),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
