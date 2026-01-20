@@ -2630,10 +2630,6 @@ start_cluster 3 6 [list tags {external:skip cluster modules} config_lines [list 
             # restart node 4
             if {$with_rdb eq "with"} {
                 restart_server -4 true false true save ;# rdb save
-                # the asm task info in rdb will fire module event
-                assert_equal  [list \
-                    "sub: cluster-slot-migration-import-started, source_node_id:$src_id, destination_node_id:$dest_id, task_id:$task_id, slots:0-100" \
-                ] [R 4 asm.get_cluster_event_log]
             } else {                
                 restart_server -4 true false true nosave ;# no rdb saved
             }

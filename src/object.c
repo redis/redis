@@ -711,10 +711,11 @@ void dismissZsetObject(robj *o, size_t size_hint) {
         /* We iterate all nodes only when average member size is bigger than a
          * page size, and there's a high chance we'll actually dismiss something. */
         if (size_hint / zsl->length >= server.page_size) {
-            zskiplistNode *zn = zsl->tail;
+            zskiplistNode *zn = zsl->header->level[0].forward;
             while (zn != NULL) {
-                dismissSds(zn->ele);
-                zn = zn->backward;
+                zskiplistNode *next = zn->level[0].forward;
+                dismissMemory(zn, 0);
+                zn = next;
             }
         }
 
@@ -1388,6 +1389,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->keys);
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->expires);
     }
+
+    /* Hotkeys memory overhead */
+    mem_total += hotkeysGetMemoryUsage(server.hotkeys);
 
     mh->overhead_total = mem_total;
     mh->dataset = zmalloc_used - mem_total;

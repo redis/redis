@@ -398,6 +398,10 @@ void feedReplicationBuffer(char *s, size_t len) {
 
     clusterSlotStatsIncrNetworkBytesOutForReplication(len);
 
+    /* Update the current cmd's keys with the commands replication bytes*/
+    hotkeyMetrics metrics = {0, len};
+    hotkeyStatsUpdateCurrentCmd(server.hotkeys, metrics);
+
     while(len > 0) {
         size_t start_pos = 0; /* The position of referenced block to start sending. */
         listNode *start_node = NULL; /* Replica/backlog starts referenced node. */
@@ -4998,6 +5002,10 @@ int shouldStartChildReplication(int *mincapa_out, int *req_out) {
                     continue;
                 }
                 idle = server.unixtime - slave->lastinteraction;
+                /* If the slave requests a slots snapshot, we should start BGSAVE
+                 * immediately since it can't share the RDB with other slaves. */
+                if (slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
+                    idle = server.repl_diskless_sync_delay; /* Threshold for BGSAVE */
                 if (idle > max_idle) max_idle = idle;
                 slaves_waiting++;
                 mincapa = first ? slave->slave_capa : (mincapa & slave->slave_capa);

@@ -1095,8 +1095,9 @@ ssize_t rdbSaveObject(rio *rdb, robj *o, robj *key, int dbid) {
              * O(1) instead of O(log(N)). */
             zskiplistNode *zn = zsl->tail;
             while (zn != NULL) {
+                sds ele = zslGetNodeElement(zn);
                 if ((n = rdbSaveRawString(rdb,
-                    (unsigned char*)zn->ele,sdslen(zn->ele))) == -1)
+                    (unsigned char*)ele,sdslen(ele))) == -1)
                 {
                     return -1;
                 }
@@ -2374,12 +2375,13 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
             totelelen += sdslen(sdsele);
 
             znode = zslInsert(zs->zsl,score,sdsele);
-            if (dictAdd(zs->dict,sdsele,&znode->score) != DICT_OK) {
+            if (dictAdd(zs->dict, znode, NULL) != DICT_OK) {
                 rdbReportCorruptRDB("Duplicate zset fields detected");
                 decrRefCount(o);
-                /* no need to free 'sdsele', will be released by zslFree together with 'o' */
+                sdsfree(sdsele); /* zslInsert copies the sds, so we need to free the original */
                 return NULL;
             }
+            sdsfree(sdsele); /* zslInsert copies the sds into the node, so free the original */
         }
 
         /* Convert *after* loading, since sorted sets are not stored ordered. */

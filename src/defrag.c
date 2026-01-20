@@ -382,7 +382,7 @@ dict *dictDefragTables(dict *d) {
     return ret;
 }
 
-/* Internal function used by zslDefrag */
+/* Internal function used by activeDefragZsetNode */
 void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnode, zskiplistNode **update) {
     int i;
     for (i = 0; i < zsl->level; i++) {
@@ -399,60 +399,40 @@ void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnod
     }
 }
 
-/* Defrag helper for sorted set.
- * Update the robj pointer, defrag the skiplist struct and return the new score
- * reference. We may not access oldele pointer (not even the pointer stored in
- * the skiplist), as it was already freed. Newele may be null, in which case we
- * only need to defrag the skiplist, but not update the obj pointer.
- * When return value is non-NULL, it is the score reference that must be updated
- * in the dict record. */
-double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
-    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x, *newx;
+/* Defrag a single zset node, update dictEntry and skiplist struct */
+void activeDefragZsetNode(zset *zs, dictEntry *de, dictEntryLink plink) {
+    zskiplistNode *znode = dictGetKey(de);
+
+    /* Try to defrag the skiplist node first */
+    zskiplistNode *newnode = activeDefragAllocWithoutFree(znode);
+    if (!newnode) return; /* No defrag needed */
+
+    /* Node was defragged, now we need to update all skiplist pointers */
+    zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *iter;
     int i;
-    sds ele = newele? newele: oldele;
+    double score = newnode->score;
+    sds ele = zslGetNodeElement(newnode);
 
-    /* find the skiplist node referring to the object that was moved,
-     * and all pointers that need to be updated if we'll end up moving the skiplist node. */
-    x = zsl->header;
-    for (i = zsl->level-1; i >= 0; i--) {
-        while (x->level[i].forward &&
-            x->level[i].forward->ele != oldele && /* make sure not to access the
-                                                     ->obj pointer if it matches
-                                                     oldele */
-            (x->level[i].forward->score < score ||
-                (x->level[i].forward->score == score &&
-                sdscmp(x->level[i].forward->ele,ele) < 0)))
-            x = x->level[i].forward;
-        update[i] = x;
+    /* Find all pointers that need to be updated */
+    iter = zs->zsl->header;
+    for (i = zs->zsl->level-1; i >= 0; i--) {
+        while (iter->level[i].forward &&
+            iter->level[i].forward != znode &&
+            zslCompareWithNode(score, ele, iter->level[i].forward) > 0)
+            iter = iter->level[i].forward;
+        update[i] = iter;
     }
 
-    /* update the robj pointer inside the skip list record. */
-    x = x->level[0].forward;
-    serverAssert(x && score == x->score && x->ele==oldele);
-    if (newele)
-        x->ele = newele;
+    /* Verify we found the right node */
+    iter = iter->level[0].forward;
+    serverAssert(iter && iter == znode);
 
-    /* try to defrag the skiplist record itself */
-    newx = activeDefragAlloc(x);
-    if (newx) {
-        zslUpdateNode(zsl, x, newx, update);
-        return &newx->score;
-    }
-    return NULL;
-}
+    /* Update all skiplist pointers and dict key */
+    zslUpdateNode(zs->zsl, znode, newnode, update);
+    dictSetKeyAtLink(zs->dict, newnode, &plink, 0);
 
-/* Defrag helper for sorted set.
- * Defrag a single dict entry key name, and corresponding skiplist struct */
-void activeDefragZsetEntry(zset *zs, dictEntry *de) {
-    sds newsds;
-    double* newscore;
-    sds sdsele = dictGetKey(de);
-    if ((newsds = activeDefragSds(sdsele)))
-        dictSetKey(zs->dict, de, newsds);
-    newscore = zslDefrag(zs->zsl, *(double*)dictGetVal(de), sdsele, newsds);
-    if (newscore) {
-        dictSetVal(zs->dict, de, newscore);
-    }
+    /* Free the old node now that all pointers have been updated */
+    activeDefragFree(znode);
 }
 
 #define DEFRAG_SDS_DICT_NO_VAL 0
@@ -627,11 +607,10 @@ typedef struct {
     zset *zs;
 } scanLaterZsetData;
 
-void scanLaterZsetCallback(void *privdata, const dictEntry *_de, dictEntryLink plink) {
-    UNUSED(plink);
+void scanZsetCallback(void *privdata, const dictEntry *_de, dictEntryLink plink) {
     dictEntry *de = (dictEntry*)_de;
     scanLaterZsetData *data = privdata;
-    activeDefragZsetEntry(data->zs, de);
+    activeDefragZsetNode(data->zs, de, plink);
     server.stat_active_defrag_scanned++;
 }
 
@@ -641,7 +620,7 @@ void scanLaterZset(robj *ob, unsigned long *cursor) {
     dict *d = zs->dict;
     scanLaterZsetData data = {zs};
     dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
-    *cursor = dictScanDefrag(d, *cursor, scanLaterZsetCallback, &defragfns, &data);
+    *cursor = dictScanDefrag(d, *cursor, scanZsetCallback, &defragfns, &data);
 }
 
 /* Used as scan callback when all the work is done in the dictDefragFunctions. */
@@ -723,7 +702,6 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
     zset *newzs;
     zskiplist *newzsl;
     dict *newdict;
-    dictEntry *de;
     struct zskiplistNode *newheader;
     serverAssert(ob->type == OBJ_ZSET && ob->encoding == OBJ_ENCODING_SKIPLIST);
     if ((newzs = activeDefragAlloc(zs)))
@@ -735,12 +713,15 @@ void defragZsetSkiplist(defragKeysCtx *ctx, kvobj *ob) {
     if (dictSize(zs->dict) > server.active_defrag_max_scan_fields)
         defragLater(ctx, ob);
     else {
-        dictIterator di;
-        dictInitIterator(&di, zs->dict);
-        while((de = dictNext(&di)) != NULL) {
-            activeDefragZsetEntry(zs, de);
-        }
-        dictResetIterator(&di);
+        /* Use dictScanDefrag to iterate and defrag both dictEntry structures and skiplist nodes.
+         * dictScanDefrag handles defragging dictEntry/dictEntryNoValue structures via defragfns,
+         * and calls our callback with plink for each entry so we can defrag skiplist nodes. */
+        scanLaterZsetData data = {zs};
+        dictDefragFunctions defragfns = {.defragAlloc = activeDefragAlloc};
+        unsigned long cursor = 0;
+        do {
+            cursor = dictScanDefrag(zs->dict, cursor, scanZsetCallback, &defragfns, &data);
+        } while (cursor != 0);
     }
     /* defrag the dict struct and tables */
     if ((newdict = dictDefragTables(zs->dict)))

@@ -15,6 +15,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
     r config set maxmemory 11mb
     r config set maxmemory-policy allkeys-lru
     set server_pid [s process_id]
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
 
     proc init_test {client_eviction} {
         r flushdb

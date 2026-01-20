@@ -95,6 +95,8 @@ void keepClientInMainThread(client *c) {
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     c->tid = IOTHREAD_MAIN_THREAD_ID;
     freeClientDeferredObjects(c, 1); /* Free deferred objects. */
+    freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
+    tryUnlinkClientFromPendingRefReply(c, 0);
     /* Main thread starts to manage it. */
     server.io_threads_clients_num[c->tid]++;
 }
@@ -133,6 +135,8 @@ void fetchClientFromIOThread(client *c) {
     c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     resumeIOThread(c->tid);
     freeClientDeferredObjects(c, 1); /* Free deferred objects. */
+    freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
+    tryUnlinkClientFromPendingRefReply(c, 0);
 }
 
 /* For some clients, we must handle them in the main thread, since there is
@@ -351,18 +355,33 @@ int prefetchIOThreadCommands(IOThread *t) {
     int to_prefetch = determinePrefetchCount(len);
     if (to_prefetch == 0) return 0;
 
+    /* Two-phase approach to optimize cache utilization:
+     * Phase 1: Issue prefetch hints for client structures
+     * Phase 2: Access the now-cached client data and add commands to batch */
+    /* Since we double the configured size for better performance,
+     * see also `determinePrefetchCount` */
+    static client *c[PREFETCH_BATCH_MAX_SIZE*2];
+    serverAssert(PREFETCH_BATCH_MAX_SIZE*2 >= to_prefetch );
     int clients = 0;
     listIter li;
     listNode *ln;
     listRewind(mainThreadProcessingClients[t->id], &li);
-    while((ln = listNext(&li)) && clients < to_prefetch) {
-        client *c = listNodeValue(ln);
-        /* A single command may contain multiple keys. If the batch is full,
-         * we stop adding clients to it. */
-        if (addCommandToBatch(c) == C_ERR) break;
-        clients++;
+    /* Phase 1: Issue prefetch instructions for client struct and pending_cmds.
+     * These prefetches will bring data into cache asynchronously. */
+    for (int i = 0; i < to_prefetch && (ln = listNext(&li)); i++) {
+        c[i] = listNodeValue(ln);
+        redis_prefetch_read(c[i]);
+        redis_prefetch_read(&c[i]->pending_cmds);
     }
-
+    /* Phase 2: Access client data (now likely in cache) and add to batch.
+     * Also prefetch additional fields (reply, mem_usage_bucket) that will be
+     * needed later during command execution. */
+    for (int i = 0; i < to_prefetch; i++) {
+        if (addCommandToBatch(c[i]) == C_ERR) break;
+        if (c[i]->reply) redis_prefetch_read(c[i]->reply);
+        redis_prefetch_read(&c[i]->mem_usage_bucket);
+        clients++;
+     }
     /* Prefetch the commands in the batch. */
     prefetchCommands();
     return clients;
@@ -446,6 +465,10 @@ int processClientsFromIOThread(IOThread *t) {
 
         /* Let main thread to run it, set running thread id first. */
         c->running_tid = IOTHREAD_MAIN_THREAD_ID;
+
+        /* Free objects queued by IO thread for deferred freeing. */
+        freeClientIODeferredObjects(c, 0);
+        tryUnlinkClientFromPendingRefReply(c, 0);
 
         /* If a read error occurs, handle it in the main thread first, since we
          * want to print logs about client information before freeing. */
