@@ -4140,9 +4140,9 @@ int commandCheckExistence(client *c, sds *err) {
         return 1;
     if (!err)
         return 0;
-    /* If we can't find the command but argv[0] by itself is a container command,
-     * it means we're dealing with a missing or invalid subcommand. Print Help. */
     if (isContainerCommandBySds(c->argv[0]->ptr)) {
+        /* If we can't find the command but argv[0] by itself is a command
+         * it means we're dealing with an invalid subcommand. Print Help. */
         sds cmd = sdsnew((char *)c->argv[0]->ptr);
         sdstoupper(cmd);
         *err = sdsnew(NULL);
