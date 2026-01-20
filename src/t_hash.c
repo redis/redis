@@ -398,7 +398,7 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
             oldsize = kvobjAllocSize(kv);
         lpt->lp = lpDeleteRange(lpt->lp, 0, expired * 3);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(db, getKeySlot(key), OBJ_HASH, oldsize, kvobjAllocSize(kv));
+            updateSlotAllocSize(db, getKeySlot(key), kv, oldsize, kvobjAllocSize(kv));
 
         /* update keysizes */
         unsigned long l = lpLength(lpt->lp) / 3;
@@ -723,7 +723,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
             oldsize = kvobjAllocSize(o);
         res = hashTypeGetFromHashTable(o, field, &value, expiredAt);
         if (server.memory_tracking_enabled && !(hfeFlags & HFE_LAZY_NO_UPDATE_ALLOCSIZES))
-            updateSlotAllocSize(db, getKeySlot(key), OBJ_HASH, oldsize, kvobjAllocSize(o));
+            updateSlotAllocSize(db, getKeySlot(key), o, oldsize, kvobjAllocSize(o));
 
         if (res == GETF_NOT_FOUND)
             return GETF_NOT_FOUND;
@@ -763,7 +763,7 @@ GetFieldRes hashTypeGetValue(redisDb *db, kvobj *o, sds field, unsigned char **v
         oldsize = kvobjAllocSize(o);
     serverAssert(hashTypeDelete(o, field) == 1);
     if (server.memory_tracking_enabled && !(hfeFlags & HFE_LAZY_NO_UPDATE_ALLOCSIZES))
-        updateSlotAllocSize(db, getKeySlot(key), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(db, getKeySlot(key), o, oldsize, kvobjAllocSize(o));
     propagateHashFieldDeletion(db, key, field, sdslen(field));
     server.stat_expired_subkeys++;
 
@@ -2099,7 +2099,7 @@ void hsetnxCommand(client *c) {
     hlen = hashTypeLength(kv, 0);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, hlen - 1, hlen);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(kv));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
     server.dirty++;
 }
 
@@ -2135,7 +2135,7 @@ void hsetCommand(client *c) {
     unsigned long l = hashTypeLength(kv, 0);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, l - created, l);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(kv));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kv, oldsize, kvobjAllocSize(kv));
     notifyKeyspaceEvent(NOTIFY_HASH,"hset",c->argv[1],c->db->id);
     server.dirty += (c->argc - 2)/2;
 }
@@ -2457,7 +2457,7 @@ void hsetexCommand(client *c) {
 
 out:
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     /* Emit keyspace notifications based on field expiry, mutation, or key deletion */
     if (fields_set || expired) {
         keyModified(c, c->db, c->argv[1], o, 1);
@@ -2527,7 +2527,7 @@ void hincrbyCommand(client *c) {
         oldsize = kvobjAllocSize(o);
     hashTypeSet(c->db, o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE | HASH_SET_KEEP_TTL);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     addReplyLongLong(c,value);
     keyModified(c,c->db,c->argv[1], o, 1);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrby",c->argv[1],c->db->id);
@@ -2585,7 +2585,7 @@ void hincrbyfloatCommand(client *c) {
         oldsize = kvobjAllocSize(o);
     hashTypeSet(c->db, o,c->argv[2]->ptr,new,HASH_SET_TAKE_VALUE | HASH_SET_KEEP_TTL);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     addReplyBulkCBuffer(c,buf,len);
     keyModified(c,c->db,c->argv[1],o,1);
     notifyKeyspaceEvent(NOTIFY_HASH,"hincrbyfloat",c->argv[1],c->db->id);
@@ -2729,7 +2729,7 @@ void hgetdelCommand(client *c) {
         return;
 
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     keyModified(c, c->db, c->argv[1], o, 1);
 
     if (expired)
@@ -2831,7 +2831,7 @@ void hgetexCommand(client *c) {
         hashTypeSetExDone(&setex);
 
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 
     /* Exit early if no modification has been made. */
     if (expired == 0 && deleted == 0 && updated == 0)
@@ -2929,7 +2929,7 @@ void hdelCommand(client *c) {
             deleted++;
             if (hashTypeLength(o, 0) == 0) {
                 if (server.memory_tracking_enabled)
-                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+                    updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
                 /* del key but don't update KEYSIZES. Else it will decr wrong bin in histogram */
                 dbDeleteSkipKeysizesUpdate(c->db, c->argv[1]);
                 keyremoved = 1;
@@ -2938,7 +2938,7 @@ void hdelCommand(client *c) {
         }
     }
     if (server.memory_tracking_enabled && !keyremoved)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     if (deleted) {
         int64_t newLen = -1; /* The value -1 indicates that the key is deleted. */
         keyModified(c, c->db, c->argv[1], keyremoved ? NULL : o, 1);
@@ -3050,7 +3050,7 @@ void genericHgetallCommand(client *c, int flags) {
 
     hashTypeResetIterator(&hi);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 
     /* Make sure we returned the right number of elements. */
     if (flags & OBJ_HASH_KEY && flags & OBJ_HASH_VALUE) count /= 2;
@@ -3091,7 +3091,7 @@ void hscanCommand(client *c) {
         oldsize = kvobjAllocSize(o);
     scanGenericCommand(c,o,cursor);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 }
 
 static void hrandfieldReplyWithListpack(client *c, unsigned int count, listpackEntry *keys, listpackEntry *vals) {
@@ -3347,7 +3347,7 @@ void hrandfieldWithCountCommand(client *c, long l, int withvalues) {
     }
 out:
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(hash));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hash, oldsize, kvobjAllocSize(hash));
 }
 
 /*
@@ -3418,7 +3418,7 @@ void hrandfieldCommand(client *c) {
         oldsize = kvobjAllocSize(hash);
     hashTypeRandomElement(hash,hashTypeLength(hash, 0),&ele,NULL);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(hash));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hash, oldsize, kvobjAllocSize(hash));
 
     if (ele.sval)
         addReplyBulkCBuffer(c, ele.sval, ele.slen);
@@ -3502,7 +3502,7 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
 
     serverAssert(hashTypeDelete(expCtx->hashObj, field) == 1);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(expCtx->db, getKeySlot(key), OBJ_HASH, oldsize, kvobjAllocSize(kv));
+        updateSlotAllocSize(expCtx->db, getKeySlot(key), kv, oldsize, kvobjAllocSize(kv));
     server.stat_expired_subkeys++;
     return ACT_REMOVE_EXP_ITEM;
 }
@@ -3737,7 +3737,7 @@ static void httlGenericCommand(client *c, const char *cmd, long long basetime, i
                 addReplyLongLong(c, (expire - basetime));
         }
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(hashObj));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
         return;
     } else {
         serverPanic("Unknown encoding: %d", hashObj->encoding);
@@ -3835,7 +3835,7 @@ static void hexpireGenericCommand(client *c, long long basetime, int unit) {
 
     hashTypeSetExDone(&exCtx);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), OBJ_HASH, oldsize, kvobjAllocSize(hashObj));
+        updateSlotAllocSize(c->db, getKeySlot(keyArg->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
 
     if (deleted + updated > 0) {
         server.dirty += deleted + updated;
@@ -4020,7 +4020,7 @@ void hpersistCommand(client *c) {
                 oldsize = kvobjAllocSize(hashObj);
             listpackExUpdateExpiry(hashObj, field, fptr, vptr, HASH_LP_NO_TTL);
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(hashObj));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
             addReplyLongLong(c, HFE_PERSIST_OK);
             changed = 1;
         }
@@ -4057,7 +4057,7 @@ void hpersistCommand(client *c) {
             changed = 1;
         }
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_HASH, oldsize, kvobjAllocSize(hashObj));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), hashObj, oldsize, kvobjAllocSize(hashObj));
     } else {
         serverPanic("Unknown encoding: %d", hashObj->encoding);
     }

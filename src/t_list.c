@@ -517,7 +517,7 @@ void pushGenericCommand(client *c, int where, int xx) {
     notifyKeyspaceEvent(NOTIFY_LIST,event,c->argv[1],c->db->id);
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen - (c->argc - 2), llen);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(lobj));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), lobj, oldsize, kvobjAllocSize(lobj));
 }
 
 /* LPUSH <key> <element> [<element> ...] */
@@ -584,7 +584,7 @@ void linsertCommand(client *c) {
     }
     listTypeResetIterator(&iter);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(subject));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), subject, oldsize, kvobjAllocSize(subject));
 
     if (inserted) {
         keyModified(c,c->db,c->argv[1],subject,1);
@@ -668,7 +668,7 @@ void lsetCommand(client *c) {
     /* Always update db allocation sizes since listTypeTryConversionAppend()
      * might have changed object encoding. */
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
+        updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
 }
 
 /* A helper function like addListRangeReply, more details see below.
@@ -792,13 +792,13 @@ void listElementsRemoved(client *c, robj *key, int where, robj *o, long count, s
         if (deleted) *deleted = 1;
 
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), o, oldsize, kvobjAllocSize(o));
         dbDelete(c->db, key);
         notifyKeyspaceEvent(NOTIFY_GENERIC, "del", key, c->db->id);
     } else {
         listTypeTryConversion(o, LIST_CONV_SHRINKING, NULL, NULL);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(key->ptr), o, oldsize, kvobjAllocSize(o));
         if (deleted) *deleted = 0;
     }
     if (signal)
@@ -971,14 +971,14 @@ void ltrimCommand(client *c) {
     notifyKeyspaceEvent(NOTIFY_LIST,"ltrim",c->argv[1],c->db->id);
     if ((llenNew = listTypeLength(o)) == 0) {
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
         dbDeleteSkipKeysizesUpdate(c->db,c->argv[1]);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         llenNew = -1; /* Indicate key deleted to updateKeysizesHist() */
     } else {
         listTypeTryConversion(o,LIST_CONV_SHRINKING,NULL,NULL);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(o));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), o, oldsize, kvobjAllocSize(o));
     }
     updateKeysizesHist(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, llen, llenNew);
     keyModified(c, c->db, c->argv[1], (llenNew > 0) ? o : NULL, 1);
@@ -1147,13 +1147,13 @@ void lremCommand(client *c) {
 
         if (ll == 0) {
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(subject));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), subject, oldsize, kvobjAllocSize(subject));
             dbDelete(c->db,c->argv[1]);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"del",c->argv[1],c->db->id);
         } else {
             listTypeTryConversion(subject,LIST_CONV_SHRINKING,NULL,NULL);
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(subject));
+                updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), subject, oldsize, kvobjAllocSize(subject));
         }
         keyModified(c, c->db, c->argv[1], ll ? subject : NULL, 1);
     }
@@ -1174,7 +1174,7 @@ void lmoveHandlePush(client *c, robj *dstkey, robj *dstobj, robj *value,
     listTypeTryConversionAppend(dstobj,&value,0,0,NULL,NULL);
     listTypePush(dstobj,value,where);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), OBJ_LIST, oldsize, kvobjAllocSize(dstobj));
+        updateSlotAllocSize(c->db, getKeySlot(dstkey->ptr), dstobj, oldsize, kvobjAllocSize(dstobj));
     keyModified(c,c->db,dstkey,dstobj,1);
 
     notifyKeyspaceEvent(NOTIFY_LIST,
@@ -1231,7 +1231,7 @@ void lmoveGenericCommand(client *c, int wherefrom, int whereto) {
         robj *value = listTypePop(kvsrc, wherefrom);
         serverAssert(value); /* assertion for valgrind (avoid NPD) */
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), OBJ_LIST, oldsize, kvobjAllocSize(kvsrc));
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), kvsrc, oldsize, kvobjAllocSize(kvsrc));
         lmoveHandlePush(c, c->argv[2], kvdst, value, whereto);
         /* Update dst obj cardinality in KEYSIZES */
         updateKeysizesHist(c->db, getKeySlot(c->argv[2]->ptr), OBJ_LIST, oldlen, newlen);

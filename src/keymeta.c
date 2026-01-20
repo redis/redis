@@ -841,7 +841,7 @@ kvobj *keyMetaSetMetadata(redisDb *db, kvobj *kv, KeyMetaClassId id, uint64_t me
     kv = kvobjSet(key, kv, kv->metabits | (1u << id));
     kvstoreDictSetAtLink(db->keys, slot, kv, &keyLink, 0);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(db, slot, kv->type, oldsize, kvobjAllocSize(kv));
+        updateSlotAllocSize(db, slot, kv, oldsize, kvobjAllocSize(kv));
 
     /* Set new metadata */
     *kvobjMetaRef(kv, id) = metadata;

@@ -1631,7 +1631,7 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
             oldsize = kvobjAllocSize(kv);
         res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(db, curr_slot, kv->type, oldsize, kvobjAllocSize(kv));
+            updateSlotAllocSize(db, curr_slot, kv, oldsize, kvobjAllocSize(kv));
         if (res < 0) goto werr2;
         written += res;
 

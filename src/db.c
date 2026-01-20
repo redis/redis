@@ -140,7 +140,7 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
     updateSlotHist(kvstoreMeta->keysizes_hist, dictMeta ? dictMeta->keysizes_hist : NULL, type, oldLen, newLen);
 }
 
-void updateSlotAllocSize(redisDb *db, int didx, uint32_t type, int64_t oldsize, int64_t newsize) {
+void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize) {
     debugServerAssert(server.memory_tracking_enabled);
     kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
@@ -160,7 +160,7 @@ void updateSlotAllocSize(redisDb *db, int didx, uint32_t type, int64_t oldsize, 
     }
 
     /* Update allocation size histogram */
-    updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, type, oldsize, newsize);
+    updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, oldsize, newsize);
 }
 
 static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
@@ -440,7 +440,7 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(db, slot, kv->type, -1, kvobjAllocSize(kv));
+        updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     *valref = kv;
     return kv;
 }
@@ -545,7 +545,7 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(db, slot, kv->type, -1, kvobjAllocSize(kv));
+        updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     return *valref = kv;
 }
 
@@ -680,10 +680,10 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
     if (server.memory_tracking_enabled) {
         /* Save one call if old and new are the same type */
         if (oldtype == kvNew->type) {
-            updateSlotAllocSize(db, slot, oldtype, oldsize, kvobjAllocSize(kvNew));
+            updateSlotAllocSize(db, slot, kvNew, oldsize, kvobjAllocSize(kvNew));
         } else {
-            updateSlotAllocSize(db, slot, oldtype, oldsize, -1);
-            updateSlotAllocSize(db, slot, kvNew->type, -1, kvobjAllocSize(kvNew));
+            updateSlotAllocSize(db, slot, old, oldsize, -1);
+            updateSlotAllocSize(db, slot, kvNew, -1, kvobjAllocSize(kvNew));
         }
     }
 
@@ -871,7 +871,7 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
 
         if (async) {
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(db, slot, type, kvobjAllocSize(kv), -1);
+                updateSlotAllocSize(db, slot, kv, kvobjAllocSize(kv), -1);
             freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
@@ -2649,7 +2649,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         if (kv != kvnew) {
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(db, slot, kvnew->type, oldsize, kvobjAllocSize(kvnew));
+                updateSlotAllocSize(db, slot, kvnew, oldsize, kvobjAllocSize(kvnew));
             kv = kvnew;
         }
         /* Now add to expires */

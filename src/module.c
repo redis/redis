@@ -4740,7 +4740,7 @@ int RM_StringTruncate(RedisModuleKey *key, size_t newlen) {
                 key->kv->ptr = sdsRemoveFreeSpace(key->kv->ptr, 0);
         }
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_STRING, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     }
     return REDISMODULE_OK;
 }
@@ -4857,7 +4857,7 @@ int RM_ListPush(RedisModuleKey *key, int where, RedisModuleString *ele) {
     int64_t l = listTypeLength(key->kv);
     updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l-1, l);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return REDISMODULE_OK;
 }
 
@@ -4895,13 +4895,13 @@ RedisModuleString *RM_ListPop(RedisModuleKey *key, int where) {
     int64_t l = (int64_t) listTypeLength(key->kv);
     updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l+1, l);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     if (!moduleDelKeyIfEmpty(key)) {
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(key->kv);
         listTypeTryConversion(key->kv, LIST_CONV_SHRINKING, moduleFreeListIterator, key);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     }
     autoMemoryAdd(key->ctx,REDISMODULE_AM_STRING,decoded);
     return decoded;
@@ -4967,14 +4967,14 @@ int RM_ListSet(RedisModuleKey *key, long index, RedisModuleString *value) {
     if (moduleListIteratorSeek(key, index, REDISMODULE_WRITE)) {
         listTypeReplace(&key->u.list.entry, value);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         /* A note in quicklist.c forbids use of iterator after insert, so
          * probably also after replace. */
         moduleFreeKeyIterator(key);
         return REDISMODULE_OK;
     } else {
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         return REDISMODULE_ERR;
     }
 }
@@ -5023,13 +5023,13 @@ int RM_ListInsert(RedisModuleKey *key, long index, RedisModuleString *value) {
         int64_t l = (int64_t) listTypeLength(key->kv);
         updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l-1, l);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         /* A note in quicklist.c forbids use of iterator after insert. */
         moduleFreeKeyIterator(key);
         return REDISMODULE_OK;
     } else {
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         return REDISMODULE_ERR;
     }
 }
@@ -5054,13 +5054,13 @@ int RM_ListDelete(RedisModuleKey *key, long index) {
         int64_t l = (int64_t) listTypeLength(key->kv);
         updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_LIST, l+1, l);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         if (moduleDelKeyIfEmpty(key)) return REDISMODULE_OK;
         if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(key->kv);
         listTypeTryConversion(key->kv, LIST_CONV_SHRINKING, moduleFreeListIterator, key);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_LIST, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         if (!key->iter) return REDISMODULE_OK; /* Return ASAP if iterator has been freed */
         if (listTypeNext(key->iter, &key->u.list.entry)) {
             /* After delete entry at position 'index', we need to update
@@ -5155,7 +5155,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
     if (zsetAdd(key->kv,score,ele->ptr,in_flags,&out_flags,NULL) == 0) {
         if (flagsptr) *flagsptr = 0;
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         moduleDelKeyIfEmpty(key);
         return REDISMODULE_ERR;
     }
@@ -5163,7 +5163,7 @@ int RM_ZsetAdd(RedisModuleKey *key, double score, RedisModuleString *ele, int *f
     int64_t l = (int64_t) zsetLength(key->kv);
     updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l-1, l);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(key->kv));
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return REDISMODULE_OK;
 }
 
@@ -5193,12 +5193,12 @@ int RM_ZsetIncrby(RedisModuleKey *key, double score, RedisModuleString *ele, int
     if (zsetAdd(key->kv,score,ele->ptr,in_flags,&out_flags,newscore) == 0) {
         if (flagsptr) *flagsptr = 0;
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         moduleDelKeyIfEmpty(key);
         return REDISMODULE_ERR;
     }
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(key->kv));
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     if (out_flags & ZADD_OUT_ADDED) {
         int64_t l = (int64_t) zsetLength(key->kv);
         updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l-1, l);
@@ -5240,12 +5240,12 @@ int RM_ZsetRem(RedisModuleKey *key, RedisModuleString *ele, int *deleted) {
         int64_t l = (int64_t) zsetLength(key->kv);
         updateKeysizesHist(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, l+1, l);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         moduleDelKeyIfEmpty(key);
     } else {
         if (deleted) *deleted = 0;
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_ZSET, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     }
     return REDISMODULE_OK;
 }
@@ -5711,7 +5711,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
                 oldsize = kvobjAllocSize(key->kv);
             count += hashTypeDelete(key->kv, field->ptr);
             if (server.memory_tracking_enabled)
-                updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_HASH, oldsize, kvobjAllocSize(key->kv));
+                updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
             if (flags & REDISMODULE_HASH_CFIELDS) decrRefCount(field);
             continue;
         }
@@ -5729,7 +5729,7 @@ int RM_HashSet(RedisModuleKey *key, int flags, ...) {
         hashTypeTryConversion(key->db,key->kv,argv,0,1);
         int updated = hashTypeSet(key->db, key->kv, field->ptr, value->ptr, low_flags);
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_HASH, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         count += (flags & REDISMODULE_HASH_COUNT_ALL) ? 1 : updated;
 
         /* If CFIELDS is active, SDS string ownership is now of hashTypeSet(),
@@ -5978,7 +5978,7 @@ int RM_StreamAdd(RedisModuleKey *key, int flags, RedisModuleStreamID *id, RedisM
         return REDISMODULE_ERR;
     }
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_STREAM, oldsize, kvobjAllocSize(key->kv));
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     /* Postponed signalKeyAsReady(). Done implicitly by moduleCreateEmptyKey()
      * so not needed if the stream has just been created. */
     if (!created) key->u.stream.signalready = 1;
@@ -6026,7 +6026,7 @@ int RM_StreamDelete(RedisModuleKey *key, RedisModuleStreamID *id) {
     streamID streamid = {id->ms, id->seq};
     if (streamDeleteItem(s, &streamid)) {
         if (server.memory_tracking_enabled)
-            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_STREAM, oldsize, kvobjAllocSize(key->kv));
+            updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
         return REDISMODULE_OK;
     } else {
         errno = ENOENT; /* no entry with this id */
@@ -6329,7 +6329,7 @@ long long RM_StreamTrimByLength(RedisModuleKey *key, int flags, long long length
     size_t oldsize = kvobjAllocSize(key->kv);
     long long retval = streamTrimByLength(s, length, approx);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_STREAM, oldsize, kvobjAllocSize(key->kv));
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;
 }
 
@@ -6365,7 +6365,7 @@ long long RM_StreamTrimByID(RedisModuleKey *key, int flags, RedisModuleStreamID 
     size_t oldsize = kvobjAllocSize(key->kv);
     long long retval = streamTrimByID(s, minid, approx);
     if (server.memory_tracking_enabled)
-        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), OBJ_STREAM, oldsize, kvobjAllocSize(key->kv));
+        updateSlotAllocSize(key->db, getKeySlot(key->key->ptr), key->kv, oldsize, kvobjAllocSize(key->kv));
     return retval;
 }
 
