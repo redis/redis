@@ -2338,7 +2338,7 @@ struct redisServer {
     int pre_command_oom_state;         /* OOM before command (script?) was started */
     int script_disable_deny_script;    /* Allow running commands marked "noscript" inside a script. */
     int lua_enable_deprecated_api;     /* Config to enable deprecated api */
-    int key_bytes_stats;               /* Config to enable key bytes stats */
+    int key_memory_histograms;         /* Config to enable key memory histograms */
     /* Lazy free */
     int lazyfree_lazy_eviction;
     int lazyfree_lazy_expire;

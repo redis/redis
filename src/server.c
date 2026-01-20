@@ -2898,11 +2898,11 @@ void initServer(void) {
     server.reply_buffer_peak_reset_time = REPLY_BUFFER_DEFAULT_PEAK_RESET_TIME;
     server.reply_buffer_resizing_enabled = 1;
     server.client_mem_usage_buckets = NULL;
-    /* Enable memory accounting only if key-bytes-stats or cluster-slot-stats-enabled
+    /* Enable memory accounting only if key-memory-histograms or cluster-slot-stats-enabled
      * is enabled on startup and disregard future configuration changes.
      * The reason behind this behavior is we want to avoid situation where we
      * would need to catch up or iterate over all slots and kvobjs. */
-    server.memory_tracking_enabled = server.key_bytes_stats || clusterSlotStatsEnabled();
+    server.memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled();
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */
