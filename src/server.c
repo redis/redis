@@ -1409,8 +1409,8 @@ void updatePeakMemory(void) {
     size_t zmalloc_used = zmalloc_used_memory();
     if (zmalloc_used > server.stat_peak_memory) {
         server.stat_peak_memory = zmalloc_used;
-         server.stat_peak_memory_time = server.unixtime;
-     }
+        server.stat_peak_memory_time = server.unixtime;
+    }
 
     size_t zmalloc_peak = zmalloc_get_peak_memory();
     if (zmalloc_peak > server.stat_peak_memory) {
