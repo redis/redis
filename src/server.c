@@ -3882,8 +3882,7 @@ void call(client *c, int flags) {
                 server.accumulated_call_count = 0;
             }
         }
-    }
-    else {
+    } else {
         /* Fallback: call ustime() directly and update cached time */
         const long long now = ustime();
         duration = now - call_timer;
