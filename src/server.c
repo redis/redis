@@ -509,11 +509,11 @@ static int kvstoreCanFreeDict(kvstore *kvs, int didx) {
     /* Free if not in cluster */
     if (!server.cluster_enabled) return 1;
 
-    if (server.cluster_slot_stats_enabled &&
-        (meta->cpu_usec || meta->network_bytes_in || meta->network_bytes_out) &&
-        clusterIsMySlot(didx))
-    {
-        /* Don't free if we have stats for this slot */
+    /* Don't free if we have stats for this slot and the relevant tracking is enabled. */
+    int has_cpu_stats = (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_CPU) && meta->cpu_usec;
+    int has_net_stats = (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_NET) &&
+                        (meta->network_bytes_in || meta->network_bytes_out);
+    if ((has_cpu_stats || has_net_stats) && clusterIsMySlot(didx)) {
         return 0;
     }
 
@@ -2897,11 +2897,12 @@ void initServer(void) {
     server.reply_buffer_resizing_enabled = 1;
     server.reply_copy_avoidance_enabled = 1;
     server.client_mem_usage_buckets = NULL;
-    /* Enable per slot memory accounting only if cluster-slot-stats-enabled is
-     * enabled on startup and disregard future configuration changes.
-     * The reason behind this behavior is we want to avoid situation where we
-     * would need to catch up or iterate over all slots and kvobjs. */
-    server.memory_tracking_per_slot = clusterSlotStatsEnabled();
+    /* Enable per slot memory accounting only if cluster-slot-stats-enabled
+     * includes 'mem' at startup. Memory tracking can be disabled at runtime
+     * but cannot be re-enabled, to avoid situation where we would need to
+     * catch up or iterate over all slots and kvobjs. */
+    server.memory_tracking_per_slot = server.cluster_enabled &&
+                                      (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_MEM);
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */

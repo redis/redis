@@ -703,6 +703,12 @@ typedef enum {
 #define SHUTDOWN_NOW 4          /* Don't wait for replicas to catch up. */
 #define SHUTDOWN_FORCE 8        /* Don't let errors prevent shutdown. */
 
+/* Cluster slot stats flags */
+#define CLUSTER_SLOT_STATS_CPU 1  /* Track CPU usage per slot. */
+#define CLUSTER_SLOT_STATS_NET 2  /* Track network bytes per slot. */
+#define CLUSTER_SLOT_STATS_MEM 4  /* Track memory usage per slot. */
+#define CLUSTER_SLOT_STATS_ALL (CLUSTER_SLOT_STATS_CPU | CLUSTER_SLOT_STATS_NET | CLUSTER_SLOT_STATS_MEM)
+
 /* IO thread pause status */
 #define IO_THREAD_UNPAUSED      0
 #define IO_THREAD_PAUSING       1
@@ -3784,6 +3790,8 @@ int allowProtectedAction(int config, client *c);
 void initServerClientMemUsageBuckets(void);
 void freeServerClientMemUsageBuckets(void);
 static inline int clusterSlotStatsEnabled(void) { return server.cluster_enabled && server.cluster_slot_stats_enabled; }
+static inline int clusterSlotStatsCpuEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_CPU); }
+static inline int clusterSlotStatsNetEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_NET); }
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
