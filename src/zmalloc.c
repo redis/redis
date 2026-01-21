@@ -128,7 +128,7 @@ static void update_zmalloc_stat_alloc(long long bytes_delta) {
              * on failure, `old_peak` is refreshed with the latest peak value, and we
              * retry only while our snapshot still exceeds it. */
             size_t old_peak = published_peak;
-            while (used_mem > old_peak && !atomicCompareExchange(zmalloc_peak, old_peak, used_mem)) {
+            while (used_mem > old_peak && !atomicCompareExchange(size_t, zmalloc_peak, old_peak, used_mem)) {
                 /* CAS failed: `old_peak` now holds the current `zmalloc_peak`. */
             }
 
