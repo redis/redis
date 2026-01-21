@@ -5216,30 +5216,23 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
     return 1;
 }
 
-/* ======================== PEL Time-Ordered List Helpers =====================
- * 
- * The following functions manage a doubly-linked list of pending entries (NACKs)
- * ordered by delivery_time. This replaces the previous pel_by_time rax tree
- * for O(1) append operations when delivery_time is set to current time (99% case).
- * 
- * Key insight: Almost all NACK updates set delivery_time to current time, making
- * this an append-to-tail workload. The doubly-linked list provides:
- * - O(1) unlink from any position
- * - O(1) append to tail (common case)
- * - O(1) access to oldest entries (CLAIM operations)
- * - Better cache locality than tree traversal
- * ============================================================================ */
+/* -----------------------------------------------------------------------
+ * PEL Time-Ordered List Helpers
+ * ----------------------------------------------------------------------- */
 
-/* Insert a NACK at the tail of the PEL time-ordered list.
- * This is used when delivery_time is set to current time (99% of cases).
- * Complexity: O(1) */
+/* The following functions manage a doubly-linked list of pending entries (NACKs)
+ * ordered by delivery_time. Almost all NACK updates set delivery_time to current
+ * time, making this an append-to-tail workload. The doubly-linked list provides
+ * O(1) unlink from any position, O(1) append to tail, O(1) access to oldest
+ * entries for CLAIM operations, and better cache locality than tree traversal. */
+
+/* Insert a NACK at the tail of the PEL time-ordered list. This is used when
+ * delivery_time is set to current time, which is the common case. */
 static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
     serverAssert(nack != NULL);
     serverAssert(nack->pel_prev == NULL && nack->pel_next == NULL);
-    
     nack->pel_prev = cg->pel_time_tail;
     nack->pel_next = NULL;
-    
     if (cg->pel_time_tail) {
         serverAssert(cg->pel_time_head != NULL);
         cg->pel_time_tail->pel_next = nack;
@@ -5250,53 +5243,46 @@ static void pelListInsertAtTail(streamCG *cg, streamNACK *nack) {
     cg->pel_time_tail = nack;
 }
 
-/* Unlink a NACK from the PEL time-ordered list.
- * Complexity: O(1) */
+/* Unlink a NACK from the PEL time-ordered list. */
 static void pelListUnlink(streamCG *cg, streamNACK *nack) {
     serverAssert(nack != NULL);
-    
     if (nack->pel_prev) {
         nack->pel_prev->pel_next = nack->pel_next;
     } else {
-        /* Removing head */
-        serverAssert(cg->pel_time_head == nack);
+        serverAssert(cg->pel_time_head == nack); /* Removing head. */
         cg->pel_time_head = nack->pel_next;
     }
-    
     if (nack->pel_next) {
         nack->pel_next->pel_prev = nack->pel_prev;
     } else {
-        /* Removing tail */
-        serverAssert(cg->pel_time_tail == nack);
+        serverAssert(cg->pel_time_tail == nack); /* Removing tail. */
         cg->pel_time_tail = nack->pel_prev;
     }
-    
     nack->pel_prev = nack->pel_next = NULL;
 }
 
-/* Insert a NACK in sorted order by delivery_time.
- * Used for edge cases where delivery_time is set to past time.
- * Also used by RDB loading where entries may not be time-ordered.
- * Complexity: O(N) worst case, but typically O(1) since we scan from tail
- * and past times are usually close to current time. */
+/* Insert a NACK in sorted order by delivery_time. Used for edge cases where
+ * delivery_time is set to a past time, and also by RDB loading where entries
+ * may not be time-ordered. We scan backwards from the tail since most times
+ * are recent, so the common case is still fast. */
 void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time) {
     serverAssert(nack != NULL);
     serverAssert(nack->pel_prev == NULL && nack->pel_next == NULL);
-    
-    /* Empty list */
+
+    /* Empty list. */
     if (cg->pel_time_head == NULL) {
         cg->pel_time_head = cg->pel_time_tail = nack;
         nack->pel_prev = nack->pel_next = NULL;
         return;
     }
-    
-    /* Append to tail (common case: delivery_time >= tail time) */
+
+    /* Append to tail (common case: delivery_time >= tail time). */
     if (delivery_time >= cg->pel_time_tail->delivery_time) {
         pelListInsertAtTail(cg, nack);
         return;
     }
-    
-    /* Prepend to head (rare: delivery_time < head time) */
+
+    /* Prepend to head (rare: delivery_time < head time). */
     if (delivery_time < cg->pel_time_head->delivery_time) {
         nack->pel_next = cg->pel_time_head;
         nack->pel_prev = NULL;
@@ -5304,14 +5290,14 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time)
         cg->pel_time_head = nack;
         return;
     }
-    
-    /* Insert in middle - scan backwards from tail since most times are recent */
+
+    /* Insert in middle: scan backwards from tail since most times are recent. */
     streamNACK *curr = cg->pel_time_tail;
     while (curr && curr->delivery_time > delivery_time) {
         curr = curr->pel_prev;
     }
-    
-    /* Insert after curr */
+
+    /* Insert after curr. */
     serverAssert(curr != NULL);
     nack->pel_next = curr->pel_next;
     nack->pel_prev = curr;
@@ -5321,18 +5307,11 @@ void pelListInsertSorted(streamCG *cg, streamNACK *nack, mstime_t delivery_time)
     curr->pel_next = nack;
 }
 
-/* Update a NACK's delivery_time and reposition in the time-ordered list.
- * Complexity: O(1) for current_time updates (99% case), O(N) for past times */
+/* Update a NACK's delivery_time and reposition it in the time-ordered list. */
 static void pelListUpdate(streamCG *cg, streamNACK *nack, mstime_t new_delivery_time) {
     serverAssert(nack != NULL);
-    
-    /* Unlink from current position */
     pelListUnlink(cg, nack);
-    
-    /* Update time */
     nack->delivery_time = new_delivery_time;
-    
-    /* Re-insert in sorted position */
     pelListInsertSorted(cg, nack, new_delivery_time);
 }
 
