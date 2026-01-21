@@ -2042,13 +2042,16 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 addReplyLongLong(c, idle);
                 addReplyLongLong(c, delivery_count);
 
-                /* Remove the NACK from old consumer and time-based PEL. */
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                /* Transfer NACK to new consumer only if different. */
+                if (nack->consumer != consumer) {
+                    /* Remove the NACK from old consumer's PEL. */
+                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
 
-                /* Transfer NACK to new consumer with updated metadata. */
-                nack->consumer = consumer;
+                    /* Transfer NACK to new consumer. */
+                    nack->consumer = consumer;
+                    raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                }
                 nack->delivery_count++;
-                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 pelListUpdate(group, nack, cmd_time_snapshot);
 
                 consumer->active_time = cmd_time_snapshot;
@@ -2860,18 +2863,23 @@ void xreadCommand(client *c) {
              * later if block option is set. */
             if (min_idle_time != -1) {
                 streamNACK *nack = groups[i]->pel_time_head;
-                if (nack) {
-                    /* Check if the first entry still exists */
-                    if (streamEntryExists(s, &nack->id)) {
-                        if (nack->delivery_time < min_pel_delivery_time) {
-                            min_pel_delivery_time = nack->delivery_time;
-                        }
-
-                        uint64_t idle = commandTimeSnapshot() - nack->delivery_time;
-                        if (idle >= (uint64_t)min_idle_time) {
-                            serve_claimed = 1;
-                        }
+                /* Iterate through PEL entries to find the first one that exists */
+                while (nack) {
+                    /* Skip entries that don't exist in the stream anymore */
+                    if (!streamEntryExists(s, &nack->id)) {
+                        nack = nack->pel_next;
+                        continue;
                     }
+
+                    if (nack->delivery_time < min_pel_delivery_time) {
+                        min_pel_delivery_time = nack->delivery_time;
+                    }
+
+                    uint64_t idle = commandTimeSnapshot() - nack->delivery_time;
+                    if (idle >= (uint64_t)min_idle_time) {
+                        serve_claimed = 1;
+                    }
+                    break; /* Found a valid entry, stop searching */
                 }
             }
 
