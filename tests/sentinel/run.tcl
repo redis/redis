@@ -14,6 +14,13 @@ set ::instances_count 5 ; # How many instances we use at max.
 set ::tlsdir "../../tls"
 
 proc main {} {
+    set start [clock milliseconds]
+    # Clean up log files from previous test run
+    foreach name [glob -tails -directory [pwd] * .*] {
+        if {$name in { . .. .gitignore }} continue
+        file delete -force -- $name
+    }
+
     parse_options
     if {$::leaked_fds_file != ""} {
         set ::env(LEAKED_FDS_FILE) $::leaked_fds_file
@@ -31,6 +38,9 @@ proc main {} {
     }
     run_tests
     cleanup
+    set end [clock milliseconds]
+    set duration [expr {($end - $start) / 1000}]
+    puts "Total test duration: ${duration} seconds"
     end_tests
 }
 

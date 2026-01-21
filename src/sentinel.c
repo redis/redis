@@ -118,6 +118,11 @@ static mstime_t sentinel_default_failover_timeout = 60*3*1000;
 #define SENTINEL_SIMFAILURE_CRASH_AFTER_ELECTION (1<<0)
 #define SENTINEL_SIMFAILURE_CRASH_AFTER_PROMOTION (1<<1)
 
+/* Flags used to verify slaves' replication lineage */
+#define REPLID_UNVERIFIED 0
+#define REPLID_RELEVANT 1
+#define REPLID_IRRELEVANT 2
+
 /* The link to a sentinelRedisInstance. When we have the same set of Sentinels
  * monitoring many masters, we have different instances representing the
  * same Sentinels, one per master, and we need to share the hiredis connections
@@ -199,6 +204,9 @@ typedef struct sentinelRedisInstance {
     int parallel_syncs; /* How many slaves to reconfigure at same time. */
     char *auth_pass;    /* Password to use for AUTH against master & replica. */
     char *auth_user;    /* Username for ACLs AUTH against master & replica. */
+    char *master_replid; /* Master's current replication ID */
+    char *master_replid2; /* Master's previous replication ID */
+    long long second_repl_offset; /* Master accepts offsets up to this for replid2 */
 
     /* Slave specific. */
     mstime_t master_link_down_time; /* Slave replication link down time. */
@@ -209,7 +217,10 @@ typedef struct sentinelRedisInstance {
     char *slave_master_host;    /* Master host as reported by INFO */
     int slave_master_port;      /* Master port as reported by INFO */
     int slave_master_link_status; /* Master link status as reported by INFO */
-    unsigned long long slave_repl_offset; /* Slave replication offset. */
+    char *slave_master_replid; /* Master's current replication ID from slave's view */
+    long long slave_repl_offset; /* Slave replication offset */
+    int is_relevant_to_master; /* A flag shows whether the replication lineage matches */
+
     /* Failover */
     char *leader;       /* If this is a master instance, this is the runid of
                            the Sentinel that should perform the failover. If
@@ -446,7 +457,7 @@ void sentinelConfigSetCommand(client *c);
 
 /* this array is used for sentinel config lookup, which need to be loaded
  * before monitoring masters config to avoid dependency issues */
-const char *preMonitorCfgName[] = { 
+const char *preMonitorCfgName[] = {
     "announce-ip",
     "announce-port",
     "deny-scripts-reconfig",
@@ -599,7 +610,7 @@ int sentinelAddrEqualsHostname(sentinelAddr *a, char *hostname) {
                     sentinel.resolve_hostnames ? ANET_NONE : ANET_IP_ONLY) == ANET_ERR) {
 
         /* If failed resolve then compare based on hostnames. That is our best effort as
-         * long as the server is unavailable for some reason. It is fine since Redis 
+         * long as the server is unavailable for some reason. It is fine since Redis
          * instance cannot have multiple hostnames for a given setup */
         return !strcasecmp(sentinel.resolve_hostnames ? a->hostname : a->ip, hostname);
     }
@@ -1124,7 +1135,7 @@ void dropInstanceConnections(sentinelRedisInstance *ri) {
     /* Disconnect with the master. */
     instanceLinkCloseConnection(ri->link, ri->link->cc);
     instanceLinkCloseConnection(ri->link, ri->link->pc);
-    
+
     /* Disconnect with all replicas. */
     dictIterator di;
     dictEntry *de;
@@ -1315,23 +1326,33 @@ sentinelRedisInstance *createSentinelRedisInstance(char *name, int flags, char *
     ri->o_down_since_time = 0;
     ri->down_after_period = master ? master->down_after_period : sentinel_default_down_after;
     ri->master_reboot_down_after_period = 0;
-    ri->master_link_down_time = 0;
+    ri->master_reboot_since_time = 0;
+    ri->info_refresh = 0;
+    ri->renamed_commands = dictCreate(&renamedCommandsDictType);
+
+    /* Master specific */
+    ri->sentinels = dictCreate(&instancesDictType);
+    ri->slaves = dictCreate(&instancesDictType);
+    ri->quorum = quorum;
+    ri->parallel_syncs = SENTINEL_DEFAULT_PARALLEL_SYNCS;
     ri->auth_pass = NULL;
     ri->auth_user = NULL;
+    ri->master_replid = NULL;
+    ri->master_replid2 = NULL;
+    ri->second_repl_offset = 0;
+
+    /* Slave specific. */
+    ri->master_link_down_time = 0;
     ri->slave_priority = SENTINEL_DEFAULT_SLAVE_PRIORITY;
     ri->replica_announced = 1;
     ri->slave_reconf_sent_time = 0;
+    ri->master = master;
     ri->slave_master_host = NULL;
     ri->slave_master_port = 0;
     ri->slave_master_link_status = SENTINEL_MASTER_LINK_STATUS_DOWN;
+    ri->slave_master_replid = NULL;
     ri->slave_repl_offset = 0;
-    ri->sentinels = dictCreate(&instancesDictType);
-    ri->quorum = quorum;
-    ri->parallel_syncs = SENTINEL_DEFAULT_PARALLEL_SYNCS;
-    ri->master = master;
-    ri->slaves = dictCreate(&instancesDictType);
-    ri->info_refresh = 0;
-    ri->renamed_commands = dictCreate(&renamedCommandsDictType);
+    ri->is_relevant_to_master = REPLID_UNVERIFIED;
 
     /* Failover state. */
     ri->leader = NULL;
@@ -1379,6 +1400,9 @@ void releaseSentinelRedisInstance(sentinelRedisInstance *ri) {
     sdsfree(ri->auth_pass);
     sdsfree(ri->auth_user);
     sdsfree(ri->info);
+    sdsfree(ri->master_replid);
+    sdsfree(ri->master_replid2);
+    sdsfree(ri->slave_master_replid);
     releaseSentinelAddr(ri->addr);
     dictRelease(ri->renamed_commands);
 
@@ -1536,6 +1560,7 @@ void sentinelResetMaster(sentinelRedisInstance *ri, int flags) {
     sdsfree(ri->slave_master_host);
     ri->runid = NULL;
     ri->slave_master_host = NULL;
+    ri->is_relevant_to_master = REPLID_UNVERIFIED;
     ri->link->act_ping_time = mstime();
     ri->link->last_ping_time = 0;
     ri->link->last_avail_time = mstime();
@@ -1589,7 +1614,7 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
      * and It can add old master 1 more slave. 
      * so It allocates dictSize(master->slaves) + 1          */
     slaves = zmalloc(sizeof(sentinelAddr*)*(dictSize(master->slaves) + 1));
-    
+
     /* Don't include the one having the address we are switching to. */
     dictInitIterator(&di, master->slaves);
     while((de = dictNext(&di)) != NULL) {
@@ -1630,6 +1655,44 @@ int sentinelResetMasterAndChangeAddress(sentinelRedisInstance *master, char *hos
     releaseSentinelAddr(oldaddr);
     sentinelFlushConfig();
     return C_OK;
+}
+
+/* Helper function to check whether the slave is actually relevant
+ * (if both of the following conditions are true) to the master.
+ * [1] slave's master address is the same as the provided master
+ * [2] slave's replication lineage matches with provided master's
+ *     current lineage.
+ *
+ * Notes: A slave can become irrelevant. For example, users can
+ * manually send command `replicaof` to ask a slave to follow a
+ * different master. Or, a slave instance gets assigned a rotating
+ * IP address previously owned by another slave, and thus another
+ * cluster discovers this slave mistakenly.
+ */
+int isSlaveRelevant(sentinelRedisInstance *slave, sentinelRedisInstance *master) {
+    /* Check address */
+    if (slave->slave_master_host) {
+        if (strcasecmp(slave->slave_master_host, master->addr->hostname) != 0 &&
+            strcasecmp(slave->slave_master_host, master->addr->ip) != 0) {
+            return 0;
+        }
+        if (slave->slave_master_port != master->addr->port) {
+            return 0;
+        }
+    }
+
+    /* Check replication lineage */
+    if (slave->slave_master_replid && master->master_replid) {
+        /* Compare against master's current replication lineage */
+        if (!strcasecmp(slave->slave_master_replid, master->master_replid)) {
+            return 1;
+        }
+        if (!strcasecmp(slave->slave_master_replid, master->master_replid2) &&
+            slave->slave_repl_offset <= master->second_repl_offset) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /* Return non-zero if there was no SDOWN or ODOWN error associated to this
@@ -2490,7 +2553,7 @@ int sentinelMasterLooksSane(sentinelRedisInstance *master) {
         (mstime() - master->info_refresh) < sentinel_info_period*2;
 }
 
-/* Process the INFO output from masters. */
+/* Process the INFO output from masters and slaves. */
 void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     sds *lines;
     int numlines, j;
@@ -2518,7 +2581,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
                 if (strncmp(ri->runid,l+7,40) != 0) {
                     sentinelEvent(LL_NOTICE,"+reboot",ri,"%@");
 
-                    if (ri->flags & SRI_MASTER && ri->master_reboot_down_after_period != 0) {
+                    if (ri->flags & SRI_MASTER) {
                         ri->flags |= SRI_MASTER_REBOOT;
                         ri->master_reboot_since_time = mstime();
                     }
@@ -2580,6 +2643,18 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
         if (sdslen(l) >= 11 && !memcmp(l,"role:master",11)) role = SRI_MASTER;
         else if (sdslen(l) >= 10 && !memcmp(l,"role:slave",10)) role = SRI_SLAVE;
 
+        if (role == SRI_MASTER) {
+            if (sdslen(l) >= 14 && !memcmp(l, "master_replid:", 14)) {
+                sdsReplace(&ri->master_replid, sdsnew(l+14));
+            }
+            if (sdslen(l) >= 15 && !memcmp(l, "master_replid2:", 15)) {
+                sdsReplace(&ri->master_replid2, sdsnew(l+15));
+            }
+            if (sdslen(l) >= 19 && !memcmp(l, "second_repl_offset:", 19)) {
+                ri->second_repl_offset = strtoll(l + 19, NULL, 10);
+            }
+        }
+
         if (role == SRI_SLAVE) {
             /* master_host:<host> */
             if (sdslen(l) >= 12 && !memcmp(l,"master_host:",12)) {
@@ -2614,9 +2689,14 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             if (sdslen(l) >= 15 && !memcmp(l,"slave_priority:",15))
                 ri->slave_priority = atoi(l+15);
 
+            /* slave reported replication ID */
+            if (sdslen(l) >= 14 && !memcmp(l, "master_replid:", 14)) {
+                sdsReplace(&ri->slave_master_replid, sdsnew(l+14));
+            }
+
             /* slave_repl_offset:<offset> */
             if (sdslen(l) >= 18 && !memcmp(l,"slave_repl_offset:",18))
-                ri->slave_repl_offset = strtoull(l+18,NULL,10);
+                ri->slave_repl_offset = strtoll(l+18,NULL,10);
 
             /* replica_announced:<announcement> */
             if (sdslen(l) >= 18 && !memcmp(l,"replica_announced:",18))
@@ -2625,6 +2705,22 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
     }
     ri->info_refresh = mstime();
     sdsfreesplitres(lines,numlines);
+    if (ri->flags & SRI_SLAVE) {
+        mstime_t wait_time = sentinel_publish_period*4;
+        if (isSlaveRelevant(ri, ri->master)) {
+            ri->is_relevant_to_master = REPLID_RELEVANT;
+        } else if (ri->is_relevant_to_master == REPLID_UNVERIFIED) {
+            ri->is_relevant_to_master = REPLID_IRRELEVANT;
+        }
+        /* We should not claim a slave irrelevant immediately after the
+         * master reboots and gets a new replid. */
+        else if (sentinelMasterLooksSane(ri->master) &&
+            sentinelRedisInstanceNoDownFor(ri->master, wait_time) &&
+            (ri->master->master_reboot_since_time == 0 ||
+                mstime() - ri->master->master_reboot_since_time > wait_time)) {
+            ri->is_relevant_to_master = REPLID_IRRELEVANT;
+        }
+    }
 
     /* ---------------------------- Acting half -----------------------------
      * Some things will not happen if sentinel.tilt is true, but some will
@@ -2664,7 +2760,7 @@ void sentinelRefreshInstanceInfo(sentinelRedisInstance *ri, const char *info) {
             (ri->master->failover_state ==
                 SENTINEL_FAILOVER_STATE_WAIT_PROMOTION))
         {
-            /* Now that we are sure the slave was reconfigured as a master
+            /* Now that we are sure the slave was reconfigured as a master,
              * set the master configuration epoch to the epoch we won the
              * election to perform this failover. This will force the other
              * Sentinels to update their config (assuming there is not
@@ -2931,7 +3027,7 @@ void sentinelProcessHelloMessage(char *hello, int hello_len) {
 
                 sentinelEvent(LL_WARNING,"+config-update-from",si,"%@");
                 sentinelEvent(LL_WARNING,"+switch-master",
-                    master,"%s %s %d %s %d",
+                    master,"%s from %s %d to %s %d",
                     master->name,
                     announceSentinelAddr(master->addr), master->addr->port,
                     token[5], master_port);
@@ -3126,7 +3222,10 @@ void sentinelSendPeriodicCommands(sentinelRedisInstance *ri) {
         ((ri->master->flags & (SRI_O_DOWN|SRI_FAILOVER_IN_PROGRESS)) ||
          (ri->master_link_down_time != 0)))
     {
-        info_period = 1000;
+        /* If the user-defined info period is even more frequent than every
+         * second, we're willing to accept it. This is usually seen in the
+         * sentinel tests where we set info period to 500 or even 100ms. */
+        info_period = sentinel_info_period < 1000 ? sentinel_info_period : 1000;
     } else {
         info_period = sentinel_info_period;
     }
@@ -3504,6 +3603,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
         addReplyBulkLongLong(c,ri->quorum);
         fields++;
 
+        addReplyBulkCString(c, "master-replid");
+        addReplyBulkCString(c, ri->master_replid);
+        fields++;
+
         addReplyBulkCString(c,"failover-timeout");
         addReplyBulkLongLong(c,ri->failover_timeout);
         fields++;
@@ -3544,6 +3647,10 @@ void addReplySentinelRedisInstance(client *c, sentinelRedisInstance *ri) {
 
         addReplyBulkCString(c,"master-port");
         addReplyBulkLongLong(c,ri->slave_master_port);
+        fields++;
+
+        addReplyBulkCString(c, "master-replid");
+        addReplyBulkCString(c, ri->slave_master_replid);
         fields++;
 
         addReplyBulkCString(c,"slave-priority");
@@ -4010,6 +4117,8 @@ NULL
         if (c->argc != 3) goto numargserr;
         if ((ri = sentinelGetMasterByNameOrReplyError(c,c->argv[2])) == NULL)
             return;
+        serverLog(LL_NOTICE,"Accepted user requested FAILOVER of '%s'",
+            ri->name);
         if (ri->flags & SRI_FAILOVER_IN_PROGRESS) {
             addReplyError(c,"-INPROG Failover already in progress");
             return;
@@ -4573,7 +4682,8 @@ void sentinelCheckSubjectivelyDown(sentinelRedisInstance *ri) {
          ri->role_reported == SRI_SLAVE &&
          mstime() - ri->role_reported_time >
           (ri->down_after_period+sentinel_info_period*2)) ||
-          (ri->flags & SRI_MASTER_REBOOT && 
+          (ri->flags & SRI_MASTER_REBOOT &&
+           ri->master_reboot_down_after_period != 0 &&
            mstime()-ri->master_reboot_since_time > ri->master_reboot_down_after_period))
     {
         /* Is subjectively down */
@@ -5049,10 +5159,10 @@ int compareSlavesForPromotion(const void *a, const void *b) {
 }
 
 sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
-    sentinelRedisInstance **instance =
-        zmalloc(sizeof(instance[0])*dictSize(master->slaves));
+    sentinelRedisInstance **instances =
+        zmalloc(sizeof(instances[0])*dictSize(master->slaves));
     sentinelRedisInstance *selected = NULL;
-    int instances = 0;
+    int num_instances = 0;
     dictIterator di;
     dictEntry *de;
     mstime_t max_master_down_time = 0;
@@ -5072,6 +5182,13 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
         if (mstime() - slave->link->last_avail_time > sentinel_ping_period*5) continue;
         if (slave->slave_priority == 0) continue;
 
+        /* The flag might be uninitialized, because it's possible that
+         * the sentinel has just discovered the slave instance and hasn't
+         * got the chance to verify its replication ID before the failover
+         * process starts. The flag could also be set irrelevant. Either
+         * way we shouldn't consider this slave instance qualified. */
+        if (slave->is_relevant_to_master != REPLID_RELEVANT) continue;
+
         /* If the master is in SDOWN state we get INFO for slaves every second.
          * Otherwise we get it with the usual period so we need to account for
          * a larger delay. */
@@ -5081,15 +5198,15 @@ sentinelRedisInstance *sentinelSelectSlave(sentinelRedisInstance *master) {
             info_validity_time = sentinel_info_period*3;
         if (mstime() - slave->info_refresh > info_validity_time) continue;
         if (slave->master_link_down_time > max_master_down_time) continue;
-        instance[instances++] = slave;
+        instances[num_instances++] = slave;
     }
     dictResetIterator(&di);
-    if (instances) {
-        qsort(instance,instances,sizeof(sentinelRedisInstance*),
+    if (num_instances) {
+        qsort(instances,num_instances,sizeof(sentinelRedisInstance*),
             compareSlavesForPromotion);
-        selected = instance[0];
+        selected = instances[0];
     }
-    zfree(instance);
+    zfree(instances);
     return selected;
 }
 
@@ -5119,7 +5236,7 @@ void sentinelFailoverWaitStart(sentinelRedisInstance *ri) {
         }
         return;
     }
-    sentinelEvent(LL_WARNING,"+elected-leader",ri,"%@");
+    sentinelEvent(LL_WARNING,"+elected-leader",ri,"%@ in epoch %d", ri->failover_epoch);
     if (sentinel.simfailure_flags & SENTINEL_SIMFAILURE_CRASH_AFTER_ELECTION)
         sentinelSimFailureCrash();
     ri->failover_state = SENTINEL_FAILOVER_STATE_SELECT_SLAVE;
@@ -5295,6 +5412,8 @@ void sentinelFailoverReconfNextSlave(sentinelRedisInstance *master) {
             slave->slave_reconf_sent_time = mstime();
             sentinelEvent(LL_NOTICE,"+slave-reconf-sent",slave,"%@");
             in_progress++;
+        } else {
+            sentinelEvent(LL_WARNING,"-slave-reconf-sent-failed",slave,"%@");
         }
     }
     dictResetIterator(&di);
@@ -5310,7 +5429,7 @@ void sentinelFailoverSwitchToPromotedSlave(sentinelRedisInstance *master) {
     sentinelRedisInstance *ref = master->promoted_slave ?
                                  master->promoted_slave : master;
 
-    sentinelEvent(LL_WARNING,"+switch-master",master,"%s %s %d %s %d",
+    sentinelEvent(LL_WARNING,"+switch-master",master,"%s from %s %d to %s %d",
         master->name, announceSentinelAddr(master->addr), master->addr->port,
         announceSentinelAddr(ref->addr), ref->addr->port);
 

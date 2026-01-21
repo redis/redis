@@ -4,6 +4,12 @@ source "../tests/includes/init-tests.tcl"
 
 foreach_sentinel_id id {
     S $id sentinel debug default-down-after 1000
+    # In this test suite, the newly promoted master will be
+    # killed multiple times during tests. We need to send
+    # INFO commands frequently to sync with the master's
+    # latest replication ID, so that slaves' replication
+    # lineage is in sync.
+    S $id sentinel debug info-period 500
 }
 
 if {$::simulate_error} {
@@ -111,14 +117,11 @@ test "All the other slaves now point to the new master" {
 }
 
 test "The old master eventually gets reconfigured as a slave" {
-    wait_for_condition 1000 50 {
-        [RI 0 master_port] == [lindex $addr 1]
-    } else {
-        fail "Old master not reconfigured as slave of new master"
-    }
+    wait_for_master_reconfigured_as_slave 0 "mymaster" "Old master not reconfigured as slave of new master"
 }
 
 test "ODOWN is not possible without N (quorum) Sentinels reports" {
+    set sentinels [llength $::sentinel_instances]
     foreach_sentinel_id id {
         S $id SENTINEL SET mymaster quorum [expr $sentinels+1]
     }
@@ -127,13 +130,14 @@ test "ODOWN is not possible without N (quorum) Sentinels reports" {
     assert {[lindex $addr 1] == $old_port}
     kill_instance redis $master_id
 
-    # Make sure failover did not happened.
+    # Make sure failover did not happen.
     set addr [S 0 SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
     restart_instance redis $master_id
 }
 
 test "Failover is not possible without majority agreement" {
+    set quorum [expr {$sentinels/2 + 1}]
     foreach_sentinel_id id {
         S $id SENTINEL SET mymaster quorum $quorum
     }
@@ -146,7 +150,7 @@ test "Failover is not possible without majority agreement" {
     # Kill the current master
     kill_instance redis $master_id
 
-    # Make sure failover did not happened.
+    # Make sure failover did not happen.
     set addr [S $quorum SENTINEL GET-MASTER-ADDR-BY-NAME mymaster]
     assert {[lindex $addr 1] == $old_port}
     restart_instance redis $master_id
@@ -162,12 +166,23 @@ test "Failover works if we configure for absolute agreement" {
         S $id SENTINEL SET mymaster quorum $sentinels
     }
 
-    # Wait for Sentinels to monitor the master again
+    # Wait for sentinels to monitor the master again
     foreach_sentinel_id id {
         wait_for_condition 1000 100 {
             [dict get [S $id SENTINEL MASTER mymaster] info-refresh] < 100000
         } else {
             fail "At least one Sentinel is not monitoring the master"
+        }
+    }
+
+    # Wait for all sentinels (both the crashed and not-crashed ones)
+    # to detect master is now back on, and thus sync with it to
+    # update replid.
+    foreach_sentinel_id id {
+        wait_for_condition 100 100 {
+            [RI $master_id "master_replid"] == [get_info_field [S $id SENTINEL INFO-CACHE mymaster] "master_replid"]
+        } else {
+            fail "Sentinel $id could not retrieve master's latest replid"
         }
     }
 
@@ -194,7 +209,7 @@ test "New master [join $addr {:}] role matches" {
     assert {[RI $master_id role] eq {master}}
 }
 
-test "SENTINEL RESET can resets the master" {
+test "SENTINEL RESET can reset the master" {
     # After SENTINEL RESET, sometimes the sentinel can sense the master again,
     # causing the test to fail. Here we give it a few more chances.
     for {set j 0} {$j < 10} {incr j} {

@@ -226,6 +226,13 @@ void sdsfreegeneric(void *s) {
     sdsfree((sds)s);
 }
 
+/* A helper function to free a not-NULL sds string and reassign
+ * a new sds string. */
+void sdsReplace(sds *dest, sds new_str) {
+    if (*dest != NULL) sdsfree(*dest);
+    *dest = new_str;
+}
+
 /* Set the sds string length to the length as obtained with strlen(), so
  * considering as content only up to the first null term character.
  *

@@ -7314,6 +7314,7 @@ void loadDataFromDisk(void) {
                 rsi_is_valid = 1;
                 if (!iAmMaster()) {
                     memcpy(server.replid,rsi.repl_id,sizeof(server.replid));
+                    serverLog(LL_NOTICE, "replid restored to %s from RDB file", server.replid);
                     server.master_repl_offset = rsi.repl_offset;
                     /* If this is a replica, create a cached master from this
                      * information, in order to allow partial resynchronizations
@@ -7325,6 +7326,7 @@ void loadDataFromDisk(void) {
                      * as secondary ID and offset, in order to allow replicas
                      * to partial resynchronizations with masters. */
                     memcpy(server.replid2,rsi.repl_id,sizeof(server.replid));
+                    serverLog(LL_NOTICE, "replid2 restored to %s from RDB file", server.replid2);
                     server.second_replid_offset = rsi.repl_offset+1;
                     /* Rebase master_repl_offset from rsi.repl_offset. */
                     server.master_repl_offset += rsi.repl_offset;
