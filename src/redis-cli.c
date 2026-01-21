@@ -3585,6 +3585,7 @@ static void repl(void) {
             if (strcasecmp(argv[0],"quit") == 0 ||
                 strcasecmp(argv[0],"exit") == 0)
             {
+                redisFree(context);
                 exit(0);
             } else if (argv[0][0] == ':') {
                 cliSetPreferences(argv,argc,1);
@@ -3644,6 +3645,8 @@ static void repl(void) {
         /* linenoise() returns malloc-ed lines like readline() */
         linenoiseFree(line);
     }
+
+    redisFree(context);
     exit(0);
 }
 
@@ -11135,9 +11138,13 @@ int main(int argc, char **argv) {
     /* Otherwise, we have some arguments to execute */
     if (config.eval) {
         if (cliConnect(0) != REDIS_OK) exit(1);
-        return evalMode(argc,argv);
+        int res = evalMode(argc,argv);
+        redisFree(context);
+        return res;
     } else {
         cliConnect(CC_QUIET);
-        return noninteractive(argc,argv);
+        int res = noninteractive(argc,argv);
+        redisFree(context);
+        return res;
     }
 }
