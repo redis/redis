@@ -1328,6 +1328,13 @@ void updateCachedTime(int update_daylight_info) {
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
+/* Reset the accumulated call duration and count. This is used to track when
+ * to sync the cached time during command execution to avoid excessive syscalls. */
+static inline void resetAccumulatedTime(void) {
+    server.accumulated_call_duration = 0;
+    server.accumulated_call_count = 0;
+}
+
 /* Performing required operations in order to enter an execution unit.
  * In general, if we are already inside an execution unit then there is nothing to do,
  * otherwise we need to update cache times so the same cached time will be used all over
@@ -1752,6 +1759,14 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     server.el_cron_duration = getMonotonicUs() - cron_start;
 
+    /* Update the time cache (server.mstime, server.unixtime, server.ustime).
+     * Since serverCron can take a long time to execute, the cached time from
+     * afterSleep may be stale by now. The cached time is used throughout Redis
+     * for key expiration, client timeouts, and other time-sensitive operations,
+     * so keeping it accurate is important. */
+    updateCachedTime(0);
+    resetAccumulatedTime();
+
     return 1000/server.hz;
 }
 
@@ -2066,6 +2081,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
     /* Update the time cache. */
     updateCachedTime(1);
+    resetAccumulatedTime();
 
     /* Update command time snapshot in case it'll be required without a command
      * e.g. somehow used by module timers. Don't update it while yielding to a
@@ -3878,8 +3894,7 @@ void call(client *c, int flags) {
             /* Sync cached time when accumulated duration crosses 10us or after 25 commands */
             if (server.accumulated_call_duration > 10 || server.accumulated_call_count >= 25) {
                 updateCachedTimeWithUs(0, ustime());
-                server.accumulated_call_duration = 0;
-                server.accumulated_call_count = 0;
+                resetAccumulatedTime();
             }
         }
     } else {
