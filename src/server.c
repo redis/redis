@@ -1331,8 +1331,8 @@ void updateCachedTime(int update_daylight_info) {
 /* Reset the accumulated call duration and count. This is used to track when
  * to sync the cached time during command execution to avoid excessive syscalls. */
 void resetAccumulatedTime(void) {
-    server.accumulated_call_duration = 0;
-    server.accumulated_call_count = 0;
+    server.accum_call_duration_since_ustime = 0;
+    server.accum_call_count_since_ustime = 0;
 }
 
 /* Performing required operations in order to enter an execution unit.
@@ -3897,10 +3897,10 @@ void call(client *c, int flags) {
         /* Only accumulate and update cached time for top-level commands to ensure
          * nested calls (e.g., from modules) see consistent cached time */
         if (server.execution_nesting == 0) {
-            server.accumulated_call_duration += duration;
-            server.accumulated_call_count++;
+            server.accum_call_duration_since_ustime += duration;
+            server.accum_call_count_since_ustime++;
             /* Sync cached time when accumulated duration crosses 10us or after 25 commands */
-            if (server.accumulated_call_duration > 10 || server.accumulated_call_count >= 25) {
+            if (server.accum_call_duration_since_ustime > 10 || server.accum_call_count_since_ustime >= 25) {
                 updateCachedTimeWithUs(0, ustime());
                 resetAccumulatedTime();
             }

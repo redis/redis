@@ -2390,8 +2390,8 @@ struct redisServer {
     redisAtomic int daylight_active; /* Currently in daylight saving time. */
     mstime_t mstime;            /* 'unixtime' in milliseconds. */
     ustime_t ustime;            /* 'unixtime' in microseconds. */
-    ustime_t accumulated_call_duration; /* Accumulated duration since last ustime update */
-    int accumulated_call_count;         /* Command count since last ustime update */
+    ustime_t accum_call_duration_since_ustime; /* Accumulated duration since last ustime update */
+    int accum_call_count_since_ustime;         /* Command count since last ustime update */
     mstime_t cmd_time_snapshot; /* Time snapshot of the root execution nesting. */
     size_t blocking_op_nesting; /* Nesting level of blocking operation, used to reset blocked_last_cron. */
     long long blocked_last_cron; /* Indicate the mstime of the last time we did cron jobs from a blocking operation */
