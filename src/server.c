@@ -1330,7 +1330,7 @@ void updateCachedTime(int update_daylight_info) {
 
 /* Reset the accumulated call duration and count. This is used to track when
  * to sync the cached time during command execution to avoid excessive syscalls. */
-static inline void resetAccumulatedTime(void) {
+void resetAccumulatedTime(void) {
     server.accumulated_call_duration = 0;
     server.accumulated_call_count = 0;
 }

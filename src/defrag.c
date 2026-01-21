@@ -1837,6 +1837,11 @@ static int activeDefragTimeProc(struct aeEventLoop *eventLoop, long long id, voi
     latencyEndMonitor(latency);
     latencyAddSampleIfNeeded("active-defrag-cycle", latency);
 
+    /* Update the time cache since activeDefragTimeProc() can take a long time to execute,
+     * and the cached time may be stale by now. */
+    updateCachedTime(0);
+    resetAccumulatedTime();
+
     if (haveMoreWork) {
         return computeDelayMs(endtime);
     } else {

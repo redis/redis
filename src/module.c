@@ -9883,6 +9883,10 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
         aeTimer = -1;
         return AE_NOMORE;
     }
+    /* Update the time cache since moduleTimerHandler() can take a long time to execute,
+     * and the cached time may be stale by now. */
+    updateCachedTime(0);
+    resetAccumulatedTime();
 }
 
 /* Create a new timer that will fire after `period` milliseconds, and will call
