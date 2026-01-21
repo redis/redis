@@ -2359,18 +2359,6 @@ static int isValidActiveDefrag(int val, const char **err) {
     return 1;
 }
 
-static int isValidKeyMemoryHistograms(int val, const char **err) {
-    /* key-memory-histograms can only be disabled at runtime, not enabled.
-     * Once disabled, it cannot be re-enabled because we would need to catch up
-     * or iterate over all slots and kvobjs. We check cronloops to allow setting
-     * during startup config loading. */
-    if (server.cronloops > 0 && val && !server.memory_tracking_enabled) {
-        *err = "key-memory-histograms cannot be enabled at runtime";
-        return 0;
-    }
-    return 1;
-}
-
 static int updateMemoryTrackingEnabled(const char **err) {
     UNUSED(err);
     int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled();
@@ -3155,7 +3143,7 @@ standardConfig static_configs[] = {
     createBoolConfig("lazyexpire-nested-arbitrary-keys", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.lazyexpire_nested_arbitrary_keys, 1, NULL, NULL),
     createBoolConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG, server.cluster_slot_stats_enabled, 0, NULL, NULL),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
-    createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, isValidKeyMemoryHistograms, updateMemoryTrackingEnabled),
+    createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
