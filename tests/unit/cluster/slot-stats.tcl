@@ -1061,6 +1061,33 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         assert {[dict get $stats memory-bytes] > 0}
     }
 
+    test "CLUSTER SLOT-STATS net mem combination shows only net and mem stats" {
+        R 0 CONFIG SET cluster-slot-stats-enabled "net mem"
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        set stats [dict get $slot_stats $key_slot]
+        assert {[dict exists $stats memory-bytes]}
+        assert {[dict exists $stats network-bytes-in]}
+        assert {[dict exists $stats network-bytes-out]}
+        assert {![dict exists $stats cpu-usec]}
+    }
+
+    test "CLUSTER SLOT-STATS cpu mem combination shows only cpu and mem stats" {
+        R 0 CONFIG SET cluster-slot-stats-enabled "cpu mem"
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        set stats [dict get $slot_stats $key_slot]
+        assert {[dict exists $stats memory-bytes]}
+        assert {[dict exists $stats cpu-usec]}
+        assert {![dict exists $stats network-bytes-in]}
+        assert {![dict exists $stats network-bytes-out]}
+
+        # Restore to yes for subsequent tests
+        R 0 CONFIG SET cluster-slot-stats-enabled yes
+    }
+
     test "CLUSTER SLOT-STATS memory-bytes field not present after disabling cluster-slot-stats-enabled" {
         R 0 CONFIG SET cluster-slot-stats-enabled no
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
