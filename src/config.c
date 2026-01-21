@@ -2411,7 +2411,7 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
 }
 
 static int updateMemoryTrackingEnabled(const char **err) {
-    int memory_tracking_enabled = (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_MEM);
+    int memory_tracking_enabled = clusterSlotStatsMemEnabled();
     if (!server.memory_tracking_per_slot && memory_tracking_enabled) {
         *err = "memory tracking cannot be enabled at runtime";
         return 0;

@@ -2901,8 +2901,7 @@ void initServer(void) {
      * includes 'mem' at startup. Memory tracking can be disabled at runtime
      * but cannot be re-enabled, to avoid situation where we would need to
      * catch up or iterate over all slots and kvobjs. */
-    server.memory_tracking_per_slot = server.cluster_enabled &&
-                                      (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_MEM);
+    server.memory_tracking_per_slot = clusterSlotStatsMemEnabled();
     resetReplicationBuffer();
 
     /* Make sure the locale is set on startup based on the config file. */

@@ -3792,6 +3792,7 @@ void freeServerClientMemUsageBuckets(void);
 static inline int clusterSlotStatsEnabled(void) { return server.cluster_enabled && server.cluster_slot_stats_enabled; }
 static inline int clusterSlotStatsCpuEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_CPU); }
 static inline int clusterSlotStatsNetEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_NET); }
+static inline int clusterSlotStatsMemEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_MEM); }
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
