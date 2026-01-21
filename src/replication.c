@@ -5002,6 +5002,10 @@ int shouldStartChildReplication(int *mincapa_out, int *req_out) {
                     continue;
                 }
                 idle = server.unixtime - slave->lastinteraction;
+                /* If the slave requests a slots snapshot, we should start BGSAVE
+                 * immediately since it can't share the RDB with other slaves. */
+                if (slave->slave_req & SLAVE_REQ_SLOTS_SNAPSHOT)
+                    idle = server.repl_diskless_sync_delay; /* Threshold for BGSAVE */
                 if (idle > max_idle) max_idle = idle;
                 slaves_waiting++;
                 mincapa = first ? slave->slave_capa : (mincapa & slave->slave_capa);

@@ -319,7 +319,7 @@ int determinePrefetchCount(int len) {
 
     /* The batch max size is double of the configured size. */
     int config_size = batch->max_prefetch_size / 2;
-    return len < server.prefetch_batch_max_size ? len : config_size;
+    return len < (int)batch->max_prefetch_size ? len : config_size;
 }
 
 /* Prefetch command-related data:

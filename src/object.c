@@ -1390,6 +1390,9 @@ struct redisMemOverhead *getMemoryOverheadData(void) {
         mh->db_dict_rehashing_count += kvstoreDictRehashingCount(db->expires);
     }
 
+    /* Hotkeys memory overhead */
+    mem_total += hotkeysGetMemoryUsage(server.hotkeys);
+
     mh->overhead_total = mem_total;
     mh->dataset = zmalloc_used - mem_total;
     mh->peak_perc = (float)zmalloc_used*100/mh->peak_allocated;

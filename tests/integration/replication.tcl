@@ -1822,10 +1822,13 @@ start_server {tags {"repl external:skip"}} {
 
             # Connect to an invalid master
             $slave slaveof $master_host 0
-            after 1000
 
             # Expect current sync attempts to increase
-            assert {[status $slave master_current_sync_attempts] >= 2}
+            wait_for_condition 100 50 {
+                [status $slave master_current_sync_attempts] >= 2
+            } else {
+                fail "Timeout waiting for master_current_sync_attempts"
+            }
         }
     }
 }

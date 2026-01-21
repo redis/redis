@@ -231,13 +231,11 @@ void listTypeInitIterator(listTypeIterator *li, robj *subject,
     li->subject = subject;
     li->encoding = subject->encoding;
     li->direction = direction;
-    li->iter = NULL;
     /* LIST_HEAD means start at TAIL and move *towards* head.
      * LIST_TAIL means start at HEAD and move *towards* tail. */
     if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         int iter_direction = direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
-        li->iter = quicklistGetIteratorAtIdx(li->subject->ptr,
-                                             iter_direction, index);
+        quicklistInitIteratorAtIdx(&li->iter, li->subject->ptr, iter_direction, index);
     } else if (li->encoding == OBJ_ENCODING_LISTPACK) {
         li->lpi = lpSeek(subject->ptr, index);
     } else {
@@ -252,7 +250,7 @@ void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, un
     li->direction = direction;
     if (li->encoding == OBJ_ENCODING_QUICKLIST) {
         int dir = direction == LIST_HEAD ? AL_START_TAIL : AL_START_HEAD;
-        quicklistSetDirection(li->iter, dir);
+        quicklistSetDirection(&li->iter, dir);
     } else if (li->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *lp = li->subject->ptr;
         /* Note that the iterator for listpack always points to the next of the current entry,
@@ -266,7 +264,7 @@ void listTypeSetIteratorDirection(listTypeIterator *li, listTypeEntry *entry, un
 /* Clean up the iterator. */
 void listTypeResetIterator(listTypeIterator *li) {
     if (li->encoding == OBJ_ENCODING_QUICKLIST)
-        quicklistReleaseIterator(li->iter);
+        quicklistResetIterator(&li->iter);
 }
 
 /* Stores pointer to current the entry in the provided entry structure
@@ -278,7 +276,7 @@ int listTypeNext(listTypeIterator *li, listTypeEntry *entry) {
 
     entry->li = li;
     if (li->encoding == OBJ_ENCODING_QUICKLIST) {
-        return quicklistNext(li->iter, &entry->entry);
+        return quicklistNext(&li->iter, &entry->entry);
     } else if (li->encoding == OBJ_ENCODING_LISTPACK) {
         entry->lpe = li->lpi;
         if (entry->lpe != NULL) {
@@ -336,9 +334,9 @@ void listTypeInsert(listTypeEntry *entry, robj *value, int where) {
 
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
         if (where == LIST_TAIL) {
-            quicklistInsertAfter(entry->li->iter, &entry->entry, str, len);
+            quicklistInsertAfter(&entry->li->iter, &entry->entry, str, len);
         } else if (where == LIST_HEAD) {
-            quicklistInsertBefore(entry->li->iter, &entry->entry, str, len);
+            quicklistInsertBefore(&entry->li->iter, &entry->entry, str, len);
         }
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         int lpw = (where == LIST_TAIL) ? LP_AFTER : LP_BEFORE;
@@ -358,7 +356,7 @@ void listTypeReplace(listTypeEntry *entry, robj *value) {
     size_t len = sdslen(str);
 
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistReplaceEntry(entry->li->iter, &entry->entry, str, len);
+        quicklistReplaceEntry(&entry->li->iter, &entry->entry, str, len);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         subject->ptr = lpReplace(subject->ptr, &entry->lpe, (unsigned char *)str, len);
     } else {
@@ -419,7 +417,7 @@ int listTypeEqual(listTypeEntry *entry, robj *o, size_t object_len,
 /* Delete the element pointed to. */
 void listTypeDelete(listTypeIterator *iter, listTypeEntry *entry) {
     if (entry->li->encoding == OBJ_ENCODING_QUICKLIST) {
-        quicklistDelEntry(iter->iter, &entry->entry);
+        quicklistDelEntry(&iter->iter, &entry->entry);
     } else if (entry->li->encoding == OBJ_ENCODING_LISTPACK) {
         unsigned char *p = entry->lpe;
         iter->subject->ptr = lpDelete(iter->subject->ptr,p,&p);
@@ -711,17 +709,18 @@ void addListQuicklistRangeReply(client *c, robj *o, int from, int rangelen, int 
     addReplyArrayLen(c,rangelen);
 
     int direction = reverse ? AL_START_TAIL : AL_START_HEAD;
-    quicklistIter *iter = quicklistGetIteratorAtIdx(o->ptr, direction, from);
+    quicklistIter iter;
+    quicklistInitIteratorAtIdx(&iter, o->ptr, direction, from);
     while(rangelen--) {
         quicklistEntry qe;
-        serverAssert(quicklistNext(iter, &qe)); /* fail on corrupt data */
+        serverAssert(quicklistNext(&iter, &qe)); /* fail on corrupt data */
         if (qe.value) {
             addReplyBulkCBuffer(c,qe.value,qe.sz);
         } else {
             addReplyBulkLongLong(c,qe.longval);
         }
     }
-    quicklistReleaseIterator(iter);
+    quicklistResetIterator(&iter);
 }
 
 /* Extracted from `addListRangeReply()` to reply with a listpack list.
