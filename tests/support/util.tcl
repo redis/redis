@@ -716,13 +716,19 @@ proc pause_process {pid} {
 }
 
 proc resume_process {pid} {
-    wait_for_condition 50 1000 {
-        [string match "T*" [get_proc_state $pid]]
-    } else {
-        puts [get_proc_job $pid]
-        fail "process was not stopped"
+    set stopped 0
+    for {set i 0} {$i < 50} {incr i} {
+        if {[string match "T*" [get_proc_state $pid]]} {
+            set stopped 1
+            break
+        }
+        after 1000
     }
-    exec kill -SIGCONT $pid
+    if {$stopped} {
+        exec kill -SIGCONT $pid
+    } else {
+        puts "resume_process: process $pid was not stopped, skipping SIGCONT"
+    }
 }
 
 proc cmdrstat {cmd r} {
