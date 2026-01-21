@@ -1762,6 +1762,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache since serverCron() can take a long time to execute,
      * and the cached time from afterSleep() may be stale by now. */
     updateCachedTime(0);
+    resetAccumulatedTime();
 
     return 1000/server.hz;
 }
@@ -2077,6 +2078,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
     /* Update the time cache. */
     updateCachedTime(1);
+    resetAccumulatedTime();
 
     /* Update command time snapshot in case it'll be required without a command
      * e.g. somehow used by module timers. Don't update it while yielding to a
