@@ -98,6 +98,86 @@ unsigned long replicationLogicalReplicaCount(void) {
     return count;
 }
 
+int replicaFromIOThreadHasPendingRead(client *c) {
+    serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID);
+
+    int pending_read;
+    atomicGetWithSync(c->pending_read, pending_read);
+    return pending_read;
+}
+
+/* Send replicas to their respective IO threads if it has pending reads or
+ * writes. Otherwise it remains in main thread so it can check for new data in
+ * the replication buffer ASAP. */
+void putReplicasInPendingClientsToIOThreads(void) {
+    if (server.io_threads_num <= 1) return;
+
+    serverAssert(pthread_equal(pthread_self(), server.main_thread_id));
+
+    listIter li;
+    listNode *ln;
+    listRewind(server.slaves,&li);
+    while((ln = listNext(&li))) {
+        client *replica = listNodeValue(ln);
+
+        /* We only care about replicas that need to run on IO thread but are
+         * currently in main */
+        if (replica->tid == IOTHREAD_MAIN_THREAD_ID ||
+            replica->running_tid != IOTHREAD_MAIN_THREAD_ID)
+        {
+            continue;
+        }
+
+        /* Skip the replica if it's scheduled for close */
+        if (replica->flags & CLIENT_CLOSE_ASAP) continue;
+
+        /* The call to clientHasPendingReplies may seem redundant but in the
+         * case of replica being in IO thread we can have the following case:
+         * replica gets back to main thread after sending the repl buffer it
+         * knows about. In the mean time main thread has accumulated new repl
+         * data. In that case the replica's client wouldn't have been put in
+         * the pending write queue but will still have new repl data it needs to
+         * send, so we make sure to check for that and send it back to IO thread
+         * if so. On the other hand if replica gets back to main thread before
+         * any new repl data has accumulated then after a new cmd is propagated
+         * the replica will be put in the pending write queue as usual so we
+         * need to check for that also.
+         * In addition, if the replica client has pending read events, we should
+         * also send them to the IO thread. */
+        if (replica->flags & CLIENT_PENDING_WRITE ||
+            clientHasPendingReplies(replica) ||
+            replicaFromIOThreadHasPendingRead(replica))
+        {
+            enqueuePendingClienstToIOThreads(replica);
+        }
+    }
+}
+
+/* Run some cron tasks for a connected master client. Return 1 when the client
+ * is freed, 0 otherwise. */
+int replicationCronRunMasterClient(void) {
+    if (!server.masterhost || !server.master) return 0;
+
+    if (server.master->running_tid != IOTHREAD_MAIN_THREAD_ID) return 0;
+
+    /* Timed out master when we are an already connected slave? */
+    if (server.repl_state == REPL_STATE_CONNECTED &&
+        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
+    {
+        serverLog(LL_WARNING,"MASTER timeout: no data nor PING received...");
+        freeClient(server.master);
+        return 1;
+    }
+
+    /* Send ACK to master from time to time.
+     * Note that we do not send periodic acks to masters that don't
+     * support PSYNC and replication offsets. */
+    if (!(server.master->flags & CLIENT_PRE_PSYNC))
+        replicationSendAck();
+
+    return 0;
+}
+
 ConnectionType *connTypeOfReplication(void) {
     if (server.tls_replication) {
         return connectionTypeTls();
@@ -375,6 +455,8 @@ void incrementalTrimReplicationBacklog(size_t max_blocks) {
 
 /* Free replication buffer blocks that are referenced by this client. */
 void freeReplicaReferencedReplBuffer(client *replica) {
+    serverAssert(replica->running_tid == IOTHREAD_MAIN_THREAD_ID);
+
     if (replica->ref_repl_buf_node != NULL) {
         /* Decrease the start buffer node reference count. */
         replBufBlock *o = listNodeValue(replica->ref_repl_buf_node);
@@ -706,6 +788,8 @@ void replicationFeedMonitors(client *c, list *monitors, int dictid, robj **argv,
 /* Feed the slave 'c' with the replication backlog starting from the
  * specified 'offset' up to the end of the backlog. */
 long long addReplyReplicationBacklog(client *c, long long offset) {
+    serverAssert(c->running_tid == IOTHREAD_MAIN_THREAD_ID);
+
     long long skip;
 
     serverLog(LL_DEBUG, "[PSYNC] Replica request offset: %lld", offset);
@@ -4361,6 +4445,7 @@ void replicationSendAck(void) {
  */
 void replicationCacheMaster(client *c) {
     serverAssert(server.master != NULL && server.cached_master == NULL);
+    serverAssert(server.master->tid == IOTHREAD_MAIN_THREAD_ID);
     serverLog(LL_NOTICE,"Caching the disconnected master state.");
 
     /* Unlink the client from the server structures. */
@@ -4456,6 +4541,8 @@ void replicationDiscardCachedMaster(void) {
  * so the stream of data that we'll receive will start from where this
  * master left. */
 void replicationResurrectCachedMaster(connection *conn) {
+    serverAssert(server.cached_master->tid == IOTHREAD_MAIN_THREAD_ID);
+
     server.master = server.cached_master;
     server.cached_master = NULL;
     server.master->conn = conn;
@@ -4800,14 +4887,6 @@ void replicationCron(void) {
         cancelReplicationHandshake(1);
     }
 
-    /* Timed out master when we are an already connected slave? */
-    if (server.masterhost && server.repl_state == REPL_STATE_CONNECTED &&
-        (time(NULL)-server.master->lastinteraction) > server.repl_timeout)
-    {
-        serverLog(LL_WARNING,"MASTER timeout: no data nor PING received...");
-        freeClient(server.master);
-    }
-
     /* Check if we should connect to a MASTER */
     if (server.repl_state == REPL_STATE_CONNECT) {
         serverLog(LL_NOTICE,"Connecting to MASTER %s:%d",
@@ -4815,12 +4894,7 @@ void replicationCron(void) {
         connectWithMaster();
     }
 
-    /* Send ACK to master from time to time.
-     * Note that we do not send periodic acks to masters that don't
-     * support PSYNC and replication offsets. */
-    if (server.masterhost && server.master &&
-        !(server.master->flags & CLIENT_PRE_PSYNC))
-        replicationSendAck();
+    replicationCronRunMasterClient();
 
     /* If we have attached slaves, PING them from time to time.
      * So slaves can implement an explicit timeout to masters, and will

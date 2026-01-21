@@ -596,8 +596,13 @@ tags "modules external:skip" {
 
                     assert_equal [$master get k1] 1
                     assert_equal [$master ttl k1] -1
-                    assert_equal [$replica get k1] 1
-                    assert_equal [$replica ttl k1] -1
+
+                    wait_for_condition 50 100 {
+                        [$replica get k1] eq 1 &&
+                        [$replica ttl k1] eq -1
+                    } else {
+                        fail "failed RM_Call of expired key propagation"
+                    }
                 }
 
                 test {module notification on set} {
