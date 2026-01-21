@@ -2410,6 +2410,16 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
     return 1;
 }
 
+static int updateMemoryTrackingEnabled(const char **err) {
+    int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
+    if (!server.memory_tracking_enabled && memory_tracking_enabled) {
+        *err = "memory tracking cannot be enabled at runtime";
+        return 0;
+    }
+    server.memory_tracking_enabled = memory_tracking_enabled;
+    return 1;
+}
+
 static int isValidAnnouncedNodename(char *val,const char **err) {
     if (!(isValidAuxString(val,sdslen(val)))) {
         *err = "Announced human node name contained invalid character";
@@ -2448,16 +2458,6 @@ static int isValidProcTitleTemplate(char *val, const char **err) {
         *err = "template format is invalid or contains unknown variables";
         return 0;
     }
-    return 1;
-}
-
-static int updateMemoryTrackingEnabled(const char **err) {
-    int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
-    if (!server.memory_tracking_enabled && memory_tracking_enabled) {
-        *err = "memory tracking cannot be enabled at runtime";
-        return 0;
-    }
-    server.memory_tracking_enabled = memory_tracking_enabled;
     return 1;
 }
 
