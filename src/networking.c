@@ -286,7 +286,7 @@ void putClientInPendingWriteQueue(client *c) {
          * a system call. We'll only really install the write handler if
          * we'll not be able to write the whole reply at once. */
         c->flags |= CLIENT_PENDING_WRITE;
-        listLinkNodeHead(server.clients_pending_write, &c->clients_pending_write_node);
+        listLinkNodeTail(server.clients_pending_write, &c->clients_pending_write_node);
     }
 }
 
@@ -2719,6 +2719,27 @@ void sendReplyToClient(connection *conn) {
     writeToClient(c,1);
 }
 
+static int clients_write_events_num = 0;
+
+int clientsWriteEventHandler(struct aeEventLoop *eventLoop, long long id, void *clientData) {
+    UNUSED(eventLoop);
+    UNUSED(id);
+    UNUSED(clientData);
+    clients_write_events_num--;
+    handleClientsWithPendingWrites();
+    return AE_NOMORE;
+}
+
+void tryRegisterClientsWriteEvent(void) {
+    if (clients_write_events_num == 0) {
+        if (aeCreateTimeEvent(server.el, 0, clientsWriteEventHandler, NULL, NULL) == AE_ERR) {
+            serverLog(LL_WARNING,"Failed to create time event for clients write.");
+        } else {
+            clients_write_events_num++;
+        }
+    }
+}
+
 /* This function is called just before entering the event loop, in the hope
  * we can just write the replies to the client output buffer without any
  * need to use a syscall in order to install the writable event handler,
@@ -2726,11 +2747,31 @@ void sendReplyToClient(connection *conn) {
 int handleClientsWithPendingWrites(void) {
     listIter li;
     listNode *ln;
-    int processed = listLength(server.clients_pending_write);
+
+    unsigned int processed_tracking_clis = 0;
+    int processed_clis = 0;
 
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
+
+        /* Each writeToClient call may cost about 5us(data transfer to socket buffer), 
+         * too many writeToClient calls may block the entire event loop and 
+         * delay the response to clients of next event loop.
+
+         * So, we make sure all of the other normal messages will be processed in this function call.
+         * But tracking messages may be delayed to be processed in the next event loop since 
+         * its lower priority.
+           
+         * If the number of processed tracking clients exceeds the 16,
+         * we suspend the following tracking clients to avoid the tracking messages storm. */
+        if (c->flags & CLIENT_TRACKING) {
+            if (processed_tracking_clis >= 16) continue;
+            else processed_tracking_clis++;
+        }
+
+        processed_clis++;
+
         c->flags &= ~CLIENT_PENDING_WRITE;
         listUnlinkNode(server.clients_pending_write,ln);
 
@@ -2759,7 +2800,13 @@ int handleClientsWithPendingWrites(void) {
             installClientWriteHandler(c);
         }
     }
-    return processed;
+
+    if (listLength(server.clients_pending_write) != 0) {
+        /* suspended tracking clients will be processed in the next 
+           handleClientsWithPendingWrites call. */
+        tryRegisterClientsWriteEvent();
+    }
+    return processed_clis;
 }
 
 /* Prepare the client for the parsing of the next command. */
