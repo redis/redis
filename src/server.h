@@ -3789,9 +3789,7 @@ sds getConfigDebugInfo(void);
 int allowProtectedAction(int config, client *c);
 void initServerClientMemUsageBuckets(void);
 void freeServerClientMemUsageBuckets(void);
-static inline int clusterSlotStatsCpuEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_CPU); }
-static inline int clusterSlotStatsNetEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_NET); }
-static inline int clusterSlotStatsMemEnabled(void) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_MEM); }
+static inline int clusterSlotStatsEnabled(int stat) { return server.cluster_enabled && (server.cluster_slot_stats_enabled & stat); }
 
 /* Module Configuration */
 typedef struct ModuleConfig ModuleConfig;
