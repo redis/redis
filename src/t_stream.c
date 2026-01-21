@@ -1991,11 +1991,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             uint64_t idle = cmd_time_snapshot - nack->delivery_time;
             if (idle < (uint64_t)min_idle_time) break;
 
-            /* Skip trimmed entries */
-            if (!streamEntryExists(s, &nack->id)) {
-                continue;
-            }
-
             /* Process and claim this entry */
             unsigned char buf[sizeof(streamID)];
             streamEncodeID(buf, &nack->id);
