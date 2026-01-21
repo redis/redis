@@ -2149,8 +2149,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             nack->id = id;  /* Set the stream ID */
             int group_inserted =
                 raxTryInsert(group->pel,buf,sizeof(buf),nack,NULL);
-            int consumer_inserted =
-                raxTryInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
 
             /* Now we can check if the entry was already busy, and
              * in that case reassign the entry to the new consumer,
@@ -2161,20 +2159,20 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 int found = raxFind(group->pel,buf,sizeof(buf),&result);
                 serverAssert(found);
                 nack = result;
-                raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-                /* Update the consumer and NACK metadata. */
-                nack->consumer = consumer;
+                /* Only transfer between consumers if they're different */
+                if (nack->consumer != consumer) {
+                    raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
+                    nack->consumer = consumer;
+                    raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
+                }
                 nack->delivery_count = 1;
-                /* Add the entry in the new consumer local PEL. */
-                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 /* Update delivery time and reposition in time list */
                 pelListUpdate(group, nack, cmd_time_snapshot);
-            } else if (group_inserted == 1 && consumer_inserted == 1) {
+            } else {
+                /* New NACK - insert into consumer's PEL and time list */
+                raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
-                /* Insert new NACK into time list */
                 pelListInsertAtTail(group, nack);
-            } else if (group_inserted == 1 && consumer_inserted == 0) {
-                serverPanic("NACK half-created. Should not be possible.");
             }
 
             consumer->active_time = cmd_time_snapshot;
