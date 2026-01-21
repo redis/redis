@@ -6992,8 +6992,7 @@ void redisAsciiArt(void) {
 
 /* Warn if the default user allows unauthenticated access. */
 void warnAboutInsecureConfig(void) {
-    if ((DefaultUser->flags & USER_FLAG_NOPASS) &&
-        !(DefaultUser->flags & USER_FLAG_DISABLED)) {
+    if ((DefaultUser->flags & USER_FLAG_NOPASS) && !(DefaultUser->flags & USER_FLAG_DISABLED)) {
         /* Check if Redis listens on all network interfaces */
         int bind_all_interfaces = 0;
         for (int j = 0; j < server.bindaddr_count; j++) {
@@ -7008,16 +7007,16 @@ void warnAboutInsecureConfig(void) {
 
         if (!server.protected_mode && bind_all_interfaces) {
             serverLog(LL_WARNING,
-                "WARNING: Redis does not require a password and is not protected by network restrictions. "
+                "WARNING: Redis does not require authentication and is not protected by network restrictions. "
                 "Redis will accept connections from any IP address on any network interface.");
         } else if (!server.protected_mode) {
             serverLog(LL_WARNING,
-                "WARNING: Redis does not require a password. "
+                "WARNING: Redis does not require authentication. "
                 "Redis will accept connections from any IP address on the configured network interface.");
         } else {
             /* protected_mode is enabled */
             serverLog(LL_WARNING,
-                "WARNING: Redis does not require a password. "
+                "WARNING: Redis does not require authentication. "
                 "Redis will accept connections from any local client.");
         }
     }
