@@ -1968,68 +1968,48 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
     if (group && min_idle_time != -1) {
         arraylen_ptr = addReplyDeferredLen(c);
-        /* Scan the group's pending entries list (PEL) to find messages that have been
-         * idle for at least min_idle_time milliseconds. The pel_by_time radix tree
-         * stores entries ordered by their last delivery timestamp, allowing us to
-         * efficiently iterate from oldest to newest.
+        /* Scan and process the group's pending entries list (PEL) in a single loop.
+         * To prevent a dead loop caused by pelListUpdate() reordering the linked list,
+         * we store the current tail pointer before processing. We iterate only up to
+         * this pre-determined boundary, ensuring we never process entries that are
+         * added or moved during iteration.
          *
-         * We collect eligible entries into a temporary list rather than processing
-         * them inline because:
-         * 1. We cannot safely modify a radix tree while iterating over it
-         * 2. The claiming process requires removing and re-inserting entries in
-         *    both pel time list and the consumer PELs
-         *
-         * The iteration can terminate early in two cases:
-         * 1. We find an entry that hasn't been idle long enough - due to time-based
-         *    ordering, all subsequent entries will be even newer
-         * 2. We've collected enough entries to satisfy the requested count limit */
-        list *eligible_pels = listCreate();
+         * The iteration can terminate early when:
+         * 1. We find an entry that hasn't been idle long enough
+         * 2. We've processed enough entries to satisfy the count limit
+         * 3. We reach the pre-stored tail boundary */
+        
+        /* Store the current tail to prevent infinite loops */
+        streamNACK *tail = group->pel_time_tail;
+        size_t processed = 0;
+        
         streamNACK *nack = group->pel_time_head;
         while (nack) {
+            /* Capture next pointer BEFORE modifications (pelListUpdate may reorder) */
+            streamNACK *next = nack->pel_next;
+            
             uint64_t idle = cmd_time_snapshot - nack->delivery_time;
-            if (idle < (uint64_t)min_idle_time)
-                break;
+            if (idle < (uint64_t)min_idle_time) break;
 
-            /* Skip entries that no longer exist in the stream (trimmed) */
+            /* Skip trimmed entries */
             if (!streamEntryExists(s, &nack->id)) {
-                nack = nack->pel_next;
                 continue;
             }
 
-            /* Store NACK pointer directly */
-            listAddNodeTail(eligible_pels, nack);
-            
-            if (count && listLength(eligible_pels) >= count) break;
-            nack = nack->pel_next;
-        }
-
-        /* Process each eligible pending entry, claiming it for the current consumer.
-         * For each entry we:
-         * 1. Fetch the actual message data from the stream
-         * 2. Send the message to the client with metadata (idle time, delivery count)
-         * 3. Transfer ownership from the previous consumer to the current consumer
-         * 4. Update all relevant data structures and propagate the claim operation */
-        listIter li;
-        listNode *ln;
-        listRewind(eligible_pels, &li);
-        while ((ln = listNext(&li))) {
-            streamNACK *nack = (streamNACK*)listNodeValue(ln);
+            /* Process and claim this entry */
             unsigned char buf[sizeof(streamID)];
             streamEncodeID(buf, &nack->id);
-
             uint64_t delivery_count = nack->delivery_count;
 
             streamID pel_id;
             streamIteratorStart(&si,s,&nack->id,&nack->id,rev);
             if (streamIteratorGetID(&si,&pel_id,&numfields)) {
-                /* Emit a four elements array: ID, array of field-value pairs,
-                 * idle time and delivery count. */
                 robj *idarg = createObjectFromStreamID(&pel_id);
                 addReplyArrayLen(c,4);
                 addReplyBulk(c,idarg);
                 addReplyArrayLen(c,numfields*2);
 
-                /* Emit the field-value pairs. */
+                /* Emit field-value pairs */
                 while (numfields--) {
                     unsigned char *key, *value;
                     int64_t key_len, value_len;
@@ -2038,25 +2018,21 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                     addReplyBulkCBuffer(c,value,value_len);
                 }
 
-                uint64_t idle = cmd_time_snapshot - nack->delivery_time;
                 addReplyLongLong(c, idle);
                 addReplyLongLong(c, delivery_count);
 
-                /* Transfer NACK to new consumer only if different. */
+                /* Transfer ownership if needed */
                 if (nack->consumer != consumer) {
-                    /* Remove the NACK from old consumer's PEL. */
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
-
-                    /* Transfer NACK to new consumer. */
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
                 nack->delivery_count++;
-                pelListUpdate(group, nack, cmd_time_snapshot);
+                pelListUpdate(group, nack, cmd_time_snapshot); /* May reorder list */
 
                 consumer->active_time = cmd_time_snapshot;
 
-                /* Propagate as XCLAIM. */
+                /* Propagate as XCLAIM */
                 if (spi) {
                     robj *delivery_count = createStringObjectFromLongLong(nack->delivery_count);
                     streamPropagateXCLAIMCopyFree(db_id,spi->keyname,group_last_id,spi->groupname,idarg,consumername,delivery_time,delivery_count);
@@ -2065,10 +2041,18 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
                 }
                 decrRefCount(idarg);
                 arraylen++;
+                
+                /* Check count limit */
+                if (count && ++processed >= count) {
+                    streamIteratorStop(&si);
+                    break;
+                }
             }
-            streamIteratorStop(&si);   
+            streamIteratorStop(&si);
+            
+            /* Advance to next, stopping if we reached the tail */
+            nack = (nack == tail) ? NULL : next;
         }
-        listRelease(eligible_pels);
     }
     /* If the client is asking for some history, we serve it using a
      * different function, so that we return entries *solely* from its
