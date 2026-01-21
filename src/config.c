@@ -95,6 +95,15 @@ configEnum shutdown_on_sig_enum[] = {
     {NULL, 0}
 };
 
+configEnum cluster_slot_stats_enum[] = {
+    {"no", 0},
+    {"yes", CLUSTER_SLOT_STATS_ALL},
+    {"cpu", CLUSTER_SLOT_STATS_CPU},
+    {"net", CLUSTER_SLOT_STATS_NET},
+    {"mem", CLUSTER_SLOT_STATS_MEM},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
@@ -2359,17 +2368,6 @@ static int isValidActiveDefrag(int val, const char **err) {
     return 1;
 }
 
-static int updateMemoryTrackingEnabled(const char **err) {
-    UNUSED(err);
-    int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled();
-    if (!server.memory_tracking_enabled && memory_tracking_enabled) {
-        *err = "memory tracking cannot be enabled at runtime";
-        return 0;
-    }
-    server.memory_tracking_enabled = memory_tracking_enabled;
-    return 1;
-}
-
 static int isValidDBfilename(char *val, const char **err) {
     if (!pathIsBaseName(val)) {
         *err = "dbfilename can't be a path, just a filename";
@@ -2450,6 +2448,16 @@ static int isValidProcTitleTemplate(char *val, const char **err) {
         *err = "template format is invalid or contains unknown variables";
         return 0;
     }
+    return 1;
+}
+
+static int updateMemoryTrackingEnabled(const char **err) {
+    int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
+    if (!server.memory_tracking_enabled && memory_tracking_enabled) {
+        *err = "memory tracking cannot be enabled at runtime";
+        return 0;
+    }
+    server.memory_tracking_enabled = memory_tracking_enabled;
     return 1;
 }
 
@@ -3141,7 +3149,7 @@ standardConfig static_configs[] = {
     createBoolConfig("replica-ignore-disk-write-errors", NULL, MODIFIABLE_CONFIG, server.repl_ignore_disk_write_error, 0, NULL, NULL),
     createBoolConfig("hide-user-data-from-log", NULL, MODIFIABLE_CONFIG, server.hide_user_data_from_log, 0, NULL, NULL),
     createBoolConfig("lazyexpire-nested-arbitrary-keys", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.lazyexpire_nested_arbitrary_keys, 1, NULL, NULL),
-    createBoolConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG, server.cluster_slot_stats_enabled, 0, NULL, NULL),
+    createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
     createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
 
