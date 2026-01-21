@@ -157,6 +157,10 @@ client *createClient(connection *conn) {
     c->last_header = NULL;
     c->ref_repl_buf_node = NULL;
     c->ref_block_pos = 0;
+    c->io_curr_repl_node = NULL;
+    c->io_curr_block_pos = 0;
+    c->io_bound_repl_node = NULL;
+    c->io_bound_block_pos = 0;
     c->qb_pos = 0;
     c->querybuf = NULL;
     c->querybuf_peak = 0;
@@ -186,6 +190,7 @@ client *createClient(connection *conn) {
     c->slot = -1;
     c->cluster_compatibility_check_slot = -2;
     c->ctime = c->lastinteraction = server.unixtime;
+    c->io_lastinteraction = 0;
     c->duration = 0;
     clientSetDefaultAuth(c);
     c->replstate = REPL_STATE_NONE;
@@ -193,9 +198,11 @@ client *createClient(connection *conn) {
     c->reploff = 0;
     c->reploff_next = 0;
     c->read_reploff = 0;
+    c->io_read_reploff = 0;
     c->repl_applied = 0;
     c->repl_ack_off = 0;
     c->repl_ack_time = 0;
+    c->io_repl_ack_time = 0;
     c->repl_aof_off = 0;
     c->repl_last_partial_write = 0;
     c->slave_listening_port = 0;
@@ -222,7 +229,8 @@ client *createClient(connection *conn) {
     c->postponed_list_node = NULL;
     c->client_tracking_redirection = 0;
     c->client_tracking_prefixes = NULL;
-    c->last_cron_check_time = 0;
+    c->io_last_client_cron = 0;
+    c->io_last_repl_cron = 0;
     c->last_memory_usage = 0;
     c->last_memory_type = CLIENT_TYPE_NORMAL;
     c->module_blocked_client = NULL;
@@ -243,6 +251,7 @@ client *createClient(connection *conn) {
     c->commands_processed = 0;
     c->task = NULL;
     c->node_id = NULL;
+    atomicSet(c->pending_read, 0);
     return c;
 }
 
@@ -317,7 +326,7 @@ static inline int _prepareClientToWrite(client *c) {
      * If the client runs in an IO thread, we should not put the client in the
      * pending write queue. Instead, we will install the write handler to the
      * corresponding IO thread’s event loop and let it handle the reply. */
-    if (!clientHasPendingReplies(c) && likely(c->running_tid == IOTHREAD_MAIN_THREAD_ID))
+    if (likely(c->running_tid == IOTHREAD_MAIN_THREAD_ID) && !clientHasPendingReplies(c))
         putClientInPendingWriteQueue(c);
 
     /* Authorize the caller to queue in the output buffer of this client. */
@@ -1459,8 +1468,9 @@ void deferredAfterErrorReply(client *c, list *errors) {
 /* Logically copy 'src' replica client buffers info to 'dst' replica.
  * Basically increase referenced buffer block node reference count. */
 void copyReplicaOutputBuffer(client *dst, client *src) {
-    serverAssert(src->bufpos == 0 && listLength(src->reply) == 0);
-
+    serverAssert(src->bufpos == 0 && listLength(src->reply) == 0); 
+    serverAssert(src->running_tid == IOTHREAD_MAIN_THREAD_ID &&
+                 dst->running_tid == IOTHREAD_MAIN_THREAD_ID);
     if (src->ref_repl_buf_node == NULL) return;
     dst->ref_repl_buf_node = src->ref_repl_buf_node;
     dst->ref_block_pos = src->ref_block_pos;
@@ -1479,10 +1489,15 @@ static inline int _clientHasPendingRepliesSlave(client *c) {
 
     /* If the last replication buffer block content is totally sent,
      * we have nothing to send. */
-    listNode *ln = listLast(server.repl_buffer_blocks);
-    replBufBlock *tail = listNodeValue(ln);
-    if (ln == c->ref_repl_buf_node &&
-        c->ref_block_pos == tail->used) return 0;
+    if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
+        listNode *ln = listLast(server.repl_buffer_blocks);
+        replBufBlock *tail = listNodeValue(ln);
+        if (ln == c->ref_repl_buf_node &&
+            c->ref_block_pos == tail->used) return 0;
+    } else {
+        if (c->io_bound_repl_node == c->io_curr_repl_node &&
+            c->io_bound_block_pos == c->io_curr_block_pos) return 0;
+    }
     return 1;
 }
 
@@ -2036,7 +2051,7 @@ void freeClient(client *c) {
 
     /* We need to unbind connection of client from io thread event loop first. */
     if (c->tid != IOTHREAD_MAIN_THREAD_ID) {
-        unbindClientFromIOThreadEventLoop(c);
+        keepClientInMainThread(c);
     }
 
     /* Update the number of clients in the IO thread. */
@@ -2076,6 +2091,7 @@ void freeClient(client *c) {
         serverLog(LL_NOTICE,"Connection with master lost.");
         if (!(c->flags & (CLIENT_PROTOCOL_ERROR|CLIENT_BLOCKED))) {
             c->flags &= ~(CLIENT_CLOSE_ASAP|CLIENT_CLOSE_AFTER_REPLY);
+            c->io_flags &= ~CLIENT_IO_CLOSE_ASAP;
             replicationCacheMaster(c);
             return;
         }
@@ -2591,6 +2607,26 @@ static inline int _writeToClientNonSlave(client *c, ssize_t *nwritten) {
 static inline int _writeToClientSlave(client *c, ssize_t *nwritten) {
     *nwritten = 0;
     serverAssert(c->bufpos == 0 && listLength(c->reply) == 0);
+
+    if (c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+        replBufBlock *o = listNodeValue(c->io_curr_repl_node);
+        /* The IO thread must not send data beyond the bound position. */
+        size_t pos = c->io_curr_repl_node == c->io_bound_repl_node ?
+                     c->io_bound_block_pos : o->used;
+        if (pos > c->io_curr_block_pos) {
+            *nwritten = connWrite(c->conn, o->buf+c->io_curr_block_pos,
+                                  pos-c->io_curr_block_pos);
+            if (*nwritten <= 0) return C_ERR;
+            c->io_curr_block_pos += *nwritten;
+        }
+        /* If we fully sent the object and there are more nodes to send, go to the next one. */
+        if (c->io_curr_block_pos == pos && c->io_curr_repl_node != c->io_bound_repl_node) {
+            c->io_curr_repl_node = listNextNode(c->io_curr_repl_node);
+            c->io_curr_block_pos = 0;
+        }
+        return C_OK;
+    }
+
     replBufBlock *o = listNodeValue(c->ref_repl_buf_node);
     serverAssert(o->used >= c->ref_block_pos);
     /* Send current block if it is not fully sent. */
@@ -2704,6 +2740,14 @@ int writeToClient(client *c, int handler_installed) {
         /* Remove client from pending referenced reply clients list. */
         if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
             tryUnlinkClientFromPendingRefReply(c, 1);
+
+        /* If replica client has sent all the replication data it knows about
+         * we send it to main thread so it can pick up new repl data ASAP.
+         * Note, that we keep it in IO thread in case we have a pending ACK read. */
+        if (c->flags & CLIENT_SLAVE && c->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+            if (!replicaFromIOThreadHasPendingRead(c))
+                enqueuePendingClientsToMainThread(c, 0);
+        }
     }
     /* Update client's memory usage after writing.
      * Since this isn't thread safe we do this conditionally. */
@@ -2731,6 +2775,11 @@ int handleClientsWithPendingWrites(void) {
     listRewind(server.clients_pending_write,&li);
     while((ln = listNext(&li))) {
         client *c = listNodeValue(ln);
+
+        /* We handle IO thread replicas in putReplicasInPendingClientsToIOThreads */
+        if (c->flags & CLIENT_SLAVE && c->tid != IOTHREAD_MAIN_THREAD_ID)
+            continue;
+
         c->flags &= ~CLIENT_PENDING_WRITE;
         listUnlinkNode(server.clients_pending_write,ln);
 
@@ -2744,6 +2793,7 @@ int handleClientsWithPendingWrites(void) {
         /* Let IO thread handle the client if possible. */
         if (server.io_threads_num > 1 &&
             !(c->flags & CLIENT_CLOSE_AFTER_REPLY) &&
+            c->tid == IOTHREAD_MAIN_THREAD_ID &&
             !isClientMustHandledByMainThread(c))
         {
             assignClientToIOThread(c);
@@ -2793,7 +2843,8 @@ static inline void resetClientInternal(client *c, int num_pcmds_to_free) {
     c->cur_script = NULL;
     c->slot = -1;
     c->cluster_compatibility_check_slot = -2;
-    c->flags &= ~CLIENT_EXECUTING_COMMAND;
+    if (c->flags & CLIENT_EXECUTING_COMMAND)
+        c->flags &= ~CLIENT_EXECUTING_COMMAND;
 
     /* Make sure the duration has been recorded to some command. */
     serverAssert(c->duration == 0);
@@ -2807,19 +2858,27 @@ static inline void resetClientInternal(client *c, int num_pcmds_to_free) {
 
     /* We clear the ASKING flag as well if we are not inside a MULTI, and
      * if what we just executed is not the ASKING command itself. */
-    if (!(c->flags & CLIENT_MULTI) && prevcmd != askingCommand)
+    if (c->flags & CLIENT_ASKING && !(c->flags & CLIENT_MULTI) &&
+        prevcmd != askingCommand)
+    {
         c->flags &= ~CLIENT_ASKING;
+    }
 
     /* We do the same for the CACHING command as well. It also affects
      * the next command or transaction executed, in a way very similar
      * to ASKING. */
-    if (!(c->flags & CLIENT_MULTI) && prevcmd != clientCommand)
+    if (c->flags & CLIENT_TRACKING_CACHING && !(c->flags & CLIENT_MULTI) &&
+        prevcmd != clientCommand)
+    {
         c->flags &= ~CLIENT_TRACKING_CACHING;
+    }
 
     /* Remove the CLIENT_REPLY_SKIP flag if any so that the reply
      * to the next command will be sent, but set the flag if the command
      * we just processed was "CLIENT REPLY SKIP". */
-    c->flags &= ~CLIENT_REPLY_SKIP;
+    if (c->flags & CLIENT_REPLY_SKIP)
+        c->flags &= ~CLIENT_REPLY_SKIP;
+
     if (c->flags & CLIENT_REPLY_SKIP_NEXT) {
         c->flags |= CLIENT_REPLY_SKIP;
         c->flags &= ~CLIENT_REPLY_SKIP_NEXT;
@@ -2908,8 +2967,18 @@ int processInlineBuffer(client *c, pendingCommand *pcmd) {
     /* Newline from slaves can be used to refresh the last ACK time.
      * This is useful for a slave to ping back while loading a big
      * RDB file. */
-    if (querylen == 0 && clientTypeIsSlave(c))
-        c->repl_ack_time = server.unixtime;
+    if (querylen == 0 && clientTypeIsSlave(c)) {
+        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
+            c->repl_ack_time = server.unixtime;
+        else
+            /* If this is a replica client running in an IO thread we cache the
+             * last ack time in a different member variable in order to avoid
+             * contention with main thread. f.e see refreshGoodSlavesCount()
+             * Note c->repl_ack_time will still be updated in
+             * updateClientDataFromIOThread with the value of c->io_repl_ack_time
+             * when the client moves from IO to main thread. */
+            c->io_repl_ack_time = server.unixtime;
+    }
 
     /* Masters should never send us inline protocol to run actual
      * commands. If this happens, it is likely due to a bug in Redis where
@@ -3505,7 +3574,11 @@ int processInputBuffer(client *c) {
             if (unlikely(pcmd->read_error || (pcmd->flags & PENDING_CMD_FLAG_INCOMPLETE)))
                 break;
 
-            pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+            if (c->running_tid == IOTHREAD_MAIN_THREAD_ID)
+                pcmd->reploff = c->read_reploff - sdslen(c->querybuf) + c->qb_pos;
+            else
+                pcmd->reploff = c->io_read_reploff - sdslen(c->querybuf) + c->qb_pos;
+
             preprocessCommand(c, pcmd);
             pcmd->flags |= PENDING_CMD_FLAG_PREPROCESSED;
             resetClientQbufState(c);
@@ -3611,7 +3684,14 @@ void readQueryFromClient(connection *conn) {
     client *c = connGetPrivateData(conn);
     int nread, big_arg = 0;
     size_t qblen, readlen;
-    if (!(c->io_flags & CLIENT_IO_READ_ENABLED)) return;
+
+    if (!(c->io_flags & CLIENT_IO_READ_ENABLED)) {
+        atomicSetWithSync(c->pending_read, 1);
+        return;
+    } else if (server.io_threads_num > 1) {
+        atomicSetWithSync(c->pending_read, 0);
+    }
+
     c->read_error = 0;
 
     /* Update the number of reads of io threads on server */
@@ -3702,9 +3782,21 @@ void readQueryFromClient(connection *conn) {
     qblen = sdslen(c->querybuf);
     if (c->querybuf_peak < qblen) c->querybuf_peak = qblen;
 
-    c->lastinteraction = server.unixtime;
+    if (!(c->flags & CLIENT_MASTER) || c->running_tid == IOTHREAD_MAIN_THREAD_ID)
+        c->lastinteraction = server.unixtime;
+    else
+        /* Avoid contention with genRedisInfoString as it can access master
+         * client's data. If this is a master running in IO thread the value of
+         * c->lastinteraction will be updated during processClientsFromIOThread */
+        c->io_lastinteraction = server.unixtime;
+
     if (c->flags & CLIENT_MASTER) {
-        c->read_reploff += nread;
+        if (c->running_tid == IOTHREAD_MAIN_THREAD_ID) {
+            c->read_reploff += nread;
+        } else {
+            /* Same comment as for c->io_lastinteraction */
+            c->io_read_reploff += nread;
+        }
         atomicIncr(server.stat_net_repl_input_bytes, nread);
     } else {
         atomicIncr(server.stat_net_input_bytes, nread);
@@ -5127,6 +5219,16 @@ void flushSlavesOutputBuffers(void) {
     listRewind(server.slaves,&li);
     while((ln = listNext(&li))) {
         client *slave = listNodeValue(ln);
+
+        /* Fetch the replica clients that are currently running in IO thread. */
+        if (slave->running_tid != IOTHREAD_MAIN_THREAD_ID) {
+            fetchClientFromIOThread(slave);
+            /* If the slave doesn't have any pending replies nothing to do
+             * anyways. */
+            if (!clientHasPendingReplies(slave)) continue;
+            putClientInPendingWriteQueue(slave);
+        }
+
         int can_receive_writes = connHasWriteHandler(slave->conn) ||
                                  (slave->flags & CLIENT_PENDING_WRITE);
 

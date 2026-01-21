@@ -42,6 +42,67 @@ static inline void sendPendingClientsToMainThreadIfNeeded(IOThread *t, int check
     }
 }
 
+/* When moving a client from IO thread to main thread we may need to update
+ * some of its variables as they are duplicated to avoid contention with main
+ * thread.
+ * For now this is valid only for master or slave clients. */
+void updateClientDataFromIOThread(client *c) {
+    if (!(c->flags & CLIENT_MASTER) && !(c->flags & CLIENT_SLAVE)) return;
+
+    serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID &&
+                 c->running_tid == IOTHREAD_MAIN_THREAD_ID);
+
+    if (c->io_repl_ack_time > c->repl_ack_time) {
+        serverAssert(c->flags & CLIENT_SLAVE);
+        c->repl_ack_time = c->io_repl_ack_time;
+    }
+    if (c->io_lastinteraction > c->lastinteraction) {
+        serverAssert(c->flags & CLIENT_MASTER);
+        c->lastinteraction = c->io_lastinteraction;
+    }
+    if (c->io_read_reploff > c->read_reploff) {
+        serverAssert(c->flags & CLIENT_MASTER);
+        c->read_reploff = c->io_read_reploff;
+    }
+
+    /* Update replication buffer referenced node if IO thread has sent some data. */
+    if (c->flags & CLIENT_SLAVE && c->ref_repl_buf_node != NULL &&
+        (c->io_curr_repl_node != c->ref_repl_buf_node ||
+         c->io_curr_block_pos != c->ref_block_pos))
+    {
+        ((replBufBlock*)listNodeValue(c->ref_repl_buf_node))->refcount--;
+        ((replBufBlock*)listNodeValue(c->io_curr_repl_node))->refcount++;
+        c->ref_block_pos = c->io_curr_block_pos;
+        c->ref_repl_buf_node = c->io_curr_repl_node;
+        incrementalTrimReplicationBacklog(REPL_BACKLOG_TRIM_BLOCKS_PER_CALL);
+    }
+}
+
+/* Check to see if the client needs any cron jobs run for them. Return 1 if the
+ * client should be terminated */
+int runClientCronFromIOThread(client *c) {
+    if (c->flags & CLIENT_MASTER &&
+        c->io_last_repl_cron + 1000 <= server.mstime)
+    {
+        c->io_last_repl_cron = server.mstime;
+        if (replicationCronRunMasterClient()) return 1;
+    }
+
+    /* Run client cron task for the client per second or it is marked as pending cron. */
+    if (c->io_last_client_cron + 1000 <= server.mstime ||
+        c->io_flags & CLIENT_IO_PENDING_CRON)
+    {
+        c->io_last_client_cron = server.mstime;
+        if (clientsCronRunClient(c)) return 1;
+    } else {
+        /* Update the client in the mem usage if clientsCronRunClient is not
+         * being called, since that function already performs the update. */
+        updateClientMemUsageAndBucket(c);
+    }
+
+    return 0;
+}
+
 /* When IO threads read a complete query of clients or want to free clients, it
  * should remove it from its clients list and put the client in the list to main
  * thread, we will send these clients to main thread in IOThreadBeforeSleep. */
@@ -66,6 +127,32 @@ void enqueuePendingClientsToMainThread(client *c, int unbind) {
     }
 }
 
+void enqueuePendingClienstToIOThreads(client *c) {
+    serverAssert(c->tid != IOTHREAD_MAIN_THREAD_ID &&
+                 c->running_tid == IOTHREAD_MAIN_THREAD_ID);
+
+    if (c->flags & CLIENT_PENDING_WRITE) {
+        c->flags &= ~CLIENT_PENDING_WRITE;
+        listUnlinkNode(server.clients_pending_write, &c->clients_pending_write_node);
+    }
+    if (c->flags & CLIENT_SLAVE) {
+        serverAssert(c->ref_repl_buf_node != NULL);
+
+        c->io_repl_ack_time = c->repl_ack_time;
+        c->io_curr_repl_node = c->ref_repl_buf_node;
+        c->io_curr_block_pos = c->ref_block_pos;
+        c->io_bound_repl_node = listLast(server.repl_buffer_blocks);
+        c->io_bound_block_pos = ((replBufBlock*)listNodeValue(c->io_bound_repl_node))->used;
+    }
+    if (c->flags & CLIENT_MASTER) {
+        c->io_read_reploff = c->read_reploff;
+        c->io_lastinteraction = c->lastinteraction;
+    }
+
+    c->running_tid = c->tid;
+    listAddNodeHead(mainThreadPendingClientsToIOThreads[c->tid], c);
+}
+
 /* Unbind connection of client from io thread event loop, write and read handlers
  * also be removed, ensures that we can operate the client safely. */
 void unbindClientFromIOThreadEventLoop(client *c) {
@@ -88,11 +175,12 @@ void keepClientInMainThread(client *c) {
     server.io_threads_clients_num[c->tid]--;
     /* Unbind connection of client from io thread event loop. */
     unbindClientFromIOThreadEventLoop(c);
+    /* Update the client's data in case it was just fetched from IO thread */
+    updateClientDataFromIOThread(c);
     /* Let main thread to run it, rebind event loop and read handler */
     connRebindEventLoop(c->conn, server.el);
     connSetReadHandler(c->conn, readQueryFromClient);
     c->io_flags |= CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED;
-    c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     c->tid = IOTHREAD_MAIN_THREAD_ID;
     freeClientDeferredObjects(c, 1); /* Free deferred objects. */
     freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
@@ -132,22 +220,26 @@ void fetchClientFromIOThread(client *c) {
     /* Unbind connection of client from io thread event loop. */
     connUnbindEventLoop(c->conn);
     /* Now main thread can process it. */
-    c->running_tid = IOTHREAD_MAIN_THREAD_ID;
     resumeIOThread(c->tid);
-    freeClientDeferredObjects(c, 1); /* Free deferred objects. */
-    freeClientIODeferredObjects(c, 1); /* Free IO deferred objects. */
-    tryUnlinkClientFromPendingRefReply(c, 0);
+
+    /* Keep the client in main thread. */
+    c->running_tid = IOTHREAD_MAIN_THREAD_ID;
+    keepClientInMainThread(c);
 }
 
 /* For some clients, we must handle them in the main thread, since there is
  * data race to be processed in IO threads.
  *
  * - Close ASAP, we must free the client in main thread.
- * - Replica, pubsub, monitor, blocked, tracking clients, main thread may
+ * - Pubsub, monitor, blocked, tracking clients, main thread may
  *   directly write them a reply when conditions are met.
- * - Script command with debug may operate connection directly. */
+ * - Script command with debug may operate connection directly.
+ * - Master/Replica are only handled by IO thread when RDB replication is
+ *   completed. Note we need to check them after checking for other flags
+ *   that may overlap with CLIENT_MASTER/SLAVE - CLOSE_ASAP, MONITOR,
+ *   (UN)BLOCKED, TRACKING. */
 int isClientMustHandledByMainThread(client *c) {
-    if (c->flags & (CLIENT_CLOSE_ASAP | CLIENT_MASTER | CLIENT_SLAVE |
+    if (c->flags & (CLIENT_CLOSE_ASAP |
                     CLIENT_PUBSUB | CLIENT_MONITOR | CLIENT_BLOCKED |
                     CLIENT_UNBLOCKED | CLIENT_TRACKING | CLIENT_LUA_DEBUG |
                     CLIENT_LUA_DEBUG_SYNC | CLIENT_ASM_MIGRATING |
@@ -155,6 +247,34 @@ int isClientMustHandledByMainThread(client *c) {
     {
         return 1;
     }
+
+    /* If RDB replication is done it's safe to move the master client to an IO thread.
+     * Note that we keep the master client in main thread during failover so as
+     * not to slow down the failover process by waiting the master replication
+     * cron in IO thread. */
+    if (c->flags & CLIENT_MASTER &&
+        server.repl_state == REPL_STATE_CONNECTED &&
+        server.repl_rdb_ch_state == REPL_RDB_CH_STATE_NONE &&
+        server.failover_state == NO_FAILOVER)
+    {
+        return 0;
+    }
+
+    /* If RDB replication is done for this slave it's safe to move it to an IO thread
+     * Note that we also check if the ref_repl_buf_node is initialized in order
+     * to prevent race conditions with main thread when it feeds the replication
+     * buffer. */
+    if (c->flags & CLIENT_SLAVE &&
+        (c->replstate == SLAVE_STATE_ONLINE ||
+         c->replstate == SLAVE_STATE_SEND_BULK_AND_STREAM) &&
+        c->repl_start_cmd_stream_on_ack == 0 &&
+        c->ref_repl_buf_node != NULL)
+    {
+        return 0;
+    }
+
+    if (c->flags & (CLIENT_MASTER | CLIENT_SLAVE)) return 1;
+
     return 0;
 }
 
@@ -175,7 +295,6 @@ void assignClientToIOThread(client *c) {
     /* Assign the client to the IO thread. */
     server.io_threads_clients_num[c->tid]--;
     c->tid = min_id;
-    c->running_tid = min_id;
     server.io_threads_clients_num[min_id]++;
 
     /* The client running in IO thread needs to have deferred objects array. */
@@ -186,7 +305,8 @@ void assignClientToIOThread(client *c) {
      * to IO thread in beforeSleep. */
     connUnbindEventLoop(c->conn);
     c->io_flags &= ~(CLIENT_IO_READ_ENABLED | CLIENT_IO_WRITE_ENABLED);
-    listAddNodeTail(mainThreadPendingClientsToIOThreads[c->tid], c);
+
+    enqueuePendingClienstToIOThreads(c);
 }
 
 /* If updating maxclients config, we not only resize the event loop of main thread
@@ -480,17 +600,12 @@ int processClientsFromIOThread(IOThread *t) {
             continue;
         }
 
-        /* Run cron task for the client per second or it is marked as pending cron. */
-        if (c->last_cron_check_time + 1000 <= server.mstime ||
-            c->io_flags & CLIENT_IO_PENDING_CRON)
-        {
-            c->last_cron_check_time = server.mstime;
-            if (clientsCronRunClient(c)) continue;
-        } else {
-            /* Update the client in the mem usage if clientsCronRunClient is not
-             * being called, since that function already performs the update. */
-            updateClientMemUsageAndBucket(c);
-        }
+        /* Update some client's members while we are in main thread so we avoid
+         * data races. */
+        updateClientDataFromIOThread(c);
+
+        /* Check if we need to run a cron job for the client */
+        if (runClientCronFromIOThread(c)) continue;
 
         /* Process the pending command and input buffer. */
         if (!isClientReadErrorFatal(c) && c->io_flags & CLIENT_IO_PENDING_COMMAND) {
@@ -515,6 +630,10 @@ int processClientsFromIOThread(IOThread *t) {
             continue;
         }
 
+        /* Handle replica clients in putReplicasInPendingClientsToIOThreads in
+         * beforeSleep */
+        if (c->flags & CLIENT_SLAVE) continue;
+
         /* Remove this client from pending write clients queue of main thread,
          * And some clients may do not have reply if CLIENT REPLY OFF/SKIP. */
         if (c->flags & CLIENT_PENDING_WRITE) {
@@ -524,7 +643,7 @@ int processClientsFromIOThread(IOThread *t) {
         c->running_tid = c->tid;
         listLinkNodeHead(mainThreadPendingClientsToIOThreads[c->tid], node);
         node = NULL;
-    
+
         /* If there are several clients to process, let io thread handle them ASAP. */
         sendPendingClientsToIOThreadIfNeeded(t, 1);
     }

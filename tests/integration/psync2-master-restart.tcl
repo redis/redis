@@ -164,8 +164,12 @@ start_server {} {
         assert {[status $replica sync_partial_ok] == 1}
 
         set digest [$master debug digest]
-        assert {$digest eq [$replica debug digest]}
-        assert {$digest eq [$sub_replica debug digest]}
+        wait_for_condition 10 100 {
+          $digest eq [$replica debug digest] &&
+          $digest eq [$sub_replica debug digest]
+        } else {
+            fail "Replica and sub-replica didn't sync after master restart in time..."
+        }
     }
 
     test "PSYNC2: Full resync after Master restart when too many key expired" {

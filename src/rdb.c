@@ -3531,13 +3531,13 @@ void startLoadingFile(size_t size, char* filename, int rdbflags) {
 /* Refresh the absolute loading progress info */
 void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
-    updatePeakMemory(zmalloc_used_memory());
+    updatePeakMemory();
 }
 
 /* Refresh the incremental loading progress info */
 void loadingIncrProgress(off_t size) {
     server.loading_loaded_bytes += size;
-    updatePeakMemory(zmalloc_used_memory());
+    updatePeakMemory();
 }
 
 /* Update the file name currently being loaded */
