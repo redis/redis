@@ -133,7 +133,7 @@ typedef struct streamConsumer {
 } streamConsumer;
 
 /* Pending (yet not acknowledged) message in a consumer group. */
-typedef struct streamNACK {
+struct streamNACK {
     mstime_t delivery_time;     /* Last time this message was delivered. */
     uint64_t delivery_count;    /* Number of times this message was delivered.*/
     streamConsumer *consumer;   /* The consumer this message was delivered to
@@ -142,7 +142,7 @@ typedef struct streamNACK {
     streamID id;                /* Stream ID for this pending entry. */
     struct streamNACK *pel_prev; /* Previous NACK in time-ordered doubly-linked list. */
     struct streamNACK *pel_next; /* Next NACK in time-ordered doubly-linked list. */
-} streamNACK;
+};
 
 /* Stream propagation information, passed to functions in order to propagate
  * XCLAIM commands to AOF and slaves. */
