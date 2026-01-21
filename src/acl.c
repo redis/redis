@@ -1857,6 +1857,15 @@ int ACLCheckAllUserCommandPerm(user *u, struct redisCommand *cmd, robj **argv, i
     /* If there is no associated user, the connection can run anything. */
     if (u == NULL) return ACL_OK;
 
+    /* Quick check if the user has all permissions, return early if so. */
+    if (likely(listFirst(u->selectors) != NULL)) {
+        aclSelector *s = listNodeValue(listFirst(u->selectors));
+        const uint32_t all_perms = SELECTOR_FLAG_ALLCOMMANDS |
+                                   SELECTOR_FLAG_ALLKEYS |
+                                   SELECTOR_FLAG_ALLCHANNELS;
+        if ((s->flags & all_perms) == all_perms) return ACL_OK;
+    }
+
     /* We have to pick a single error to log, the logic for picking is as follows:
      * 1) If no selector can execute the command, return the command.
      * 2) Return the last key or channel that no selector could match. */
