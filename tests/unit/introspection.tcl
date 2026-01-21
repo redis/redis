@@ -1066,8 +1066,14 @@ test {IO threads client number} {
 
 test {Clients are evenly distributed among io threads} {
     start_server {overrides {io-threads 4} tags {external:skip}} {
-        set cur_clients [s connected_clients]
-        assert_equal $cur_clients 1
+        # There might be a client used for health checks (to detect if the server is up)
+        # that has not been freed timely. This can lead to an inaccurate count of
+        # connectedclients processed by IO threads.
+        wait_for_condition 1000 10 {
+            [s connected_clients] eq 1
+        } else {
+            fail "Fail to wait for connected_clients to be 1"
+        }
         global rdclients
         for {set i 1} {$i < 9} {incr i} {
             set rdclients($i) [redis_deferring_client]
