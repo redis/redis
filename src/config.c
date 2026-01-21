@@ -2410,19 +2410,7 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
     return 1;
 }
 
-static int isValidClusterSlotStats(int val, const char **err) {
-    /* Memory tracking can only be enabled at startup.
-     * If memory tracking is not currently enabled and the new config
-     * includes MEM flag, reject the change. */
-    if (server.cronloops > 0 && (val & CLUSTER_SLOT_STATS_MEM) && !server.memory_tracking_per_slot) {
-        *err = "memory tracking cannot be enabled at runtime";
-        return 0;
-    }
-    return 1;
-}
-
 static int updateMemoryTrackingEnabled(const char **err) {
-    UNUSED(err);
     int memory_tracking_enabled = (server.cluster_slot_stats_enabled & CLUSTER_SLOT_STATS_MEM);
     if (!server.memory_tracking_per_slot && memory_tracking_enabled) {
         *err = "memory tracking cannot be enabled at runtime";
@@ -3161,7 +3149,7 @@ standardConfig static_configs[] = {
     createBoolConfig("replica-ignore-disk-write-errors", NULL, MODIFIABLE_CONFIG, server.repl_ignore_disk_write_error, 0, NULL, NULL),
     createBoolConfig("hide-user-data-from-log", NULL, MODIFIABLE_CONFIG, server.hide_user_data_from_log, 0, NULL, NULL),
     createBoolConfig("lazyexpire-nested-arbitrary-keys", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.lazyexpire_nested_arbitrary_keys, 1, NULL, NULL),
-    createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, isValidClusterSlotStats, updateMemoryTrackingEnabled),
+    createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
     createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
 
     /* String Configs */
