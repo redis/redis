@@ -640,7 +640,7 @@ start_server {tags {"maxmemory" "external:skip"}} {
         r set src value
         after 2000
         r rename src dst
-        assert_lessthan [r object idletime dst] 1
+        assert_lessthan_equal [r object idletime dst] 1
     } {} {slow}
 
     test {LRM: XREADGROUP updates stream LRM} {

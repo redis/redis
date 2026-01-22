@@ -72,7 +72,7 @@ void updateLRM(robj *o) {
  * It is used to track the distribution of key sizes in the dataset. It is updated 
  * every time key's length is modified. Available to user via INFO command. 
  * 
- * The histogram is a base-2 logarithmic histogram, with 64 bins. The i'th bin 
+ * The histogram is a base-2 logarithmic histogram, with 60 bins. The i'th bin
  * represents the number of keys with a size in the range 2^i and 2^(i+1) 
  * exclusive. oldLen/newLen must be smaller than 2^48, and if their value 
  * equals -1, it means that the key is being created/deleted, respectively. Each
@@ -85,36 +85,33 @@ void updateLRM(robj *o) {
  * Since strings can be zero length, the histogram also tracks:
  *               [0,1)->0
  */
-void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen) {
+void updateSlotHist(keysizesHist kvstoreHist, keysizesHist dictHist, uint32_t type, int64_t oldLen, int64_t newLen) {
     if(unlikely(type >= OBJ_TYPE_BASIC_MAX))
         return;
-
-    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
-    kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
 
     if (oldLen > 0) {
         int old_bin = log2ceil(oldLen) + 1;
         debugServerAssert(old_bin < MAX_KEYSIZES_BINS);
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
-        if(dictMeta) {
-            dictMeta->keysizes_hist[type][old_bin]--;
-            debugServerAssert(dictMeta->keysizes_hist[type][old_bin] >= 0);
+        if (dictHist) {
+            dictHist[type][old_bin]--;
+            debugServerAssert(dictHist[type][old_bin] >= 0);
         }
-        kvstoreMeta->keysizes_hist[type][old_bin]--;
-        debugServerAssert(kvstoreMeta->keysizes_hist[type][old_bin] >= 0);
+        kvstoreHist[type][old_bin]--;
+        debugServerAssert(kvstoreHist[type][old_bin] >= 0);
     } else {
         /* here, oldLen can be either 0 or -1 */
         if (oldLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily
              * dbAdd() empty collection, and only after add elements. */
 
-            if (dictMeta) {
-                dictMeta->keysizes_hist[type][0]--;
-                debugServerAssert(dictMeta->keysizes_hist[type][0] >= 0);
+            if (dictHist) {
+                dictHist[type][0]--;
+                debugServerAssert(dictHist[type][0] >= 0);
             }
-            kvstoreMeta->keysizes_hist[type][0]--;
-            debugServerAssert(kvstoreMeta->keysizes_hist[type][0] >= 0);
+            kvstoreHist[type][0]--;
+            debugServerAssert(kvstoreHist[type][0] >= 0);
         }
     }
     
@@ -123,56 +120,72 @@ void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, in
         debugServerAssert(new_bin < MAX_KEYSIZES_BINS);
         /* If following a key deletion it is last one in slot's dict, then
          * slot's dict might get released as well. Verify if metadata is not NULL. */
-        if(dictMeta) dictMeta->keysizes_hist[type][new_bin]++;
-        kvstoreMeta->keysizes_hist[type][new_bin]++;
+        if (dictHist) dictHist[type][new_bin]++;
+        kvstoreHist[type][new_bin]++;
     } else {
         /* here, newLen can be either 0 or -1 */
         if (newLen == 0) {
             /* Only strings can be empty. Yet, a command flow might temporarily
              * dbAdd() empty collection, and only after add elements. */
 
-            if (dictMeta) dictMeta->keysizes_hist[type][0]++;
-            kvstoreMeta->keysizes_hist[type][0]++;
+            if (dictHist) dictHist[type][0]++;
+            kvstoreHist[type][0]++;
         }
     }
 }
 
-void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize) {
-    debugServerAssert(server.memory_tracking_per_slot);
+void updateKeysizesHist(redisDb *db, int didx, uint32_t type, int64_t oldLen, int64_t newLen) {
+    kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
     kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
-    if (!dictMeta) return;
-    debugServerAssert(oldsize <= dictMeta->alloc_size);
-    dictMeta->alloc_size -= oldsize;
-    dictMeta->alloc_size += newsize;
+    updateSlotHist(kvstoreMeta->keysizes_hist, dictMeta ? dictMeta->keysizes_hist : NULL, type, oldLen, newLen);
 }
 
-/* Assert keysizes histogram (For debugging only)
- *
- * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
- */
-void dbgAssertKeysizesHist(redisDb *db) {
+void updateSlotAllocSize(redisDb *db, int didx, kvobj *kv, int64_t oldsize, int64_t newsize) {
+    debugServerAssert(server.memory_tracking_enabled);
+    kvstoreMetadata *kvstoreMeta = kvstoreGetMetadata(db->keys);
+    kvstoreDictMetadata *dictMeta = kvstoreGetDictMeta(db->keys, didx, 0);
+
+    /* Early return if nothing changed */
+    if (oldsize == newsize) return;
+
+    if (dictMeta) {
+        /* Handle -1 as a marker for deletion or type change */
+        if (oldsize >= 0) {
+            debugServerAssert((size_t)oldsize <= dictMeta->alloc_size);
+            dictMeta->alloc_size -= oldsize;
+        }
+        if (newsize >= 0) {
+            dictMeta->alloc_size += newsize;
+        }
+    }
+
+    /* Update allocation size histogram */
+    updateSlotHist(kvstoreMeta->allocsizes_hist, NULL, kv->type, oldsize, newsize);
+}
+
+static void dbgAssertHist(kvstore *kvs, keysizesHist hist,
+                          size_t (*fn)(kvobj *), const char *name) {
     /* Scan DB and build expected histogram by scanning all keys */
     int64_t scanHist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS] = {{0}};
     dictEntry *de;
     kvstoreIterator kvs_it;
-    kvstoreIteratorInit(&kvs_it, db->keys);
+    kvstoreIteratorInit(&kvs_it, kvs);
     while ((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
         kvobj *kv = dictGetKV(de);
         if (kv->type < OBJ_TYPE_BASIC_MAX) {
-            int64_t len = getObjectLength(kv);
+            int64_t len = fn(kv);
             scanHist[kv->type][(len == 0) ? 0 : log2ceil(len) + 1]++;
         }
     }
     kvstoreIteratorReset(&kvs_it);
     for (int type = 0; type < OBJ_TYPE_BASIC_MAX; type++) {
-        kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
-        volatile int64_t *keysizesHist = meta->keysizes_hist[type];
+        volatile int64_t *keysizesHist = hist[type];
         for (int i = 0; i < MAX_KEYSIZES_BINS; i++) {
             if (scanHist[type][i] == keysizesHist[i])
                 continue;
 
             /* print scanStr vs. expected histograms for debugging */
-            char scanStr[500], keysizesStr[500];
+            char scanStr[500] = {0}, keysizesStr[500] = {0};
             int l1 = 0, l2 = 0;
             for (int j = 0; (j < MAX_KEYSIZES_BINS) && (l1 < 500) && (l2 < 500); j++) {
                 if (scanHist[type][j])
@@ -182,10 +195,21 @@ void dbgAssertKeysizesHist(redisDb *db) {
                     l2 += snprintf(keysizesStr + l2, sizeof(keysizesStr) - l2,
                                             "[%d]=%"PRId64" ", j, keysizesHist[j]);
             }
-            serverPanic("dbgAssertKeysizesHist: type=%d\nscanStr=%s\nkeysizes=%s\n",
-                        type, scanStr, keysizesStr);
+            serverPanic("%s: type=%d\nscanStr=%s\nkeysizes=%s\n",
+                        name, type, scanStr, keysizesStr);
         }
     }
+}
+
+/* Assert keysizes histogram (For debugging only)
+ *
+ * Triggered by DEBUG KEYSIZES-HIST-ASSERT 1 and tested after each command.
+ */
+void dbgAssertKeysizesHist(redisDb *db) {
+    kvstoreMetadata *meta = kvstoreGetMetadata(db->keys);
+    dbgAssertHist(db->keys, meta->keysizes_hist, getObjectLength, "dbgAssertKeysizesHist");
+    if (server.memory_tracking_enabled)
+        dbgAssertHist(db->keys, meta->allocsizes_hist, kvobjAllocSize, "dbgAssertAllocsizesHist");
 }
 
 /* Assert per-slot alloc_size (For debugging only)
@@ -193,7 +217,7 @@ void dbgAssertKeysizesHist(redisDb *db) {
  * Triggered by DEBUG ALLOCSIZE-SLOTS-ASSERT 1 and tested after each command.
  */
 void dbgAssertAllocSizePerSlot(redisDb *db) {
-    if (!server.memory_tracking_per_slot) return;
+    if (!server.memory_tracking_enabled) return;
     size_t slot_sizes[CLUSTER_SLOTS] = {0};
     dictEntry *de;
     kvstoreIterator kvs_it;
@@ -415,8 +439,8 @@ kvobj *dbAddInternal(redisDb *db, robj *key, robj **valref, dictEntryLink *link,
     signalKeyAsReady(db, key, kv->type);
     notifyKeyspaceEvent(NOTIFY_NEW,"new",key,db->id);
     updateKeysizesHist(db, slot, kv->type, -1, getObjectLength(kv)); /* add hist */
-    if (server.memory_tracking_per_slot)
-        updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     *valref = kv;
     return kv;
 }
@@ -520,8 +544,8 @@ kvobj *dbAddRDBLoad(redisDb *db, sds key, robj **valref, const KeyMetaSpec *keyM
     }
 
     updateKeysizesHist(db, slot, kv->type, -1, (int64_t) getObjectLength(kv));
-    if (server.memory_tracking_per_slot)
-        updateSlotAllocSize(db, slot, 0, kvobjAllocSize(kv));
+    if (server.memory_tracking_enabled)
+        updateSlotAllocSize(db, slot, kv, -1, kvobjAllocSize(kv));
     return *valref = kv;
 }
 
@@ -595,7 +619,7 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         /* Because of RM_StringDMA, old may be changed, so we need get old again */
         old = dictGetKV(*link);
     }
-    if (server.memory_tracking_per_slot)
+    if (server.memory_tracking_enabled)
         oldsize = kvobjAllocSize(old);
 
     if ((old->refcount == 1 && old->encoding != OBJ_ENCODING_EMBSTR) &&
@@ -653,8 +677,15 @@ static void dbSetValue(redisDb *db, robj *key, robj **valref, dictEntryLink link
         }
     }
 
-    if (server.memory_tracking_per_slot)
-        updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvNew));
+    if (server.memory_tracking_enabled) {
+        /* Save one call if old and new are the same type */
+        if (oldtype == kvNew->type) {
+            updateSlotAllocSize(db, slot, kvNew, oldsize, kvobjAllocSize(kvNew));
+        } else {
+            updateSlotAllocSize(db, slot, old, oldsize, -1);
+            updateSlotAllocSize(db, slot, kvNew, -1, kvobjAllocSize(kvNew));
+        }
+    }
 
     if (server.io_threads_num > 1 && old->encoding == OBJ_ENCODING_RAW) {
         /* In multi-threaded mode, the OBJ_ENCODING_RAW string object usually is
@@ -839,8 +870,8 @@ int dbGenericDelete(redisDb *db, robj *key, int async, int flags) {
             kvstoreDictDelete(db->expires, slot, key->ptr);
 
         if (async) {
-            if (server.memory_tracking_per_slot)
-                updateSlotAllocSize(db, slot, kvobjAllocSize(kv), 0);
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(db, slot, kv, kvobjAllocSize(kv), -1);
             freeObjAsync(key, kv, db->id);
             /* Set the key to NULL in the main dictionary. */
             kvstoreDictSetAtLink(db->keys, slot, NULL, &link, 0);
@@ -2609,7 +2640,7 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* Val already had an expire field, so it was not reallocated. */
         serverAssert(kv == kvnew);
     } else { /* No old expire */
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(kv);
         uint64_t subexpiry = EB_EXPIRE_TIME_INVALID;
         /* If hash with HFEs, take care to remove from global HFE DS before attempting
@@ -2621,8 +2652,8 @@ kvobj *setExpireByLink(client *c, redisDb *db, sds key, long long when, dictEntr
         /* if kvobj was reallocated, update dict */
         if (kv != kvnew) {
             kvstoreDictSetAtLink(db->keys, slot, kvnew, &keyLink, 0);
-            if (server.memory_tracking_per_slot)
-                updateSlotAllocSize(db, slot, oldsize, kvobjAllocSize(kvnew));
+            if (server.memory_tracking_enabled)
+                updateSlotAllocSize(db, slot, kvnew, oldsize, kvobjAllocSize(kvnew));
             kv = kvnew;
         }
         /* Now add to expires */

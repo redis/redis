@@ -229,7 +229,7 @@ foreach call_type {nested normal} {
         r config resetstat
 
         # simple module command that replies with string error
-        assert_error "ERR unknown command 'hgetalllll', with args beginning with:" {r do_rm_call hgetalllll}
+        assert_error "ERR unknown command 'hgetalllll'" {r do_rm_call hgetalllll}
         assert_equal [errorrstat ERR r] {count=1}
 
         # simple module command that replies with string error

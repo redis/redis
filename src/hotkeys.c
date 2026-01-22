@@ -181,6 +181,24 @@ void hotkeyStatsPostCurrentCmd(hotkeyStats *hotkeys) {
     hotkeys->is_in_selected_slots = 0;
 }
 
+size_t hotkeysGetMemoryUsage(hotkeyStats *hotkeys) {
+    if (!hotkeys) return 0;
+
+    size_t memory_usage = sizeof(hotkeyStats);
+    if (hotkeys->cpu) {
+        memory_usage += chkTopKGetMemoryUsage(hotkeys->cpu);
+    }
+    if (hotkeys->net) {
+        memory_usage += chkTopKGetMemoryUsage(hotkeys->net);
+    }
+    /* Add memory for slots array if present */
+    if (hotkeys->slots) {
+        memory_usage += sizeof(int) * hotkeys->numslots;
+    }
+
+    return memory_usage;
+}
+
 static int64_t time_diff_ms(struct timeval a, struct timeval b) {
     int64_t sec = (int64_t)(a.tv_sec - b.tv_sec);
     int64_t usec = (int64_t)(a.tv_usec - b.tv_usec);
