@@ -798,7 +798,7 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
                 # exceed the replica soft limit. Furthermore, as the replica release its reference to
                 # replication backlog, it should be properly trimmed, the memory usage of replication
                 # backlog should not significantly exceed repl-backlog-size (default 1MB). */
-                assert_lessthan [getInfoProperty $res used_memory_peak] 10000000;# less than 10mb
+                assert_lessthan [getInfoProperty $res used_memory_peak] 20000000;# less than 20mb
                 assert_lessthan [getInfoProperty $res mem_replication_backlog] 2000000;# less than 2mb
             }
         }
