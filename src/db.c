@@ -2656,10 +2656,7 @@ long long getExpire(redisDb *db, sds key, kvobj *kv) {
  * which config to look for lazy free, stats var to increment, and so on.
  *
  * key_mem_freed is an out parameter which contains the estimated
- * amount of memory freed due to the trimming (may be NULL)
- *
- * active_expire is only used when notify_type is NOTIFY_EXPIRED, indicates
- * whether it's active expire (1) or lazy expire (0). */
+ * amount of memory freed due to the trimming (may be NULL) */
 static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, long long *key_mem_freed) {
     mstime_t latency;
     int del_flag = notify_type == NOTIFY_EXPIRED ? DB_FLAG_KEY_EXPIRED : DB_FLAG_KEY_EVICTED;
