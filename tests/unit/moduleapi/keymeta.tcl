@@ -297,7 +297,7 @@ start_server {tags {"modules" "external:skip" "cluster:skip"} overrides {enable-
         }
     }
 
-    test "KEYMETA - Verify metadta cleanup on lazyfree" {
+    test "KEYMETA - Verify metadata cleanup on lazyfree" {
         r config set lazyfree-lazy-user-del yes
         # Class 2 has UNLINKFREE flag, so it should call unlink callback when lazyfree is enabled
         # Class 1 does not have UNLINKFREE flag, so it should only call free callback
