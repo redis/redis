@@ -44,7 +44,7 @@ int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
     enterExecutionUnit(1, 0);
     sds key = kvobjGetKey(kv);
     robj *keyobj = createStringObject(key,sdslen(key));
-    deleteExpiredKeyAndPropagate(db,keyobj,0);
+    deleteExpiredKeyAndPropagate(db,keyobj,1);
     decrRefCount(keyobj);
     exitExecutionUnit();
     /* Propagate the DEL command */
@@ -177,8 +177,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 
     /* currently we only support hash type sub-expire */
     assert(kv->type == OBJ_HASH);
-    uint64_t nextExpTime = hashTypeActiveExpire(subexCtx->db, kv,
-                                          &subexCtx->fieldsToExpireQuota, 0, 0);
+    uint64_t nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
 
     /* If hash has no more fields to expire or got deleted, indicate
      * to remove it from HFE DB to the caller ebExpire() */

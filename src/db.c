@@ -2658,9 +2658,10 @@ long long getExpire(redisDb *db, sds key, kvobj *kv) {
  * key_mem_freed is an out parameter which contains the estimated
  * amount of memory freed due to the trimming (may be NULL)
  *
- * lazy indicates whether the expiration is lazy expire or active expire. */
+ * active_expire is only used when notify_type is NOTIFY_EXPIRED, indicates
+ * whether it's active expire (1) or lazy expire (0). */
 static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type,
-                                  long long *key_mem_freed, int lazy)
+                                  long long *key_mem_freed, int active_expire)
 {
     mstime_t latency;
     int del_flag = notify_type == NOTIFY_EXPIRED ? DB_FLAG_KEY_EXPIRED : DB_FLAG_KEY_EVICTED;
@@ -2704,7 +2705,7 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type,
 
     if (notify_type == NOTIFY_EXPIRED) {
         server.stat_expiredkeys++;
-        if (!lazy) server.stat_expiredkeys_active++;
+        if (active_expire) server.stat_expiredkeys_active++;
     } else {
         server.stat_evictedkeys++;
     }
@@ -2714,8 +2715,8 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type,
 }
 
 /* Delete the specified expired key and propagate. */
-void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj, int lazy) {
-    deleteKeyAndPropagate(db, keyobj, NOTIFY_EXPIRED, NULL, lazy);
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj, int active_expire) {
+    deleteKeyAndPropagate(db, keyobj, NOTIFY_EXPIRED, NULL, active_expire);
 }
 
 /* Delete the specified evicted key and propagate. */
@@ -2881,11 +2882,11 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
 
     /* Perform deletion */
     if (key) {
-        deleteExpiredKeyAndPropagate(db, key, 1);
+        deleteExpiredKeyAndPropagate(db, key, 0);
     } else {
         sds keyname = kvobjGetKey(kv);
         robj *tmpkey = createStringObject(keyname, sdslen(keyname));
-        deleteExpiredKeyAndPropagate(db, tmpkey, 1);
+        deleteExpiredKeyAndPropagate(db, tmpkey, 0);
         decrRefCount(tmpkey);
     }
     return KEY_DELETED;

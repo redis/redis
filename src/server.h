@@ -3757,7 +3757,7 @@ int hashTypeGetValueObject(redisDb *db, kvobj *kv, sds field, int hfeFlags,
                            robj **val, uint64_t *expireTime, int *isHashDeleted);
 int hashTypeSet(redisDb *db, kvobj *kv, sds field, sds value, int flags);
 robj *hashTypeDup(kvobj *kv, uint64_t *minHashExpire);
-uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires, int lazy);
+uint64_t hashTypeExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires, int activeEx);
 void hashTypeFree(robj *o);
 int hashTypeIsExpired(const robj *o, uint64_t expireAt);
 unsigned char *hashTypeListpackGetLp(robj *o);
@@ -3883,7 +3883,7 @@ void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize);
 void dbgAssertKeysizesHist(redisDb *db);
 void dbgAssertAllocSizePerSlot(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
-void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj, int lazy);
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj, int active_expire);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
 void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, sds key, kvobj *kv);
