@@ -357,7 +357,7 @@ static uint64_t listpackExGetMinExpire(robj *o) {
 }
 
 /* Walk over fields and delete the expired ones. */
-void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int active_expire) {
+void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int activeEx) {
     serverAssert(kv->encoding == OBJ_ENCODING_LISTPACK_EX);
     uint64_t expired = 0, min = EB_EXPIRE_TIME_INVALID;
     unsigned char *ptr;
@@ -386,7 +386,7 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int active_expir
 
         propagateHashFieldDeletion(db, key, (char *)((fref) ? fref : intbuf), flen);
         server.stat_expired_subkeys++;
-        if (active_expire) server.stat_expired_subkeys_active++;
+        if (activeEx) server.stat_expired_subkeys_active++;
 
         ptr = lpNext(lpt->lp, ptr);
 
