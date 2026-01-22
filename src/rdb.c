@@ -856,7 +856,7 @@ int rdbLoadStreamIdmpEntries(rio *rdb, stream *s) {
     if (num_producers == 0) return 0;
 
     /* Create the producers rax tree. */
-    s->idmp_producers = raxNew();
+    s->idmp_producers = raxNewWithMetadata(0, &s->alloc_size);
     if (s->idmp_producers == NULL) {
         return -1;
     }
