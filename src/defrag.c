@@ -998,7 +998,8 @@ void defragStream(defragKeysCtx *ctx, kvobj *ob) {
     }
 
     if (s->idmp_producers) {
-        /* Defrag the producers and all idmpEntry structures in their linked lists */
+        /* Update idmp_producers back-pointer to new stream */
+        s->idmp_producers->alloc_size = &s->alloc_size;
         defragRadixTree(&s->idmp_producers, 0, defragIdmpProducerCallback, NULL);
     }
 }
