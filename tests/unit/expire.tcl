@@ -854,13 +854,13 @@ start_server {tags {"expire"}} {
         r debug set-active-expire 0
 
         # Set keys that will expire
-        r set foo1 bar PX 1
-        r set foo2 bar PX 1
-        r set foo3 bar PX 1
+        r set foo1{t} bar PX 1
+        r set foo2{t} bar PX 1
+        r set foo3{t} bar PX 1
         after 2
 
         # Trigger lazy expire by accessing the keys
-        assert_equal {{} {} {}} [r mget foo1 foo2 foo3]
+        assert_equal {{} {} {}} [r mget foo1{t} foo2{t} foo3{t}]
 
         # Verify that expired_keys was incremented but expired_keys_active was not
         assert_equal [s expired_keys] 3
