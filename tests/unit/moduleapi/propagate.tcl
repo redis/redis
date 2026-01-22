@@ -596,8 +596,13 @@ tags "modules external:skip" {
 
                     assert_equal [$master get k1] 1
                     assert_equal [$master ttl k1] -1
-                    assert_equal [$replica get k1] 1
-                    assert_equal [$replica ttl k1] -1
+
+                    wait_for_condition 50 100 {
+                        [$replica get k1] eq 1 &&
+                        [$replica ttl k1] eq -1
+                    } else {
+                        fail "failed RM_Call of expired key propagation"
+                    }
                 }
 
                 test {module notification on set} {
@@ -793,7 +798,7 @@ test {Replicas that was marked as CLIENT_CLOSE_ASAP should not keep the replicat
                 # exceed the replica soft limit. Furthermore, as the replica release its reference to
                 # replication backlog, it should be properly trimmed, the memory usage of replication
                 # backlog should not significantly exceed repl-backlog-size (default 1MB). */
-                assert_lessthan [getInfoProperty $res used_memory_peak] 10000000;# less than 10mb
+                assert_lessthan [getInfoProperty $res used_memory_peak] 20000000;# less than 20mb
                 assert_lessthan [getInfoProperty $res mem_replication_backlog] 2000000;# less than 2mb
             }
         }

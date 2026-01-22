@@ -1628,11 +1628,11 @@ ssize_t rdbSaveDb(rio *rdb, int dbid, int rdbflags, long *key_counter, unsigned 
 
         initStaticStringObject(key,kvobjGetKey(kv));
         expire = kvobjGetExpire(kv);
-        if (server.memory_tracking_per_slot)
+        if (server.memory_tracking_enabled)
             oldsize = kvobjAllocSize(kv);
         res = rdbSaveKeyValuePair(rdb, &key, kv, expire, dbid);
-        if (server.memory_tracking_per_slot)
-            updateSlotAllocSize(db, curr_slot, oldsize, kvobjAllocSize(kv));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(db, curr_slot, kv, oldsize, kvobjAllocSize(kv));
         if (res < 0) goto werr2;
         written += res;
 
@@ -3535,13 +3535,13 @@ void startLoadingFile(size_t size, char* filename, int rdbflags) {
 /* Refresh the absolute loading progress info */
 void loadingAbsProgress(off_t pos) {
     server.loading_loaded_bytes = pos;
-    updatePeakMemory(zmalloc_used_memory());
+    updatePeakMemory();
 }
 
 /* Refresh the incremental loading progress info */
 void loadingIncrProgress(off_t size) {
     server.loading_loaded_bytes += size;
-    updatePeakMemory(zmalloc_used_memory());
+    updatePeakMemory();
 }
 
 /* Update the file name currently being loaded */
