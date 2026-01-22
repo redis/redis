@@ -1435,6 +1435,46 @@ start_server {tags {"external:skip needs:debug"}} {
         }
     }
 
+    test "Statistics - Lazy expire increments expired_subkeys but not expired_subkeys_active ($type)" {
+        r flushall
+        r config resetstat
+        r debug set-active-expire 0
+
+        # Create hash with fields that will expire
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 1 FIELDS 3 f1 f2 f3
+        after 2
+
+        # Trigger lazy expire by accessing the fields
+        assert_equal {{} {} {}} [r hmget myhash f1 f2 f3]
+
+        # Verify that expired_subkeys was incremented but expired_subkeys_active was not
+        assert_equal [s expired_subkeys] 3
+        assert_equal [s expired_subkeys_active] 0
+
+        r debug set-active-expire 1
+    }
+
+    test "Statistics - Active expire increments both expired_subkeys and expired_subkeys_active ($type)" {
+        r flushall
+        r config resetstat
+
+        # Create hash with fields that will expire soon
+        r hset myhash f1 v1 f2 v2 f3 v3 f4 v4 f5 v5
+        r hpexpire myhash 1 FIELDS 3 f1 f2 f3
+
+        # Wait for active expire to kick in
+        wait_for_condition 50 100 {
+            [s expired_subkeys] == 3
+        } else {
+            fail "Hash fields were not expired"
+        }
+
+        # Verify that both expired_subkeys and expired_subkeys_active were incremented
+        assert_equal [s expired_subkeys] 3
+        assert_equal [s expired_subkeys_active] 3
+    }
+
     test "HFE commands against wrong type" {
         r set wrongtype somevalue
         assert_error "WRONGTYPE Operation against a key*" {r hexpire wrongtype 10 fields 1 f1}

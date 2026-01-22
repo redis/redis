@@ -122,6 +122,7 @@ EbucketsType hashFieldExpireBucketsType = {
 typedef struct OnFieldExpireCtx {
     robj *hashObj;
     redisDb *db;
+    int lazy;  /* 1 for lazy expire, 0 for active expire */
 } OnFieldExpireCtx;
 
 /* The implementation of hashes by dict was modified from storing fields as sds
@@ -356,7 +357,7 @@ static uint64_t listpackExGetMinExpire(robj *o) {
 }
 
 /* Walk over fields and delete the expired ones. */
-void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
+void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info, int lazy) {
     serverAssert(kv->encoding == OBJ_ENCODING_LISTPACK_EX);
     uint64_t expired = 0, min = EB_EXPIRE_TIME_INVALID;
     unsigned char *ptr;
@@ -385,6 +386,7 @@ void listpackExExpire(redisDb *db, kvobj *kv, ExpireInfo *info) {
 
         propagateHashFieldDeletion(db, key, (char *)((fref) ? fref : intbuf), flen);
         server.stat_expired_subkeys++;
+        if (!lazy) server.stat_expired_subkeys_active++;
 
         ptr = lpNext(lpt->lp, ptr);
 
@@ -1870,7 +1872,7 @@ void hashTypeRandomElement(robj *hashobj, unsigned long hashsize, CommonEntry *k
  * - 0 if hash got deleted
  * - EB_EXPIRE_TIME_INVALID if no more fields to expire
  */
-uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires) {
+uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int updateSubexpires, int lazy) {
     uint64_t noExpireLeftRes = EB_EXPIRE_TIME_INVALID;
     ExpireInfo info = {0};
 
@@ -1880,14 +1882,14 @@ uint64_t hashTypeActiveExpire(redisDb *db, kvobj *o, uint32_t *quota, int update
                 .now = commandTimeSnapshot(),
                 .itemsExpired = 0};
 
-        listpackExExpire(db, o, &info);
+        listpackExExpire(db, o, &info, lazy);
     } else {
         serverAssert(o->encoding == OBJ_ENCODING_HT);
 
         dict *d = o->ptr;
         htMetadataEx *dictExpireMeta = htGetMetadataEx(d);
 
-        OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db };
+        OnFieldExpireCtx onFieldExpireCtx = { .hashObj = o, .db = db, .lazy = lazy };
 
         info = (ExpireInfo){
             .maxToExpire = *quota,
@@ -1962,7 +1964,7 @@ static int hashTypeExpireIfNeeded(redisDb *db, kvobj *o) {
 
     /* Take care to expire all the fields */
     uint32_t quota = UINT32_MAX;
-    nextExpireTime = hashTypeActiveExpire(db, o, &quota, 1);
+    nextExpireTime = hashTypeActiveExpire(db, o, &quota, 1, 1);
     /* return 1 if the entire hash was deleted */
     return nextExpireTime == 0;
 }
@@ -3504,6 +3506,8 @@ static ExpireAction onFieldExpire(eItem item, void *ctx) {
     if (server.memory_tracking_per_slot)
         updateSlotAllocSize(expCtx->db, getKeySlot(key), oldsize, hashTypeAllocSize(kv));
     server.stat_expired_subkeys++;
+    if (!expCtx->lazy)
+        server.stat_expired_subkeys_active++;
     return ACT_REMOVE_EXP_ITEM;
 }
 

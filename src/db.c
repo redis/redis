@@ -2656,8 +2656,10 @@ long long getExpire(redisDb *db, sds key, kvobj *kv) {
  * which config to look for lazy free, stats var to increment, and so on.
  *
  * key_mem_freed is an out parameter which contains the estimated
- * amount of memory freed due to the trimming (may be NULL) */
-static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, long long *key_mem_freed) {
+ * amount of memory freed due to the trimming (may be NULL)
+ *
+ * lazy indicates whether the expiration is lazy expire or active expire. */
+static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, long long *key_mem_freed, int lazy) {
     mstime_t latency;
     int del_flag = notify_type == NOTIFY_EXPIRED ? DB_FLAG_KEY_EXPIRED : DB_FLAG_KEY_EVICTED;
     int lazy_flag = notify_type == NOTIFY_EXPIRED ? server.lazyfree_lazy_expire : server.lazyfree_lazy_eviction;
@@ -2698,23 +2700,25 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, lo
     keyModified(NULL, db, keyobj, NULL, 1);
     propagateDeletion(db, keyobj, lazy_flag);
 
-    if (notify_type == NOTIFY_EXPIRED)
+    if (notify_type == NOTIFY_EXPIRED) {
         server.stat_expiredkeys++;
-    else
+        if (!lazy) server.stat_expiredkeys_active++;
+    } else {
         server.stat_evictedkeys++;
+    }
 
     if (static_key)
         decrRefCount(keyobj);
 }
 
 /* Delete the specified expired key and propagate. */
-void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
-    deleteKeyAndPropagate(db, keyobj, NOTIFY_EXPIRED, NULL);
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj, int lazy) {
+    deleteKeyAndPropagate(db, keyobj, NOTIFY_EXPIRED, NULL, lazy);
 }
 
 /* Delete the specified evicted key and propagate. */
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed) {
-    deleteKeyAndPropagate(db, keyobj, NOTIFY_EVICTED, key_mem_freed);
+    deleteKeyAndPropagate(db, keyobj, NOTIFY_EVICTED, key_mem_freed, 0);
 }
 
 /* Propagate an implicit key deletion into replicas and the AOF file.
@@ -2875,11 +2879,11 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
 
     /* Perform deletion */
     if (key) {
-        deleteExpiredKeyAndPropagate(db, key);
+        deleteExpiredKeyAndPropagate(db, key, 1);
     } else {
         sds keyname = kvobjGetKey(kv);
         robj *tmpkey = createStringObject(keyname, sdslen(keyname));
-        deleteExpiredKeyAndPropagate(db, tmpkey);
+        deleteExpiredKeyAndPropagate(db, tmpkey, 1);
         decrRefCount(tmpkey);
     }
     return KEY_DELETED;
