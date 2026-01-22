@@ -9875,11 +9875,6 @@ int moduleTimerHandler(struct aeEventLoop *eventLoop, long long id, void *client
     }
     raxStop(&ri);
 
-    /* Update the time cache since moduleTimerHandler() can take a long time to execute,
-     * and the cached time may be stale by now. */
-    updateCachedTime(0);
-    resetAccumulatedTime();
-
     /* Reschedule the next timer or cancel it. */
     if (next_period <= 0) next_period = 1;
     if (raxSize(Timers) > 0) {

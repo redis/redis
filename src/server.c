@@ -1328,13 +1328,6 @@ void updateCachedTime(int update_daylight_info) {
     updateCachedTimeWithUs(update_daylight_info, us);
 }
 
-/* Reset the accumulated call duration and count. This is used to track when
- * to sync the cached time during command execution to avoid excessive syscalls. */
-void resetAccumulatedTime(void) {
-    server.accum_call_duration_since_ustime = 0;
-    server.accum_call_count_since_ustime = 0;
-}
-
 /* Performing required operations in order to enter an execution unit.
  * In general, if we are already inside an execution unit then there is nothing to do,
  * otherwise we need to update cache times so the same cached time will be used all over
@@ -1766,11 +1759,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     server.el_cron_duration = getMonotonicUs() - cron_start;
 
-    /* Update the time cache since serverCron() can take a long time to execute,
-     * and the cached time from afterSleep() may be stale by now. */
-    updateCachedTime(0);
-    resetAccumulatedTime();
-
     return 1000/server.hz;
 }
 
@@ -2089,7 +2077,6 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 
     /* Update the time cache. */
     updateCachedTime(1);
-    resetAccumulatedTime();
 
     /* Update command time snapshot in case it'll be required without a command
      * e.g. somehow used by module timers. Don't update it while yielding to a
@@ -3036,6 +3023,8 @@ void initServer(void) {
     server.last_sig_received = 0;
     memset(server.io_threads_clients_num, 0, sizeof(server.io_threads_clients_num));
     atomicSetWithSync(server.running, 0);
+    server.accum_call_count_since_ustime = 0;
+    server.monotonic_us_when_ustime = 0;
 
     /* Initiate acl info struct */
     server.acl_info.invalid_cmd_accesses = 0;
@@ -3862,9 +3851,31 @@ void call(client *c, int flags) {
     long long old_master_repl_offset = server.master_repl_offset;
     incrCommandStatsOnError(NULL, 0);
 
-    /* Pass current server.ustime to avoid ustime() call - time will be updated
-     * after command execution based on accumulated monotonic duration. */
-    const long long call_timer = server.ustime;
+    /* Use monotonic clock if available, and update cached time if needed */
+    const int use_hw_clock = monotonicGetType() == MONOTONIC_CLOCK_HW;
+    monotime monotonic_start = 0;
+    if (use_hw_clock) {
+        monotonic_start = getMonotonicUs();
+        if (server.execution_nesting == 0) {
+            server.accum_call_count_since_ustime++;
+            /* Sync cached time when monotonic clock moves more than 10us
+             * or after 25 commands */
+            if (monotonic_start - server.monotonic_us_when_ustime > 10 ||
+                server.accum_call_count_since_ustime > 25)
+            {
+                updateCachedTime(0);
+                /* Recalculate monotonic_start after time update as ustime()
+                 * in updateCachedTime() might have taken some time */
+                monotonic_start = getMonotonicUs();
+                server.monotonic_us_when_ustime = monotonic_start;
+                server.accum_call_count_since_ustime = 0;
+            }
+        }
+    }
+
+    /* Pass current server.ustime to avoid ustime() call if monotonic clock is used
+     * and time will be updated before command execution based on monotonic clock. */
+    const long long call_timer = use_hw_clock ? server.ustime : ustime();
     enterExecutionUnit(1, call_timer);
 
     /* setting the CLIENT_EXECUTING_COMMAND flag so we will avoid
@@ -3872,12 +3883,6 @@ void call(client *c, int flags) {
      * In case of blocking commands, the flag will be un-set only after successfully
      * re-processing and unblock the client.*/
     c->flags |= CLIENT_EXECUTING_COMMAND;
-
-    /* Use monotonic clock if available */
-    const int use_hw_clock = monotonicGetType() == MONOTONIC_CLOCK_HW;
-    monotime monotonic_start = 0;
-    if (use_hw_clock)
-        monotonic_start = getMonotonicUs();
 
     c->cmd->proc(c);
 
@@ -3887,35 +3892,13 @@ void call(client *c, int flags) {
      * it means the execution is not yet completed and we MIGHT reprocess the command in the future. */
     if (!(c->flags & CLIENT_BLOCKED)) c->flags &= ~(CLIENT_EXECUTING_COMMAND);
 
-    /* In order to avoid performance implication due to querying the clock using a system call,
-     * we use the monotonic HW clock to measure duration when available.
-     * We accumulate durations and only call ustime() when the accumulated
-     * duration crosses a threshold (10us) or after 25 commands to reduce syscall overhead. */
+    /* In order to avoid performance implication due to querying the clock using a system call 3 times,
+     * we use a monotonic clock, when we are sure its cost is very low, and fall back to non-monotonic call otherwise. */
     ustime_t duration;
-    if (use_hw_clock) {
+    if (use_hw_clock)
         duration = getMonotonicUs() - monotonic_start;
-        /* Only accumulate and update cached time for top-level commands to ensure
-         * nested calls (e.g., from modules) see consistent cached time */
-        if (server.execution_nesting == 0) {
-            server.accum_call_duration_since_ustime += duration;
-            server.accum_call_count_since_ustime++;
-            /* Sync cached time when accumulated duration crosses 10us or after 25 commands */
-            if (server.accum_call_duration_since_ustime > 10 || server.accum_call_count_since_ustime >= 25) {
-                updateCachedTimeWithUs(0, ustime());
-                resetAccumulatedTime();
-            }
-        }
-    } else {
-        /* Fallback: call ustime() directly and update cached time */
-        const long long now = ustime();
-        duration = now - call_timer;
-        /* Only update cached time for top-level commands to ensure
-         * nested calls see consistent time */
-        if (server.execution_nesting == 0) {
-            updateCachedTimeWithUs(0, now);
-        }
-    }
-
+    else
+        duration = ustime() - call_timer;
 
     c->duration += duration;
     dirty = server.dirty-dirty;

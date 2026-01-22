@@ -450,11 +450,6 @@ static int evictionTimeProc(
     /* For EVICT_OK - things are good, no need to keep evicting.
      * For EVICT_FAIL - there is nothing left to evict.  */
     isEvictionProcRunning = 0;
-
-    /* Update the time cache since evictionTimeProc() can take a long time to execute,
-     * and the cached time may be stale by now. */
-    updateCachedTime(0);
-    resetAccumulatedTime();
     return AE_NOMORE;
 }
 
