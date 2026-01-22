@@ -1969,10 +1969,10 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
     if (group && min_idle_time != -1) {
         arraylen_ptr = addReplyDeferredLen(c);
         /* Scan and process the group's pending entries list (PEL) in a single loop.
-         * To prevent a dead loop caused by pelListUpdate() reordering the linked list,
-         * we store the current tail pointer before processing. We iterate only up to
-         * this pre-determined boundary, ensuring we never process entries that are
-         * added or moved during iteration.
+         * To prevent a dead loop caused by pelListUpdate() moving elements from the
+         * beginning to the end of the list, we store the current tail pointer before
+         * processing. We iterate only up to this pre-determined boundary, ensuring we
+         * never process entries that are added or moved during iteration.
          *
          * The iteration can terminate early when:
          * 1. We find an entry that hasn't been idle long enough
@@ -1992,8 +1992,6 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             if (idle < (uint64_t)min_idle_time) break;
 
             /* Process and claim this entry */
-            unsigned char buf[sizeof(streamID)];
-            streamEncodeID(buf, &nack->id);
             uint64_t delivery_count = nack->delivery_count;
 
             streamID pel_id;
@@ -2018,12 +2016,14 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
 
                 /* Transfer ownership if needed */
                 if (nack->consumer != consumer) {
+                    unsigned char buf[sizeof(streamID)];
+                    streamEncodeID(buf, &nack->id);
                     raxRemove(nack->consumer->pel,buf,sizeof(buf),NULL);
                     nack->consumer = consumer;
                     raxInsert(consumer->pel,buf,sizeof(buf),nack,NULL);
                 }
                 nack->delivery_count++;
-                pelListUpdate(group, nack, cmd_time_snapshot); /* May reorder list */
+                pelListUpdate(group, nack, cmd_time_snapshot); /* Moves element from beginning to end of list */
 
                 consumer->active_time = cmd_time_snapshot;
 
@@ -5229,7 +5229,7 @@ int streamValidateListpackIntegrity(unsigned char *lp, size_t size, int deep) {
  * ordered by delivery_time. Almost all NACK updates set delivery_time to current
  * time, making this an append-to-tail workload. The doubly-linked list provides
  * O(1) unlink from any position, O(1) append to tail, O(1) access to oldest
- * entries for CLAIM operations, and better cache locality than tree traversal. */
+ * entries for CLAIM operations. */
 
 /* Insert a NACK at the tail of the PEL time-ordered list. This is used when
  * delivery_time is set to current time, which is the common case. */
