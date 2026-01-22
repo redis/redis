@@ -44,7 +44,8 @@ int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
     enterExecutionUnit(1, 0);
     sds key = kvobjGetKey(kv);
     robj *keyobj = createStringObject(key,sdslen(key));
-    deleteExpiredKeyAndPropagate(db,keyobj,1);
+    deleteExpiredKeyAndPropagate(db,keyobj);
+    server.stat_expiredkeys_active++;
     decrRefCount(keyobj);
     exitExecutionUnit();
     /* Propagate the DEL command */

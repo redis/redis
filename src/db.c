@@ -2660,9 +2660,7 @@ long long getExpire(redisDb *db, sds key, kvobj *kv) {
  *
  * active_expire is only used when notify_type is NOTIFY_EXPIRED, indicates
  * whether it's active expire (1) or lazy expire (0). */
-static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type,
-                                  long long *key_mem_freed, int active_expire)
-{
+static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type, long long *key_mem_freed) {
     mstime_t latency;
     int del_flag = notify_type == NOTIFY_EXPIRED ? DB_FLAG_KEY_EXPIRED : DB_FLAG_KEY_EVICTED;
     int lazy_flag = notify_type == NOTIFY_EXPIRED ? server.lazyfree_lazy_expire : server.lazyfree_lazy_eviction;
@@ -2703,25 +2701,23 @@ static void deleteKeyAndPropagate(redisDb *db, robj *keyobj, int notify_type,
     keyModified(NULL, db, keyobj, NULL, 1);
     propagateDeletion(db, keyobj, lazy_flag);
 
-    if (notify_type == NOTIFY_EXPIRED) {
+    if (notify_type == NOTIFY_EXPIRED)
         server.stat_expiredkeys++;
-        if (active_expire) server.stat_expiredkeys_active++;
-    } else {
+    else
         server.stat_evictedkeys++;
-    }
 
     if (static_key)
         decrRefCount(keyobj);
 }
 
 /* Delete the specified expired key and propagate. */
-void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj, int active_expire) {
-    deleteKeyAndPropagate(db, keyobj, NOTIFY_EXPIRED, NULL, active_expire);
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj) {
+    deleteKeyAndPropagate(db, keyobj, NOTIFY_EXPIRED, NULL);
 }
 
 /* Delete the specified evicted key and propagate. */
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed) {
-    deleteKeyAndPropagate(db, keyobj, NOTIFY_EVICTED, key_mem_freed, 0);
+    deleteKeyAndPropagate(db, keyobj, NOTIFY_EVICTED, key_mem_freed);
 }
 
 /* Propagate an implicit key deletion into replicas and the AOF file.
@@ -2882,11 +2878,11 @@ keyStatus expireIfNeeded(redisDb *db, robj *key, kvobj *kv, int flags) {
 
     /* Perform deletion */
     if (key) {
-        deleteExpiredKeyAndPropagate(db, key, 0);
+        deleteExpiredKeyAndPropagate(db, key);
     } else {
         sds keyname = kvobjGetKey(kv);
         robj *tmpkey = createStringObject(keyname, sdslen(keyname));
-        deleteExpiredKeyAndPropagate(db, tmpkey, 0);
+        deleteExpiredKeyAndPropagate(db, tmpkey);
         decrRefCount(tmpkey);
     }
     return KEY_DELETED;

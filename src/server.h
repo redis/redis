@@ -3883,7 +3883,7 @@ void updateSlotAllocSize(redisDb *db, int didx, size_t oldsize, size_t newsize);
 void dbgAssertKeysizesHist(redisDb *db);
 void dbgAssertAllocSizePerSlot(redisDb *db);
 int removeExpire(redisDb *db, robj *key);
-void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj, int active_expire);
+void deleteExpiredKeyAndPropagate(redisDb *db, robj *keyobj);
 void deleteEvictedKeyAndPropagate(redisDb *db, robj *keyobj, long long *key_mem_freed);
 void propagateDeletion(redisDb *db, robj *key, int lazy);
 int keyIsExpired(redisDb *db, sds key, kvobj *kv);
