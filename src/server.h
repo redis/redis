@@ -1577,7 +1577,7 @@ typedef struct client {
     /* list node in clients_pending_write list */
     listNode clients_pending_write_node;
     /* list node in clients_with_pending_ref_reply list */
-    listNode *pending_ref_reply_node;
+    listNode pending_ref_reply_node;
     /* Statistics and metrics */
     size_t net_input_bytes_curr_cmd; /* Total network input bytes read for the
                                       * execution of this client's current command. */
