@@ -425,7 +425,7 @@ Attributes are accessed using dot notation:
 
 Expressions can work with:
 
-- Numbers (dobule precision floats)
+- Numbers (double precision floats)
 - Strings (enclosed in single or double quotes)
 - Booleans (no native type: they are represented as 1 for true, 0 for false)
 - Arrays (for use with the `in` operator: `value in [1, 2, 3]`)
@@ -437,7 +437,7 @@ JSON attributes are converted in this way:
 - Booleans to 0 or 1 number.
 - Arrays to tuples (for "in" operator), but only if composed of just numbers and strings.
 
-Any other type is ignored, and accessig it will make the expression evaluate to false.
+Any other type is ignored, and accessing it will make the expression evaluate to false.
 
 ### The IN operator
 
