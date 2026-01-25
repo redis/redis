@@ -3042,7 +3042,7 @@ static void setProtocolError(const char *errstr, client *c) {
     if (server.verbosity <= LL_VERBOSE || c->flags & CLIENT_MASTER) {
         sds client = catClientInfoString(sdsempty(),c);
 
-        /* Sample some protocol to given an idea about what was inside. */
+        /* Sample some protocol to give an idea about what was inside. */
         char buf[256];
         if (server.hide_user_data_from_log) {
             snprintf(buf,sizeof(buf),"Query buffer during protocol error: '*redacted*'");  
