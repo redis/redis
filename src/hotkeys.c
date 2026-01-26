@@ -335,6 +335,11 @@ void hotkeysCommand(client *c) {
                 sample_ratio = (int)ratio_val;
                 j += 2;
             } else if (moreargs && !strcasecmp(c->argv[j]->ptr, "SLOTS")) {
+                if (!server.cluster_enabled) {
+                    addReplyError(c, "SLOTS parameter cannot be used in non-cluster mode");
+                    return;
+                }
+
                 if (slots) {
                     addReplyError(c, "SLOTS parameter already specified");
                     zfree(slots);
@@ -487,25 +492,25 @@ void hotkeysCommand(client *c) {
             addReplyLongLong(c, server.hotkeys->slots[i]);
         }
 
-        /* sampled-command-selected-slots-ms (conditional) */
+        /* sampled-command-selected-slots-us (conditional) */
         if (has_sampling && has_selected_slots) {
-            addReplyBulkCString(c, "sampled-command-selected-slots-ms");
-            addReplyLongLong(c, server.hotkeys->time_sampled_commands_selected_slots / 1000);
+            addReplyBulkCString(c, "sampled-command-selected-slots-us");
+            addReplyLongLong(c, server.hotkeys->time_sampled_commands_selected_slots);
 
             total_len += 2;
         }
 
-        /* all-commands-selected-slots-ms (conditional) */
+        /* all-commands-selected-slots-us (conditional) */
         if (has_selected_slots) {
-            addReplyBulkCString(c, "all-commands-selected-slots-ms");
-            addReplyLongLong(c, server.hotkeys->time_all_commands_selected_slots / 1000);
+            addReplyBulkCString(c, "all-commands-selected-slots-us");
+            addReplyLongLong(c, server.hotkeys->time_all_commands_selected_slots);
 
             total_len += 2;
         }
 
-        /* all-commands-all-slots-ms */
-        addReplyBulkCString(c, "all-commands-all-slots-ms");
-        addReplyLongLong(c, server.hotkeys->time_all_commands_all_slots / 1000);
+        /* all-commands-all-slots-us */
+        addReplyBulkCString(c, "all-commands-all-slots-us");
+        addReplyLongLong(c, server.hotkeys->time_all_commands_all_slots);
 
         /* net-bytes-sampled-commands-selected-slots (conditional) */
         if (has_sampling && has_selected_slots) {
@@ -556,9 +561,9 @@ void hotkeysCommand(client *c) {
             total_len += 2;
         }
 
-        /* by-cpu-time - only if CPU tracking is enabled */
+        /* by-cpu-time-us - only if CPU tracking is enabled */
         if (server.hotkeys->tracked_metrics & HOTKEYS_TRACK_CPU) {
-            addReplyBulkCString(c, "by-cpu-time");
+            addReplyBulkCString(c, "by-cpu-time-us");
             /* Nested array of key-value pairs */
             addReplyArrayLen(c, 2 * cpu_count);
             for (int i = 0; i < cpu_count; ++i) {
