@@ -4,7 +4,6 @@
 #include <strings.h>
 #include <assert.h>
 #include <unistd.h>
-#include <pthread.h>
 
 #define UNUSED(V) ((void) V)
 
@@ -584,88 +583,6 @@ int blockonkeys_blpopn(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return REDISMODULE_OK;
 }
 
-/* Background thread data for testing UAF fix */
-typedef struct {
-    RedisModuleBlockedClient *bc;
-    long long sleep_ms;
-} uaf_thread_data_t;
-
-/* Background thread that attempts to unblock client after a delay.
- * This tests the UAF fix where client may disconnect before thread runs. */
-static void *uaf_unblock_thread(void *arg) {
-    uaf_thread_data_t *data = arg;
-
-    /* Sleep to allow client to potentially disconnect */
-    usleep(data->sleep_ms * 1000);
-
-    /* Attempt to unblock - should return ERR if client already freed */
-    int result = RedisModule_UnblockClient(data->bc, NULL);
-
-    RedisModule_Free(data);
-    return (void*)(long)result;
-}
-
-int uaf_reply_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(ctx);
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-    return REDISMODULE_ERR;
-}
-
-int uaf_timeout_callback(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    REDISMODULE_NOT_USED(argv);
-    REDISMODULE_NOT_USED(argc);
-    return RedisModule_ReplyWithSimpleString(ctx, "Timeout");
-}
-
-/* BLOCKONKEYS.UAFTEST key sleep_ms timeout
- *
- * Blocks on a key and spawns a background thread that will try to unblock
- * after sleep_ms milliseconds. This tests the UAF fix where the client
- * disconnects before the background thread calls RM_UnblockClient.
- * The fix should prevent use-after-free by validating the bc pointer. */
-int blockonkeys_uaftest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-    if (argc != 4)
-        return RedisModule_WrongArity(ctx);
-
-    long long sleep_ms;
-    if (RedisModule_StringToLongLong(argv[2], &sleep_ms) != REDISMODULE_OK) {
-        return RedisModule_ReplyWithError(ctx, "ERR Invalid sleep_ms");
-    }
-
-    long long timeout;
-    if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
-        return RedisModule_ReplyWithError(ctx, "ERR Invalid timeout");
-    }
-
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, argv[1], REDISMODULE_READ);
-    int keytype = RedisModule_KeyType(key);
-    RedisModule_CloseKey(key);
-
-    if (keytype != REDISMODULE_KEYTYPE_EMPTY) {
-        return RedisModule_ReplyWithError(ctx, "ERR Key must be empty to block");
-    }
-
-    /* Block the client on the key */
-    RedisModuleBlockedClient *bc = RedisModule_BlockClientOnKeys(
-        ctx, uaf_reply_callback, uaf_timeout_callback,
-        NULL, timeout, &argv[1], 1, NULL);
-
-    /* Spawn background thread that will try to unblock after delay */
-    uaf_thread_data_t *data = RedisModule_Alloc(sizeof(*data));
-    data->bc = bc;
-    data->sleep_ms = sleep_ms;
-
-    pthread_t tid;
-    if (pthread_create(&tid, NULL, uaf_unblock_thread, data) != 0) {
-        RedisModule_Free(data);
-        return RedisModule_ReplyWithError(ctx, "ERR Failed to create thread");
-    }
-    pthread_detach(tid);
-
-    return REDISMODULE_OK;
-}
-
 int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     REDISMODULE_NOT_USED(argv);
     REDISMODULE_NOT_USED(argc);
@@ -724,10 +641,5 @@ int RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     if (RedisModule_CreateCommand(ctx, "blockonkeys.blpopn_or_unblock", blockonkeys_blpopn,
                                       "write", 1, 1, 1) == REDISMODULE_ERR)
         return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "blockonkeys.uaftest", blockonkeys_uaftest,
-                                      "write", 1, 1, 1) == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
     return REDISMODULE_OK;
 }

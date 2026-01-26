@@ -285,12 +285,6 @@ static list *moduleAuthCallbacks;
 static pthread_mutex_t moduleUnblockedClientsMutex = PTHREAD_MUTEX_INITIALIZER;
 static list *moduleUnblockedClients;
 
-/* Dict to track valid blocked client pointers. This prevents use-after-free
- * when module threads call RM_UnblockClient() with a bc pointer that has
- * already been freed. Keys are bc pointers (cast to void*), values are NULL.
- * Protected by moduleUnblockedClientsMutex. */
-static dict *moduleBlockedClientsSet;
-
 /* Pool for temporary client objects. Creating and destroying a client object is
  * costly. We manage a pool of clients to avoid this cost. Pool expands when
  * more clients are needed and shrinks when unused. Please see modulesCron()
@@ -8063,12 +8057,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
     bc->background_timer = 0;
     bc->background_duration = 0;
 
-    /* Register this bc pointer as valid so RM_UnblockClient can safely check it.
-     * Must be done immediately after allocation so early returns don't leak bc. */
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    dictAdd(moduleBlockedClientsSet, bc, NULL);
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
-
     mstime_t timeout = 0;
     if (timeout_ms) {
         mstime_t now = mstime();
@@ -8099,7 +8087,6 @@ RedisModuleBlockedClient *moduleBlockClient(RedisModuleCtx *ctx, RedisModuleCmdF
             blockClient(c,BLOCKED_MODULE);
         }
     }
-
     return bc;
 }
 
@@ -8245,13 +8232,6 @@ int attemptBlockedAuthReplyCallback(client *c, robj *username, robj *password, r
     c->module_blocked_client = NULL;
     c->lastcmd->microseconds += bc->background_duration;
     bc->module->blocked_clients--;
-
-    /* Remove bc from valid set before freeing to prevent use-after-free
-     * in concurrent RM_UnblockClient() calls from module threads. */
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
-    dictDelete(moduleBlockedClientsSet, bc);
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
-
     zfree(bc);
     return result;
 }
@@ -8476,9 +8456,9 @@ void RM_SignalKeyAsReady(RedisModuleCtx *ctx, RedisModuleString *key) {
     signalKeyAsReady(ctx->client->db, key, OBJ_MODULE);
 }
 
-/* Implements RM_UnblockClient() and moduleUnblockClient().
- * IMPORTANT: Caller must hold moduleUnblockedClientsMutex. */
+/* Implements RM_UnblockClient() and moduleUnblockClient(). */
 int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
+    pthread_mutex_lock(&moduleUnblockedClientsMutex);
     if (!bc->blocked_on_keys) bc->privdata = privdata;
     bc->unblocked = 1;
     if (listLength(moduleUnblockedClients) == 0) {
@@ -8487,6 +8467,7 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
         }
     }
     listAddNodeTail(moduleUnblockedClients,bc);
+    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
 }
 
@@ -8494,9 +8475,7 @@ int moduleUnblockClientByHandle(RedisModuleBlockedClient *bc, void *privdata) {
  * by a module. */
 void moduleUnblockClient(client *c) {
     RedisModuleBlockedClient *bc = c->bstate.module_blocked_handle;
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
     moduleUnblockClientByHandle(bc,NULL);
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
 }
 
 /* Return true if the client 'c' was blocked by a module using
@@ -8526,34 +8505,14 @@ int moduleClientIsBlockedOnKeys(client *c) {
  * RedisModule_BlockClientOnKeys() is accessible from the timeout
  * callback via RM_GetBlockedClientPrivateData). */
 int RM_UnblockClient(RedisModuleBlockedClient *bc, void *privdata) {
-    /* Validate bc pointer before dereferencing. Module threads may call this
-     * with a bc pointer that has already been freed (e.g., on client disconnect).
-     * We check if bc is in our valid set without dereferencing it. */
-    pthread_mutex_lock(&moduleUnblockedClientsMutex);
-
-    if (dictFind(moduleBlockedClientsSet, bc) == NULL) {
-        /* bc pointer is not valid (already freed), return error */
-        pthread_mutex_unlock(&moduleUnblockedClientsMutex);
-        return REDISMODULE_ERR;
-    }
-
-    /* bc is valid, safe to access its fields now */
     if (bc->blocked_on_keys) {
         /* In theory the user should always pass the timeout handler as an
          * argument, but better to be safe than sorry. */
-        if (bc->timeout_callback == NULL) {
-            pthread_mutex_unlock(&moduleUnblockedClientsMutex);
-            return REDISMODULE_ERR;
-        }
-        if (bc->unblocked) {
-            pthread_mutex_unlock(&moduleUnblockedClientsMutex);
-            return REDISMODULE_OK;
-        }
+        if (bc->timeout_callback == NULL) return REDISMODULE_ERR;
+        if (bc->unblocked) return REDISMODULE_OK;
         if (bc->client) bc->blocked_on_keys_explicit_unblock = 1;
     }
-
     moduleUnblockClientByHandle(bc,privdata);
-    pthread_mutex_unlock(&moduleUnblockedClientsMutex);
     return REDISMODULE_OK;
 }
 
@@ -8688,12 +8647,6 @@ void moduleHandleBlockedClients(void) {
          * when calling unblockClient(). */
         if (!(c && clientHasModuleAuthInProgress(c))) {
             bc->module->blocked_clients--;
-
-            /* Remove bc from valid set before freeing to prevent use-after-free
-             * in concurrent RM_UnblockClient() calls from module threads. */
-            pthread_mutex_lock(&moduleUnblockedClientsMutex);
-            dictDelete(moduleBlockedClientsSet, bc);
-            pthread_mutex_unlock(&moduleUnblockedClientsMutex);
             zfree(bc);
         }
 
@@ -12620,26 +12573,8 @@ dictType sdsKeyValueHashDictType = {
     NULL                        /* allow to expand */
 };
 
-/* Compare function for pointer keys - direct pointer comparison */
-static int dictPtrKeyCompare(dictCmpCache *cache, const void *key1, const void *key2) {
-    UNUSED(cache);
-    return key1 == key2;
-}
-
-/* Dict type for tracking valid RedisModuleBlockedClient pointers */
-static dictType moduleBlockedClientsSetType = {
-    dictPtrHash,               /* hash function */
-    NULL,                      /* key dup */
-    NULL,                      /* val dup */
-    dictPtrKeyCompare,         /* key compare */
-    NULL,                      /* key destructor */
-    NULL,                      /* val destructor */
-    NULL                       /* allow to expand */
-};
-
 void moduleInitModulesSystem(void) {
     moduleUnblockedClients = listCreate();
-    moduleBlockedClientsSet = dictCreate(&moduleBlockedClientsSetType);
     server.loadmodule_queue = listCreate();
     server.module_configs_queue = dictCreate(&sdsKeyValueHashDictType);
     server.module_gil_acquring = 0;
