@@ -186,10 +186,10 @@ rax *raxNew(void) {
     return raxNewWithMetadata(0, NULL);
 }
 
-/* Allocate a new rax with metadata.
- * When RAX_ACCOUNT_ALLOC_SIZE is set in flags radix tree will account for used
- * memory in passed `palloc_size` pointer. Note, that in this case the first
- * sizeof(size_t *) bytes of metadata will be used for storing the pointer. */
+/* Allocate a new rax with metadata. On out of memory the function
+ * returns NULL.
+ * If passed `alloc_size` is non-NULL, rax will account for its used
+ * memory at this location. */
 rax *raxNewWithMetadata(int metaSize, size_t *alloc_size) {
     size_t usable;
     rax *rax = rax_malloc_usable(sizeof(*rax) + metaSize, &usable);

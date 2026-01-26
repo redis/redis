@@ -1,0 +1,80 @@
+{
+    "START": {
+        "summary": "Starts hotkeys tracking.",
+        "complexity": "O(1)",
+        "group": "server",
+        "since": "8.6.0",
+        "arity": -2,
+        "container": "HOTKEYS",
+        "function": "hotkeysCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "reply_schema": {
+            "const": "OK"
+        },
+        "arguments": [
+            {
+                "token": "METRICS",
+                "name": "metrics",
+                "type": "block",
+                "optional": false,
+                "arguments": [
+                    {
+                        "name": "count",
+                        "type": "integer"
+                    },
+                    {
+                        "token": "CPU",
+                        "name": "cpu",
+                        "type": "pure-token",
+                        "optional": true
+                    },
+                    {
+                        "token": "NET",
+                        "name": "net",
+                        "type": "pure-token",
+                        "optional": true
+                    }
+                ]
+            },
+            {
+                "token": "COUNT",
+                "name": "k",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "DURATION",
+                "name": "seconds",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "SAMPLE",
+                "name": "ratio",
+                "type": "integer",
+                "optional": true
+            },
+            {
+                "token": "SLOTS",
+                "name": "slots",
+                "type": "block",
+                "optional": true,
+                "arguments": [
+                    {
+                        "name": "count",
+                        "type": "integer"
+                    },
+                    {
+                        "name": "slot",
+                        "type": "integer",
+                        "multiple": true
+                    }
+                ]
+            }
+        ]
+    }
+}
+

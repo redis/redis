@@ -35,7 +35,8 @@ proc get_one_of_my_replica {id} {
 
     # To avoid -LOADING reply, wait until replica syncs with master.
     wait_for_condition 1000 50 {
-        [RI $replica_id_num master_link_status] eq {up}
+        [RI $replica_id_num master_link_status] eq {up} &&
+        [R $replica_id_num dbsize] eq [R $id dbsize]
     } else {
         fail "Replica did not sync in time."
     }

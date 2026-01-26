@@ -416,6 +416,38 @@ start_server {} {
     } {OK}
 }
 
+start_server {overrides {save "900 1"}} {
+    test "rdb_saves_consecutive_failures metric" {
+        assert_equal [s rdb_saves_consecutive_failures] 0
+
+        # First bgsave failure
+        r config set rdb-key-save-delay 10000000
+        populate 100
+        r bgsave
+        set pid1 [get_child_pid 0]
+        catch {exec kill -9 $pid1}
+        waitForBgsave r
+
+        assert_equal [s rdb_saves_consecutive_failures] 1
+
+        # Second bgsave failure
+        r bgsave
+        set pid2 [get_child_pid 0]
+        catch {exec kill -9 $pid2}
+        waitForBgsave r
+
+        assert_equal [s rdb_saves_consecutive_failures] 2
+
+        # Successful bgsave should reset counter
+        r config set rdb-key-save-delay 0
+        r bgsave
+        waitForBgsave r
+
+        # Counter should be reset to 0 after success
+        assert_equal [s rdb_saves_consecutive_failures] 0
+    }
+}
+
 set server_path [tmpdir "server.partial-hfield-exp-test"]
 
 # verifies writing and reading hash key with expiring and persistent fields

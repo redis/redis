@@ -29,34 +29,62 @@
 #include "dict.h"
 #include "adlist.h"
 
-/* maximum number of bins of keysizes histogram */
-#define MAX_KEYSIZES_BINS 60
-#define MAX_KEYSIZES_TYPES 5 /* static_assert at db.c verifies == OBJ_TYPE_BASIC_MAX */
-
-/* When creating kvstore with flag `KVSTORE_ALLOC_META_KEYS_HIST`, then kvstore 
- * alloc and memset struct kvstoreMetadata on init, yet, managed outside kvstore */
-typedef struct {
-    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
-} kvstoreMetadata;
-
-/* Like kvstoreMetadata, this one per dict */
-typedef struct {
-    size_t alloc_size; /* total memory used (in bytes) by this dict */
-    int64_t keysizes_hist[MAX_KEYSIZES_TYPES][MAX_KEYSIZES_BINS];
-} kvstoreDictMetadata;
-
 typedef struct _kvstore kvstore;
-typedef struct _kvstoreIterator kvstoreIterator;
-typedef struct _kvstoreDictIterator kvstoreDictIterator;
+
+/* Structure for kvstore iterator that allows iterating across multiple dicts. */
+typedef struct _kvstoreIterator {
+    kvstore *kvs;
+    long long didx;
+    long long next_didx;
+    dictIterator di;
+} kvstoreIterator;
+
+/* Structure for kvstore dict iterator that allows iterating the corresponding dict. */
+typedef struct _kvstoreDictIterator {
+    kvstore *kvs;
+    long long didx;
+    dictIterator di;
+} kvstoreDictIterator;
 
 typedef int (kvstoreScanShouldSkipDict)(dict *d, int didx);
 typedef int (kvstoreExpandShouldSkipDictIndex)(int didx);
 typedef int (kvstoreRandomShouldSkipDictIndex)(int didx);
 
+/* kvstoreType: Callback structure for kvstore-specific operations.
+ * Similar to dictType for dict, this allows kvstore to be a generic data structure
+ * without hardcoding dependencies on specific subsystems. */
+typedef struct kvstoreType {
+    /* Allow kvstore to carry extra caller-defined metadata. The
+     * extra memory is initialized to 0 when a kvstore is allocated. */
+    size_t (*kvstoreMetadataBytes)(kvstore *kvs);
+
+    /* Allow a per slot dicts to carry extra caller-defined metadata. The
+     * extra memory is initialized to 0 when each dict is allocated. */
+    size_t (*dictMetadataBytes)(dict *d);
+
+    /* Check if a dict at given index can be freed. Used by kvstore when
+     * KVSTORE_FREE_EMPTY_DICTS is set. Return 1 if can free, 0 otherwise.
+     * Parameters: kvstore pointer, dict index */
+    int (*canFreeDict)(kvstore *kvs, int didx);
+
+    /* Called when kvstore becomes empty. */
+    void (*onKvstoreEmpty)(kvstore *kvs);
+
+    /* Called when per slot dict becomes empty. Parameters: kvstore pointer,
+     * dict index. */
+    void (*onDictEmpty)(kvstore *kvs, int didx);
+} kvstoreType;
+
+/* Basic metadata allocated per dict.
+ * If additional metadata needed, embed this structure as the first member
+ * in a new, larger structure. */
+typedef struct {
+    listNode *rehashing_node;   /* list node in rehashing list */
+} kvstoreDictMetaBase;
+
 #define KVSTORE_ALLOCATE_DICTS_ON_DEMAND (1<<0)
 #define KVSTORE_FREE_EMPTY_DICTS (1<<1)
-#define KVSTORE_ALLOC_META_KEYS_HIST (1<<2) /* Alloc keysizes histogram */
-kvstore *kvstoreCreate(dictType *type, int num_dicts_bits, int flags);
+kvstore *kvstoreCreate(kvstoreType *type, dictType *dtype, int num_dicts_bits, int flags);
 void kvstoreEmpty(kvstore *kvs, void(callback)(dict*));
 void kvstoreRelease(kvstore *kvs);
 unsigned long long kvstoreSize(kvstore *kvs);
@@ -80,8 +108,8 @@ int kvstoreNumDicts(kvstore *kvs);
 void kvstoreMoveDict(kvstore *kvs, kvstore *dst, int didx);
 
 /* kvstore iterator specific functions */
-kvstoreIterator *kvstoreIteratorInit(kvstore *kvs);
-void kvstoreIteratorRelease(kvstoreIterator *kvs_it);
+void kvstoreIteratorInit(kvstoreIterator *kvs_it, kvstore *kvs);
+void kvstoreIteratorReset(kvstoreIterator *kvs_it);
 dict *kvstoreIteratorNextDict(kvstoreIterator *kvs_it);
 int kvstoreIteratorGetCurrentDictIndex(kvstoreIterator *kvs_it);
 dictEntry *kvstoreIteratorNext(kvstoreIterator *kvs_it);
@@ -95,10 +123,9 @@ unsigned long kvstoreDictRehashingCount(kvstore *kvs);
 
 /* Specific dict access by dict-index */
 unsigned long kvstoreDictSize(kvstore *kvs, int didx);
-size_t kvstoreDictAllocSize(kvstore *kvs, int didx);
-kvstoreDictIterator *kvstoreGetDictIterator(kvstore *kvs, int didx);
-kvstoreDictIterator *kvstoreGetDictSafeIterator(kvstore *kvs, int didx);
-void kvstoreReleaseDictIterator(kvstoreDictIterator *kvs_id);
+void kvstoreInitDictIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx);
+void kvstoreInitDictSafeIterator(kvstoreDictIterator *kvs_di, kvstore *kvs, int didx);
+void kvstoreResetDictIterator(kvstoreDictIterator *kvs_di);
 dictEntry *kvstoreDictIteratorNext(kvstoreDictIterator *kvs_di);
 dictEntry *kvstoreDictGetRandomKey(kvstore *kvs, int didx);
 dictEntry *kvstoreDictGetFairRandomKey(kvstore *kvs, int didx);
@@ -114,12 +141,12 @@ dictEntryLink kvstoreDictTwoPhaseUnlinkFind(kvstore *kvs, int didx, const void *
 void kvstoreDictTwoPhaseUnlinkFree(kvstore *kvs, int didx, dictEntryLink plink, int table_index);
 int kvstoreDictDelete(kvstore *kvs, int didx, const void *key);
 dict *kvstoreGetDict(kvstore *kvs, int didx);
-kvstoreDictMetadata *kvstoreGetDictMetadata(kvstore *kvs, int didx);
-kvstoreMetadata *kvstoreGetMetadata(kvstore *kvs);
+void kvstoreFreeDictIfNeeded(kvstore *kvs, int didx);
+void *kvstoreGetDictMeta(kvstore *kvs, int didx, int createIfNeeded);
+void *kvstoreGetMetadata(kvstore *kvs);
 
 dictEntryLink kvstoreDictFindLink(kvstore *kvs, int didx, void *key, dictEntryLink *bucket);
 void kvstoreDictSetAtLink(kvstore *kvs, int didx, void *kv, dictEntryLink *link, int newItem);
-void kvstoreTrackDeallocation(dict *d, void *kv);
 
 /* dict with distinct key & value (no_value=1) currently is used only by pubsub. */
 void kvstoreDictSetKey(kvstore *kvs, int didx, dictEntry* de, void *key);

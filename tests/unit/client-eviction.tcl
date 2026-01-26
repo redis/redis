@@ -52,6 +52,7 @@ proc kb {v} {
 start_server {} {
     set maxmemory_clients 3000000
     r config set maxmemory-clients $maxmemory_clients
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
 
     test "client evicted due to large argv" {
         r flushdb
@@ -327,6 +328,7 @@ start_server {} {
     set obuf_limit [mb 3]
     r config set maxmemory-clients $maxmemory_clients
     r config set client-output-buffer-limit "normal $obuf_limit 0 0"
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
 
     test "avoid client eviction when client is freed by output buffer limit" {
         r flushdb
@@ -389,6 +391,8 @@ start_server {} {
 }
 
 start_server {} {
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
+
     test "decrease maxmemory-clients causes client eviction" {
         set maxmemory_clients [mb 4]
         set client_count 10
@@ -428,6 +432,8 @@ start_server {} {
 }
 
 start_server {} {
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
+
     test "evict clients only until below limit" {
         set client_count 10
         set client_mem [mb 1]
@@ -495,6 +501,8 @@ start_server {} {
 }
 
 start_server {} {
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
+
     test "evict clients in right order (large to small)" {
         # Note that each size step needs to be at least x2 larger than previous step
         # because of how the client-eviction size bucketing works
@@ -563,6 +571,8 @@ start_server {} {
 }
 
 start_server {} {
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
+
     foreach type {"client no-evict" "maxmemory-clients disabled"} {
         r flushall
         r client no-evict on

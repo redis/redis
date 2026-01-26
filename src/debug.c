@@ -141,22 +141,24 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
     if (o->type == OBJ_STRING) {
         mixStringObjectDigest(digest,o);
     } else if (o->type == OBJ_LIST) {
-        listTypeIterator *li = listTypeInitIterator(o,0,LIST_TAIL);
+        listTypeIterator li;
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        listTypeInitIterator(&li, o, 0, LIST_TAIL);
+        while(listTypeNext(&li, &entry)) {
             robj *eleobj = listTypeGet(&entry);
             mixStringObjectDigest(digest,eleobj);
             decrRefCount(eleobj);
         }
-        listTypeReleaseIterator(li);
+        listTypeResetIterator(&li);
     } else if (o->type == OBJ_SET) {
-        setTypeIterator *si = setTypeInitIterator(o);
+        setTypeIterator si;
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, o);
+        while((sdsele = setTypeNextObject(&si)) != NULL) {
             xorDigest(digest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
         }
-        setTypeReleaseIterator(si);
+        setTypeResetIterator(&si);
     } else if (o->type == OBJ_ZSET) {
         unsigned char eledigest[20];
 
@@ -197,9 +199,9 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
 
             dictInitIterator(&di, zs->dict);
             while((de = dictNext(&di)) != NULL) {
-                sds sdsele = dictGetKey(de);
-                double *score = dictGetVal(de);
-                const int len = fpconv_dtoa(*score, buf);
+                zskiplistNode *znode = dictGetKey(de);
+                sds sdsele = zslGetNodeElement(znode);
+                const int len = fpconv_dtoa(znode->score, buf);
                 buf[len] = '\0';
                 memset(eledigest,0,20);
                 mixDigest(eledigest,sdsele,sdslen(sdsele));
@@ -211,26 +213,27 @@ void xorObjectDigest(redisDb *db, robj *keyobj, unsigned char *digest, robj *o) 
             serverPanic("Unknown sorted set encoding");
         }
     } else if (o->type == OBJ_HASH) {
-        hashTypeIterator *hi = hashTypeInitIterator(o);
-        while (hashTypeNext(hi, 0) != C_ERR) {
+        hashTypeIterator hi;
+        hashTypeInitIterator(&hi, o);
+        while (hashTypeNext(&hi, 0) != C_ERR) {
             unsigned char eledigest[20];
             sds sdsele;
 
             /* field */
             memset(eledigest,0,20);
-            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_KEY);
+            sdsele = hashTypeCurrentObjectNewSds(&hi,OBJ_HASH_KEY);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
             /* val */
-            sdsele = hashTypeCurrentObjectNewSds(hi,OBJ_HASH_VALUE);
+            sdsele = hashTypeCurrentObjectNewSds(&hi,OBJ_HASH_VALUE);
             mixDigest(eledigest,sdsele,sdslen(sdsele));
             sdsfree(sdsele);
             /* hash-field expiration (HFE) */
-            if (hi->expire_time != EB_EXPIRE_TIME_INVALID)
+            if (hi.expire_time != EB_EXPIRE_TIME_INVALID)
                 xorDigest(eledigest,"!!hexpire!!",11);
             xorDigest(digest,eledigest,20);
         }
-        hashTypeReleaseIterator(hi);
+        hashTypeResetIterator(&hi);
     } else if (o->type == OBJ_STREAM) {
         streamIterator si;
         streamIteratorStart(&si,o->ptr,NULL,NULL,0);
@@ -286,14 +289,15 @@ void computeDatasetDigest(unsigned char *final) {
         redisDb *db = server.db+j;
         if (kvstoreSize(db->keys) == 0)
             continue;
-        kvstoreIterator *kvs_it = kvstoreIteratorInit(db->keys);
 
         /* hash the DB id, so the same dataset moved in a different DB will lead to a different digest */
         aux = htonl(j);
         mixDigest(final,&aux,sizeof(aux));
 
         /* Iterate this DB writing every entry */
-        while((de = kvstoreIteratorNext(kvs_it)) != NULL) {
+        kvstoreIterator kvs_it;
+        kvstoreIteratorInit(&kvs_it, db->keys);
+        while((de = kvstoreIteratorNext(&kvs_it)) != NULL) {
             robj *keyobj;
 
             memset(digest,0,20); /* This key-val digest */
@@ -309,7 +313,7 @@ void computeDatasetDigest(unsigned char *final) {
             xorDigest(final,digest,20);
             decrRefCount(keyobj);
         }
-        kvstoreIteratorRelease(kvs_it);
+        kvstoreIteratorReset(&kvs_it);
     }
 }
 
@@ -498,6 +502,8 @@ void debugCommand(client *c) {
 "    In case RESET is provided the peak reset time will be restored to the default value",
 "REPLYBUFFER RESIZING <0|1>",
 "    Enable or disable the reply buffer resize cron job",
+"REPLY-COPY-AVOIDANCE <0|1>",
+"    Enable/disable reply copy avoidance optimization.",
 "REPL-PAUSE <clear|after-fork|before-rdb-channel|on-streaming-repl-buf>",
 "    Pause the server's main process during various replication steps.",
 "DICT-RESIZING <0|1>",
@@ -781,7 +787,7 @@ NULL
                 memcpy(val->ptr, buf, valsize<=buflen? valsize: buflen);
             }
             dbAdd(c->db, key, &val);
-            signalModifiedKey(c,c->db,key);
+            keyModified(c,c->db,key,NULL,1);
             decrRefCount(key);
         }
         addReply(c,shared.ok);
@@ -1071,6 +1077,9 @@ NULL
             return;
         }
         addReply(c, shared.ok);
+    } else if (!strcasecmp(c->argv[1]->ptr,"reply-copy-avoidance") && c->argc == 3) {
+        server.reply_copy_avoidance_enabled = atoi(c->argv[2]->ptr);
+        addReply(c,shared.ok);
     } else if (!strcasecmp(c->argv[1]->ptr, "repl-pause") && c->argc == 3) {
         if (!strcasecmp(c->argv[2]->ptr, "clear")) {
             server.repl_debug_pause = REPL_DEBUG_PAUSE_NONE;

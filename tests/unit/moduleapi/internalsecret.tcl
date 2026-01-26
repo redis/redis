@@ -6,7 +6,7 @@ start_cluster 1 0 [list config_lines $modules] {
     set r [srv 0 client]
 
     test {Internal command without internal connection fails as an unknown command} {
-        assert_error {*unknown command*with args beginning with:*} {r internalauth.internalcommand}
+        assert_error {*unknown command*} {r internalauth.internalcommand}
     }
 
     test {Wrong internalsecret fails authentication} {

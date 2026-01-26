@@ -40,9 +40,11 @@ configEnum maxmemory_policy_enum[] = {
     {"volatile-lfu", MAXMEMORY_VOLATILE_LFU},
     {"volatile-random",MAXMEMORY_VOLATILE_RANDOM},
     {"volatile-ttl",MAXMEMORY_VOLATILE_TTL},
+    {"volatile-lrm",MAXMEMORY_VOLATILE_LRM},
     {"allkeys-lru",MAXMEMORY_ALLKEYS_LRU},
     {"allkeys-lfu",MAXMEMORY_ALLKEYS_LFU},
     {"allkeys-random",MAXMEMORY_ALLKEYS_RANDOM},
+    {"allkeys-lrm",MAXMEMORY_ALLKEYS_LRM},
     {"noeviction",MAXMEMORY_NO_EVICTION},
     {NULL, 0}
 };
@@ -93,10 +95,20 @@ configEnum shutdown_on_sig_enum[] = {
     {NULL, 0}
 };
 
+configEnum cluster_slot_stats_enum[] = {
+    {"no", 0},
+    {"yes", CLUSTER_SLOT_STATS_ALL},
+    {"cpu", CLUSTER_SLOT_STATS_CPU},
+    {"net", CLUSTER_SLOT_STATS_NET},
+    {"mem", CLUSTER_SLOT_STATS_MEM},
+    {NULL, 0}
+};
+
 configEnum repl_diskless_load_enum[] = {
     {"disabled", REPL_DISKLESS_LOAD_DISABLED},
     {"on-empty-db", REPL_DISKLESS_LOAD_WHEN_DB_EMPTY},
     {"swapdb", REPL_DISKLESS_LOAD_SWAPDB},
+    {"flushdb", REPL_DISKLESS_LOAD_ALWAYS},
     {NULL, 0}
 };
 
@@ -104,6 +116,12 @@ configEnum tls_auth_clients_enum[] = {
     {"no", TLS_CLIENT_AUTH_NO},
     {"yes", TLS_CLIENT_AUTH_YES},
     {"optional", TLS_CLIENT_AUTH_OPTIONAL},
+    {NULL, 0}
+};
+
+configEnum tls_client_auth_user_enum[] = {
+    {"CN", TLS_CLIENT_FIELD_CN},
+    {"off", TLS_CLIENT_FIELD_OFF},
     {NULL, 0}
 };
 
@@ -2097,10 +2115,6 @@ static int numericBoundaryCheck(standardConfig *config, long long ll, const char
         config->data.numeric.numeric_type == NUMERIC_TYPE_UINT ||
         config->data.numeric.numeric_type == NUMERIC_TYPE_SIZE_T) {
         /* Boundary check for unsigned types */
-        if (ll < 0) {
-            *err = "argument must be greater or equal to 0";
-            return 0;
-        }
         unsigned long long ull = ll;
         unsigned long long upper_bound = config->data.numeric.upper_bound;
         unsigned long long lower_bound = config->data.numeric.lower_bound;
@@ -2393,6 +2407,16 @@ static int isValidShutdownOnSigFlags(int val, const char **err) {
         *err = "shutdown options SAVE and NOSAVE can't be used simultaneously";
         return 0;
     }
+    return 1;
+}
+
+static int updateMemoryTrackingEnabled(const char **err) {
+    int memory_tracking_enabled = server.key_memory_histograms || clusterSlotStatsEnabled(CLUSTER_SLOT_STATS_MEM);
+    if (!server.memory_tracking_enabled && memory_tracking_enabled) {
+        *err = "memory tracking cannot be enabled at runtime";
+        return 0;
+    }
+    server.memory_tracking_enabled = memory_tracking_enabled;
     return 1;
 }
 
@@ -3125,7 +3149,9 @@ standardConfig static_configs[] = {
     createBoolConfig("replica-ignore-disk-write-errors", NULL, MODIFIABLE_CONFIG, server.repl_ignore_disk_write_error, 0, NULL, NULL),
     createBoolConfig("hide-user-data-from-log", NULL, MODIFIABLE_CONFIG, server.hide_user_data_from_log, 0, NULL, NULL),
     createBoolConfig("lazyexpire-nested-arbitrary-keys", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, server.lazyexpire_nested_arbitrary_keys, 1, NULL, NULL),
-    createBoolConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG, server.cluster_slot_stats_enabled, 0, NULL, NULL),
+    createEnumConfig("cluster-slot-stats-enabled", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, cluster_slot_stats_enum, server.cluster_slot_stats_enabled, 0, NULL, updateMemoryTrackingEnabled),
+    createBoolConfig("lua-enable-deprecated-api", NULL, IMMUTABLE_CONFIG | HIDDEN_CONFIG, server.lua_enable_deprecated_api, 0, NULL, NULL),
+    createBoolConfig("key-memory-histograms", NULL, MODIFIABLE_CONFIG, server.key_memory_histograms, 0, NULL, updateMemoryTrackingEnabled),
 
     /* String Configs */
     createStringConfig("aclfile", NULL, IMMUTABLE_CONFIG, ALLOW_EMPTY_STRING, server.acl_filename, "", NULL, NULL),
@@ -3180,7 +3206,7 @@ standardConfig static_configs[] = {
     createIntConfig("databases", NULL, IMMUTABLE_CONFIG, 1, INT_MAX, server.dbnum, 16, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("port", NULL, MODIFIABLE_CONFIG, 0, 65535, server.port, 6379, INTEGER_CONFIG, NULL, updatePort), /* TCP port. */
     createIntConfig("io-threads", NULL, DEBUG_CONFIG | IMMUTABLE_CONFIG, 1, 128, server.io_threads_num, 1, INTEGER_CONFIG, NULL, NULL), /* Single threaded by default */
-    createIntConfig("prefetch-batch-max-size", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 0, 128, server.prefetch_batch_max_size, 16, INTEGER_CONFIG, NULL, NULL),
+    createIntConfig("prefetch-batch-max-size", NULL, MODIFIABLE_CONFIG | HIDDEN_CONFIG, 0, PREFETCH_BATCH_MAX_SIZE, server.prefetch_batch_max_size, 16, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("auto-aof-rewrite-percentage", NULL, MODIFIABLE_CONFIG, 0, INT_MAX, server.aof_rewrite_perc, 100, INTEGER_CONFIG, NULL, NULL),
     createIntConfig("cluster-replica-validity-factor", "cluster-slave-validity-factor", MODIFIABLE_CONFIG, 0, INT_MAX, server.cluster_slave_validity_factor, 10, INTEGER_CONFIG, NULL, NULL), /* Slave max data age factor. */
     createIntConfig("list-max-listpack-size", "list-max-ziplist-size", MODIFIABLE_CONFIG, INT_MIN, INT_MAX, server.list_max_listpack_size, -2, INTEGER_CONFIG, NULL, NULL),
@@ -3245,6 +3271,8 @@ standardConfig static_configs[] = {
     createLongLongConfig("latency-monitor-threshold", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.latency_monitor_threshold, 0, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("proto-max-bulk-len", NULL, DEBUG_CONFIG | MODIFIABLE_CONFIG, 1024*1024, LONG_MAX, server.proto_max_bulk_len, 512ll*1024*1024, MEMORY_CONFIG, NULL, NULL), /* Bulk request max size */
     createLongLongConfig("stream-node-max-entries", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.stream_node_max_entries, 100, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("stream-idmp-duration", NULL, MODIFIABLE_CONFIG, CONFIG_STREAM_IDMP_MIN_DURATION, CONFIG_STREAM_IDMP_MAX_DURATION, server.stream_idmp_duration, 100, INTEGER_CONFIG, NULL, NULL),
+    createLongLongConfig("stream-idmp-maxsize", NULL, MODIFIABLE_CONFIG, CONFIG_STREAM_IDMP_MIN_MAXSIZE, CONFIG_STREAM_IDMP_MAX_MAXSIZE, server.stream_idmp_maxsize, 100, INTEGER_CONFIG, NULL, NULL),
     createLongLongConfig("repl-backlog-size", NULL, MODIFIABLE_CONFIG, 1, LLONG_MAX, server.repl_backlog_size, 1024*1024, MEMORY_CONFIG, NULL, updateReplBacklogSize), /* Default: 1mb */
     createLongLongConfig("replica-full-sync-buffer-limit", NULL, MODIFIABLE_CONFIG, 0, LLONG_MAX, server.repl_full_sync_buffer_limit, 0, MEMORY_CONFIG, NULL, NULL), /* Default: Inherits 'client-output-buffer-limit <replica>' */
 
@@ -3279,6 +3307,7 @@ standardConfig static_configs[] = {
     createBoolConfig("tls-cluster", NULL, MODIFIABLE_CONFIG, server.tls_cluster, 0, NULL, applyTlsCfg),
     createBoolConfig("tls-replication", NULL, MODIFIABLE_CONFIG, server.tls_replication, 0, NULL, applyTlsCfg),
     createEnumConfig("tls-auth-clients", NULL, MODIFIABLE_CONFIG, tls_auth_clients_enum, server.tls_auth_clients, TLS_CLIENT_AUTH_YES, NULL, NULL),
+    createEnumConfig("tls-auth-clients-user", NULL, MODIFIABLE_CONFIG, tls_client_auth_user_enum, server.tls_ctx_config.client_auth_user, TLS_CLIENT_FIELD_OFF, NULL, NULL),
     createBoolConfig("tls-prefer-server-ciphers", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.prefer_server_ciphers, 0, NULL, applyTlsCfg),
     createBoolConfig("tls-session-caching", NULL, MODIFIABLE_CONFIG, server.tls_ctx_config.session_caching, 1, NULL, applyTlsCfg),
     createStringConfig("tls-cert-file", NULL, VOLATILE_CONFIG | MODIFIABLE_CONFIG, EMPTY_STRING_IS_NULL, server.tls_ctx_config.cert_file, NULL, NULL, applyTlsCfg),

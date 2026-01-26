@@ -374,6 +374,35 @@ tags {"aof external:skip"} {
         }
     }
 
+    test {skip EXEC ACL check during AOF load} {
+        set user_acl "default on nopass ~* &* +@read -@write +multi +exec +select +ping"
+
+        create_aof_manifest $aof_dirpath $aof_manifest_file {
+            append_to_manifest "file appendonly.aof.1.incr.aof seq 1 type i\n"
+        }
+
+        create_aof $aof_dirpath $aof_file {
+            append_to_aof [formatCommand set beforetx beforetx]
+            append_to_aof [formatCommand multi]
+            append_to_aof [formatCommand set tx1 tx1]
+            append_to_aof [formatCommand set tx2 tx2]
+            append_to_aof [formatCommand exec]
+            append_to_aof [formatCommand set aftertx aftertx]
+        }
+
+        start_server_aof [list dir $server_path user $user_acl] {
+            set c [redis [srv host] [srv port] 0 $::tls]
+            wait_done_loading $c
+            assert_equal {beforetx} [$c get beforetx]
+            assert_equal {aftertx}  [$c get aftertx]
+            assert_equal {tx1} [$c get tx1]
+            assert_equal {tx2} [$c get tx2]
+
+            catch {$c set newkey value} e
+            assert_match {*NOPERM*set*} $e
+        }
+    }
+
     # redis could load AOF which has timestamp annotations inside
     create_aof $aof_dirpath $aof_file {
         append_to_aof "#TS:1628217470\r\n"

@@ -80,6 +80,8 @@ run_solo {defrag} {
     # note: Disabling lookahead because it changes the number and order of allocations which interferes with defrag and causes tests to fail
     r config set lookahead 1
 
+    r debug reply-copy-avoidance 0 ;# Disable copy avoidance because it affects memory usage
+
     if {[string match {*jemalloc*} [s mem_allocator]] && [r debug mallctl arenas.page] <= 8192} {
         test "Active defrag main dictionary: $type" {
             r config set hz 100
@@ -234,12 +236,24 @@ run_solo {defrag} {
             # Populate memory with interleaving script-key pattern of same size
             set dummy_script "--[string repeat x 400]\nreturn "
             set rd [redis_deferring_client]
+            # Send commands in batches and read responses to avoid TCP deadlock.
+            # Without interleaving reads, TCP congestion control can throttle
+            # the connection when buffers fill, causing the test to hang.
+            set batch_size 1000
             for {set j 0} {$j < $n} {incr j} {
                 set val "$dummy_script[format "%06d" $j]"
                 $rd script load $val
                 $rd set k$j $val
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read ; # Discard script load replies
+                        $rd read ; # Discard set replies
+                    }
+                }
             }
-            for {set j 0} {$j < $n} {incr j} {
+            # Read remaining responses
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} {
                 $rd read ; # Discard script load replies
                 $rd read ; # Discard set replies
             }
@@ -253,8 +267,21 @@ run_solo {defrag} {
             assert_lessthan [s allocator_frag_ratio] 1.05
 
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            # Use same batching pattern to avoid TCP deadlock
+            for {set j 0} {$j < $n} {incr j} {
+                $rd del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd read }
+            if {$type eq "cluster"} {
+                $rd config resetstat
+                $rd read ; # Discard config resetstat reply
+            }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -323,16 +350,25 @@ run_solo {defrag} {
             r xreadgroup GROUP mygroup Alice COUNT 1 STREAMS stream >
 
             # create big keys with 10k items
+            # Use batching to avoid TCP deadlock
             set rd [redis_deferring_client]
+            set batch_size 1000
             for {set j 0} {$j < 10000} {incr j} {
                 $rd hset bighash $j [concat "asdfasdfasdf" $j]
                 $rd lpush biglist [concat "asdfasdfasdf" $j]
                 $rd zadd bigzset $j [concat "asdfasdfasdf" $j]
                 $rd sadd bigset [concat "asdfasdfasdf" $j]
                 $rd xadd bigstream * item 1 value a
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < [expr {$batch_size * 5}]} {incr i} {
+                        $rd read
+                    }
+                }
             }
-            for {set j 0} {$j < 50000} {incr j} {
-                $rd read ; # Discard replies
+            # Read remaining replies
+            set remaining [expr {(10000 % $batch_size) * 5}]
+            for {set j 0} {$j < $remaining} {incr j} {
+                $rd read
             }
 
             # create some small items (effective in cluster-enabled)
@@ -476,8 +512,22 @@ run_solo {defrag} {
             assert_lessthan [s allocator_frag_ratio] 1.05
 
             # Delete all the keys to create fragmentation
-            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
-            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            # Use batching to avoid TCP deadlock
+            set batch_size 1000
+            for {set j 0} {$j < $n} {incr j} {
+                $rd del k$j
+                if {($j + 1) % $batch_size == 0} {
+                    for {set i 0} {$i < $batch_size} {incr i} {
+                        $rd read
+                    }
+                }
+            }
+            set remaining [expr {$n % $batch_size}]
+            for {set j 0} {$j < $remaining} {incr j} { $rd read }
+            if {$type eq "cluster"} {
+                $rd config resetstat
+                $rd read ; # Discard config resetstat reply
+            }
             $rd close
             after 120 ;# serverCron only updates the info once in 100ms
             if {$::verbose} {
@@ -531,6 +581,110 @@ run_solo {defrag} {
             $rd_pubsub close
         }
 
+        test "Active defrag IDMP streams: $type" {
+            r flushdb
+            r config set hz 100
+            r config set activedefrag no
+            wait_for_defrag_stop 500 100
+            r config resetstat
+            r config set active-defrag-threshold-lower 5
+            r config set active-defrag-cycle-min 65
+            r config set active-defrag-cycle-max 75
+            r config set active-defrag-ignore-bytes 1500kb
+            r config set maxmemory 0
+
+            set n 50000
+
+            # Create the stream first and configure IDMP limits
+            r xadd idmpstream * dummy value
+            r xcfgset idmpstream idmp-maxsize 10000 ;# Allow 10000 entries per producer
+
+            # Populate memory with interleaving IDMP stream-key pattern of same size
+            set dummy_iid "[string repeat x 400]"
+            set rd [redis_deferring_client]
+            for {set j 0} {$j < $n} {incr j} {
+                set producer_id "producer[expr {$j % 10}]"
+                set iid "$dummy_iid[format "%06d" $j]"
+                $rd xadd idmpstream IDMP $producer_id $iid * field value
+                $rd set k$j $iid
+            }
+            for {set j 0} {$j < [expr {$n * 2}]} {incr j} {
+                $rd read ; # Discard replies
+            }
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_lessthan [s allocator_frag_ratio] 1.05
+
+                # Verify IDMP structures were created
+            set idmp_info [r xinfo stream idmpstream full]
+            set num_producers [dict get $idmp_info pids-tracked]
+            set num_entries [dict get $idmp_info iids-tracked]
+            assert {$num_producers == 10}
+            assert {$num_entries == $n}
+
+            # Delete all the keys to create fragmentation
+            for {set j 0} {$j < $n} {incr j} { $rd del k$j }
+            for {set j 0} {$j < $n} {incr j} { $rd read } ; # Discard del replies
+            if {$type eq "cluster"} {
+                $rd config resetstat
+                $rd read ; # Discard config resetstat reply
+            }
+            $rd close
+            after 120 ;# serverCron only updates the info once in 100ms
+            if {$::verbose} {
+                puts "used [s allocator_allocated]"
+                puts "rss [s allocator_active]"
+                puts "frag [s allocator_frag_ratio]"
+                puts "frag_bytes [s allocator_frag_bytes]"
+            }
+            assert_morethan [s allocator_frag_ratio] 1.35
+
+            catch {r config set activedefrag yes} e
+            if {[r config get activedefrag] eq "activedefrag yes"} {
+            
+                # wait for the active defrag to start working (decision once a second)
+                wait_for_condition 50 100 {
+                    [s total_active_defrag_time] ne 0
+                } else {
+                    after 120 ;# serverCron only updates the info once in 100ms
+                    puts [r info memory]
+                    puts [r info stats]
+                    puts [r memory malloc-stats]
+                    fail "defrag not started."
+                }
+
+                # wait for the active defrag to stop working
+                wait_for_defrag_stop 500 100 1.1
+
+                # test the fragmentation is lower
+                after 120 ;# serverCron only updates the info once in 100ms
+                if {$::verbose} {
+                    puts "used [s allocator_allocated]"
+                    puts "rss [s allocator_active]"
+                    puts "frag [s allocator_frag_ratio]"
+                    puts "frag_bytes [s allocator_frag_bytes]"
+                }
+
+                # Verify IDMP structures are intact after defrag
+                set idmp_info_after [r xinfo stream idmpstream full]
+                set num_producers_after [dict get $idmp_info_after pids-tracked]
+                set num_entries_after [dict get $idmp_info_after iids-tracked]
+                assert {$num_producers_after == 10}
+                assert {$num_entries_after == $n}
+
+                # Verify IDMP deduplication still works after defrag
+                set original_length [r xlen idmpstream]
+                r xadd idmpstream IDMP producer0 "${dummy_iid}000000" * field newvalue
+                set new_length [r xlen idmpstream]
+                assert {$new_length == $original_length}
+            }
+        }
+
         foreach {eb_container fields n} {eblist 16 3000 ebrax 30 1600 large_ebrax 500 100} {
         test "Active Defrag HFE with $eb_container: $type" {
             r flushdb
@@ -547,6 +701,7 @@ run_solo {defrag} {
             r config set hash-max-listpack-entries 10
 
             # Populate memory with interleaving hash field of same size
+            # Interleave reads to avoid TCP deadlock
             set dummy_field "[string repeat x 400]"
             set rd [redis_deferring_client]
             for {set i 0} {$i < $n} {incr i} {
@@ -557,9 +712,7 @@ run_solo {defrag} {
                     $rd hexpire k$i 9999999 FIELDS 1 $dummy_field$j
                 }
                 $rd expire h$i 9999999 ;# Ensure expire is updated after kvobj reallocation
-            }
-            
-            for {set i 0} {$i < $n} {incr i} {
+                # Read replies for this iteration to avoid TCP deadlock
                 for {set j 0} {$j < $fields} {incr j} {
                     $rd read ; # Discard hset replies
                     $rd read ; # Discard hexpire replies
@@ -696,6 +849,9 @@ run_solo {defrag} {
             }
             for {set i 0} {$i < [llength $clients]} {incr i} {
                 [lindex $clients $i] close
+            }
+            if {$type eq "cluster"} {
+                r config resetstat
             }
 
             after 120 ;# serverCron only updates the info once in 100ms
@@ -1010,11 +1166,11 @@ run_solo {defrag} {
         }
     } {} {defrag external:skip tsan:skip debug_defrag:skip cluster}
 
-    start_cluster 1 0 {tags {"defrag external:skip tsan:skip debug_defrag:skip cluster"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_cluster 1 0 {tags {"defrag external:skip tsan:skip debug_defrag:skip cluster needs:debug"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "cluster"
     }
 
-    start_server {tags {"defrag external:skip tsan:skip debug_defrag:skip standalone"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
+    start_server {tags {"defrag external:skip tsan:skip debug_defrag:skip standalone needs:debug"} overrides {appendonly yes auto-aof-rewrite-percentage 0 save "" loglevel notice}} {
         test_active_defrag "standalone"
     }
 } ;# run_solo

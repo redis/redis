@@ -160,7 +160,9 @@ foreach call_type {nested normal} {
 
         # make sure we didn't get BUSY error, it simply blocked till the command was done
         r ping
-        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] 200
+        # The command blocks for 200ms, allow 1-2ms clock skew (1%)
+        # to accommodate differences between using of monotonic timer and ustime
+        assert_morethan_equal [expr [clock clicks -milliseconds]-$start] 198
         $rd read
 
         $rd close
@@ -227,7 +229,7 @@ foreach call_type {nested normal} {
         r config resetstat
 
         # simple module command that replies with string error
-        assert_error "ERR unknown command 'hgetalllll', with args beginning with:" {r do_rm_call hgetalllll}
+        assert_error "ERR unknown command 'hgetalllll'" {r do_rm_call hgetalllll}
         assert_equal [errorrstat ERR r] {count=1}
 
         # simple module command that replies with string error

@@ -230,11 +230,12 @@ static inline void prefetchKVOject(KeyPrefetchInfo *info) {
 static void prefetchValueData(KeyPrefetchInfo *info) {
     size_t i = batch->cur_idx;
     kvobj *kv = info->current_kv;
+    sds key = kvobjGetKey(kv);
 
     /* 1. If this is the last element, we assume a hit and don't compare the keys
      * 2. This kv object is the target of the lookup. */
     if ((!dictGetNext(info->current_entry) && !dictIsRehashing(batch->current_dicts[i])) ||
-        dictCompareKeys(batch->current_dicts[i], batch->keys[i], kv))
+        dictCompareKeys(batch->current_dicts[i], batch->keys[i], key))
     {
         if (batch->get_value_data_func) {
             void *value_data = batch->get_value_data_func(kv);
@@ -318,7 +319,7 @@ int determinePrefetchCount(int len) {
 
     /* The batch max size is double of the configured size. */
     int config_size = batch->max_prefetch_size / 2;
-    return len < server.prefetch_batch_max_size ? len : config_size;
+    return len < (int)batch->max_prefetch_size ? len : config_size;
 }
 
 /* Prefetch command-related data:

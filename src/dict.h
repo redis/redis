@@ -11,6 +11,31 @@
  * Licensed under your choice of (a) the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
+ *
+ * Dict usage of pointer tagging
+ * -----------------------------
+ * In the "normal" case (no_value=0), a dict slot contains only a pointer to a 
+ * dictEntry, and dictEntry holds untagged pointers to key and value. But when a 
+ * dict is used as a set (no_value=1), we optimize by storing direct key pointers 
+ * when possible, avoiding dictEntry allocation. This happens when A bucket contains 
+ * only one key, or at the tail of a collision chain. Redis dicts uses pointer 
+ * tagging, to identify direct key pointers from dictEntry pointers, i.e embedding 
+ * metadata in the lowest three bits of pointers. This requires 8-byte alignment, 
+ * which zmalloc() guarantees on both 32-bit and 64-bit systems (via jemalloc/tcmalloc, 
+ * or standard malloc with explicit PREFIX_SIZE=8).
+ * 
+ * Besides of distinguishing direct key pointers from dictEntry pointers, we also 
+ * need to distinguish between even and odd key pointers that being stored in the 
+ * dict. Therefore, we use the following tagging scheme:
+ * - dictEntry pointer: Points to a dictEntry structure (8-byte aligned). Left intact: 
+ *   ENTRY_PTR_NORMAL=000
+ * - Odd-address key (keys_are_odd=1): Direct pointer to a 
+ *   key with odd address (e.g., all SDS strings), Left intact: 
+ *   ENTRY_PTR_IS_ODD_KEY=XX1
+ * - Even-address key  (keys_are_odd=0): Direct pointer to a key with 
+ *   even address. Since 8-byte alignment yields bits = 000, same as dictEntry, 
+ *   we tag it by setting bit 1 which results with: 
+ *   ENTRY_PTR_IS_EVEN_KEY=010.
  */
 
 #ifndef __DICT_H
@@ -26,6 +51,19 @@
 
 /* Hash table parameters */
 #define HASHTABLE_MIN_FILL        8      /* Minimal hash table fill 12.5%(100/8) */
+
+/* stored-key vs. key
+ * ------------------
+ * If dictType.keyFromStoredKey is non-NULL, then dict distinguishes between the
+ * lookup key and the actual stored-key object. In this case, "key" is used to 
+ * locate entries, while "storedKey" is the actual element stored in the dict.
+ * If dictType.keyFromStoredKey is NULL, the lookup "key" and the stored-key are the
+ * same. This API is primarily relevant for no_value=1 dicts, where the key and value
+ * might be packed together. When values are stored separately, this identity 
+ * distinction does not arise. The marker __stored_key is used to indicate that 
+ * the pointer refers to the stored-key rather than the lookup key.
+ */
+#define __stored_key
 
 typedef struct dictEntry dictEntry; /* opaque */
 typedef struct dict dict;
@@ -53,10 +91,10 @@ typedef struct dictCmpCache {
 typedef struct dictType {
     /* Callbacks */
     uint64_t (*hashFunction)(const void *key);
-    void *(*keyDup)(dict *d, const void *key);
+    void *(*keyDup)(dict *d, const void *key __stored_key);
     void *(*valDup)(dict *d, const void *obj);
     int (*keyCompare)(dictCmpCache *cache, const void *key1, const void *key2);
-    void (*keyDestructor)(dict *d, void *key);
+    void (*keyDestructor)(dict *d, void *key __stored_key);
     void (*valDestructor)(dict *d, void *obj);
     int (*resizeAllowed)(size_t moreMem, double usedRatio);
     /* Invoked at the start of dict initialization/rehashing (old and new ht are already created) */
@@ -87,30 +125,13 @@ typedef struct dictType {
 
     /* Ensures that the entire hash table is rehashed at once if set. */
     unsigned int force_full_rehash:1;
-
-    /* Sometimes we want the ability to store a key in a given way inside the hash
-     * function, and lookup it in some other way without resorting to any kind of
-     * conversion. For instance the key may be stored as a structure also
-     * representing other things, but the lookup happens via just a pointer to a
-     * null terminated string. Optionally providing additional hash/cmp functions,
-     * dict supports such usage. In that case we'll have a hashFunction() that will
-     * expect a null terminated C string, and a storedHashFunction() that will
-     * instead expect the structure. Similarly, the two comparison functions will
-     * work differently. The keyCompare() will treat the first argument as a pointer
-     * to a C string and the other as a structure (this way we can directly lookup
-     * the structure key using the C string). While the storedKeyCompare() will
-     * check if two pointers to the key in structure form are the same.
-     *
-     * However, functions of dict that gets key as argument (void *key) don't get
-     * any indication whether it is a lookup or stored key. To indicate that
-     * you intend to use key of type stored-key, and, consequently, use
-     * dedicated compare and hash functions of stored-key, is by calling
-     * dictUseStoredKeyApi(1) before using any of the dict functions that gets
-     * key as a parameter and then call again  dictUseStoredKeyApi(0) once done.
-     *
-     * Set to NULL both functions, if you don't want to support this feature. */
-    uint64_t (*storedHashFunction)(const void *key);
-    int (*storedKeyCompare)(dictCmpCache *cache, const void *key1, const void *key2);
+    
+    /* Callback to extract key from stored-key object. When set, the dict can
+     * store keys in one format (e.g., a structure) but look them up using a
+     * different format, extracted from the stored-key. (e.g., sds or integer). 
+     * Set to NULL if key and stored-key object are the same. Relevant only for
+     * no_value=1 dicts. */
+    const void *(*keyFromStoredKey)(const void *key __stored_key);
 
     /* Optional callback called when the dict is destroyed. */
     void (*onDictRelease)(dict *d);
@@ -127,10 +148,11 @@ struct dict {
 
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
 
-    /* Keep small vars at end for optimal (minimal) struct padding */
-    unsigned pauserehash : 15; /* If >0 rehashing is paused */
+    /* Note: pauserehash is a full unsigned so iterator increments
+     * don't perform RMW on the same storage unit as other bitfields. */
+    unsigned pauserehash; /* If >0 rehashing is paused */
 
-    unsigned useStoredKeyApi : 1; /* See comment of storedHashFunction above */
+    /* Keep small vars at end for optimal (minimal) struct padding */
     signed char ht_size_exp[2]; /* exponent of size. (size = 1<<exp) */
     int16_t pauseAutoResize;  /* If >0 automatic resizing is disallowed (<0 indicates coding error) */
     void *metadata[];
@@ -194,7 +216,6 @@ typedef struct {
 #define dictIsRehashingPaused(d) ((d)->pauserehash > 0)
 #define dictPauseAutoResize(d) ((d)->pauseAutoResize++)
 #define dictResumeAutoResize(d) ((d)->pauseAutoResize--)
-#define dictUseStoredKeyApi(d, flag) ((d)->useStoredKeyApi = (flag))
 
 /* If our unsigned long type can store a 64 bit number, use a 64 bit PRNG. */
 #if ULONG_MAX >= 0xffffffffffffffff
@@ -215,10 +236,10 @@ void dictTypeAddMeta(dict **d, dictType *typeWithMeta);
 int dictExpand(dict *d, unsigned long size);
 int dictTryExpand(dict *d, unsigned long size);
 int dictShrink(dict *d, unsigned long size);
-int dictAdd(dict *d, void *key, void *val);
-dictEntry *dictAddRaw(dict *d, void *key, dictEntry **existing);
-dictEntry *dictAddOrFind(dict *d, void *key);
-int dictReplace(dict *d, void *key, void *val);
+int dictAdd(dict *d, void *key __stored_key, void *val);
+dictEntry *dictAddRaw(dict *d, void *key __stored_key, dictEntry **existing);
+dictEntry *dictAddOrFind(dict *d, void *key __stored_key);
+int dictReplace(dict *d, void *key __stored_key, void *val);
 int dictDelete(dict *d, const void *key);
 dictEntry *dictUnlink(dict *d, const void *key);
 void dictFreeUnlinkedEntry(dict *d, dictEntry *he);
@@ -264,10 +285,10 @@ void dictCombineStats(dictStats *from, dictStats *into);
 void dictFreeStats(dictStats *stats);
 
 dictEntryLink dictFindLink(dict *d, const void *key, dictEntryLink *bucket);
-void dictSetKeyAtLink(dict *d, void *key, dictEntryLink *link, int newItem);
+void dictSetKeyAtLink(dict *d, void *key __stored_key, dictEntryLink *link, int newItem);
 
 /* API relevant only when dict is used as a hash-map (no_value=0) */ 
-void dictSetKey(dict *d, dictEntry* de, void *key);
+void dictSetKey(dict *d, dictEntry* de, void *key __stored_key);
 void dictSetVal(dict *d, dictEntry *de, void *val);
 void *dictGetVal(const dictEntry *de);
 void dictSetDoubleVal(dictEntry *de, double val);

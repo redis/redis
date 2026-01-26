@@ -288,8 +288,9 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for lua-scripts, without cross-slot keys." {
-        r eval [format "#!lua
-            redis.call('set', '%s', 'bar'); redis.call('get', '%s')" $key $key] 0
+        R 0 eval {#!lua
+            redis.call('set', KEYS[1], 'bar') redis.call('get', KEYS[2])
+        } 2 $key $key
 
         set eval_usec [get_cmdstat_usec eval r]
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
@@ -305,9 +306,9 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for lua-scripts, with cross-slot keys." {
-        r eval [format "#!lua flags=allow-cross-slot-keys
-            redis.call('set', '%s', 'bar'); redis.call('get', '%s');
-        " $key $key_secondary] 0
+        R 0 eval {#!lua flags=allow-cross-slot-keys
+            redis.call('set', KEYS[1], 'bar') redis.call('get', ARGV[1])
+        } 1 $key $key_secondary
 
         # For cross-slot, we do not accumulate at all.
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
@@ -317,13 +318,13 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for functions, without cross-slot keys." {
-        set function_str [format "#!lua name=f1
+        R 0 function load replace {#!lua name=f1
             redis.register_function{
                 function_name='f1',
-                callback=function() redis.call('set', '%s', '1') redis.call('get', '%s') end
-            }" $key $key]
-        r function load replace $function_str
-        r fcall f1 0
+                callback=function(keys, args) redis.call('set', keys[1], '1') redis.call('get', keys[2]) end
+            }
+        }
+        R 0 fcall f1 2 $key $key
 
         set fcall_usec [get_cmdstat_usec fcall r]
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
@@ -339,14 +340,14 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
     R 0 FLUSHALL
 
     test "CLUSTER SLOT-STATS cpu-usec for functions, with cross-slot keys." {
-        set function_str [format "#!lua name=f1
+        R 0 function load replace {#!lua name=f1
             redis.register_function{
                 function_name='f1',
-                callback=function() redis.call('set', '%s', '1') redis.call('get', '%s') end,
+                callback=function(keys, args) redis.call('set', keys[1], '1') redis.call('get', args[1]) end,
                 flags={'allow-cross-slot-keys'}
-            }" $key $key_secondary]
-        r function load replace $function_str
-        r fcall f1 0
+            }
+        }
+        R 0 fcall f1 1 $key $key_secondary
 
         # For cross-slot, we do not accumulate at all.
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
@@ -876,6 +877,12 @@ start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY $orderby}
         set orderby "network-bytes-out"
         assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY $orderby}
+        set orderby "memory-bytes"
+        assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY $orderby}
+
+        # When only cpu net is enabled, memory-bytes ORDERBY should fail
+        R 0 CONFIG SET cluster-slot-stats-enabled "cpu net"
+        assert_error "ERR*" {R 0 CLUSTER SLOT-STATS ORDERBY memory-bytes}
     }
 
 }
@@ -1030,5 +1037,133 @@ start_cluster 2 2 {tags {external:skip cluster} overrides {cluster-slot-stats-en
         # Verify metrics are reset except key-count
         set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 0]
         assert_empty_slot_stats_with_exception $slot_stats $expected_slot_stats $metrics_to_assert
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Test cases for CLUSTER SLOT-STATS memory-bytes field presence.
+# -----------------------------------------------------------------------------
+
+start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled yes}} {
+    # Define shared variables.
+    set key "FOO"
+    set key_slot [R 0 cluster keyslot $key]
+
+    test "CLUSTER SLOT-STATS memory-bytes field present when cluster-slot-stats-enabled set on startup" {
+        R 0 SET $key VALUE
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        # Verify memory-bytes field is present
+        assert {[dict exists $slot_stats $key_slot]}
+        set stats [dict get $slot_stats $key_slot]
+        assert {[dict exists $stats memory-bytes]}
+        assert {[dict get $stats memory-bytes] > 0}
+    }
+
+    test "CLUSTER SLOT-STATS net mem combination shows only net and mem stats" {
+        R 0 CONFIG SET cluster-slot-stats-enabled "net mem"
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        set stats [dict get $slot_stats $key_slot]
+        assert {[dict exists $stats memory-bytes]}
+        assert {[dict exists $stats network-bytes-in]}
+        assert {[dict exists $stats network-bytes-out]}
+        assert {![dict exists $stats cpu-usec]}
+    }
+
+    test "CLUSTER SLOT-STATS cpu mem combination shows only cpu and mem stats" {
+        R 0 CONFIG SET cluster-slot-stats-enabled "cpu mem"
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        set stats [dict get $slot_stats $key_slot]
+        assert {[dict exists $stats memory-bytes]}
+        assert {[dict exists $stats cpu-usec]}
+        assert {![dict exists $stats network-bytes-in]}
+        assert {![dict exists $stats network-bytes-out]}
+
+        # Restore to yes for subsequent tests
+        R 0 CONFIG SET cluster-slot-stats-enabled yes
+    }
+
+    test "CLUSTER SLOT-STATS memory-bytes field not present after disabling cluster-slot-stats-enabled" {
+        R 0 CONFIG SET cluster-slot-stats-enabled no
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        # Verify memory-bytes field is not present after disabling config
+        # (memory tracking is disabled when MEM flag is removed)
+        assert {[dict exists $slot_stats $key_slot]}
+        set stats [dict get $slot_stats $key_slot]
+        assert {![dict exists $stats memory-bytes]}
+
+        # Verify other stats fields are not present
+        assert {![dict exists $stats cpu-usec]}
+        assert {![dict exists $stats network-bytes-in]}
+        assert {![dict exists $stats network-bytes-out]}
+    }
+
+    test "CLUSTER SLOT-STATS memory tracking cannot be re-enabled after being disabled" {
+        # Once memory tracking is disabled, it cannot be re-enabled at runtime
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {R 0 CONFIG SET cluster-slot-stats-enabled yes}
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {R 0 CONFIG SET cluster-slot-stats-enabled mem}
+
+        # But cpu and net can still be enabled
+        R 0 CONFIG SET cluster-slot-stats-enabled "cpu net"
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        assert {[dict exists $slot_stats $key_slot]}
+        set stats [dict get $slot_stats $key_slot]
+        assert {![dict exists $stats memory-bytes]}
+        assert {[dict exists $stats cpu-usec]}
+        assert {[dict exists $stats network-bytes-in]}
+        assert {[dict exists $stats network-bytes-out]}
+    }
+}
+
+start_cluster 1 0 {tags {external:skip cluster} overrides {cluster-slot-stats-enabled no}} {
+    # Define shared variables.
+    set key "FOO"
+    set key_slot [R 0 cluster keyslot $key]
+
+    test "CLUSTER SLOT-STATS memory-bytes field not present when cluster-slot-stats-enabled not set on startup" {
+        R 0 SET $key VALUE
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        # Verify memory-bytes field is not present
+        assert {[dict exists $slot_stats $key_slot]}
+        set stats [dict get $slot_stats $key_slot]
+        assert {![dict exists $stats memory-bytes]}
+
+        # Only key-count should be present
+        assert {[dict exists $stats key-count]}
+        assert {[dict get $stats key-count] == 1}
+    }
+
+    test "CLUSTER SLOT-STATS enabling mem at runtime fails when not enabled at startup" {
+        # Trying to enable memory tracking at runtime should fail
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {R 0 CONFIG SET cluster-slot-stats-enabled mem}
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {R 0 CONFIG SET cluster-slot-stats-enabled yes}
+        assert_error "ERR*memory tracking cannot be enabled at runtime*" {R 0 CONFIG SET cluster-slot-stats-enabled "cpu net mem"}
+    }
+
+    test "CLUSTER SLOT-STATS enabling cpu and net at runtime works" {
+        R 0 CONFIG SET cluster-slot-stats-enabled "cpu net"
+        set slot_stats [R 0 CLUSTER SLOT-STATS SLOTSRANGE 0 16383]
+        set slot_stats [convert_array_into_dict $slot_stats]
+
+        # Verify memory-bytes field is still not present
+        assert {[dict exists $slot_stats $key_slot]}
+        set stats [dict get $slot_stats $key_slot]
+        assert {![dict exists $stats memory-bytes]}
+
+        # Other stats fields should now be present
+        assert {[dict exists $stats cpu-usec]}
+        assert {[dict exists $stats network-bytes-in]}
+        assert {[dict exists $stats network-bytes-out]}
     }
 }

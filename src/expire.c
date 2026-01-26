@@ -45,6 +45,7 @@ int activeExpireCycleTryExpire(redisDb *db, kvobj *kv, long long now) {
     sds key = kvobjGetKey(kv);
     robj *keyobj = createStringObject(key,sdslen(key));
     deleteExpiredKeyAndPropagate(db,keyobj);
+    server.stat_expiredkeys_active++;
     decrRefCount(keyobj);
     exitExecutionUnit();
     /* Propagate the DEL command */
@@ -177,8 +178,7 @@ static ExpireAction activeSubexpiresCb(eItem item, void *ctx) {
 
     /* currently we only support hash type sub-expire */
     assert(kv->type == OBJ_HASH);
-    uint64_t nextExpTime = hashTypeActiveExpire(subexCtx->db,kv,
-                                          &subexCtx->fieldsToExpireQuota, 0);
+    uint64_t nextExpTime = hashTypeExpire(subexCtx->db, kv, &subexCtx->fieldsToExpireQuota, 0, 1);
 
     /* If hash has no more fields to expire or got deleted, indicate
      * to remove it from HFE DB to the caller ebExpire() */
@@ -814,7 +814,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
         /* Replicate/AOF this as an explicit DEL or UNLINK. */
         aux = server.lazyfree_lazy_expire ? shared.unlink : shared.del;
         rewriteClientCommandVector(c,2,aux,key);
-        signalModifiedKey(c,c->db,key);
+        keyModified(c,c->db,key,NULL,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"del",key,c->db->id);
         addReply(c, shared.cone);
         return;
@@ -834,7 +834,7 @@ void expireGenericCommand(client *c, long long basetime, int unit) {
             decrRefCount(when_obj);
         }
 
-        signalModifiedKey(c,c->db,key);
+        keyModified(c,c->db,key,kv,1);
         notifyKeyspaceEvent(NOTIFY_GENERIC,"expire",key,c->db->id);
         server.dirty++;
         return;
@@ -908,9 +908,10 @@ void pexpiretimeCommand(client *c) {
 
 /* PERSIST key */
 void persistCommand(client *c) {
-    if (lookupKeyWrite(c->db,c->argv[1])) {
+    kvobj *kv;
+    if ((kv = lookupKeyWrite(c->db,c->argv[1]))) {
         if (removeExpire(c->db,c->argv[1])) {
-            signalModifiedKey(c,c->db,c->argv[1]);
+            keyModified(c,c->db,c->argv[1],kv,1);
             notifyKeyspaceEvent(NOTIFY_GENERIC,"persist",c->argv[1],c->db->id);
             addReply(c,shared.cone);
             server.dirty++;

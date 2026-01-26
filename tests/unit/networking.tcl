@@ -332,6 +332,40 @@ start_server {config "minimal.conf" tags {"external:skip"} overrides {enable-deb
             # With slower machines, the number of prefetch entries can be lower
             assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 16}]
         }
+
+        test {Prefetch works with batch size greater than 16 (buffer overflow regression test)} {
+            # save the current value of prefetch entries
+            set info [r info stats]
+            set prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # set the batch size to a value greater than the old hardcoded limit of 16
+            r config set prefetch-batch-max-size 64
+
+            # Create a batch with more than 16 clients to trigger the old buffer overflow
+            do_prefetch_batch $server_pid 64
+
+            # verify the prefetch entries increased
+            set info [r info stats]
+            set new_prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # With slower machines, the number of prefetch entries can be lower
+            assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 64}]
+        }
+
+        test {Prefetch works with maximum batch size of 128 and client number larger than batch size} {
+            # save the current value of prefetch entries
+            set info [r info stats]
+            set prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # set the batch size to the maximum allowed value
+            r config set prefetch-batch-max-size 128
+
+            # Create a batch with 300 clients to test the maximum limit
+            do_prefetch_batch $server_pid 300
+
+            # verify the prefetch entries increased
+            set info [r info stats]
+            set new_prefetch_entries [getInfoProperty $info io_threaded_total_prefetch_entries]
+            # With slower machines, the number of prefetch entries can be lower
+            assert_range $new_prefetch_entries [expr {$prefetch_entries + 2}] [expr {$prefetch_entries + 300}]
+        }
     }
 }
 
