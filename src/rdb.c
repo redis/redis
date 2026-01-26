@@ -3233,8 +3233,9 @@ robj *rdbLoadObject(int rdbtype, rio *rdb, sds key, int dbid, int *error)
                     decrRefCount(o);
                     return NULL;
                 }
-                streamNACK *nack = streamCreateNACK(s, NULL);
-                streamDecodeID(rawid, &nack->id);
+                streamID nack_id;
+                streamDecodeID(rawid, &nack_id);
+                streamNACK *nack = streamCreateNACK(s, NULL, &nack_id);
                 nack->delivery_time = rdbLoadMillisecondTime(rdb,RDB_VERSION);
                 nack->delivery_count = rdbLoadLen(rdb,NULL);
                 nack->cgroup_ref_node = streamLinkCGroupToEntry(s, cgroup, rawid);

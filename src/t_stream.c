@@ -244,8 +244,9 @@ robj *streamDup(robj *o) {
         raxSeek(&ri_cg_pel,"^",NULL,0);
         while(raxNext(&ri_cg_pel)){
             streamNACK *nack = ri_cg_pel.data;
-            streamNACK *new_nack = streamCreateNACK(new_s, NULL);
-            streamDecodeID(ri_cg_pel.key, &new_nack->id);
+            streamID nack_id;
+            streamDecodeID(ri_cg_pel.key, &nack_id);
+            streamNACK *new_nack = streamCreateNACK(new_s, NULL, &nack_id);
             new_nack->delivery_time = nack->delivery_time;
             new_nack->delivery_count = nack->delivery_count;
             new_nack->cgroup_ref_node = streamLinkCGroupToEntry(new_s, new_cg, ri_cg_pel.key);
@@ -2145,8 +2146,7 @@ size_t streamReplyWithRange(client *c, stream *s, streamID *start, streamID *end
             /* Try to add a new NACK. Most of the time this will work and
              * will not require extra lookups. We'll fix the problem later
              * if we find that there is already an entry for this ID. */
-            streamNACK *nack = streamCreateNACK(s, consumer);
-            nack->id = id;  /* Set the stream ID */
+            streamNACK *nack = streamCreateNACK(s, consumer, &id);
             int group_inserted =
                 raxTryInsert(group->pel,buf,sizeof(buf),nack,NULL);
 
@@ -3136,7 +3136,7 @@ int streamEntryIsReferenced(stream *s, streamID *id) {
 /* Create a NACK entry setting the delivery count to 1 and the delivery
  * time to the current time. The NACK consumer will be set to the one
  * specified as argument of the function. */
-streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer) {
+streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamID *id) {
     size_t usable;
     streamNACK *nack = zmalloc_usable(sizeof(*nack), &usable);
     s->alloc_size += usable;
@@ -3144,7 +3144,7 @@ streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer) {
     nack->delivery_count = 1;
     nack->consumer = consumer;
     nack->cgroup_ref_node = NULL;  /* Will be set when added to cgroups_ref */
-    nack->id = (streamID){0, 0};   /* Will be set by caller */
+    nack->id = *id;
     nack->pel_prev = NULL;
     nack->pel_next = NULL;
     return nack;
@@ -3168,9 +3168,18 @@ void streamDestroyNACK(stream *s, streamNACK *na, unsigned char *key) {
     s->alloc_size -= usable;
 }
 
-/* Generic version of streamFreeNACK. */
-void streamFreeNACKGeneric(void *na, void *s) {
-    streamFreeNACK((stream *)s, (streamNACK *)na);
+/* Context for streamFreeNACKGeneric callback. */
+typedef struct {
+    stream *s;
+    streamCG *cg;
+} streamFreeNACKCtx;
+
+/* Generic version of streamFreeNACK with PEL list unlinking. */
+void streamFreeNACKGeneric(void *na, void *ctx) {
+    streamFreeNACKCtx *c = (streamFreeNACKCtx *)ctx;
+    streamNACK *nack = (streamNACK *)na;
+    pelListUnlink(c->cg, nack);
+    streamFreeNACK(c->s, nack);
 }
 
 /* Free a consumer and associated data structures. Note that this function
@@ -3220,19 +3229,9 @@ streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, lo
 
 /* Free a consumer group and all its associated data. */
 static void streamFreeCG(stream *s, streamCG *cg) {
-    /* First, unlink all NACKs from the pel_time list before freeing them.
-     * We iterate the pel to unlink each NACK from the time list. */
-    raxIterator it;
-    raxStart(&it, cg->pel);
-    raxSeek(&it, "^", NULL, 0);
-    while (raxNext(&it)) {
-        streamNACK *nack = it.data;
-        pelListUnlink(cg, nack);
-    }
-    raxStop(&it);
-    
-    /* Now free the pel (which contains the NACKs) */
-    raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, s);
+    /* Free the pel, unlinking each NACK from the time list in the callback */
+    streamFreeNACKCtx ctx = {s, cg};
+    raxFreeWithCbAndContext(cg->pel, streamFreeNACKGeneric, &ctx);
     
     /* pel_time_head/tail should now be NULL after unlinking all NACKs */
     serverAssert(cg->pel_time_head == NULL && cg->pel_time_tail == NULL);
@@ -4193,8 +4192,7 @@ void xclaimCommand(client *c) {
          * and replication of consumer groups. */
         if (force && nack == NULL) {
             /* Create the NACK. */
-            nack = streamCreateNACK(s,NULL);
-            nack->id = id;  /* Set the stream ID */
+            nack = streamCreateNACK(s, NULL, &id);
             raxInsert(group->pel,buf,sizeof(buf),nack,NULL);
             pelListInsertAtTail(group, nack);
             nack->cgroup_ref_node = streamLinkCGroupToEntry(s, group, buf);
