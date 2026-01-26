@@ -492,6 +492,7 @@ int prefetchIOThreadCommands(IOThread *t) {
         c[i] = listNodeValue(ln);
         redis_prefetch_read(c[i]);
         redis_prefetch_read(&c[i]->pending_cmds);
+        redis_prefetch_read(&c[i]->io_deferred_objects);
     }
     /* Phase 2: Access client data (now likely in cache) and add to batch.
      * Also prefetch additional fields (reply, mem_usage_bucket) that will be
@@ -500,6 +501,7 @@ int prefetchIOThreadCommands(IOThread *t) {
         if (addCommandToBatch(c[i]) == C_ERR) break;
         if (c[i]->reply) redis_prefetch_read(c[i]->reply);
         redis_prefetch_read(&c[i]->mem_usage_bucket);
+        if (c[i]->io_deferred_objects) redis_prefetch_read(c[i]->io_deferred_objects);
         clients++;
     }
     /* Prefetch the commands in the batch. */
