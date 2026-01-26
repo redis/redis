@@ -65,9 +65,34 @@ struct __attribute__ ((__packed__)) sdshdr64 {
 #define SDS_HDR(T,s) ((struct sdshdr##T *)((s)-(sizeof(struct sdshdr##T))))
 #define SDS_TYPE_5_LEN(s) (((unsigned char)(s[-1])) >> SDS_TYPE_BITS)
 
-static inline unsigned char sdsType(const sds s) {
+static inline unsigned char sdsType(sds s) {
     unsigned char flags = s[-1];
     return flags & SDS_TYPE_MASK;
+}
+
+/* Returns a user data bit stored in the SDS header by sdsSetAuxBit. The bit
+ * index is 0-4. Returns 0 or 1. Always returns 0 for SDS_TYPE_5. */
+static inline int sdsGetAuxBit(sds s, int bit) {
+    if (sdsType(s) == SDS_TYPE_5) 
+        return 0;
+    
+    unsigned char flags = s[-1];
+    return (flags & (1U << (SDS_TYPE_BITS + bit))) != 0U;
+}
+
+/* Stores a bit in an unused area in the SDS header, except for SDS_TYPE_5. The
+ * bit index is 0-4. The value is 0 or 1. The aux bits are lost if the SDS is
+ * auto-resized. This is only for special uses like immutable SDS embedded in
+ * other structures. */
+static inline void sdsSetAuxBit(sds s, int bit, int value) {
+    if (sdsType(s) == SDS_TYPE_5) return;
+    unsigned char flags = s[-1];
+    if (value) {
+        flags |= 1U << (SDS_TYPE_BITS + bit);
+    } else {
+        flags &= ~(1U << (SDS_TYPE_BITS + bit));
+    }
+    s[-1] = (char)flags;
 }
 
 static inline size_t sdslen(const sds s) {
@@ -242,6 +267,7 @@ sds sdsempty(void);
 sds sdsdup(const sds s);
 void sdsfree(sds s);
 void sdsfreegeneric(void *s);
+void sdsfreeusable(sds s, size_t *usable);
 sds sdsgrowzero(sds s, size_t len);
 sds sdscatlen(sds s, const void *t, size_t len);
 sds sdscat(sds s, const char *t);

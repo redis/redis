@@ -216,6 +216,11 @@ void sdsfree(sds s) {
     s_free((char*)s-sdsHdrSize(s[-1]));
 }
 
+void sdsfreeusable(sds s, size_t *usable) {
+    if (s == NULL) return;
+    s_free_usable((char*)s-sdsHdrSize(s[-1]), usable);
+}
+
 /* Generic version of sdsfree. */
 void sdsfreegeneric(void *s) {
     sdsfree((sds)s);
@@ -346,7 +351,7 @@ sds sdsRemoveFreeSpace(sds s, int would_regrow) {
 /* Resize the allocation, this can make the allocation bigger or smaller,
  * if the size is smaller than currently used len, the data will be truncated.
  *
- * The when the would_regrow argument is set to 1, it prevents the use of
+ * When the would_regrow argument is set to 1, it prevents the use of
  * SDS_TYPE_5, which is desired when the sds is likely to be changed again.
  *
  * The sdsAlloc size will be set to the requested size regardless of the actual

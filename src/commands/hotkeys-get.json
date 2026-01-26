@@ -1,0 +1,51 @@
+{
+    "GET": {
+        "summary": "Returns lists of top K hotkeys depending on metrics chosen in HOTKEYS START command.",
+        "complexity": "O(K) where K is the number of hotkeys returned.",
+        "group": "server",
+        "since": "8.6.0",
+        "arity": 2,
+        "container": "HOTKEYS",
+        "function": "hotkeysCommand",
+        "command_flags": [
+            "ADMIN",
+            "NOSCRIPT"
+        ],
+        "reply_schema": {
+            "oneOf": [
+                {
+                    "description": "Flat array with various metrics(tracking-activated, sample-ratio, selected-slots, time/network statistics), collection info (collection-start-time-unix-ms, collection-duration-ms, total-cpu-time-user-ms, total-cpu-time-sys-ms, total-net-bytes), and the requested lists of Top-K hotkeys (available metrics: by-cpu-time, by-net-bytes) where at most K hotkeys are returned.",
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "integer"
+                            },
+                            {
+                                "type": "array",
+                                "items": {
+                                    "oneOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "integer"
+                                        }
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                },
+                {
+                    "description": "If no tracking is started",
+                    "type": "null"
+                }
+            ]
+        }
+    }
+}
+

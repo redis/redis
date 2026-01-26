@@ -340,11 +340,11 @@ void sortCommandGeneric(client *c, int readonly) {
 
     /* Destructively convert encoded sorted sets for SORT. */
     if (sortval->type == OBJ_ZSET) {
-        if (server.memory_tracking_per_slot)
-            oldsize = zsetAllocSize(sortval);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
         zsetConvert(sortval, OBJ_ENCODING_SKIPLIST);
-        if (server.memory_tracking_per_slot)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(sortval));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     }
 
     /* Obtain the length of the object to sort. */
@@ -395,47 +395,49 @@ void sortCommandGeneric(client *c, int readonly) {
          * Note that in this case we also handle LIMIT here in a direct
          * way, just getting the required range, as an optimization. */
         if (end >= start) {
-            listTypeIterator *li;
+            listTypeIterator li;
             listTypeEntry entry;
-            li = listTypeInitIterator(sortval,
+            listTypeInitIterator(&li, sortval,
                     desc ? (long)(listTypeLength(sortval) - start - 1) : start,
                     desc ? LIST_HEAD : LIST_TAIL);
 
-            while(j < vectorlen && listTypeNext(li,&entry)) {
+            while(j < vectorlen && listTypeNext(&li, &entry)) {
                 vector[j].obj = listTypeGet(&entry);
                 vector[j].u.score = 0;
                 vector[j].u.cmpobj = NULL;
                 j++;
             }
-            listTypeReleaseIterator(li);
+            listTypeResetIterator(&li);
             /* Fix start/end: output code is not aware of this optimization. */
             end -= start;
             start = 0;
         }
     } else if (sortval->type == OBJ_LIST) {
-        listTypeIterator *li = listTypeInitIterator(sortval,0,LIST_TAIL);
+        listTypeIterator li;
         listTypeEntry entry;
-        while(listTypeNext(li,&entry)) {
+        listTypeInitIterator(&li, sortval, 0, LIST_TAIL);
+        while(listTypeNext(&li, &entry)) {
             vector[j].obj = listTypeGet(&entry);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        listTypeReleaseIterator(li);
+        listTypeResetIterator(&li);
     } else if (sortval->type == OBJ_SET) {
-        if (server.memory_tracking_per_slot)
-            oldsize = setTypeAllocSize(sortval);
-        setTypeIterator *si = setTypeInitIterator(sortval);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
+        setTypeIterator si;
         sds sdsele;
-        while((sdsele = setTypeNextObject(si)) != NULL) {
+        setTypeInitIterator(&si, sortval);
+        while((sdsele = setTypeNextObject(&si)) != NULL) {
             vector[j].obj = createObject(OBJ_STRING,sdsele);
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
-        setTypeReleaseIterator(si);
-        if (server.memory_tracking_per_slot)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, setTypeAllocSize(sortval));
+        setTypeResetIterator(&si);
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else if (sortval->type == OBJ_ZSET && dontsort) {
         /* Special handling for a sorted set, if 'dontsort' is true.
          * This makes sure we return elements in the sorted set original
@@ -465,7 +467,7 @@ void sortCommandGeneric(client *c, int readonly) {
 
         while(rangelen--) {
             serverAssertWithInfo(c,sortval,ln != NULL);
-            sdsele = ln->ele;
+            sdsele = zslGetNodeElement(ln);
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
@@ -481,19 +483,19 @@ void sortCommandGeneric(client *c, int readonly) {
         dictEntry *setele;
         sds sdsele;
 
-        if (server.memory_tracking_per_slot)
-            oldsize = zsetAllocSize(sortval);
+        if (server.memory_tracking_enabled)
+            oldsize = kvobjAllocSize(sortval);
         dictInitIterator(&di, set);
         while((setele = dictNext(&di)) != NULL) {
-            sdsele =  dictGetKey(setele);
+            sdsele = zslGetNodeElement(dictGetKey(setele));
             vector[j].obj = createStringObject(sdsele,sdslen(sdsele));
             vector[j].u.score = 0;
             vector[j].u.cmpobj = NULL;
             j++;
         }
         dictResetIterator(&di);
-        if (server.memory_tracking_per_slot)
-            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), oldsize, zsetAllocSize(sortval));
+        if (server.memory_tracking_enabled)
+            updateSlotAllocSize(c->db, getKeySlot(c->argv[1]->ptr), sortval, oldsize, kvobjAllocSize(sortval));
     } else {
         serverPanic("Unknown type");
     }
@@ -630,7 +632,7 @@ void sortCommandGeneric(client *c, int readonly) {
             /* Ownership of sobj transferred to the db. No need to free it. */
         } else {
             if (dbDelete(c->db, storekey)) {
-                signalModifiedKey(c, c->db, storekey);
+                keyModified(c, c->db, storekey, NULL, 1);
                 notifyKeyspaceEvent(NOTIFY_GENERIC, "del", storekey, c->db->id);
                 server.dirty++;
             }

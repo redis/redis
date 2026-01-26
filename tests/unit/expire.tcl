@@ -847,6 +847,48 @@ start_server {tags {"expire"}} {
         close_replication_stream $repl
         assert_equal [r debug set-active-expire 1] {OK}
     } {} {needs:debug}
+
+    test {Lazy expire should increment expired_keys but not expired_keys_active} {
+        r flushall
+        r config resetstat
+        r debug set-active-expire 0
+
+        # Set keys that will expire
+        r set foo1{t} bar PX 1
+        r set foo2{t} bar PX 1
+        r set foo3{t} bar PX 1
+        after 2
+
+        # Trigger lazy expire by accessing the keys
+        assert_equal {{} {} {}} [r mget foo1{t} foo2{t} foo3{t}]
+
+        # Verify that expired_keys was incremented but expired_keys_active was not
+        assert_equal [s expired_keys] 3
+        assert_equal [s expired_keys_active] 0
+
+        assert_equal [r debug set-active-expire 1] {OK}
+    } {} {needs:debug}
+
+    test {Active expire should increment both expired_keys and expired_keys_active} {
+        r flushall
+        r config resetstat
+
+        # Set keys that will expire soon
+        r set foo1 bar PX 1
+        r set foo2 bar PX 1
+        r set foo3 bar PX 1
+
+        # Wait for active expire to kick in
+        wait_for_condition 50 100 {
+            [s expired_keys] == 3
+        } else {
+            fail "Keys were not expired"
+        }
+
+        # Verify that both expired_keys and expired_keys_active were incremented
+        assert_equal [s expired_keys] 3
+        assert_equal [s expired_keys_active] 3
+    } {}
 }
 
 start_cluster 1 0 {tags {"expire external:skip cluster"}} {

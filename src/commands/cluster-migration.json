@@ -53,7 +53,7 @@
                     {
                         "name": "status",
                         "token": "STATUS",
-                        "type": "block",
+                        "type": "oneof",
                         "arguments": [
                             {
                                 "token": "ID",

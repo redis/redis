@@ -62,6 +62,16 @@ start_server {} {
     test "All replicas share one global replication buffer rdbchannel=$rdbchannel" {
         set before_used [s used_memory]
         populate 1024 "" 1024 ; # Write extra 1M data
+
+        # In case we are running with IO-threads we need to give a few cycles
+        # for IO-threads to start sending the cmd stream. If we don't do that
+        # the checks related to the repl_buf_mem will be incorrect as the buffer
+        # will still be full with the above 1Mb data.
+        set iothreads [s io_threads_active]
+        if {$iothreads && $rdbchannel == "yes"} {
+            after 1000
+        }
+
         # New data uses 1M memory, but all replicas use only one
         # replication buffer, so all replicas output memory is not
         # more than double of replication buffer.
