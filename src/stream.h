@@ -106,11 +106,11 @@ typedef struct streamCG {
                                ID as a 64 bit big endian number, while the
                                associated value is a streamNACK structure.*/
     streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
-                               entries (oldest delivery_time). Used for efficient
-                               CLAIM operations. O(1) access to oldest entries. */
+                                  entries (oldest delivery_time). Used for efficient
+                                  CLAIM operations. O(1) access to oldest entries. */
     streamNACK *pel_time_tail; /* Tail of time-ordered doubly-linked list of pending
-                               entries (newest delivery_time). O(1) append for
-                               updates that set delivery_time to current time. */
+                                  entries (newest delivery_time). O(1) append for
+                                  updates that set delivery_time to current time. */
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
