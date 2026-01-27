@@ -351,8 +351,155 @@ float vectors_distance_float(const float *x, const float *y, uint32_t dim) {
 }
 
 /* Q8 quants dotproduct. We do integer math and later fix it by range. */
+#if defined(HAVE_AVX512)
+/* AVX512 optimized dot product for Q8 vectors */
+ATTRIBUTE_TARGET_AVX512
+float vectors_distance_q8_avx512(const int8_t *x, const int8_t *y, uint32_t dim,
+                                  float range_a, float range_b) {
+    // Handle zero vectors special case.
+    if (range_a == 0 || range_b == 0) {
+        return 1.0f;
+    }
+
+    const float scale_product = (range_a/127) * (range_b/127);
+    __m512i sum = _mm512_setzero_si512();
+    uint32_t i;
+
+    /* Process 64 int8 elements at a time with AVX512 */
+    for (i = 0; i + 63 < dim; i += 64) {
+        /* Load 64 int8 values */
+        __m512i vx = _mm512_loadu_si512((__m512i*)&x[i]);
+        __m512i vy = _mm512_loadu_si512((__m512i*)&y[i]);
+        
+        /* Unpack and multiply-add in 32-bit precision
+         * This is done in two steps: lower 32 bytes and upper 32 bytes */
+        
+        /* Process lower 32 bytes (256 bits) */
+        __m256i vx_lo = _mm512_extracti64x4_epi64(vx, 0);
+        __m256i vy_lo = _mm512_extracti64x4_epi64(vy, 0);
+        
+        /* Extend int8 to int16 */
+        __m512i vx_lo_16 = _mm512_cvtepi8_epi16(vx_lo);
+        __m512i vy_lo_16 = _mm512_cvtepi8_epi16(vy_lo);
+        
+        /* Multiply and accumulate to int32 */
+        __m512i prod_lo = _mm512_madd_epi16(vx_lo_16, vy_lo_16);
+        sum = _mm512_add_epi32(sum, prod_lo);
+        
+        /* Process upper 32 bytes (256 bits) */
+        __m256i vx_hi = _mm512_extracti64x4_epi64(vx, 1);
+        __m256i vy_hi = _mm512_extracti64x4_epi64(vy, 1);
+        
+        __m512i vx_hi_16 = _mm512_cvtepi8_epi16(vx_hi);
+        __m512i vy_hi_16 = _mm512_cvtepi8_epi16(vy_hi);
+        
+        __m512i prod_hi = _mm512_madd_epi16(vx_hi_16, vy_hi_16);
+        sum = _mm512_add_epi32(sum, prod_hi);
+    }
+
+    /* Horizontal sum of the 16 int32 elements in sum */
+    int32_t dot = _mm512_reduce_add_epi32(sum);
+
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += ((int32_t)x[i]) * ((int32_t)y[i]);
+    }
+
+    /* Convert to original range */
+    float dotf = dot * scale_product;
+    float distance = 1.0f - dotf;
+
+    /* Clamp distance to [0, 2] */
+    if (distance < 0) distance = 0;
+    else if (distance > 2) distance = 2;
+    return distance;
+}
+#endif /* HAVE_AVX512 */
+
+#if defined(HAVE_AVX2)
+/* AVX2 optimized dot product for Q8 vectors */
+ATTRIBUTE_TARGET_AVX2
+float vectors_distance_q8_avx2(const int8_t *x, const int8_t *y, uint32_t dim,
+                                float range_a, float range_b) {
+    // Handle zero vectors special case.
+    if (range_a == 0 || range_b == 0) {
+        return 1.0f;
+    }
+
+    const float scale_product = (range_a/127) * (range_b/127);
+    __m256i sum = _mm256_setzero_si256();
+    uint32_t i;
+
+    /* Process 32 int8 elements at a time with AVX2 */
+    for (i = 0; i + 31 < dim; i += 32) {
+        /* Load 32 int8 values */
+        __m256i vx = _mm256_loadu_si256((__m256i*)&x[i]);
+        __m256i vy = _mm256_loadu_si256((__m256i*)&y[i]);
+        
+        /* Split into lower and upper 16 bytes */
+        __m128i vx_lo = _mm256_extracti128_si256(vx, 0);
+        __m128i vy_lo = _mm256_extracti128_si256(vy, 0);
+        __m128i vx_hi = _mm256_extracti128_si256(vx, 1);
+        __m128i vy_hi = _mm256_extracti128_si256(vy, 1);
+        
+        /* Extend int8 to int16 for lower half */
+        __m256i vx_lo_16 = _mm256_cvtepi8_epi16(vx_lo);
+        __m256i vy_lo_16 = _mm256_cvtepi8_epi16(vy_lo);
+        
+        /* Multiply and accumulate (madd does multiply adjacent pairs and add) */
+        __m256i prod_lo = _mm256_madd_epi16(vx_lo_16, vy_lo_16);
+        sum = _mm256_add_epi32(sum, prod_lo);
+        
+        /* Extend int8 to int16 for upper half */
+        __m256i vx_hi_16 = _mm256_cvtepi8_epi16(vx_hi);
+        __m256i vy_hi_16 = _mm256_cvtepi8_epi16(vy_hi);
+        
+        __m256i prod_hi = _mm256_madd_epi16(vx_hi_16, vy_hi_16);
+        sum = _mm256_add_epi32(sum, prod_hi);
+    }
+
+    /* Horizontal sum of the 8 int32 elements in sum */
+    __m128i sum_hi = _mm256_extracti128_si256(sum, 1);
+    __m128i sum_lo = _mm256_castsi256_si128(sum);
+    __m128i sum_128 = _mm_add_epi32(sum_hi, sum_lo);
+    
+    sum_128 = _mm_hadd_epi32(sum_128, sum_128);
+    sum_128 = _mm_hadd_epi32(sum_128, sum_128);
+    
+    int32_t dot = _mm_cvtsi128_si32(sum_128);
+
+    /* Handle remaining elements */
+    for (; i < dim; i++) {
+        dot += ((int32_t)x[i]) * ((int32_t)y[i]);
+    }
+
+    /* Convert to original range */
+    float dotf = dot * scale_product;
+    float distance = 1.0f - dotf;
+
+    /* Clamp distance to [0, 2] */
+    if (distance < 0) distance = 0;
+    else if (distance > 2) distance = 2;
+    return distance;
+}
+#endif /* HAVE_AVX2 */
+
+/* Q8 dot product: automatically selects best available implementation */
 float vectors_distance_q8(const int8_t *x, const int8_t *y, uint32_t dim,
                         float range_a, float range_b) {
+#if defined(HAVE_AVX512)
+    if (dim >= 64 && VSET_USE_AVX512) {
+        return vectors_distance_q8_avx512(x, y, dim, range_a, range_b);
+    }
+#endif
+
+#if defined(HAVE_AVX2)
+    if (dim >= 32 && VSET_USE_AVX2) {
+        return vectors_distance_q8_avx2(x, y, dim, range_a, range_b);
+    }
+#endif
+
+    /* Fallback to scalar implementation */
     // Handle zero vectors special case.
     if (range_a == 0 || range_b == 0) {
         /* Zero vector distance from anything is 1.0

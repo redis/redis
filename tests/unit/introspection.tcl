@@ -1101,7 +1101,7 @@ test {Clients are evenly distributed among io threads} {
 }
 
 # Test insecure configuration warnings
-start_server {tags {introspection external:skip} overrides {protected-mode no bind "*"}} {
+start_server {tags {introspection external:skip} overrides {protected-mode no bind "*"} wait_ready false} {
     test {Warning shown when no auth and binding all interfaces} {
         wait_for_log_messages 0 {"*WARNING: Redis does not require authentication and is not protected by network restrictions*"} 0 10 100
     }

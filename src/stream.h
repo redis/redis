@@ -86,6 +86,9 @@ typedef struct streamIterator {
     unsigned char value_buf[LP_INTBUF_SIZE];
 } streamIterator;
 
+/* Forward declarations */
+typedef struct streamNACK streamNACK;
+
 /* Consumer group. */
 typedef struct streamCG {
     streamID last_id;       /* Last delivered (not acknowledged) ID for this
@@ -102,11 +105,12 @@ typedef struct streamCG {
                                as processed. The key of the radix tree is the
                                ID as a 64 bit big endian number, while the
                                associated value is a streamNACK structure.*/
-    rax *pel_by_time;       /* A radix tree mapping delivery time to pending
-                               entries, so that we can query faster PEL entries
-                               by time. The key is a pelTimeKey structure containing
-                               both delivery_time and stream ID. All information is
-                               in the key; no value is stored. */
+    streamNACK *pel_time_head; /* Head of time-ordered doubly-linked list of pending
+                                  entries (oldest delivery_time). Used for efficient
+                                  CLAIM operations. O(1) access to oldest entries. */
+    streamNACK *pel_time_tail; /* Tail of time-ordered doubly-linked list of pending
+                                  entries (newest delivery_time). O(1) append for
+                                  updates that set delivery_time to current time. */
     rax *consumers;         /* A radix tree representing the consumers by name
                                and their associated representation in the form
                                of streamConsumer structures. */
@@ -129,13 +133,16 @@ typedef struct streamConsumer {
 } streamConsumer;
 
 /* Pending (yet not acknowledged) message in a consumer group. */
-typedef struct streamNACK {
+struct streamNACK {
     mstime_t delivery_time;     /* Last time this message was delivered. */
     uint64_t delivery_count;    /* Number of times this message was delivered.*/
     streamConsumer *consumer;   /* The consumer this message was delivered to
                                    in the last delivery. */
     listNode *cgroup_ref_node; /* Reference to this NACK in the cgroups_ref list. */
-} streamNACK;
+    streamID id;                /* Stream ID for this pending entry. */
+    struct streamNACK *pel_prev; /* Previous NACK in time-ordered doubly-linked list. */
+    struct streamNACK *pel_next; /* Next NACK in time-ordered doubly-linked list. */
+};
 
 /* Stream propagation information, passed to functions in order to propagate
  * XCLAIM commands to AOF and slaves. */
@@ -143,12 +150,6 @@ typedef struct streamPropInfo {
     robj *keyname;
     robj *groupname;
 } streamPropInfo;
-
-/* Pending entry in the consumer group's PEL, indexed by delivery time. */
-typedef struct pelTimeKey {
-    uint64_t delivery_time;
-    streamID id;
-} pelTimeKey;
 
 /* Prototypes of exported APIs. */
 struct client;
@@ -173,10 +174,11 @@ streamCG *streamLookupCG(stream *s, sds groupname);
 streamConsumer *streamLookupConsumer(streamCG *cg, sds name);
 streamConsumer *streamCreateConsumer(stream *s, streamCG *cg, sds name, robj *key, int dbid, int flags);
 streamCG *streamCreateCG(stream *s, char *name, size_t namelen, streamID *id, long long entries_read);
-streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer);
+streamNACK *streamCreateNACK(stream *s, streamConsumer *consumer, streamID *id);
 void streamDecodeID(void *buf, streamID *id);
 int streamCompareID(streamID *a, streamID *b);
 void streamFreeNACK(stream *s, streamNACK *na);
+void streamDestroyNACK(stream *s, streamNACK *na, unsigned char *key);
 int streamIncrID(streamID *id);
 int streamDecrID(streamID *id);
 void streamPropagateConsumerCreation(client *c, robj *key, robj *groupname, sds consumername);
@@ -193,10 +195,8 @@ int64_t streamTrimByID(stream *s, streamID minid, int approx);
 
 listNode *streamLinkCGroupToEntry(stream *s, streamCG *cg, unsigned char *key);
 
-void encodePelTimeKey(void* buf, pelTimeKey *timeKey);
-void decodePelTimeKey(void *buf, pelTimeKey *timeKey);
-void raxInsertPelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
-void raxRemovePelByTime(rax *pel_by_time, uint64_t delivery_time, streamID *id);
+/* PEL time list management (used by RDB loading) */
+void pelListInsertSorted(streamCG *cg, streamNACK *nack);
 
 /* IDMP functions */
 idmpEntry *idmpEntryCreate(const char *iid, size_t iid_len, size_t *alloc_size);
