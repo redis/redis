@@ -64,9 +64,9 @@
 #endif
 
 #if defined (HAVE_AVX512)
-#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,fma")))
+#define ATTRIBUTE_TARGET_AVX512 __attribute__((target("avx512f,avx512bw,fma")))
 #define ATTRIBUTE_TARGET_AVX512_VPOPCNT __attribute__((target("avx512f,fma,avx512vpopcntdq")))
-#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f"))
+#define VSET_USE_AVX512 (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512bw"))
 #define VSET_USE_AVX512_VPOPCNT (__builtin_cpu_supports("avx512f") && __builtin_cpu_supports("avx512vpopcntdq"))
 #else
 #define ATTRIBUTE_TARGET_AVX512
